@@ -26,7 +26,7 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
-from . import method_notes, severity_rule, standard_ids
+from . import crs_item_series, method_notes, severity_rule, standard_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -307,7 +307,7 @@ def _subject_key(f: dict) -> str:
     return comment_key(
         "requirement",
         f.get("requirement_source_text") or f.get("finding"),
-        f.get("crs_field_label") or f.get("matched_phrase") or f.get("contractor_section"),
+        crs_item_series.own_label(f) or f.get("matched_phrase") or f.get("contractor_section"),
         f.get("contractor_evidence_text"),
         f.get("contractor_page"),
         f.get("origin") == _DATASHEET_ORIGIN,
@@ -556,7 +556,7 @@ def _page_section(group: list[dict]) -> str:
     Never the standard's file name - that is the Standard Reference column."""
     f = group[0]
     pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
-    field = _field_label(f)
+    field = _field_label(f) + crs_item_series.items_suffix(group)
     tags = _items(group)
     where = (f"p.{_page_list(pages)}" if pages else "")
     if field:
@@ -659,7 +659,7 @@ def engineer_comment_text(group: list[dict]) -> str:
     f = group[0]
     refs = list(dict.fromkeys(r for r in (_standard_reference(g) for g in group) if r))
     ref = "; ".join(refs) or "Requirement"
-    field = _field_label(f)
+    field = _field_label(f) + crs_item_series.items_suffix(group)
     tags = _items(group)
     pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
     where = " ".join(p for p in (
@@ -679,9 +679,9 @@ def engineer_comment_text(group: list[dict]) -> str:
         # each (order 139 part 2: a field row holds one finding per clause
         # AND tag, and a tag's value is said once).
         per_tag = "; ".join(dict.fromkeys(
-            f"{g.get('equipment_tag') or 'untagged'} {_provided(g)}"
+            f"{crs_item_series.item_name(g)} {_provided(g)}"
             + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
-            for g in group))
+            for g in sorted(group, key=crs_item_series.in_series_order)))
         said = f"Datasheet {field or 'value'}: {per_tag}."
     else:
         said = f"Datasheet {where} {_provided(f)}." if where else f"The datasheet {_provided(f)}."
@@ -1255,6 +1255,7 @@ def crs_groups(findings: list[dict]) -> list[dict]:
 
     Rejected findings are not rows; a datasheet check about a fact a breach
     or blank row already names is that row, not a second one."""
+    crs_item_series.merge(findings)
     findings = [f for f in findings if not _rejected(f)]
     by: dict[str, list[dict]] = {}
     for f in findings:
@@ -1265,8 +1266,7 @@ def crs_groups(findings: list[dict]) -> list[dict]:
     blanks = by.get(BUCKET_BLANK, [])
     not_found = by.get(BUCKET_NOT_FOUND, [])
     questions = by.get(BUCKET_QUESTION, [])
-    # A datasheet check about a field a standard's row already names (the
-    # same fact) is that row, not a second one.
+    # A datasheet check about a fact a standard's row already names is that row.
     covered = {f.get("fact_id") for f in breaches + blanks if f.get("fact_id")}
     checks = [
         f
@@ -1519,7 +1519,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     "comment_key": item["comment_key"],
                     # Never printed (spec d): every finding's own per-requirement
                     # key, so the numbers earlier per-clause rows hold are found.
-                    "member_keys": sorted({finding_member_key(g) for g in group}),
+                    "member_keys": crs_item_series.member_keys(group),
                     # Never printed: the group key the run summary sends the
                     # screen, and the row's first line when it asks two or more
                     # things.
