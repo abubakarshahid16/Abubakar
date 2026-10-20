@@ -74,19 +74,32 @@ def read_page_empty(ai_run: dict, page: int) -> bool:
         out is not None
         and page not in (ai_run.get("reasons") or {})
         and page not in (ai_run.get("partly_read") or {})
-        and not any(out.get(k) for k in ("error", "accepted", "rejected", "counts",
-                                         "partial", "cut_off", "parts", "stopped"))
+        and not any(
+            out.get(k)
+            for k in (
+                "error",
+                "accepted",
+                "rejected",
+                "counts",
+                "partial",
+                "cut_off",
+                "parts",
+                "stopped",
+            )
+        )
     )
 
 
-def no_fact_outcome(ai_run: dict | None, page: int, reason: str,
-                    n_pairs: int, dropped: dict[str, int]) -> tuple[str, int, str]:
+def no_fact(
+    ai_run: dict | None, page: int, reason: str, dropped: dict[str, int]
+) -> tuple[str, int, str]:
     """The ledger outcome of a page the code readers gave no fact: READ_NO_FIELD
     when the AI reader read it and put nothing forward (two readers looked), else
     `no_facts` - not read into fields - with `reason` as before."""
     if ai_run is not None and read_page_empty(ai_run, page):
         from . import page_reason_words
-        return (READ_NO_FIELD, 0, page_reason_words.no_field_found(n_pairs, dropped))
+
+        return (READ_NO_FIELD, 0, page_reason_words.no_field_found(dropped))
     return ("no_facts", 0, reason)
 
 
@@ -517,8 +530,13 @@ def run_unread_pages_of(outcome: dict | None) -> list[int] | None:
 
 
 def rows(document_id: str) -> list[dict]:
-    return [dict(r) for r in connect().execute(
-        "SELECT * FROM page_ledger WHERE document_id = ? ORDER BY page_no", (document_id,))]
+    return [
+        dict(r)
+        for r in connect().execute(
+            "SELECT * FROM page_ledger WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        )
+    ]
 
 
 def coverage(document_id: str) -> dict:
@@ -529,11 +547,18 @@ def coverage(document_id: str) -> dict:
     """
     ledger = rows(document_id)
     if not ledger:
-        return {"pages_total": None, "fact_pages": [], "pages_not_read_into_fields": [],
-                "pages_read_no_field": [],
-                "pages_read_only_by_page_reader": [],
-                "not_read_reasons": {}, "index": {}, "ocr": {}, "native": {},
-                "facts_source": None}
+        return {
+            "pages_total": None,
+            "fact_pages": [],
+            "pages_not_read_into_fields": [],
+            "pages_read_no_field": [],
+            "pages_read_only_by_page_reader": [],
+            "not_read_reasons": {},
+            "index": {},
+            "ocr": {},
+            "native": {},
+            "facts_source": None,
+        }
     count = lambda key: {  # noqa: E731
         v: sum(1 for r in ledger if r[key] == v) for v in sorted({r[key] for r in ledger})}
     not_read = [r for r in ledger if r["facts_status"] in NOT_READ_INTO_FIELDS]

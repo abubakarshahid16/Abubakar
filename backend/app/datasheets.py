@@ -4136,7 +4136,7 @@ def _extract_facts(
                               f"{reason} {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
                 unparsed.append({"page": page, "reason": reason,
                                  "detail": page_reason_words.unparsed_detail(len(pairs), dropped, page)})
-                outcomes[page] = page_ledger.no_fact_outcome(ai_run, page, reason, len(pairs), dropped)
+                outcomes[page] = page_ledger.no_fact(ai_run, page, reason, dropped)
             elif page_written == 0:
                 # Read, but only by the page reader: say so, and what the
                 # vision reader did - an absence here is an engineer's to
