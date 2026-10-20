@@ -26,7 +26,7 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
-from . import crs_item_series, method_notes, severity_rule, standard_ids
+from . import crs_ai_drafts, crs_item_series, method_notes, severity_rule, standard_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -209,6 +209,8 @@ def finding_comment_key(f: dict) -> str:
     FIELD's key (`field_comment_key`), never its own clause's; the key its
     comment had before that is `finding_member_key`."""
     origin = f.get("origin")
+    if f.get("crs_key"):
+        return f["crs_key"]
     if origin == "chat":
         return comment_key(
             "chat", f.get("engineer_comment") or f.get("finding"),
@@ -1086,6 +1088,8 @@ def _bucket_of(f: dict) -> str | None:
     rejected finding's comment key is the key of the row it would land on."""
     origin = f.get("origin")
     status = f.get("compliance_status")
+    if f.get("crs_skip"):
+        return None
     if origin == "chat":
         return BUCKET_CHAT
     if origin == _AI_ORIGIN:
@@ -1256,6 +1260,7 @@ def crs_groups(findings: list[dict]) -> list[dict]:
     Rejected findings are not rows; a datasheet check about a fact a breach
     or blank row already names is that row, not a second one."""
     crs_item_series.merge(findings)
+    crs_ai_drafts.merge(findings)
     findings = [f for f in findings if not _rejected(f)]
     by: dict[str, list[dict]] = {}
     for f in findings:
@@ -1592,10 +1597,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         })
         sort_keys.append(_rank_row(rows[-1], row_priority(BUCKET_CHAT), [f]))
 
-    # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
-    # standards check (kind D) items. Neither is ever a verdict - a question
-    # for the contractor once an engineer has confirmed it, and until then a
-    # draft in its own column that COMPANY Comments never holds.
+    # Owner order 2d/2f, 2d-2: AI (kind C) and web (kind D) check items - never
+    # a verdict; a draft in its own column until an engineer confirms it.
     for f in _one_row_findings(items, BUCKET_AI, BUCKET_WEB):
         origin = f.get("origin")
         if origin not in (_AI_ORIGIN, _WEB_ORIGIN) or f.get("approval_status") == "rejected":
@@ -1617,15 +1620,11 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f.get("contractor_section") or "") if p)
         confirmed = bool(f.get("confirmed_by"))
         confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
-        # Owner order group HONESTY (2026-09-27): unconfirmed is a state, not
-        # an absence - "Comment By" says whose draft it is even before an
-        # engineer confirms it, never blank.
+        # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
         unconfirmed_by = _AI_UNCONFIRMED_BY if origin == _AI_ORIGIN else _WEB_UNCONFIRMED_BY
         row_kind = ROW_KIND_AI_ENGINEERING_CHECK if origin == _AI_ORIGIN else ROW_KIND_WEB_STANDARD_CHECK
-        # Order 139 part 2 (spec e): COMPANY Comments is NEVER EMPTY. An
-        # unconfirmed item's cell says, in plain words, that it is a suggestion
-        # awaiting an engineer and where its words are - never the draft
-        # itself, which stays in "AI Review Comments" (owner order 2d/2f).
+        # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
+        # says it awaits an engineer, the draft stays in "AI Review Comments".
         unconfirmed_comment = (
             AI_UNCONFIRMED_COMMENT if origin == _AI_ORIGIN else WEB_UNCONFIRMED_COMMENT
         )
@@ -1656,6 +1655,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "reasoning": reasoning_text([f]),
             }
         )
+        rows[-1].update(crs_ai_drafts.row_extras(f))
         rank = row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB)
         sort_keys.append(_rank_row(rows[-1], rank, [f]))
 

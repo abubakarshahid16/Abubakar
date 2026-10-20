@@ -488,6 +488,7 @@ def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
                     and f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
                 )
                 or crs_mapping_mod.crs_bucket(f) is not None
+                or f.get("crs_skip")
             )
         ):
             out[f["id"]] = {"crs_note": True}

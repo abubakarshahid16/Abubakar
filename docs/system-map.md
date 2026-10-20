@@ -88,6 +88,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_machine_words` | Order 152.2: finds machine wording (code names, model/engine names, internal phrases) in the contractor copy's machine-written cells; the issue gate refuses it |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
+| `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
