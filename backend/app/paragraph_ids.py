@@ -29,7 +29,6 @@ logged.
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 
 from .config import settings
 from .db import connect
@@ -253,13 +252,13 @@ def cited(finding: dict) -> str:
     return " (paragraph not identified)" if clause else ""
 
 
-@lru_cache(maxsize=4)
-def _standard(standard: str, chunks: int, characters: int, version: str):  # noqa: ARG001
+_CACHE: dict = {}
+_CACHE_SIZE = 4
+
+
+def _load(standard: str):
     """(texts, {chunk id: index}, numbering shape, running headers) of one
-    standard's own chunks. Cached on the standard, its number of chunks and
-    their total size and newest row (and the database they are in), so a
-    re-chunked standard is read again and a CRS preview
-    or export does not scan thousands of chunks twice."""
+    standard's own chunks."""
     rows = (
         connect()
         .execute(
@@ -279,6 +278,10 @@ def _standard(standard: str, chunks: int, characters: int, version: str):  # noq
 
 
 def _read(standard: str):
+    """`_load`, remembered per standard, its number of chunks, their total
+    size and newest row (and the database they are in), so a re-chunked
+    standard is read again and a CRS preview or export does not scan
+    thousands of chunks twice."""
     size = (
         connect()
         .execute(
@@ -288,7 +291,12 @@ def _read(standard: str):
         )
         .fetchone()
     )
-    return _standard(standard, size["n"], size["c"], f"{settings.db_path}:{size['r']}")
+    key = (standard, size["n"], size["c"], size["r"], str(settings.db_path))
+    if key not in _CACHE:
+        if len(_CACHE) >= _CACHE_SIZE:
+            _CACHE.pop(next(iter(_CACHE)))
+        _CACHE[key] = _load(standard)
+    return _CACHE[key]
 
 
 def attach(findings: list[dict]) -> None:
