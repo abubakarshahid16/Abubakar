@@ -32,6 +32,7 @@ from .crs_mapping import (
     ROW_KIND_SAFETY_TICK,
     priority_word,
 )
+from .crs_mapping import row_has_no_issuable_text as _no_issuable_text
 from .crs_mapping import row_has_no_text as _no_text
 
 ARIAL = "Arial"
@@ -99,6 +100,31 @@ EMPTY_COMMENT_TEXT = (
     "No comment text was produced for this row. An engineer must write it "
     "before this row can be issued."
 )
+#: 1b: the same sentence for a NUMBERED row. An issued number whose stored
+#: wording is empty (saved empty by an older build) is not "produced no text":
+#: it was issued, and the sentence says which comment and what to do.
+EMPTY_ISSUED_COMMENT_TEXT = (
+    "Comment {ref} was issued but its wording was not kept. Confirm or edit "
+    "the same item in a review of this submittal to write it again."
+)
+#: ... and for a comment CARRIED FORWARD from an earlier run (no row of this
+#: run stands on it), where closing the comment also clears it. Closing does
+#: NOT clear a row this run raised again: that row stays until it has words.
+EMPTY_CARRIED_COMMENT_TEXT = (
+    "Comment {ref} was issued but its wording was not kept. Confirm or edit "
+    "the same item in a review of this submittal to write it again, or "
+    "close the comment."
+)
+
+
+def empty_comment_text(crs_ref: str = "", carried: bool = False) -> str:
+    """The internal copy's COMPANY Comments for a row with no text."""
+    if crs_ref:
+        template = EMPTY_CARRIED_COMMENT_TEXT if carried else EMPTY_ISSUED_COMMENT_TEXT
+        return template.format(ref=crs_ref)
+    return EMPTY_COMMENT_TEXT
+
+
 #: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
 #: engineering check's unconfirmed items, so the engineer sees them on the
 #: sheet before confirming. No existing column moves or is renamed.
@@ -356,14 +382,18 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # were not compared") was issued to the contractor as a comment. A
         # row without the flag (a caller from before it existed) is treated
         # as unconfirmed - the safe reading. The internal copy keeps them all.
+        # 1b: a CONFIRMED row may still hold a draft - its number is issued,
+        # a later run raised the item again (`crs_mapping.carry_issued_wording`).
+        # It is the engineer's comment: issued with its words, or COUNTED
+        # below when it has none - never dropped unseen. The draft itself is
+        # not printed on this copy (`_ai_column`).
         findings = [f for f in findings
-                    if not str(f.get("ai_review_comment") or "").strip()
-                    and f.get("engineer_confirmed") is True
+                    if f.get("engineer_confirmed") is True
                     # rule_trust: a safety tick is the engineer's own check,
                     # never a comment to the contractor - ticked or not.
                     and f.get("row_kind") != ROW_KIND_SAFETY_TICK]
-        withheld_no_text = sum(1 for f in findings if _no_text(f))
-        findings = [f for f in findings if not _no_text(f)]
+        withheld_no_text = sum(1 for f in findings if _no_issuable_text(f))
+        findings = [f for f in findings if not _no_issuable_text(f)]
 
     rows = []
     seen: set[str] = set()
@@ -371,7 +401,14 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         comment_missing = _no_text(finding)
         comment = str(finding.get("comment", ""))
         if comment_missing:
-            comment = EMPTY_COMMENT_TEXT
+            # "was issued" is true only of an engineer's confirmed comment; a
+            # machine draft's number (not issued) has the plain sentence.
+            comment = empty_comment_text(
+                str(finding.get("crs_ref") or "")
+                if finding.get("engineer_confirmed") is True
+                else "",
+                finding.get("row_kind") == ROW_KIND_CARRIED_FORWARD,
+            )
         ref = row_reference(run_id, finding)
         # Two DIFFERENT rows landing on one reference would let a contractor
         # answer the wrong comment. Re-mint with a salt until the sheet's

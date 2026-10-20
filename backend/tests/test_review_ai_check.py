@@ -426,6 +426,8 @@ def test_the_issue_copy_carries_no_ai_column_and_no_unconfirmed_text(world):
     assert TEXT not in json.dumps(view)
     assert not [r for r in view["rows"] if r["row_kind"] == "ai_engineering_check"], \
         "an unconfirmed item's row was issued, emptied"
+    # a draft is not a confirmed comment with no text: it is left off, not counted (1b)
+    assert view["rows_withheld_no_text"] == 0
     name, sheet, text = _workbook_text(run, "issue")
     assert "issue-to-contractor" in name
     assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=10).value is None

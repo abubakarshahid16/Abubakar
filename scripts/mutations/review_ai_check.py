@@ -65,8 +65,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              # Re-anchored 2026-10-17 (#947 wiring, PR #985): the filter also
              # drops the safety tick row (M985-04 removes that half).
              anchor=('        findings = [f for f in findings\n'
-                     '                    if not str(f.get("ai_review_comment") or "").strip()\n'
-                     '                    and f.get("engineer_confirmed") is True\n'
+                     '                    if f.get("engineer_confirmed") is True\n'
                      '                    # rule_trust: a safety tick is the engineer\'s own check,\n'
                      '                    # never a comment to the contractor - ticked or not.\n'
                      '                    and f.get("row_kind") != ROW_KIND_SAFETY_TICK]\n'),
