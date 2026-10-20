@@ -88,7 +88,8 @@ def _review(text, structured, facts):
             raw_value=raw,
             page=1,
             blank=blank,
-            section=f"model:{kind}" if kind else None,
+            section=f"model:{kind}" if kind and not kind.startswith("col:") else None,
+            value_column=kind[4:] if kind and kind.startswith("col:") else None,
         )
     run_id = str(uuid.uuid4())
     with db.connect() as conn:
@@ -308,3 +309,60 @@ def test_a_verdict_that_is_not_missing_information_is_left_alone():
         )
         == done
     )
+
+
+# ------------------------------------- the code readers' Required column (item 2)
+def _code_fact(label, column=None):
+    """A fact as the code readers store it: the geometry reader records the
+    column header (`value_column`), the table reader names the cell
+    "<row label> - <column header>". Neither sets a `section` kind."""
+    return {
+        **_fact(None),
+        "field_name": label.lower(),
+        "field_label": label,
+        "value_column": column,
+    }
+
+
+def test_a_code_read_required_column_is_refused_as_the_submission():
+    for fact in (
+        _code_fact("Design pressure Required", "Required"),
+        _code_fact("Design pressure - Specified"),
+        _code_fact("Design pressure - Required"),
+    ):
+        assert required_values.is_purchaser_kind(fact), fact
+        assert (
+            match_rules.refusal(_req(), fact, sheet=None)
+            == required_values.REQUIRED_KIND
+        )
+
+
+def test_a_code_read_offered_or_unnamed_column_is_not_refused():
+    for fact in (
+        _code_fact("Design pressure Offered", "Offered"),
+        _code_fact("Design pressure - Offered"),
+        _code_fact("Design pressure MIN", "MIN"),
+        _code_fact("Design pressure", "Value"),
+        _code_fact("Design pressure"),
+    ):
+        assert not required_values.is_purchaser_kind(fact), fact
+        assert match_rules.refusal(_req(), fact, sheet=None) is None
+
+
+def test_the_model_shortlist_never_offers_a_code_read_required_value():
+    """The AI matcher chooses among the shortlist: a Required-column number must
+    not be on it, however the code reader named the cell."""
+    required = _code_fact("Design pressure Required", "Required")
+    offered = _code_fact("Design pressure Offered", "Offered")
+    shortlist = comparison.candidate_facts(_req(), [required, offered])
+    assert [f["field_label"] for f in shortlist] == ["Design pressure Offered"]
+
+
+def test_a_table_reader_required_cell_is_counted_and_never_the_submission(world):
+    found, outcome = _review(
+        NUMBER_CLAUSE,
+        NUMBER_RULE,
+        [("Design pressure - Required", "12", None, None)],
+    )
+    assert found["compliance_status"] == comparison.MISSING_INFORMATION
+    assert outcome["purchaser_values_not_used"] == 1
