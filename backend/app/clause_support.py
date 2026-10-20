@@ -39,10 +39,49 @@ _REQUIRES = re.compile(
 
 #: Words that do not name a service, application or duty by themselves.
 _GENERIC = frozenset(
-    """the this that these those such any all each every same other another
-    normal continuous intermittent standby specified intended stated required
-    particular general special design main primary secondary typical given
-    which where when for and with without under over their its""".split()
+    {
+        "the",
+        "this",
+        "that",
+        "these",
+        "those",
+        "such",
+        "any",
+        "all",
+        "each",
+        "every",
+        "same",
+        "other",
+        "another",
+        "normal",
+        "continuous",
+        "intermittent",
+        "standby",
+        "specified",
+        "intended",
+        "stated",
+        "required",
+        "particular",
+        "general",
+        "special",
+        "design",
+        "main",
+        "primary",
+        "secondary",
+        "typical",
+        "given",
+        "which",
+        "where",
+        "when",
+        "for",
+        "and",
+        "with",
+        "without",
+        "under",
+        "over",
+        "their",
+        "its",
+    }
 )
 
 _PLAN = re.compile(r"\bplan\s+(\d{1,2}[a-z]?)\b", re.IGNORECASE)
