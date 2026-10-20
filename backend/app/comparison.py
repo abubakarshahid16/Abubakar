@@ -4238,8 +4238,8 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     """
     req_ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
     fact_ids = sorted({f["fact_id"] for f in findings if f.get("fact_id")})
-    # A-761b: a standard whose "clauses" are table numbers gets no clause number on the CRS.
-    from . import paragraph_ids, standards as standards_mod
+    from . import paragraph_ids
+    from . import standards as standards_mod
     known = standards_mod.paragraph_ids_known(
         {f.get("standard_document_id") for f in findings if f.get("standard_document_id")})
     for f in findings:
