@@ -19,7 +19,7 @@ nor a vitest run, or that holds BOTH (one command running both), is printed
 unchanged, so a traceback or a collection error is always shown. The exit code
 of the run is not this script's to touch: use it as
 
-    <test command> 2>&1 | python scripts/trim_test_output.py ; test ${PIPESTATUS[0]} -eq 0
+    <test command> 2>&1 | python scripts/trim_test_output.py ; test ${PIPESTATUS[0]} -eq 0   (bash; in zsh use `pipestatus[1]`)
 
 or let the hook in `.claude/settings.json` do it. Standard library only.
 Read only; it prints what it was given, shorter. No network.
