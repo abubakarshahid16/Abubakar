@@ -87,8 +87,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "07",
         "the screen's grouping never merges the series, so the screen and the file disagree",
-        "    crs_item_series.merge(findings)\n    findings = [f for f in findings if not _rejected(f)]\n",
-        "    findings = [f for f in findings if not _rejected(f)]\n",
+        "    crs_item_series.merge(findings)\n    crs_ai_drafts.merge(findings)\n",
+        "    crs_ai_drafts.merge(findings)\n",
         "screen_groups",
     ),
     _m(
