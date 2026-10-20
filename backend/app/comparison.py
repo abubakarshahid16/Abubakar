@@ -56,6 +56,7 @@ from . import (absence, claims, conditions, datasheets, errors, field_copies, fi
                 page_ledger, requirements_3b, review, schemas, stated_value, submittal_review)
 from .config import settings
 from .db import connect
+from .provenance import ai_quote_proved
 
 # ----------------------------------------------------------------- statuses
 
@@ -569,29 +570,6 @@ def low_trust_reason(fact: dict | None) -> str | None:
         if ai_quote_proved(fact):
             return None
         return "the value was read by the model reader and no engineer has confirmed it"
-    return None
-
-
-#: Readers whose AI reading is written by `datasheets._write_ai_reading`, the one
-#: writer that sets `quote_on_page`: the AI reader and the form reader (default
-#: since #1004), whose own `reader` replaces the first in the box. A test pins both.
-_PROVED_QUOTE_READERS = frozenset({"datasheet_ai", "form_reader"})
-
-
-def ai_quote_proved(fact: dict | None) -> dict | None:
-    """The AI reader's provenance (`engine`, `model`) when this fact was read
-    by `datasheet_ai` or the form reader and the code proved its quote on the
-    page; else None."""
-    try:
-        box = json.loads((fact or {}).get("bbox") or "{}")
-    except (TypeError, ValueError):
-        return None
-    if (
-        isinstance(box, dict)
-        and box.get("reader") in _PROVED_QUOTE_READERS
-        and box.get("quote_on_page") is True
-    ):
-        return box
     return None
 
 

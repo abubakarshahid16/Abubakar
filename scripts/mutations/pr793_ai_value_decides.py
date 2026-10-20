@@ -14,7 +14,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='        return None\n',
              target=_T, keyword="trusted_like_a_code_read_one", tags=("honesty", "critical")),
     Mutation(id="M793-02", phase=793, description="the proof flag is not checked (any datasheet_ai fact is trusted)",
-             path=_C, anchor='        and box.get("quote_on_page") is True\n',
+             path=APP / "provenance.py", anchor='        and box.get("quote_on_page") is True\n',
              replacement='',
              target=_T, keyword="trusted_like_a_code_read_one", tags=("honesty", "critical")),
     Mutation(id="M793-03", phase=793, description="a verdict an AI-read value decided does not say so",
