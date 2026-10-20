@@ -169,6 +169,7 @@ def _the_local_answer_cache_is_off_unless_a_test_asks_for_it(monkeypatch):
     reused answer would change how many calls a test sees. The cache's own
     tests put `model_identity` back to a fixed value on purpose."""
     from app import ai_task_runner
+
     ai_task_runner._IDENTITY_MEMO.clear()
     monkeypatch.setattr(ai_task_runner, "model_identity", lambda requested: None)
     yield

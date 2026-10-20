@@ -291,7 +291,10 @@ def post_json_retrying(path: str, body: dict, *, timeout: float) -> Any:
             raise
     with _RETRY_LOCK:
         _TIMEOUT_RETRIES += 1
-    log.info("answer model call timed out; retrying once after %.1f s", TIMEOUT_RETRY_BACKOFF_S)
+    log.info(
+        "answer model call timed out; retrying once after %.1f s",
+        TIMEOUT_RETRY_BACKOFF_S,
+    )
     time.sleep(TIMEOUT_RETRY_BACKOFF_S)
     return post_json(path, body, timeout=timeout)
 
@@ -425,6 +428,14 @@ def get_json(path: str, *, timeout: float, required: bool = True) -> Any | None:
 
 
 __all__ = [
-    "ModelHostRefused", "close_shared_client", "endpoint", "get_json", "host_key", "post_json", "post_json_retrying",
-    "remote_audit", "reset_timeout_retries", "timeout_retries",
+    "ModelHostRefused",
+    "close_shared_client",
+    "endpoint",
+    "get_json",
+    "host_key",
+    "post_json",
+    "post_json_retrying",
+    "remote_audit",
+    "reset_timeout_retries",
+    "timeout_retries",
 ]

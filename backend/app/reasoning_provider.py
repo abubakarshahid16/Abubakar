@@ -245,8 +245,13 @@ class OllamaProvider:
 
     name = OLLAMA
 
-    def __init__(self, model: str | None = None, *, timeout: float = 900.0,
-                 retry_timeouts: bool = False) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        *,
+        timeout: float = 900.0,
+        retry_timeouts: bool = False,
+    ) -> None:
         #: Configuration's ANSWER, not the engine's. Recorded separately from
         #: the tag the response reports, so the two can disagree visibly.
         self.requested_model = model or settings.answer_model
@@ -288,7 +293,11 @@ class OllamaProvider:
             body["format"] = packet.json_schema
         started = time.time()
         try:
-            post = model_transport.post_json_retrying if self.retry_timeouts else model_transport.post_json
+            post = (
+                model_transport.post_json_retrying
+                if self.retry_timeouts
+                else model_transport.post_json
+            )
             raw = post("/api/generate", body, timeout=self.timeout)
         # Broad on purpose, and it RE-RAISES: every transport failure becomes a
         # named refusal rather than an empty answer. No `noqa` is needed -

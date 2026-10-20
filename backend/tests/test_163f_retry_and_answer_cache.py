@@ -28,10 +28,20 @@ from app import ai_task_runner, comparison, datasheet_ai, db, model_transport
 from app.config import settings
 
 PAGE = "Design pressure 23.5 barg\nDesign temperature 120 C"
-GOOD = {"field": "Design pressure", "value": "23.5", "unit": "barg",
-        "quote": "Design pressure 23.5 barg", "kind": "offered"}
-NOT_ON_PAGE = {"field": "Paint system", "value": "Three coat zinc", "unit": None,
-               "quote": "Paint system Three coat zinc", "kind": "offered"}
+GOOD = {
+    "field": "Design pressure",
+    "value": "23.5",
+    "unit": "barg",
+    "quote": "Design pressure 23.5 barg",
+    "kind": "offered",
+}
+NOT_ON_PAGE = {
+    "field": "Paint system",
+    "value": "Three coat zinc",
+    "unit": None,
+    "quote": "Paint system Three coat zinc",
+    "kind": "offered",
+}
 IDENTITY = "local-0001@sha256:aaaa"
 #: The real function, captured before the suite-wide fixture stubs it out.
 _REAL_IDENTITY = ai_task_runner.model_identity
@@ -53,7 +63,11 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def _reply(facts):
-    return {"response": json.dumps({"facts": facts}), "model": "local-0001", "done_reason": "stop"}
+    return {
+        "response": json.dumps({"facts": facts}),
+        "model": "local-0001",
+        "done_reason": "stop",
+    }
 
 
 class Engine:
@@ -77,10 +91,13 @@ def _read(page=PAGE):
 
 # ------------------------------------------------------------------- RETRY
 
+
 def test_a_forced_timeout_retries_once_and_passes(monkeypatch, temp_storage):
     engine = Engine(httpx.ReadTimeout("slow"), _reply([GOOD]))
     monkeypatch.setattr(model_transport, "post_json", engine)
-    got = model_transport.post_json_retrying("/api/generate", {"model": "m"}, timeout=1.0)
+    got = model_transport.post_json_retrying(
+        "/api/generate", {"model": "m"}, timeout=1.0
+    )
     assert got["model"] == "local-0001"
     assert engine.calls == 2 and model_transport.timeout_retries() == 1
     assert temp_storage == [model_transport.TIMEOUT_RETRY_BACKOFF_S]
@@ -120,16 +137,24 @@ def test_a_provider_that_did_not_ask_for_a_retry_is_not_given_one(monkeypatch):
     engine = Engine(httpx.ReadTimeout("slow"), _reply([GOOD]))
     monkeypatch.setattr(model_transport, "post_json", engine)
     with pytest.raises(ProviderRefused):
-        OllamaProvider("local-0001").reason(Packet(prompt="q", num_ctx=2048, num_predict=10))
+        OllamaProvider("local-0001").reason(
+            Packet(prompt="q", num_ctx=2048, num_predict=10)
+        )
     assert engine.calls == 1 and model_transport.timeout_retries() == 0
 
 
-@pytest.mark.parametrize("failure", [
-    httpx.ConnectError("refused"),
-    ValueError("bad body"),
-    httpx.HTTPStatusError("500", request=httpx.Request("POST", "http://x"),
-                          response=httpx.Response(500)),
-])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ConnectError("refused"),
+        ValueError("bad body"),
+        httpx.HTTPStatusError(
+            "500",
+            request=httpx.Request("POST", "http://x"),
+            response=httpx.Response(500),
+        ),
+    ],
+)
 def test_only_a_timeout_is_retried(monkeypatch, failure):
     engine = Engine(failure, _reply([GOOD]))
     monkeypatch.setattr(model_transport, "post_json", engine)
@@ -139,23 +164,30 @@ def test_only_a_timeout_is_retried(monkeypatch, failure):
 
 
 def test_the_pair_choice_call_retries_a_timeout_once(monkeypatch):
-    answer = {"response": json.dumps({"choice": 0, "reason": "same quantity"}), "model": "local-0001"}
+    answer = {
+        "response": json.dumps({"choice": 0, "reason": "same quantity"}),
+        "model": "local-0001",
+    }
     engine = Engine(httpx.ReadTimeout("slow"), answer)
     monkeypatch.setattr(model_transport, "post_json", engine)
     got, why = comparison._ask_model_once(
         {"requirement_text": "pressure shall be 23 barg", "id": "r"},
-        [{"field_name": "Design pressure", "id": "f"}])
+        [{"field_name": "Design pressure", "id": "f"}],
+    )
     assert why is None and got.choice == 0
     assert engine.calls == 2 and model_transport.timeout_retries() == 1
 
 
 # ------------------------------------------------------------------- CACHE
 
+
 @pytest.fixture
 def known_model(monkeypatch):
     """The engine reports a fixed identity, so the cache is on."""
     identity = {"now": IDENTITY}
-    monkeypatch.setattr(ai_task_runner, "model_identity", lambda requested: identity["now"])
+    monkeypatch.setattr(
+        ai_task_runner, "model_identity", lambda requested: identity["now"]
+    )
     return identity
 
 
@@ -163,9 +195,9 @@ def test_an_unchanged_page_read_uses_the_stored_answer(monkeypatch, known_model)
     engine = Engine(_reply([GOOD]))
     monkeypatch.setattr(model_transport, "post_json", engine)
     first = _read()
-    assert engine.calls == 2                      # the reader's two runs
+    assert engine.calls == 2  # the reader's two runs
     second = _read()
-    assert engine.calls == 2                      # nothing new was asked
+    assert engine.calls == 2  # nothing new was asked
     assert second["accepted"] == first["accepted"] and len(second["accepted"]) == 1
 
 
@@ -173,7 +205,9 @@ def test_a_changed_prompt_version_skips_the_cache(monkeypatch, known_model):
     engine = Engine(_reply([GOOD]))
     monkeypatch.setattr(model_transport, "post_json", engine)
     _read()
-    monkeypatch.setattr(datasheet_ai, "PROMPT_VERSION", datasheet_ai.PROMPT_VERSION + "-next")
+    monkeypatch.setattr(
+        datasheet_ai, "PROMPT_VERSION", datasheet_ai.PROMPT_VERSION + "-next"
+    )
     _read()
     assert engine.calls == 4
 
@@ -182,7 +216,7 @@ def test_a_changed_model_identity_skips_the_cache(monkeypatch, known_model):
     engine = Engine(_reply([GOOD]))
     monkeypatch.setattr(model_transport, "post_json", engine)
     _read()
-    known_model["now"] = "local-0001@sha256:bbbb"     # same tag, re-pulled
+    known_model["now"] = "local-0001@sha256:bbbb"  # same tag, re-pulled
     _read()
     assert engine.calls == 4
 
@@ -214,7 +248,9 @@ def test_a_reused_answer_still_meets_the_quote_gate(monkeypatch, known_model):
     assert second["rejected"] == first["rejected"] and second["rejected"]
 
 
-def test_the_second_run_of_a_stability_check_is_its_own_stored_answer(monkeypatch, known_model):
+def test_the_second_run_of_a_stability_check_is_its_own_stored_answer(
+    monkeypatch, known_model
+):
     """Two runs of one prompt that DISAGREE stay disagreeing when reused: the
     second run is stored apart from the first, not replaced by a copy of it."""
     engine = Engine(_reply([GOOD]), _reply([]))
@@ -227,7 +263,10 @@ def test_the_second_run_of_a_stability_check_is_its_own_stored_answer(monkeypatc
 
 
 def test_an_unchanged_pair_choice_uses_the_stored_answer(monkeypatch, known_model):
-    answer = {"response": json.dumps({"choice": 0, "reason": "same quantity"}), "model": "local-0001"}
+    answer = {
+        "response": json.dumps({"choice": 0, "reason": "same quantity"}),
+        "model": "local-0001",
+    }
     engine = Engine(answer)
     monkeypatch.setattr(model_transport, "post_json", engine)
     requirement = {"requirement_text": "pressure shall be 23 barg", "id": "r"}
@@ -238,8 +277,13 @@ def test_an_unchanged_pair_choice_uses_the_stored_answer(monkeypatch, known_mode
     assert first[0].choice == second[0].choice == 0
 
 
-def test_a_changed_match_prompt_version_or_option_skips_the_cache(monkeypatch, known_model):
-    answer = {"response": json.dumps({"choice": 0, "reason": "same quantity"}), "model": "local-0001"}
+def test_a_changed_match_prompt_version_or_option_skips_the_cache(
+    monkeypatch, known_model
+):
+    answer = {
+        "response": json.dumps({"choice": 0, "reason": "same quantity"}),
+        "model": "local-0001",
+    }
     engine = Engine(answer)
     monkeypatch.setattr(model_transport, "post_json", engine)
     requirement = {"requirement_text": "pressure shall be 23 barg", "id": "r"}
@@ -256,14 +300,22 @@ def test_a_changed_match_prompt_version_or_option_skips_the_cache(monkeypatch, k
     assert engine.calls == 4
 
 
-def test_a_pair_choice_that_fails_the_code_check_is_not_stored(monkeypatch, known_model):
+def test_a_pair_choice_that_fails_the_code_check_is_not_stored(
+    monkeypatch, known_model
+):
     bad = {"response": json.dumps({"choice": 7, "reason": "x"}), "model": "local-0001"}
     engine = Engine(bad)
     monkeypatch.setattr(model_transport, "post_json", engine)
     requirement = {"requirement_text": "pressure shall be 23 barg", "id": "r"}
     candidates = [{"field_name": "Design pressure", "id": "f"}]
-    assert comparison._ask_model_once(requirement, candidates)[1] == comparison.MODEL_OUT_OF_RANGE
-    assert comparison._ask_model_once(requirement, candidates)[1] == comparison.MODEL_OUT_OF_RANGE
+    assert (
+        comparison._ask_model_once(requirement, candidates)[1]
+        == comparison.MODEL_OUT_OF_RANGE
+    )
+    assert (
+        comparison._ask_model_once(requirement, candidates)[1]
+        == comparison.MODEL_OUT_OF_RANGE
+    )
     assert engine.calls == 2
 
 
@@ -272,8 +324,12 @@ def test_a_model_identity_is_the_tag_and_digest_the_engine_reports(monkeypatch):
 
     def get_json(path, *, timeout, required=True):
         seen["n"] += 1
-        return {"models": [{"name": "local-0001:latest", "digest": "abc"},
-                           {"name": "other", "digest": "zzz"}]}
+        return {
+            "models": [
+                {"name": "local-0001:latest", "digest": "abc"},
+                {"name": "other", "digest": "zzz"},
+            ]
+        }
 
     monkeypatch.setattr(model_transport, "get_json", get_json)
     ai_task_runner._IDENTITY_MEMO.clear()
@@ -289,3 +345,55 @@ def test_an_unreachable_engine_has_no_identity(monkeypatch):
     monkeypatch.setattr(model_transport, "get_json", down)
     ai_task_runner._IDENTITY_MEMO.clear()
     assert _REAL_IDENTITY("local-0001") is None
+
+
+# ------------------------------------------------ only a well-shaped answer is kept
+
+
+@pytest.mark.parametrize(
+    "bad", ["not json at all", "", '{"other": []}', '{"facts": "none"}', "[1, 2]"]
+)
+def test_a_malformed_answer_is_not_stored_and_the_next_read_asks_again(
+    monkeypatch, known_model, bad
+):
+    engine = Engine({"response": bad, "model": "local-0001", "done_reason": "stop"})
+    monkeypatch.setattr(model_transport, "post_json", engine)
+    first = _read()
+    asked_first = engine.calls
+    assert first["accepted"] == [] and asked_first >= 1
+    # the model now answers properly: a second read of the SAME page must ask it
+    engine.replies = [_reply([GOOD])]
+    second = _read()
+    assert engine.calls > asked_first
+    assert len(second["accepted"]) == 1
+    # and the good answer, being well shaped, is reused from then on
+    seen = engine.calls
+    third = _read()
+    assert engine.calls == seen and len(third["accepted"]) == 1
+
+
+def test_the_form_readers_shape_is_checked_too(monkeypatch, known_model):
+    shape = {
+        "json_schema": {
+            "type": "object",
+            "required": ["fields"],
+            "properties": {"fields": {"type": "array"}},
+        },
+        "prompt_version": "form-test-1",
+        "num_predict": 64,
+    }
+    engine = Engine(
+        {"response": "{broken", "model": "local-0001", "done_reason": "stop"}
+    )
+    monkeypatch.setattr(model_transport, "post_json", engine)
+    call, why = datasheet_ai.model_call_for("ollama", packet_shape=shape)
+    assert why is None
+    assert call("same prompt") == "{broken"
+    engine.replies = [
+        {"response": '{"fields": []}', "model": "local-0001", "done_reason": "stop"}
+    ]
+    engine.calls = 0
+    assert call("same prompt") == '{"fields": []}'  # asked again, not replayed
+    assert engine.calls == 1
+    fresh, _ = datasheet_ai.model_call_for("ollama", packet_shape=shape)
+    assert fresh("same prompt") == '{"fields": []}' and engine.calls == 1  # now reused

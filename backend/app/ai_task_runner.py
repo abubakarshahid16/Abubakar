@@ -186,13 +186,22 @@ def model_identity(requested: str) -> str | None:
                     identity = f"{entry.get('name') or requested}@{digest}"
                 break
     except Exception as exc:  # noqa: BLE001 - logged (type only); an unreachable engine means "no cache"
-        _log.info("model identity unavailable (%s); the answer cache is skipped", type(exc).__name__)
+        _log.info(
+            "model identity unavailable (%s); the answer cache is skipped",
+            type(exc).__name__,
+        )
     _IDENTITY_MEMO[requested] = (now, identity)
     return identity
 
 
-def answer_cache_key(task: str, version: str, identity: str, schema: dict | None,
-                     prompt: str, nth: int = 0) -> str:
+def answer_cache_key(
+    task: str,
+    version: str,
+    identity: str,
+    schema: dict | None,
+    prompt: str,
+    nth: int = 0,
+) -> str:
     """The key of one raw local answer. `nth` is which time this exact prompt
     has been asked in a row: a stability check asks the SAME question twice to
     see whether the model agrees with itself, and the second ask must be its
@@ -223,14 +232,24 @@ def store_answer(key: str, task: str, version: str, identity: str, text: str) ->
             conn.execute(
                 "INSERT OR REPLACE INTO ai_task_cache (key, task, version, model, result_json,"
                 " created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (key, task, version, identity, json.dumps({"text": text}), _now()))
+                (key, task, version, identity, json.dumps({"text": text}), _now()),
+            )
     except Exception as exc:  # noqa: BLE001 - logged (type only); the cache must never fail a review
         _log.info("answer cache not written (%s)", type(exc).__name__)
 
 
-def reuse_or_ask(task: str, version: str, model: str, schema: dict | None, prompt: str,
-                 ask: Callable[[], str], *, asked: dict[str, int] | None = None,
-                 nth: int = 0, keep_if: Callable[[str], bool] | None = None) -> str:
+def reuse_or_ask(
+    task: str,
+    version: str,
+    model: str,
+    schema: dict | None,
+    prompt: str,
+    ask: Callable[[], str],
+    *,
+    asked: dict[str, int] | None = None,
+    nth: int = 0,
+    keep_if: Callable[[str], bool] | None = None,
+) -> str:
     """The stored answer to this exact question, or `ask()` (and keep what it
     answers). ONE home for the reuse rule (order 163.3).
 
@@ -250,14 +269,19 @@ def reuse_or_ask(task: str, version: str, model: str, schema: dict | None, promp
         return ask()
     if asked is not None:
         nth = asked.get(prompt, 0)
-        asked[prompt] = nth + 1
     key = answer_cache_key(task, version, identity, schema, prompt, nth)
     reused = cached_answer(key)
     if reused is not None:
+        if asked is not None:
+            asked[prompt] = nth + 1
         return reused
     text = ask()
+    # Only an answer worth keeping uses up its slot: a malformed or empty one
+    # is never stored, and the next ask of the prompt takes the same slot.
     if text and (keep_if is None or keep_if(text)):
         store_answer(key, task, version, identity, text)
+        if asked is not None:
+            asked[prompt] = nth + 1
     return text
 
 

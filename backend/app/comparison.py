@@ -3905,7 +3905,9 @@ def _json_object_in(text: str | None) -> str:
 MATCH_PROMPT_VERSION = "match-pair-choice-1"
 
 
-def _ask_model_once(requirement: dict, candidates: list[dict], nth: int = 0) -> tuple[object, str | None]:
+def _ask_model_once(
+    requirement: dict, candidates: list[dict], nth: int = 0
+) -> tuple[object, str | None]:
     """One call. Returns `(PairChoice, None)` or `(None, reason)`.
 
     `nth` says which ask of the same question this is (the stability check
@@ -3944,6 +3946,7 @@ def _ask_model_once(requirement: dict, candidates: list[dict], nth: int = 0) -> 
             "num_batch": settings.num_batch,
         },
     }
+
     # REUSE (order 163.3): the stored answer to the same prompt, options,
     # prompt version and model, kept only when it passed the code check; the
     # reused text is checked by `_checked_choice` exactly like a fresh one.
@@ -3954,9 +3957,17 @@ def _ask_model_once(requirement: dict, candidates: list[dict], nth: int = 0) -> 
 
     try:
         answer = ai_task_runner.reuse_or_ask(
-            "match-pair-choice", MATCH_PROMPT_VERSION, str(body["model"]), None,
-            json.dumps({"prompt": body["prompt"], "options": body["options"]}, sort_keys=True),
-            ask, nth=nth, keep_if=lambda text: _checked_choice(text, candidates)[1] is None)
+            "match-pair-choice",
+            MATCH_PROMPT_VERSION,
+            str(body["model"]),
+            None,
+            json.dumps(
+                {"prompt": body["prompt"], "options": body["options"]}, sort_keys=True
+            ),
+            ask,
+            nth=nth,
+            keep_if=lambda text: _checked_choice(text, candidates)[1] is None,
+        )
     except Exception as exc:  # noqa: BLE001 - refused, timed out, or answered wrongly
         return errors.fell_back("comparison: the local pair-choice call failed; the pair stays unchosen", exc, (None, MODEL_UNAVAILABLE))
     return _checked_choice(answer, candidates)
