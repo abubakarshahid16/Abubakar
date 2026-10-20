@@ -393,7 +393,6 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
     reading = _equipment_reading(submittal_document_id, allowed_document_ids)
     equipment, source, doubt, facts = reading
     gov = governing_table()
-    table = gov["equipment_types"]
     required = equipment_subtype.required(equipment, source, text, gov, REQUIRED_BY_TYPE)
     declared_absent: list[tuple[dict, str]] = []
     for condition in service_scope.conditions():
