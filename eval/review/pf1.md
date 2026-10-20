@@ -187,9 +187,11 @@ python scripts\pf1_run.py --set D:\project\pf1-set\set --out D:\project\pf1-set\
 It refuses a server not named `--test-server`, one that is not on this machine,
 and ports 8000 and 8001 (the ports the live app has run on); it also needs
 `--db-copy` naming the diagnostic copy the run will be exported from (it must
-exist and must not have the live database's shape). The runner cannot see which
-database the server holds: the port and the copy are a backstop, so start the
-test server on a copy yourself. Held-out sheets are skipped unless
+exist and must not have the live database's shape). Above all the server must say itself that its
+database is not live-shaped (`GET /api/admin/database-shape`, an admin route; a
+server that says true or cannot say is refused before any write; the
+unauthenticated `/api/health` is not widened). The port and the copy are a
+backstop; start the test server on a copy yourself. Held-out sheets are skipped unless
 `--include-held-out` (only the merger session uses it); `--only ID` runs one
 sheet; `--no-standards` when the library already holds the standards. Prints
 counts only. The runner's tests use a fake server: the first real run on the
