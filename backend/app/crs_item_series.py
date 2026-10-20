@@ -122,3 +122,20 @@ def item_name(finding: dict) -> str:
     and the item's mark ("V-100 N1"), else "untagged"."""
     parts = [finding.get("equipment_tag"), finding.get("crs_item_mark")]
     return " ".join(str(p) for p in parts if p) or "untagged"
+
+
+def member_keys(group: list[dict]) -> list[str]:
+    """Every key a number could be stored under for the findings of one row:
+    each finding's own per-requirement key, plus - for a series - the comment
+    key each item's OWN row had before the series (the field key of "N1
+    Size"), so a number issued on it is found from the series row
+    (`main._replaced_numbers`: "Replaces earlier comment ...")."""
+    from . import crs_mapping as cm  # crs_mapping imports this module
+
+    keys = {cm.finding_member_key(g) for g in group}
+    keys |= {
+        cm.field_comment_key(cm._bucket_of(g), cm._fold(g["crs_item_label"]))
+        for g in group
+        if g.get("crs_item_label")
+    }
+    return sorted(keys)

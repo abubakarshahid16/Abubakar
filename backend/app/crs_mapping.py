@@ -1484,7 +1484,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     "comment_key": item["comment_key"],
                     # Never printed (spec d): every finding's own per-requirement
                     # key, so the numbers earlier per-clause rows hold are found.
-                    "member_keys": sorted({finding_member_key(g) for g in group}),
+                    "member_keys": crs_item_series.member_keys(group),
                     # Never printed: the group key the run summary sends the
                     # screen, and the row's first line when it asks two or more
                     # things.

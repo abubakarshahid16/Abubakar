@@ -91,7 +91,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "12",
         "a field row carries only its leader's per-clause key",
-        '                "member_keys": sorted({finding_member_key(g) for g in group}),\n',
+        '                "member_keys": crs_item_series.member_keys(group),\n',
         '                "member_keys": [finding_member_key(f)],\n',
         "a_field_row_carries_every_member_key",
     ),

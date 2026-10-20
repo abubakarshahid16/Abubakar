@@ -121,4 +121,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         '        f.get("crs_field_label") or f.get("matched_phrase") or f.get("contractor_section"),\n',
         "number_keys",
     ),
+    _m(
+        "12",
+        "the series row forgets the keys its items' own rows were numbered under",
+        '        cm.field_comment_key(cm._bucket_of(g), cm._fold(g["crs_item_label"]))\n',
+        '        ""\n',
+        "issued_on_an_items_own_row",
+        _S,
+    ),
 )

@@ -191,4 +191,15 @@ def test_the_merged_row_keeps_the_per_item_number_keys_earlier_runs_stored():
     findings = _series(lambda i: f"N{i} Size", ["4", "2"])
     before = {crs_mapping.finding_member_key(dict(f)) for f in findings}
     row = _field_rows(_rows(findings))[0]
-    assert set(row["member_keys"]) == before
+    assert before <= set(row["member_keys"])
+
+
+def test_a_number_issued_on_an_items_own_row_is_found_from_the_series_row():
+    findings = _series(lambda i: f"N{i} Size", ["4", "2"])
+    own_rows = [
+        crs_mapping.field_comment_key(crs_mapping.BUCKET_QUESTION, f"N{i} Size")
+        for i in (1, 2)
+    ]
+    row = _field_rows(_rows(findings))[0]
+    assert set(own_rows) <= set(row["member_keys"])
+    assert row["comment_key"] not in own_rows
