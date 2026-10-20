@@ -350,6 +350,8 @@ describe("section 3: the readiness strip's page line", () => {
   it("says nothing when the page count is unknown, and states the denominator otherwise", () => {
     expect(pagesReadLine({ pages_total: null, pages_read: 0 })).toBe("");
     expect(pagesReadLine({ pages_total: 5, pages_read: 3 })).toBe("Pages read: 3 of 5");
+    expect(pagesReadLine({ pages_total: 5, pages_read: 3, pages_read_no_field: [1] }))
+      .toBe("Pages read: 3 of 5; page 1 read, no checklist field found");
   });
 });
 

@@ -129,10 +129,13 @@ def no_fact(
 ) -> tuple[str, int, str]:
     """The ledger outcome of a page the code readers gave no fact: READ_NO_FIELD
     when the AI reader read it and put nothing forward (two readers looked), else
-    `no_facts` - not read into fields - with `reason` as before."""
-    if ai_run is not None and read_page_empty(ai_run, page):
-        from . import page_reason_words
+    `no_facts` - not read into fields - with `reason` as before. A page a code
+    reader FAILED on (`datasheets._PAGE_FAILURES`: pairs, grid, geometry, text
+    layer, vision open) was not read by "the code readers", so it stays unread."""
+    from . import datasheets, page_reason_words
 
+    failed = (datasheets._PAGE_FAILURES.get() or {}).get(page)
+    if ai_run is not None and not failed and read_page_empty(ai_run, page):
         return (READ_NO_FIELD, 0, page_reason_words.no_field_found(dropped))
     return ("no_facts", 0, reason)
 

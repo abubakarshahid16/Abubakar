@@ -38,8 +38,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "02",
         "any page the AI reader was asked about counts as read, even one it failed on or was refused on",
         _L,
-        "    if ai_run is not None and read_page_empty(ai_run, page):\n",
-        "    if ai_run is not None:\n",
+        "    if ai_run is not None and not failed and read_page_empty(ai_run, page):\n",
+        "    if ai_run is not None and not failed:\n",
         "failed_on or proposed_something_refused",
     ),
     _m(
@@ -121,5 +121,21 @@ MUTATIONS: tuple[Mutation, ...] = (
         '        "pages_read_no_field": cov.get("pages_read_no_field") or [],\n',
         '        "pages_read_no_field": [],\n',
         "readiness_strip_names",
+    ),
+    _m(
+        "13",
+        "a page a code reader crashed on counts as read, no checklist field found",
+        _L,
+        "    if ai_run is not None and not failed and read_page_empty(ai_run, page):\n",
+        "    if ai_run is not None and read_page_empty(ai_run, page):\n",
+        "code_reader_failed_on or crashing_code_reader",
+    ),
+    _m(
+        "14",
+        "the rationale of an absent value goes back to the fixed sentence that every page held fields",
+        APP / "comparison.py",
+        "        f\"{verdict.get('rationale') or ''}; {page_ledger.every_page_read(pages, where, total)}\")}\n",
+        "        f\"{verdict.get('rationale') or ''}; fields were read from every page ({where} of {total})\")}\n",
+        "no_longer_called_unread",
     ),
 )

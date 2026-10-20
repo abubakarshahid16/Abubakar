@@ -288,3 +288,38 @@ def test_the_readiness_strip_names_the_pages_read_with_no_field_apart_from_the_r
     assert strip["pages_read"] == 1  # fields were read from one page
     assert strip["pages_read_no_field"] == [1]
     assert strip["unread_pages"] == []
+
+
+def test_a_page_a_code_reader_failed_on_is_not_counted_as_read():
+    """A reader that crashed has not read the page: 'the code readers found
+    nothing' would be false. The failure record (`datasheets._PAGE_FAILURES`)
+    keeps the page unread even when the AI reader read it clean."""
+    ai = {"pages": {1: {"accepted": [], "rejected": [], "counts": {}}}, "reasons": {}}
+    token = datasheets._PAGE_FAILURES.set({1: {"geometry"}})
+    try:
+        assert page_ledger.no_fact(ai, 1, "why", {})[0] == "no_facts"
+    finally:
+        datasheets._PAGE_FAILURES.reset(token)
+    assert page_ledger.no_fact(ai, 1, "why", {})[0] == page_ledger.READ_NO_FIELD
+    assert (
+        page_ledger.no_fact(ai, 2, "why", {})[0] == "no_facts"
+    )  # no reading of page 2
+
+
+def test_end_to_end_a_crashing_code_reader_keeps_the_cover_page_unread(
+    tmp_path, monkeypatch
+):
+    from app import geometry_reader
+
+    def boom(*_a, **_k):
+        raise RuntimeError("reader crashed")
+
+    monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    monkeypatch.setattr(geometry_reader, "upright_blocks", boom)
+    monkeypatch.setattr(geometry_reader, "upright_words", boom)
+    _use(monkeypatch, FakeModel([]))
+    doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    cov = _coverage(doc)
+    assert cov["pages_read_no_field"] == []
+    assert 1 in cov["pages_not_read_into_fields"]
