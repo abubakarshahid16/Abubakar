@@ -14,7 +14,7 @@ What is proved:
     identity cannot be told is never cached; a reused answer goes through the
     same code gate (a quote not on the page is still rejected).
 
-Mutations: M163F-01..04 (`scripts/mutations/model_transport.py`).
+Mutations: M1221-01..06 (`scripts/mutations/model_transport.py`).
 """
 
 from __future__ import annotations
