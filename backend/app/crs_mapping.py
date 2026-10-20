@@ -26,7 +26,7 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
-from . import standard_ids
+from . import crs_item_series, standard_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -230,7 +230,6 @@ def rejected_comment_keys(findings: list[dict]) -> set[str]:
     withdrawn too. A rejected comment is never issued: `main._crs_content`
     never carries these forward and `main._mint_crs_numbers` withdraws their
     numbers (less any key a row still on the sheet holds)."""
-    merge_item_series(findings)
     rejected = [f for f in findings if _rejected(f)]
     return {finding_comment_key(f) for f in rejected} | {
         finding_member_key(f) for f in rejected
@@ -519,101 +518,6 @@ def _items(group: list[dict]) -> list[str]:
     return seen
 
 
-#: Order 161 D. A label token that is an item INDEX: up to three letters then
-#: up to three digits ("N3", "M12", "2"). Two labels that differ only in such
-#: a token, with the same letters, are items of one series.
-_INDEX_TOKEN = re.compile(r"^([A-Za-z]{0,3})(\d{1,3})$")
-#: A series row names at most this many items, then "and k more".
-MAX_ITEM_MARKS = 12
-
-
-def _clause_identity(f: dict) -> tuple:
-    return (
-        str(f.get("standard_document_id") or ""),
-        str(f.get("standard_clause") or ""),
-        _fold(f.get("requirement_source_text")),
-    )
-
-
-def merge_item_series(findings: list[dict]) -> None:
-    """Order 161 D, in place and idempotent: ONE ROW FOR A SERIES OF ITEMS.
-
-    "N1 Size" ... "N8 Size" were eight rows with the same clause and the same
-    outcome, differing only in the item's mark. Findings whose field labels
-    differ ONLY in one index token (same letters, different numbers), and that
-    share the bucket, the datasheet page and the WHOLE set of clauses behind
-    them, get the label without the index (`crs_field_label`: "Size") and
-    keep their own mark in `crs_item_mark` ("N1"). The ordinary field
-    grouping then makes them one row, which lists the items and each item's
-    own value.
-
-    GENERAL, NOT PER LAYOUT: nothing here knows a table shape or a label
-    spelling. A series needs two or more different numbers with the same
-    letters ("H2 content" and "O2 content" are two quantities, not a series),
-    and items behind different clauses stay separate rows. Rejected findings
-    never make or extend a series (rejecting a comment must not renumber the
-    row beside it)."""
-    cohorts: dict[tuple, dict[tuple, dict]] = {}
-    for f in findings:
-        if _rejected(f) or f.get("crs_item_mark"):
-            continue
-        bucket = _bucket_of(f)
-        if bucket not in FIELD_GROUPED_BUCKETS:
-            continue
-        tokens = _field_label(f).split()
-        for i, token in enumerate(tokens):
-            m = _INDEX_TOKEN.match(token)
-            if not m:
-                continue
-            masked = (
-                tuple(_fold(t) for t in tokens[:i])
-                + ("#",)
-                + tuple(_fold(t) for t in tokens[i + 1 :])
-            )
-            key = (bucket, f.get("contractor_page"), i, masked)
-            variant = cohorts.setdefault(key, {}).setdefault(
-                (m.group(1).lower(), int(m.group(2))), {"clauses": set(), "members": []}
-            )
-            variant["clauses"].add(_clause_identity(f))
-            variant["members"].append((f, tokens, i, token))
-    claimed: set[int] = set()
-    for key in sorted(cohorts, key=lambda k: (k[2], str(k[3]))):
-        variants = cohorts[key]
-        letters = {v[0] for v in variants}
-        clause_sets = {frozenset(v["clauses"]) for v in variants.values()}
-        if len(variants) < 2 or len(letters) != 1 or len(clause_sets) != 1:
-            continue
-        members = [m for v in variants.values() for m in v["members"]]
-        if any(id(f) in claimed for f, _t, _i, _tok in members):
-            continue
-        for f, tokens, i, token in members:
-            claimed.add(id(f))
-            f["crs_field_label"] = " ".join(tokens[:i] + tokens[i + 1 :])
-            f["crs_item_mark"] = token
-
-
-def _mark_order(mark: str | None) -> tuple:
-    """Series order: by letters, then number; a finding with no mark keeps its place."""
-    m = _INDEX_TOKEN.match(mark or "")
-    return (0, m.group(1).lower(), int(m.group(2))) if m else (1, "", 0)
-
-
-def _marks(group: list[dict]) -> list[str]:
-    """The item marks a series row stands for, in numeric order."""
-    seen = {g["crs_item_mark"] for g in group if g.get("crs_item_mark")}
-    return sorted(seen, key=_mark_order)
-
-
-def _marks_text(group: list[dict]) -> str:
-    marks = _marks(group)
-    if len(marks) > MAX_ITEM_MARKS:
-        marks = [
-            *marks[:MAX_ITEM_MARKS],
-            f"and {len(_marks(group)) - MAX_ITEM_MARKS} more",
-        ]
-    return ", ".join(marks)
-
-
 #: R30: a finding's verdict in the words the reasoning line uses.
 _RESULT_WORDS = {"COMPLIANT": "meets", "NON_COMPLIANT": "does not meet",
                  "MISSING_INFORMATION": "value not given", "NEEDS_ENGINEER_REVIEW": "engineer to check",
@@ -654,13 +558,11 @@ def _page_section(group: list[dict]) -> str:
     Never the standard's file name - that is the Standard Reference column."""
     f = group[0]
     pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
-    field = _field_label(f)
+    field = _field_label(f) + crs_item_series.items_suffix(group)
     tags = _items(group)
     where = (f"p.{_page_list(pages)}" if pages else "")
     if field:
         where = f"{where} - {field}" if where else field
-    if _marks(group):
-        where += f", items {_marks_text(group)}"
     if tags:
         where += f" ({', '.join(tags)})"
     # The chunk's section heading is NOT printed here: on a ruled form it is
@@ -759,19 +661,12 @@ def engineer_comment_text(group: list[dict]) -> str:
     f = group[0]
     refs = list(dict.fromkeys(r for r in (_standard_reference(g) for g in group) if r))
     ref = "; ".join(refs) or "Requirement"
-    field = _field_label(f)
+    field = _field_label(f) + crs_item_series.items_suffix(group)
     tags = _items(group)
     pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
-    where = " ".join(
-        p
-        for p in (
-            f"p.{_page_list(pages)}," if pages else "",
-            field or "",
-            f"items {_marks_text(group)}" if _marks(group) else "",
-            f"({', '.join(tags)})" if tags else "",
-        )
-        if p
-    )
+    where = " ".join(p for p in (
+        f"p.{_page_list(pages)}," if pages else "",
+        field or "", f"({', '.join(tags)})" if tags else "") if p)
     lead = f"{ref}: {_requirement_words(f)}"
     if not (f.get("fact_id") or f.get("contractor_page")):
         # NOT FOUND IS NOT "NOT STATED" (honesty audit 50): what is known is
@@ -785,15 +680,10 @@ def engineer_comment_text(group: list[dict]) -> str:
         # value and page, never the first tag's value printed for all. Once
         # each (order 139 part 2: a field row holds one finding per clause
         # AND tag, and a tag's value is said once).
-        per_tag = "; ".join(
-            dict.fromkeys(
-                f"{g.get('crs_item_mark') or g.get('equipment_tag') or 'untagged'} {_provided(g)}"
-                + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
-                for g in sorted(
-                    group, key=lambda g: _mark_order(g.get("crs_item_mark"))
-                )
-            )
-        )
+        per_tag = "; ".join(dict.fromkeys(
+            f"{g.get('crs_item_mark') or g.get('equipment_tag') or 'untagged'} {_provided(g)}"
+            + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
+            for g in sorted(group, key=crs_item_series.in_series_order)))
         said = f"Datasheet {field or 'value'}: {per_tag}."
     else:
         said = f"Datasheet {where} {_provided(f)}." if where else f"The datasheet {_provided(f)}."
@@ -1330,7 +1220,7 @@ def crs_groups(findings: list[dict]) -> list[dict]:
 
     Rejected findings are not rows; a datasheet check about a fact a breach
     or blank row already names is that row, not a second one."""
-    merge_item_series(findings)
+    crs_item_series.merge(findings)
     findings = [f for f in findings if not _rejected(f)]
     by: dict[str, list[dict]] = {}
     for f in findings:
@@ -1341,8 +1231,7 @@ def crs_groups(findings: list[dict]) -> list[dict]:
     blanks = by.get(BUCKET_BLANK, [])
     not_found = by.get(BUCKET_NOT_FOUND, [])
     questions = by.get(BUCKET_QUESTION, [])
-    # A datasheet check about a field a standard's row already names (the
-    # same fact) is that row, not a second one.
+    # A datasheet check about a fact a standard's row already names is that row.
     covered = {f.get("fact_id") for f in breaches + blanks if f.get("fact_id")}
     checks = [
         f
