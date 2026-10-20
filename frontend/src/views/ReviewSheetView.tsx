@@ -231,6 +231,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             }}
             onSelectCard={(card) => select(card, view.page ?? undefined)}
             onCloseRule={() => setView((v) => ({ ...v, rule: null }))}
+            onValuesConfirmed={() => void refresh()}
           />
           <div className="space-y-3" data-testid="sheet-cards">
             {cardsShown.map((card) => (

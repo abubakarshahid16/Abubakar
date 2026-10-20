@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { DocumentRecord, ReviewFinding } from "../../../types/api";
 import { EvidencePageImage } from "../EvidencePageImage";
+import { ConfirmPageValues } from "./ConfirmPageValues";
 import { PlainPageImage } from "./PlainPageImage";
 import { type SheetCard, cardTitle, isTickFinding, marksOn } from "./sheetCards";
 import { SheetPageImage } from "./SheetPageImage";
@@ -27,7 +28,7 @@ export interface PaneView {
 /** How long the page frame glows after "show it on the page" (#967 PR 4). */
 export const PULSE_MS = 1200;
 
-export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 0, onPage, onSelectCard, onCloseRule }: {
+export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 0, onPage, onSelectCard, onCloseRule, onValuesConfirmed }: {
   runId: string;
   submittal: DocumentRecord | null;
   cards: SheetCard[];
@@ -39,6 +40,8 @@ export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 
   onPage: (page: number) => void;
   onSelectCard: (card: SheetCard) => void;
   onCloseRule: () => void;
+  /** Order 164.1: values were confirmed on a page, so the cards are read again. */
+  onValuesConfirmed?: () => void;
 }) {
   const frame = useRef<HTMLDivElement | null>(null);
   const [pulsing, setPulsing] = useState(false);
@@ -104,6 +107,8 @@ export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 
           </p>
         )}
       </div>
+
+      {page !== null && !view.rule && <ConfirmPageValues key={`${runId}:${page}`} runId={runId} page={page} onConfirmed={onValuesConfirmed} />}
 
       {listed.length > 0 && !view.rule && (
         <ul aria-label="Marked on this page" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
