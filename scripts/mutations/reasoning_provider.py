@@ -117,8 +117,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="OllamaProvider calls the transport without a timeout "
                     "(the first real call failed with a TypeError)",
         path=APP / "reasoning_provider.py",
-        anchor='            raw = model_transport.post_json("/api/generate", body, timeout=self.timeout)\n',
-        replacement='            raw = model_transport.post_json("/api/generate", body)\n',
+        anchor='            raw = post("/api/generate", body, timeout=self.timeout)\n',
+        replacement='            raw = post("/api/generate", body)\n',
         target="tests/test_reasoning_provider.py",
         keyword="explicit_timeout",
         tags=("model",),

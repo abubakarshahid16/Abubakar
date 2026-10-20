@@ -93,6 +93,8 @@ export interface ReviewRunTierSummary {
   counts: RunSummaryTierCounts;
   rows: RunSummaryTierRow[];
   how_reviewed: RunSummaryHowReviewed;
+  /** order 161 C: why each finding held for the engineer was held (`held_reasons.counts`): {reason: findings}, most common first; every held finding has one, so the counts add up to the held findings */
+  held_reasons?: Record<string, number>;
   /** order 139 part 2: set true by a server that sends each row's `crs_group` (the sheet's grouping); absent or false otherwise */
   crs_grouping?: boolean;
   /** order 152.2: the sheet's counts in rows, from the same grouping; null when the grouping could not be computed (never zeros) */

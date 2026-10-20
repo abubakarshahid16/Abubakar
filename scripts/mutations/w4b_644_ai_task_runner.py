@@ -21,7 +21,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(3803, "a cache hit still calls the model", R, "    if use_cache:\n        hit = _cache_get(key)\n",
        "    if False:\n        hit = _cache_get(key)\n", "cache_hit"),
     _m(3804, "the model is not part of the cache key", R,
-       'material = "\\x00".join([spec.name, spec.version, model,', 'material = "\\x00".join([spec.name, spec.version,',
+       'material = "\\x00".join([name, version, model,', 'material = "\\x00".join([name, version,',
        "two_models"),
     _m(3805, "the word limit is gone", R, "    if words > settings.ai_task_max_words:\n",
        "    if False:\n", "word_limit"),

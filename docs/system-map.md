@@ -13,7 +13,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Job | Modules |
 |---|---|
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
-| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability` |
+| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_text` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
 
 ## Modules
@@ -26,6 +26,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `admin` | Administration: users, disciplines and document grants |
 | `admin_explorer` | Read-only database explorer for the Administration page. Phase 8 |
 | `ai_applicability` | Choose the standards that apply to a submittal |
+| `clause_scope` | Choose the standards that apply to a submittal |
+| `division_text` | Choose the standards that apply to a submittal |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
@@ -88,6 +90,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_machine_words` | Order 152.2: finds machine wording (code names, model/engine names, internal phrases) in the contractor copy's machine-written cells; the issue gate refuses it |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
+| `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
+| `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
@@ -168,6 +172,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `reranker` | Cross-encoder reranking, local and CPU-only |
 | `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; rules from reference/review_tiers.json, the data the screen reads too (order 133); display only |
 | `review_counts` | Order 152.2: the CRS sheet's counts in ROWS (comments, needs you, met), the findings behind the comment rows, Review notes and removed, from the run's findings and the file's grouping, each with its unit; the run summary sends it as `sheet`; display only |
+| `held_reasons` | Order 161 C (163.4): a reason for EVERY finding held for the engineer (stored code, else the program's own leading code, else whether a datasheet field was paired), counted in the run summary; display and measurement only, no rationale, code or verdict changes |
 | `paragraph_ids` | Order 161 C: the paragraph a CRS row cites, read from the standard's own numbering (the shape most of its headings share, plus the sub-paragraph in force) when its stored clause is a table number or missing; display only, never guessed, the stored clause is left as it was |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
 | `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
