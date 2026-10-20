@@ -53,7 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
-                page_ledger, requirements_3b, review, schemas, stated_value, submittal_review)
+                page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 from .provenance import ai_quote_proved
@@ -610,43 +610,6 @@ _HELD_ON_UNSURE_KIND = frozenset(
 #: A rationale that already leads with its own machine reason ("unit_mismatch:",
 #: "LOW_TRUST_VALUE:"): an engineer question asked for that reason keeps it.
 _LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
-
-
-def _required_value_only(
-    verdict: dict, requirement: dict, purchaser_facts: list[dict], sheet: str | None
-) -> dict:
-    """#882: when the only value the sheet gives a clause is the purchaser's own
-    required one, the finding says the submittal states no offered value and
-    names the page the requirement was read on. Any other verdict is returned
-    as it came."""
-    if verdict.get("status") not in (MISSING_INFORMATION, NOT_IN_DOCUMENT_SCOPE):
-        return verdict
-    seen = {
-        r["name"]
-        for r in match_by_containment(requirement, purchaser_facts, sheet_kind=sheet)[
-            "refused"
-        ]
-        if r["reason"] == match_rules.REQUIRED_KIND
-    }
-    pages = sorted(
-        {
-            f["page"]
-            for f in purchaser_facts
-            if f.get("page") is not None
-            and _normalise_for_match(f.get("field_name")) in seen
-        }
-    )
-    if not pages:
-        return verdict
-    return {
-        **verdict,
-        "status": MISSING_INFORMATION,
-        "rationale": (
-            f"{REQUIRED_VALUE_ONLY}: the submittal does not state an offered value; the "
-            "sheet's only value for this field is the purchaser's required one "
-            f"(page {', '.join(str(n) for n in pages)}), which is not the contractor's submission"
-        ),
-    }
 
 
 def _hold_unsure_kind(
@@ -2444,19 +2407,13 @@ def _run_comparison(
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
-    # #882 A REQUIRED VALUE IS NEVER THE CONTRACTOR'S SUBMITTED VALUE: it leaves
-    # the pool every matcher and judge draws from (counted in the outcome).
-    purchaser_facts = [f for f in facts if match_rules.is_purchaser_kind(f)]
-    purchaser_values = len(purchaser_facts)
-    facts = [f for f in facts if not match_rules.is_purchaser_kind(f)]
+    facts, purchaser_facts = required_values.split(facts)
     # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
     # ANSWERS IT. The rest are counted, one grouped line per standard, in the
     # run's outcome; a definition or unconfirmed garbled text is never a check.
     # See `table_gate`.
     from . import table_gate
-    names = {r["id"]: r["filename"] for r in connect().execute(
-        "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join(
-            "?" for _ in standard_ids), standard_ids)} if standard_ids else {}
+    names = standard_labels_mod.filenames(standard_ids)
     # #139 A CODE CITED FOR ONE ITEM applies through the cited clauses only;
     # the rest does not apply, with the reason (`subject_scope.citation_gate`).
     from . import applicability as applicability_mod
@@ -2508,9 +2465,7 @@ def _run_comparison(
     # not apply (sour service on a sheet declaring no H2S). Declared absent
     # only: an unstated service keeps it a check. See `service_scope`.
     from . import service_scope
-    standard_labels = {sid: " ".join(filter(None, (
-        names.get(sid), (classification_mod.of_document(sid) or {}).get("document_number"),
-        (classification_mod.of_document(sid) or {}).get("title")))) for sid in standard_ids}
+    standard_labels = standard_labels_mod.labels(standard_ids, names)
     serviced = service_scope.gate(requirements, facts=facts, standard_labels=standard_labels)
     requirements = serviced["kept"]
     extra_not_applied.extend(serviced["items"])
@@ -2835,11 +2790,7 @@ def _run_comparison(
                     "status": NEEDS_ENGINEER_REVIEW,
                     "rationale": field_copies.ambiguous_rationale(match),
                 }
-            # #882: A REQUIRED VALUE IS CONTEXT, NEVER THE SUBMISSION.
-            if fact is None and purchaser_facts and not rule_verdict:
-                verdict = _required_value_only(
-                    verdict, governing_requirement, purchaser_facts, sheet
-                )
+            verdict = required_values.only_required_value(verdict, governing_requirement, purchaser_facts, sheet, fact, rule_verdict)  # #882
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
             # is only the contractor's omission if every page was read into fields.
             if fact is None and verdict.get("status") == MISSING_INFORMATION:
@@ -3141,7 +3092,7 @@ def _run_comparison(
         "requirements_excluded": gated["excluded"],
         "table_values_not_compared": table_values_not_compared,
         "facts_in_scope": len(facts),
-        "purchaser_values_not_used": purchaser_values,
+        "purchaser_values_not_used": len(purchaser_facts),
         "matches_attempted": matches_attempted,
         "matches_made": matches_made,
         "model_matches": model_matches,
@@ -3232,8 +3183,6 @@ PAIRING_NOT_CHECKED = "pairing_not_checked"
 #: Every containment hit was refused by a `match_rules` rule. The `refused`
 #: list on the result names each hit and the rule that removed it.
 REFUSED_BY_RULE = "refused_by_rule"
-#: #882: the sheet gives only the purchaser's own required value for the field.
-REQUIRED_VALUE_ONLY = "required_value_only"
 TABLE_ROW_REASON = "table_row"
 #: Why a numeric comparison was refused although both numbers were present:
 #: the requirement's number is a MARGIN from a reference the submittal does
@@ -3847,10 +3796,8 @@ def candidate_facts(requirement: dict, facts: list[dict]) -> list[dict]:
     tag_scoped = facts_are_tag_scoped(facts)
     out = []
     for fact in facts:
-        if not fact_has_number(fact) or fact.get("is_blank"):
+        if not fact_has_number(fact) or fact.get("is_blank") or required_values.is_purchaser_kind(fact):
             continue
-        if match_rules.is_purchaser_kind(fact):
-            continue  # #882: what the purchaser requires is not a submitted value
         if not _units_comparable(requirement, fact,
                                  requirement_unit, _unit_measure(fact)):
             continue

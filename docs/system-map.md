@@ -166,6 +166,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `reader_transport` | The one place in this codebase that may open a socket to the standards reader |
 | `reasoning_provider` | One interface for "give this bounded packet to a model and tell me exactly what answered" |
 | `reports` | Single-answer evidence reports, rendered from a frozen snapshot |
+| `required_values` | A value the reader recorded as the purchaser's requirement is never the contractor's submitted value (#882, A-1246) |
 | `requirement_quality` | Two gates on what becomes a requirement: definitions and unreadable text |
 | `requirement_split` | Every requirement in a run's scope is in ONE of three honest groups (#678) |
 | `requirements_3b` | Phase 3B: structured requirements - limits, units, conditions, exceptions |
@@ -191,6 +192,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `sentence_guard` | Where a sentence does NOT end |
 | `service_scope` | Service-condition scope (#638, #677): a requirement that applies only in a service the submittal says it is NO |
 | `sheet_page` | #967 item 5: the Sheet's datasheet page with every card's value underlined on it by the server (one router route; ids and states only in the URL) |
+| `standard_labels` | How a review names its standards: library file name, recorded number and title |
 | `standard_ids` | ONE matcher for standard identifiers (W3, #452; audit A02, A03) |
 | `standards` | The Standards Library: clause hierarchy, atomic requirements, revisions |
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |
