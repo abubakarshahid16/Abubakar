@@ -173,7 +173,7 @@ def test_an_engineers_confirmed_comment_is_never_relabelled_or_merged():
     assert "N1 Size" in confirmed[0]["page_section"]
     assert (
         "items N2, N3"
-        in [r for r in rows if not r["engineer_confirmed"]][0]["page_section"]
+        in next(r for r in rows if not r["engineer_confirmed"])["page_section"]
     )
 
 
