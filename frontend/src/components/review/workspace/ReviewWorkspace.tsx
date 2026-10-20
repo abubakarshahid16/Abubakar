@@ -550,6 +550,7 @@ export function ReviewWorkspace({
                       }}
                       standards={standardsState.standards} missing={standardsState.missing}
                       standardsError={standardsState.error} rejected={numbers.removed}
+                      heldNote={standardsState.held?.sentence ?? null}
                       signedAt={numbers.signedAt}
                     />
                   </FoldInSimple>

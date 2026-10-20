@@ -10,9 +10,11 @@ export interface CrsOpenFinding {
   finding_id: string;
   row_kind?: string | null;
   item: number;
+  /** the row's standard, as the sheet prints it */
+  standard?: string | null;
 }
 
-/** PF5 (#885): what still stands between a run and its contractor copy. `issuable` only when nothing does. Ids, counts and reasons only. */
+/** PF5 (#885): what still stands between a run and its contractor copy. `issuable` only when nothing does. Ids, counts, reasons; names: screen only. */
 export interface CrsIssueGate {
   review_run_id: string;
   issuable: boolean;

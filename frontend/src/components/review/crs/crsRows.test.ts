@@ -13,7 +13,7 @@ import type { ReviewFinding, ReviewRunSummary, ReviewRunTierSummary, RunSummaryT
 import { EMPTY_FACTS } from "./tiers";
 import {
   MAX_CLAUSE_LINES, UNGROUPED_NOTE, buildCrsRows, crsHeadline, groupingNote, headlineFieldsOf, plainObservation, rowCounts,
-  serverGroupsOf, serverNoteCount, serverNotesLine, spotCheckKeys, splitRejected, supportingClauseLines, unreadPhrase, visibleRows,
+  serverGroupsOf, sheetCountsOf, serverNoteCount, serverNotesLine, spotCheckKeys, splitRejected, supportingClauseLines, unreadPhrase, visibleRows,
 } from "./crsRows";
 
 function f(id: string, over: Partial<ReviewFinding> = {}): ReviewFinding {
@@ -320,3 +320,37 @@ describe("order 112: the observation in plain words", () => {
   });
 });
 
+
+describe("order 152.2: the sheet's counts come from one seam", () => {
+  const blanks = Array.from({ length: 13 }, (_, i) => f(`b${i}`, { compliance_status: "MISSING_INFORMATION" }));
+  const sheet = {
+    comments: 7, needs_you: 3, met: 4, not_applicable: 2, another_document: 1,
+    findings_in_comments: 20, review_notes: 0, removed: 0, findings: 30,
+  };
+  const withSheet = { ...summaryOf([]), sheet } as ReviewRunTierSummary;
+  const rows = buildCrsRows(blanks, EMPTY_FACTS, names, null, groupsOf(blanks.map((b) => [b.id, "field:x", 0])));
+
+  it("counts the rows here when the switch is off, whatever the server sent", () => {
+    const got = sheetCountsOf(rows, withSheet, false);
+    expect(got.counts).toEqual(rowCounts(rows));
+    expect(got.findingsInComments).toBe(13);
+  });
+
+  it("reads the server's rows and findings when the switch is on", () => {
+    const got = sheetCountsOf(rows, withSheet, true);
+    expect(got.counts).toEqual({ met: 4, notApplicable: 2, anotherDocument: 1, comment: 4, needsYou: 3 });
+    expect(got.counts.comment + got.counts.needsYou).toBe(sheet.comments);
+    expect(got.findingsInComments).toBe(20);
+  });
+
+  it("falls back to the rows when the server sent no sheet counts", () => {
+    expect(sheetCountsOf(rows, summaryOf([]), true).counts).toEqual(rowCounts(rows));
+    expect(sheetCountsOf(rows, null, true).findingsInComments).toBe(13);
+  });
+
+  it("states 13 findings behind 1 comment row, not one number for both", () => {
+    const got = sheetCountsOf(rows, null, false);
+    expect(got.counts.comment + got.counts.needsYou).toBe(1);
+    expect(got.findingsInComments).toBe(13);
+  });
+});

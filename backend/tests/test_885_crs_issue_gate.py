@@ -85,9 +85,11 @@ def test_an_unread_page_refuses_it_and_a_run_with_no_page_record_too():
 
 def test_the_engineer_resolves_each_item_with_a_recorded_decision_then_it_is_issued_and_kept():
     doc = _submittal()
+    # order 152.2: the standard is named on the sheet, never by its id
+    _submittal("doc_std", "STD-A-001.pdf")
     run = _run(doc, unread=[3])
     _finding(doc, run, "NON_COMPLIANT")
-    client = _client(doc)
+    client = _client(doc, "doc_std")
     fid = _fid(run)
 
     page = client.post(f"/api/reviews/runs/{run}/crs/open-items/pages/3/decision",
