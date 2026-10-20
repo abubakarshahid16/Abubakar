@@ -792,10 +792,12 @@ def page_text(stored_path: str | None, page_no: int, chunks: list) -> str:
 #: same three kinds `claude_datasheet.KINDS` names. A column the rules did not
 #: name (or named "MIN", "RATED") has no kind, and is compatible with any.
 _KIND_WORDS = {
-    "required": ("required", "spec", "specified", "purchaser"),
+    "required": ("required", "spec", "specified", "specification", "purchaser"),
     "offered": ("offered", "vendor", "proposed", "supplier"),
-    "measured": ("measured", "test", "actual", "as built"),
+    "measured": ("measured", "test", "tested", "actual", "as built"),
 }
+# WHOLE WORDS ("Inspection" is not "spec"; "Latest" is not "test").
+_KIND_RE = {k: re.compile(r"\b(?:" + "|".join(map(re.escape, w)) + r")\b") for k, w in _KIND_WORDS.items()}
 
 
 def _label_column(fact: dict) -> tuple[str, str | None]:
@@ -820,10 +822,7 @@ def rule_kind(fact: dict) -> str | None:
     column = " ".join(str(_label_column(fact)[1] or "").lower().split())
     if not column:
         return None
-    for kind, words in _KIND_WORDS.items():
-        if any(w in column for w in words):
-            return kind
-    return None
+    return next((kind for kind, pattern in _KIND_RE.items() if pattern.search(column)), None)
 
 
 def ai_raw_value(fact: dict) -> str:
