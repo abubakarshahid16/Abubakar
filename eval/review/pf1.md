@@ -160,8 +160,8 @@ Mac is what proves the routes still match.
 
 `.github/workflows/pf1-cpu.yml` (manual only) reviews every invented **tuning**
 sheet of `tests/data/pf1/` in parallel, one job per sheet, with Ollama on the
-runner's CPU, then scores them with `scripts/pf1_report.py` and posts the counts
-on the tracking issue. Scores count; **timings do not** (speed is measured on
+runner's CPU, then collects them (`scripts/pf1_collect.py`) and scores them with
+`scripts/pf1_report.py` and posts the counts on the tracking issue. Scores count; **timings do not** (speed is measured on
 the Mac). `scripts/pf1_ci_guard.py` decides which sheets may go: exactly that
 folder, never a sheet marked `held_out`, never the library group (it carries
 standard text), never a file outside the folder; one such sheet refuses the

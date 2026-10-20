@@ -2,7 +2,8 @@
 #
 # Reviews every INVENTED TUNING sheet of `tests/data/pf1/` in parallel (one job
 # per sheet) with the same local model as the Mac (Ollama, CPU only), then
-# scores them with `scripts/pf1_report.py` and posts the counts on the tracking
+# collects and scores them with `scripts/pf1_collect.py` and
+# `scripts/pf1_report.py` (both #1233) and posts the counts on the tracking
 # issue. Scores from CPU count; TIMINGS DO NOT (speed is measured on the Mac).
 #
 # Rules, enforced in code, not by this file's wording:
@@ -194,22 +195,22 @@ jobs:
             --server http://127.0.0.1:18080 --test-server --no-login \
             --db-copy "$WORK/pf1.sqlite" --only "$SHEET" --timeout 16000
 
-      - name: Export the findings from a copy of the database
+      # `pf1_collect.py` (#1233) reads the run from a COPY, read-only, writes the
+      # findings and completes the run record with the DECLARED mode (main = the
+      # normal client workflow), the page counts and the AI use: what
+      # `pf1_report.py` needs.
+      - name: Collect the findings from a copy of the database
         run: |
           python - <<'PY'
-          import json, os, sqlite3
-          work, sheet = os.environ["WORK"], os.environ["SHEET"]
-          run_id = json.load(open(f"{work}/runs/{sheet}.run.json"))["review_run_id"]
-          if not run_id:
-              raise SystemExit("the sheet has no review run: nothing to export")
+          import os, sqlite3
+          work = os.environ["WORK"]
           src = sqlite3.connect(f"file:{work}/pf1.sqlite?mode=ro", uri=True)
           dst = sqlite3.connect(f"{work}/pf1-copy.sqlite")
           src.backup(dst)
           dst.close()
-          open(f"{work}/run_id", "w").write(run_id)
           PY
-          python scripts/review_score.py export --db "$WORK/pf1-copy.sqlite" \
-            --run "$(cat "$WORK/run_id")" --out "$WORK/runs/$SHEET.findings.json" --model "$MODEL"
+          python scripts/pf1_collect.py --db "$WORK/pf1-copy.sqlite" \
+            --runs "$WORK/runs" --mode main --model "$MODEL"
 
       - name: Say what it cost
         if: always()
