@@ -83,6 +83,19 @@ describe("ConfirmPageValues", () => {
     expect(pageFacts).toHaveBeenCalledTimes(2);
   });
 
+  it("says it is working while the review is judged again, and nothing can be sent twice", async () => {
+    await openWith([fact("a", "Design pressure")]);
+    let finish: (v: unknown) => void = () => {};
+    confirmPageFacts.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm 1 value" }));
+    expect(await screen.findByText(/judging this review again/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm 1 value" })).toBeDisabled();
+    finish(done({ confirmed: 1, held_before: 1, held_after: 0 }));
+    await waitFor(() => expect(screen.queryByText(/judging this review again/i)).toBeNull());
+    expect(confirmPageFacts).toHaveBeenCalledTimes(1);
+  });
+
   it("a conflict is listed first, is never ticked in bulk, and is confirmed on its own", async () => {
     await openWith([
       fact("a", "Design pressure"),

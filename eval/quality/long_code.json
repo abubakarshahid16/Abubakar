@@ -37,7 +37,7 @@
   "backend/app/search.py": 1229,
   "backend/app/standards.py": 1924,
   "backend/app/subject_scope.py": 1072,
-  "backend/app/submittal_review.py": 1284,
+  "backend/app/submittal_review.py": 1300,
   "backend/app/synthesis.py": 1823,
   "backend/app/watcher.py": 903
  },

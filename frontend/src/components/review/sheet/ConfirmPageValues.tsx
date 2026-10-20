@@ -157,6 +157,11 @@ export function ConfirmPageValues({ runId, page, onConfirmed }: {
               Already confirmed on this page: {done.map((f) => f.field).join(", ")}.
             </p>
           )}
+          {busy && (
+            <p role="status" className="text-slateish-300">
+              Judging this review again with your confirmation. This can take a few minutes; please wait.
+            </p>
+          )}
           {problem && <p role="alert" className="text-danger-500">{problem}</p>}
           {result && <p role="status" className="text-slateish-200">{result}</p>}
         </section>

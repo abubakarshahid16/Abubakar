@@ -101,7 +101,8 @@ def _finding_counts(review_run_id: str) -> tuple[dict[str, int], int]:
 
 def _run_to_judge_again(review_run_id: str, scope: access.AccessScope) -> dict:
     """The run a batch confirmation may change, or the refusal: 404 no such run
-    for this caller; 409 an engineer's final code is set, it is still running,
+    for this caller; 409 an engineer's final code is set, it is not a finished
+    (completed) run,
     or the caller cannot read every standard it uses (judging it again under a
     narrower view would silently drop another engineer's requirements)."""
     run = submittal_review_mod.get_review_run(
@@ -112,13 +113,13 @@ def _run_to_judge_again(review_run_id: str, scope: access.AccessScope) -> dict:
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no review run with that id"),
         )
-    if run.get("engineer_final_code") or (run.get("status") or "") == "running":
+    if run.get("engineer_final_code") or (run.get("status") or "") != "completed":
         raise HTTPException(
             status_code=409,
             detail=errors.safe_error(
                 errors.INVALID_PARAMETER,
-                "this review carries an engineer's final code or is still running; "
-                "start a new review to change it",
+                "only a finished review without an engineer's final code can be "
+                "judged again; start a new review to change this one",
             ),
         )
     in_use = {
@@ -201,6 +202,15 @@ def confirm_review_facts(
                 status_code=404,
                 detail=errors.safe_error(
                     errors.NOT_FOUND, "a value in the list is not on this review"
+                ),
+            ) from exc
+        if exc.conflicts and not exc.stale:
+            raise HTTPException(
+                status_code=409,
+                detail=errors.safe_error(
+                    errors.INVALID_PARAMETER,
+                    "a value read two different ways is confirmed on its own, "
+                    "not together with others",
                 ),
             ) from exc
         raise HTTPException(
