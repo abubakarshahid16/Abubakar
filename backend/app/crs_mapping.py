@@ -26,7 +26,7 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
-from . import standard_ids
+from . import method_notes, standard_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -545,9 +545,7 @@ def reasoning_text(group: list[dict]) -> str:
         status = f.get("compliance_status")
         if status:
             bits.append(f"Result: {_RESULT_WORDS.get(status, status)}")
-        why = str(f.get("ai_rationale") or "").strip()
-        if why:
-            bits.append(f"Why: {why}")
+        bits.extend(method_notes.why_bits(f.get("ai_rationale")))
         if bits:
             lines.append(". ".join(bits))
     return "\n".join(dict.fromkeys(lines))
@@ -624,7 +622,7 @@ def _reason_words(finding: dict) -> str:
     """An engineer-review reason without its machine code: "unit_mismatch:
     the requirement is in ..." -> "the requirement is in ...", and
     "LOW_TRUST_VALUE: the value was read ..." -> "the value was read ..."."""
-    text = " ".join(str(finding.get("ai_rationale") or "").split())
+    text = " ".join(method_notes.reason_of(finding).split())
     return re.sub(r"^(?:[a-z_]+|[A-Z][A-Z_]+):\s*", "", text)
 
 

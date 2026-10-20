@@ -394,7 +394,9 @@ def test_end_to_end_a_field_read_twice_with_one_value_is_compared(temp_storage):
     got = findings[0]
     assert got["compliance_status"] == comparison.COMPLIANT
     assert comparison.AMBIGUOUS_MATCH not in (got["finding"] or "")
-    assert "page 5" in (got["finding"] or "")  # the other copy is named
+    # the other copy is named, on the rationale (the finding's own text is the
+    # reason only: order 159 keeps the program's pairing note off it)
+    assert "page 5" in (got["ai_rationale"] or "")
 
 
 def test_end_to_end_a_field_read_twice_with_two_values_goes_to_the_engineer(
