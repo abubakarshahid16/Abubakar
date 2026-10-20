@@ -1,4 +1,4 @@
-"""One shared context window for every local Ollama call (placeholder PR 9999).
+"""One shared context window for every local Ollama call (placeholder PR 1254).
 
 Ollama reloads the model whenever a call's `num_ctx` differs from the loaded
 one. Steps asked for 2048, 4096 and 8192, so two reviews in different phases
@@ -157,7 +157,7 @@ def test_the_claude_lane_num_ctx_is_untouched(monkeypatch):
 
 
 def test_out_of_range_local_num_ctx_is_refused_with_a_plain_message(monkeypatch):
-    for bad in ("1024", "999999", "abc"):
+    for bad in ("1024", "125499", "abc"):
         monkeypatch.setenv("LOCAL_NUM_CTX", bad)
         with pytest.raises(ValidationError) as err:
             Settings()
