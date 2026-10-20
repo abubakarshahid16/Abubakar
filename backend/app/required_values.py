@@ -1,8 +1,9 @@
 """A value the reader recorded as the PURCHASER'S requirement is never the
 contractor's submitted value (#882, A-1246).
 
-The readers record a value's kind (required, offered, measured) in the fact's
-`section` as `model:<kind>`. A `required` one leaves the pool every matcher and
+The AI reader records a value's kind (required, offered, measured) in the fact's
+`section` as `model:<kind>`; a code reader's kind is its column header
+(`datasheet_ai.rule_kind`). A `required` one leaves the pool every matcher and
 judge draws from; a clause left with only that value is MISSING_INFORMATION,
 naming the page, never a verdict. Values with no recorded kind are unchanged.
 """
@@ -18,7 +19,16 @@ REQUIRED_VALUE_ONLY = "required_value_only"
 
 
 def is_purchaser_kind(fact: dict | None) -> bool:
-    return str((fact or {}).get("section") or "").strip().lower() == REQUIRED_SECTION
+    """True for a value the AI reader recorded as required (`section`) AND for one
+    a code reader took from a column the header calls the purchaser's: the
+    geometry reader's `value_column` and the table reader's "<label> - Required"
+    (`datasheet_ai.rule_kind`, the one vocabulary for whose value a column holds)."""
+    fact = fact or {}
+    if str(fact.get("section") or "").strip().lower() == REQUIRED_SECTION:
+        return True
+    from . import datasheet_ai  # at call time: it is a large module
+
+    return datasheet_ai.rule_kind(fact) == "required"
 
 
 def split(facts: list[dict]) -> tuple[list[dict], list[dict]]:
