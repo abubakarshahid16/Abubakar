@@ -49,7 +49,7 @@ from pathlib import Path
 
 from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
 from .db import connect
-from .held_standards import mark as mark_held
+from .held_standards import mark
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
@@ -1748,8 +1748,7 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
 
     Every selectable standard the caller may read is accounted for: the ones
     chosen with their reason, and the ones passed over with theirs. A library
-    entry that matched no rule is an EXCLUDED row, not an absence ("we looked
-    at this and it did not apply" is what an engineer asks).
+    entry that matched no rule is an EXCLUDED row, not an absence.
     """
     if not review_run_id:
         return
@@ -1757,18 +1756,19 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
         included = is_included(row)
         exclusion = None
         if not included:
-            exclusion = row.get("excluded_by_scope") or row.get("held_for_engineer") or (
-                CANDIDATE_ONLY_REASON.get(row["method"], "not evidence that this "
-                                          "standard governs the submittal"))
+            held = row.get("excluded_by_scope") or row.get("held_for_engineer")
+            exclusion = held or CANDIDATE_ONLY_REASON.get(
+                row["method"], "not evidence that this standard governs the submittal")
             if scope_not_run and not row.get("excluded_by_scope"):
                 exclusion = f"{exclusion}; {scope_not_run}"
         record_selection(
             review_run_id=review_run_id, standard_document_id=standard_id,
             method=row["method"], reason=row["reason"], included=included,
             exclusion_reason=exclusion,
-            evidence_page=row.get("evidence_page"), evidence_quote=row.get("evidence_quote"),
+            evidence_page=row.get("evidence_page"),
+            evidence_quote=row.get("evidence_quote"),
             scope_decision=row.get("scope_decision"))
-    mark_held(review_run_id, [i for i, r in selected.items() if r.get("held_for_engineer")])
+    mark(review_run_id, [i for i, r in selected.items() if r.get("held_for_engineer")])
     for entry in _library(allowed_document_ids):
         if entry["id"] in selected:
             continue

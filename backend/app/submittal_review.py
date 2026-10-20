@@ -552,21 +552,21 @@ def ensure_schema() -> None:
                 UNIQUE(review_run_id, standard_document_id)
             )"""
         )
-        # B5 (live wiring, 2026-09-25): THE EVIDENCE FOR A SELECTION, not
-        # only its reason. Where the submittal cites the standard (page and
-        # the line it is cited on), or the scope clause that decided it; and
-        # the scope decision itself (applicability_v2) when one was made.
-        # NULL when there is no such evidence - never a placeholder.
-        for _column, _type in (("evidence_page", "INTEGER"), ("evidence_quote", "TEXT"),
-                               ("scope_decision", "TEXT"),
-                               ("held_reason", "TEXT")):
+        # B5 (2026-09-25): THE EVIDENCE FOR A SELECTION, not only its reason: the
+        # page and line cited, or the scope clause that decided it, and the scope
+        # decision (applicability_v2). NULL when there is none - no placeholder.
+        for _column, _type in (("evidence_page", "INTEGER"),
+                               ("evidence_quote", "TEXT"),
+                               ("scope_decision", "TEXT")):
             add_column_if_missing(conn, "review_applicable_standards", _column, _type)
+        add_column_if_missing(
+            conn, "review_applicable_standards", "held_reason", "TEXT"
+        )
         # B5: a standard's SCOPE RECORD (tools/scope_records.py), stored once so the
-        # live review can use it without calling a model. Written only by an
-        # explicit reading step; the review route only reads it.
-        # `not_applicable_confirmed` is 1 only when the reader's three
-        # re-reads agreed (scope_records.decide_with_confirmation) - without
-        # it a NOT_APPLICABLE is treated as UNKNOWN and excludes nothing.
+        # live review can use it without calling a model; written only by an
+        # explicit reading step. `not_applicable_confirmed` is 1 only when the
+        # reader's three re-reads agreed (scope_records.decide_with_confirmation);
+        # without it a NOT_APPLICABLE is UNKNOWN and excludes nothing.
         conn.execute(
             """CREATE TABLE IF NOT EXISTS standard_scope_records (
                 standard_document_id TEXT PRIMARY KEY
