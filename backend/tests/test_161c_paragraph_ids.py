@@ -359,43 +359,52 @@ def test_a_contents_entry_or_a_table_row_is_not_a_run_in_heading(line):
     assert got == "XQ-20(b)(1)"  # the last real heading, not XQ-77
 
 
+@pytest.fixture(autouse=True)
+def _empty_memo():
+    paragraph_ids._CACHE.clear()
+    yield
+    paragraph_ids._CACHE.clear()
+
+
+def _finding(req: str) -> dict:
+    return {
+        "requirement_id": req,
+        "standard_document_id": "std",
+        "standard_clause": "0.3",
+        "clause_identified": False,
+    }
+
+
 @pytest.mark.usefixtures("temp_storage")
-def test_the_standard_is_read_once_and_read_again_when_its_chunks_change():
+def test_the_standard_is_loaded_once_across_calls_and_again_when_its_chunks_change(
+    monkeypatch,
+):
     _std, ids = _standard_with([RUN_IN])
     req = _requirement(
         ids[0],
         "The minimum metal temperature used in design shall be the lowest expected.",
     )
-    findings = [
-        {
-            "requirement_id": req,
-            "standard_document_id": "std",
-            "standard_clause": "0.3",
-            "clause_identified": False,
-        }
-    ]
-    paragraph_ids.attach(findings)
-    assert findings[0]["paragraph_id"] == "XQ-20(b)"
-    with (
-        db.connect() as conn
-    ):  # a chunk is added: the cache must not serve the old reading
+    loads = []
+    real = paragraph_ids._load
+    monkeypatch.setattr(
+        paragraph_ids, "_load", lambda std: loads.append(std) or real(std)
+    )
+    first, second = [_finding(req)], [_finding(req)]
+    paragraph_ids.attach(first)
+    paragraph_ids.attach(second)
+    assert first[0]["paragraph_id"] == second[0]["paragraph_id"] == "XQ-20(b)"
+    assert loads == ["std"]  # two calls, one load
+    new_source = "A brand new paragraph that follows all the others in the standard."
+    with db.connect() as conn:  # a chunk is added: the memo must not hide it
         conn.execute(
             "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,"
             "token_count,content_hash,retrievable) VALUES ('c9','std','std.pdf',9,1,1,NULL,'prose',?,1,'h9',1)",
-            (
-                "XQ-50 NEW RULE (a) A brand new paragraph that follows all the others in the standard.",
-            ),
+            (f"XQ-50 NEW RULE (a) {new_source}",),
         )
-    again = [
-        {
-            "requirement_id": req,
-            "standard_document_id": "std",
-            "standard_clause": "0.3",
-            "clause_identified": False,
-        }
-    ]
-    paragraph_ids.attach(again)
-    assert again[0]["paragraph_id"] == "XQ-20(b)"
+    added = [_finding(_requirement("c9", new_source))]
+    paragraph_ids.attach(added)
+    assert added[0]["paragraph_id"] == "XQ-50(a)"
+    assert loads == ["std", "std"]  # the changed standard was read again
 
 
 @pytest.mark.parametrize(
@@ -493,3 +502,35 @@ def test_a_recognised_paragraph_before_the_unrecognised_one_is_still_read():
         shape,
     )
     assert got == "XQ-20(b)"
+
+
+TITLE_CASE_DOTTED = (
+    "\n".join(f"{i}.{i} Title Number A\nText {i}." for i in range(1, 10))
+    + "\n3.4 Another Title Here\n"
+)
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "A.1 General Requirements For Welds",  # own line, Title Case
+        "B-7 General Requirements",  # another shape, own line
+        "A.1 General Requirements (a) Welds apply.",  # Title Case run-in
+        "B-7 Appendix Mixed Case Title (a) text.",
+    ],
+)
+def test_a_title_case_heading_of_another_shape_before_the_sentence_gives_no_paragraph(
+    heading,
+):
+    sentence = "The weld shall be inspected by a qualified engineer yearly."
+    text = TITLE_CASE_DOTTED + heading + "\n" + sentence + "\n"
+    shape = paragraph_ids.dominant_shape([text])
+    assert shape == "dotted"
+    assert paragraph_ids.paragraph_for([text], 0, sentence, shape) is None
+
+
+def test_the_title_case_guard_leaves_a_sentence_under_its_own_recognised_heading():
+    sentence = "The weld shall be inspected by a qualified engineer yearly."
+    text = TITLE_CASE_DOTTED + sentence + "\n"
+    shape = paragraph_ids.dominant_shape([text])
+    assert paragraph_ids.paragraph_for([text], 0, sentence, shape) == "3.4"

@@ -191,16 +191,28 @@ def _sub_marks(text: str, start: int, stop: int, inline: str = "") -> str:
     return (f"({letter})" if letter else "") + (f"({digit})" if digit else "")
 
 
+def _title_run_in(rest: str) -> bool:
+    """True for a title in Title Case that goes on in the same line as a
+    sub-paragraph marker: "General Requirements (a) Welds apply."."""
+    words = rest.split()
+    n = 0
+    while n < len(words) and words[n][0].isupper():
+        n += 1
+    return 0 < n < len(words) and _SUB.match(words[n] + " ") is not None
+
+
 def _unplaced_heading(
     text: str, start: int, stop: int, skip: frozenset[str] = frozenset()
 ) -> bool:
     """True when a line after `start`, up to and including the one at `stop`,
-    opens like a heading of ANY shape (an identifier, then a title in capitals
-    that goes on in the same line, of any length) that the numbering did not
-    recognise (a title over `MAX_TITLE` is not): the paragraph in force is then
-    not the one found before it. A contents entry or table row (a number or
-    dot leaders after the title) is not a heading. Unsure is "not identified",
-    never the paragraph before."""
+    opens like a heading of ANY of the four `SHAPES` (an identifier, then a
+    title: in capitals running on in the line, of any length; a title line; or
+    a Title Case title followed by a sub-paragraph marker) that the dominant
+    shape did not recognise: the paragraph in force is then not the one found
+    before it. A contents entry or table row (a number or dot leaders after
+    the title) is not a heading. A heading in none of the four shapes ("E-3"
+    alone on its line, "APPENDIX E", "A1-2 TITLE") is not seen: shape alone
+    cannot tell. Unsure is "not identified", never the paragraph before."""
     for at, line in _lines(text):
         if not start < at <= stop:
             continue
@@ -208,7 +220,12 @@ def _unplaced_heading(
             m = pattern.match(line)
             if not m or m.group("id") in skip:
                 continue
-            if _run_in(m.group("rest"), limit=None) is not None:
+            rest = m.group("rest")
+            if (
+                _run_in(rest, limit=None) is not None
+                or (rest[0].isupper() and _is_title(rest))
+                or _title_run_in(rest)
+            ):
                 return True
     return False
 
