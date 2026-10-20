@@ -72,3 +72,20 @@ def test_a_number_or_a_blank_marker_before_a_slot_is_not_an_option():
     slots = [False, False, True, False, True, False, True]
     assert slot_options.count(parts, slots, 1, datasheets.is_field_label) == 1
     assert slot_options.count(parts, slots, 5, datasheets.is_field_label) == 0
+
+
+def test_fold_rewrites_only_a_heading_over_options_and_keeps_every_other_cell():
+    parts = ["Rated flow", "120", "HEAD", "Radial", "___", "Axial", "___", "Last", "x"]
+    slots = [False, False, False, False, True, False, True, False, False]
+    out, out_slots = slot_options.fold(parts, slots, datasheets.is_field_label)
+    assert out == [
+        "Rated flow",
+        "120",
+        "HEAD - Radial",
+        "___",
+        "HEAD - Axial",
+        "___",
+        "Last",
+        "x",
+    ]
+    assert out_slots == [False, False, False, True, False, True, False, False]

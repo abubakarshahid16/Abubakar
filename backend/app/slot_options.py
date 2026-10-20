@@ -37,21 +37,28 @@ def count(
     return found
 
 
-def pairs_at(
-    parts: list[str],
-    slot: list[bool],
-    index: int,
-    is_label: Callable[[str], bool],
-    finish: Callable[[str, str], tuple[str, str] | None],
-) -> tuple[list[tuple[str, str]], int] | None:
-    """`(pairs, cells used)` when `parts[index]` is a heading over options,
-    else None. `finish` is the reader's last check on every pair."""
-    options = count(parts, slot, index + 1, is_label)
-    if options < MIN_OPTIONS or not is_label(parts[index]):
-        return None
-    heading = parts[index]
-    made = (
-        finish(f"{heading} - {parts[index + 1 + 2 * k]}", parts[index + 2 + 2 * k])
-        for k in range(options)
-    )
-    return [pair for pair in made if pair is not None], 1 + 2 * options
+def fold(
+    parts: list[str], slot: list[bool], is_label: Callable[[str], bool]
+) -> tuple[list[str], list[bool]]:
+    """The cells with each heading-over-options folded into the options' own
+    labels: `[HEAD, A, ___, B, ___]` becomes `[HEAD - A, ___, HEAD - B, ___]`,
+    so the ordinary pairing reads each option with its slot. Every other cell
+    is passed through unchanged, in the same order."""
+    out_parts: list[str] = []
+    out_slot: list[bool] = []
+    index = 0
+    while index < len(parts):
+        options = count(parts, slot, index + 1, is_label)
+        if slot[index] or options < MIN_OPTIONS or not is_label(parts[index]):
+            out_parts.append(parts[index])
+            out_slot.append(slot[index])
+            index += 1
+            continue
+        for k in range(options):
+            out_parts += [
+                f"{parts[index]} - {parts[index + 1 + 2 * k]}",
+                parts[index + 2 + 2 * k],
+            ]
+            out_slot += [False, True]
+        index += 1 + 2 * options
+    return out_parts, out_slot
