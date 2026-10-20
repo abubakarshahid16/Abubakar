@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
         cmd.add_argument("--spec", required=True)
         if name == "build":
             cmd.add_argument("--out", required=True)
+            cmd.add_argument("--allow-in-git", action="store_true",
+                             help="build invented TUNING sheets into tests/data/pf1 (never held-out or library)")
     args = parser.parse_args(argv)
     try:
         spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
@@ -37,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
             pf1_set.validate(spec)
             print(f"OK: {len(spec['documents'])} document(s) in the spec; nothing written")
             return 0
-        index = pf1_set.build(spec, args.out)
+        index = pf1_set.build(spec, args.out, allow_in_git=args.allow_in_git)
     except (pf1_set.SpecError, OSError, json.JSONDecodeError) as exc:
         print(f"REFUSED: {exc}")
         return 1

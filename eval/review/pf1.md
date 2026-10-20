@@ -20,6 +20,17 @@ builders, never used when fixing anything, scored only by the merger session.
 The builder refuses an output folder inside a git repository: held-out answers
 in a repository are not held out.
 
+**The one exception (planner, 20 Oct 2026, option (a)).** So that a GitHub
+Actions workflow (order 171) can review the invented sheets, `pf1_set.py build
+--allow-in-git --out <repo>/tests/data/pf1` may write the **invented tuning
+sheets** into the repository. The builder refuses the whole build, writes
+nothing and names only counts when the spec holds any document with `held_out:
+true` or any library-group document (it carries text of the client's
+standards), and it refuses any folder not named `tests/data/pf1`. Held-out
+sheets and answers, the library group and every real document stay out of git.
+Reason: tuning sheets are invented and are the ones builders may see and fix
+against; the held-out sheets are the only ones that must stay unseen.
+
 ## Two groups (owner, 13 Oct 2026)
 
 * **Library group (the main one).** Invented sheets planted against
