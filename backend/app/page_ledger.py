@@ -31,6 +31,13 @@ SUBMITTAL_ROLE = "CONTRACTOR_SUBMITTAL"
 #: of these states was NOT searched for values, so a review may not say the
 #: contractor omitted a value it could hold.
 NOT_READ_INTO_FIELDS = frozenset({"no_facts", "unreadable", "not_reached", "not_run"})
+#: Order 165 (item E): a page the code readers gave no fact AND the AI reader
+#: read without error and put nothing forward on (no accepted reading, no
+#: refused proposal, no part left unread). It is READ - two readers looked and
+#: found no datasheet field on it (a cover, a hold list, a contents page) - so
+#: it is not in `NOT_READ_INTO_FIELDS`; it is not a page fields were read from
+#: either (`fact_pages`), and `coverage` lists it apart.
+READ_NO_FIELD = "no_fields"
 #: The rule/text readers' extraction methods. A page whose current facts all
 #: came from any OTHER reader (geometry, vision, model) is read - the ledger
 #: says "facts" - but an ABSENCE there is not the contractor's omission: the
@@ -52,6 +59,35 @@ TEXT_READER_METHODS = frozenset({"extracted", "ocr_fallback", "grid", "xlsx", "d
 VISION_NOT_RECORDED_OFF = "the geometry/vision reader is off (settings.geometry_reader_enabled)"
 VISION_NOT_RECORDED_STALE = ("vision routing has not been recorded for this page yet; "
                              "re-run extraction (\"Read unread pages\") to record it")
+
+
+def read_page_empty(ai_run: dict, page: int) -> bool:
+    """Order 165: did the AI reader READ this page and put nothing forward on
+    it? True only when the page has a reading with no error, no accepted
+    reading, no refused proposal (`counts`/`rejected`) and no part left
+    unread (`partial`, `cut_off`, `parts`, `partly_read`). A page that was not
+    asked, errored, timed out, was stopped by a limit, or on which anything
+    was proposed is not empty: a reader that failed has said nothing about
+    the page."""
+    out = (ai_run.get("pages") or {}).get(page)
+    return (
+        out is not None
+        and page not in (ai_run.get("reasons") or {})
+        and page not in (ai_run.get("partly_read") or {})
+        and not any(out.get(k) for k in ("error", "accepted", "rejected", "counts",
+                                         "partial", "cut_off", "parts", "stopped"))
+    )
+
+
+def no_fact_outcome(ai_run: dict | None, page: int, reason: str,
+                    n_pairs: int, dropped: dict[str, int]) -> tuple[str, int, str]:
+    """The ledger outcome of a page the code readers gave no fact: READ_NO_FIELD
+    when the AI reader read it and put nothing forward (two readers looked), else
+    `no_facts` - not read into fields - with `reason` as before."""
+    if ai_run is not None and read_page_empty(ai_run, page):
+        from . import page_reason_words
+        return (READ_NO_FIELD, 0, page_reason_words.no_field_found(n_pairs, dropped))
+    return ("no_facts", 0, reason)
 
 
 def _now() -> str:
@@ -391,6 +427,19 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
 # Pure: it reads the record it is given, never a database.
 
 
+def every_page_read(pages: dict, where: str, total: int) -> str:
+    """What `comparison.qualify_by_pages` says when no page is unread: fields
+    were read from `where` of `total`, and (order 165) any page both readers
+    read and found no field on is named as that, never counted as a page
+    fields were read from."""
+    none = pages.get("pages_read_no_field") or []
+    if not none:
+        return f"fields were read from every page ({where} of {total})"
+    return (f"every page was read: fields from {where} of {total}; "
+            f"page{'s' if len(none) != 1 else ''} {page_list(none)} held no field "
+            "for the code readers or the AI reader")
+
+
 def run_reader(outcome: dict | None) -> dict | None:
     """The AI reader's record a run stored (`requirement_split.reader`), or
     None when the run stored none."""
@@ -481,6 +530,7 @@ def coverage(document_id: str) -> dict:
     ledger = rows(document_id)
     if not ledger:
         return {"pages_total": None, "fact_pages": [], "pages_not_read_into_fields": [],
+                "pages_read_no_field": [],
                 "pages_read_only_by_page_reader": [],
                 "not_read_reasons": {}, "index": {}, "ocr": {}, "native": {},
                 "facts_source": None}
@@ -499,6 +549,7 @@ def coverage(document_id: str) -> dict:
         "pages_read_only_by_page_reader": _page_reader_only(document_id, fact_pages),
         "pages_not_read_into_fields": [r["page_no"] for r in not_read],
         "not_read_reasons": {str(r["page_no"]): r["facts_reason"] for r in not_read},
+        "pages_read_no_field": [r["page_no"] for r in ledger if r["facts_status"] == READ_NO_FIELD],
         "facts_source": (sources.pop() if len(sources) == 1
                          else "mixed" if sources else None),
     }

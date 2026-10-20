@@ -1773,8 +1773,7 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
             f"{page_ledger.page_list(page_reader_only)}. No value for this "
             f"requirement was found in the fields read from {where} of {total}")}
     return {**verdict, "rationale": (
-        f"{verdict.get('rationale') or ''}; fields were read from every page "
-        f"({where} of {total})")}
+        f"{verdict.get('rationale') or ''}; {page_ledger.every_page_read(pages, where, total)}")}
 
 
 def _confidence_label(value: float) -> str:
