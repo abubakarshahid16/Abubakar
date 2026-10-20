@@ -19,6 +19,7 @@ import pytest
 
 from app import (
     comparison,
+    datasheet_ai,
     datasheets,
     db,
     match_rules,
@@ -366,3 +367,34 @@ def test_a_table_reader_required_cell_is_counted_and_never_the_submission(world)
     )
     assert found["compliance_status"] == comparison.MISSING_INFORMATION
     assert outcome["purchaser_values_not_used"] == 1
+
+
+# ------------------------------------------------ the column words are whole words
+def test_a_column_that_only_contains_a_kind_word_has_no_kind():
+    """s2's follow-up on #1251: "Inspection" holds "spec", "Latest" holds "test"."""
+    for column in (
+        "Inspection",
+        "Special requirements",
+        "Latest revision",
+        "Contested",
+    ):
+        fact = _code_fact("Design pressure", column)
+        assert datasheet_ai.rule_kind(fact) is None, column
+        assert not required_values.is_purchaser_kind(fact), column
+
+
+def test_the_kind_words_still_read_as_words_in_a_longer_header():
+    for column, kind in (
+        ("Required", "required"),
+        ("Purchaser's requirement", "required"),
+        ("Specification", "required"),
+        ("Spec.", "required"),
+        ("Specified range", "required"),
+        ("Offered by vendor", "offered"),
+        ("Measured value", "measured"),
+        ("Tested", "measured"),
+        ("As built", "measured"),
+    ):
+        assert datasheet_ai.rule_kind(_code_fact("Design pressure", column)) == kind, (
+            column
+        )
