@@ -610,19 +610,32 @@ def cookie_secure(request: Request) -> bool:
     mode = str(settings.auth_cookie_secure or "auto").strip().lower()
     if mode in ("true", "false"):
         return mode == "true"
-    forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    forwarded = (
+        (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    )
     return request.url.scheme == "https" or forwarded == "https"
 
 
 def set_session_cookie(response, request: Request, token: str) -> None:
     response.set_cookie(
-        COOKIE_NAME, token, max_age=settings.auth_token_seconds, path="/",
-        httponly=True, samesite="strict", secure=cookie_secure(request))
+        COOKIE_NAME,
+        token,
+        max_age=settings.auth_token_seconds,
+        path="/",
+        httponly=True,
+        samesite="strict",
+        secure=cookie_secure(request),
+    )
 
 
 def clear_session_cookie(response, request: Request) -> None:
-    response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict",
-                           secure=cookie_secure(request))
+    response.delete_cookie(
+        COOKIE_NAME,
+        path="/",
+        httponly=True,
+        samesite="strict",
+        secure=cookie_secure(request),
+    )
 
 
 def resolve_user_id(request: Request) -> str | None:
@@ -647,10 +660,14 @@ def resolve_user_id(request: Request) -> str | None:
     user_id = read_token(token)
     if not user_id:
         return None
-    row = connect().execute(
-        "SELECT id FROM users WHERE id = ? AND is_active = 1 AND token_epoch = ?",
-        (user_id, _token_epoch(token)),
-    ).fetchone()
+    row = (
+        connect()
+        .execute(
+            "SELECT id FROM users WHERE id = ? AND is_active = 1 AND token_epoch = ?",
+            (user_id, _token_epoch(token)),
+        )
+        .fetchone()
+    )
     return row["id"] if row else None
 
 
@@ -691,7 +708,9 @@ def announce_mode() -> None:
         log.warning(
             "AUTH_MODE=%s - every request sees every document, and no login is "
             "required. Set AUTH_MODE=demo_required in backend/.env to enforce "
-            "access control.", settings.auth_mode)
+            "access control.",
+            settings.auth_mode,
+        )
         return
     secret = (settings.auth_secret or "").strip()
     log.info(
