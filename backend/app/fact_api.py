@@ -18,7 +18,7 @@ longer uses. Ids only reach the audit trail.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from . import access, errors, schemas
 from . import comparison as comparison_mod
@@ -232,4 +232,59 @@ def confirm_review_facts(
         "status_before": status_before,
         "status_after": status_after,
         "boundary": "the values of this batch and the findings of this review run only",
+    }
+
+
+#: A value two readers read differently (`datasheets.GEOMETRY_CONFLICT`).
+_CONFLICT = "conflict"
+
+
+@router.get(
+    "/api/reviews/runs/{review_run_id}/facts",
+    response_model=schemas.PageFactList,
+    responses={**schemas.ERRORS_404},
+)
+def list_review_page_facts(
+    review_run_id: str,
+    page: int = Query(ge=1),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Order 164.1: the values read on one page of this review's datasheet, for
+    the "Confirm page values" list. Conflicts first, then values still waiting
+    for an engineer, then confirmed ones. 404 when the caller may not read the
+    run (the same answer as no such run)."""
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids
+    )
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no review run with that id"),
+        )
+    rows = submittal_review_mod.list_page_facts(
+        run["submittal_document_id"],
+        page,
+        allowed_document_ids=scope.allowed_document_ids,
+    )
+    facts = [
+        {
+            "fact_id": r["id"],
+            "field": r.get("field_label") or r["field_name"],
+            "value": r.get("raw_value") or r.get("field_value"),
+            "unit": r.get("raw_unit") or r.get("unit"),
+            "quote": r.get("source_text"),
+            "confirmed": r.get("confirmed_by") is not None,
+            "conflict": (r.get("validation_state") or "").strip().lower() == _CONFLICT,
+            "needs_check": comparison_mod.low_trust_reason(r) is not None,
+        }
+        for r in rows
+    ]
+    facts.sort(
+        key=lambda f: (not f["conflict"], not f["needs_check"], f["field"].lower())
+    )
+    return {
+        "review_run_id": review_run_id,
+        "page": page,
+        "facts": facts,
+        "boundary": "the values read on this page of this review's datasheet",
     }

@@ -285,6 +285,67 @@ def test_an_empty_or_unknown_request_is_refused(world):
     assert _confirm(world, [world["fact"]], headers=hidden).status_code == 404
 
 
+def _page_facts(w, page=1, headers=None):
+    return TestClient(app).get(
+        f"/api/reviews/runs/{w['run']}/facts",
+        params={"page": page},
+        headers=w["engineer"] if headers is None else headers,
+    )
+
+
+def test_the_page_list_shows_the_values_read_on_that_page_and_what_they_wait_for(world):
+    r = _page_facts(world)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (
+        body["page"] == 1 and "this page of this review's datasheet" in body["boundary"]
+    )
+    by_id = {f["fact_id"]: f for f in body["facts"]}
+    assert world["fact"] in by_id and world["foreign"] not in by_id
+    mine = by_id[world["fact"]]
+    assert mine["field"].lower() == "noise level" and mine["value"] == "95"
+    assert mine["unit"] == "dB(A)"
+    assert (
+        mine["needs_check"] is True
+        and mine["confirmed"] is False
+        and mine["conflict"] is False
+    )
+    assert _page_facts(world, page=2).json()["facts"] == []
+
+
+def test_a_confirmed_value_is_listed_as_confirmed_and_no_longer_needs_a_check(world):
+    assert _confirm(world, [world["fact"]]).status_code == 200
+    mine = next(
+        f for f in _page_facts(world).json()["facts"] if f["fact_id"] == world["fact"]
+    )
+    assert mine["confirmed"] is True and mine["needs_check"] is False
+
+
+def test_conflicts_are_listed_first_and_flagged(world):
+    other = _model_fact(world["sub"], "Design pressure", "8", "bar")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE submittal_facts SET validation_state = 'conflict' WHERE id = ?",
+            (other,),
+        )
+    facts = _page_facts(world).json()["facts"]
+    assert facts[0]["fact_id"] == other and facts[0]["conflict"] is True
+    assert [f["conflict"] for f in facts[1:]] == [False] * (len(facts) - 1)
+
+
+def test_a_superseded_value_is_not_listed_and_a_stranger_gets_404(world):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE submittal_facts SET superseded_at = ? WHERE id = ?",
+            (NOW, world["fact"]),
+        )
+    assert world["fact"] not in [
+        f["fact_id"] for f in _page_facts(world).json()["facts"]
+    ]
+    assert _page_facts(world, headers=_user("stranger", [])).status_code == 404
+    assert _page_facts(world, page=0).status_code == 422
+
+
 def test_a_value_read_two_ways_is_never_confirmed_in_a_batch_but_alone(world):
     other = _model_fact(world["sub"], "Design pressure", "8", "bar")
     with db.connect() as conn:

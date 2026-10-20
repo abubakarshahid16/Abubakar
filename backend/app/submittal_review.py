@@ -926,6 +926,28 @@ def confirm_fact(fact_id: str, *, allowed_document_ids: frozenset[str],
     return dict(row)
 
 
+def list_page_facts(
+    submittal_document_id: str, page: int, *, allowed_document_ids: frozenset[str]
+) -> list[dict]:
+    """Order 164.1: the CURRENT values the program read on one page of a
+    submittal the caller may read (a superseded row is the review's past, not a
+    value to confirm); blanks are not values. Newest reading first per field."""
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
+    rows = (
+        connect()
+        .execute(
+            "SELECT * FROM submittal_facts"
+            + where
+            + " AND submittal_document_id = ? AND page = ? AND superseded_at IS NULL"
+            " AND COALESCE(is_blank, 0) = 0 ORDER BY field_name, created_at DESC",
+            (*args, submittal_document_id, page),
+        )
+        .fetchall()
+    )
+    return [dict(r) for r in rows]
+
+
 class FactsNotConfirmable(ValueError):
     """`confirm_facts` refused the whole batch: `missing` ids the caller may not
     read, or that are on another submittal (the same answer for both);
