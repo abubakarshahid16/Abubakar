@@ -565,11 +565,15 @@ def merge_item_series(findings: list[dict]) -> None:
             m = _INDEX_TOKEN.match(token)
             if not m:
                 continue
-            masked = tuple(_fold(t) for t in tokens[:i]) + ("#",) + tuple(
-                _fold(t) for t in tokens[i + 1:])
+            masked = (
+                tuple(_fold(t) for t in tokens[:i])
+                + ("#",)
+                + tuple(_fold(t) for t in tokens[i + 1 :])
+            )
             key = (bucket, f.get("contractor_page"), i, masked)
             variant = cohorts.setdefault(key, {}).setdefault(
-                (m.group(1).lower(), int(m.group(2))), {"clauses": set(), "members": []})
+                (m.group(1).lower(), int(m.group(2))), {"clauses": set(), "members": []}
+            )
             variant["clauses"].add(_clause_identity(f))
             variant["members"].append((f, tokens, i, token))
     claimed: set[int] = set()
@@ -584,7 +588,7 @@ def merge_item_series(findings: list[dict]) -> None:
             continue
         for f, tokens, i, token in members:
             claimed.add(id(f))
-            f["crs_field_label"] = " ".join(tokens[:i] + tokens[i + 1:])
+            f["crs_field_label"] = " ".join(tokens[:i] + tokens[i + 1 :])
             f["crs_item_mark"] = token
 
 
@@ -603,7 +607,10 @@ def _marks(group: list[dict]) -> list[str]:
 def _marks_text(group: list[dict]) -> str:
     marks = _marks(group)
     if len(marks) > MAX_ITEM_MARKS:
-        marks = [*marks[:MAX_ITEM_MARKS], f"and {len(_marks(group)) - MAX_ITEM_MARKS} more"]
+        marks = [
+            *marks[:MAX_ITEM_MARKS],
+            f"and {len(_marks(group)) - MAX_ITEM_MARKS} more",
+        ]
     return ", ".join(marks)
 
 
@@ -755,10 +762,16 @@ def engineer_comment_text(group: list[dict]) -> str:
     field = _field_label(f)
     tags = _items(group)
     pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
-    where = " ".join(p for p in (
-        f"p.{_page_list(pages)}," if pages else "",
-        field or "", f"items {_marks_text(group)}" if _marks(group) else "",
-        f"({', '.join(tags)})" if tags else "") if p)
+    where = " ".join(
+        p
+        for p in (
+            f"p.{_page_list(pages)}," if pages else "",
+            field or "",
+            f"items {_marks_text(group)}" if _marks(group) else "",
+            f"({', '.join(tags)})" if tags else "",
+        )
+        if p
+    )
     lead = f"{ref}: {_requirement_words(f)}"
     if not (f.get("fact_id") or f.get("contractor_page")):
         # NOT FOUND IS NOT "NOT STATED" (honesty audit 50): what is known is
@@ -772,10 +785,15 @@ def engineer_comment_text(group: list[dict]) -> str:
         # value and page, never the first tag's value printed for all. Once
         # each (order 139 part 2: a field row holds one finding per clause
         # AND tag, and a tag's value is said once).
-        per_tag = "; ".join(dict.fromkeys(
-            f"{g.get('crs_item_mark') or g.get('equipment_tag') or 'untagged'} {_provided(g)}"
-            + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
-            for g in sorted(group, key=lambda g: _mark_order(g.get("crs_item_mark")))))
+        per_tag = "; ".join(
+            dict.fromkeys(
+                f"{g.get('crs_item_mark') or g.get('equipment_tag') or 'untagged'} {_provided(g)}"
+                + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
+                for g in sorted(
+                    group, key=lambda g: _mark_order(g.get("crs_item_mark"))
+                )
+            )
+        )
         said = f"Datasheet {field or 'value'}: {per_tag}."
     else:
         said = f"Datasheet {where} {_provided(f)}." if where else f"The datasheet {_provided(f)}."
