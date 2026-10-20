@@ -37,7 +37,7 @@
         {"id": "b3", "standard_document_id": "std-2", "standard_name": "STD-200.pdf", "standard_clause": "2.2", "requirement_source_text": "2.2 Corrosion allowance shall be given for each pressure part.", "crs_field_label": "Corrosion allowance", "fact_id": "fact-1", "contractor_page": 2}
       ],
       "expected_rows": [
-        {"finding_ids": ["b1", "b2", "b3"], "priority": 2, "priority_label": "Missing value", "action": "Contractor to provide Corrosion allowance.", "clause_count": 3}
+        {"finding_ids": ["b1", "b2", "b3"], "priority": 2, "priority_label": "Missing value", "action": "Contractor to complete the field 'Corrosion allowance' (left blank).", "clause_count": 3}
       ],
       "not_on_sheet": []
     },
@@ -107,7 +107,7 @@
         {"id": "g3", "standard_clause": "10.3", "requirement_source_text": "10.3 Flange rating shall be given per nozzle.", "crs_field_label": "Flange rating", "fact_id": "fact-5", "contractor_page": 2}
       ],
       "expected_rows": [
-        {"finding_ids": ["g1", "g2"], "priority": 2, "priority_label": "Missing value", "action": "Contractor to provide Flange rating.", "clause_count": 2},
+        {"finding_ids": ["g1", "g2"], "priority": 2, "priority_label": "Missing value", "action": "Contractor to complete the field 'Flange rating' (left blank).", "clause_count": 2},
         {"finding_ids": ["g3"], "priority": 2, "priority_label": "Missing value", "action": null, "clause_count": 1}
       ],
       "not_on_sheet": []

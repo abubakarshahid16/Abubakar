@@ -142,3 +142,26 @@ def test_two_columns_of_one_material_row_are_both_named():
         ("Material - Casing", [1]),
         ("Material - Impeller", [2]),
     ]
+
+
+def test_a_blank_field_row_asks_in_a_full_sentence_with_the_field_as_quoted():
+    f = {**_blank("a", "Ultrasonic", 5), "compliance_status": "MISSING_INFORMATION"}
+    f["crs_is_blank"] = True
+    assert crs_mapping._action(f, "Ultrasonic") == (
+        "Contractor to complete the field 'Ultrasonic' (left blank)."
+    )
+
+
+def test_a_value_that_is_not_blank_keeps_the_plain_request():
+    f = {**_blank("a", "Ultrasonic", 5), "compliance_status": "MISSING_INFORMATION"}
+    f["crs_is_blank"] = False
+    assert crs_mapping._action(f, "Ultrasonic") == "Contractor to provide Ultrasonic."
+
+
+def test_a_blank_with_no_field_name_never_quotes_an_empty_field():
+    f = {
+        **_blank("a", "", 5),
+        "compliance_status": "MISSING_INFORMATION",
+        "crs_is_blank": True,
+    }
+    assert crs_blank_fields.provide_words(f, "") == "Contractor to provide the value."

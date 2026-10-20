@@ -139,3 +139,14 @@ def comment_or(group: list[dict], other) -> str:
 def section_or(group: list[dict], other) -> str:
     """The blank-fields row's page and field, else `other(group)`."""
     return page_section(group) if is_row(group) else other(group)
+
+
+def provide_words(finding: dict, field: str) -> str:
+    """The action of a blank field's row as a full sentence (#882, item 4):
+    "Contractor to complete the field 'Ultrasonic' (left blank)." - the field
+    as the sheet quotes it and what is known of it, never the bare label. A
+    value the sheet gave (not blank), or a field with no label, keeps the
+    plain "Contractor to provide <field>." as before."""
+    if field and finding.get("crs_is_blank"):
+        return f"Contractor to complete the field '{field}' (left blank)."
+    return f"Contractor to provide {field or 'the value'}."
