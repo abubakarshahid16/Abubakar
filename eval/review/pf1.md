@@ -127,3 +127,27 @@ pages, files, items by kind).
   as a false positive even when it is right; read that number with this in
   mind until the scorer sets such findings apart.
 * Held-out types are scored, but their per-item results stay with the scorer.
+
+## Running the set (runner)
+
+`scripts/pf1_run.py` sends each sheet of the built set through a **test**
+server: upload (the invented group also uploads its invented standard, sets it
+as a company standard and extracts it), start the review, wait for its job,
+write `<id>.run.json` (run id, job state, minutes; no document text) and
+`run-index.json`. It does not score: export the findings from a copy of the
+test server's database with `scripts/review_score.py export --run RUN_ID`, then
+`score`.
+
+```powershell
+$env:PF1_PASSWORD = "..."   # read from the environment, never an argument
+python scripts\pf1_run.py --set D:\project\pf1-set\set --out D:\project\pf1-set\runs `
+    --server http://127.0.0.1:11435 --test-server --email EMAIL --discipline DISCIPLINE
+```
+
+It refuses a server not named `--test-server`, one that is not on this machine,
+and port 8000 (the live app). Held-out sheets are skipped unless
+`--include-held-out` (only the merger session uses it); `--only ID` runs one
+sheet; `--no-standards` when the library already holds the standards. Prints
+counts only. The runner's tests use a fake server: the first real run on the
+Mac is what proves the routes still match.
+
