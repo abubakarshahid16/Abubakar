@@ -134,8 +134,11 @@ def sheet_report(
         "correct_undecided": sum(1 for i in correct if not statuses[i]),
         "keyed_items": len(keyed),
         "keyed_decided": sum(1 for i in keyed if has(i, DECIDED)),
+        "judged_findings": scored["judged_findings"],
+        "correct_findings": scored["correct_findings"],
         "citations_checked": scored["citations_checked"],
         "citations_valid": scored["citations_valid"],
+        "ai_use": (run or {}).get("ai"),
         "pages_read": pages_read,
         "pages_total": pages_total,
         "minutes": (run or {}).get("minutes"),
@@ -156,9 +159,15 @@ SUM_FIELDS = (
     "correct_undecided",
     "keyed_items",
     "keyed_decided",
+    "judged_findings",
+    "correct_findings",
     "citations_checked",
     "citations_valid",
 )
+
+
+def _ratio(n: int, d: int) -> float | None:
+    return (n / d) if d else None
 
 
 def _totals(rows: list[dict]) -> dict:
@@ -171,6 +180,13 @@ def _totals(rows: list[dict]) -> dict:
     for name in SUM_FIELDS:
         out[name] = sum(r[name] for r in ran)
     out["incomplete_runs"] = sum(1 for r in ran if not r["finished"])
+    out["recall"] = _ratio(out["defects_caught"], out["defects"])
+    out["precision"] = _ratio(out["correct_findings"], out["judged_findings"])
+    out["citation_validity"] = _ratio(out["citations_valid"], out["citations_checked"])
+    out["ai_use"] = sorted(
+        {json.dumps(r["ai_use"], sort_keys=True) for r in ran if r.get("ai_use")}
+    )
+    out["ai_use_not_recorded"] = sum(1 for r in ran if not r.get("ai_use"))
     minutes = [r["minutes"] for r in ran if r.get("minutes") is not None]
     out["minutes"] = round(sum(minutes), 1) if minutes else None
     out["minutes_recorded_for"] = len(minutes)
@@ -178,7 +194,11 @@ def _totals(rows: list[dict]) -> dict:
 
 
 def build_report(
-    index: dict, keys: dict[str, dict], findings: dict[str, dict], runs: dict[str, dict]
+    index: dict,
+    keys: dict[str, dict],
+    findings: dict[str, dict],
+    runs: dict[str, dict],
+    bar: dict | None = None,
 ) -> dict:
     """The whole report. `keys`, `findings`, `runs` are keyed by document id."""
     if not isinstance(index, dict) or not isinstance(index.get("documents"), list):
@@ -217,7 +237,47 @@ def build_report(
         },
     }
     report["blocked"] = blocked(report)
+    if bar is not None:
+        report["bar"] = {
+            "wanted": bar,
+            "status": bar_status(report["totals"]["all"], bar),
+        }
     return report
+
+
+#: The Stage E pass mark (owner decision, order 170.1, final): on the R1 KJO
+#: answer key and the R2 blind set. A PF1 set has NO pass mark until the owner
+#: sets one after its baseline; `--bar stage-e` shows these four numbers against
+#: this bar for a set that is scored for it.
+STAGE_E_BAR = {
+    "recall": 0.85,
+    "precision": 0.80,
+    "false_meets": 0,
+    "citations_valid": 1.0,
+}
+
+
+def bar_status(totals: dict, bar: dict) -> dict:
+    """{"recall": "meets"|"BELOW"|"cannot tell", ...}. A number with no
+    denominator is "cannot tell", never a pass."""
+
+    def at_least(value, wanted):
+        return (
+            "cannot tell"
+            if value is None
+            else ("meets" if value >= wanted else "BELOW")
+        )
+
+    return {
+        "recall": at_least(totals["recall"], bar["recall"]),
+        "precision": at_least(totals["precision"], bar["precision"]),
+        "false_meets": "meets"
+        if totals["false_meets"] <= bar["false_meets"]
+        else "BELOW",
+        "citations_valid": at_least(
+            totals["citation_validity"], bar["citations_valid"]
+        ),
+    }
 
 
 def blocked(report: dict) -> list[str]:
@@ -280,6 +340,35 @@ def render(report: dict) -> str:
             f"citations valid {_pct(t['citations_valid'], t['citations_checked'])}; "
             f"minutes {t['minutes'] if t['minutes'] is not None else 'not recorded'}"
             f"{'' if t['minutes'] is None else ' (' + str(t['minutes_recorded_for']) + ' sheets)'}."
+        )
+    t = report["totals"]["all"]
+    if t["sheets_run"]:
+        ratio = lambda v: "cannot tell" if v is None else f"{round(100 * v)}%"  # noqa: E731
+        lines.append(
+            f"**The four numbers (all sheets run):** recall {ratio(t['recall'])}, "
+            f"precision {ratio(t['precision'])}, false Meets {t['false_meets']}, "
+            f"citations valid {ratio(t['citation_validity'])}."
+        )
+        lines.append(
+            "AI use: "
+            + ("; ".join(t["ai_use"]) if t["ai_use"] else "not recorded")
+            + (
+                f" ({t['ai_use_not_recorded']} sheet(s) without a record)"
+                if t["ai_use"] and t["ai_use_not_recorded"]
+                else ""
+            )
+            + "."
+        )
+    if "bar" in report:
+        wanted = report["bar"]["wanted"]
+        lines.append(
+            "Against the Stage E pass mark (recall >= "
+            f"{round(100 * wanted['recall'])}%, precision >= {round(100 * wanted['precision'])}%, "
+            "0 false Meets, 100% valid citations): "
+            + ", ".join(
+                f"{k.replace('_', ' ')} {v}" for k, v in report["bar"]["status"].items()
+            )
+            + "."
         )
     for group, t in report["totals"]["by_group"].items():
         lines.append(

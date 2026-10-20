@@ -131,6 +131,15 @@ unfinished run says INCOMPLETE beside its numbers; two modes in one report are
 refused (the MAIN score and the diagnostic are never added). Held-out sheets are
 in the totals and never named. `--check` exits 1 on any false Meets.
 
+The report also prints the four numbers of the **Stage E pass mark** (owner
+decision, order 170.1): recall, precision, false Meets and valid citations, and
+the AI use each run record states (`ai`: a small object such as the reader's
+engine and whether Claude was used; "not recorded" is said, never assumed
+empty). `--bar stage-e` sets them against the bar (recall >= 85%, precision >=
+80%, 0 false Meets, 100% valid citations; a number with no denominator is
+"cannot tell", never a pass). A PF1 set has no pass mark until the owner sets
+one after its baseline.
+
 ## Scoring and reporting (#881)
 
 * **MAIN score** = the normal client workflow as a client would run it.

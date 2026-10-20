@@ -272,3 +272,67 @@ def test_the_command_prints_the_table_and_check_fails_only_on_a_false_meets(
 def test_the_command_refuses_a_folder_that_is_not_a_set(tmp_path, capsys):
     assert _script().main(["--set", str(tmp_path), "--runs", str(tmp_path)]) == 1
     assert "REFUSED" in capsys.readouterr().out
+
+
+def test_the_four_stage_e_numbers_and_the_ai_use_are_reported(tmp_path):
+    index, keys = _set(tmp_path)
+    findings = {
+        "pf1-t-pump": _findings(
+            keys["pf1-t-pump"],
+            D1="NON_COMPLIANT",
+            D2="NON_COMPLIANT",
+            M1="COMPLIANT",
+            T1="COMPLIANT",
+        )
+    }
+    run = {**_run(), "ai": {"reader": "ollama", "claude": False}}
+    out = rep.build_report(index, keys, findings, {"pf1-t-pump": run})
+    total = out["totals"]["all"]
+    assert total["recall"] == 1.0 and total["precision"] == 1.0
+    assert total["citation_validity"] == 1.0 and total["false_meets"] == 0
+    text = rep.render(out)
+    assert "recall 100%, precision 100%, false Meets 0, citations valid 100%" in text
+    assert '"claude": false' in text and "AI use: " in text
+
+
+def test_ai_use_not_recorded_is_said_not_assumed_empty(tmp_path):
+    index, keys = _set(tmp_path)
+    findings = {"pf1-t-pump": _findings(keys["pf1-t-pump"], D1="NON_COMPLIANT")}
+    out = rep.build_report(index, keys, findings, {"pf1-t-pump": _run()})
+    assert "AI use: not recorded" in rep.render(out)
+
+
+def test_against_the_stage_e_bar_each_number_meets_is_below_or_cannot_tell(tmp_path):
+    index, keys = _set(tmp_path)
+    low = {
+        "pf1-t-pump": _findings(keys["pf1-t-pump"], D1="NON_COMPLIANT")
+    }  # 1 of 2 defects
+    out = rep.build_report(
+        index, keys, low, {"pf1-t-pump": _run()}, bar=rep.STAGE_E_BAR
+    )
+    status = out["bar"]["status"]
+    assert status["recall"] == "BELOW" and status["false_meets"] == "meets"
+    assert "Against the Stage E pass mark" in rep.render(out)
+    none = rep.build_report(index, keys, {}, {}, bar=rep.STAGE_E_BAR)
+    assert set(none["bar"]["status"].values()) == {
+        "cannot tell",
+        "meets",
+    }  # nothing run: no number, no pass
+    assert none["bar"]["status"]["recall"] == "cannot tell"
+    assert rep.STAGE_E_BAR == {
+        "recall": 0.85,
+        "precision": 0.80,
+        "false_meets": 0,
+        "citations_valid": 1.0,
+    }
+
+
+def test_the_command_shows_the_stage_e_bar_on_request(tmp_path, capsys):
+    _index, keys = _set(tmp_path)
+    runs_dir = _write_run(tmp_path, keys, "NON_COMPLIANT")
+    args = ["--set", str(tmp_path / "set"), "--runs", str(runs_dir)]
+    assert "Against the Stage E" not in (
+        _script().main(args) or capsys.readouterr().out
+    )
+    _script().main([*args, "--bar", "stage-e"])
+    assert "Against the Stage E pass mark" in capsys.readouterr().out

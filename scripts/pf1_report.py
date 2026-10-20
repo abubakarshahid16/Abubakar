@@ -39,10 +39,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check", action="store_true", help="exit 1 on any false Meets"
     )
+    parser.add_argument(
+        "--bar",
+        choices=("stage-e",),
+        help="also show the four numbers against the Stage E pass mark (order 170.1)",
+    )
     args = parser.parse_args(argv)
     try:
         index, keys, findings, runs = pf1_report.load_set(args.set, args.runs)
-        report = pf1_report.build_report(index, keys, findings, runs)
+        bar = pf1_report.STAGE_E_BAR if args.bar == "stage-e" else None
+        report = pf1_report.build_report(index, keys, findings, runs, bar)
     except (pf1_report.ReportError, rs.KeyError_, OSError) as exc:
         print(f"REFUSED: {exc}")
         return 1
