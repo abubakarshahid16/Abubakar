@@ -25,7 +25,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import scope_ledger, standard_ids
+from . import clause_support, scope_ledger, standard_ids
 
 VOCABULARY_PATH = Path(__file__).parent / "reference" / "service_conditions.json"
 
@@ -150,8 +150,13 @@ def gate(requirements: list[dict], *, facts: list[dict],
          headings_by_standard: dict[str, dict[str, str]] | None = None) -> dict:
     """{"kept": [...], "items": [{"requirement", "code", "detail"} - one per
     requirement that does not apply, the shape #678's counts take],
-    "declarations": {condition: what the sheet says, or None}}. Order kept."""
+    "declarations": {condition: what the sheet says, or None}, "held": [...]
+    (applies, not checked: the sentence names a service the sheet does not
+    state, `clause_support`)}. Order kept. Also sets aside a sentence that
+    states no requirement (`clause_support`, orders 180)."""
     labels = standard_labels or {}
+    support = clause_support.set_aside_non_requirements(requirements)
+    requirements = support["kept"]
     conds = conditions(path)
     declared = {c["name"]: declaration(c, facts) for c in conds}
     if headings_by_standard is None and any(d is not None and d["present"] is False
@@ -161,7 +166,7 @@ def gate(requirements: list[dict], *, facts: list[dict],
             r.get("standard_document_id") for r in requirements if r.get("standard_document_id")}))
     headings_by_standard = headings_by_standard or {}
     kept: list[dict] = []
-    items: list[dict] = []
+    items: list[dict] = list(support["items"])
     for requirement in requirements:
         label = labels.get(requirement.get("standard_document_id") or "", "")
         out = None
@@ -178,4 +183,13 @@ def gate(requirements: list[dict], *, facts: list[dict],
             kept.append(requirement)
         else:
             items.append(out)
-    return {"kept": kept, "items": items, "declarations": declared}
+    known = clause_support.known_words(
+        [c["name"] for c in conds] + [m for c in conds for m in c["markers"]]
+    )
+    unstated = clause_support.hold_unstated_services(kept, facts=facts, known=known)
+    return {
+        "kept": unstated["kept"],
+        "items": items,
+        "declarations": declared,
+        "held": unstated["held"],
+    }
