@@ -181,3 +181,37 @@ def test_two_identical_confirmed_drafts_are_one_row():
     rows = _rows(findings)
     assert len(rows) == 1
     assert "differ; all are kept" not in rows[0]["comment"]
+
+
+def test_a_placeholder_draft_is_a_review_note_on_the_screen_not_a_row():
+    from app.api import run_summary
+
+    findings = [_ai("a", "n/a"), _ai("b", "Confirm the guard.")]
+    rows = build_crs_rows(findings, [], "sheet.pdf")
+    fields = run_summary.crs_row_fields(rows, findings)
+    assert fields["a"] == {"crs_note": True}
+    assert "crs_group" in fields["b"]
+
+
+def test_two_groups_of_one_field_never_share_a_number_key():
+    findings = [
+        _ai("a", "One.", confirmed_by="e1"),
+        _ai("b", "One.", confirmed_by="e1"),
+        _ai("c", "Two."),
+        _ai("d", "Three."),
+    ]
+    rows = _rows(findings)
+    assert len(rows) == 2
+    assert len({r["comment_key"] for r in rows}) == 2
+
+
+def test_the_screen_is_told_when_the_merged_drafts_differ():
+    from app.api import run_summary
+
+    findings = [_ai("a", "One."), _ai("b", "Two.")]
+    rows = build_crs_rows(findings, [], "sheet.pdf")
+    fields = run_summary.crs_row_fields(rows, findings)
+    assert "differ; all are kept" in fields["a"]["crs_action"]
+    same = [_ai("a", "One."), _ai("b", "One.")]
+    rows = build_crs_rows(same, [], "sheet.pdf")
+    assert run_summary.crs_row_fields(rows, same)["a"]["crs_action"] is None

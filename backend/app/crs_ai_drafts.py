@@ -74,8 +74,11 @@ def merge(findings: list[dict]) -> None:
         lead, rest = group[0], group[1:]
         lead["crs_member_keys"] = sorted(cm.finding_comment_key(f) for f in group)
         lead["crs_merged_ids"] = [f.get("id") for f in group if f.get("id")]
-        lead["crs_key"] = cm.comment_key("ai drafts of one field", *key[:3])
-        lead["finding"], lead["required_action"] = _drafts_text(cm, group), ""
+        # Not the confirmed flag (a confirmed row keeps its number) but the
+        # engineer's wording, so two groups of one field never share a key.
+        lead["crs_key"] = cm.comment_key("ai drafts of one field", *key[:3], key[4])
+        text, differ = _drafts_text(cm, group)
+        lead["finding"], lead["required_action"], lead["crs_differ"] = text, "", differ
         if lead["origin"] == cm._AI_ORIGIN:
             names = dict.fromkeys(n for n in map(cm._ai_relates_to, group) if n)
             lead["ai_rationale"] = (
@@ -85,7 +88,8 @@ def merge(findings: list[dict]) -> None:
             f["crs_skip"] = True
 
 
-def _drafts_text(cm, group: list[dict]) -> str:
+def _drafts_text(cm, group: list[dict]) -> tuple[str, str]:
+    """(the drafts' words, the note when they differ else "")."""
     from .ai_engineering_check import UNVERIFIED_LABEL
 
     def one(f: dict) -> str:
@@ -97,9 +101,10 @@ def _drafts_text(cm, group: list[dict]) -> str:
     drafts = list(dict.fromkeys(one(f) for f in group if f.get("id")))
     distinct = {_fold(d): d for d in drafts}
     if len(distinct) == 1:
-        return drafts[0]
+        return drafts[0], ""
     numbered = " ".join(f"({i}) {d}" for i, d in enumerate(distinct.values(), 1))
-    return f"{len(distinct)} drafts about this field differ; all are kept. {numbered}"
+    note = f"{len(distinct)} drafts about this field differ; all are kept."
+    return f"{note} {numbered}", note
 
 
 def row_extras(finding: dict) -> dict:
@@ -109,4 +114,6 @@ def row_extras(finding: dict) -> dict:
     return {
         "finding_ids": finding.get("crs_merged_ids") or [finding.get("id") or ""],
         "member_keys": finding.get("crs_member_keys") or [],
+        # Never printed: the screen shows it as the row's action line.
+        "crs_action": finding.get("crs_differ") or None,
     }
