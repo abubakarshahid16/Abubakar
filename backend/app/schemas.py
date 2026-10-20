@@ -2524,7 +2524,7 @@ class ReviewReadiness(BaseModel):
     #: #1017: null when the page ledger is not one a reader may count on
     #: (`ledger_state` says why) - never 0 for "nobody looked".
     pages_read: int | None = None
-    pages_read_no_field: list[int] = []  # order 165: read, no checklist field; not in pages_read
+    pages_read_no_field: list[int] = []  # order 165
     unread_pages: list[int] = []
     #: #1017: current / missing / stale / not_as_submittal. A GET never rebuilds
     #: the ledger; the writers do (ingest, reading the sheet into fields, a
@@ -2536,7 +2536,7 @@ class ReviewReadiness(BaseModel):
     #: that is what a JSON object key is), the reason `page_ledger.refresh`
     #: recorded for why the page did not read into fields - "no text on this
     #: page", "read but only by the page reader", a vision-routing decision,
-    #: etc. (`coverage()`'s `not_read_reasons`, once never carried past `unread_pages`).
+    #: etc. (`coverage()`'s `not_read_reasons`).
     unread_page_reasons: dict[str, str] = {}
     standards_cited: int = 0
     standards_held: list[str] = []
