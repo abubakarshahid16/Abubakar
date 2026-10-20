@@ -13,6 +13,7 @@ from tools import pf1_report as rep
 from tools import pf1_set
 
 from tests.test_881_pf1_set import _doc, _spec, _with_clause_5_1
+from tests.test_w8_676_review_score import live_like_db  # noqa: F401 - a fixture
 
 
 def _set(tmp_path, *docs):
@@ -336,3 +337,150 @@ def test_the_command_shows_the_stage_e_bar_on_request(tmp_path, capsys):
     )
     _script().main([*args, "--bar", "stage-e"])
     assert "Against the Stage E pass mark" in capsys.readouterr().out
+
+
+# ------------------------------------------------------ pf1_collect: runner -> report
+
+
+def test_outcome_facts_counts_pages_not_left_unread_and_names_the_ai_use():
+    outcome = {
+        "page_coverage": {
+            "pages_total": 11,
+            "pages_not_read_into_fields": [3],
+            "pages_ai_not_read": [3, 5],
+        },
+        "requirement_split": {"reader": {"engine": "ollama", "model": "qwen3.5:4b"}},
+        "ai_matcher": {"engine": "ollama", "model": "ollama:qwen3.5:4b"},
+    }
+    facts = rep.outcome_facts(outcome)
+    assert (
+        facts["pages_total"] == 11 and facts["pages_read"] == 9
+    )  # pages 3 and 5 unread
+    assert facts["ai"]["reader"] == "ollama" and facts["ai"]["claude"] is False
+    assert rep.outcome_facts({})["pages_read"] is None and rep.outcome_facts(None)[
+        "ai"
+    ] == {"claude": False}
+    assert (
+        rep.outcome_facts({"requirement_split": {"reader": {"engine": "claude"}}})[
+            "ai"
+        ]["claude"]
+        is True
+    )
+
+
+def test_a_run_record_is_completed_with_the_declared_mode_and_keeps_the_runners_fields():
+    record = {
+        "format": "pf1-run/1",
+        "id": "x",
+        "review_run_id": "r1",
+        "status": "completed",
+        "minutes": 4.0,
+    }
+    done = rep.complete_record(record, {"page_coverage": {"pages_total": 2}}, "main")
+    assert (
+        done["mode"] == "main"
+        and done["pages_total"] == 2
+        and done["review_run_id"] == "r1"
+    )
+    with pytest.raises(rep.ReportError, match="mode"):
+        rep.complete_record(record, {}, "guess")
+
+
+def test_collect_writes_the_findings_and_completes_the_record_from_a_read_only_copy(
+    tmp_path,
+    live_like_db,  # noqa: F811
+    capsys,
+):
+    import importlib.util
+    import sqlite3
+    from pathlib import Path
+
+    with sqlite3.connect(live_like_db) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS review_runs (id TEXT PRIMARY KEY, outcome_json TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO review_runs (id, outcome_json) VALUES ('run1', ?)",
+            (
+                json.dumps(
+                    {
+                        "page_coverage": {
+                            "pages_total": 2,
+                            "pages_not_read_into_fields": [],
+                        },
+                        "requirement_split": {
+                            "reader": {"engine": "ollama", "model": "m"}
+                        },
+                    }
+                ),
+            ),
+        )
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    (runs_dir / "pf1-a.run.json").write_text(
+        json.dumps(
+            {
+                "format": "pf1-run/1",
+                "id": "pf1-a",
+                "review_run_id": "run1",
+                "status": "completed",
+                "minutes": 3.5,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (runs_dir / "pf1-b.run.json").write_text(
+        json.dumps(
+            {
+                "format": "pf1-run/1",
+                "id": "pf1-b",
+                "review_run_id": None,
+                "status": "error",
+                "minutes": 0.1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    path = Path(__file__).resolve().parents[2] / "scripts" / "pf1_collect.py"
+    spec = importlib.util.spec_from_file_location("pf1_collect_script", path)
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    before = live_like_db.read_bytes()
+    assert (
+        script.main(
+            [
+                "--db",
+                str(live_like_db),
+                "--runs",
+                str(runs_dir),
+                "--mode",
+                "main",
+                "--model",
+                "m9",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == {"collected": 1, "skipped_no_run": 1}
+    assert live_like_db.read_bytes() == before  # the copy is only read
+    found = json.loads((runs_dir / "pf1-a.findings.json").read_text(encoding="utf-8"))
+    assert (
+        found["format"] == "review-findings/1"
+        and len(found["findings"]) == 2
+        and found["model"] == "m9"
+    )
+    record = json.loads((runs_dir / "pf1-a.run.json").read_text(encoding="utf-8"))
+    assert (
+        record["mode"] == "main"
+        and record["pages_read"] == 2
+        and record["ai"]["reader"] == "ollama"
+    )
+    assert record["minutes"] == 3.5  # the runner's own field kept
+    assert not (runs_dir / "pf1-b.findings.json").exists()
+    assert "mode" not in json.loads(
+        (runs_dir / "pf1-b.run.json").read_text(encoding="utf-8")
+    )
+    with pytest.raises(SystemExit):  # a mode nobody declared is refused
+        script.main(
+            ["--db", str(live_like_db), "--runs", str(runs_dir), "--mode", "guess"]
+        )

@@ -131,6 +131,19 @@ unfinished run says INCOMPLETE beside its numbers; two modes in one report are
 refused (the MAIN score and the diagnostic are never added). Held-out sheets are
 in the totals and never named. `--check` exits 1 on any false Meets.
 
+**From the runner to the report (`scripts/pf1_collect.py`).** `pf1_run.py` writes
+`<id>.run.json` (the review run's id, job state, minutes). Run
+
+```powershell
+python scripts\pf1_collect.py --db COPY-OF-THE-TEST-SERVERS.sqlite --runs D:\project\pf1-runs\main-1 --mode main --model qwen3.5:4b
+```
+
+on a **copy** of the test server's database (read-only). It writes
+`<id>.findings.json` and completes each record with the **declared** `--mode`
+(`main` = the normal client workflow, `checklists_off` = diagnostic only; never
+guessed), the page counts and the AI use of the stored outcome. A record with no
+review run id is left as it is. Run the two modes into two folders.
+
 The report also prints the four numbers of the **Stage E pass mark** (owner
 decision, order 170.1): recall, precision, false Meets and valid citations, and
 the AI use each run record states (`ai`: a small object such as the reader's

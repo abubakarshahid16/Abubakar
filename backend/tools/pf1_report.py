@@ -388,6 +388,42 @@ def render(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def outcome_facts(outcome: dict | None) -> dict:
+    """From a run's stored outcome (`review_runs.outcome_json`): the page counts
+    and the AI use a run record states. Pure; numbers and engine names only.
+    `pages_read` is the pages not left unread (a page read with no checklist
+    field counts as read); None when the run stored no page total."""
+    outcome = outcome or {}
+    cov = outcome.get("page_coverage") or {}
+    total = cov.get("pages_total")
+    unread = set(cov.get("pages_not_read_into_fields") or []) | set(
+        cov.get("pages_ai_not_read") or []
+    )
+    split = outcome.get("requirement_split") or {}
+    reader = split.get("reader") or {}
+    matcher = outcome.get("ai_matcher") or {}
+    ai = {
+        "reader": reader.get("engine"),
+        "reader_model": reader.get("model"),
+        "matcher": matcher.get("engine"),
+        "matcher_model": matcher.get("model"),
+    }
+    ai["claude"] = any("claude" in str(v or "").lower() for v in ai.values())
+    return {
+        "pages_total": total,
+        "pages_read": None if total is None else max(0, total - len(unread)),
+        "ai": {k: v for k, v in ai.items() if v not in (None, "")},
+    }
+
+
+def complete_record(record: dict, outcome: dict | None, mode: str) -> dict:
+    """A runner's record plus what the report needs: the declared `mode`, the
+    page counts and the AI use. The runner's own fields are kept."""
+    if mode not in MODES:
+        raise ReportError(f"mode must be one of {', '.join(MODES)}")
+    return {**record, "mode": mode, **outcome_facts(outcome)}
+
+
 def load_set(
     set_dir: str | Path, runs_dir: str | Path
 ) -> tuple[dict, dict, dict, dict]:
