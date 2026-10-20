@@ -154,6 +154,29 @@ class HttpTransport:
                 return exc.code, None
 
 
+def assert_test_database(transport: Transport) -> None:
+    """Refuse a server that is not known to hold a test database. A PORT proves
+    nothing (the live app has run on 8000 and 8001): the server says whether
+    its database path has the live app's shape, on an admin route (the
+    unauthenticated `/api/health` is not widened). A server that says true, or
+    cannot say (an older build, a login that is not an admin's), is refused
+    before any write."""
+    status, body = transport.request("GET", "/api/admin/database-shape")
+    if (
+        status != 200
+        or not isinstance(body, dict)
+        or not isinstance(body.get("live_shaped"), bool)
+    ):
+        raise RunError(
+            f"the server does not say whether its database is the live one (HTTP {status}): "
+            "refused; log in as an admin of a build that has /api/admin/database-shape"
+        )
+    if body["live_shaped"]:
+        raise RunError(
+            "the server's database has the live app's shape: refused; use a diagnostic copy"
+        )
+
+
 def login(transport: Transport, email: str, password: str) -> str:
     status, body = transport.request(
         "POST", "/api/auth/login", {"email": email, "password": password}
@@ -330,6 +353,7 @@ def run_set(
 ) -> list[dict]:
     """Run the sheets of `index` (not the held-out ones unless asked) and write
     `<id>.run.json` and `run-index.json` under `out`. Returns the records."""
+    assert_test_database(transport)
     out.mkdir(parents=True, exist_ok=True)
     records = []
     for entry in index["documents"]:

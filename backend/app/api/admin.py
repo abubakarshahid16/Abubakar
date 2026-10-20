@@ -6,13 +6,15 @@ Moved out of main.py with no logic change (planner order 79a, #692; system map t
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from .. import admin as admin_mod
 from .. import admin_explorer as explorer_mod
 from .. import doc_router as doc_router_mod
-from .. import errors, schemas
+from .. import errors, live_guard, schemas
 from .. import model_memory as model_memory_mod
 from ..api_utils import reject_unknown_params
+from ..config import settings
 from ..db import connect
 from ..paging import limit_param, offset_param, page_body
 
@@ -54,6 +56,35 @@ def admin_free_model_memory(request: Request,
     cold load, which the button's label says."""
     reject_unknown_params(request, set())
     return model_memory_mod.free_all()
+
+
+class DatabaseShape(BaseModel):
+    live_shaped: bool = Field(
+        description="whether this server's database path has the live app's "
+        "shape (backend/data/rag_intelligence.sqlite): a boolean about the "
+        "path, never the path"
+    )
+
+
+def _database_is_live_shaped() -> bool:
+    return live_guard.is_live_shaped(settings.db_path)
+
+
+@router.get(
+    "/api/admin/database-shape",
+    response_model=DatabaseShape,
+    dependencies=[Depends(admin_mod.current_admin)],
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def admin_database_shape(request: Request):
+    """Does this server hold a live-shaped database? A tool that writes test
+    documents and review runs (the PF1 runner) asks this before it writes,
+    because a port says nothing about which database a server holds. Admin
+    only (a non-admin gets the same 404 as every route here): the unauthenticated
+    `/api/health` is deliberately not widened (#806). A boolean about the path's
+    shape, never the path."""
+    reject_unknown_params(request, set())
+    return {"live_shaped": _database_is_live_shaped()}
 
 
 @router.get("/api/admin/users", response_model=schemas.AdminUserList,

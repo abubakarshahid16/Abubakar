@@ -35,6 +35,8 @@ class FakeServer:
             return 200, self.script.get(
                 "health", {"ok": True, "database_live_shaped": False}
             )
+        if path == "/api/admin/database-shape":
+            return self.script.get("shape", (200, {"live_shaped": False}))
         if path == "/api/auth/login":
             ok = json_body["password"] == "right"
             return (200, {"token": "t"}) if ok else (401, None)
@@ -323,3 +325,51 @@ def test_a_job_that_cannot_be_read_three_times_in_a_row_ends_the_wait_with_the_s
     record = _run(NoJob(), timeout=3600.0)
     assert record["status"] == "error"
     assert "could not be read (HTTP 404, 3 times)" in record["error"]
+
+
+def test_a_server_that_says_its_database_is_live_shaped_is_refused_before_any_write(
+    tmp_path,
+):
+    # A port proves nothing (the live app has run on 8000 and 8001): the server
+    # is asked, and nothing is written when it says live.
+    server = FakeServer(shape=(200, {"live_shaped": True}))
+    with pytest.raises(pf1_run.RunError, match="live app's shape"):
+        pf1_run.run_set(
+            server, {"documents": [_entry()]}, Path("/set"), tmp_path / "out"
+        )
+    assert [c for c in server.calls if c[0] == "POST"] == []
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (404, None),
+        (500, None),
+        (200, {}),
+        (200, {"live_shaped": None}),
+        (200, {"live_shaped": "no"}),
+    ],
+)
+def test_a_server_that_cannot_say_whether_its_database_is_live_is_refused(
+    shape, tmp_path
+):
+    server = FakeServer(shape=shape)
+    with pytest.raises(pf1_run.RunError, match="does not say"):
+        pf1_run.run_set(
+            server, {"documents": [_entry()]}, Path("/set"), tmp_path / "out"
+        )
+    assert [c for c in server.calls if c[0] == "POST"] == []
+
+
+def test_a_server_that_says_its_database_is_a_copy_is_accepted(tmp_path):
+    server = FakeServer()
+    pf1_run.assert_test_database(server)
+    records = pf1_run.run_set(
+        server,
+        {"documents": [_entry()]},
+        Path("/set"),
+        tmp_path / "out",
+        sleep=lambda s: None,
+    )
+    assert records[0]["status"] == "completed"
