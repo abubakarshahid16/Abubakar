@@ -89,3 +89,37 @@ def test_fold_rewrites_only_a_heading_over_options_and_keeps_every_other_cell():
         "x",
     ]
     assert out_slots == [False, False, False, True, False, True, False, False]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        (
+            "Fluid handled\nWater\nPressure ____   Temperature ____\n",
+            [("Fluid handled", "Water"), ("Pressure", "___"), ("Temperature", "___")],
+        ),
+        (
+            "Seal\nAPI Plan 53\nMax ____   Min ____\n",
+            [("Seal", "API Plan 53"), ("Max", "___"), ("Min", "___")],
+        ),
+    ],
+)
+def test_a_value_after_its_label_is_not_the_heading_of_the_slot_fields_after_it(
+    text, expected
+):
+    assert pairs(text) == expected
+
+
+def test_fold_leaves_a_label_value_pair_before_slot_fields_alone():
+    parts = ["Casing material", "Carbon steel", "Pressure", "___", "Temperature", "___"]
+    slots = [False, False, False, True, False, True]
+    out, out_slots = slot_options.fold(parts, slots, datasheets.is_field_label)
+    assert (out, out_slots) == (parts, slots)
+
+
+def test_a_heading_after_a_filled_slot_is_still_a_heading():
+    parts = ["Material", "GRADE", "HEAD", "Radial", "___", "Axial", "___"]
+    slots = [False, True, False, False, True, False, True]
+    out, out_slots = slot_options.fold(parts, slots, datasheets.is_field_label)
+    assert out == ["Material", "GRADE", "HEAD - Radial", "___", "HEAD - Axial", "___"]
+    assert out_slots == [False, True, False, True, False, True]

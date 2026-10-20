@@ -5,8 +5,8 @@ left to right, the heading took `STABLE` as its VALUE (a value nobody wrote),
 `STABLE`'s own slot was dropped as an answer with no label, and `THERMAL`
 stood alone as a fragment of its field. Read off the drawing, nothing else: a
 cell with no slot of its own, followed by two or more (label, drawn slot)
-pairs, is the heading of those options, and each is filed as
-"<heading> - <option>". The cells arrive from `datasheets.split_label_value`
+pairs, is the heading of those options (unless the cell before it is a label with
+no slot, whose value it then is), and each is filed as "<heading> - <option>". The cells arrive from `datasheets.split_label_value`
 with a parallel list saying which of them were written on a drawn answer line.
 """
 
@@ -49,7 +49,18 @@ def fold(
     index = 0
     while index < len(parts):
         options = count(parts, slot, index + 1, is_label)
-        if slot[index] or options < MIN_OPTIONS or not is_label(parts[index]):
+        # A cell right after a label with no slot of its own is that label's
+        # VALUE (`Fluid handled | Water | Pressure ____ Temperature ____`),
+        # never the heading of what follows.
+        follows_a_label = (
+            index > 0 and not slot[index - 1] and is_label(parts[index - 1])
+        )
+        if (
+            slot[index]
+            or follows_a_label
+            or options < MIN_OPTIONS
+            or not is_label(parts[index])
+        ):
             out_parts.append(parts[index])
             out_slot.append(slot[index])
             index += 1
