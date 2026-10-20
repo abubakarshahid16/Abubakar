@@ -557,9 +557,9 @@ def ensure_schema() -> None:
         # the line it is cited on), or the scope clause that decided it; and
         # the scope decision itself (applicability_v2) when one was made.
         # NULL when there is no such evidence - never a placeholder.
-        for _column, _type in (("evidence_page", "INTEGER"),
-                               ("evidence_quote", "TEXT"),
-                               ("scope_decision", "TEXT")):
+        for _column, _type in (("evidence_page", "INTEGER"), ("evidence_quote", "TEXT"),
+                               ("scope_decision", "TEXT"),
+                               ("held_reason", "TEXT")):
             add_column_if_missing(conn, "review_applicable_standards", _column, _type)
         # B5: a standard's SCOPE RECORD (tools/scope_records.py), stored once so the
         # live review can use it without calling a model. Written only by an

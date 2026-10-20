@@ -2678,9 +2678,9 @@ class ReviewRunStandardList(ListPage):
     #: `MISSING_LOCALLY`, as stored on the run. Empty when none, or when the
     #: run predates this field. Never paged: all of them on every page.
     missing_references: list[ReviewRunMissingReference] = Field(default_factory=list)
-    #: #620: Company standards this run left out because they wait for an
-    #: administrator's confirmation; null when none (or an older run).
+    #: #620: Company standards left out, waiting for an administrator; null when none.
     held_for_confirmation: HeldForConfirmation | None = None
+    held_for_engineer: HeldForConfirmation | None = None
 
 
 class HeldCompanyStandard(BaseModel):
