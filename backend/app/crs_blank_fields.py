@@ -150,3 +150,10 @@ def provide_words(finding: dict, field: str) -> str:
     if field and finding.get("crs_is_blank"):
         return f"Contractor to complete the field '{field}' (left blank)."
     return f"Contractor to provide {field or 'the value'}."
+
+
+def action_leader(group: list[dict]) -> dict:
+    """The group's leader for the action line: blank only when EVERY finding of
+    the row is blank, so a row that lists a tag with a value never says the
+    field was left blank."""
+    return {**group[0], "crs_is_blank": all(g.get("crs_is_blank") for g in group)}

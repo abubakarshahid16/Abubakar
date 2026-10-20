@@ -686,7 +686,7 @@ def engineer_comment_text(group: list[dict]) -> str:
         # row asking two or more things says what to do once, what the sheet
         # says once, then every clause behind it (capped, with the count).
         return "\n".join([group_action(group), said, *clause_lines])
-    return f"{lead} {said} {_action(f, field)}"
+    return f"{lead} {said} {_action(crs_blank_fields.action_leader(group), field)}"
 
 
 def _clauses(group: list[dict]) -> dict[tuple, list[dict]]:
@@ -758,7 +758,7 @@ def group_action(group: list[dict]) -> str | None:
     field = _field_label(f)
     if _bucket_of(f) == BUCKET_QUESTION:
         return f"Engineer to check {field}."
-    return _action(f, field)
+    return _action(crs_blank_fields.action_leader(group), field)
 
 
 def _supporting_clause_lines(group: list[dict]) -> list[str]:

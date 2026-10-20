@@ -52,4 +52,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         '    if finding.get("crs_is_blank"):\n',
         "never_quotes_an_empty_field",
     ),
+    _m(
+        "04",
+        "a row that lists a tag with a value is called blank because its leader is",
+        _B,
+        '    return {**group[0], "crs_is_blank": all(g.get("crs_is_blank") for g in group)}\n',
+        "    return group[0]\n",
+        "never_says_the_field_was_left_blank",
+    ),
 )

@@ -102,7 +102,9 @@ def test_blank_and_not_found_stay_separate_rows():
         [_f("blank", "3.1"), _not_found("nf1", "3.4"), _not_found("nf2", "6.2")]
     )
     assert _partition(rows) == [["blank"], ["nf1", "nf2"]]
-    assert rows[0]["comment"].endswith("Contractor to complete the field 'Corrosion allowance' (left blank).")
+    assert rows[0]["comment"].endswith(
+        "Contractor to complete the field 'Corrosion allowance' (left blank)."
+    )
     assert rows[1]["comment"].startswith(
         "Engineer to check whether the datasheet states Corrosion allowance: no field this "
         "system read was paired with it.\n"

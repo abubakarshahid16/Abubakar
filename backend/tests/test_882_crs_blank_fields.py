@@ -165,3 +165,15 @@ def test_a_blank_with_no_field_name_never_quotes_an_empty_field():
         "crs_is_blank": True,
     }
     assert crs_blank_fields.provide_words(f, "") == "Contractor to provide the value."
+
+
+def test_a_row_that_lists_a_tag_with_a_value_never_says_the_field_was_left_blank():
+    blank = {**_blank("a", "Ultrasonic", 5), "compliance_status": "MISSING_INFORMATION"}
+    blank["crs_is_blank"] = True
+    valued = {**blank, "id": "b", "equipment_tag": "P-2", "crs_is_blank": False}
+    assert crs_blank_fields.action_leader([blank, valued])["crs_is_blank"] is False
+    assert crs_blank_fields.action_leader([blank, blank])["crs_is_blank"] is True
+    last = crs_mapping.engineer_comment_text([blank, valued]).splitlines()[-1]
+    assert last.endswith("Contractor to provide Ultrasonic.")
+    solo = crs_mapping.engineer_comment_text([blank]).splitlines()[-1]
+    assert solo.endswith("Contractor to complete the field 'Ultrasonic' (left blank).")
