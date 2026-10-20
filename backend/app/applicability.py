@@ -1296,8 +1296,7 @@ def select(
                 selected[standard_id] = dict(row)
 
     missing = [
-        # By THE IDENTIFIER THE DATASHEET USED (the string an engineer looks
-        # for). ONE helper (#452): a rebuilt list lost a spelling.
+        # By THE IDENTIFIER THE DATASHEET USED; ONE helper (#452: a rebuilt list lost a spelling).
         {"identifier": identifier,
          "reason": "cited by the submittal and not present in the library"}
         for identifier in missing_references(library, referenced)
@@ -1313,9 +1312,9 @@ def select(
             if page is not None:
                 row["reason"] = f"{row['reason']} (page {page})"
 
-    # B5: THE SCOPE DECISION on every standard with a verified scope record:
-    # by AI reasoning (owner 2026-09-28, on since #736), or when that is off
-    # the taxonomy path (`applicability_v2`, "not run" with no taxonomy).
+    # B5: THE SCOPE DECISION on every standard with a verified scope record: by AI reasoning
+    # (owner 2026-09-28, on since #736), or when off the taxonomy path (`applicability_v2`).
+    from . import standard_judgment
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
         # #946: cap the pool asked about (`_scope_reasoning_candidates`); the
@@ -1359,6 +1358,7 @@ def select(
         elif row is not None:
             row["scope_decision"] = verdict
     _hold_on_unsure_type(selected, check, library, profile)  # order 142
+    standard_judgment.hold(selected, check, library, find_standard)
 
     if persist:
         _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,
