@@ -381,6 +381,19 @@ describe("ReviewWorkspace", () => {
     expect(screen.getByTestId("ws-sheet")).toContainElement(screen.getByTestId("crs-footer"));
   });
 
+  /** MUTATION PROOF: drop `heldNote` from the footer in ReviewWorkspace and this fails. */
+  it("the footer shows the held-for-the-engineer sentence, and nothing when there is none", () => {
+    const { unmount } = render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("crs-footer-held")).not.toBeInTheDocument();
+    unmount();
+    data.mockReturnValue(ready({ standardsState: {
+      standards: [], missing: [], error: null,
+      held: { count: 1, standard_document_ids: ["std-2"], sentence: "Invented: one standard was held." },
+    } }));
+    render(<Harness initial={{}} />);
+    expect(screen.getByTestId("crs-footer-held")).toHaveTextContent("Invented: one standard was held.");
+  });
+
   /** D2 / W4. MUTATION PROOF: drop PANEL_ROOM from the section and this fails. */
   it("the page makes room on the right while the evidence panel is open", () => {
     const { unmount } = render(<Harness initial={{ row: "row-b", panel: "evidence" }} />);

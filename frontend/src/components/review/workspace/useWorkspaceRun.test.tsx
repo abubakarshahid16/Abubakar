@@ -109,6 +109,22 @@ describe("useWorkspaceRun", () => {
     expect(result.current.missingStandardIds).toEqual([]);
   });
 
+  it("carries the server's held-for-the-engineer note, and null when the key is absent", async () => {
+    const held = { count: 1, standard_document_ids: ["std-1"], sentence: "Invented held sentence." };
+    reviewRunStandards.mockResolvedValue({
+      ok: true, data: { standards: [{ standard_document_id: "std-1", filename: "API 610.pdf" }], missing_references: [], held_for_engineer: held },
+    });
+    const withNote = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(withNote.result.current.load.kind).toBe("ready"));
+    expect(withNote.result.current.standardsState.held?.sentence).toBe("Invented held sentence.");
+    reviewRunStandards.mockResolvedValue({
+      ok: true, data: { standards: [{ standard_document_id: "std-1", filename: "API 610.pdf" }], missing_references: [] },
+    });
+    const bare = renderHook(() => useWorkspaceRun("run-2"));
+    await waitFor(() => expect(bare.result.current.load.kind).toBe("ready"));
+    expect(bare.result.current.standardsState.held).toBeNull();
+  });
+
   it("a run that cannot be found is an error in plain words", async () => {
     reviewRun.mockResolvedValue({ ok: true, data: null });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));

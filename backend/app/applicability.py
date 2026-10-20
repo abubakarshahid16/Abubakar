@@ -49,6 +49,7 @@ from pathlib import Path
 
 from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
 from .db import connect
+from .held_standards import mark
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
@@ -1747,9 +1748,7 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
 
     Every selectable standard the caller may read is accounted for: the ones
     chosen with their reason, and the ones passed over with theirs. A library
-    entry that simply did not match any rule is an EXCLUDED row, not an
-    absence, because "we looked at this and it did not apply" is the answer an
-    engineer is actually asking for.
+    entry that matched no rule is an EXCLUDED row, not an absence.
     """
     if not review_run_id:
         return
@@ -1769,6 +1768,7 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
             evidence_page=row.get("evidence_page"),
             evidence_quote=row.get("evidence_quote"),
             scope_decision=row.get("scope_decision"))
+    mark(review_run_id, [i for i, r in selected.items() if r.get("held_for_engineer")])
     for entry in _library(allowed_document_ids):
         if entry["id"] in selected:
             continue

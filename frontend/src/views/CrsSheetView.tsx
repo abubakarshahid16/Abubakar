@@ -99,7 +99,7 @@ function useRunData(runId: string) {
     setStaleRun(!sum.ok && summaryReadFor.current === runId ? runId : null);
     setSummary((prev) => (sum.ok ? sum.data : prev?.review_run_id === runId ? prev : null));
     setStandardsState(stds.ok
-      ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
+      ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null, held: stds.data.held_for_engineer ?? null }
       : { standards: null, missing: [], error: stds.error.message });
     setLoad({ kind: "ready" });
   }, [runId]);
@@ -306,7 +306,8 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
         clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
       />
       <SheetGroupingNote rows={rows} notes={serverNoteCount(findings, groups)} stale={groupingStale} />
-      <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected} />
+      <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected}
+        heldNote={standardsState.held?.sentence ?? null} />
       {drawerRow && (
         <CrsEvidenceDrawer row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
           onClose={() => setDrawerKey(null)} onOpenCards={onOpenCards}
