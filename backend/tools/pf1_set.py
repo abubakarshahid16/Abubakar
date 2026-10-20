@@ -20,6 +20,12 @@ THREE RULES THE BUILDER ENFORCES, because a wrong key proves nothing:
      standard by number. An answer about a clause nobody can open is refused.
   3. THE SET NEVER LANDS IN A GIT REPOSITORY. Held-out answers on GitHub are
      not held out. The output folder is refused when it is inside one.
+     THE ONE EXCEPTION (planner, option (a), 20 Oct 2026): with `allow_in_git`
+     the TUNING sheets of the invented group may be built into
+     `backend/tests/fixtures/synthetic/pf1/`, so a GitHub Actions run can review them. Never a
+     sheet with `held_out: true`, never the library group (it carries text of
+     the client's standards), never another folder: the builder refuses the
+     whole build, naming a count, and writes nothing.
 
 The spec (`pf1-spec/1`) is described in `eval/review/pf1.md`. Everything in a
 spec must be invented: no value, tag or sentence from a real document.
@@ -413,13 +419,37 @@ def answer_key(doc: dict) -> dict:
             "complete_for_flags": complete, "items": key_items(doc)}
 
 
-def build(spec: dict, out_dir: str | Path) -> dict:
+#: The one folder binaries may be tracked in: the no-client-data guard
+#: (`secret-scan.yml`) refuses a tracked .pdf anywhere else.
+IN_GIT_FOLDER = ("backend", "tests", "fixtures", "synthetic", "pf1")
+
+
+def tuning_only(spec: dict, out: Path) -> None:
+    """The exception to rule 3: raises unless the build is the invented
+    TUNING sheets into `backend/tests/fixtures/synthetic/pf1/`. Counts only in the message."""
+    if Path(out).resolve().parts[-5:] != IN_GIT_FOLDER:
+        raise SpecError("--allow-in-git writes only into a folder backend/tests/fixtures/synthetic/pf1")
+    docs = spec["documents"]
+    held = sum(1 for d in docs if d["held_out"])
+    library = sum(1 for d in docs if library_standards(d))
+    if held or library:
+        raise SpecError(
+            f"--allow-in-git is for invented tuning sheets only: {held} held-out and "
+            f"{library} library-group document(s) in this spec; nothing was written"
+        )
+
+
+def build(spec: dict, out_dir: str | Path, *, allow_in_git: bool = False) -> dict:
     """Write the set under `out_dir` and return its index. Nothing is written
-    unless every document passes the three rules."""
+    unless every document passes the three rules (`allow_in_git`: see rule 3)."""
     spec = validate(spec)
     out = Path(out_dir)
     if inside_a_git_repository(out):
-        raise SpecError(f"{out} is inside a git repository: the set and its answers stay out of git")
+        if not allow_in_git:
+            raise SpecError(
+                f"{out} is inside a git repository: the set and its answers stay out of git"
+            )
+        tuning_only(spec, out)
     files: dict[str, bytes] = {}
     entries = []
     for doc in spec["documents"]:

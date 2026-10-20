@@ -8,7 +8,7 @@
 | Schema goes to Ollama's `format` field, is checked again in code, then the task's own `check` runs. One retry that names what was wrong | `run_task` |
 | An invalid, empty, cut-off or late reply is `could_not_read` with a reason. Data is None. No guess | `TaskResult` |
 | Cache by task, version, model, schema and exact input. A hit makes no model call. Only `ok` is cached | `ai_task_cache` |
-| The model is a setting: `AI_TASK_MODEL` (default `qwen3.5:2b`; set `qwen3.5:4b` or a larger local model) | `config.py` |
+| The model is a setting: `AI_TASK_MODEL` (default `qwen3.5:2b`; set `qwen3.5:4b` or a larger local model). If the engine does not hold that tag, the steps run on the installed reader model (`ANSWER_MODEL`) and say so in the log and on the dashboard warnings; if neither is held they report "could not read" and the part-scope step holds the clauses it could not read for the engineer, never compared, while the other steps report "could not read" and change nothing (order 173.2) | `config.py`, `ai_task_runner.py` |
 | One job at a time. `keep_alive` "10m" during a batch, model unloaded (0) at the end | `run_batch`, `model_transport.keep_alive_override` |
 | Pauses (jobs stay queued) while a chat answer is produced, while pytest or the P1 run is going, or below 1.5 GB free RAM (`AI_TASK_MIN_FREE_RAM_GB`) | `pause_reason` |
 

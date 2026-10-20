@@ -252,3 +252,70 @@ def test_a_library_sheet_whose_answers_cannot_be_traced_is_refused(change, messa
     change(doc)
     with pytest.raises(pf1_set.SpecError, match=message):
         pf1_set.validate(_spec(doc))
+
+
+# --------------------------------------- the one exception: invented tuning sheets in git
+
+
+def _repo(tmp_path):
+    (tmp_path / ".git").mkdir()
+    return tmp_path / "backend" / "tests" / "fixtures" / "synthetic" / "pf1"
+
+
+def test_inside_a_repository_the_build_is_still_refused_without_the_flag(tmp_path):
+    out = _repo(tmp_path)
+    with pytest.raises(pf1_set.SpecError, match="inside a git repository"):
+        pf1_set.build(_spec(_with_clause_5_1(_doc())), out)
+    assert not out.exists()
+
+
+def test_the_flag_lets_invented_tuning_sheets_into_the_synthetic_pf1_folder(tmp_path):
+    out = _repo(tmp_path)
+    index = pf1_set.build(_spec(_with_clause_5_1(_doc())), out, allow_in_git=True)
+    assert [d["id"] for d in index["documents"]] == ["pf1-t-pump"]
+    assert (out / "index.json").is_file() and (out / "pf1-t-pump.key.json").is_file()
+
+
+def test_a_held_out_sheet_is_never_written_into_a_repository_even_with_the_flag(
+    tmp_path,
+):
+    out = _repo(tmp_path)
+    spec = _spec(
+        _with_clause_5_1(_doc("pf1-open")),
+        _with_clause_5_1(_doc("pf1-held", held_out=True)),
+    )
+    with pytest.raises(pf1_set.SpecError, match="1 held-out") as caught:
+        pf1_set.build(spec, out, allow_in_git=True)
+    assert "pf1-held" not in str(
+        caught.value
+    )  # counts only, never the id of a held-out sheet
+    assert not out.exists()  # nothing written, not even the open sheet
+
+
+def test_a_library_group_sheet_is_never_written_into_a_repository_even_with_the_flag(
+    tmp_path,
+):
+    out = _repo(tmp_path)
+    with pytest.raises(pf1_set.SpecError, match="1 library-group"):
+        pf1_set.build(_spec(_library_doc()), out, allow_in_git=True)
+    assert not out.exists()
+
+
+def test_the_flag_writes_only_into_the_synthetic_pf1_folder(tmp_path):
+    (tmp_path / ".git").mkdir()
+    with pytest.raises(pf1_set.SpecError, match="synthetic/pf1"):
+        pf1_set.build(
+            _spec(_with_clause_5_1(_doc())), tmp_path / "elsewhere", allow_in_git=True
+        )
+    assert not (tmp_path / "elsewhere").exists()
+
+
+def test_the_flag_changes_nothing_outside_a_repository(tmp_path):
+    index = pf1_set.build(
+        _spec(_with_clause_5_1(_doc("pf1-held", held_out=True))),
+        tmp_path / "set",
+        allow_in_git=True,
+    )
+    assert (
+        index["documents"][0]["held_out"] is True
+    )  # outside git, the flag is not consulted
