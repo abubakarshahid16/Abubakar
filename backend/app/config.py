@@ -309,12 +309,12 @@ class Settings(BaseSettings):
     #: rejects everyone looks broken, and one that boots with a guessable key
     #: looks like it is working. See auth.check_secret_or_refuse.
     auth_secret: str = ""
-    #: Eight hours, and no refresh token. A refresh flow exists to make short
-    #: tokens tolerable; a long token is the alternative to it, not a
-    #: companion. Justified against this system: a Tier 2 answer takes ~50 s
-    #: and an ingest runs for minutes, so a short token means a login screen
-    #: appearing in the middle of a demo.
+    #: Eight hours, and no refresh token: a refresh flow makes short tokens
+    #: tolerable, a long token is the alternative to it. A Tier 2 answer takes
+    #: ~50 s and an ingest runs for minutes, so a short token means a login
+    #: screen appearing in the middle of a demo.
     auth_token_seconds: int = 8 * 60 * 60
+    auth_cookie_secure: str = "auto"  # auto | true | false (auth.cookie_plan)
     #: Failed logins per email before a lockout, and the window. In memory,
     #: never a table: a row per failed login would let anyone who can reach
     #: the port write to the SQLite file ingestion is using.

@@ -9,6 +9,7 @@ import type {
   ModelsFreed,
   AuthStatus,
   LoginResult,
+  LogoutResult,
   PasswordResetResult,
   Metrics,
   ManagementSummary,
@@ -21,8 +22,11 @@ export const auth = {
     request<LoginResult>("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      // The browser's way (order 164.2): the server keeps the login in an
+      // HttpOnly cookie and sends no token, so the page holds nothing to steal.
+      body: JSON.stringify({ email, password, session: "cookie" }),
     }),
+  logout: () => request<LogoutResult>("/auth/logout", { method: "POST" }),
   me: () => request<AuthStatus>("/auth/me"),
   resetPassword: (token: string, password: string) =>
     request<PasswordResetResult>("/auth/password/reset", {
