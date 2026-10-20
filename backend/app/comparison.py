@@ -572,14 +572,25 @@ def low_trust_reason(fact: dict | None) -> str | None:
     return None
 
 
+#: The readers whose AI reading goes through `datasheets._write_ai_reading`,
+#: the one writer that sets `quote_on_page` after the code found the quote on
+#: the page: the AI reader itself and the form reader (default since #1004),
+#: whose own provenance replaces `reader` in the box. A test pins both
+#: spellings to the readers' own constants (order 161 item A: the form
+#: reader's proved values were held on the first spelling alone).
+_PROVED_QUOTE_READERS = frozenset({"datasheet_ai", "form_reader"})
+
+
 def ai_quote_proved(fact: dict | None) -> dict | None:
     """The AI reader's provenance (`engine`, `model`) when this fact was read
-    by `datasheet_ai` and the code proved its quote on the page; else None."""
+    by `datasheet_ai` or the form reader and the code proved its quote on the
+    page; else None."""
     try:
         box = json.loads((fact or {}).get("bbox") or "{}")
     except (TypeError, ValueError):
         return None
-    if isinstance(box, dict) and box.get("reader") == "datasheet_ai" and box.get("quote_on_page") is True:
+    if (isinstance(box, dict) and box.get("reader") in _PROVED_QUOTE_READERS
+            and box.get("quote_on_page") is True):
         return box
     return None
 
