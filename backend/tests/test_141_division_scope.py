@@ -115,7 +115,7 @@ class FakeModel:
 
     def __init__(self, scope=None, construction=None, *, fail=None):
         self.requested_model = "test-model"
-        self.replies = {"division": scope, "construction": construction}
+        self.replies = {"division": scope, "construction": construction, "titles": None}
         self.fail = fail
         self.calls: list[str] = []
 
@@ -130,9 +130,12 @@ class FakeModel:
                 if "Part TT" in passage
                 else NOT_LIMITED
             )
+        elif prompt.startswith("The TEXT is a list of sub-heading titles"):
+            kind, default = "titles", {"titles": []}
         else:
             kind, default = "construction", NOT_GRAPHITE
-        self.calls.append(kind)
+        if kind != "titles":
+            self.calls.append(kind)
         if self.fail:
             raise ProviderRefused(self.fail)
         reply = self.replies[kind]

@@ -104,6 +104,12 @@ def test_not_proposed_when_known_running_contents_or_prose():
     assert all(c["line"] not in {d["line"] for d in divs if d["name"]} for c in found)
 
 
+def test_a_plain_title_in_capitals_is_not_an_id():
+    # "FOR" is three capitals but it is a word of the title, not an id
+    _, found = _starts(PAGE1, (2, f"GENERAL REQUIREMENTS FOR ALL VESSELS\n{BODY}"))
+    assert found == []
+
+
 def test_a_long_line_of_the_shape_is_not_proposed():
     long_line = "Section 8 " + "and the rules about the window frames " * 2
     _, found = _starts(PAGE1, (2, f"{long_line}\n{BODY}"))

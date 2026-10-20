@@ -33,7 +33,7 @@ _CONTENTS_LEAST = 5
 #: At most this many sub-heading titles go to the model in one read.
 MAX_TITLES = 60
 
-_ID = r"(?:\d+(?:[.\-][0-9A-Za-z]+)*|[IVXLC]{1,6}|[A-Z]{1,4}(?:-[0-9A-Z]+)*)"
+_ID = r"(?:\d+(?:[.\-][0-9A-Za-z]+)*|[IVXLC]{1,6}|[A-Z](?:-[0-9A-Z]+)*)"
 #: The SHAPE of a heading: one or two capitalised words of 4+ letters, then an
 #: id token. It proposes a line; it never decides what the line means.
 _SHAPE = re.compile(r"^(?:[A-Z][A-Za-z]{3,}\s+){1,2}" + _ID + r"(?![A-Za-z0-9])")
