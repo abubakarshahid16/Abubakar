@@ -265,6 +265,7 @@ def test_a_form_reader_value_whose_quote_is_on_the_page_is_trusted_the_same_way(
     own `reader` into the provenance, so its proved values were held as
     LOW_TRUST_VALUE on the AI reader's spelling alone."""
     from app import comparison, datasheet_ai, form_reader, provenance
+
     assert comparison.ai_quote_proved is provenance.ai_quote_proved
     assert provenance.PROVED_QUOTE_READERS == {datasheet_ai.READER, form_reader.READER}
     box = '{"reader": "form_reader", "engine": "ollama", "model": "m1", "quote_on_page": true}'
@@ -272,6 +273,13 @@ def test_a_form_reader_value_whose_quote_is_on_the_page_is_trusted_the_same_way(
     # the proof still has to be there, and the other holds still hold
     unproved = '{"reader": "form_reader", "engine": "ollama", "quote_on_page": false}'
     assert comparison.low_trust_reason(_model_fact(bbox=unproved)) is not None
-    assert comparison.low_trust_reason(_model_fact(bbox=box, validation_state="conflict")) is not None
-    assert comparison.low_trust_reason(
-        _model_fact(bbox='{"reader": "other_reader", "quote_on_page": true}')) is not None
+    assert (
+        comparison.low_trust_reason(_model_fact(bbox=box, validation_state="conflict"))
+        is not None
+    )
+    assert (
+        comparison.low_trust_reason(
+            _model_fact(bbox='{"reader": "other_reader", "quote_on_page": true}')
+        )
+        is not None
+    )
