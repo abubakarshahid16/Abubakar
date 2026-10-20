@@ -177,7 +177,9 @@ def _installed_tags() -> set[str] | None:
         tags = model_transport.get_json("/api/tags", timeout=3.0)
         names = {str(m.get("name", "")) for m in (tags or {}).get("models", [])}
     except Exception as exc:  # noqa: BLE001 - "cannot ask" is the answer; logged, not guessed
-        _log.info("AI task model: the engine could not be asked (%s)", type(exc).__name__)
+        _log.info(
+            "AI task model: the engine could not be asked (%s)", type(exc).__name__
+        )
         names = None
     _tags_cache["entry"] = (now, names)
     return names
@@ -197,19 +199,30 @@ def model_status() -> dict:
     and the task reports it could not read (never a guess)."""
     configured = settings.ai_task_model
     names = _installed_tags()
-    status = {"configured": configured, "used": configured, "fallback": False,
-              "engine_asked": names is not None}
+    status = {
+        "configured": configured,
+        "used": configured,
+        "fallback": False,
+        "engine_asked": names is not None,
+    }
     if names is None or _holds(names, configured):
         return status
     if _holds(names, settings.answer_model):
-        status.update(used=settings.answer_model, fallback=True,
-                      reason=f"{configured} is not installed on the engine")
+        status.update(
+            used=settings.answer_model,
+            fallback=True,
+            reason=f"{configured} is not installed on the engine",
+        )
     else:
-        status.update(reason=f"neither {configured} nor {settings.answer_model} is installed")
+        status.update(
+            reason=f"neither {configured} nor {settings.answer_model} is installed"
+        )
     if _logged.get("reason") != status["reason"]:
         # Once per change, in the operator's log: never a silent fallback.
         _logged["reason"] = status["reason"]
-        _log.warning("AI review steps: %s; they run on %s", status["reason"], status["used"])
+        _log.warning(
+            "AI review steps: %s; they run on %s", status["reason"], status["used"]
+        )
     return status
 
 
@@ -219,10 +232,19 @@ def warnings() -> list[dict]:
     status = model_status()
     if not status.get("reason"):
         return []
-    tail = (f"They run on {status['used']} instead." if status["fallback"] else
-            "They cannot read, so the clauses they screen are held for the engineer.")
-    return [{"severity": "warning", "code": "ai_steps_model", "document_id": None,
-             "message": f"The AI review steps: {status['reason']}. {tail}"}]
+    tail = (
+        f"They run on {status['used']} instead."
+        if status["fallback"]
+        else "They cannot read, so the clauses they screen are held for the engineer."
+    )
+    return [
+        {
+            "severity": "warning",
+            "code": "ai_steps_model",
+            "document_id": None,
+            "message": f"The AI review steps: {status['reason']}. {tail}",
+        }
+    ]
 
 
 def model_in_use() -> str:
@@ -230,8 +252,9 @@ def model_in_use() -> str:
 
 
 def make_provider(model: str | None = None) -> OllamaProvider:
-    return OllamaProvider(model or model_in_use(),
-                          timeout=float(settings.ai_task_timeout_s))
+    return OllamaProvider(
+        model or model_in_use(), timeout=float(settings.ai_task_timeout_s)
+    )
 
 
 def _failed(spec: TaskSpec, model: str, reason: str, attempts: int = 0) -> TaskResult:

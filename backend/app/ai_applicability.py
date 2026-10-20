@@ -729,9 +729,7 @@ def _unread_item(requirement: dict, passage: tuple, standard_labels: dict) -> di
 def _division_gate(
     requirements, *, classification, facts, standard_labels, provider, limit, pages_of
 ) -> dict:
-    model = (
-        getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
-    )
+    model = getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
     where, passages, counts = _place(requirements, pages_of)
     order = sorted(counts, key=lambda key: -counts[key])
     asked = order if limit is None else order[:limit]
@@ -775,7 +773,9 @@ def _division_gate(
         key = where.get(id(r))
         found = decided.get(key)
         if found is None and key in unread:
-            out["applicability_unsure"].append(_unread_item(r, passages[key], standard_labels))
+            out["applicability_unsure"].append(
+                _unread_item(r, passages[key], standard_labels)
+            )
         elif found is None:
             kept.append(r)
         else:
@@ -785,5 +785,7 @@ def _division_gate(
     summary.update(does_not_apply=len(items), held=len(held))
     status = ai_task_runner.model_status()
     if status["fallback"]:
-        summary["model_fallback"] = f"{status['reason']}; {status['used']} read the scopes"
+        summary["model_fallback"] = (
+            f"{status['reason']}; {status['used']} read the scopes"
+        )
     return {"kept": kept, "items": items, "held": held, "summary": summary}

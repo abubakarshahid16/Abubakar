@@ -244,7 +244,9 @@ def test_an_unsure_model_goes_to_the_engineer(temp_storage):
     assert out["items"] == []
 
 
-def test_with_the_model_failing_nothing_is_excluded_and_nothing_is_compared(temp_storage):
+def test_with_the_model_failing_nothing_is_excluded_and_nothing_is_compared(
+    temp_storage,
+):
     out = _gate(FakeModel(fail="the model could not be reached"))
     # order 173.2: a scope step that did not run is never a pass. Nothing is
     # excluded, and every requirement of a division it could not screen is HELD
@@ -670,7 +672,9 @@ def test_a_review_whose_scope_step_could_not_run_holds_the_division_not_a_verdic
 ):
     # order 173.2: the model could not be reached, so the scope step never ran.
     # The special parts are HELD for the engineer; they are not compared.
-    result, stored, ids = _review(monkeypatch, FakeModel(fail="the model could not be reached"))
+    result, stored, ids = _review(
+        monkeypatch, FakeModel(fail="the model could not be reached")
+    )
     for name in ("zz", "tt"):
         assert stored[ids[name]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
         assert stored[ids[name]]["reason_code"] == "applicability_unsure"
