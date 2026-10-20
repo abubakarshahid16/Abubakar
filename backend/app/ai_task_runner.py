@@ -300,9 +300,100 @@ def _cache_put(key: str, spec: TaskSpec, model: str, data: dict) -> None:
             (key, spec.name, spec.version, model, json.dumps(data, sort_keys=True), _now()))
 
 
+#: How long the engine's list of installed models is trusted (seconds).
+_TAGS_TTL_S = 60.0
+_tags_cache: dict = {}
+_logged: dict = {}
+
+
+def _installed_tags() -> set[str] | None:
+    """The tags the engine holds, or None when it cannot be asked. Cached."""
+    now = time.monotonic()
+    hit = _tags_cache.get("entry")
+    if hit and now - hit[0] < _TAGS_TTL_S:
+        return hit[1]
+    try:
+        tags = model_transport.get_json("/api/tags", timeout=3.0)
+        names = {str(m.get("name", "")) for m in (tags or {}).get("models", [])}
+    except Exception as exc:  # noqa: BLE001 - "cannot ask" is the answer; logged, not guessed
+        _log.info(
+            "AI task model: the engine could not be asked (%s)", type(exc).__name__
+        )
+        names = None
+    _tags_cache["entry"] = (now, names)
+    return names
+
+
+def _holds(names: set[str], tag: str) -> bool:
+    return tag in names or (":" not in tag and f"{tag}:latest" in names)
+
+
+def model_status() -> dict:
+    """Which model the AI steps use, and whether that is the one configured.
+
+    The configured tag (`ai_task_model`) is used when the engine holds it. When
+    the engine does not, the step falls back to the installed reader model
+    (`answer_model`) INSTEAD OF failing every task with a 404, and says so here.
+    When the engine cannot be asked, or holds neither, the configured tag stays
+    and the task reports it could not read (never a guess)."""
+    configured = settings.ai_task_model
+    names = _installed_tags()
+    status = {
+        "configured": configured,
+        "used": configured,
+        "fallback": False,
+        "engine_asked": names is not None,
+    }
+    if names is None or _holds(names, configured):
+        return status
+    if _holds(names, settings.answer_model):
+        status.update(
+            used=settings.answer_model,
+            fallback=True,
+            reason=f"{configured} is not installed on the engine",
+        )
+    else:
+        status.update(
+            reason=f"neither {configured} nor {settings.answer_model} is installed"
+        )
+    if _logged.get("reason") != status["reason"]:
+        # Once per change, in the operator's log: never a silent fallback.
+        _logged["reason"] = status["reason"]
+        _log.warning(
+            "AI review steps: %s; they run on %s", status["reason"], status["used"]
+        )
+    return status
+
+
+def warnings() -> list[dict]:
+    """The operator's warning (metrics format) when the AI steps' model is not
+    the configured one, or cannot be had; empty when all is as configured."""
+    status = model_status()
+    if not status.get("reason"):
+        return []
+    tail = (
+        f"They run on {status['used']} instead."
+        if status["fallback"]
+        else "They cannot read, so the clauses they screen are held for the engineer."
+    )
+    return [
+        {
+            "severity": "warning",
+            "code": "ai_steps_model",
+            "document_id": None,
+            "message": f"The AI review steps: {status['reason']}. {tail}",
+        }
+    ]
+
+
+def model_in_use() -> str:
+    return model_status()["used"]
+
+
 def make_provider(model: str | None = None) -> OllamaProvider:
-    return OllamaProvider(model or settings.ai_task_model,
-                          timeout=float(settings.ai_task_timeout_s))
+    return OllamaProvider(
+        model or model_in_use(), timeout=float(settings.ai_task_timeout_s)
+    )
 
 
 def _failed(spec: TaskSpec, model: str, reason: str, attempts: int = 0) -> TaskResult:
@@ -313,7 +404,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
     """Run one task. Never raises for a model problem; never guesses."""
     ensure_schema()
     provider = provider or make_provider()
-    model = getattr(provider, "requested_model", None) or settings.ai_task_model
+    model = getattr(provider, "requested_model", None) or model_in_use()
     text = (text or "").strip()
     if not text:
         return _failed(spec, model, "there was no text to read")
@@ -506,7 +597,7 @@ _batch_lock = threading.Lock()
 
 def _unload(provider) -> None:
     """Free the model's memory: a request with keep_alive 0."""
-    model = getattr(provider, "requested_model", None) or settings.ai_task_model
+    model = getattr(provider, "requested_model", None) or model_in_use()
     try:
         with model_transport.keep_alive_override(0):
             model_transport.post_json("/api/generate", {"model": model, "prompt": "", "stream": False},
