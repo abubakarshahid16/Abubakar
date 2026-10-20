@@ -247,6 +247,7 @@ def governing_table(path: Path | None = None) -> dict:
         raise ValueError(f"{(path or GOVERNING_PATH).name}: partial_standards is malformed")
     return {"equipment_types": {k.strip().lower(): v for k, v in types.items()},
             "materials_standards": list(materials),
+            "equipment_subtypes": data.get("equipment_subtypes") or {},
             "partial_standards": {k.strip().lower(): v for k, v in partial.items()}}
 
 
@@ -283,12 +284,15 @@ def governing_standards(submittal_document_id: str, library: list[dict],
     equipment, source = reading[0], reading[1]
     if not equipment:
         return {}, []
-    table = governing_table()["equipment_types"]
+    from . import equipment_subtype
+
+    table = governing_table()
+    text = _submittal_text(submittal_document_id, allowed_document_ids)
     selected: dict[str, dict] = {}
     not_held: list[dict] = []
     seen: set[str] = set()
     for kind in sorted(equipment):
-        for identifier in table.get(kind, []):
+        for identifier in equipment_subtype.identifiers(kind, text, table):
             key = standard_ids.key(identifier)
             if key in seen:
                 continue
@@ -378,7 +382,7 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
       * `not_used`: every other library standard, counted, not listed.
     Unknown type, no declared condition: the review behaves as before.
     """
-    from . import service_scope, subject_scope
+    from . import equipment_subtype, service_scope, subject_scope
 
     library = _library(allowed_document_ids) if library is None else library
     text = _submittal_text(submittal_document_id, allowed_document_ids)
@@ -390,12 +394,7 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
     equipment, source, doubt, facts = reading
     gov = governing_table()
     table = gov["equipment_types"]
-
-    required: list[dict] = []
-    for kind in sorted(equipment):
-        for identifier in table.get(kind, []):
-            required.append({"identifier": identifier, "by": REQUIRED_BY_TYPE,
-                             "reason": f"it governs a {kind} (read from the submittal's {source})"})
+    required = equipment_subtype.required(equipment, source, text, gov, REQUIRED_BY_TYPE)
     declared_absent: list[tuple[dict, str]] = []
     for condition in service_scope.conditions():
         if condition["mode"] == "value" or not (condition["required"] or condition["standards"]):

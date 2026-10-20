@@ -29,7 +29,7 @@ import re
 from . import crs_ai_drafts, crs_item_series, method_notes, severity_rule, standard_ids
 
 # isort: split
-from . import paragraph_ids
+from . import equipment_subtype, paragraph_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -1408,8 +1408,7 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
         ident = r["identifier"]
         rows.append({
             "finding_id": "", "document_name": submittal_name, "page_section": "",
-            "comment": (f"Contractor did not reference {ident}; confirm compliance with "
-                        f"{ident} (required because {r['reason']})."),
+            "comment": equipment_subtype.not_cited_words(r),
             "comment_by": "AI Review", "standard_reference": ident,
             "row_kind": ROW_KIND_STANDARD_NOT_CITED, "severity": "",
             "engineer_confirmed": False,
