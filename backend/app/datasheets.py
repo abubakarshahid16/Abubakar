@@ -51,6 +51,7 @@ from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan
                submittal_review, tables)
 from .config import settings
 from .db import connect
+from . import slot_options  # isort: skip
 
 #: Where a datasheet says a value is not filled in yet.
 #:
@@ -1105,6 +1106,7 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
     # A cell written on a drawn answer line (`split_drawn_slots`) is a value.
     slot = [p.startswith(_SLOT_MARK) for p in joined]
     parts = [p[len(_SLOT_MARK):] if is_slot else p for p, is_slot in zip(joined, slot)]
+    parts, slot = slot_options.fold(parts, slot, is_field_label)
     pairs: list[tuple[str, str]] = []
     index = 0
     while index < len(parts):
@@ -1135,7 +1137,7 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
         # the form "the value looks like a label, so re-anchor" also discards
         # `Insulation | None`, where `None` is a real answer that happens to
         # read like a word.
-        if _CROSS_REFERENCE.fullmatch(part):
+        if not part or _CROSS_REFERENCE.fullmatch(part):
             index += 1
             continue
         # AND SO DOES AN ANNEX CLAUSE (`D.6.1`, `A.4`) OR A LIST OF CLAUSES
@@ -1147,9 +1149,6 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
         # in a text block that is as likely a value (a 1.6 mm corrosion
         # allowance) as a clause.
         if _LETTERED_CLAUSE.fullmatch(part):
-            index += 1
-            continue
-        if not part:
             index += 1
             continue
         label = part
