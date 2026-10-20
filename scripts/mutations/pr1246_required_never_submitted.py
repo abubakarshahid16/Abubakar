@@ -1,7 +1,7 @@
 """#882: a value the reader recorded as the purchaser's requirement is never the
 contractor's submitted value. The guard is `match_rules.is_purchaser_kind`, read
 by the review run (`comparison.run_comparison`), `match_rules.refusal` and
-`comparison.candidate_facts`. Placeholder ids M882R-xx: the lead renames them
+`comparison.candidate_facts`. Placeholder ids M1246-xx: the lead renames them
 to the PR number."""
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ _R = APP / "match_rules.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
-        id="M882R-01",
-        phase=882,
+        id="M1246-01",
+        phase=1246,
         description="a required-kind value is no longer recognised as the purchaser's",
         path=_R,
         anchor='    return str((fact or {}).get("section") or "").strip().lower() == "model:required"\n',
@@ -24,8 +24,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=("honesty", "critical"),
     ),
     Mutation(
-        id="M882R-02",
-        phase=882,
+        id="M1246-02",
+        phase=1246,
         description="the review run keeps required-kind values in the pool the matchers draw from",
         path=_C,
         anchor="    facts = [f for f in facts if not match_rules.is_purchaser_kind(f)]\n",
@@ -35,8 +35,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=("honesty", "critical"),
     ),
     Mutation(
-        id="M882R-03",
-        phase=882,
+        id="M1246-03",
+        phase=1246,
         description="a clause with only a required value is not reported as 'no offered value'",
         path=_C,
         anchor=(
@@ -49,8 +49,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=("honesty",),
     ),
     Mutation(
-        id="M882R-04",
-        phase=882,
+        id="M1246-04",
+        phase=1246,
         description="the AI matcher's shortlist offers a required-kind value",
         path=_C,
         anchor="        if match_rules.is_purchaser_kind(fact):\n            continue  # #882: what the purchaser requires is not a submitted value\n",
