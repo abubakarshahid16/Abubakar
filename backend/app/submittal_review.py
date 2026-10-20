@@ -929,11 +929,19 @@ def confirm_fact(fact_id: str, *, allowed_document_ids: frozenset[str],
 class FactsNotConfirmable(ValueError):
     """`confirm_facts` refused the whole batch: `missing` ids the caller may not
     read, or that are on another submittal (the same answer for both);
-    `stale` ids a re-read superseded."""
+    `stale` ids a re-read superseded; `conflicts` ids of values two readers read
+    differently, which are confirmed one at a time (order 164.1), never in a
+    batch of several."""
 
-    def __init__(self, missing: list[str], stale: list[str]):
+    def __init__(
+        self,
+        missing: list[str],
+        stale: list[str],
+        conflicts: list[str] | None = None,
+    ):
         super().__init__("not confirmable")
         self.missing, self.stale = missing, stale
+        self.conflicts = conflicts or []
 
 
 def confirm_facts(
@@ -970,8 +978,16 @@ def confirm_facts(
                 rows[fact_id] = row
         missing = [i for i in ids if i not in rows]
         stale = [i for i, r in rows.items() if r["superseded_at"] is not None]
-        if missing or stale:
-            raise FactsNotConfirmable(missing, stale)
+        # A value two readers read differently is confirmed on its own: in a
+        # batch of several it would be blessed with the ones beside it.
+        conflicts = [
+            i
+            for i, r in rows.items()
+            if len(ids) > 1
+            and (r["validation_state"] or "").strip().lower() == "conflict"
+        ]
+        if missing or stale or conflicts:
+            raise FactsNotConfirmable(missing, stale, conflicts)
         now = _now()
         confirmed, already = [], []
         for fact_id, row in rows.items():

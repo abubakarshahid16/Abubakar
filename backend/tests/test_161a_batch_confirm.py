@@ -283,3 +283,30 @@ def test_an_empty_or_unknown_request_is_refused(world):
     assert r.status_code == 422
     hidden = _user("stranger", [])
     assert _confirm(world, [world["fact"]], headers=hidden).status_code == 404
+
+
+def test_a_value_read_two_ways_is_never_confirmed_in_a_batch_but_alone(world):
+    other = _model_fact(world["sub"], "Design pressure", "8", "bar")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE submittal_facts SET validation_state = 'conflict' WHERE id = ?",
+            (other,),
+        )
+    r = _confirm(world, [world["fact"], other])
+    assert r.status_code == 409, r.text
+    assert "on its own" in r.json()["detail"]["message"]
+    assert _confirmed_by(world["fact"]) is None and _confirmed_by(other) is None
+    alone = _confirm(world, [other])
+    assert alone.status_code == 200, alone.text
+    assert _confirmed_by(other) == "eng" and _confirmed_by(world["fact"]) is None
+
+
+def test_only_a_finished_review_can_be_judged_again(world):
+    for status in ("pending", "queued", "failed", "cancelled", "running"):
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE review_runs SET status = ? WHERE id = ?", (status, world["run"])
+            )
+        r = _confirm(world, [world["fact"]])
+        assert r.status_code == 409, (status, r.text)
+        assert _confirmed_by(world["fact"]) is None
