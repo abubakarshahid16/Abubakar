@@ -280,6 +280,7 @@ from .api import standards as api_standards  # noqa: E402
 # Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
 for _r in (api_documents, api_document_classification, api_document_files, api_admin):
     app.include_router(_r.router)
+app.include_router(auth_mod.router)
 app.include_router(api_run_summary.router)
 app.include_router(api_review_templates.router)
 app.include_router(api_standards.router)
@@ -632,8 +633,7 @@ def _require_owned_conversation(conversation_id: str, scope: access.AccessScope)
 @app.post("/api/auth/login", response_model=schemas.LoginResult,
           responses={**schemas.ERRORS_422})
 def login(body: schemas.LoginRequest, request: Request, response: Response):
-    """Exchange credentials for a bearer token, or (`session: "cookie"`, the
-    browser's way) for an HttpOnly cookie with no token in the body.
+    """Exchange credentials for a bearer token (or an HttpOnly cookie).
 
     Unauthenticated by construction - it is how a caller becomes
     authenticated. It is also the only unauthenticated WRITER in the API, and
@@ -641,20 +641,13 @@ def login(body: schemas.LoginRequest, request: Request, response: Response):
     which is why the rate limiter is in memory rather than a table.
     """
     try:
-        # The client host bounds the Argon2 work. Without it the only budget
-        # was keyed on the email in the body, which the caller picks per
-        # request - so a fresh address each time met an empty bucket and every
-        # request paid a 64 MiB verify. `request.client` is None for some
-        # transports (a raw ASGI test call), and None simply means the email
-        # bucket alone applies.
+        # The client host bounds the Argon2 work: the email bucket alone is
+        # keyed on what the caller picks per request, so a fresh address each
+        # time met an empty bucket and paid a 64 MiB verify. `request.client`
+        # is None for some transports (a raw ASGI call): the email bucket only.
         client_host = request.client.host if request.client else None
-        result = auth_mod.login(body.email, body.password,
-                                client_host=client_host)
-        if body.session == "cookie":
-            # Order 164.2: the page never holds the token.
-            auth_mod.set_session_cookie(response, request, result["token"])
-            result = {**result, "token": None}
-        return result
+        result = auth_mod.login(body.email, body.password, client_host=client_host)
+        return auth_mod.session_login(body.session, request, response, result)
     except auth_mod.AuthError as exc:
         headers = ({"Retry-After": str(exc.retry_after)}
                    if exc.retry_after else None)
@@ -663,15 +656,6 @@ def login(body: schemas.LoginRequest, request: Request, response: Response):
             detail=errors.safe_error(exc.code, exc.message),
             headers=headers,
         ) from exc
-
-
-@app.post("/api/auth/logout", response_model=schemas.LogoutResult)
-def logout(request: Request, response: Response):
-    """Forget the browser's sign-in: clear the cookie. No session is needed (a
-    sign-out of nobody is still fine) and nothing is written. A bearer token,
-    held by a tool, is the tool's to drop; use `/api/auth/revoke` to end it."""
-    auth_mod.clear_session_cookie(response, request)
-    return {"signed_out": True}
 
 
 @app.post("/api/auth/password/reset", response_model=schemas.PasswordResetResult,

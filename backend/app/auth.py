@@ -53,6 +53,8 @@ from typing import TYPE_CHECKING
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, VerifyMismatchError
+from fastapi import APIRouter, Request, Response
+from pydantic import BaseModel
 
 from .config import settings
 from .db import connect
@@ -66,7 +68,7 @@ _log = logging.getLogger("rag_intelligence.auth")
 _MALFORMED = (ValueError, TypeError, AttributeError)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from fastapi import Request
+    pass
 
 #: Argon2id at the library's defaults, which track the current OWASP guidance.
 #: Not tuned here: a hand-picked memory cost on one laptop is a number nobody
@@ -602,40 +604,69 @@ def csrf_ok(request: Request) -> bool:
     return request.headers.get(CSRF_HEADER) == CSRF_VALUE and _origin_ok(request)
 
 
-def cookie_secure(request: Request) -> bool:
-    """`Secure` on the cookie. `auto` (the default): when the request came over
-    https (directly or by `X-Forwarded-Proto`). Browsers differ on a Secure
-    cookie over plain http on loopback (Safari drops it), so plain loopback is
-    not Secure under `auto`; `true` / `false` force it."""
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def cookie_plan(request: Request) -> bool | None:
+    """`Secure` for the sign-in cookie, or None when the cookie is refused.
+
+    `auto` (default) goes by where the request came from, never by a header a
+    client can forge: https is Secure; plain http on a loopback host is allowed
+    (Safari drops a Secure cookie there); plain http on a network address would
+    put the cookie on the wire, so it is refused (None) and the login falls back
+    to the bearer token. `X-Forwarded-Proto` is not read: a proxy that
+    terminates https tells the server through uvicorn's own proxy-headers
+    setting. `false` forces non-Secure (an owner's explicit choice); `true`
+    keeps Secure on loopback too."""
     mode = str(settings.auth_cookie_secure or "auto").strip().lower()
-    if mode in ("true", "false"):
+    if mode == "false":
+        return False
+    if request.url.scheme == "https":
+        return True
+    if (request.url.hostname or "").lower() in LOOPBACK_HOSTS:
         return mode == "true"
-    forwarded = (
-        (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
-    )
-    return request.url.scheme == "https" or forwarded == "https"
+    return None
 
 
-def set_session_cookie(response, request: Request, token: str) -> None:
+def session_login(session: str, request: Request, response, result: dict) -> dict:
+    """The browser's login (`session == "cookie"`): the token goes into the
+    HttpOnly cookie and out of the body. Refused (see `cookie_plan`) it stays in
+    the body, the bearer way, and the page keeps it in memory."""
+    secure = cookie_plan(request) if session == "cookie" else None
+    if secure is None:
+        return result
     response.set_cookie(
         COOKIE_NAME,
-        token,
+        result["token"],
         max_age=settings.auth_token_seconds,
         path="/",
         httponly=True,
         samesite="strict",
-        secure=cookie_secure(request),
+        secure=secure,
     )
+    return {**result, "token": None}
 
 
-def clear_session_cookie(response, request: Request) -> None:
+router = APIRouter()
+
+
+class LogoutResult(BaseModel):
+    signed_out: bool
+
+
+@router.post("/api/auth/logout", response_model=LogoutResult)
+def logout(request: Request, response: Response):
+    """Forget the browser's sign-in: clear the cookie. No session is needed (a
+    sign-out of nobody is still fine) and nothing is written. A bearer token,
+    held by a tool, is the tool's to drop; use `/api/auth/revoke` to end it."""
     response.delete_cookie(
         COOKIE_NAME,
         path="/",
         httponly=True,
         samesite="strict",
-        secure=cookie_secure(request),
+        secure=bool(cookie_plan(request)),
     )
+    return {"signed_out": True}
 
 
 def resolve_user_id(request: Request) -> str | None:

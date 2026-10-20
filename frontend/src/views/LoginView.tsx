@@ -232,7 +232,8 @@ export function LoginView({
         <p className="mt-5 text-xs leading-relaxed text-slateish-400">
           Your sign-in is kept in a protected browser cookie that this page cannot
           read. It lasts 8 hours or until you sign out; reloading the page does not
-          sign you out.
+          sign you out. Over plain http on a network address the server keeps no
+          cookie, and then a reload does sign you out.
         </p>
         {/* Whether Claude is switched on is not knowable before sign-in (the
             status route needs a session), so this states both halves, in the

@@ -13,7 +13,7 @@ import { isSignedIn, onSignedOut, setCookieSession, setToken } from "./api/clien
 const ME = { id: "u1", email: "eng@example.test", display_name: "Eng", roles: [] };
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
 
-function mockApi({ cookieSignedIn }: { cookieSignedIn: boolean }) {
+function mockApi({ cookieSignedIn, loginToken = null }: { cookieSignedIn: boolean; loginToken?: string | null }) {
   const calls: { url: string; method: string; headers: Headers; body: string | null }[] = [];
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -21,7 +21,7 @@ function mockApi({ cookieSignedIn }: { cookieSignedIn: boolean }) {
     if (url.includes("/auth/me")) {
       return cookieSignedIn ? json({ required: true, user: ME }) : json({ detail: { code: "unauthenticated", message: "sign in to continue" } }, 401);
     }
-    if (url.includes("/auth/login")) return json({ token: null, user: ME, expires_in_seconds: 28800 });
+    if (url.includes("/auth/login")) return json({ token: loginToken, user: ME, expires_in_seconds: 28800 });
     if (url.includes("/auth/logout")) return json({ signed_out: true });
     if (url.includes("/documents")) return json([]);
     if (url.includes("/metrics")) return json({ refresh_seconds: 15 });
@@ -81,5 +81,19 @@ describe("the browser's cookie login", () => {
     expect(logout.method).toBe("POST");
     expect(logout.headers.get("X-Requested-With")).toBe("rag-ui");
     expect(isSignedIn()).toBe(false);
+  });
+
+  it("when the server refuses the cookie (plain http on a network address) the bearer token is held and sent instead", async () => {
+    const calls = mockApi({ cookieSignedIn: false, loginToken: "tok-123" });
+    const user = userEvent.setup();
+    render(<App initialView="documents" />);
+    await user.type(await screen.findByLabelText(/email/i), "eng@example.test");
+    await user.type(screen.getByLabelText(/password/i), "a-long-enough-password");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+    expect(await screen.findByText("Eng", { exact: false })).toBeInTheDocument();
+    const afterLogin = calls.slice(calls.findIndex((c) => c.url.includes("/auth/login")) + 1);
+    const later = afterLogin.filter((c) => c.url.includes("/documents"));
+    expect(later.length).toBeGreaterThan(0);
+    expect(later.every((c) => c.headers.get("Authorization") === "Bearer tok-123")).toBe(true);
   });
 });

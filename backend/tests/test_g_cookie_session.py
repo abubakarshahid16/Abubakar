@@ -30,7 +30,13 @@ def admin_and_user():
     return admin, other
 
 
-def _client(base="http://testserver"):
+@pytest.fixture
+def network_hosts(monkeypatch):
+    """The server answers only to configured host names (`trusted_host_gate`)."""
+    monkeypatch.setattr(settings, "allowed_hosts", "files.example.test,192.168.1.20")
+
+
+def _client(base="http://127.0.0.1:8000"):
     return TestClient(app, base_url=base)
 
 
@@ -86,7 +92,7 @@ def test_a_cookie_write_from_another_origin_is_refused(admin_and_user):
     _sign_in(c, session="cookie")
     evil = {**HEADER, "Origin": "http://evil.example"}
     assert c.post(f"/api/auth/revoke/{other}", headers=evil).status_code == 404
-    same = {**HEADER, "Origin": "http://testserver"}
+    same = {**HEADER, "Origin": "http://127.0.0.1:8000"}
     assert c.post(f"/api/auth/revoke/{other}", headers=same).status_code == 200
 
 
@@ -165,20 +171,90 @@ def test_logout_clears_the_cookie_and_needs_no_session(admin_and_user):
     )  # nobody signed in: still fine
 
 
-def test_the_secure_flag_follows_the_scheme_unless_forced(admin_and_user, monkeypatch):
-    assert "secure" not in _flags(
-        _sign_in(_client("http://testserver"), session="cookie")
-    ).replace("samesite", "")
-    https = _sign_in(_client("https://testserver"), session="cookie")
-    assert "; secure" in _flags(https)
+def test_the_secure_flag_follows_where_the_request_came_from(
+    admin_and_user, network_hosts, monkeypatch
+):
+    def plain(base):
+        return _sign_in(_client(base), session="cookie")
+
+    loopback = plain("http://localhost:8000")
+    assert "rag_session=" in _flags(loopback) and "; secure" not in _flags(loopback)
+    assert "; secure" in _flags(plain("https://files.example.test"))
+    assert "; secure" in _flags(plain("https://127.0.0.1:8000"))
     monkeypatch.setattr(settings, "auth_cookie_secure", "true")
-    assert "; secure" in _flags(
-        _sign_in(_client("http://testserver"), session="cookie")
-    )
+    assert "; secure" in _flags(plain("http://127.0.0.1:8000"))
     monkeypatch.setattr(settings, "auth_cookie_secure", "false")
-    assert "; secure" not in _flags(
-        _sign_in(_client("https://testserver"), session="cookie")
+    assert "; secure" not in _flags(plain("https://files.example.test"))
+
+
+def test_plain_http_on_a_network_address_gets_no_cookie_and_the_bearer_token(
+    admin_and_user, network_hosts
+):
+    r = _sign_in(_client("http://192.168.1.20:8000"), session="cookie")
+    assert r.status_code == 200 and "set-cookie" not in r.headers
+    assert r.json()["token"]
+
+
+def test_a_forged_forwarded_proto_does_not_make_a_network_request_secure(
+    admin_and_user, network_hosts
+):
+    c = _client("http://192.168.1.20:8000")
+    r = c.post(
+        "/api/auth/login",
+        json={
+            "email": "boss@example.test",
+            "password": PASSWORD_A,
+            "session": "cookie",
+        },
+        headers={"X-Forwarded-Proto": "https"},
     )
+    assert "set-cookie" not in r.headers and r.json()["token"]
+
+
+def test_no_state_changing_route_is_a_get():
+    """SameSite plus the custom header protects writes only if writes are never
+    GETs. A route walk: no GET path names a write, and no GET handler's own body
+    writes to the database."""
+    import inspect
+    import re
+
+    verbs = re.compile(
+        r"/(delete|create|revoke|reset|logout|login|start|cancel|confirm|import|"
+        r"rebuild|upload|ingest|update|add|remove|set|run)(/|$|-|_)"
+    )
+    write_sql = re.compile(
+        r"\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b", re.I
+    )
+    offenders = []
+    for route in app.routes:
+        if "GET" not in (getattr(route, "methods", None) or ()):
+            continue
+        path = route.path
+        if verbs.search(path):
+            offenders.append(("path", path))
+        try:
+            source = inspect.getsource(route.endpoint)
+        except (OSError, TypeError):
+            continue
+        if write_sql.search(source):
+            offenders.append(("body", path))
+    assert offenders == []
+
+
+def test_the_cookie_value_never_reaches_a_log_or_an_error(admin_and_user, caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    c = _client()
+    token = _sign_in(c, session="cookie").headers["set-cookie"].split("=", 1)[1]
+    token = token.split(";", 1)[0]
+    c.get("/api/auth/me")
+    c.post("/api/auth/logout")
+    bad = _client()
+    bad.cookies.set("rag_session", token[:-3] + "AAA")
+    r = bad.post("/api/auth/revoke/x", headers=HEADER)
+    assert token not in r.text and "rag_session" not in r.text
+    assert "rag_session=" not in caplog.text and token not in caplog.text
 
 
 def test_a_failed_login_sets_no_cookie(admin_and_user):

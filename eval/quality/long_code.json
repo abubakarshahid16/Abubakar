@@ -26,7 +26,7 @@
   "backend/app/fts_index.py": 1176,
   "backend/app/geometry_reader.py": 1272,
   "backend/app/ingest.py": 1135,
-  "backend/app/main.py": 3678,
+  "backend/app/main.py": 3677,
   "backend/app/market_providers.py": 959,
   "backend/app/ocr.py": 826,
   "backend/app/reader_api.py": 818,
