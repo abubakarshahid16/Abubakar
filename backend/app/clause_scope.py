@@ -5,8 +5,9 @@ that starts a page. This module widens WHAT IS READ, never what is decided:
 
 - `candidate_starts` proposes lines that may open a part (a break the division
   finder made, or a line of the SHAPE "capitalised word, then an id"); the
-  model reads each, and a candidate it does not confirm decides nothing
-  (`downgrade`: it can only hold, never exclude, never rescue);
+  model reads each; one it is unsure of holds its requirements, one it does
+  not confirm inherits the part before it (`downgrade`: it can only hold,
+  never exclude, never rescue);
 - `subclause_units` lists the sub-headings of one division that hold a wanted
   requirement, their extent taken from the standard's own headings;
 - `screen_titles` asks the model which of those titles say the rules there are
@@ -92,13 +93,15 @@ def subclause_units(
     div: dict,
     end: int | None,
     wanted_lines: Iterable[int],
+    limit: int | None = MAX_TITLES,
 ) -> list[dict]:
     """The sub-headings of division `div` (lines up to `end`, the next start or
     break; None: the text's end) that hold at least one line of `wanted_lines`
     (line indexes of requirements): {"line", "at", "end" (offsets), "title"},
-    at most `MAX_TITLES`, one per title. A unit runs from its heading to the
-    next heading that closes it, as `StandardText.spans` reads the standard's
-    own headings, never past the division."""
+    at most `limit` (default `MAX_TITLES`; None: all), one per title. A unit
+    runs from its heading to the next heading that closes it, as
+    `StandardText.spans` reads the standard's own headings, never past the
+    division."""
     stop = len(text.lines) if end is None else end
     cap = text.offsets[stop]
     wanted = sorted(set(wanted_lines))
@@ -119,7 +122,7 @@ def subclause_units(
         ):
             continue
         out.append({"line": index, "at": at, "end": last, "title": title})
-        if len(out) >= MAX_TITLES:
+        if limit is not None and len(out) >= limit:
             break
     return out
 
@@ -174,7 +177,9 @@ SUBSCOPE_TASK = ai_task_runner.register(
 def screen_titles(units: list[dict], provider, run: dict) -> list[dict]:
     """The units whose title the model flagged as limited, verified by code:
     a returned title counts only when it is, letters and digits alone, one of
-    the supplied titles. A read that fails or a stopped model flags none."""
+    the supplied titles. A read that fails or a stopped model flags none; only
+    the first `MAX_TITLES` units are offered, and the gate counts the
+    requirements under the rest (and under a division not screened at all)."""
     from . import ai_applicability
 
     data = ai_applicability._read(

@@ -558,27 +558,54 @@ def _decide_unit(unit: dict, ctx: dict) -> dict:
     return {**rec, "verdict": "held" if verdict == "unsure" else verdict, "line": line}
 
 
-def _subparts(unit: dict, wanted: set, ctx: dict) -> list[dict]:
-    """The sub-headings of a division the model flags as limited to a
-    material, form, construction or grade (each verified by `clause_scope`)."""
+def _subparts(unit: dict, wanted: set, ctx: dict) -> tuple[list[dict], list | None]:
+    """(flagged, skipped): the sub-headings of a division the model flags as
+    limited to a material, form, construction or grade (each verified by
+    `clause_scope`), and the sub-headings that were NOT screened - None when
+    none of them was (the run's budget is spent or the model stopped), else the
+    ones past the titles one read can carry."""
     from . import clause_scope
 
-    found = clause_scope.subclause_units(unit["text"], unit["div"], unit["end"], wanted)
-    if not found or ctx["run"].get("stopped"):
-        return []
+    found = clause_scope.subclause_units(
+        unit["text"], unit["div"], unit["end"], wanted, limit=None
+    )
+    if not found:
+        return [], []
+    if ctx["run"].get("stopped") or (ctx["budget"] is not None and ctx["budget"] <= 0):
+        return [], None
     if ctx["budget"] is not None:
-        if ctx["budget"] <= 0:
-            return []
         ctx["budget"] -= 1
-    return clause_scope.screen_titles(found, ctx["provider"], ctx["run"])
+    head = found[: clause_scope.MAX_TITLES]
+    flagged = clause_scope.screen_titles(head, ctx["provider"], ctx["run"])
+    if ctx["run"].get("stopped"):  # the screen itself found the model down
+        return flagged, None
+    return flagged, found[clause_scope.MAX_TITLES :]
+
+
+def _unscreened(unit: dict, where: dict, skipped: list | None) -> set[int]:
+    """The requirements of a division whose sub-headings were not screened
+    (`skipped` as `_subparts` returns it); one with no known line is in none."""
+    text = unit["text"]
+    mine = {rid: ln for rid, (key, ln) in where.items() if key == unit["key"] and ln}
+    if skipped is None:
+        return set(mine)
+    return {
+        rid
+        for rid, ln in mine.items()
+        if any(s["line"] <= ln and text.offsets[ln] < s["end"] for s in skipped)
+    }
 
 
 def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
     """Read the divisions and candidate starts the largest first, then the
-    flagged sub-parts the largest first, all within the run's budget.
-    Returns ({key: decision}, {id(requirement): sub-part key})."""
+    flagged sub-parts (also those holding no requirement of their own but an
+    inner sub-part's) the largest first, all within the run's budget.
+    Returns ({key: decision}, {id(requirement): [sub-part keys, outer first]});
+    `ctx["unscreened"]` gets the requirements whose division's sub-headings
+    were not screened."""
     recs: dict[tuple, dict] = {}
     subs: list[dict] = []
+    ctx["unscreened"] = set()
     todo = sorted(
         (u for u in units.values() if u["weight"]), key=lambda u: -u["weight"]
     )
@@ -587,7 +614,9 @@ def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
         open_part = rec["status"] == "read" and rec["verdict"] == "kept"
         if unit["kind"] == "division" and open_part:
             lines = {ln for key, ln in where.values() if key == unit["key"]}
-            subs += sub_units(unit, _subparts(unit, lines - {None}, ctx))
+            flagged, skipped = _subparts(unit, lines - {None}, ctx)
+            ctx["unscreened"] |= _unscreened(unit, where, skipped)
+            subs += sub_units(unit, flagged)
     subs_of = sub_of(subs, where)
     for sub in sorted(subs, key=lambda s: -s["count"]):
         if sub["count"]:
@@ -597,13 +626,19 @@ def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
     return recs, subs_of
 
 
+#: How restrictive a verdict is: a requirement takes the highest of its parts.
+_RANK = {"kept": 0, "held": 1, "does_not_apply": 2}
+
+
 def _effective(requirement: dict, where, sub_map, recs, units) -> dict | None:
-    """The decision that holds for a requirement: its flagged sub-part's when
-    that is not "kept" (or when the part is kept and the sub-part could not be
-    read, so the counts say so), else its part's. A candidate start the model
-    did not confirm as a new part inherits the part before it DOWNGRADED
-    (excluded -> held): a false break never rescues a clause from a limited
-    part, and code never excludes on inheritance."""
+    """The decision that holds for a requirement: the most restrictive of its
+    part's and of EVERY flagged sub-part that contains it (an outer one is read
+    even when only an inner one holds the requirement); when all keep it and a
+    sub-part could not be read, that one, so the counts say so. A candidate
+    start the model did not confirm as a new part inherits the part before it
+    DOWNGRADED (excluded -> held), unless the model was unsure of it, which
+    holds: a false break never rescues a clause from a limited part, and code
+    never excludes on inheritance."""
     from . import clause_scope
 
     placed = where.get(id(requirement))
@@ -611,19 +646,17 @@ def _effective(requirement: dict, where, sub_map, recs, units) -> dict | None:
         return None
     unit = units[placed[0]]
     rec = recs[unit["key"]]
-    if unit["kind"] == "candidate" and not rec.get("own"):
+    if unit["kind"] == "candidate" and not rec.get("own") and not rec.get("unsure"):
         prev = recs.get(unit["prev"]["key"]) if unit["prev"] else None
         if prev and clause_scope.downgrade(prev["verdict"]) == "held":
             rec = {**prev, "verdict": "held", "via": unit["div"]["heading"]}
         else:
             rec = {**rec, "verdict": "kept"}
-    sub = recs.get(sub_map.get(id(requirement)))
-    if sub is not None and (
-        sub["verdict"] != "kept"
-        or (rec["verdict"] == "kept" and sub["status"] != "read")
-    ):
-        return sub
-    return rec
+    subs = [recs[k] for k in sub_map.get(id(requirement), []) if k in recs]
+    best = max([rec, *subs], key=lambda r: _RANK[r["verdict"]])
+    if best["verdict"] != "kept":
+        return best
+    return next((s for s in [rec, *subs] if s["status"] != "read"), rec)
 
 
 def _item(requirement: dict, rec: dict, standard_labels: dict, model: str) -> dict:
@@ -731,6 +764,8 @@ def _division_gate(
     kept, items, held, counts = _sort_out(
         requirements, where, unplaced, subs_of, recs, units, standard_labels, model
     )
+    if missed := sum(1 for r in kept if id(r) in ctx["unscreened"]):
+        counts["requirements_subparts_not_screened"] = missed
     candidates = sum(
         1
         for key, rec in recs.items()

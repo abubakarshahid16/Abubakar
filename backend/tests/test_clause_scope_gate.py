@@ -19,8 +19,9 @@ import sys
 import pytest
 
 import app as app_package
-from app import ai_applicability, scope_ledger, subject_scope
+from app import ai_applicability, clause_scope, scope_ledger, subject_scope
 from app.config import settings
+from app.reasoning_provider import ProviderRefused
 from tests.test_141_division_scope import (  # noqa: F401 - temp_storage is a fixture
     GENERAL,
     GRAPHITE,
@@ -66,6 +67,8 @@ def titanium_if_named(passage: str) -> dict:
 class StubScope:
     """Stands in for `app.clause_scope` (same four functions, fixed answers)."""
 
+    MAX_TITLES = 60
+
     def __init__(self) -> None:
         self.heads: list[str] = []  # lines offered as candidate starts
         self.subs: list[tuple[str, str | None]] = []  # (title, title that ends it)
@@ -79,7 +82,7 @@ class StubScope:
             if line in self.heads
         ]
 
-    def subclause_units(self, text, div, end, wanted_lines):
+    def subclause_units(self, text, div, end, wanted_lines, limit=None):
         self.seen["wanted"] = set(wanted_lines)
         out = []
         for title, until in self.subs:
@@ -404,3 +407,111 @@ def test_a_review_with_the_reader_off_stores_no_counts(stub, monkeypatch):
     assert {stored[i]["state"] for i in ids.values()} == {scope_ledger.CHECKED}
     assert model.calls == [] and "division_scope" not in result["requirement_split"]
     assert settings.ai_division_scope_enabled is False
+
+
+# ------------------------- nested sub-parts, unsure candidates, what was not screened
+
+
+@pytest.fixture
+def store(temp_storage):  # noqa: F811 - the fixture of test_141; the REAL clause_scope
+    yield
+
+
+NEST_PAGE = (
+    1,
+    "PART AA\nGENERAL REQUIREMENTS FOR ALL VESSELS\n1.1 SCOPE\n"
+    "The rules of Part AA apply to all vessels of this code.\n"
+    "4.1 Welded items\n" + TI_SCOPE + "\n"
+    "4.1.1 Seals\nSeals shall be replaced every two years.\n"
+    "4.1.2 Gaskets\nGaskets are listed in the schedule.\n"
+    "4.2 Nameplates\nThe nameplate shall be of stainless steel.\n",
+)
+SEAL = req("seal", 1, "Seals shall be replaced every two years.")
+SEAL_OUT = req("plate", 1, "The nameplate shall be of stainless steel.")
+NESTED = [("4.1.1 Seals", "4.1.2 Gaskets"), ("4.1 Welded items", "4.2 Nameplates")]
+
+
+def flags(*titles):
+    """A model that flags the given sub-heading titles and reads a limit
+    wherever its passage holds the titanium sentence."""
+    model = FakeModel(scope=titanium_if_named)
+    model.replies["titles"] = lambda prompt: {"titles": list(titles)}
+    return model
+
+
+def test_a_requirement_in_a_nested_flagged_sub_part_meets_the_outer_limit_too(
+    store,
+):
+    # the REAL clause_scope: the outer sub-part holds no requirement directly
+    model = flags("4.1 Welded items", "4.1.1 Seals")
+    out = gate(model, [NEST_PAGE], (SEAL, SEAL_OUT))
+    assert _ids(out["items"]) == ["seal"] and _ids(out["kept"]) == ["plate"]
+    [item] = out["items"]
+    assert "4.1 Welded items" in item["detail"] and TI_SCOPE in item["detail"]
+    assert out["summary"]["subparts_flagged"] == 2
+
+
+def test_a_nested_requirement_takes_the_most_restrictive_of_its_sub_parts(stub):
+    stub.subs = NESTED
+    model = FakeModel(scope=lambda p: UNSURE if TI_SCOPE in p else NOT_LIMITED)
+    out = gate(model, [NEST_PAGE], (SEAL,))
+    assert _ids(out["held"]) == ["seal"] and out["kept"] == []
+
+
+def test_an_outer_exclusion_beats_an_inner_part_that_is_not_limited(stub):
+    # the inner part says "no limit", the outer one excludes: excluded wins
+    stub.subs = NESTED
+    out = gate(FakeModel(scope=titanium_if_named), [NEST_PAGE], (SEAL,))
+    assert _ids(out["items"]) == ["seal"] and out["held"] == []
+
+
+def test_a_flagged_outer_sub_part_that_was_not_read_is_counted(stub):
+    stub.subs = NESTED
+    # reads: the part, the title screen, the inner sub-part; none is left
+    out = gate(FakeModel(scope=titanium_if_named), [NEST_PAGE], (SEAL,), limit=3)
+    assert _ids(out["kept"]) == ["seal"] and out["items"] == []
+    assert out["summary"]["requirements_beyond_limit"] == 1
+
+
+def test_a_start_the_model_is_unsure_of_holds_even_after_a_kept_part(stub):
+    stub.heads = ["Appendix 9 (jacketed vessels)"]
+    model = FakeModel(scope=lambda p: UNSURE if "Appendix 9" in p else NOT_LIMITED)
+    out = gate(model, [AA_PAGE, (2, JACKET_PAGE[1])], (JACKET | {"page": 2},))
+    assert _ids(out["held"]) == ["jacket"] and out["kept"] == []
+    assert "could not tell" in out["held"][0]["detail"]
+    assert out["summary"]["requirements_held_unsure"] == 1
+
+
+def test_sub_headings_not_screened_because_the_limit_is_spent_are_counted(stub):
+    stub.subs = [("4.1 Welded items", "4.2 Nameplates")]
+    model = FakeModel(scope=titanium_if_named)
+    out = gate(model, [NEST_PAGE], (SEAL, SEAL_OUT), limit=1)
+    assert _ids(out["kept"]) == ["seal", "plate"] and "screened" not in stub.seen
+    assert out["summary"]["requirements_subparts_not_screened"] == 2
+    assert out["summary"]["requirements_gated"] == 2
+
+
+def test_sub_headings_not_screened_because_the_model_stopped_are_counted(store):
+    class Down(FakeModel):
+        def reason(self, packet):
+            if packet.prompt.startswith("The TEXT is a list of sub-heading titles"):
+                raise ProviderRefused("the model could not be reached")
+            return super().reason(packet)
+
+    out = gate(Down(scope=NOT_LIMITED), [NEST_PAGE], (SEAL, SEAL_OUT))
+    assert _ids(out["kept"]) == ["seal", "plate"]
+    assert out["summary"]["requirements_subparts_not_screened"] == 2
+    assert "stopped" in out["summary"]
+
+
+def test_titles_past_the_one_read_are_counted_with_the_real_module(store, monkeypatch):
+    monkeypatch.setattr(clause_scope, "MAX_TITLES", 3)
+    out = gate(flags(), [NEST_PAGE], (SEAL, SEAL_OUT))
+    assert _ids(out["kept"]) == ["seal", "plate"]
+    # 1.1, 4.1 and 4.1.1 are screened; 4.2 (holding the plate) is not
+    assert out["summary"]["requirements_subparts_not_screened"] == 1
+
+
+def test_nothing_unscreened_leaves_the_count_out(store):
+    out = gate(flags(), [NEST_PAGE], (SEAL, SEAL_OUT))
+    assert "requirements_subparts_not_screened" not in out["summary"]

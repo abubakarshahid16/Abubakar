@@ -280,10 +280,11 @@ def sub_units(unit: dict, flagged: list[dict]) -> list[dict]:
     ]
 
 
-def sub_of(subs: list[dict], where: dict) -> dict[int, tuple]:
-    """The innermost flagged sub-part each requirement sits in (by its line);
-    sets the requirement count of each sub-part."""
-    out: dict[int, tuple] = {}
+def sub_of(subs: list[dict], where: dict) -> dict[int, list[tuple]]:
+    """Every flagged sub-part each requirement sits in (by its line), the
+    outermost first; sets the requirement count of each sub-part, which counts
+    a requirement of an inner sub-part for the outer ones too."""
+    out: dict[int, list[tuple]] = {}
     for rid, (key, line) in where.items():
         inside = [
             s
@@ -294,7 +295,8 @@ def sub_of(subs: list[dict], where: dict) -> dict[int, tuple]:
             and (s["end"] is None or line < s["end"])
         ]
         if inside:
-            out[rid] = max(inside, key=lambda s: s["div"]["line"])["key"]
+            by_line = sorted(inside, key=lambda s: s["div"]["line"])
+            out[rid] = [s["key"] for s in by_line]
     for sub in subs:
-        sub["count"] = sum(1 for key in out.values() if key == sub["key"])
+        sub["count"] = sum(1 for keys in out.values() if sub["key"] in keys)
     return out
