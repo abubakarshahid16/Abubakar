@@ -69,8 +69,8 @@ def test_a_selected_standard_with_requirements_is_applicable_assessable():
     std = _doc("std_610", "API-610.pdf", "COMPANY_STANDARD",
               document_number="API 610", equipment_type="pump")
     _requirement("req1", "std_610")
-    sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
-              "Centrifugal pump data sheet", equipment_type="pump")
+    sub = _doc("sub", "Centrifugal pump.pdf", "CONTRACTOR_SUBMITTAL",
+              equipment_type="pump")
     rows = applicability.applicability_with_reasons(
         sub, allowed_document_ids=_scope(std, sub))
     row = _status_of(rows, "API 610")
@@ -84,8 +84,8 @@ def test_a_selected_standard_with_no_requirements_needs_another_document():
     is nothing here to compare the submittal against."""
     std = _doc("std_610", "API-610.pdf", "COMPANY_STANDARD",
               document_number="API 610", equipment_type="pump")
-    sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
-              "Centrifugal pump data sheet", equipment_type="pump")
+    sub = _doc("sub", "Centrifugal pump.pdf", "CONTRACTOR_SUBMITTAL",
+              equipment_type="pump")
     rows = applicability.applicability_with_reasons(
         sub, allowed_document_ids=_scope(std, sub))
     row = _status_of(rows, "API 610")
@@ -98,7 +98,7 @@ def test_a_standard_with_a_conflicting_attribute_is_not_applicable_with_a_reason
     std = _doc("std_elec", "SAES-P-100.pdf", "COMPANY_STANDARD",
               document_number="SAES-P-100", equipment_type="transformer")
     sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
-              "Centrifugal pump data sheet", equipment_type="pump")
+              equipment_type="pump")
     rows = applicability.applicability_with_reasons(
         sub, allowed_document_ids=_scope(std, sub))
     row = _status_of(rows, "SAES-P-100")
@@ -113,7 +113,7 @@ def test_a_standard_with_no_comparable_fields_is_unknown_not_not_applicable():
     std = _doc("std_bare", "SAES-X-001.pdf", "COMPANY_STANDARD",
               document_number="SAES-X-001")
     sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
-              "Centrifugal pump data sheet", equipment_type="pump")
+              equipment_type="pump")
     rows = applicability.applicability_with_reasons(
         sub, allowed_document_ids=_scope(std, sub))
     row = _status_of(rows, "SAES-X-001")
@@ -142,7 +142,7 @@ def test_a_field_blank_on_one_side_is_never_reported_as_a_stated_mismatch():
               document_number="SAES-X-002", equipment_type="transformer",
               service="sour service")
     sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
-              "Centrifugal pump data sheet", equipment_type="pump")
+              equipment_type="pump")
     rows = applicability.applicability_with_reasons(
         sub, allowed_document_ids=_scope(std, sub))
     row = _status_of(rows, "SAES-X-002")
