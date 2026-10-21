@@ -20,8 +20,10 @@ from . import field_links
 _ASKS_TO_STATE = re.compile(
     r"\b(?:shall|must|should|will|is|are|to)\s+(?:also\s+|each\s+|always\s+)?(?:be\s+)?"
     r"(?:state\w*|specif\w*|indicat\w*|report\w*|record\w*|provid\w*|submit\w*|"
-    r"identif\w*|declar\w*|list\w*|document\w*|supply|supplied|furnish\w*)\b"
-    r"|^\s*(?:state|specify|indicate|report|record|provide|submit|identify|declare|list)\b",
+    r"identif\w*|declar\w*|list\w*|document\w*|supply|supplied|furnish\w*|"
+    r"confirm\w*|advis\w*|giv\w*|quot\w*|complet\w*|show\w*)\b"
+    r"|^\s*(?:state|specify|indicate|report|record|provide|submit|identify|declare|list|"
+    r"confirm|advise|give|quote|complete|show)\b",
     re.IGNORECASE,
 )
 

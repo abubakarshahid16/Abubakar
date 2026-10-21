@@ -39,6 +39,12 @@ ASKING = [
     "Ultrasonic acceptance standard to be specified by the contractor.",
     "Provide the ultrasonic examination procedure number.",
     "The test results must be recorded and submitted with the datasheet.",
+    "The vendor shall confirm the ultrasonic examination extent.",
+    "Ultrasonic acceptance standard to be advised by the contractor.",
+    "The vendor shall give the ultrasonic examination procedure number.",
+    "The vendor shall quote the ultrasonic examination extent.",
+    "The vendor shall complete the ultrasonic field.",
+    "The ultrasonic examination extent shall be shown on the datasheet.",
 ]
 
 
@@ -161,12 +167,14 @@ def test_a_blank_field_is_supported_only_by_the_clause_that_asks_for_it(temp_sto
     )
     by_req = {f.get("requirement_id"): f for f in result["findings"]}
     assert by_req[ids["asks"]]["compliance_status"] == comparison.MISSING_INFORMATION
-    assert ids["repair"] not in by_req or (
-        by_req[ids["repair"]]["compliance_status"] != comparison.MISSING_INFORMATION
+    # the refused clause is never lost: it is a finding, in the ledger, as "no field
+    # matched" (not a CRS line; it goes to the engineer's notes)
+    assert (
+        by_req[ids["repair"]]["compliance_status"] == comparison.NOT_IN_DOCUMENT_SCOPE
     )
     stored = {d["requirement_id"]: d for d in scope_ledger.decisions_for(run)}
     assert stored[ids["asks"]]["reason_code"] == "missing_information"
-    assert stored[ids["repair"]]["reason_code"] != "missing_information"
+    assert stored[ids["repair"]]["reason_code"] == "needs_other_document"
 
 
 def test_a_statement_that_names_its_value_or_carries_one_still_asks():
