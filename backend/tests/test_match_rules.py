@@ -291,8 +291,9 @@ class TestCompoundTerm:
             "the pump bearing temperature shall be monitored continuously",
             requirement_type="statement", value=None, raw_value=None,
             unit=None, raw_unit=None)
-        # a blank with no unit printed: a field in bar would be another
+        # a filled field with no unit printed: a field in bar would be another
         # quantity than a temperature (rule 6) and is refused for that
+        # (a blank would also be refused by the asks rule, orders 180.1 item 2)
         result = comparison.match_by_containment(
             req, [fact("Bearing", raw_value="sleeve", raw_unit=None, unit=None)]
         )

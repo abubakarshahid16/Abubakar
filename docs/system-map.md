@@ -188,7 +188,6 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `scope_ledger` | Every requirement in a review's scope ends in exactly ONE state, with a reason (#677) |
 | `scores` | Scores that know which scale they are on |
 | `search` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |
-| `statement_asks` | Orders 180.1 item 2: a plain statement paired with a blank field supports the row only if it asks the sheet to state something |
 | `sentence_guard` | Where a sentence does NOT end |
 | `service_scope` | Service-condition scope (#638, #677): a requirement that applies only in a service the submittal says it is NO |
 | `sheet_page` | #967 item 5: the Sheet's datasheet page with every card's value underlined on it by the server (one router route; ids and states only in the URL) |
@@ -197,6 +196,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |
 | `standards_inventory` | Standards inventory (B5 part 2): family, edition/revision, licence status, cover-page backfill, and which stan |
 | `stated_value` | Order 124 item 9: a long stated value is quoted in a finding's text as a marked excerpt ending " …", never a raw table chunk; verdicts still use the whole value |
+| `statement_asks` | Orders 180.1 item 2: a plain statement paired with a blank field supports the row only if it asks the sheet to state something |
 | `states` | Document lifecycle state machine |
 | `stored_paths` | A stored file's path, relative to `data_dir`, resolved on read (order 121 C) |
 | `structured_search` | Small, scope-aware search over EPC workflow records |
