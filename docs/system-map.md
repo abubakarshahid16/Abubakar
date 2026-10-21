@@ -188,6 +188,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `scope_ledger` | Every requirement in a review's scope ends in exactly ONE state, with a reason (#677) |
 | `scores` | Scores that know which scale they are on |
 | `search` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |
+| `equipment_subtype` | Orders 180.1 item 5: a standard that governs one pump, compressor or exchanger type is required only when the sheet states that type; unstated is asked of the engineer, never "missing" |
+| `standard_judgment` | Orders 180.1 item 6: a cited standard the run judged not applicable to the equipment is held for the engineer in the review run (not selected, so not compared or listed as support there) |
 | `sentence_guard` | Where a sentence does NOT end |
 | `service_scope` | Service-condition scope (#638, #677): a requirement that applies only in a service the submittal says it is NO |
 | `sheet_page` | #967 item 5: the Sheet's datasheet page with every card's value underlined on it by the server (one router route; ids and states only in the URL) |
