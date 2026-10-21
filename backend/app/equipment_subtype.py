@@ -75,6 +75,24 @@ def required(equipment, source, text, table, by) -> list[dict]:
     return out
 
 
+def left_out(equipment, text, table) -> list[dict]:
+    """The standards NOT asked of this sheet because it states another type:
+    {"identifier", "reason"}. Shown in the check, never dropped without a trace."""
+    out: list[dict] = []
+    for kind in sorted(equipment):
+        for identifier in table["equipment_types"].get(kind, []):
+            verdict, governed = classify(kind, identifier, text, table)
+            if verdict == "other":
+                out.append(
+                    {
+                        "identifier": identifier,
+                        "reason": f"it governs {' / '.join(governed)} {kind} only, and the "
+                        f"datasheet states another {kind} type",
+                    }
+                )
+    return out
+
+
 def identifiers(kind: str, text: str, table: dict) -> list[tuple[str, str]]:
     """[(standard, "required" | "unsure")] to select for the review: those whose
     sub-type the sheet states (or that have none) are compared; an unsure one is
@@ -119,3 +137,41 @@ def not_cited_words(r: dict) -> str:
         f"Contractor did not reference {ident}; confirm compliance with "
         f"{ident} (required because {r['reason']})."
     )
+
+
+def by_type(library, profile, submittal_document_id: str, allowed) -> dict:
+    """The standards the library CLASSIFIES for this equipment type
+    (`equipment_type` match), with the same sub-type rule as `identifiers`: one
+    that governs another sub-type is left out, one whose sub-type the sheet does
+    not state is selected HELD for the engineer. This match is made before the
+    table is read, so without this a pump standard classified "pump" would be
+    compared against any pump."""
+    from . import applicability as ap
+    from .held_standards import HELD_SUBTYPE_UNSURE
+
+    rows = ap._match_attribute(library, profile, "equipment_type", ap.METHOD_EQUIPMENT)
+    equipment = (
+        ap._equipment_reading(submittal_document_id, allowed)[0] if rows else set()
+    )
+    if not equipment:
+        return rows
+    table, text = (
+        ap.governing_table(),
+        ap._submittal_text(submittal_document_id, allowed),
+    )
+    for sid, row in list(rows.items()):
+        verdicts = {
+            classify(kind, row.get("identifier") or "", text, table)[0]
+            for kind in equipment
+        }
+        if "required" in verdicts:
+            continue
+        if verdicts == {"other"}:
+            del rows[sid]
+        else:
+            row["held_for_engineer"] = (
+                "held for the engineer to check: the datasheet does not state which type "
+                "it is (or names more than one), and this standard governs one type only"
+            )
+            row["held_code"] = HELD_SUBTYPE_UNSURE
+    return rows

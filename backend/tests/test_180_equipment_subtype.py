@@ -251,3 +251,74 @@ def test_the_run_stores_and_says_why_an_unsure_type_standard_was_held():
     sentence = held_standards.note(run, allowed)["sentence"]
     assert "does not state which type of equipment it is" in sentence
     assert "equipment type is unsure" not in sentence
+
+
+# ------------------------------------- cloud-3's blockers on cfdec9f0 (21:09Z)
+
+
+def _select_with_classified_library(sheet_text):
+    """A library whose pump standards carry `equipment_type` = Pump: the match
+    that is made BEFORE the sub-type table is read."""
+    for std in ("API 610", "API 674"):
+        _doc(
+            std.replace(" ", ""),
+            "COMPANY_STANDARD",
+            f"{std} text",
+            document_number=std,
+            equipment_type="Pump",
+        )
+    _doc("sub", "CONTRACTOR_SUBMITTAL", sheet_text, equipment_type="Pump")
+    allowed = frozenset({"sub", "API610", "API674"})
+    keep = settings.applicability_reasoning_enabled
+    settings.applicability_reasoning_enabled = False
+    try:
+        out = applicability.select("sub", allowed_document_ids=allowed, persist=False)
+    finally:
+        settings.applicability_reasoning_enabled = keep
+    return {r["identifier"]: r for r in out["selected"]}
+
+
+def test_a_library_standard_classified_for_pumps_is_not_compared_on_the_wrong_pump_type():
+    chosen = _select_with_classified_library("Centrifugal pump data sheet")
+    assert "API 674" not in chosen
+    assert "held_for_engineer" not in chosen["API 610"]
+
+
+def test_a_library_standard_classified_for_pumps_is_held_when_the_sheet_states_no_type():
+    chosen = _select_with_classified_library("Pump data sheet")
+    for std in ("API 610", "API 674"):
+        assert chosen[std]["held_code"] == "subtype_unsure"
+        assert applicability.is_included(chosen[std]) is False
+
+
+def test_a_cited_standard_is_never_touched_by_the_sub_type_rule():
+    chosen = _select_with_classified_library(
+        "Centrifugal pump data sheet. Applicable standard: API 674."
+    )
+    assert "held_for_engineer" not in chosen["API 674"]
+
+
+def test_a_bare_type_word_elsewhere_on_a_sheet_does_not_silently_drop_a_standard():
+    table = applicability.governing_table()
+    text = (
+        "Reciprocating compressor data sheet. Suction scrubber: centrifugal separator."
+    )
+    assert equipment_subtype.classify("compressor", "API 618", text, table)[0] == (
+        "required"
+    )
+    assert equipment_subtype.classify("compressor", "API 617", text, table)[0] == (
+        "other"
+    )
+    bare = "Pump data sheet. Type: Centrifugal."
+    assert equipment_subtype.classify("pump", "API 610", bare, table)[0] == "unsure"
+    assert equipment_subtype.classify("pump", "API 674", bare, table)[0] == "unsure"
+
+
+def test_the_standards_left_out_for_a_stated_type_are_listed_in_the_check():
+    check = _sheet("Centrifugal pump data sheet. Applicable standard: API 610.")
+    assert _ids(check["left_out_by_subtype"]) == ["API 674", "API 675", "API 676"]
+    assert "states another pump type" in check["left_out_by_subtype"][0]["reason"]
+
+
+def test_a_sheet_that_states_no_type_leaves_nothing_out():
+    assert _sheet("Pump data sheet")["left_out_by_subtype"] == []

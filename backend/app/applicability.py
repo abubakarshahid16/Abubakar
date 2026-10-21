@@ -438,7 +438,6 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
                     "reason": f"the datasheet states no {condition['name']} ({where})"})
 
     used = {e["id"] for e in (find_standard(library, c) for c in cited) if e}
-    used |= {r["standard_document_id"] for r in required_not_cited if r["standard_document_id"]}
     used |= {e["id"] for e in (find_standard(library, r["identifier"]) for r in required) if e}
     return {
         "equipment_types": sorted(equipment),
@@ -450,6 +449,7 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
         "cited_not_applicable": cited_not_applicable,
         "declared_check": declared_check,
         "equipment_unsure": doubt["reason"] if doubt else None,
+        "left_out_by_subtype": equipment_subtype.left_out(equipment, text, gov),
         "not_used": max(0, len(library) - len(used)),
     }
 
@@ -1256,6 +1256,7 @@ def select(
     standard those sheets cite is absent, and a system that found some anyway
     would be lying.
     """
+    from . import equipment_subtype, standard_judgment
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
     profile = _submittal_profile(submittal_document_id)
@@ -1279,7 +1280,7 @@ def select(
     for candidates in (
         _match_referenced(library, referenced),
         library_citations(library, submittal_text),
-        _match_attribute(library, profile, "equipment_type", METHOD_EQUIPMENT),
+        equipment_subtype.by_type(library, profile, submittal_document_id, allowed_document_ids),
         # After the classification match: a tie keeps the standard's own
         # equipment classification as the reason (both are included).
         governing,
@@ -1311,7 +1312,6 @@ def select(
 
     # B5: THE SCOPE DECISION on every standard with a verified scope record: by AI reasoning
     # (owner 2026-09-28, on since #736), or when off the taxonomy path (`applicability_v2`).
-    from . import standard_judgment
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
         # #946: cap the pool asked about (`_scope_reasoning_candidates`); the

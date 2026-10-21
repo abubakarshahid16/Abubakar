@@ -100,7 +100,7 @@
   "pump": {
    "subtypes": {
     "centrifugal": [
-     "centrifugal",
+     "centrifugal pump",
      "overhung pump",
      "between bearings pump",
      "vertical turbine pump",
@@ -149,7 +149,7 @@
   "compressor": {
    "subtypes": {
     "centrifugal": [
-     "centrifugal"
+     "centrifugal compressor"
     ],
     "reciprocating": [
      "reciprocating compressor"
