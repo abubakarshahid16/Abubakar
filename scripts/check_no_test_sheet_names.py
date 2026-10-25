@@ -39,7 +39,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MARK = "[found-on]"
-SCAN = ((ROOT / "backend" / "app", (".py", ".json")), (ROOT / "frontend" / "src", (".ts", ".tsx", ".json")))
+SCAN = (
+    (ROOT / "backend" / "app", (".py", ".json")),
+    (ROOT / "frontend" / "src", (".ts", ".tsx", ".json")),
+)
 PF1_SPEC = ROOT / "backend" / "tests" / "fixtures" / "synthetic" / "pf1" / "spec.json"
 HELDOUT_DEFAULT = ROOT / "backend" / "data" / "heldout_ids.txt"
 #: The real sheets the owner named (a real client document number is one of them).
@@ -64,7 +67,12 @@ def pf1_names(spec: Path = PF1_SPEC) -> list[str]:
     names: list[str] = []
     for doc in json.loads(spec.read_text(encoding="utf-8")).get("documents", []):
         sheet, standard = doc.get("sheet") or {}, doc.get("standard") or {}
-        names += [doc.get("id"), sheet.get("document_number"), sheet.get("tag"), standard.get("number")]
+        names += [
+            doc.get("id"),
+            sheet.get("document_number"),
+            sheet.get("tag"),
+            standard.get("number"),
+        ]
     return [n for n in names if n]
 
 
@@ -72,8 +80,14 @@ def heldout_names(path: Path | None = None) -> tuple[list[str], str | None]:
     """(ids, None) or ([], why they were not read)."""
     chosen = path or Path(os.environ.get("PF1_HELDOUT_IDS") or HELDOUT_DEFAULT)
     if not chosen.is_file():
-        return [], f"held-out ids not checked: no local list at {chosen} (set PF1_HELDOUT_IDS)"
-    lines = (ln.split("#", 1)[0].strip() for ln in chosen.read_text(encoding="utf-8").splitlines())
+        return (
+            [],
+            f"held-out ids not checked: no local list at {chosen} (set PF1_HELDOUT_IDS)",
+        )
+    lines = (
+        ln.split("#", 1)[0].strip()
+        for ln in chosen.read_text(encoding="utf-8").splitlines()
+    )
     return [ln for ln in lines if ln], None
 
 
@@ -101,9 +115,22 @@ def _python_non_code_lines(text: str) -> set[int]:
         if kind == tokenize.COMMENT:
             comment_or_doc.update(range(tok.start[0], tok.end[0] + 1))
         elif kind == tokenize.STRING:
-            is_doc = previous_significant in (None, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT)
-            (comment_or_doc if is_doc else code).update(range(tok.start[0], tok.end[0] + 1))
-        elif kind not in (tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER):
+            is_doc = previous_significant in (
+                None,
+                tokenize.NEWLINE,
+                tokenize.INDENT,
+                tokenize.DEDENT,
+            )
+            (comment_or_doc if is_doc else code).update(
+                range(tok.start[0], tok.end[0] + 1)
+            )
+        elif kind not in (
+            tokenize.NL,
+            tokenize.NEWLINE,
+            tokenize.INDENT,
+            tokenize.DEDENT,
+            tokenize.ENDMARKER,
+        ):
             code.update(range(tok.start[0], tok.end[0] + 1))
         if kind not in (tokenize.NL, tokenize.COMMENT):
             previous_significant = kind
@@ -118,7 +145,9 @@ def _is_ts_comment(line: str, hit_at: int) -> bool:
     return 0 <= cut < hit_at
 
 
-def violations_in(path: Path, text: str, pattern: re.Pattern[str]) -> list[tuple[int, str]]:
+def violations_in(
+    path: Path, text: str, pattern: re.Pattern[str]
+) -> list[tuple[int, str]]:
     """[(line number, name)] of every name that is not an allowed, marked record."""
     out: list[tuple[int, str]] = []
     lines = text.splitlines()
