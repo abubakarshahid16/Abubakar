@@ -33,17 +33,21 @@ def _gate(condition, facts):
 
 
 def test_a_field_that_does_not_repeat_the_conditions_word_does_not_excuse_the_clause():
-    """THE CASE of PF1's PSV sheet."""
-    gate = _gate("a conventional valve", [_fact("valve type", "Conventional"), _fact("relief case type", "Blocked outlet")])
+    """THE CASE of PF1's PSV sheet. A field with another name ("relief case type") says nothing about
+    the condition; one NAMED for the equipment ("valve type") that says the qualifier establishes it
+    (#899, `condition_stated`), which is the opposite of excusing the clause."""
+    gate = _gate("a conventional valve", [_fact("relief case type", "Conventional"), _fact("seat", "Soft")])
     assert gate["state"] == conditions.UNKNOWN
     assert "none names another" in gate["reason"] and gate["evidence"] is None
+    gate = _gate("a conventional valve", [_fact("valve type", "Conventional"), _fact("relief case type", "Blocked outlet")])
+    assert gate["state"] == conditions.SATISFIED and gate["state"] != conditions.NOT_SATISFIED
 
 
-def test_the_planted_defect_is_an_engineers_question_never_not_applicable():
+def test_the_planted_defect_is_checked_and_found_never_excused():
     facts = [_fact("valve type", "Conventional"),
              _fact("built up back pressure", "14 %", raw_value="14", raw_unit="%")]
     verdict = comparison._compare(_req("a conventional valve"), facts[1], submittal_facts=facts)
-    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert verdict["status"] == comparison.NON_COMPLIANT
     assert verdict["status"] != comparison.NOT_APPLICABLE
 
 
