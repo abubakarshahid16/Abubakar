@@ -23,10 +23,8 @@ sheet kind, an unrecognised unit or a sentence with no table are all "no
 opinion", never "reject". A rule that guessed would put silence where a
 correct pairing used to be, and silence is invisible on the engineer's screen.
 
-NOT A FILTER ONLY. Rule 3 changes WHICH pairing is made, not merely whether
-one is: it removes the table's input field from the tie so the constrained
-quantity wins. That is why this module is named for the rules and not for a
-gate, and why it runs BEFORE longest-wins rather than after.
+NOT A FILTER ONLY. Rule 3 changes WHICH pairing is made: it removes the
+table's input field from the tie, so this runs BEFORE longest-wins.
 
 The three rules, in the order they run:
 
@@ -71,10 +69,8 @@ EQUIPMENT_DOMAIN = "equipment_domain"
 TABLE_LOOKUP_INPUT = "table_lookup_input"
 COMPOUND_TERM = "compound_term"
 QUALIFIER = "qualifier"
-#: Rule 6 (order 139): the two sides name different kinds of quantity.
-QUANTITY_KIND = "quantity_kind"
-NOT_ASKED = "not_asked"  # orders 180.1 item 2: see statement_asks
-REQUIRED_KIND = "required_kind"
+QUANTITY_KIND = "quantity_kind"  # rule 6 (order 139): different kinds of quantity
+NOT_ASKED, REQUIRED_KIND = "not_asked", "required_kind"  # 180.1 item 2: statement_asks
 
 REASONS: tuple[str, ...] = (
     UNIT_DIMENSION,
