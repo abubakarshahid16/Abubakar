@@ -302,26 +302,23 @@ def _presence(
 
 
 def refine(
-    result: dict | None,
-    facts: list[dict] | None,
-    *,
-    equipment: tuple[str, ...],
-    evidence: Callable[[dict], dict],
-    is_empty: Callable[[str | None], bool],
-    low_trust: Callable[[dict], str | None],
+    result: dict | None, facts: list[dict] | None, about: dict | None = None
 ) -> dict | None:
     """`result` unchanged unless it is UNKNOWN and a stated field settles it."""
     if result is None or result["state"] != "UNKNOWN" or not facts:
         return result
+    from . import conditions as c  # late: `conditions` imports this module
+
+    facts = c._same_item(list(facts), about)
     condition = str(result.get("condition") or "").lower()
     stated = [
-        f for f in facts if not is_empty(f.get("field_value")) or _absent(_value(f))
+        f for f in facts if not c._is_empty(f.get("field_value")) or _absent(_value(f))
     ]
-    trusted = [f for f in stated if not low_trust(f)]
+    trusted = [f for f in stated if not c._low_trust(f)]
     if len(trusted) != len(stated):
         return result  # a low-trust value is not evidence, and its presence may not change the answer
     return (
-        _stated_qualifier(condition, trusted, equipment, evidence)
-        or _presence(condition, trusted, evidence, is_empty)
+        _stated_qualifier(condition, trusted, c._CLASS_TERMS, c._evidence_of)
+        or _presence(condition, trusted, c._evidence_of, c._is_empty)
         or result
     )

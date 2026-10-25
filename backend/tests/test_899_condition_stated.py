@@ -247,28 +247,8 @@ def test_refine_returns_what_it_was_given_when_there_is_nothing_to_settle():
         "reason": "",
         "evidence": None,
     }
-    assert (
-        condition_stated.refine(
-            kept,
-            [_fact("Internal lining", "None")],
-            equipment=(),
-            evidence=lambda f: {},
-            is_empty=conditions._is_empty,
-            low_trust=conditions._low_trust,
-        )
-        is kept
-    )
-    assert (
-        condition_stated.refine(
-            None,
-            None,
-            equipment=(),
-            evidence=lambda f: {},
-            is_empty=conditions._is_empty,
-            low_trust=conditions._low_trust,
-        )
-        is None
-    )
+    assert condition_stated.refine(kept, [_fact("Internal lining", "None")]) is kept
+    assert condition_stated.refine(None, None) is None
 
 
 # ---------------------------------------------------------------- cloud's review of #1272

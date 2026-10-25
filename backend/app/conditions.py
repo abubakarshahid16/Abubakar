@@ -958,8 +958,7 @@ def unread_condition(requirement: dict | None) -> str | None:
     return None
 
 
-def _evaluate_v1(requirement: dict, facts: list[dict] | None,
-                 about: dict | None = None) -> dict | None:
+def _evaluate_v1(requirement, facts, about=None) -> dict | None:
     """Is this requirement's condition established, and does it hold?
 
     Returns None when there is no condition to evaluate — the caller then
@@ -1003,8 +1002,6 @@ def _evaluate_v1(requirement: dict, facts: list[dict] | None,
     return _evaluate_terms(shape, condition, list(facts))
 
 
-def evaluate(requirement: dict, facts: list[dict] | None, about: dict | None = None) -> dict | None:
+def evaluate(requirement, facts, about=None) -> dict | None:
     """`_evaluate_v1`; an UNKNOWN is settled by a stated or ruled-out field (#899)."""
-    return condition_stated.refine(
-        _evaluate_v1(requirement, facts, about), _same_item(list(facts), about) if facts else facts,
-        equipment=_CLASS_TERMS, evidence=_evidence_of, is_empty=_is_empty, low_trust=_low_trust)
+    return condition_stated.refine(_evaluate_v1(requirement, facts, about), facts, about)
