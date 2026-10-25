@@ -1,0 +1,90 @@
+{
+  "format": "pf1-index/1",
+  "source": "invented",
+  "documents": [
+    {
+      "id": "pf1-t01-pump",
+      "equipment_type": "Centrifugal Pump",
+      "held_out": false,
+      "layout": "ruled_units",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-PUMP-0101",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 2,
+        "met": 1,
+        "trap": 1,
+        "not_applicable": 1
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t01-pump.datasheet.pdf",
+      "key": "pf1-t01-pump.key.json",
+      "standard": "pf1-t01-pump.standard.pdf"
+    },
+    {
+      "id": "pf1-t02-vessel",
+      "equipment_type": "Pressure Vessel",
+      "held_out": false,
+      "layout": "two_column_form",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-VSL-0102",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 2,
+        "met": 2,
+        "trap": 1,
+        "not_applicable": 1
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t02-vessel.datasheet.pdf",
+      "key": "pf1-t02-vessel.key.json",
+      "standard": "pf1-t02-vessel.standard.pdf"
+    },
+    {
+      "id": "pf1-t03-control-valve",
+      "equipment_type": "Control Valve",
+      "held_out": false,
+      "layout": "required_offered",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-CV-0103",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 2,
+        "met": 2,
+        "trap": 1,
+        "not_applicable": 1
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t03-control-valve.datasheet.pdf",
+      "key": "pf1-t03-control-valve.key.json",
+      "standard": "pf1-t03-control-valve.standard.pdf"
+    },
+    {
+      "id": "pf1-t04-exchanger",
+      "equipment_type": "Shell and Tube Heat Exchanger",
+      "held_out": false,
+      "layout": "label_value",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-HX-0104",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 2,
+        "met": 2,
+        "trap": 1,
+        "not_applicable": 1
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t04-exchanger.datasheet.pdf",
+      "key": "pf1-t04-exchanger.key.json",
+      "standard": "pf1-t04-exchanger.standard.pdf"
+    }
+  ]
+}

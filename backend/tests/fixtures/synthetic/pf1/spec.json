@@ -1,0 +1,588 @@
+{
+ "format": "pf1-spec/1",
+ "documents": [
+  {
+   "id": "pf1-t01-pump",
+   "equipment_type": "Centrifugal Pump",
+   "held_out": false,
+   "layout": "ruled_units",
+   "sheet": {
+    "document_number": "PF1-DS-0101",
+    "tag": "SYN-P-0101",
+    "title": "CENTRIFUGAL PUMP DATASHEET",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Design pressure",
+        "value": "9",
+        "unit": "barg",
+        "group": "Design",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "4.2",
+         "note": "invented: below the 12 barg minimum"
+        }
+       },
+       {
+        "field": "Design temperature",
+        "value": "90",
+        "unit": "C",
+        "group": "Design"
+       },
+       {
+        "field": "Rated flow",
+        "value": "120",
+        "unit": "m3/h",
+        "group": "Performance",
+        "required": "100",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "6.3"
+        }
+       },
+       {
+        "field": "Differential head",
+        "value": "4.5",
+        "unit": "bar",
+        "group": "Performance",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "7.1",
+         "note": "invented: 4.5 bar is about 45 m of water"
+        }
+       },
+       {
+        "field": "Casing material",
+        "value": "Carbon steel",
+        "group": "Materials"
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Driver type",
+        "value": "Electric motor",
+        "group": "Driver"
+       },
+       {
+        "field": "Rated power",
+        "value": "22",
+        "unit": "kW",
+        "group": "Driver"
+       },
+       {
+        "field": "Speed",
+        "value": "2950",
+        "unit": "rpm",
+        "group": "Driver"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-PUMP-0101",
+    "title": "Centrifugal pumps (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers centrifugal pumps."
+     },
+     {
+      "clause": "4.2",
+      "title": "Design pressure",
+      "text": "The design pressure shall be at least 12 barg."
+     },
+     {
+      "clause": "5.1",
+      "title": "Seals",
+      "text": "The mechanical seal plan shall be stated on the datasheet."
+     },
+     {
+      "clause": "6.3",
+      "title": "Flow",
+      "text": "The rated flow shall be at least the required flow.",
+      "table": [
+       [
+        "Service",
+        "Minimum flow"
+       ],
+       [
+        "General",
+        "100 m3/h"
+       ]
+      ]
+     },
+     {
+      "clause": "7.1",
+      "title": "Head",
+      "text": "The differential head shall be at least 40 m of liquid column."
+     },
+     {
+      "clause": "9.4",
+      "title": "Steam turbines",
+      "text": "A steam turbine driver shall have a trip valve."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "D2",
+     "kind": "defect",
+     "clause": "5.1",
+     "field": "seal plan",
+     "note": "invented: the sheet does not state it"
+    },
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.4"
+    }
+   ]
+  },
+  {
+   "id": "pf1-t02-vessel",
+   "equipment_type": "Pressure Vessel",
+   "held_out": false,
+   "layout": "two_column_form",
+   "sheet": {
+    "document_number": "PF1-DS-0102",
+    "tag": "SYN-V-0102",
+    "title": "PRESSURE VESSEL DATASHEET",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Maximum operating pressure",
+        "value": "8",
+        "unit": "barg",
+        "group": "Design"
+       },
+       {
+        "field": "Design pressure",
+        "value": "8.5",
+        "unit": "barg",
+        "group": "Design",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "4.1",
+         "note": "invented: needs at least 8.8 barg, 10 percent above operating"
+        }
+       },
+       {
+        "field": "Design temperature",
+        "value": "120",
+        "unit": "C",
+        "group": "Design"
+       },
+       {
+        "field": "Corrosion allowance",
+        "value": "3",
+        "unit": "mm",
+        "group": "Construction",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "5.2",
+         "note": "invented: exactly at the 3 mm minimum"
+        }
+       },
+       {
+        "field": "Joint efficiency",
+        "value": "85",
+        "unit": "%",
+        "group": "Construction",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "5.4",
+         "note": "invented: 85 percent is 0.85, which meets the minimum"
+        }
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Hydrostatic test pressure",
+        "value": "11.1",
+        "unit": "barg",
+        "group": "Test",
+        "key": {
+         "id": "M2",
+         "kind": "met",
+         "clause": "6.1",
+         "note": "invented: at least 1.3 times 8.5 = 11.05"
+        }
+       },
+       {
+        "field": "Shell material",
+        "value": "Carbon steel",
+        "group": "Materials"
+       },
+       {
+        "field": "Shell thickness",
+        "value": "12",
+        "unit": "mm",
+        "group": "Materials"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-VSL-0102",
+    "title": "Pressure vessels (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers unfired pressure vessels."
+     },
+     {
+      "clause": "4.1",
+      "title": "Design pressure",
+      "text": "The design pressure shall be at least 10 percent above the maximum operating pressure."
+     },
+     {
+      "clause": "5.2",
+      "title": "Corrosion allowance",
+      "text": "The corrosion allowance shall be at least 3 mm."
+     },
+     {
+      "clause": "5.4",
+      "title": "Joint efficiency",
+      "text": "The joint efficiency shall be at least 0.85."
+     },
+     {
+      "clause": "6.1",
+      "title": "Hydrostatic test",
+      "text": "The hydrostatic test pressure shall be at least 1.3 times the design pressure."
+     },
+     {
+      "clause": "8.2",
+      "title": "Impact test",
+      "text": "Impact test results shall be stated for shell material below minus 10 C design metal temperature."
+     },
+     {
+      "clause": "9.1",
+      "title": "Jacketed vessels",
+      "text": "A jacketed vessel shall state the jacket design pressure."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "D2",
+     "kind": "defect",
+     "clause": "8.2",
+     "field": "impact test",
+     "note": "invented: the sheet does not state it"
+    },
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.1"
+    }
+   ]
+  },
+  {
+   "id": "pf1-t03-control-valve",
+   "equipment_type": "Control Valve",
+   "held_out": false,
+   "layout": "required_offered",
+   "sheet": {
+    "document_number": "PF1-DS-0103",
+    "tag": "SYN-CV-0103",
+    "title": "CONTROL VALVE DATASHEET",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Flow coefficient Cv",
+        "value": "52",
+        "unit": "Cv",
+        "group": "Sizing",
+        "required": "45",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "5.1",
+         "note": "invented: offered at least the required Cv"
+        }
+       },
+       {
+        "field": "Seat leakage class",
+        "value": "Class III",
+        "group": "Sizing",
+        "required": "Class IV",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "6.2",
+         "note": "invented: the standard needs Class IV"
+        }
+       },
+       {
+        "field": "Maximum noise level",
+        "value": "85",
+        "unit": "dBA",
+        "group": "Sizing",
+        "key": {
+         "id": "M2",
+         "kind": "met",
+         "clause": "7.1",
+         "note": "invented: exactly at the 85 dBA limit"
+        }
+       },
+       {
+        "field": "Valve stroke time",
+        "value": "15",
+        "unit": "s",
+        "group": "Actuator",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "7.3",
+         "note": "invented: 15 s is 0.25 min, which meets the 0.5 min limit"
+        }
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Body material",
+        "value": "Carbon steel",
+        "group": "Materials"
+       },
+       {
+        "field": "Seat material",
+        "value": "PTFE",
+        "group": "Materials"
+       },
+       {
+        "field": "Actuator type",
+        "value": "Pneumatic diaphragm",
+        "group": "Actuator"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-CV-0103",
+    "title": "Control valves (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers control valves."
+     },
+     {
+      "clause": "5.1",
+      "title": "Capacity",
+      "text": "The offered flow coefficient shall be at least the required flow coefficient."
+     },
+     {
+      "clause": "6.2",
+      "title": "Leakage",
+      "text": "The seat leakage class shall be Class IV or tighter."
+     },
+     {
+      "clause": "7.1",
+      "title": "Noise",
+      "text": "The noise level shall not exceed 85 dBA."
+     },
+     {
+      "clause": "7.3",
+      "title": "Stroke time",
+      "text": "The valve stroke time shall not exceed 0.5 min."
+     },
+     {
+      "clause": "9.3",
+      "title": "Fire safety",
+      "text": "A fire-safe certificate shall be stated for valves in hydrocarbon service."
+     },
+     {
+      "clause": "9.6",
+      "title": "Cryogenic service",
+      "text": "A valve in cryogenic service shall have an extended bonnet."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "D2",
+     "kind": "defect",
+     "clause": "9.3",
+     "field": "fire-safe certificate",
+     "note": "invented: the sheet does not state it"
+    },
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.6"
+    }
+   ]
+  },
+  {
+   "id": "pf1-t04-exchanger",
+   "equipment_type": "Shell and Tube Heat Exchanger",
+   "held_out": false,
+   "layout": "label_value",
+   "sheet": {
+    "document_number": "PF1-DS-0104",
+    "tag": "SYN-E-0104",
+    "title": "HEAT EXCHANGER DATASHEET",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Shell side design pressure",
+        "value": "14",
+        "unit": "barg",
+        "group": "Design",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "4.3",
+         "note": "invented: above the 12.5 barg minimum"
+        }
+       },
+       {
+        "field": "Tube velocity",
+        "value": "3.4",
+        "unit": "m/s",
+        "group": "Thermal",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "5.4",
+         "note": "invented: above the 3.0 m/s limit"
+        }
+       },
+       {
+        "field": "Fouling resistance",
+        "value": "0.0002",
+        "unit": "m2K/W",
+        "group": "Thermal",
+        "key": {
+         "id": "D2",
+         "kind": "defect",
+         "clause": "6.1",
+         "note": "invented: below the 0.0003 m2K/W minimum"
+        }
+       },
+       {
+        "field": "Minimum approach temperature",
+        "value": "8",
+        "unit": "K",
+        "group": "Thermal",
+        "key": {
+         "id": "M2",
+         "kind": "met",
+         "clause": "6.4",
+         "note": "invented: above the 5 K minimum"
+        }
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Tube wall thickness",
+        "value": "2.0",
+        "unit": "mm",
+        "group": "Construction",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "7.2",
+         "note": "invented: 2.0 mm is about 0.079 in, which meets the 0.07 in minimum"
+        }
+       },
+       {
+        "field": "Tube material",
+        "value": "Carbon steel",
+        "group": "Construction"
+       },
+       {
+        "field": "Number of tubes",
+        "value": "240",
+        "group": "Construction"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-HX-0104",
+    "title": "Shell and tube exchangers (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers shell and tube heat exchangers."
+     },
+     {
+      "clause": "4.3",
+      "title": "Design pressure",
+      "text": "The shell side design pressure shall be at least 12.5 barg."
+     },
+     {
+      "clause": "5.4",
+      "title": "Tube velocity",
+      "text": "The tube side velocity shall not exceed 3.0 m/s."
+     },
+     {
+      "clause": "6.1",
+      "title": "Fouling",
+      "text": "The fouling resistance shall be at least 0.0003 m2K/W."
+     },
+     {
+      "clause": "6.4",
+      "title": "Approach",
+      "text": "The minimum approach temperature shall be at least 5 K."
+     },
+     {
+      "clause": "7.2",
+      "title": "Tube thickness",
+      "text": "The tube wall thickness shall be at least 0.07 in."
+     },
+     {
+      "clause": "9.2",
+      "title": "Floating head",
+      "text": "A floating head exchanger shall state the pull-through clearance."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.2"
+    }
+   ]
+  }
+ ]
+}

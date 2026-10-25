@@ -73,7 +73,7 @@ rapidocr==3.10.0
 opencv-python==5.0.0.93
 shapely==2.2.0
 pyclipper==1.4.0
-pillow==12.3.0
+pillow==13.0.0
 omegaconf==2.4.0
 antlr4-python3-runtime==4.13.2
 colorlog==6.12.0

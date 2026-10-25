@@ -346,7 +346,7 @@ CREATE TABLE IF NOT EXISTS page_ledger (
     vision_status   TEXT    NOT NULL DEFAULT 'not_attempted',
     vision_reason   TEXT,
     vision_recorded_by TEXT,
-    -- 'not_applicable' | 'facts' | 'no_facts' | 'unreadable' | 'not_reached' | 'not_run'
+    -- 'not_applicable' | 'facts' | 'no_facts' | 'no_fields' | 'unreadable' | 'not_reached' | 'not_run'
     facts_status    TEXT    NOT NULL DEFAULT 'unknown',
     facts_count     INTEGER,
     facts_reason    TEXT,
