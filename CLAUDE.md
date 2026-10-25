@@ -191,6 +191,7 @@ Never write a second waiter.
 | Review playbooks (HAZOP, SIL procedures; data files, clause-cited, standard not held is never met) | `docs/playbooks.md` |
 | The scored model tier of P1 (figures, clause, could-not-read; PC only) | `eval/p1ai/README.md` |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
+| How a night's PRs become a release (roles, reviews, the Mac proof, merging) | `.claude/skills/release-train/SKILL.md` |
 | Demo script and safe questions | `docs/HANDOVER.md` § Demo |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |
 
