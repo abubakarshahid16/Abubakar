@@ -101,6 +101,20 @@ def unparsed_reason(n_pairs: int, dropped: dict[str, int]) -> str:
     )
 
 
+def no_field_found(dropped: dict[str, int]) -> str:
+    """Order 165: the plain sentence for a page both readers read and found no
+    datasheet field on. What the code reader saw is said as before; the claim
+    is only that two readers found no field, never that the page holds none."""
+    said = (
+        "Read, no checklist field found: the code readers and the AI reader "
+        "both read this page and found no datasheet field on it."
+    )
+    if not dropped:
+        return said
+    seen = unparsed_reason(1, dropped)
+    return f"{said} {seen.split('. ', 1)[1] if '. ' in seen else seen}"
+
+
 def unparsed_detail(
     n_pairs: int, dropped: dict[str, int], page: int | None = None
 ) -> str:
