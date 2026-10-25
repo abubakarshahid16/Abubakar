@@ -440,8 +440,10 @@ def test_ingestion_writes_the_vessel_fields_with_evidence(tmp_path):
     assert row["contractor_vendor"] is None, "out of scope - never written"
 
     evidence = _evidence(doc_id)
+    # "title" is the heading fill (order 206.1): the sheet's own heading line.
     assert set(evidence) == {
-        "document_number", "revision", "discipline", "equipment_tags"}
+        "document_number", "revision", "discipline", "equipment_tags", "title"}
+    assert evidence["title"]["quote"] == "MECHANICAL DATASHEET"
     number = evidence["document_number"]
     assert number["page"] == 1
     assert number["quote"] == "CONTRACTOR DOC NO: 9999X-1234-SP-0810-0003"

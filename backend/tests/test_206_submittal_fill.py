@@ -371,3 +371,22 @@ def test_a_heading_that_ends_in_data_is_still_a_heading():
         == "Centrifugal Compressor"
     )
     assert submittal_fill.heading([{"page_no": 1, "text": "DATA\nx"}]) is None
+
+
+def test_a_sentence_that_mentions_a_data_sheet_is_not_a_heading():
+    page = [
+        {
+            "page_no": 1,
+            "text": "ACME CONTRACTING LLC\nThis datasheet supports the piping package for the new transfer pumps.\n",
+        }
+    ]
+    assert submittal_fill.heading(page) is None
+
+
+def test_a_heading_with_a_discipline_word_names_no_equipment():
+    assert submittal_fill.equipment_name("MECHANICAL DATASHEET") is None
+    assert submittal_fill.equipment_name("PIPING DATA SHEET") is None
+    assert (
+        submittal_fill.equipment_name("CENTRIFUGAL PUMP DATA SHEET")
+        == "Centrifugal Pump"
+    )

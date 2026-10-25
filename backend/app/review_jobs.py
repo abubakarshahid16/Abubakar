@@ -287,7 +287,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
         _step(conn, job_id, 1)
         with review_trace.timed(timings, "standards"):
-            submittal_fill.for_review(submittal)    # empty title / equipment type first (order 206.1)
+            submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
             # #620: the Company standards selection left out as held; said on the run below.

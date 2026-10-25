@@ -58,7 +58,7 @@ def heading(pages: list[dict]) -> tuple[int, str] | None:
     The heading is the first of the first `SCAN_LINES` lines that calls itself a
     data sheet ("... DATASHEET", "... DATA SHEET", "DATA" with "SHEET" on the
     next line, or two or more words ending in "DATA"), with no label colon and
-    at most 12 words. A line that ends in
+    at most 12 words, that is not a sentence. A line that ends in
     "FOR" ("DATA SHEET FOR") takes the next line as its object. Several equally
     good lines are not told apart: the first one wins, as the title block reads."""
     texts = sorted(
@@ -83,10 +83,20 @@ def heading(pages: list[dict]) -> tuple[int, str] | None:
         if text.rstrip().lower().endswith(" for") and nxt:
             text = f"{text} {nxt}"
         text = " ".join(text.split())
-        if ":" in text or len(text.split()) > _MAX_HEADING_WORDS:
+        if ":" in text or len(text.split()) > _MAX_HEADING_WORDS or _is_sentence(text):
             continue
         return page_no, text
     return None
+
+
+def _is_sentence(text: str) -> bool:
+    """Prose that mentions a data sheet ("This datasheet supports the piping
+    package."), not a heading: it ends in sentence punctuation, or most of its
+    words are lower-case."""
+    if text.rstrip().endswith((".", ";", ",")):
+        return True
+    words = [w for w in text.split() if len(w) >= 3 and w.isalpha()]
+    return bool(words) and sum(w.islower() for w in words) * 2 > len(words)
 
 
 def equipment_name(heading_line: str) -> str | None:
@@ -104,6 +114,8 @@ def equipment_name(heading_line: str) -> str | None:
     words = _NAME_WORD.findall(text)
     if not words or len(words) > _MAX_NAME_WORDS or any(len(w) < 3 for w in words):
         return None
+    if all(w.upper() in classification._DISCIPLINE_LABELS for w in words):
+        return None  # "MECHANICAL DATASHEET" names a discipline, not equipment
     return " ".join(words).title()
 
 
