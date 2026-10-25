@@ -135,3 +135,51 @@ def test_a_sheet_id_that_is_not_safe_in_a_job_name_and_a_shell_is_refused(
     folder = _set(tmp_path, [_doc("a", id=bad)])
     with pytest.raises(guard.Refused, match="sheet id"):
         guard.plan(tmp_path, folder)
+
+
+# ------------------------------------------------ the workflow file itself
+
+
+def _workflow() -> dict:
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pf1-cpu.yml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _steps() -> list[dict]:
+    return _workflow()["jobs"]["review"]["steps"]
+
+
+def test_the_model_tag_has_no_default_so_a_score_is_never_from_a_guessed_model():
+    inputs = _workflow()[True]["workflow_dispatch"]["inputs"]  # "on" parses as True
+    assert inputs["model"]["required"] is True
+    assert "default" not in inputs["model"]
+    assert "default" not in inputs["ollama_version"]
+
+
+def test_the_installers_own_ollama_service_is_stopped_and_the_version_checked():
+    run = "\n".join(s.get("run", "") for s in _steps())
+    assert "systemctl disable --now ollama" in run
+    assert "OLLAMA_MODELS=" in run
+    assert "is not version" in run  # the server on 11434 must be the named release
+
+
+def test_the_servers_run_with_the_macs_model_settings():
+    steps = {s.get("name", ""): s for s in _steps()}
+    ollama = steps["Start Ollama and pull the model"]["env"]
+    assert ollama["OLLAMA_KV_CACHE_TYPE"] == "q8_0"
+    assert ollama["OLLAMA_FLASH_ATTENTION"] == "1"
+    backend = steps["Start the backend on a fresh test database"]["env"]
+    for key in ("REASONING_PROVIDER", "DATASHEET_AI_READER", "MATCH_ENGINE"):
+        assert backend[key] == "ollama"
+    assert backend["STANDARDS_READER_ENABLED"] == "false"
+    assert backend["STANDARDS_READER_ALLOW_PUBLIC_EGRESS"] == "false"
+    assert "inputs.model" in backend["AI_TASK_MODEL"]
+
+
+def test_a_failed_run_prints_the_server_logs():
+    failing = [s for s in _steps() if s.get("if") == "failure()"]
+    assert failing and "backend.log" in failing[0]["run"]

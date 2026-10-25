@@ -21,8 +21,10 @@
 #     release and the model weights, both named by the dispatcher's inputs.
 #
 # The two inputs with no default are the two things this file must not guess:
-# which Ollama version the Mac runs. The Mac's other model settings (order 157)
-# are in the `env:` of the server step; keep that block equal to the Mac's.
+# which Ollama version and which exact model tag the Mac runs (a different tag
+# is a different model, so its scores cannot be compared). The Mac's other
+# settings (order 157) are in the `env:` of the server steps; keep them equal
+# to the Mac's.
 
 name: pf1-cpu
 
@@ -34,9 +36,8 @@ on:
         required: true
         type: string
       model:
-        description: "Model tag (the Mac's)"
+        description: "Model tag (the Mac's), e.g. qwen3.5:4b-q4_K_M"
         required: true
-        default: "qwen3.5:4b"
         type: string
       sheets:
         description: "Sheet ids, comma separated; empty = every tuning sheet"
@@ -145,21 +146,38 @@ jobs:
         id: weights
         uses: actions/cache@v6
         with:
-          path: ~/.ollama
+          path: ~/.ollama/models
           key: ollama-${{ inputs.ollama_version }}-${{ inputs.model }}
 
       - name: Install Ollama (the named release)
         run: |
           curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION="$OLLAMA_VERSION" sh
+          # The installer starts its own `ollama.service` (other user, other
+          # model folder, none of the settings below): stop it so the server
+          # started in the next step is the only one on 11434.
+          sudo systemctl disable --now ollama || true
+          echo "OLLAMA_MODELS=$HOME/.ollama/models" >> "$GITHUB_ENV"
           ollama --version
 
+      # Same settings as the Mac's test server (order 157). NUM_PARALLEL is 3
+      # there; 1 is the honest choice on a 2-core runner and changes timing only.
       - name: Start Ollama and pull the model
+        env:
+          OLLAMA_FLASH_ATTENTION: "1"
+          OLLAMA_KV_CACHE_TYPE: q8_0
+          OLLAMA_MAX_LOADED_MODELS: "1"
+          OLLAMA_KEEP_ALIVE: 30m
+          OLLAMA_NUM_PARALLEL: "1"
         run: |
+          mkdir -p "$OLLAMA_MODELS"
           nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
           for _ in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:11434/api/version > /dev/null; then break; fi
             sleep 2
           done
+          # The server answering must be the named release, not another one.
+          curl -fsS http://127.0.0.1:11434/api/version | grep -F "\"$OLLAMA_VERSION\"" \
+            || { echo "the Ollama on 11434 is not version $OLLAMA_VERSION"; exit 1; }
           ollama pull "$MODEL"
 
       # A fresh server on a fresh database that is NOT live-shaped, so the
@@ -176,6 +194,15 @@ jobs:
           HEAVY_JOB_LOCK: "off"
           ANSWER_MODEL: ${{ inputs.model }}
           MATCH_TIMEOUT_SECONDS: "120"
+          REASONING_PROVIDER: ollama
+          DATASHEET_AI_READER: ollama
+          MATCH_ENGINE: ollama
+          DATASHEET_AI_OLLAMA_MODEL: ${{ inputs.model }}
+          AI_TASK_MODEL: ${{ inputs.model }}
+          STANDARDS_READER_ENABLED: "false"
+          STANDARDS_READER_ALLOW_PUBLIC_EGRESS: "false"
+          REVIEW_WEB_STANDARDS_ENABLED: "false"
+          SMTP_ENABLED: "false"
           PYTHONUNBUFFERED: "1"
           PYTHONUTF8: "1"
         run: |
@@ -211,6 +238,12 @@ jobs:
           PY
           python scripts/pf1_collect.py --db "$WORK/pf1-copy.sqlite" \
             --runs "$WORK/runs" --mode main --model "$MODEL"
+
+      - name: Show the server logs (invented sheets only, safe to print)
+        if: failure()
+        run: |
+          echo "--- ollama.log"; tail -n 40 "$RUNNER_TEMP/ollama.log" || true
+          echo "--- backend.log"; tail -n 40 "$RUNNER_TEMP/backend.log" || true
 
       - name: Say what it cost
         if: always()
