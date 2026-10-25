@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -487,12 +487,11 @@ class Settings(BaseSettings):
     # budget fits TWO passages, so a question naming two documents can never
     # show the model both of them, and every multi-document feature was
     # structurally impossible rather than merely weak. Measured on the same
-    # question, same machine (1.6 GB free): 1536 -> two passages, model
-    # correctly refuses, 18 s; 4096 -> six of eight passages, a correct
-    # doc17-vs-doc20 comparison, 88 s. The cost is real and is stated here so
-    # nobody reads the slower answer as a regression. Below ~1.5 GB free the
-    # 4B model swaps regardless of this value.
+    # question, same machine (1.6 GB free): 1536 -> two passages, refuses, 18 s;
+    # 4096 -> six of eight, a correct doc17-vs-doc20 comparison, 88 s. The cost is
+    # real, not a regression; below ~1.5 GB free it swaps anyway. PROMPT size only.
     num_ctx: int = 4096
+    local_num_ctx: int = Field(8192, ge=2048, le=131072)
 
     # -------------------------------- model-assisted requirement matching
     #
@@ -1529,6 +1528,7 @@ ANSWER_AFFECTING_SETTINGS = (
     "answer_top_k", "generated_context_passages",
     "claude_context_passages", "claude_context_chars", "claude_context_tokens",
     "ocr_rec_model", "ocr_expected_script",
+    "local_num_ctx",
     # A8/#922: these change a REVIEW's verdict (which engine answered, which
     # reader read the sheet, whether applicability is decided by taxonomy or
     # by model reasoning), not only a chat answer; config_version is stamped

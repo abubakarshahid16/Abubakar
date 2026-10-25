@@ -125,6 +125,11 @@ def endpoint(path: str) -> str:
 RUNNER_PATHS = frozenset({"/api/generate", "/api/chat"})
 
 
+def shared_window() -> int:
+    """The one context window every local call runs at (see `runner_options`)."""
+    return max(int(settings.num_ctx), int(settings.local_num_ctx))
+
+
 def runner_options(num_ctx: int | None = None) -> dict[str, object]:
     """The options that decide WHICH RUNNER Ollama keeps loaded. One home.
 
@@ -135,15 +140,19 @@ def runner_options(num_ctx: int | None = None) -> dict[str, object]:
     batch, answerability asked for 4096 and field naming 16384 - so the
     features took turns evicting each other's runner (perf audit item 7).
 
-    `num_ctx` is RAISED to `settings.num_ctx`, never lowered. A larger window
-    changes nothing for a prompt that fits the smaller one - the output is the
-    same - and it means every caller that needs no more than the default
-    shares one runner. A caller that genuinely needs more (field naming at
-    16384, vision at 32768) still gets it, and still pays a reload: that is a
-    real trade, stated here rather than hidden by truncating its prompt.
+    `num_ctx` is RAISED to the shared local window - the larger of
+    `settings.num_ctx` and `settings.local_num_ctx` (8192, the reader's) - never
+    lowered. A larger window changes nothing for a prompt that fits the smaller
+    one - the output is the same - and it means every caller that needs no more
+    than the shared size shares one runner, so two reviews in different phases
+    no longer take turns reloading the model. The price is KV-cache memory. A
+    caller that genuinely needs more (field naming at 16384, vision at 32768)
+    still gets it, and still pays a reload: a real trade, stated here rather
+    than hidden by truncating its prompt. Only the Ollama runner paths come
+    through here; the Claude lane never does (`reader_transport`).
     """
     return {
-        "num_ctx": max(int(num_ctx or 0), int(settings.num_ctx)),
+        "num_ctx": max(int(num_ctx or 0), shared_window()),
         "num_thread": settings.num_thread,
         "num_batch": settings.num_batch,
     }
