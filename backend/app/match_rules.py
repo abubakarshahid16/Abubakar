@@ -311,7 +311,7 @@ def table_lookup_input_conflict(requirement: dict, field_name: str) -> bool:
 #: does not catch it either, because the clause names no equipment at all, so
 #: there is no domain mismatch for it to see.
 #:
-#: FOUND reviewing a real review of EF1975-DAS-M-03 (2026-09-28): a civil
+#: FOUND reviewing a real pump datasheet (2026-09-28): a civil
 #: clause on allowable SOIL bearing pressure was paired, whole-word, with a
 #: pump datasheet's blank "Bearing" field - a foundation-loading comment
 #: attached to a mechanical component that has nothing to do with it.
