@@ -6,5 +6,18 @@
       "Read(**/backend/.env)",
       "Edit(**/backend/.env)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/trim_test_output.py\" || python \"$CLAUDE_PROJECT_DIR/.claude/hooks/trim_test_output.py\""
+          }
+        ]
+      }
+    ]
   }
 }
