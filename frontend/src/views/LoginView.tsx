@@ -8,8 +8,9 @@
  *    read identically, or the login page becomes an account-enumeration oracle.
  *    Rate limiting (429) is the single permitted exception: the user has to be
  *    told to wait, and 429 reveals nothing about which half was wrong.
- *  - The token lives in memory only. A reload signs you out. That is deliberate,
- *    and the user is told before they find out the hard way.
+ *  - The login lives in an HttpOnly cookie the server sets (order 164.2): the
+ *    page holds no token, and a reload keeps you signed in for the token's 8
+ *    hours. The screen says so, rather than letting the reader find out.
  *
  * Data flow is by props; this component calls no api.* function itself.
  */
@@ -229,8 +230,11 @@ export function LoginView({
             facts a security reviewer checks first, and burying them in a
             tooltip would be hiding the product's best argument. */}
         <p className="mt-5 text-xs leading-relaxed text-slateish-400">
-          Your session is held in memory only. Reloading or closing this page signs
-          you out. This is deliberate: nothing about your login is written to disk.
+          Your sign-in is kept in a protected browser cookie that this page cannot
+          read. It lasts 8 hours or until you sign out, and it survives closing the
+          browser: on a shared computer, sign out. Reloading the page does not sign
+          you out. Over plain http on a network address the server keeps no
+          cookie, and then a reload does sign you out.
         </p>
         {/* Whether Claude is switched on is not knowable before sign-in (the
             status route needs a session), so this states both halves, in the

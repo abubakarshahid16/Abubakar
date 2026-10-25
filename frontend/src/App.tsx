@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { auth, onSignedOut, setToken } from "./api/client";
+import { auth, onSignedOut, setCookieSession, setToken } from "./api/client";
 import {
   hasAdminCapability,
   Shell,
@@ -206,7 +206,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const bumpChats = useCallback(() => setChatVersion((v) => v + 1), []);
   const [session, setSession] = useState<Session>({ s: "checking" });
 
-  // The bearer token, mirrored here ONLY so the admin screen can be handed one.
+  // The bearer token, when there is one, mirrored here ONLY so the admin
+  // screen can be handed one. A browser login by cookie (the default, order
+  // 164.2) has none: the page holds no token and this stays null.
   //
   // api/client.ts owns the token and deliberately exposes no getter (it is a
   // module-level variable, never localStorage), and AdminScreen's transport
@@ -230,6 +232,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
       // draw (it reads its draft as it first draws).
       if (!r.data.required) setDraftOwner(null);
       else if (r.data.user) {
+        // Signed in by the cookie from an earlier visit (a reload, a backend
+        // restart): the page holds no token, the server knows who this is.
+        setCookieSession(true);
         setDraftOwner(r.data.user.id);
         keepOnlyDraftsOf(r.data.user.id);
       }
@@ -285,7 +290,11 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     async ({ email, password }: { email: string; password: string }): Promise<LoginOutcome> => {
       const r = await auth.login(email, password);
       if (r.ok) {
+        // The browser logs in by cookie: `token` is null and the page keeps
+        // nothing (order 164.2). A bearer token, if a server sends one, is held
+        // as before.
         setToken(r.data.token);
+        setCookieSession(r.data.token === null);
         tokenRef.current = r.data.token;
         setDraftOwner(r.data.user?.id ?? null);
         // Another person's draft (their sign-in ran out on this tab) goes.
@@ -304,7 +313,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   );
 
   const signOut = useCallback(() => {
+    // Ask the server to clear the cookie; the page forgets at once either way.
+    void auth.logout();
     setToken(null);
+    setCookieSession(false);
     tokenRef.current = null;
     // The "review ready" list names files: the next person to sign in on
     // this tab must not see the last person's.

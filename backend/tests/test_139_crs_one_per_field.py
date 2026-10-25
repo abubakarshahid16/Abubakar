@@ -102,7 +102,9 @@ def test_blank_and_not_found_stay_separate_rows():
         [_f("blank", "3.1"), _not_found("nf1", "3.4"), _not_found("nf2", "6.2")]
     )
     assert _partition(rows) == [["blank"], ["nf1", "nf2"]]
-    assert rows[0]["comment"].endswith("Contractor to provide Corrosion allowance.")
+    assert rows[0]["comment"].endswith(
+        "Contractor to complete the field 'Corrosion allowance' (left blank)."
+    )
     assert rows[1]["comment"].startswith(
         "Engineer to check whether the datasheet states Corrosion allowance: no field this "
         "system read was paired with it.\n"
@@ -160,7 +162,7 @@ def test_engineer_to_check_questions_of_one_field_are_one_row():
 def test_grouped_comment_lists_supporting_clauses():
     rows = _rows([_f("b", "5.1"), _f("a", "4.3"), _f("c", "10.2")])
     assert rows[0]["comment"].split("\n") == [
-        "Contractor to provide Corrosion allowance.",
+        "Contractor to complete the field 'Corrosion allowance' (left blank).",
         "Datasheet p.2, Corrosion allowance (P-101) is left blank.",
         "Supporting clauses (3):",
         '- STD-100 cl. 4.3 (p.4): "The value shall be stated per clause 4.3."',
@@ -241,7 +243,7 @@ def test_single_clause_row_text_is_unchanged():
     assert row["comment"] == (
         'STD-100 cl. 4.3 (p.4): "The value shall be stated per clause 4.3." '
         "Datasheet p.2, Corrosion allowance (P-101, P-102) is left blank. "
-        "Contractor to provide Corrosion allowance."
+        "Contractor to complete the field 'Corrosion allowance' (left blank)."
     )
     assert row["crs_action"] is None
 
