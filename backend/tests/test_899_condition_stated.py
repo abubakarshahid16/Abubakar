@@ -269,3 +269,68 @@ def test_refine_returns_what_it_was_given_when_there_is_nothing_to_settle():
         )
         is None
     )
+
+
+# ---------------------------------------------------------------- cloud's review of #1272
+@pytest.mark.parametrize(
+    "value",
+    ["Unlined", "None required", "None specified", "Absent", "No lining", "Nil"],
+)
+def test_every_way_of_saying_there_is_no_lining_rules_the_condition_out(value):
+    gate = _gate(LINING, _fact("Internal lining", value))
+    assert gate["state"] == conditions.NOT_SATISFIED
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Not specified",
+        "To be advised",
+        "To be confirmed",
+        "TBC",
+        "Not provided by vendor",
+        "Vendor to advise",
+        "Unknown",
+        "See datasheet 2",
+    ],
+)
+def test_no_statement_yet_decides_nothing_either_way(value):
+    assert _gate(LINING, _fact("Internal lining", value))["state"] == conditions.UNKNOWN
+
+
+@pytest.mark.parametrize("value", ["No. 2 rubber", "No 4 grade rubber", "Rubber, 3 mm"])
+def test_a_name_that_starts_with_no_is_a_lining_not_its_absence(value):
+    assert (
+        _gate(LINING, _fact("Internal lining", value))["state"] == conditions.SATISFIED
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Conventional / balanced bellows option",
+        "Conventional or balanced",
+        "Conventional (to be confirmed)",
+        "Conventional and balanced",
+        "Conventional & balanced",
+        "Conventional, TBC",
+        "Either conventional or pilot",
+        "Conventional (optional balanced bellows)",
+    ],
+)
+def test_a_value_that_offers_a_choice_or_is_unconfirmed_does_not_establish_the_condition(
+    value,
+):
+    gate = _gate("a conventional valve", _fact("Valve type", value))
+    assert gate["state"] == conditions.UNKNOWN
+
+
+def test_the_unsettled_valve_is_an_engineers_question_not_a_breach():
+    facts = [
+        _fact("valve type", "Conventional or balanced"),
+        _fact("built up back pressure", "14 %", raw_value="14", raw_unit="%"),
+    ]
+    verdict = comparison._compare(
+        _req("a conventional valve"), facts[1], submittal_facts=facts
+    )
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW

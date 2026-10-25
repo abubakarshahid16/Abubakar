@@ -132,8 +132,68 @@ def _value(fact: dict) -> str:
     return " ".join(_words(str(fact.get("field_value") or "").lower()))
 
 
+#: A value that says there is no such thing: "none", "none required", "unlined", "absent", "no lining".
+#: "No. 2 rubber" and "No 4 grade" are names, not a "no" (a digit follows).
+_ABSENT_FIRST = frozenset({"none", "nil", "unlined", "absent", "without"})
+#: A value that is not a statement yet: nothing is decided on it, either way.
+_UNSTATED_START = (
+    "not specified",
+    "not provided by",
+    "not yet",
+    "to be ",
+    "by vendor",
+    "vendor to",
+    "unknown",
+    "not known",
+    "pending",
+    "tba",
+    "tbc",
+    "tbd",
+    "see ",
+)
+#: A value that offers a choice or is unconfirmed does not settle which one the equipment is.
+_UNCERTAIN = frozenset(
+    {
+        "or",
+        "and",
+        "either",
+        "option",
+        "optional",
+        "options",
+        "alternative",
+        "tbc",
+        "tbd",
+        "tba",
+        "to",
+        "be",
+        "confirmed",
+        "confirm",
+        "proposed",
+        "pending",
+        "subject",
+        "unless",
+    }
+)
+
+
 def _absent(value: str) -> bool:
-    return value in _ABSENT or value.startswith(("no ", "without "))
+    if value in _ABSENT:
+        return True
+    first, _, rest = value.partition(" ")
+    if first in _ABSENT_FIRST:
+        return True
+    return first == "no" and bool(rest) and not rest[0].isdigit()
+
+
+def _unstated(value: str) -> bool:
+    return value.startswith(_UNSTATED_START)
+
+
+def _offers_a_choice(raw: str, words: list[str]) -> bool:
+    return (
+        any(w in _UNCERTAIN for w in words)
+        or re.search(r"\w\s*[/&]\s*\w", raw) is not None
+    )
 
 
 def _decision(
@@ -174,7 +234,12 @@ def _stated_qualifier(
             _words(str(fact.get("field_name") or "").lower()),
             _words(str(fact.get("field_value") or "").lower()),
         )
-        if _negated(value) or not any(_has_all(name, _words(t)) for t in terms):
+        raw = str(fact.get("field_value") or "").lower()
+        if (
+            _negated(value)
+            or _offers_a_choice(raw, value)
+            or not any(_has_all(name, _words(t)) for t in terms)
+        ):
             continue
         if _has_all(value, qualifiers):
             return _decision(
@@ -211,7 +276,7 @@ def _presence(
         value = _value(fact)
         if _absent(value):
             absent.append(fact)
-        elif not is_empty(value):
+        elif not is_empty(value) and not _unstated(value):
             present.append(fact)
     if (present and absent) or not (present or absent):
         return None
