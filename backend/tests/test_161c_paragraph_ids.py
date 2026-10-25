@@ -540,6 +540,7 @@ def test_documented_limit_a_title_case_heading_with_its_sentence_on_the_same_lin
     # NOT the wanted behaviour, pinned so a later change is deliberate: a Title
     # Case run followed by a lowercase word cannot be told from prose without a
     # word list, so the paragraph before is returned.
+    # The general fail-safe (return None, never the paragraph before) is #1267.
     sentence = "The weld shall be inspected by a qualified engineer yearly."
     text = TITLE_CASE_DOTTED + "A.1 General Requirements " + sentence + "\n"
     shape = paragraph_ids.dominant_shape([text])
@@ -569,6 +570,7 @@ def test_documented_limit_a_list_item_of_the_standards_own_shape_reads_as_a_head
     # NOT the wanted behaviour, pinned so a later change is deliberate: in a
     # dotted standard "2 Welds shall be examined" has the shape of a heading, so
     # it is one; shape alone cannot tell a list item from a heading.
+    # The general fail-safe (return None, never the paragraph before) is #1267.
     sentence = "The weld shall be inspected by a qualified engineer yearly."
     text = TITLE_CASE_DOTTED + "2 Welds shall be examined\n" + sentence + "\n"
     shape = paragraph_ids.dominant_shape([text])
