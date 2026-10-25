@@ -247,6 +247,7 @@ def governing_table(path: Path | None = None) -> dict:
         raise ValueError(f"{(path or GOVERNING_PATH).name}: partial_standards is malformed")
     return {"equipment_types": {k.strip().lower(): v for k, v in types.items()},
             "materials_standards": list(materials),
+            "equipment_subtypes": data.get("equipment_subtypes") or {},
             "partial_standards": {k.strip().lower(): v for k, v in partial.items()}}
 
 
@@ -283,12 +284,15 @@ def governing_standards(submittal_document_id: str, library: list[dict],
     equipment, source = reading[0], reading[1]
     if not equipment:
         return {}, []
-    table = governing_table()["equipment_types"]
+    from . import equipment_subtype as subtype
+
+    table = governing_table()
+    text = _submittal_text(submittal_document_id, allowed_document_ids)
     selected: dict[str, dict] = {}
     not_held: list[dict] = []
     seen: set[str] = set()
     for kind in sorted(equipment):
-        for identifier in table.get(kind, []):
+        for identifier, verdict in subtype.identifiers(kind, text, table):
             key = standard_ids.key(identifier)
             if key in seen:
                 continue
@@ -299,8 +303,7 @@ def governing_standards(submittal_document_id: str, library: list[dict],
                 not_held.append({"identifier": identifier,
                                  "reason": f"governs a {where} and is not present in the library"})
             elif entry["id"] not in selected:
-                selected[entry["id"]] = {"method": METHOD_GOVERNING, "identifier": identifier,
-                                         "reason": f"{identifier} governs a {where}"}
+                selected[entry["id"]] = subtype.row(identifier, verdict, where)
     return selected, not_held
 
 
@@ -378,7 +381,7 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
       * `not_used`: every other library standard, counted, not listed.
     Unknown type, no declared condition: the review behaves as before.
     """
-    from . import service_scope, subject_scope
+    from . import equipment_subtype, service_scope, subject_scope
 
     library = _library(allowed_document_ids) if library is None else library
     text = _submittal_text(submittal_document_id, allowed_document_ids)
@@ -389,13 +392,7 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
     reading = _equipment_reading(submittal_document_id, allowed_document_ids)
     equipment, source, doubt, facts = reading
     gov = governing_table()
-    table = gov["equipment_types"]
-
-    required: list[dict] = []
-    for kind in sorted(equipment):
-        for identifier in table.get(kind, []):
-            required.append({"identifier": identifier, "by": REQUIRED_BY_TYPE,
-                             "reason": f"it governs a {kind} (read from the submittal's {source})"})
+    required = equipment_subtype.required(equipment, source, text, gov, REQUIRED_BY_TYPE)
     declared_absent: list[tuple[dict, str]] = []
     for condition in service_scope.conditions():
         if condition["mode"] == "value" or not (condition["required"] or condition["standards"]):
@@ -441,7 +438,6 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
                     "reason": f"the datasheet states no {condition['name']} ({where})"})
 
     used = {e["id"] for e in (find_standard(library, c) for c in cited) if e}
-    used |= {r["standard_document_id"] for r in required_not_cited if r["standard_document_id"]}
     used |= {e["id"] for e in (find_standard(library, r["identifier"]) for r in required) if e}
     return {
         "equipment_types": sorted(equipment),
@@ -453,6 +449,7 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
         "cited_not_applicable": cited_not_applicable,
         "declared_check": declared_check,
         "equipment_unsure": doubt["reason"] if doubt else None,
+        "left_out_by_subtype": equipment_subtype.left_out(equipment, text, gov),
         "not_used": max(0, len(library) - len(used)),
     }
 
@@ -1259,6 +1256,7 @@ def select(
     standard those sheets cite is absent, and a system that found some anyway
     would be lying.
     """
+    from . import equipment_subtype, standard_judgment
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
     profile = _submittal_profile(submittal_document_id)
@@ -1282,7 +1280,7 @@ def select(
     for candidates in (
         _match_referenced(library, referenced),
         library_citations(library, submittal_text),
-        _match_attribute(library, profile, "equipment_type", METHOD_EQUIPMENT),
+        equipment_subtype.by_type(library, profile, submittal_document_id, allowed_document_ids),
         # After the classification match: a tie keeps the standard's own
         # equipment classification as the reason (both are included).
         governing,
@@ -1314,7 +1312,6 @@ def select(
 
     # B5: THE SCOPE DECISION on every standard with a verified scope record: by AI reasoning
     # (owner 2026-09-28, on since #736), or when off the taxonomy path (`applicability_v2`).
-    from . import standard_judgment
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
         # #946: cap the pool asked about (`_scope_reasoning_candidates`); the

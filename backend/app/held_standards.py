@@ -14,6 +14,8 @@ from __future__ import annotations
 from .db import connect
 
 HELD_UNSURE_TYPE = "equipment_unsure"
+#: Orders 180.1 item 5: the sheet does not say which type of equipment it is.
+HELD_SUBTYPE_UNSURE = "subtype_unsure"
 #: Orders 180.1 item 6: the run's own standards check judged the standard not
 #: applicable to this equipment (the type is sure; the standard is not for it).
 HELD_NOT_APPLICABLE = "judged_not_applicable"
@@ -22,6 +24,7 @@ HELD_NOT_APPLICABLE = "judged_not_applicable"
 #: without a reason; it never borrows the unsure wording.
 _WHY = {
     HELD_UNSURE_TYPE: " because the equipment type is unsure",
+    HELD_SUBTYPE_UNSURE: " because the datasheet does not state which type of equipment it is",
     HELD_NOT_APPLICABLE: " because the run's standards check judged this equipment outside their scope",
 }
 
