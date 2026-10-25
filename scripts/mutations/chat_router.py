@@ -34,7 +34,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="uncited_figure", tags=("citation", "critical")),
     Mutation(id="M931", phase=81, description="claims: the Claude lane is never asked to quote",
              path=APP / "answer.py",
-             anchor="    system = SYSTEM_PROMPT_VERIFIED if claude_lane() else SYSTEM_PROMPT\n",
+             anchor="    system = answer_prompts.pick(claude_lane(), SYSTEM_PROMPT, SYSTEM_PROMPT_VERIFIED)\n",
              replacement="    system = SYSTEM_PROMPT\n",
              target=_T, keyword="quote_is_not_on_the_page", tags=("citation",)),
     Mutation(id="M932", phase=81, description="verdicts: a compliance question loses the engineer notice",
