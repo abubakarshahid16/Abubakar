@@ -53,7 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
-                page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_fill, submittal_review)
+                page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 from .provenance import ai_quote_proved
@@ -2434,7 +2434,7 @@ def _run_comparison(
     page_ledger.refresh(submittal_id, as_submittal=True)
     pages_read = pages_read_with_reading(submittal_id)
     # THE SHEET'S KIND, ONCE PER RUN: the stored word (engineer or classifier), else the fields.
-    from . import classification as classification_mod
+    from . import classification as classification_mod, submittal_fill
     submittal_fill.ensure(submittal_id)  # order 196: fill the type and title if empty
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))

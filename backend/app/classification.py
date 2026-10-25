@@ -578,7 +578,7 @@ def _audit_equipment_type_change(document_id: str, *, old_value: str | None,
 
 
 def classify_equipment_type_for_submittal(
-    document_id: str, *, classified_by="equipment_type_classifier", reviewed=False,
+    document_id: str, *, classified_by="equipment_type_classifier", reviewed=False
 ) -> EquipmentTypeEvidence | None:
     """Infer and store `equipment_type` for ONE CONTRACTOR_SUBMITTAL document.
 
@@ -1086,7 +1086,7 @@ def _audit_field_change(document_id: str, *, field_name: str, old_value,
 
 
 def classify_metadata_for_submittal(
-    document_id: str, *, classified_by="submittal_metadata_classifier", reviewed=False,
+    document_id: str, *, classified_by="submittal_metadata_classifier", reviewed=False
 ) -> dict:
     """Infer and store the title-block fields of ONE CONTRACTOR_SUBMITTAL.
 

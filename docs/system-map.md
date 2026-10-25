@@ -71,6 +71,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `citations` | Shared [S#] citation-marker syntax, used by both answer.py and synthesis.py |
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
+| `submittal_fill` | A reviewed datasheet gets its equipment type and title from its own heading when empty |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
 | `claude_approved` | Which documents the owner approved for the cloud model, and the refusal for any other (#806 S3) |
 | `claude_budget` | The two numbers that keep a $20 API credit from vanishing in one run |

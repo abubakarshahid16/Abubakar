@@ -55,18 +55,18 @@ def heading_title(pages: Sequence[dict]):
     if named is None:
         return None
     for page_no, line in lines:
-        if page_no == named.page and named.quote.lower() in line.lower():
-            if lead := heading_lead(line):
-                return c.FieldEvidence(
-                    field="title",
-                    value=lead,
-                    page=page_no,
-                    quote=line.strip()[:160],
-                    pages=[page_no],
-                    method="title_block_heading",
-                    confidence=c._CONFIDENCE["title"],
-                    classifier_version=c.SUBMITTAL_METADATA_CLASSIFIER_VERSION,
-                )
+        lead = heading_lead(line) if page_no == named.page else ""
+        if lead and named.quote.lower() in line.lower():
+            return c.FieldEvidence(
+                field="title",
+                value=lead,
+                page=page_no,
+                quote=line.strip()[:160],
+                pages=[page_no],
+                method="title_block_heading",
+                confidence=c._CONFIDENCE["title"],
+                classifier_version=c.SUBMITTAL_METADATA_CLASSIFIER_VERSION,
+            )
     return None
 
 

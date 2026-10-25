@@ -118,9 +118,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "COMPANY_STANDARD (and an unclassified document) gets an "
                     "equipment_type guessed for it too",
         path=APP / "classification.py",
-        anchor='    if existing is None or existing["document_role"] != "CONTRACTOR_SUBMITTAL":\n'
+        anchor='    if not submittal_fill.is_submittal(existing, reviewed):\n'
                '        return None',
-        replacement='    if existing is None or False:\n        return None',
+        replacement='    if existing is None:\n        return None',
         target=_EQUIPMENT_TYPE_TEST,
         keyword="test_a_company_standard_never_gets_equipment_type_set"
                 " or test_an_unclassified_document_gets_no_equipment_type",
