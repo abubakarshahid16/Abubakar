@@ -103,6 +103,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
 | `form_reader_run` | Run the form reader over a datasheet for extraction |
 | `severity_rule` | One rule for a severity word: a failed requirement is never minor |
+| `datasheet_roles` | Which role a datasheet field name states when it fits several: the one the sheet's equipment type checks (#900) |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
