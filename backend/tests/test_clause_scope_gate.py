@@ -26,6 +26,7 @@ from tests.test_141_division_scope import (  # noqa: F401 - temp_storage is a fi
     GENERAL,
     GRAPHITE,
     LIMITED,
+    LIMITED_TT,
     NOT_GRAPHITE,
     NOT_LIMITED,
     PAGES,
@@ -183,29 +184,89 @@ def test_a_yes_backed_by_the_stated_line_that_names_it_is_kept(stub):
 # ------------------------------------------------- D1.3: the counts, boundaries
 
 
-def test_requirements_beyond_the_limit_are_kept_and_counted(stub):
+def test_requirements_beyond_the_limit_are_held_and_counted(stub):
     model = FakeModel()
     out = gate(model, PAGES, (GENERAL, SPECIAL, TITAN), limit=1)
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"] and out["items"] == []
+    # the part read is Part AA; the others were never read, so nothing is
+    # compared on them: held for the engineer, not kept
+    assert _ids(out["kept"]) == ["aa"] and out["items"] == []
+    assert _ids(out["held"]) == ["zz", "tt"]
+    for held in out["held"]:
+        assert held["code"] == "applicability_unsure"
+        assert held["decided_by"] == "code:scope-not-read"
+        assert "limit on parts read was reached" in held["detail"]
+        assert "an engineer decides" in held["detail"]
     summary = out["summary"]
     assert summary["requirements_beyond_limit"] == 2
     assert summary["requirements_gated"] == 3 and summary["not_read_limit"] == 2
     assert model.calls == ["division"]  # one read: the limit is the run's, not a part's
     # a count of none is left out, never shown as 0
-    assert "requirements_in_unread_divisions" not in summary
-    assert "requirements_unplaced" not in summary
+    for absent in (
+        "requirements_held_scope_not_read",
+        "requirements_unplaced",
+        "model_unavailable",
+        "requirements_subparts_not_screened",
+    ):
+        assert absent not in summary  # a count of none is left out, never 0
 
 
-def test_requirements_of_parts_nobody_could_read_are_kept_and_counted(stub):
+def test_requirements_of_parts_nobody_could_read_are_held_and_counted(stub):
     out = gate(
         FakeModel(fail="the model could not be reached"),
         PAGES,
         (GENERAL, SPECIAL, TITAN),
     )
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"] and out["held"] == []
-    assert out["summary"]["requirements_in_unread_divisions"] == 3
-    assert out["summary"]["requirements_gated"] == 3
-    assert "requirements_beyond_limit" not in out["summary"]
+    assert out["kept"] == [] and out["items"] == []
+    assert _ids(out["held"]) == ["aa", "zz", "tt"]
+    assert {h["decided_by"] for h in out["held"]} == {"code:scope-not-read"}
+    summary = out["summary"]
+    assert summary["requirements_held_scope_not_read"] == 3
+    assert summary["requirements_gated"] == 3 and summary["held"] == 3
+    assert "requirements_beyond_limit" not in summary
+    assert "requirements_in_unread_divisions" not in summary  # the old kept count
+
+
+def test_a_model_that_is_down_for_the_whole_run_is_said_once(stub):
+    reason = "the model could not be reached"
+    out = gate(FakeModel(fail=reason), PAGES, (GENERAL, SPECIAL, TITAN))
+    assert reason in out["summary"]["model_unavailable"]
+    assert "stopped" in out["summary"]  # kept: how the run ended
+    # nothing the model never read is a pass, and nothing is capped
+    assert len(out["held"]) == 3 and out["kept"] == []
+    up = gate(FakeModel(), PAGES, (GENERAL, SPECIAL, TITAN))
+    assert "model_unavailable" not in up["summary"]
+
+
+def test_a_reply_that_cannot_be_used_holds_the_part_and_nothing_else(stub):
+    made_up = {**LIMITED_TT, "quote": "Titanium is wonderful and also very light."}
+    model = FakeModel(scope=lambda p: made_up if "Part TT" in p else NOT_LIMITED)
+    out = gate(model, PAGES, (GENERAL, SPECIAL, TITAN))
+    assert _ids(out["kept"]) == ["aa", "zz"] and _ids(out["held"]) == ["tt"]
+    [held] = out["held"]
+    assert held["decided_by"] == "code:scope-not-read"
+    assert "did not read this part's scope sentence" in held["detail"]
+    assert "unavailable, timed out, or an invalid reply" in held["detail"]
+    assert "PART TT" in held["detail"] and "XYZ code" in held["detail"]
+    summary = out["summary"]
+    assert summary["requirements_held_scope_not_read"] == 1
+    assert "model_unavailable" not in summary  # the model was up
+
+
+def test_the_construction_step_failing_holds_the_part_and_is_counted_apart(stub):
+    model = FakeModel(construction={"nonsense": 1})  # fits no schema
+    out = gate(model, PAGES, (GENERAL, SPECIAL, TITAN))
+    assert _ids(out["kept"]) == ["aa"] and _ids(out["held"]) == ["zz", "tt"]
+    assert out["summary"]["requirements_held_construction_not_read"] == 2
+    assert "requirements_held_scope_not_read" not in out["summary"]
+    assert ZZ_SCOPE in out["held"][0]["detail"]  # the standard's own sentence only
+
+
+def test_with_the_reader_switched_off_nothing_is_held_or_read(monkeypatch):
+    monkeypatch.setattr(settings, "ai_division_scope_enabled", False)
+    reqs = [dict(GENERAL), dict(SPECIAL)]
+    out = ai_applicability.division_gate_for_run(reqs, {}, [], {})
+    assert out["kept"] == reqs and out["held"] == [] and out["items"] == []
+    assert out["summary"] is None
 
 
 def test_a_requirement_that_cannot_be_placed_is_kept_and_counted(stub):
@@ -358,6 +419,28 @@ def test_a_start_the_model_does_not_confirm_inherits_the_part_before_as_a_hold(s
     assert "an engineer decides" in held["detail"]
 
 
+def test_a_start_that_could_not_be_read_is_held_not_kept(stub):
+    stub.heads = ["Appendix 9 (jacketed vessels)"]
+    unusable = {**LIMITED_TI, "quote": "A sentence that the standard does not hold."}
+    model = FakeModel(scope=lambda p: unusable if "Appendix 9" in p else NOT_LIMITED)
+    out = gate(model, [AA_PAGE, (2, JACKET_PAGE[1])], (GENERAL, JACKET | {"page": 2}))
+    assert _ids(out["kept"]) == ["aa"] and _ids(out["held"]) == ["jacket"]
+    assert out["held"][0]["decided_by"] == "code:scope-not-read"
+    assert out["summary"]["requirements_held_scope_not_read"] == 1
+
+
+def test_a_flagged_sub_part_that_could_not_be_read_holds_only_its_requirements(stub):
+    stub.subs = [("AA-9 LININGS", "AA-11 NAMEPLATES")]
+    unusable = {**LIMITED_TI, "quote": "A sentence that the standard does not hold."}
+    model = FakeModel(scope=lambda p: unusable if "LININGS" in p else NOT_LIMITED)
+    out = gate(model, [SUB_PAGE], (SHELL, JOINT, PLATE))
+    assert _ids(out["kept"]) == ["shell", "plate"] and _ids(out["held"]) == ["joint"]
+    [held] = out["held"]
+    assert held["decided_by"] == "code:scope-not-read"
+    assert "AA-9 LININGS" in held["detail"]  # the sub-heading, nothing more of the text
+    assert out["summary"]["requirements_held_scope_not_read"] == 1
+
+
 def test_a_start_the_model_does_not_confirm_after_a_kept_part_is_kept(stub):
     out = gate(
         FakeModel(scope=NOT_LIMITED),
@@ -480,7 +563,9 @@ def test_a_flagged_outer_sub_part_that_was_not_read_is_counted(stub):
     stub.subs = NESTED
     # reads: the part, the title screen, the inner sub-part; none is left
     out = gate(FakeModel(scope=titanium_if_named), [NEST_PAGE], (SEAL,), limit=3)
-    assert _ids(out["kept"]) == ["seal"] and out["items"] == []
+    assert out["kept"] == [] and out["items"] == []
+    assert _ids(out["held"]) == ["seal"]
+    assert out["held"][0]["decided_by"] == "code:scope-not-read"
     assert out["summary"]["requirements_beyond_limit"] == 1
 
 
@@ -493,16 +578,19 @@ def test_a_start_the_model_is_unsure_of_holds_even_after_a_kept_part(stub):
     assert out["summary"]["requirements_held_unsure"] == 1
 
 
-def test_sub_headings_not_screened_because_the_limit_is_spent_are_counted(stub):
+def test_sub_headings_not_screened_because_the_limit_is_spent_are_held(stub):
     stub.subs = [("4.1 Welded items", "4.2 Nameplates")]
     model = FakeModel(scope=titanium_if_named)
     out = gate(model, [NEST_PAGE], (SEAL, SEAL_OUT), limit=1)
-    assert _ids(out["kept"]) == ["seal", "plate"] and "screened" not in stub.seen
+    assert out["kept"] == [] and "screened" not in stub.seen
+    assert _ids(out["held"]) == ["seal", "plate"]
+    assert "did not screen the sub-headings" in out["held"][0]["detail"]
+    assert out["held"][0]["decided_by"] == "code:scope-not-read"
     assert out["summary"]["requirements_subparts_not_screened"] == 2
     assert out["summary"]["requirements_gated"] == 2
 
 
-def test_sub_headings_not_screened_because_the_model_stopped_are_counted(store):
+def test_sub_headings_not_screened_because_the_model_stopped_are_held(store):
     class Down(FakeModel):
         def reason(self, packet):
             if packet.prompt.startswith("The TEXT is a list of sub-heading titles"):
@@ -510,22 +598,27 @@ def test_sub_headings_not_screened_because_the_model_stopped_are_counted(store):
             return super().reason(packet)
 
     out = gate(Down(scope=NOT_LIMITED), [NEST_PAGE], (SEAL, SEAL_OUT))
-    assert _ids(out["kept"]) == ["seal", "plate"]
+    assert out["kept"] == [] and _ids(out["held"]) == ["seal", "plate"]
     assert out["summary"]["requirements_subparts_not_screened"] == 2
     assert "stopped" in out["summary"]
+    # the part itself WAS read; only the screen could not run
+    assert "could not be reached" in out["summary"]["model_unavailable"]
+    assert "requirements_held_scope_not_read" not in out["summary"]
 
 
-def test_titles_past_the_one_read_are_counted_with_the_real_module(store, monkeypatch):
+def test_titles_past_the_one_read_are_held_with_the_real_module(store, monkeypatch):
     monkeypatch.setattr(clause_scope, "MAX_TITLES", 3)
     out = gate(flags(), [NEST_PAGE], (SEAL, SEAL_OUT))
-    assert _ids(out["kept"]) == ["seal", "plate"]
-    # 1.1, 4.1 and 4.1.1 are screened; 4.2 (holding the plate) is not
+    # 1.1, 4.1 and 4.1.1 are screened and none is flagged: the seal is kept;
+    # 4.2 (holding the plate) was not screened: held
+    assert _ids(out["kept"]) == ["seal"] and _ids(out["held"]) == ["plate"]
     assert out["summary"]["requirements_subparts_not_screened"] == 1
 
 
 def test_nothing_unscreened_leaves_the_count_out(store):
     out = gate(flags(), [NEST_PAGE], (SEAL, SEAL_OUT))
     assert "requirements_subparts_not_screened" not in out["summary"]
+    assert "requirements_kept_sub_headings_not_screened" not in out["summary"]
 
 
 # ------------------- a start found by shape only holds; a failed screen is counted
@@ -552,23 +645,36 @@ def test_a_shape_start_the_model_confirms_is_held_never_excluded(store):
     assert out["summary"]["candidates_read"] == 1
 
 
-def test_a_failed_title_screen_counts_its_requirements_as_not_screened(store):
+def test_a_failed_title_screen_holds_its_requirements_and_counts_them(store):
     model = flags()
     model.replies["titles"] = lambda prompt: {"nonsense": 1}  # fits no schema
     out = gate(model, [NEST_PAGE], (SEAL, SEAL_OUT))
-    assert _ids(out["kept"]) == ["seal", "plate"]
+    assert out["kept"] == [] and _ids(out["held"]) == ["seal", "plate"]
     assert out["summary"]["requirements_subparts_not_screened"] == 2
     assert "stopped" not in out["summary"]  # the model was not down
 
 
-def test_requirements_placed_only_by_page_are_counted_as_not_screened(store):
+def test_requirements_placed_only_by_page_are_kept_and_counted_apart(store):
     ghost = req("ghost", 1, "The pump shall be tested before it is dispatched.")
     out = gate(flags(), [NEST_PAGE], (SEAL, ghost))
     assert _ids(out["kept"]) == ["seal", "ghost"]  # kept, never skipped silently
-    assert out["summary"]["requirements_subparts_not_screened"] == 1
+    # the screen ran: this is not a failed read, so it is not "held"
+    assert out["summary"]["requirements_kept_sub_headings_not_screened"] == 1
+    assert "requirements_subparts_not_screened" not in out["summary"]
+    assert out["held"] == []
 
 
-def test_requirements_in_a_kept_candidate_start_are_counted_as_not_screened(stub):
+def test_requirements_placed_only_by_page_are_held_when_the_screen_failed(store):
+    ghost = req("ghost", 1, "The pump shall be tested before it is dispatched.")
+    model = flags()
+    model.replies["titles"] = lambda prompt: {"nonsense": 1}
+    out = gate(model, [NEST_PAGE], (SEAL, ghost))
+    assert out["kept"] == [] and _ids(out["held"]) == ["seal", "ghost"]
+    assert out["summary"]["requirements_subparts_not_screened"] == 2
+    assert "requirements_kept_sub_headings_not_screened" not in out["summary"]
+
+
+def test_requirements_in_a_kept_candidate_start_are_kept_and_counted_apart(stub):
     stub.heads = ["Appendix 9 (jacketed vessels)"]
     out = gate(
         FakeModel(scope=NOT_LIMITED),
@@ -576,4 +682,22 @@ def test_requirements_in_a_kept_candidate_start_are_counted_as_not_screened(stub
         (GENERAL, JACKET | {"page": 2}),
     )
     assert _ids(out["kept"]) == ["aa", "jacket"]
-    assert out["summary"]["requirements_subparts_not_screened"] == 1
+    assert out["summary"]["requirements_kept_sub_headings_not_screened"] == 1
+    assert "requirements_subparts_not_screened" not in out["summary"]
+
+
+def test_a_review_with_the_model_down_holds_every_placed_clause_and_says_so(
+    stub, monkeypatch
+):
+    result, stored, ids = _review(
+        monkeypatch, FakeModel(fail="the model could not be reached")
+    )
+    for name in ("aa", "zz", "tt"):
+        assert stored[ids[name]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
+        assert stored[ids[name]]["reason_code"] == "applicability_unsure"
+        # nothing was compared on it: no finding rests on it
+        assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
+    counts = result["requirement_split"]["division_scope"]
+    assert counts["requirements_held_scope_not_read"] == 3
+    assert "could not be reached" in counts["model_unavailable"]
+    assert "requirements_in_unread_divisions" not in counts
