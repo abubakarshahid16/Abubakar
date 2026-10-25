@@ -3,7 +3,7 @@
 The stored `reason_code` of a finding is the leading code of its rationale
 (`comparison.reason_code_of`), and many held findings carry none: their
 rationale is a plain sentence ("the submitted value could not be read as a
-quantity"). On the owner's 216400C run that was 161 of the held findings, and
+quantity"). On the owner's 216400C run that was 161 of the held findings, and [found-on]
 nobody could say why. This module gives every one a reason, WITHOUT changing a
 rationale, a stored code or a verdict (display and measurement only):
 

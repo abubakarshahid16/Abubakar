@@ -136,7 +136,7 @@ def _covered_evidence(record: dict) -> tuple[str | None, int | None]:
     decision, taken from the record's own verified `covered_equipment` or
     `covered_activities` items - never from the model.
 
-    THE BUG THIS FIXES (found reviewing EF1975-DAS-M-03, 2026-09-28): the
+    THE BUG THIS FIXES (found reviewing a real pump datasheet, 2026-09-28): the
     INSTRUCTIONS prompt above tells the model "quote"/"page" are null UNLESS
     it cites a specific exclusion or limit, so an APPLICABLE decision comes
     back with quote=None, page=None by design - the model was never asked to
