@@ -403,10 +403,10 @@ class Settings(BaseSettings):
     #: string split - see `model_host_of`.
     answer_model_allowed_hosts: tuple[str, ...] = ()
     answer_model: str = "qwen3.5:4b"
+    answer_prompt_variant: str = "default"  # answer_prompts.VARIANTS; default = unchanged
     #: Resident size of the answer model. Used to warn BEFORE someone presses
     #: Explain: with 14.7 GB of 16 GB already in use, Tier 2 will swap hard or
-    #: fail, and that is a fact worth surfacing before the button is clicked
-    #: rather than after a two-minute stall in front of a client.
+    #: fail; better said before the click than after a two-minute stall.
     answer_model_ram_bytes: int = 3_400_000_000
 
     # ---------------------------------------------------------- AI task runner
@@ -1519,7 +1519,7 @@ settings = Settings()
 #: Deliberately excludes host, port, paths and auth: a report generated on a
 #: different port is not a different answer.
 ANSWER_AFFECTING_SETTINGS = (
-    "answer_model", "num_ctx", "max_output_tokens", "temperature",
+    "answer_model", "answer_prompt_variant", "num_ctx", "max_output_tokens", "temperature",
     "chat_max_output_tokens", "chat_temperature_document", "chat_temperature_general",
     "chat_history_turns", "chat_history_token_budget", "chat_history_local_token_budget",
     "chat_tool_max_calls", "chat_thinking_budget_tokens", "chat_vision_max_pages_per_answer",

@@ -160,3 +160,75 @@ def test_aggregate_reports_the_count_each_mean_is_made_from():
     assert agg["questions"] == 2
     assert agg["faithfulness"] == {"mean": 1.0, "n": 1}
     assert agg["noise_sensitivity"] == {"mean": None, "n": 0}
+
+
+# ------------------------------------------------------------ prompt variants
+
+
+def test_the_default_variant_is_the_unchanged_prompt_byte_for_byte():
+    from app import answer, answer_prompts
+    from app.config import settings
+
+    assert settings.answer_prompt_variant == "default"
+    got = answer_prompts.system_for(
+        False, answer.SYSTEM_PROMPT, answer.SYSTEM_PROMPT_VERIFIED
+    )
+    assert got == answer.SYSTEM_PROMPT
+
+
+def test_a_variant_changes_only_the_instructions_and_unknown_names_fall_back(
+    monkeypatch,
+):
+    from app import answer_prompts
+    from app.config import settings
+
+    base, quoting = "BASE", "QUOTING"
+    for name in answer_prompts.VARIANTS:
+        monkeypatch.setattr(settings, "answer_prompt_variant", name)
+        got = answer_prompts.system_for(False, base, quoting)
+        if name == "quote_first":
+            assert got == quoting
+        elif name == "default":
+            assert got == base
+        else:
+            assert got.startswith(base) and len(got) > len(base)
+    monkeypatch.setattr(settings, "answer_prompt_variant", "no-such-variant")
+    assert answer_prompts.system_for(False, base, quoting) == base
+
+
+def test_the_claude_lane_keeps_its_quoting_prompt_whatever_the_variant(monkeypatch):
+    from app import answer_prompts
+    from app.config import settings
+
+    for name in answer_prompts.VARIANTS:
+        monkeypatch.setattr(settings, "answer_prompt_variant", name)
+        assert answer_prompts.system_for(True, "BASE", "QUOTING") == "QUOTING"
+
+
+def test_the_answer_call_sends_the_variant_prompt(monkeypatch):
+    from app import answer, chat_model
+    from app.config import settings
+
+    seen = {}
+
+    def fake_generate(system, prompt, **kw):
+        seen["system"] = system
+        return {"text": "x"}
+
+    monkeypatch.setattr(chat_model, "generate", fake_generate)
+    monkeypatch.setattr(answer, "claude_lane", lambda: False)
+    monkeypatch.setattr(settings, "answer_prompt_variant", "check_figures")
+    answer._call_model("p")
+    assert (
+        seen["system"].startswith(answer.SYSTEM_PROMPT)
+        and "Before you write a number" in seen["system"]
+    )
+    monkeypatch.setattr(settings, "answer_prompt_variant", "default")
+    answer._call_model("p")
+    assert seen["system"] == answer.SYSTEM_PROMPT
+
+
+def test_the_variant_is_one_of_the_settings_that_can_change_an_answer():
+    from app.config import ANSWER_AFFECTING_SETTINGS
+
+    assert "answer_prompt_variant" in ANSWER_AFFECTING_SETTINGS
