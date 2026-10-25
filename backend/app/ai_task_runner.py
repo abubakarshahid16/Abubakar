@@ -188,7 +188,9 @@ def model_identity(requested: str) -> str | None:
             if requested in names or f"{requested}:latest" in names:
                 digest = str(entry.get("digest") or "")
                 if digest and version:
-                    identity = f"{entry.get('name') or requested}@{digest}|ollama/{version}"
+                    identity = (
+                        f"{entry.get('name') or requested}@{digest}|ollama/{version}"
+                    )
                 break
     except Exception as exc:  # noqa: BLE001 - logged (type only); an unreachable engine means "no cache"
         _log.info(

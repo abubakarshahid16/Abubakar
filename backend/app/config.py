@@ -445,8 +445,7 @@ class Settings(BaseSettings):
     #: the review could not decide, the local model PROPOSES a check (field,
     #: limit, unit, condition, quote); code verifies every part and keeps what
     #: passes as a DRAFT for the engineer, never a verdict. ON by default
-    #: (#805 rule 1); the model is `ai_task_model` (standards text stays
-    #: here). At most this many sentences per run (one model call each).
+    #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a
@@ -1537,7 +1536,8 @@ ANSWER_AFFECTING_SETTINGS = (
     # no change in the version a report compares against.
     "ai_task_model", "datasheet_ai_reader", "match_engine",
     "ai_applicability_enabled", "applicability_reasoning_enabled",
-    "ai_division_scope_enabled", "ai_answer_reuse_enabled",
+    "ai_division_scope_enabled",
+    "ai_answer_reuse_enabled",
 )
 
 
