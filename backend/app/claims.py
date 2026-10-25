@@ -167,6 +167,19 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     "mins": ("time", "h", 1.0 / 60.0),
     "minute": ("time", "h", 1.0 / 60.0),
     "minutes": ("time", "h", 1.0 / 60.0),
+    # Seconds, milliseconds and days: the same dimension, exact by definition
+    # (#896: "480 s" against "at least 8 minutes" was never compared).
+    "s": ("time", "h", 1.0 / 3600.0),
+    "sec": ("time", "h", 1.0 / 3600.0),
+    "secs": ("time", "h", 1.0 / 3600.0),
+    "second": ("time", "h", 1.0 / 3600.0),
+    "seconds": ("time", "h", 1.0 / 3600.0),
+    "ms": ("time", "h", 1.0 / 3600000.0),
+    "msec": ("time", "h", 1.0 / 3600000.0),
+    "millisecond": ("time", "h", 1.0 / 3600000.0),
+    "milliseconds": ("time", "h", 1.0 / 3600000.0),
+    "day": ("time", "h", 24.0),
+    "days": ("time", "h", 24.0),
     # voltage -> V
     "v": ("voltage", "V", 1.0),
     "kv": ("voltage", "V", 1000.0),
