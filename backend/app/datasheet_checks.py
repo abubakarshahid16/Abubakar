@@ -62,8 +62,8 @@ def _fold(text) -> str:
     return " ".join(str(text or "").lower().replace(":", " ").split())
 
 
-def role_of(field_name: str, rules: dict, prefer: frozenset = frozenset()) -> str | None:
-    return datasheet_roles.role_of(field_name, rules, prefer)    # #900
+def role_of(field_name: str, rules: dict, prefer=frozenset()) -> str | None:
+    return datasheet_roles.role_of(field_name, rules, prefer)  # #900
 
 
 #: #898: how many leading words may qualify a field name ("casing", "shell

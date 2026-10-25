@@ -1,6 +1,7 @@
 """#900: a field name that fits two roles is read as the role the sheet's equipment
 type checks. `datasheet_checks.py` is in the danger zone (rule 6). PR #1270: ids
 M1270-01 onwards, phase 1270."""
+
 from __future__ import annotations
 
 from ._base import APP, Mutation
@@ -35,7 +36,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1270,
         description="the roles a type checks are no longer read from its checklist",
         path=APP / "datasheet_roles.py",
-        anchor="    walk([[i.get(\"rule\"), i.get(\"condition\")] for i in items])\n",
+        anchor='    walk([[i.get("rule"), i.get("condition")] for i in items])\n',
         replacement="    walk([])\n",
         target=_T,
         keyword="wanted or valve",
