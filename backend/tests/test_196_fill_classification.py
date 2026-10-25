@@ -141,7 +141,8 @@ def test_the_heading_lead_cuts_at_a_field_label_and_drops_the_labels_word():
 import uuid  # noqa: E402
 
 from app import comparison, datasheets, scope_ledger, standards  # noqa: E402
-from tests.test_141_division_scope import FakeModel, _doc as _std_doc  # noqa: E402,F401
+from tests.test_141_division_scope import FakeModel  # noqa: E402,F401
+from tests.test_141_division_scope import _doc as _std_doc
 
 PUMP_SCOPE = "This invented standard covers centrifugal pumps."
 PUMP_PAGES = [
