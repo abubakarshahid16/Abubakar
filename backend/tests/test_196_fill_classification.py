@@ -151,8 +151,6 @@ def test_the_heading_lead_cuts_at_a_field_label_and_drops_the_labels_word():
 
 # ------------------- the whole review: a sheet with no stored type or title
 
-from tests.test_141_division_scope import _doc as _std_doc
-
 PUMP_SCOPE = "This invented standard covers centrifugal pumps."
 PUMP_PAGES = [
     (
