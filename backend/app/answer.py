@@ -761,7 +761,7 @@ def _call_model(prompt: str, timeout: float = 180.0) -> dict:
     retrieved passage text, verbatim, so this is the largest outbound lane in
     the system.
     """
-    system = answer_prompts.system_for(claude_lane(), SYSTEM_PROMPT, SYSTEM_PROMPT_VERIFIED)
+    system = answer_prompts.pick(claude_lane(), SYSTEM_PROMPT, SYSTEM_PROMPT_VERIFIED)
     return chat_model.generate(system, prompt,
                                temperature=settings.chat_temperature_document,
                                preference=_PREFERENCE.get(), timeout=timeout)

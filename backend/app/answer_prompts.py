@@ -35,7 +35,7 @@ _EXTRA_RULES: dict[str, str] = {
 VARIANTS: tuple[str, ...] = (DEFAULT, "quote_first", *_EXTRA_RULES)
 
 
-def system_for(claude: bool, base: str, quoting: str) -> str:
+def pick(claude: bool, base: str, quoting: str) -> str:
     """The system prompt. `base` is the plain prompt, `quoting` the one that
     asks for an exact quote per claim. The Claude lane and an unknown variant
     name get what they always got."""

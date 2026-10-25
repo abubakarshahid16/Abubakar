@@ -170,7 +170,7 @@ def test_the_default_variant_is_the_unchanged_prompt_byte_for_byte():
     from app.config import settings
 
     assert settings.answer_prompt_variant == "default"
-    got = answer_prompts.system_for(
+    got = answer_prompts.pick(
         False, answer.SYSTEM_PROMPT, answer.SYSTEM_PROMPT_VERIFIED
     )
     assert got == answer.SYSTEM_PROMPT
@@ -185,7 +185,7 @@ def test_a_variant_changes_only_the_instructions_and_unknown_names_fall_back(
     base, quoting = "BASE", "QUOTING"
     for name in answer_prompts.VARIANTS:
         monkeypatch.setattr(settings, "answer_prompt_variant", name)
-        got = answer_prompts.system_for(False, base, quoting)
+        got = answer_prompts.pick(False, base, quoting)
         if name == "quote_first":
             assert got == quoting
         elif name == "default":
@@ -193,7 +193,7 @@ def test_a_variant_changes_only_the_instructions_and_unknown_names_fall_back(
         else:
             assert got.startswith(base) and len(got) > len(base)
     monkeypatch.setattr(settings, "answer_prompt_variant", "no-such-variant")
-    assert answer_prompts.system_for(False, base, quoting) == base
+    assert answer_prompts.pick(False, base, quoting) == base
 
 
 def test_the_claude_lane_keeps_its_quoting_prompt_whatever_the_variant(monkeypatch):
@@ -202,7 +202,7 @@ def test_the_claude_lane_keeps_its_quoting_prompt_whatever_the_variant(monkeypat
 
     for name in answer_prompts.VARIANTS:
         monkeypatch.setattr(settings, "answer_prompt_variant", name)
-        assert answer_prompts.system_for(True, "BASE", "QUOTING") == "QUOTING"
+        assert answer_prompts.pick(True, "BASE", "QUOTING") == "QUOTING"
 
 
 def test_the_answer_call_sends_the_variant_prompt(monkeypatch):
@@ -232,3 +232,165 @@ def test_the_variant_is_one_of_the_settings_that_can_change_an_answer():
     from app.config import ANSWER_AFFECTING_SETTINGS
 
     assert "answer_prompt_variant" in ANSWER_AFFECTING_SETTINGS
+
+
+# ------------------------------------------------------------------ the runner
+
+
+def _runner():
+    sys.path.insert(0, str(REPO / "eval" / "p1"))
+    sys.path.insert(0, str(REPO / "eval" / "p1ai"))
+    import run_aq
+
+    return run_aq
+
+
+def _q(qid, answerable=True, needles=("4.5 mm/s",)):
+    return {
+        "id": qid,
+        "question": f"q {qid}",
+        "answerable": answerable,
+        "expected_answer_contains": list(needles),
+        "forbidden_in_answer": [],
+    }
+
+
+def test_the_noise_is_two_other_passages_and_the_same_for_every_variant():
+    aq = _runner()
+    pool = [{"text": f"page {i}"} for i in range(10)]
+    own = [pool[0], pool[1]]
+    first = aq.noise_for(3, own, pool)
+    assert len(first) == 2 and not any(p in own for p in first)
+    assert aq.noise_for(3, own, pool) == first
+
+
+def test_the_corpus_pool_is_every_page_of_the_invented_corpus():
+    aq = _runner()
+    import corpus as p1_corpus
+
+    pool = aq.corpus_pool()
+    assert len(pool) == sum(len(pages) for pages in p1_corpus.DOCS.values())
+    assert all(p["text"] and p["filename"] in p1_corpus.DOCS for p in pool)
+
+
+def test_a_run_asks_the_noisy_question_only_for_an_answered_answerable_one():
+    aq = _runner()
+    noisy_calls = []
+
+    def ask(question, qid):
+        if qid == "refused":
+            return {
+                "answer_type": "insufficient_evidence",
+                "answer": None,
+                "passages": [],
+            }
+        return {"answer_type": "generated", "answer": GOOD, "passages": [VIB, SEAL]}
+
+    def noisy_ask(question, passages):
+        noisy_calls.append(len(passages))
+        return (
+            "The vibration limit is 4.5 mm/s RMS measured at the bearing housing [S3]."
+        )
+
+    pool = [{"text": f"other {i}"} for i in range(6)]
+    rows = aq.run_variant(
+        [_q("a"), _q("refused"), _q("unans", answerable=False)],
+        ask,
+        noisy_ask,
+        pool,
+        say=lambda *_: None,
+    )
+    assert noisy_calls == [4]
+    by = {r["id"]: r for r in rows}
+    assert by["a"]["noise_sensitivity"] == 0.0
+    assert (
+        by["refused"]["noise_sensitivity"] is None
+        and by["refused"]["faithfulness"] is None
+    )
+
+
+def test_the_comparison_keeps_a_variant_only_when_it_is_not_worse_anywhere():
+    aq = _runner()
+
+    def rows(variant_answer):
+        def ask(question, qid):
+            return {
+                "answer_type": "generated",
+                "answer": variant_answer,
+                "passages": [VIB, SEAL],
+            }
+
+        return aq.run_variant(
+            [_q("a")],
+            ask,
+            lambda q, p: variant_answer,
+            [{"text": "n1"}, {"text": "n2"}],
+            say=lambda *_: None,
+        )
+
+    base = qs.aggregate(rows(GOOD))
+    better_same = qs.aggregate(rows(GOOD))
+    worse = qs.aggregate(
+        rows(
+            "The vibration limit is 7.1 mm/s RMS measured at the bearing housing [S1]."
+        )
+    )
+    verdicts = aq.compare({"default": base, "same": better_same, "bad": worse})
+    assert verdicts["default"] == [] and verdicts["same"] == [] and verdicts["bad"]
+    assert any("figure" in r or "faithfulness" in r for r in verdicts["bad"])
+    text = aq.markdown(
+        {"default": base, "same": better_same, "bad": worse}, verdicts, "m", 1
+    )
+    assert "| same |" in text and "YES" in text and "| bad |" in text and "no |" in text
+
+
+def test_a_new_answer_with_a_figure_the_page_lacks_blocks_the_variant_even_if_means_tie():
+    base = _agg()
+    base["ungrounded_answers"] = []
+    var = _agg()
+    var["ungrounded_answers"] = ["Q9"]
+    assert any("Q9" in r for r in qs.keep_variant(base, var))
+
+
+# ------------------------------------------------------- the workflow file itself
+
+
+def _workflow() -> dict:
+    import yaml
+
+    path = REPO / ".github" / "workflows" / "answer-quality-cpu.yml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def test_the_workflow_starts_by_hand_only_and_names_the_macs_model_without_a_default():
+    on = _workflow()[True]  # "on" parses as True
+    assert set(on) == {"workflow_dispatch"}
+    inputs = on["workflow_dispatch"]["inputs"]
+    assert inputs["model"]["required"] is True and "default" not in inputs["model"]
+    assert (
+        inputs["ollama_version"]["required"] is True
+        and "default" not in inputs["ollama_version"]
+    )
+
+
+def test_the_workflow_uses_no_secret_and_no_cloud_model():
+    text = (REPO / ".github" / "workflows" / "answer-quality-cpu.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "secrets." not in text
+    assert "ANTHROPIC" not in text and "api.anthropic" not in text
+    steps = {s.get("name", ""): s for s in _workflow()["jobs"]["score"]["steps"]}
+    env = steps["Ask the invented questions with each variant"]["env"]
+    assert env["REASONING_PROVIDER"] == "ollama"
+    assert env["STANDARDS_READER_ENABLED"] == "false"
+    assert env["STANDARDS_READER_ALLOW_PUBLIC_EGRESS"] == "false"
+    assert "inputs.model" in env["ANSWER_MODEL"]
+
+
+def test_the_workflow_reads_only_the_invented_questions_and_the_installer_service_is_stopped():
+    steps = _workflow()["jobs"]["score"]["steps"]
+    run = "\n".join(s.get("run", "") for s in steps)
+    assert "eval/answer_quality/run_aq.py" in run
+    assert "systemctl disable --now ollama" in run and "is not version" in run
+    for forbidden in ("hidden-exam", "Engineering Deliverables", "upload", "/data/"):
+        assert forbidden not in run

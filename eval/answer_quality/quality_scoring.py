@@ -244,6 +244,9 @@ def score_row(q: dict, result: dict, noisy: dict | None = None) -> dict:
             answer, q.get("expected_answer_contains") or []
         ),
         "forbidden": forbidden(answer, q.get("forbidden_in_answer") or []),
+        "ungrounded_figures": p1ai.ungrounded_figures(answer, passages, passages)
+        if answer
+        else [],
         "noise_sensitivity": None,
     }
     if noisy is not None:
@@ -264,6 +267,9 @@ def aggregate(rows: list[dict]) -> dict:
             "n": len(vals),
         }
     out["forbidden_answers"] = sorted(r["id"] for r in rows if r.get("forbidden"))
+    out["ungrounded_answers"] = sorted(
+        r["id"] for r in rows if r.get("ungrounded_figures")
+    )
     return out
 
 
@@ -289,6 +295,13 @@ def keep_variant(
     new_forbidden = set(variant["forbidden_answers"]) - set(base["forbidden_answers"])
     if new_forbidden:
         reasons.append(f"new forbidden answers: {', '.join(sorted(new_forbidden))}")
+    new_ungrounded = set(variant.get("ungrounded_answers", [])) - set(
+        base.get("ungrounded_answers", [])
+    )
+    if new_ungrounded:
+        reasons.append(
+            f"new answers with a figure the cited page does not hold: {', '.join(sorted(new_ungrounded))}"
+        )
     if false_meets_variant > false_meets_base or false_meets_variant > 0:
         reasons.append(
             f"false Meets: {false_meets_base} -> {false_meets_variant} (must stay 0)"
