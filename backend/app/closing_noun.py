@@ -15,8 +15,7 @@ normal flow"). Three consequences, each a refusal:
   * a label that is only the closing phrase never pairs ("best efficiency flow"
     is the reference of "80 % of the best efficiency flow", not its quantity);
   * a label that is only subject words never pairs here (the plain pass owns it);
-  * a one-word label never pairs (the #893 rule): "travel" alone would claim a
-    clause about travel at one flow for a row about another.
+  * a one-word label never pairs (the #893 rule): it cannot run past the join.
 
 Shape only: no field, standard, unit or layout is named. It runs only after the
 plain pass found nothing, so no existing pairing changes; its hits still go
@@ -42,7 +41,9 @@ def closing_phrase(text: str | None) -> str:
 
 def compose(requirement: dict, subject: str) -> tuple[str, str]:
     """(`closing phrase + subject`, closing phrase), or ('', '') without one."""
-    closing = closing_phrase(requirement.get("source_text") or requirement.get("requirement_text"))
+    closing = closing_phrase(
+        requirement.get("source_text") or requirement.get("requirement_text")
+    )
     if not closing or not subject:
         return "", ""
     return f"{closing} {subject}", closing
@@ -50,7 +51,10 @@ def compose(requirement: dict, subject: str) -> tuple[str, str]:
 
 def straddles(name: str, composed: str, closing: str) -> bool:
     """Does the whole-word phrase `name` start in `closing` and run past it?"""
-    if len(name.split()) < 2:
-        return False
     found = re.search(rf"(?<!\w){re.escape(name)}(?!\w)", composed)
     return bool(found) and found.start() < len(closing) and found.end() > len(closing)
+
+
+def straddling(hits: list[dict], composed: str, closing: str) -> list[dict]:
+    """The containment `hits` whose label straddles the join (see `straddles`)."""
+    return [h for h in hits if straddles(h["name"], composed, closing)]

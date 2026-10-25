@@ -3355,10 +3355,10 @@ def match_by_containment(requirement: dict, facts: list[dict], *,
     if not hits:
         hits = _containment_hits(requirement, subject, facts, is_blank)
     # #913: only when nothing paired, the quantity named at the sentence end.
-    composed, closing = ("", "") if hits else closing_noun.compose(requirement, subject)
+    composed, closing = closing_noun.compose(requirement, subject)
     for eligible in (fact_has_number, is_blank) if composed else ():
-        hits = hits or [h for h in _containment_hits(requirement, composed, facts, eligible)
-                        if closing_noun.straddles(h["name"], composed, closing)]
+        found = _containment_hits(requirement, composed, facts, eligible)
+        hits = hits or closing_noun.straddling(found, composed, closing)
     if not hits:
         return none
     return _resolve_hits(requirement, facts, hits, sheet_kind=sheet_kind)

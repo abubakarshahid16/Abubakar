@@ -5,6 +5,7 @@ stores the subject "At normal flow the valve"; the sheet row is "Travel at
 normal flow". Plain containment finds no row, so a real defect (88 %) got no
 verdict. Rule A: made-up sentences, no AI, no database, runs in seconds.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -15,16 +16,38 @@ SENTENCE = "At normal flow the valve shall operate between 20 % and 80 % of its 
 
 
 def _req(subject="At normal flow the valve", text=SENTENCE, **more):
-    return {"id": "r1", "standard_document_id": "doc_std", "requirement_type": "range_limit",
-            "operator": "between", "raw_value": "20 to 80", "raw_unit": "%", "value_low": 20.0,
-            "value_high": 80.0, "subject": subject, "clause": "4.1", "requirement_text": text,
-            "source_text": text, **more}
+    return {
+        "id": "r1",
+        "standard_document_id": "doc_std",
+        "requirement_type": "range_limit",
+        "operator": "between",
+        "raw_value": "20 to 80",
+        "raw_unit": "%",
+        "value_low": 20.0,
+        "value_high": 80.0,
+        "subject": subject,
+        "clause": "4.1",
+        "requirement_text": text,
+        "source_text": text,
+        **more,
+    }
 
 
 def _fact(name, value="88", unit="%", **more):
-    return {"id": f"f-{name}", "document_id": "doc_sheet", "submittal_document_id": "doc_sheet",
-            "field_name": name, "field_value": f"{value} {unit}", "raw_value": value, "raw_unit": unit,
-            "is_blank": 0, "page": 1, "extraction_method": "extracted", "equipment_tag": None, **more}
+    return {
+        "id": f"f-{name}",
+        "document_id": "doc_sheet",
+        "submittal_document_id": "doc_sheet",
+        "field_name": name,
+        "field_value": f"{value} {unit}",
+        "raw_value": value,
+        "raw_unit": unit,
+        "is_blank": 0,
+        "page": 1,
+        "extraction_method": "extracted",
+        "equipment_tag": None,
+        **more,
+    }
 
 
 def _paired(req, *facts):
@@ -40,16 +63,21 @@ def test_the_planted_defect_is_paired_and_does_not_meet():
 
 
 def test_the_same_shape_for_another_equipment_type():
-    text = "At full load the motor shall run between 60 % and 90 % of its rated current."
+    text = (
+        "At full load the motor shall run between 60 % and 90 % of its rated current."
+    )
     row = _fact("Rated current at full load", "95")
     assert _paired(_req("At full load the motor", text), row) is row
 
 
-@pytest.mark.parametrize("label", [
-    "Travel",                         # one word: never claims a clause that merely says it
-    "Best efficiency flow",           # the reference of a ratio, not the quantity
-    "Travel at maximum flow",         # another condition: not this clause's row
-])
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Travel",  # one word: never claims a clause that merely says it
+        "Best efficiency flow",  # the reference of a ratio, not the quantity
+        "Travel at maximum flow",  # another condition: not this clause's row
+    ],
+)
 def test_a_label_that_does_not_straddle_the_join_never_pairs(label):
     text = "At normal flow the valve shall operate between 20 % and 80 % of the best efficiency flow."
     assert _paired(_req(text=text), _fact(label)) is None
@@ -64,7 +92,10 @@ def test_a_plain_pairing_is_left_alone():
 
 
 def test_two_rows_that_both_fit_are_a_tie_not_a_pick():
-    one, two = _fact("Travel at normal flow", equipment_tag="V-1"), _fact("Travel at normal flow", value="70")
+    one, two = (
+        _fact("Travel at normal flow", equipment_tag="V-1"),
+        _fact("Travel at normal flow", value="70"),
+    )
     result = comparison.match_by_containment(_req(), [one, two])
     assert result["fact"] is None
 
@@ -74,11 +105,17 @@ def test_without_a_closing_noun_nothing_changes():
     assert _paired(req, _fact("Travel at normal flow")) is None
 
 
-@pytest.mark.parametrize("text, phrase", [
-    (SENTENCE, "travel"),
-    ("The rated flow shall lie between 80 % and 110 % of the best efficiency flow.", "best efficiency flow"),
-    ("The pressure shall be at least 5 bar.", ""),
-    ("", ""),
-])
+@pytest.mark.parametrize(
+    "text, phrase",
+    [
+        (SENTENCE, "travel"),
+        (
+            "The rated flow shall lie between 80 % and 110 % of the best efficiency flow.",
+            "best efficiency flow",
+        ),
+        ("The pressure shall be at least 5 bar.", ""),
+        ("", ""),
+    ],
+)
 def test_the_closing_phrase(text, phrase):
     assert closing_noun.closing_phrase(text) == phrase
