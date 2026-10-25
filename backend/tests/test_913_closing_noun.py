@@ -119,3 +119,15 @@ def test_without_a_closing_noun_nothing_changes():
 )
 def test_the_closing_phrase(text, phrase):
     assert closing_noun.closing_phrase(text) == phrase
+
+
+def test_a_blank_row_is_paired_only_when_no_number_answers():
+    """Numbers first, a "vendor to advise" row only when no number row fits."""
+    blank = _fact("Travel at normal flow", value="", unit="", is_blank=1)
+    assert _paired(_req(), blank) is blank
+    number = _fact("Travel at normal flow")
+    assert _paired(_req(), blank, number) is number
+
+
+def test_a_row_in_another_dimension_is_refused_by_the_same_match_rules():
+    assert _paired(_req(), _fact("Travel at normal flow", "9", "mm")) is None
