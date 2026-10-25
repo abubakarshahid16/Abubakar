@@ -610,14 +610,14 @@
        },
        {
         "field": "Inlet pressure",
-        "value": "14.5",
+        "value": "14.6",
         "unit": "psia",
         "group": "Process",
         "key": {
          "id": "T1",
          "kind": "trap",
          "clause": "4.4",
-         "note": "invented: 14.5 psia is 1.0 bar abs, exactly at the minimum"
+         "note": "invented: 14.6 psia is 1.007 bar abs, just above the 1.0 bar abs minimum"
         }
        },
        {
