@@ -110,7 +110,7 @@ export function ReportsScreen() {
    * them to the browser as a blob.
    *
    * This used to be `window.open(reportsApi.downloadUrl(id))`. A navigation
-   * carries no Authorization header and the token is held in memory only, so
+   * carries no Authorization header and a bearer token is held in memory only, so
    * under auth_mode=demo_required the request arrived unauthenticated, resolved
    * to an empty scope, and the backend answered 404 for a report listed on this
    * very screen.

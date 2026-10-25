@@ -701,3 +701,65 @@ def test_a_review_whose_scope_step_could_not_run_holds_the_division_not_a_verdic
         assert "did not read this part's scope" in stored[ids[name]]["reason"]
         assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
     assert result["requirement_split"]["division_scope"]["could_not_read"] == 3
+
+
+# ------------------------------------- the whole step stopped on an unexpected error
+
+
+def _crash(monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("SECRET-DOC-TEXT: Part ZZ applies to graphite")
+
+    monkeypatch.setattr(ai_applicability, "_division_gate", boom)
+
+
+def test_a_gate_that_crashes_holds_every_requirement_not_keeps_it(
+    temp_storage, monkeypatch, caplog
+):
+    _crash(monkeypatch)
+    with caplog.at_level("DEBUG"):
+        out = _gate(FakeModel())
+    assert out["kept"] == [] and out["items"] == []
+    assert _ids(out["held"]) == ["aa", "zz", "tt"]
+    assert len(out["kept"]) + len(out["items"]) + len(out["held"]) == 3
+    assert {h["code"] for h in out["held"]} == {"applicability_unsure"}
+    assert {h["decided_by"] for h in out["held"]} == {"code:scope-not-read"}
+    assert all("(RuntimeError)" in h["detail"] for h in out["held"])
+    assert out["summary"]["requirements_gated"] == 3
+    assert out["summary"]["requirements_held_scope_not_read"] == 3
+    assert "RuntimeError" in out["summary"]["not_run"]
+    # only the exception TYPE leaves the step: no message, no document text
+    shown = json.dumps([h["detail"] for h in out["held"]] + [out["summary"]])
+    for text in (shown, caplog.text):
+        assert "SECRET-DOC-TEXT" not in text and "graphite" not in text
+    assert "RuntimeError" in caplog.text
+
+
+def test_a_gate_that_crashes_with_no_requirements_keeps_todays_shape(
+    temp_storage, monkeypatch
+):
+    _crash(monkeypatch)
+    out = _gate(FakeModel(), reqs=())
+    assert out["kept"] == [] and out["items"] == [] and out["held"] == []
+    assert set(out["summary"]) == {"not_run"}
+
+
+def test_with_the_division_reader_off_a_crash_changes_nothing(monkeypatch):
+    monkeypatch.setattr(settings, "ai_division_scope_enabled", False)
+    _crash(monkeypatch)
+    reqs = [dict(GENERAL), dict(SPECIAL)]
+    out = ai_applicability.division_gate_for_run(reqs, None, [], {})
+    assert out == {"kept": reqs, "items": [], "held": [], "summary": None}
+
+
+def test_a_review_whose_scope_gate_crashes_holds_the_requirements_not_a_verdict(
+    temp_storage, monkeypatch
+):
+    _crash(monkeypatch)
+    result, stored, ids = _review(monkeypatch, FakeModel())
+    for name in ("aa", "zz", "tt"):
+        assert stored[ids[name]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
+        assert stored[ids[name]]["reason_code"] == "applicability_unsure"
+        assert "(RuntimeError)" in stored[ids[name]]["reason"]
+        assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
+    assert result["requirement_split"]["division_scope"]["requirements_gated"] == 3

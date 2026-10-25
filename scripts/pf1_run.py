@@ -42,7 +42,12 @@ def main(argv: list[str] | None = None) -> int:
         "--db-copy",
         help="the diagnostic copy of the database the run will be exported from",
     )
-    parser.add_argument("--email", required=True)
+    parser.add_argument("--email", help="the login; omit with --no-login")
+    parser.add_argument(
+        "--no-login",
+        action="store_true",
+        help="the test server runs with AUTH_MODE=disabled",
+    )
     parser.add_argument("--discipline", action="append", default=[])
     parser.add_argument(
         "--only",
@@ -64,11 +69,17 @@ def main(argv: list[str] | None = None) -> int:
         base = pf1_run.check_server(args.server, args.test_server)
         pf1_run.check_db_copy(args.db_copy)
         password = os.environ.get("PF1_PASSWORD", "")
-        if not password:
-            raise pf1_run.RunError("set PF1_PASSWORD in the environment")
+        if args.no_login:
+            if args.email:
+                raise pf1_run.RunError("--no-login and --email together")
+        elif not args.email or not password:
+            raise pf1_run.RunError(
+                "give --email and set PF1_PASSWORD in the environment, or --no-login"
+            )
         index = json.loads((Path(args.set) / "index.json").read_text(encoding="utf-8"))
         transport = pf1_run.HttpTransport(base)
-        transport.token = pf1_run.login(transport, args.email, password)
+        if not args.no_login:
+            transport.token = pf1_run.login(transport, args.email, password)
         records = pf1_run.run_set(
             transport,
             index,

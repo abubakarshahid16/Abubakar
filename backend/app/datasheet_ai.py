@@ -792,9 +792,9 @@ def page_text(stored_path: str | None, page_no: int, chunks: list) -> str:
 #: same three kinds `claude_datasheet.KINDS` names. A column the rules did not
 #: name (or named "MIN", "RATED") has no kind, and is compatible with any.
 _KIND_WORDS = {
-    "required": ("required", "spec", "specified", "purchaser"),
+    "required": ("required", "spec", "specified", "specification", "purchaser"),
     "offered": ("offered", "vendor", "proposed", "supplier"),
-    "measured": ("measured", "test", "actual", "as built"),
+    "measured": ("measured", "test", "tested", "actual", "as built"),
 }
 
 
@@ -821,8 +821,8 @@ def rule_kind(fact: dict) -> str | None:
     if not column:
         return None
     for kind, words in _KIND_WORDS.items():
-        if any(w in column for w in words):
-            return kind
+        if re.search(r"\b(?:" + "|".join(map(re.escape, words)) + r")\b", column):
+            return kind  # whole words: "Inspection" is not "spec"
     return None
 
 

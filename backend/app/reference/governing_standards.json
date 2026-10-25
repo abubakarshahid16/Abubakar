@@ -1,6 +1,6 @@
 {
  "format": "governing-standards/1",
- "_about": "Which standards GOVERN an equipment type (#725 F5, #733). Keys are the equipment types of reference/equipment_vocabulary.json (one vocabulary: subject_scope reads what a submittal is from it). A governing standard that the library holds is selected for a submittal of that type (method governing_standard, included) with the type and where it was read; one the library does not hold is listed as governing_not_held, never as met. materials_standards apply only to material fields of a datasheet (subject_scope.materials_gate). Generic engineering standards only; edit here, not in code. partial_standards: a standard an equipment type takes only IN PART (ASME VIII Div 1 governs a relief valve only through its pressure relief device rules): on a review of that type, only the standard's requirements whose own words name one of `words` are checks; the rest do not apply, with the reason (subject_scope.partial_gate).",
+ "_about": "Which standards GOVERN an equipment type (#725 F5, #733). Keys are the equipment types of reference/equipment_vocabulary.json (one vocabulary: subject_scope reads what a submittal is from it). A governing standard that the library holds is selected for a submittal of that type (method governing_standard, included) with the type and where it was read; one the library does not hold is listed as governing_not_held, never as met. materials_standards apply only to material fields of a datasheet (subject_scope.materials_gate). Generic engineering standards only; edit here, not in code. partial_standards: a standard an equipment type takes only IN PART (ASME VIII Div 1 governs a relief valve only through its pressure relief device rules): on a review of that type, only the standard's requirements whose own words name one of `words` are checks; the rest do not apply, with the reason (subject_scope.partial_gate). equipment_subtypes: for an equipment type whose standards each govern only some sub-types (API 610 centrifugal pumps, API 674 reciprocating pumps): `subtypes` = sub-type -> the words that state it on a datasheet; `standards` = standard -> the sub-types it governs. A standard whose sub-types the sheet does not state is asked of the engineer, one for another sub-type is not required (equipment_subtype.py).",
  "equipment_types": {
   "relief valve": [
    "API 520 Part I",
@@ -95,5 +95,105 @@
     ]
    }
   ]
+ },
+ "equipment_subtypes": {
+  "pump": {
+   "subtypes": {
+    "centrifugal": [
+     "centrifugal pump",
+     "overhung pump",
+     "between bearings pump",
+     "vertical turbine pump",
+     "end suction pump",
+     "split case pump",
+     "double suction pump"
+    ],
+    "reciprocating": [
+     "reciprocating pump",
+     "piston pump",
+     "plunger pump"
+    ],
+    "metering": [
+     "metering pump",
+     "controlled volume pump",
+     "dosing pump"
+    ],
+    "rotary": [
+     "rotary pump",
+     "gear pump",
+     "screw pump",
+     "vane pump",
+     "lobe pump",
+     "progressive cavity pump"
+    ]
+   },
+   "standards": {
+    "API 610": [
+     "centrifugal"
+    ],
+    "API 674": [
+     "reciprocating"
+    ],
+    "API 675": [
+     "metering"
+    ],
+    "API 676": [
+     "rotary"
+    ],
+    "API 682": [
+     "centrifugal",
+     "rotary"
+    ]
+   }
+  },
+  "compressor": {
+   "subtypes": {
+    "centrifugal": [
+     "centrifugal compressor"
+    ],
+    "reciprocating": [
+     "reciprocating compressor"
+    ],
+    "rotary": [
+     "rotary screw",
+     "screw compressor",
+     "rotary compressor"
+    ]
+   },
+   "standards": {
+    "API 617": [
+     "centrifugal"
+    ],
+    "API 618": [
+     "reciprocating"
+    ],
+    "API 619": [
+     "rotary"
+    ]
+   }
+  },
+  "heat exchanger": {
+   "subtypes": {
+    "shell and tube": [
+     "shell and tube",
+     "shell & tube",
+     "tubular"
+    ],
+    "air cooled": [
+     "air cooler",
+     "air-cooled",
+     "air cooled",
+     "fin fan"
+    ]
+   },
+   "standards": {
+    "API 660": [
+     "shell and tube"
+    ],
+    "API 661": [
+     "air cooled"
+    ]
+   }
+  }
  }
 }

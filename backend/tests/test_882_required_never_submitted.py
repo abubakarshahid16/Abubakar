@@ -1,5 +1,5 @@
 """#882: a value the reader recorded as the PURCHASER'S requirement is never the
-contractor's submitted value (`match_rules.is_purchaser_kind`).
+contractor's submitted value (`required_values.is_purchaser_kind`).
 
 Found by the PF1 baseline on a sheet with Required and Offered columns: the
 clause "the seat leakage class shall be Class IV or tighter" was judged
@@ -17,7 +17,16 @@ import uuid
 
 import pytest
 
-from app import comparison, datasheets, db, match_rules, standards, submittal_review
+from app import (
+    comparison,
+    datasheet_ai,
+    datasheets,
+    db,
+    match_rules,
+    required_values,
+    standards,
+    submittal_review,
+)
 from app.config import settings
 
 NOW = "2026-10-20T00:00:00Z"
@@ -80,7 +89,8 @@ def _review(text, structured, facts):
             raw_value=raw,
             page=1,
             blank=blank,
-            section=f"model:{kind}" if kind else None,
+            section=f"model:{kind}" if kind and not kind.startswith("col:") else None,
+            value_column=kind[4:] if kind and kind.startswith("col:") else None,
         )
     run_id = str(uuid.uuid4())
     with db.connect() as conn:
@@ -125,7 +135,7 @@ def test_a_required_class_with_a_blank_offer_is_missing_information(world):
         ],
     )
     assert found["compliance_status"] == comparison.MISSING_INFORMATION
-    assert found["ai_rationale"].startswith(f"{comparison.REQUIRED_VALUE_ONLY}:")
+    assert found["ai_rationale"].startswith(f"{required_values.REQUIRED_VALUE_ONLY}:")
     assert "does not state an offered value" in found["ai_rationale"]
     assert outcome["purchaser_values_not_used"] == 1
 
@@ -165,7 +175,7 @@ def test_a_required_number_with_no_offer_is_missing_information(world):
     )
     assert found["compliance_status"] == comparison.MISSING_INFORMATION
     assert found["fact_id"] is None
-    assert found["ai_rationale"].startswith(f"{comparison.REQUIRED_VALUE_ONLY}:")
+    assert found["ai_rationale"].startswith(f"{required_values.REQUIRED_VALUE_ONLY}:")
     assert outcome["purchaser_values_not_used"] == 1
 
 
@@ -248,7 +258,7 @@ def _req():
 def test_the_rule_refuses_a_required_kind_and_only_that():
     assert (
         match_rules.refusal(_req(), _fact("required"), sheet=None)
-        == match_rules.REQUIRED_KIND
+        == required_values.REQUIRED_KIND
     )
     for kind in ("offered", "measured", None):
         assert match_rules.refusal(_req(), _fact(kind), sheet=None) is None
@@ -257,9 +267,134 @@ def test_the_rule_refuses_a_required_kind_and_only_that():
 def test_the_containment_matcher_never_returns_a_required_value():
     match = comparison.match_by_containment(_req(), [_fact("required")])
     assert match["fact"] is None
-    assert [r["reason"] for r in match["refused"]] == [match_rules.REQUIRED_KIND]
+    assert [r["reason"] for r in match["refused"]] == [required_values.REQUIRED_KIND]
 
 
 def test_the_model_shortlist_never_offers_a_required_value():
     assert comparison.candidate_facts(_req(), [_fact("required")]) == []
     assert len(comparison.candidate_facts(_req(), [_fact("offered")])) == 1
+
+
+# ------------------------------------------- when the "no offered value" note applies
+_MISSING = {"status": comparison.MISSING_INFORMATION, "rationale": "no field answered"}
+
+
+def _note(*, fact=None, rule_verdict=None, purchaser=None):
+    purchaser = [{**_fact("required"), "page": 3}] if purchaser is None else purchaser
+    return required_values.only_required_value(
+        _MISSING, _req(), purchaser, None, fact, rule_verdict
+    )
+
+
+def test_a_clause_no_field_answered_gets_the_note_with_the_page():
+    out = _note()
+    assert out["status"] == comparison.MISSING_INFORMATION
+    assert out["rationale"].startswith(f"{required_values.REQUIRED_VALUE_ONLY}:")
+    assert "page 3" in out["rationale"]
+
+
+def test_a_clause_a_field_answered_or_a_rule_judged_keeps_its_verdict():
+    assert _note(fact=_fact("offered")) == _MISSING
+    assert _note(rule_verdict={"status": comparison.COMPLIANT}) == _MISSING
+
+
+def test_a_sheet_with_no_purchaser_value_keeps_the_verdict():
+    assert _note(purchaser=[]) == _MISSING
+
+
+def test_a_verdict_that_is_not_missing_information_is_left_alone():
+    done = {"status": comparison.COMPLIANT, "rationale": "ok"}
+    assert (
+        required_values.only_required_value(
+            done, _req(), [{**_fact("required"), "page": 3}], None, None, None
+        )
+        == done
+    )
+
+
+# ------------------------------------- the code readers' Required column (item 2)
+def _code_fact(label, column=None):
+    """A fact as the code readers store it: the geometry reader records the
+    column header (`value_column`), the table reader names the cell
+    "<row label> - <column header>". Neither sets a `section` kind."""
+    return {
+        **_fact(None),
+        "field_name": label.lower(),
+        "field_label": label,
+        "value_column": column,
+    }
+
+
+def test_a_code_read_required_column_is_refused_as_the_submission():
+    for fact in (
+        _code_fact("Design pressure Required", "Required"),
+        _code_fact("Design pressure - Specified"),
+        _code_fact("Design pressure - Required"),
+    ):
+        assert required_values.is_purchaser_kind(fact), fact
+        assert (
+            match_rules.refusal(_req(), fact, sheet=None)
+            == required_values.REQUIRED_KIND
+        )
+
+
+def test_a_code_read_offered_or_unnamed_column_is_not_refused():
+    for fact in (
+        _code_fact("Design pressure Offered", "Offered"),
+        _code_fact("Design pressure - Offered"),
+        _code_fact("Design pressure MIN", "MIN"),
+        _code_fact("Design pressure", "Value"),
+        _code_fact("Design pressure"),
+    ):
+        assert not required_values.is_purchaser_kind(fact), fact
+        assert match_rules.refusal(_req(), fact, sheet=None) is None
+
+
+def test_the_model_shortlist_never_offers_a_code_read_required_value():
+    """The AI matcher chooses among the shortlist: a Required-column number must
+    not be on it, however the code reader named the cell."""
+    required = _code_fact("Design pressure Required", "Required")
+    offered = _code_fact("Design pressure Offered", "Offered")
+    shortlist = comparison.candidate_facts(_req(), [required, offered])
+    assert [f["field_label"] for f in shortlist] == ["Design pressure Offered"]
+
+
+def test_a_table_reader_required_cell_is_counted_and_never_the_submission(world):
+    found, outcome = _review(
+        NUMBER_CLAUSE,
+        NUMBER_RULE,
+        [("Design pressure - Required", "12", None, None)],
+    )
+    assert found["compliance_status"] == comparison.MISSING_INFORMATION
+    assert outcome["purchaser_values_not_used"] == 1
+
+
+# ------------------------------------------------ the column words are whole words
+def test_a_column_that_only_contains_a_kind_word_has_no_kind():
+    """s2's follow-up on #1251: "Inspection" holds "spec", "Latest" holds "test"."""
+    for column in (
+        "Inspection",
+        "Special requirements",
+        "Latest revision",
+        "Contested",
+    ):
+        fact = _code_fact("Design pressure", column)
+        assert datasheet_ai.rule_kind(fact) is None, column
+        assert not required_values.is_purchaser_kind(fact), column
+
+
+def test_the_kind_words_still_read_as_words_in_a_longer_header():
+    for column, kind in (
+        ("Required", "required"),
+        ("Purchaser's requirement", "required"),
+        ("Specification", "required"),
+        ("Spec.", "required"),
+        ("Specified range", "required"),
+        ("Offered by vendor", "offered"),
+        ("Measured value", "measured"),
+        ("Tested", "measured"),
+        ("As built", "measured"),
+    ):
+        assert datasheet_ai.rule_kind(_code_fact("Design pressure", column)) == kind, (
+            column
+        )
