@@ -583,6 +583,695 @@
      "clause": "9.2"
     }
    ]
+  },
+  {
+   "id": "pf1-t05-compressor",
+   "equipment_type": "Centrifugal Compressor",
+   "held_out": false,
+   "layout": "odd_headers",
+   "sheet": {
+    "document_number": "PF1-DS-0105",
+    "tag": "SYN-K-0105",
+    "title": "CENTRIFUGAL COMPRESSOR DATA",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Discharge temperature",
+        "value": "330",
+        "unit": "°F",
+        "group": "Process",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "4.3",
+         "note": "invented: 330 F is about 166 C, above the 150 C limit"
+        }
+       },
+       {
+        "field": "Inlet pressure",
+        "value": "14.6",
+        "unit": "psia",
+        "group": "Process",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "4.4",
+         "note": "invented: 14.6 psia is 1.007 bar abs, just above the 1.0 bar abs minimum"
+        }
+       },
+       {
+        "field": "Seal gas",
+        "value": "Nitrogen",
+        "group": "Seals",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "5.2"
+        }
+       },
+       {
+        "field": "Lube oil",
+        "value": "Mineral",
+        "group": "Lubrication",
+        "key": {
+         "id": "D2",
+         "kind": "defect",
+         "clause": "5.3",
+         "note": "invented: not one of the listed oils"
+        }
+       },
+       {
+        "field": "Rated speed",
+        "value": "9800",
+        "unit": "rpm",
+        "group": "Mechanical"
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Driver type",
+        "value": "Electric motor",
+        "group": "Driver"
+       },
+       {
+        "field": "Rated power",
+        "value": "450",
+        "unit": "kW",
+        "group": "Driver"
+       },
+       {
+        "field": "Casing split",
+        "value": "Horizontal",
+        "group": "Mechanical"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-COMP-0105",
+    "title": "Centrifugal compressors (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers centrifugal compressors."
+     },
+     {
+      "clause": "4.3",
+      "title": "Discharge temperature",
+      "text": "The discharge temperature shall not exceed 150 °C."
+     },
+     {
+      "clause": "4.4",
+      "title": "Inlet pressure",
+      "text": "The inlet pressure shall be at least 1.0 bar abs."
+     },
+     {
+      "clause": "5.2",
+      "title": "Seal gas",
+      "text": "The seal gas shall be one of: nitrogen, dry air."
+     },
+     {
+      "clause": "5.3",
+      "title": "Lube oil",
+      "text": "The lube oil shall be one of: synthetic, PAO."
+     },
+     {
+      "clause": "6.1",
+      "title": "Vibration alarm",
+      "text": "The vibration alarm setpoint shall be stated on the datasheet."
+     },
+     {
+      "clause": "9.2",
+      "title": "Reciprocating machines",
+      "text": "A reciprocating compressor shall have a pulsation study."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "D3",
+     "kind": "defect",
+     "clause": "6.1",
+     "field": "vibration alarm setpoint",
+     "note": "invented: the sheet does not state it"
+    },
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.2"
+    }
+   ]
+  },
+  {
+   "id": "pf1-t06-psv",
+   "equipment_type": "Pressure Safety Valve",
+   "held_out": false,
+   "layout": "numbered_lines",
+   "sheet": {
+    "document_number": "PF1-DS-0106",
+    "tag": "SYN-PSV-0106",
+    "title": "PRESSURE SAFETY VALVE DATASHEET",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Valve type",
+        "value": "Conventional",
+        "group": "General"
+       },
+       {
+        "field": "Built-up back pressure",
+        "value": "14",
+        "unit": "%",
+        "group": "Relief case",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "4.1",
+         "note": "invented: 14 % against the 10 % limit for a conventional valve"
+        }
+       },
+       {
+        "field": "Set pressure",
+        "value": "10",
+        "unit": "barg",
+        "group": "Relief case",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "4.2"
+        }
+       },
+       {
+        "field": "Relieving capacity",
+        "value": "3700",
+        "unit": "kg/h",
+        "group": "Relief case",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "4.3",
+         "note": "invented: 3700 kg/h is 1.03 kg/s, above the 1.0 kg/s minimum"
+        }
+       },
+       {
+        "field": "Internal lining",
+        "value": "None",
+        "group": "Construction",
+        "key": {
+         "id": "N2",
+         "kind": "not_applicable",
+         "clause": "4.4",
+         "note": "invented: no lining, so the lining thickness clause does not apply"
+        }
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Body material",
+        "value": "Carbon steel",
+        "group": "Construction"
+       },
+       {
+        "field": "Inlet size",
+        "value": "50",
+        "unit": "mm",
+        "group": "Connections"
+       },
+       {
+        "field": "Outlet size",
+        "value": "80",
+        "unit": "mm",
+        "group": "Connections"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-PSV-0106",
+    "title": "Pressure safety valves (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers spring loaded pressure safety valves."
+     },
+     {
+      "clause": "4.1",
+      "title": "Back pressure",
+      "text": "For a conventional valve, the built-up back pressure shall not exceed 10 % of the set pressure."
+     },
+     {
+      "clause": "4.2",
+      "title": "Set pressure",
+      "text": "The set pressure shall not exceed the vessel maximum allowable working pressure of 12 barg."
+     },
+     {
+      "clause": "4.3",
+      "title": "Capacity",
+      "text": "The relieving capacity shall be at least 1.0 kg/s."
+     },
+     {
+      "clause": "4.4",
+      "title": "Lining",
+      "text": "Where an internal lining is specified, its thickness shall be at least 3 mm."
+     },
+     {
+      "clause": "5.1",
+      "title": "Orifice",
+      "text": "The orifice designation shall be stated on the datasheet."
+     },
+     {
+      "clause": "9.1",
+      "title": "Pilot operated valves",
+      "text": "A pilot operated valve shall have a pilot filter."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "D2",
+     "kind": "defect",
+     "clause": "5.1",
+     "field": "orifice designation",
+     "note": "invented: the sheet does not state it"
+    },
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.1"
+    }
+   ]
+  },
+  {
+   "id": "pf1-t07-tank",
+   "equipment_type": "Storage Tank",
+   "held_out": false,
+   "layout": "merged_cells",
+   "sheet": {
+    "document_number": "PF1-DS-0107",
+    "tag": "SYN-T-0107",
+    "title": "ATMOSPHERIC STORAGE TANK DATASHEET",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Shell thickness",
+        "value": "6",
+        "unit": "mm",
+        "group": "Shell",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "4.1",
+         "note": "invented: 6 mm against the 8 mm minimum"
+        }
+       },
+       {
+        "field": "Design pressure",
+        "value": "0.1",
+        "unit": "barg",
+        "group": "Design",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "4.2",
+         "note": "invented: exactly at the minimum"
+        }
+       },
+       {
+        "field": "Nominal capacity",
+        "value": "3300",
+        "unit": "bbl",
+        "group": "Design",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "4.3",
+         "note": "invented: 3300 bbl is about 525 m3, above the 500 m3 minimum"
+        }
+       },
+       {
+        "field": "Roof type",
+        "value": "Fixed cone",
+        "group": "Roof"
+       },
+       {
+        "field": "Foundation",
+        "value": "Concrete ring wall",
+        "group": "Civil"
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Product",
+        "value": "Diesel",
+        "group": "Service"
+       },
+       {
+        "field": "Operating temperature",
+        "value": "40",
+        "unit": "°C",
+        "group": "Service"
+       },
+       {
+        "field": "Insulation",
+        "value": "None",
+        "group": "Thermal"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-TANK-0107",
+    "title": "Atmospheric storage tanks (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers atmospheric storage tanks."
+     },
+     {
+      "clause": "4.1",
+      "title": "Shell thickness",
+      "text": "The shell thickness shall be at least 8 mm."
+     },
+     {
+      "clause": "4.2",
+      "title": "Design pressure",
+      "text": "The design pressure shall be at least 0.1 barg."
+     },
+     {
+      "clause": "4.3",
+      "title": "Capacity",
+      "text": "The nominal capacity shall be at least 500 m3."
+     },
+     {
+      "clause": "4.5",
+      "title": "Corrosion allowance",
+      "text": "The corrosion allowance shall be stated on the datasheet."
+     },
+     {
+      "clause": "9.3",
+      "title": "Floating roofs",
+      "text": "A floating roof tank shall have a rim seal."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "D2",
+     "kind": "defect",
+     "clause": "4.5",
+     "field": "corrosion allowance",
+     "note": "invented: the sheet does not state it"
+    },
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.3"
+    }
+   ]
+  },
+  {
+   "id": "pf1-t08-transmitter",
+   "equipment_type": "Pressure Transmitter",
+   "held_out": false,
+   "layout": "sentences",
+   "sheet": {
+    "document_number": "PF1-DS-0108",
+    "tag": "SYN-PT-0108",
+    "title": "PRESSURE TRANSMITTER DATASHEET",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Accuracy",
+        "value": "0.25",
+        "unit": "% of span",
+        "group": "Performance",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "4.1",
+         "note": "invented: 0.25 % is worse than the required 0.1 % or better"
+        }
+       },
+       {
+        "field": "Output signal",
+        "value": "4-20",
+        "unit": "mA",
+        "group": "Electrical",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "4.2"
+        }
+       },
+       {
+        "field": "Ambient temperature limit",
+        "value": "85",
+        "unit": "°C",
+        "group": "Environment",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "4.3",
+         "note": "invented: 85 C upper limit is above the 70 C required"
+        }
+       },
+       {
+        "field": "Process connection",
+        "value": "1/2 NPT",
+        "group": "Mechanical"
+       },
+       {
+        "field": "Wetted parts",
+        "value": "316 stainless steel",
+        "group": "Materials"
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Range",
+        "value": "0-16",
+        "unit": "bar",
+        "group": "Process"
+       },
+       {
+        "field": "Supply voltage",
+        "value": "24",
+        "unit": "V DC",
+        "group": "Electrical"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-INST-0108",
+    "title": "Pressure transmitters (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers wired pressure transmitters."
+     },
+     {
+      "clause": "4.1",
+      "title": "Accuracy",
+      "text": "The accuracy shall be 0.1 % of span or better."
+     },
+     {
+      "clause": "4.2",
+      "title": "Output",
+      "text": "The output signal shall be 4-20 mA."
+     },
+     {
+      "clause": "4.3",
+      "title": "Ambient limit",
+      "text": "The upper ambient temperature limit shall be at least 70 °C."
+     },
+     {
+      "clause": "4.6",
+      "title": "Ingress protection",
+      "text": "The ingress protection rating shall be stated on the datasheet."
+     },
+     {
+      "clause": "9.5",
+      "title": "Wireless transmitters",
+      "text": "A wireless transmitter shall state its battery life."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "D2",
+     "kind": "defect",
+     "clause": "4.6",
+     "field": "ingress protection",
+     "note": "invented: the sheet does not state it"
+    },
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.5"
+    }
+   ]
+  },
+  {
+   "id": "pf1-t09-motor",
+   "equipment_type": "Electric Motor",
+   "held_out": false,
+   "layout": "landscape",
+   "sheet": {
+    "document_number": "PF1-DS-0109",
+    "tag": "SYN-M-0109",
+    "title": "ELECTRIC MOTOR DATASHEET",
+    "pages": [
+     {
+      "rows": [
+       {
+        "field": "Efficiency class",
+        "value": "IE2",
+        "group": "Performance",
+        "key": {
+         "id": "D1",
+         "kind": "defect",
+         "clause": "4.1",
+         "note": "invented: IE2 is below the required IE3"
+        }
+       },
+       {
+        "field": "Rated voltage",
+        "value": "400",
+        "unit": "V",
+        "group": "Electrical",
+        "key": {
+         "id": "M1",
+         "kind": "met",
+         "clause": "4.2"
+        }
+       },
+       {
+        "field": "Rated power",
+        "value": "30",
+        "unit": "kW",
+        "group": "Electrical",
+        "key": {
+         "id": "T1",
+         "kind": "trap",
+         "clause": "4.3",
+         "note": "invented: 30 kW is about 40.2 hp, above the 40 hp minimum"
+        }
+       },
+       {
+        "field": "Enclosure",
+        "value": "TEFC",
+        "group": "Mechanical"
+       },
+       {
+        "field": "Frame size",
+        "value": "200L",
+        "group": "Mechanical"
+       }
+      ]
+     },
+     {
+      "rows": [
+       {
+        "field": "Speed",
+        "value": "1470",
+        "unit": "rpm",
+        "group": "Performance"
+       },
+       {
+        "field": "Insulation class",
+        "value": "F",
+        "group": "Thermal"
+       }
+      ],
+      "notes": [
+       "Invented sheet for the PF1 tuning set."
+      ]
+     }
+    ]
+   },
+   "standard": {
+    "number": "STD-MOT-0109",
+    "title": "Low voltage electric motors (invented)",
+    "sections": [
+     {
+      "clause": "1",
+      "title": "Scope",
+      "text": "This invented standard covers low voltage electric motors."
+     },
+     {
+      "clause": "4.1",
+      "title": "Efficiency",
+      "text": "The efficiency class shall be IE3 or higher."
+     },
+     {
+      "clause": "4.2",
+      "title": "Voltage",
+      "text": "The rated voltage shall be 400 V."
+     },
+     {
+      "clause": "4.3",
+      "title": "Power",
+      "text": "The rated power shall be at least 40 hp."
+     },
+     {
+      "clause": "4.7",
+      "title": "Starting method",
+      "text": "The starting method shall be stated on the datasheet."
+     },
+     {
+      "clause": "9.6",
+      "title": "Hazardous areas",
+      "text": "A motor for a hazardous area shall be Ex rated."
+     }
+    ]
+   },
+   "unprinted": [
+    {
+     "id": "D2",
+     "kind": "defect",
+     "clause": "4.7",
+     "field": "starting method",
+     "note": "invented: the sheet does not state it"
+    },
+    {
+     "id": "N1",
+     "kind": "not_applicable",
+     "clause": "9.6"
+    }
+   ]
   }
  ]
 }

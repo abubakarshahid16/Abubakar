@@ -85,6 +85,111 @@
       "datasheet": "pf1-t04-exchanger.datasheet.pdf",
       "key": "pf1-t04-exchanger.key.json",
       "standard": "pf1-t04-exchanger.standard.pdf"
+    },
+    {
+      "id": "pf1-t05-compressor",
+      "equipment_type": "Centrifugal Compressor",
+      "held_out": false,
+      "layout": "odd_headers",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-COMP-0105",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 3,
+        "met": 1,
+        "trap": 1,
+        "not_applicable": 1
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t05-compressor.datasheet.pdf",
+      "key": "pf1-t05-compressor.key.json",
+      "standard": "pf1-t05-compressor.standard.pdf"
+    },
+    {
+      "id": "pf1-t06-psv",
+      "equipment_type": "Pressure Safety Valve",
+      "held_out": false,
+      "layout": "numbered_lines",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-PSV-0106",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 2,
+        "met": 1,
+        "trap": 1,
+        "not_applicable": 2
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t06-psv.datasheet.pdf",
+      "key": "pf1-t06-psv.key.json",
+      "standard": "pf1-t06-psv.standard.pdf"
+    },
+    {
+      "id": "pf1-t07-tank",
+      "equipment_type": "Storage Tank",
+      "held_out": false,
+      "layout": "merged_cells",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-TANK-0107",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 2,
+        "met": 1,
+        "trap": 1,
+        "not_applicable": 1
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t07-tank.datasheet.pdf",
+      "key": "pf1-t07-tank.key.json",
+      "standard": "pf1-t07-tank.standard.pdf"
+    },
+    {
+      "id": "pf1-t08-transmitter",
+      "equipment_type": "Pressure Transmitter",
+      "held_out": false,
+      "layout": "sentences",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-INST-0108",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 2,
+        "met": 1,
+        "trap": 1,
+        "not_applicable": 1
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t08-transmitter.datasheet.pdf",
+      "key": "pf1-t08-transmitter.key.json",
+      "standard": "pf1-t08-transmitter.standard.pdf"
+    },
+    {
+      "id": "pf1-t09-motor",
+      "equipment_type": "Electric Motor",
+      "held_out": false,
+      "layout": "landscape",
+      "text_layer": true,
+      "pages": 2,
+      "standard_number": "STD-MOT-0109",
+      "library_standards": 0,
+      "group": "invented",
+      "items": {
+        "defect": 2,
+        "met": 1,
+        "trap": 1,
+        "not_applicable": 1
+      },
+      "complete_for_flags": true,
+      "datasheet": "pf1-t09-motor.datasheet.pdf",
+      "key": "pf1-t09-motor.key.json",
+      "standard": "pf1-t09-motor.standard.pdf"
     }
   ]
 }
