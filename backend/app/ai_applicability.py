@@ -40,6 +40,7 @@ from .ai import output_limits
 from .division_text import (  # noqa: F401 - re-exported: the names tests and callers use
     NOT_READ_COUNTS,
     SCOPE_WORDS,
+    crashed_item,
     division_of,
     divisions,
     ledger_item,
@@ -499,8 +500,8 @@ def division_gate(
     code cannot decide, and a part the model did not read, is held for the
     engineer. Returns {"kept", "items" (does not apply, code
     `outside_division_scope`), "held" (applies, not checked, code
-    `applicability_unsure`), "summary"}. Never fails a review: on an error
-    nothing changes (every requirement stays a check)."""
+    `applicability_unsure`), "summary"}. Never fails a review: on an
+    unexpected error every requirement is HELD (the step did not run)."""
     from . import errors
 
     try:
@@ -514,18 +515,20 @@ def division_gate(
             pages_of=pages_of or subject_scope.standard_pages,
         )
     except Exception as exc:  # noqa: BLE001 - logged by type; must never fail the review
+        name = type(exc).__name__
+        summary = {"not_run": f"the division scope could not be read ({name})"}
+        if requirements:
+            # order 173.2: a step that did not run never lets a clause through
+            summary["not_run"] += "; its requirements are held for the engineer"
+            summary["requirements_gated"] = len(requirements)
+            summary["requirements_held_scope_not_read"] = len(requirements)
+        else:
+            summary["not_run"] += "; nothing was narrowed"
+        held = [crashed_item(r, name) for r in requirements]
         return errors.fell_back(
-            "ai_applicability: the division scope failed; nothing is narrowed",
+            "ai_applicability: the division scope failed; its requirements are held",
             exc,
-            {
-                "kept": list(requirements),
-                "items": [],
-                "held": [],
-                "summary": {
-                    "not_run": f"the division scope could not be read "
-                    f"({type(exc).__name__}); nothing was narrowed"
-                },
-            },
+            {"kept": [], "items": [], "held": held, "summary": summary},
         )
 
 

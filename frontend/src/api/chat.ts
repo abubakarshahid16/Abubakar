@@ -31,7 +31,7 @@ import type {
   MarketQueryRequest,
 } from "../types/api";
 
-import { BASE, request, failureOf, disconnected, hasArrayField, token } from "./core";
+import { BASE, request, failureOf, disconnected, hasArrayField, markSession } from "./core";
 export type {
   MarketProviderLabel,
   MarketOutboundPayload,
@@ -129,7 +129,7 @@ export async function askStream(
   let response: Response;
   try {
     const headers = new Headers({ "Content-Type": "application/json", Accept: "text/event-stream" });
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    markSession(headers);
     response = await fetch(`${BASE}/conversations/${encodeURIComponent(conversationId)}/ask/stream`, {
       method: "POST",
       headers,

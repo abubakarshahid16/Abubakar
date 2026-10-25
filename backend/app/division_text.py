@@ -388,6 +388,19 @@ def _not_read_item(requirement: dict, rec: dict, standard_labels: dict) -> dict:
     }
 
 
+def crashed_item(requirement: dict, error_type: str) -> dict:
+    """The ledger item for a requirement when the whole part-scope step stopped
+    on an unexpected error: HELD like any part that was not read. The detail
+    carries the error's TYPE only, never its message or any document text."""
+    return {
+        "requirement": requirement,
+        "code": "applicability_unsure",
+        "detail": f"the part-scope step stopped on an unexpected error ({error_type}); "
+        "an engineer decides",
+        "decided_by": "code:scope-not-read",
+    }
+
+
 def ledger_item(
     requirement: dict, rec: dict, standard_labels: dict, model: str
 ) -> dict:

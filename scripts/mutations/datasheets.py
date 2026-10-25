@@ -255,8 +255,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="let a cross-reference cell take the label position, so "
                     "the real label becomes its value",
         path=APP / "datasheets.py",
-        anchor="        if _CROSS_REFERENCE.fullmatch(part):\n            index += 1\n            continue",
-        replacement="        if False:\n            index += 1\n            continue",
+        anchor="        if not part or _CROSS_REFERENCE.fullmatch(part):\n            index += 1\n            continue",
+        replacement="        if not part:\n            index += 1\n            continue",
         target="tests/test_field_name_truncation.py",
         keyword="cross_reference or dotted_clause or bracket_only_line",
         tags=("critical",),

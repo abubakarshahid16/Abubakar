@@ -55,6 +55,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `applicability_v2` | Choose the standards that apply to a submittal |
 | `assertions` | Compliance language a sentence asserts, and whether its evidence asserts it |
 | `auth` | WHO a request is. `access.py` decides WHAT it may see |
+| `auth_session` | The browser's sign-in (order 164.2): HttpOnly cookie, CSRF layers, where Secure is set, sign-out that ends the token on the server |
 | `blank_markers` | ONE HOME for "this datasheet cell says the value is not provided yet" |
 | `chat` | Conversations, messages, and follow-up resolution |
 | `chat_actions` | What a reader does WITH a chat answer: rate it, and file a drafted comment |
@@ -198,6 +199,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `service_scope` | Service-condition scope (#638, #677): a requirement that applies only in a service the submittal says it is NO |
 | `sheet_page` | #967 item 5: the Sheet's datasheet page with every card's value underlined on it by the server (one router route; ids and states only in the URL) |
 | `standard_labels` | How a review names its standards: library file name, recorded number and title |
+| `slot_options` | #882: a heading over options that each have a drawn slot is filed as "<heading> - <option>", not as the heading's value and a fragment |
 | `standard_ids` | ONE matcher for standard identifiers (W3, #452; audit A02, A03) |
 | `standards` | The Standards Library: clause hierarchy, atomic requirements, revisions |
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |

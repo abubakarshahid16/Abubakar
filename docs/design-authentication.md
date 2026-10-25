@@ -134,10 +134,24 @@ operator watching a login screen appear mid-demo. **No refresh token** — a
 refresh flow exists to make short tokens tolerable, and a long token is the
 alternative to it, not a companion.
 
-**Storage.** Server: nothing. Client: a module-level variable in `client.ts`.
-Never `localStorage` — it outlives the tab, and every XSS becomes credential
-theft rather than a session-length nuisance. **A reload logs you out. Say so in
-the UI rather than letting the user discover it.**
+**Storage.** Server: nothing for a session, except one row per token that was
+signed out (`revoked_sessions`: a hash and the token's expiry, kept until it
+would have expired anyway). Client, since the owner's order 164.2 (PR #1242):
+the **browser** signs in by an `HttpOnly`, `SameSite=Strict` cookie
+(`rag_session`) that the page cannot read, so a reload or a backend restart keeps
+the user signed in for the token's 8 hours, and no token is in `localStorage` or
+in a JavaScript variable. A cookie-borne request of **any method, a read included**, also needs the
+`X-Requested-With: rag-ui` header and an `Origin` that is absent or this
+server's (a page on another localhost port is the same *site*, so `SameSite=Strict`
+alone would still send the cookie with an `<img>` or a link, and a GET can run the
+model). `Secure` follows where the request came from (https, or loopback
+without it); plain http to a network address gets **no cookie** and the login
+falls back to the bearer token in a module-level variable in `client.ts` (a
+reload then logs you out, and the screen says so). Tools and scripts keep the
+bearer token. **Sign-out ends that one token on the server**, so a copy of it
+(a proxy log, a copied profile) is refused; the user's other sign-ins are not
+touched. The cookie lives 8 hours and survives a browser restart: on a shared
+workstation, sign out.
 
 **Revocation, three layers, cheapest first, all inside `resolve_user_id`:**
 

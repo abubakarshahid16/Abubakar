@@ -1396,12 +1396,15 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface LogoutResult {
+  signed_out: boolean;
+}
+
 export interface LoginResult {
-  /** Held in a module-level variable in `client.ts`. NEVER localStorage -
-   *  that outlives the tab, and every XSS becomes credential theft rather
-   *  than a session-length nuisance. A page reload logs you out, and the UI
-   *  says so rather than letting the reader discover it. */
-  token: string;
+  /** A bearer token, for a tool. null when the login went into the HttpOnly
+   *  cookie (`session: "cookie"`, the browser's way, order 164.2): the page
+   *  never holds a token, and a reload keeps the user signed in. */
+  token: string | null;
   user: Me;
   expires_in_seconds: number;
 }
