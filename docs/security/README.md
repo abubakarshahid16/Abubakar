@@ -13,7 +13,7 @@ The controls behind the cybersecurity questionnaire, rows 31 to 50 (#806, Stage 
 | S7 Kill switch | Q42 | [kill-switch.md](kill-switch.md) | Committed; to be tested in the S10 drill |
 | S8 Incident response | Q44 | [incident-response.md](incident-response.md) | Committed |
 | S9 Roles, escalation and severity | Q45 | [severity-and-roles.md](severity-and-roles.md) | Committed; owner to name the KJO IT security contact |
-| S10 Exercises | Q46, Q47 | [exercises.md](exercises.md) | Committed; first drill within 2 weeks |
+| S10 Exercises | Q46, Q47 | [exercises.md](exercises.md), [drill-pack.md](drill-pack.md) | Committed; the drill pack is ready to run; the first drill is the owner's |
 | S11 Forensics and evidence | Q48 | [evidence.md](evidence.md) | Committed |
 | S12 Threat levels | Q50 | [threat-levels.md](threat-levels.md) | Committed |
 | Backup and restore (#475) | Q44 step 4 | [backup.md](backup.md) | Committed; daily copy and monthly drill are the PC's |
