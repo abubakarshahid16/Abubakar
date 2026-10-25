@@ -21,7 +21,7 @@ have reported 100% for a datasheet whose every value was missed - the same
 mistake phase 3B made and recorded as honesty-audit entry 14. The content was
 read before the rate was believed.
 
-What I-06's data is actually in is TEXT BLOCKS with a numbered label-value
+What I-06's data is actually in is TEXT BLOCKS with a numbered label-value [found-on]
 shape, which is what master plan section 10 asks to preserve:
 
     5 | Design/Operating pressure | 23.5 / 9 barg (Note - 3) | 46 | ...
@@ -1696,7 +1696,7 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
         # label, several values under several headers" scoping does not
         # apply to it.
         #
-        # I-06 pairs a PROCESS DATA sub-form and a SPRING AND BONNET sub-form
+        # I-06 pairs a PROCESS DATA sub-form and a SPRING AND BONNET sub-form [found-on]
         # on the SAME physical row, each introduced by its own line number:
         # `1 | Fluid | | Crude Oil/Gas (Dual Service) | | 42 | Bonnet type/
         # style | Bolted/ closed`. Treating cells[0] ("1") as the row's one

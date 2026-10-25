@@ -108,7 +108,7 @@ def _unqualified(term: str | None, lexicon: dict[str, tuple[str, str]]) -> bool:
     return all(w in _NEUTRAL for w in words)
 
 
-#: An exclusion must SAY it is one. Measured 2026-09-25 (M-03 run): "Rotating
+#: An exclusion must SAY it is one. Measured 2026-09-25 (M-03 run): "Rotating [found-on]
 #: equipment SAESs shall not be part of the equipment package PO" was read as a
 #: scope exclusion; it is a procurement instruction.
 _EXCLUSION_CUE = re.compile(
@@ -247,7 +247,7 @@ def _result(decision: str, basis: str, item: dict | None = None) -> dict:
 
 
 #: Activities that concern EXISTING equipment only. A scope limited to these
-#: does not govern a NEW item (M-03/vessel run 2026-09-25: in-service repair
+#: does not govern a NEW item (M-03/vessel run 2026-09-25: in-service repair [found-on]
 #: and re-rating standards were included for a new vessel).
 _EXISTING_ONLY = frozenset({"repair", "maintenance", "operation"})
 #: The same test on the VERIFIED QUOTES (the model's activity tags were

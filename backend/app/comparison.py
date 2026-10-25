@@ -121,7 +121,7 @@ RECOGNISED_STATUSES = frozenset({
     COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION, NOT_APPLICABLE,
     NEEDS_ENGINEER_REVIEW, NOT_IN_DOCUMENT_SCOPE})
 
-#: THE SEVERITY BUG (found reviewing EF1975-DAS-M-03, 2026-09-28). Every call
+#: THE SEVERITY BUG (found reviewing EF1975-DAS-M-03, 2026-09-28). Every call [found-on]
 #: to `create_finding`/`_prepare_finding` left `severity` at its hardcoded
 #: default of "major" - nobody ever passed a status-aware value in. That put
 #: a NOT_IN_DOCUMENT_SCOPE finding, which the comment above says explicitly

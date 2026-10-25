@@ -1,4 +1,4 @@
-"""A heading over options that each have a drawn slot (#882, M-03 CRS).
+"""A heading over options that each have a drawn slot (#882, M-03 CRS). [found-on]
 
 `MINIMUM FLOW` on one line and `STABLE ____   THERMAL ____` on the next: paired
 left to right, the heading took `STABLE` as its VALUE (a value nobody wrote),
