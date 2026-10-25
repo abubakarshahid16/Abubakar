@@ -16,3 +16,11 @@ Variants are off by default (`ANSWER_PROMPT_VARIANT=default`) and local lane
 only. Real sheets are scored by s2 on the Mac later; nothing here changes a
 default. The scores are word and figure checks, not a judge model, so they
 compare variants with each other and not with published numbers.
+
+## Read "kept" with care
+- False Meets are NOT scored here: chat answers have no Meets. They are scored
+  on the review path only; s2 checks them on the Mac before any default changes.
+- The default run is 12 questions, so one question can flip "same or better" on
+  a mean. Treat a "kept" row as a candidate for the Mac run, not a decision.
+- Adding `answer_prompt_variant` to the answer-affecting settings changes the
+  `config_version` stamp of every run once (same behaviour, new stamp).
