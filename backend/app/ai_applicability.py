@@ -38,9 +38,12 @@ import re
 from . import ai_task_runner, requirement_quality, scope_ledger, service_scope, subject_scope
 from .ai import output_limits
 from .division_text import (  # noqa: F401 - re-exported: the names tests and callers use
+    NOT_READ_COUNTS,
     SCOPE_WORDS,
     division_of,
     divisions,
+    ledger_item,
+    not_read_rec,
     place,
     scope_passage,
     sub_of,
@@ -122,7 +125,9 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     vocab = subject_scope.vocabulary()
     equipment, _ = subject_scope.submittal_equipment(classification, facts, vocab)
     head = context(classification, facts)
-    model = getattr(provider, "requested_model", None) or ai_task_runner.settings.ai_task_model
+    # one provider: the model named in the ledger is the model that ran
+    provider = provider or ai_task_runner.make_provider()
+    model = getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
     kept: list[dict] = []
     items: list[dict] = []
     notes: dict = {}
@@ -182,8 +187,10 @@ def folded_in(needle: object, haystack: object, *, least: int = 1) -> bool:
 #      the stated line names ANOTHER member of the same exclusive material
 #      family (`conditions`, #920). The model's "yes" keeps it a check.
 # Anything code cannot decide is held for the engineer (`applicability_unsure`).
-# A model that is off, fails, stops answering or gives a reply code cannot
-# verify changes nothing: every requirement stays a check.
+# A part whose scope was NOT READ (the model fails, stops answering, gives a
+# reply code cannot verify, or the run's limit is reached) is never a pass: its
+# requirements are HELD for the engineer (order 173.2). Switched off
+# (`ai_division_scope_enabled`), nothing changes.
 
 SCOPE_SCHEMA = {
     "type": "object",
@@ -489,7 +496,8 @@ def division_gate(
 ) -> dict:
     """#141: requirements of a standard's division whose own scope limits it
     to a construction code finds this equipment is not do not apply; what
-    code cannot decide is held for the engineer. Returns {"kept", "items" (does not apply, code
+    code cannot decide, and a part the model did not read, is held for the
+    engineer. Returns {"kept", "items" (does not apply, code
     `outside_division_scope`), "held" (applies, not checked, code
     `applicability_unsure`), "summary"}. Never fails a review: on an error
     nothing changes (every requirement stays a check)."""
@@ -525,8 +533,8 @@ def _decide_unit(unit: dict, ctx: dict) -> dict:
     """Read one unit (spends one read of the run's budget) and decide:
     {"status": "read" | "unread" | "beyond", "verdict": "kept" | "held" |
     "does_not_apply", "scope", "unit", ...}. "unsure" is held for the engineer;
-    a model that cannot be read leaves the unit kept, and the gate counts it.
-    A candidate start (found by shape or break) can only be held, never
+    so is a unit the model could not be read for or the limit left unread
+    (`not_read`: never compared, the gate counts it). A candidate start (found by shape or break) can only be held, never
     excluded, even when the model confirms it: nothing checks it is a real
     start of a part."""
     from . import clause_scope
@@ -534,7 +542,7 @@ def _decide_unit(unit: dict, ctx: dict) -> dict:
     summary = ctx["summary"]
     if ctx["budget"] is not None and ctx["budget"] <= 0:
         summary["not_read_limit"] += 1
-        return {"status": "beyond", "verdict": "kept", "unit": unit}
+        return not_read_rec(unit, "beyond")
     if ctx["budget"] is not None:
         ctx["budget"] -= 1
     passage = scope_passage(unit["text"], unit["div"], unit["end"])
@@ -542,7 +550,7 @@ def _decide_unit(unit: dict, ctx: dict) -> dict:
     summary["could_not_read" if scope is None else "read"] += 1
     rec = {"status": "read", "verdict": "kept", "scope": scope, "unit": unit}
     if scope is None:
-        return {**rec, "status": "unread"}
+        return not_read_rec(unit, "scope")
     if scope.get("limited") == "unsure":
         return {**rec, "verdict": "held", "unsure": True}
     if scope.get("limited") != "yes":
@@ -557,7 +565,7 @@ def _decide_unit(unit: dict, ctx: dict) -> dict:
         ctx["run"],
     )
     if verdict == "unread":
-        return {**rec, "status": "unread"}
+        return not_read_rec(unit, "construction", scope)
     rec["own"] = True
     if verdict == "applies":
         return rec
@@ -597,12 +605,13 @@ def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
     flagged sub-parts (also those holding no requirement of their own but an
     inner sub-part's) the largest first, all within the run's budget.
     Returns ({key: decision}, {id(requirement): [sub-part keys, outer first]});
-    `ctx["unscreened"]` gets the requirements whose sub-headings were not
-    screened: the screen failed, was not run or did not carry them, they sit
-    in a kept candidate start (never screened) or have no line."""
+    `ctx["screen_failed"]` gets the requirements whose sub-headings the screen
+    did not carry (it failed, was not run or left them out): they are HELD.
+    `ctx["by_page"]` gets those kept but counted: no line, or in a kept
+    candidate start (never screened)."""
     recs: dict[tuple, dict] = {}
     subs: list[dict] = []
-    ctx["unscreened"] = set()
+    ctx["screen_failed"], ctx["by_page"] = set(), set()
     todo = sorted(
         (u for u in units.values() if u["weight"]), key=lambda u: -u["weight"]
     )
@@ -612,10 +621,12 @@ def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
         if unit["kind"] == "division" and open_part:
             lines = {ln for key, ln in where.values() if key == unit["key"]}
             flagged, skipped = _subparts(unit, lines - {None}, ctx)
-            ctx["unscreened"] |= unscreened(unit, where, skipped)
+            failed, by_page = unscreened(unit, where, skipped)
+            ctx["screen_failed"] |= failed
+            ctx["by_page"] |= by_page
             subs += sub_units(unit, flagged)
         elif unit["kind"] == "candidate" and open_part:  # never sub-screened
-            ctx["unscreened"] |= unscreened(unit, where, None)
+            ctx["by_page"] |= unscreened(unit, where, [], screened=False)[1]
     subs_of = sub_of(subs, where)
     for sub in sorted(subs, key=lambda s: -s["count"]):
         if sub["count"]:
@@ -632,9 +643,9 @@ _RANK = {"kept": 0, "held": 1, "does_not_apply": 2}
 def _effective(requirement: dict, where, sub_map, recs, units) -> dict | None:
     """The decision that holds for a requirement: the most restrictive of its
     part's and of EVERY flagged sub-part that contains it (an outer one is read
-    even when only an inner one holds the requirement); when all keep it and a
-    sub-part could not be read, that one, so the counts say so. A candidate
-    start the model did not confirm as a new part inherits the part before it
+    even when only an inner one holds the requirement); a part or sub-part
+    that was not read is held (`not_read`), so it outranks a kept one. A
+    candidate start the model read and did not confirm as a new part inherits the part before it
     DOWNGRADED (excluded -> held), unless the model was unsure of it, which
     holds: a false break never rescues a clause from a limited part, and code
     never excludes on inheritance or on a candidate's own reading (a start
@@ -646,75 +657,26 @@ def _effective(requirement: dict, where, sub_map, recs, units) -> dict | None:
         return None
     unit = units[placed[0]]
     rec = recs[unit["key"]]
-    if unit["kind"] == "candidate" and not rec.get("own") and not rec.get("unsure"):
+    if (
+        rec["status"] == "read"
+        and unit["kind"] == "candidate"
+        and not (rec.get("own") or rec.get("unsure"))
+    ):
         prev = recs.get(unit["prev"]["key"]) if unit["prev"] else None
         if prev and clause_scope.downgrade(prev["verdict"]) == "held":
             rec = {**prev, "verdict": "held", "via": unit["div"]["heading"]}
         else:
             rec = {**rec, "verdict": "kept"}
     subs = [recs[k] for k in sub_map.get(id(requirement), []) if k in recs]
-    best = max([rec, *subs], key=lambda r: _RANK[r["verdict"]])
-    if best["verdict"] != "kept":
-        return best
-    return next((s for s in [rec, *subs] if s["status"] != "read"), rec)
+    return max([rec, *subs], key=lambda r: _RANK[r["verdict"]])
 
 
-def _item(requirement: dict, rec: dict, standard_labels: dict, model: str) -> dict:
-    """The ledger item for a requirement of a decided part. The detail quotes
-    only the standard's own sentence and the datasheet's stated line."""
-    sid = requirement.get("standard_document_id")
-    scope, unit = rec["scope"], rec["unit"]
-    head = f"{unit['div']['heading']} of {standard_labels.get(sid) or sid}"
-    page = f" (page {unit['page']})" if unit["page"] is not None else ""
-    if scope.get("limited") == "yes":
-        construction, quote = scope["construction"].strip(), scope["quote"].strip()
-        said = f'{head} applies only to {construction}: "{quote}"{page}'
-        tail = (
-            "; the datasheet does not settle whether this equipment is of that "
-            "construction - an engineer decides"
-        )
-    else:
-        said = (
-            f"{head}{page}: the model could not tell whether this part is "
-            "limited by its own scope to one construction"
-        )
-        tail = "; an engineer decides"
-    code = "applicability_unsure"
-    if rec["verdict"] == "does_not_apply":
-        code = "outside_division_scope"
-        tail = (
-            f'; the datasheet states "{rec["line"]}, another material of that '
-            "family (the model read the scope sentence and the stated line; code decided)"
-        )
-    elif rec.get("via"):
-        tail = (
-            f'; this clause follows the heading "{rec["via"]}", which could not be '
-            "confirmed as the start of a new part - an engineer decides"
-        )
-    elif rec.get("line"):  # a start found by shape: held, never excluded
-        tail = (
-            f'; the datasheet states "{rec["line"]}, but this heading was found by '
-            "its shape and is not confirmed as the start of a part - "
-            "an engineer decides"
-        )
-    return {
-        "requirement": requirement,
-        "code": code,
-        "detail": said + tail,
-        "decided_by": f"ai:{model}+code",
-    }
-
-
-#: The count a requirement joins when it is compared with its part unread.
-_UNREAD_COUNTS = {
-    "unread": "requirements_in_unread_divisions",
-    "beyond": "requirements_beyond_limit",
-}
-
-
-def _sort_out(requirements, where, unplaced, sub_map, recs, units, labels, model):
+def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
     """(kept, items, held, counts): every requirement with the decision that
-    holds for it. Counts are of requirements; a count of none is left out."""
+    holds for it. `marks`: the ids of the requirements "unplaced", whose
+    sub-headings the screen did not carry ("screen_failed", held) and which
+    were placed "by_page" only or sit in a candidate start (kept, counted).
+    Counts are of requirements; a count of none is left out."""
     kept: list[dict] = []
     out: dict[str, list[dict]] = {
         "outside_division_scope": [],
@@ -727,16 +689,20 @@ def _sort_out(requirements, where, unplaced, sub_map, recs, units, labels, model
 
     for r in requirements:
         rec = _effective(r, where, sub_map, recs, units)
-        if id(r) in unplaced:
+        if id(r) in marks["unplaced"]:
             count("requirements_unplaced")
+        if rec and rec["verdict"] == "kept" and id(r) in marks["screen_failed"]:
+            rec = not_read_rec(units[where[id(r)][0]], "screen")
         if rec is None or rec["verdict"] == "kept":
             kept.append(r)
-            if rec and rec["status"] in _UNREAD_COUNTS:
-                count(_UNREAD_COUNTS[rec["status"]])
+            if id(r) in marks["by_page"]:
+                count("requirements_kept_sub_headings_not_screened")
             continue
-        item = _item(r, rec, labels, model)
+        item = ledger_item(r, rec, labels, model)
         out[item["code"]].append(item)
-        if rec.get("unsure") and not rec.get("via"):
+        if rec.get("not_read"):
+            count(NOT_READ_COUNTS[rec["not_read"]])
+        elif rec.get("unsure") and not rec.get("via"):
             count("requirements_held_unsure")
     return kept, out["outside_division_scope"], out["applicability_unsure"], counts
 
@@ -744,10 +710,9 @@ def _sort_out(requirements, where, unplaced, sub_map, recs, units, labels, model
 def _division_gate(
     requirements, *, classification, facts, standard_labels, provider, limit, pages_of
 ) -> dict:
-    model = (
-        getattr(provider, "requested_model", None)
-        or ai_task_runner.settings.ai_task_model
-    )
+    # one provider for the whole run: the model recorded is the model that read
+    provider = provider or ai_task_runner.make_provider()
+    model = getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
     units, where, unplaced = place(requirements, pages_of)
     divisions_read = [
         u for u in units.values() if u["weight"] and u["kind"] == "division"
@@ -764,14 +729,17 @@ def _division_gate(
         "stated": stated_construction(classification, facts),
     }
     recs, subs_of = _read_all(units, where, ctx)
-    if ctx["run"].get("stopped"):
-        stopped = ctx["run"]["stopped"]
+    if stopped := ctx["run"].get("stopped"):
         summary["stopped"] = f"{stopped}; the divisions after it were not read"
+        summary["model_unavailable"] = stopped
+    marks = {
+        "unplaced": unplaced,
+        "screen_failed": ctx["screen_failed"],
+        "by_page": ctx["by_page"],
+    }
     kept, items, held, counts = _sort_out(
-        requirements, where, unplaced, subs_of, recs, units, standard_labels, model
+        requirements, where, marks, subs_of, recs, units, standard_labels, model
     )
-    if missed := sum(1 for r in kept if id(r) in ctx["unscreened"]):
-        counts["requirements_subparts_not_screened"] = missed
     candidates = sum(
         1
         for key, rec in recs.items()
@@ -783,4 +751,9 @@ def _division_gate(
     summary["requirements_gated"] = len(requirements)
     if candidates:
         summary["candidates_read"] = candidates
+    model_status = ai_task_runner.model_status()
+    if model_status["fallback"] and model == model_status["used"]:
+        summary["model_fallback"] = (
+            f"{model_status['reason']}; {model_status['used']} read the scopes"
+        )
     return {"kept": kept, "items": items, "held": held, "summary": summary}

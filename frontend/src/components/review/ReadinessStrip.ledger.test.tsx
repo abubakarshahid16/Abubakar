@@ -34,4 +34,12 @@ describe("ReadinessStrip and the page ledger", () => {
     expect(screen.getByText(/Pages read: 2 of 3/)).toBeInTheDocument();
     expect(screen.queryByTestId("ledger-note")).toBeNull();
   });
+
+  it("names pages read with no checklist field apart, so the pages add up (order 165)", () => {
+    render(<ReadinessStrip readiness={{ ...base, pages_total: 11, pages_read: 8, pages_read_no_field: [1, 2, 3],
+      unread_pages: [], ledger_state: "current", ledger_note: null }}
+      onReread={async () => {}} />);
+    expect(screen.getByText(/Pages read: 8 of 11; pages 1-3 read, no checklist field found/)).toBeInTheDocument();
+    expect(screen.queryByText(/not read:/)).toBeNull();
+  });
 });
