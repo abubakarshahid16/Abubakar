@@ -55,9 +55,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import get_args
 
-from . import access
-from . import numparse
-from . import schemas
+from . import access, numparse, schemas, submittal_fill
 from . import disciplines as disciplines_mod
 from .db import connect
 
@@ -580,7 +578,7 @@ def _audit_equipment_type_change(document_id: str, *, old_value: str | None,
 
 
 def classify_equipment_type_for_submittal(
-    document_id: str, *, classified_by: str = "equipment_type_classifier",
+    document_id: str, *, classified_by="equipment_type_classifier", reviewed=False,
 ) -> EquipmentTypeEvidence | None:
     """Infer and store `equipment_type` for ONE CONTRACTOR_SUBMITTAL document.
 
@@ -617,7 +615,7 @@ def classify_equipment_type_for_submittal(
         "SELECT document_role, equipment_type, confirmed_by"
         " FROM document_classification WHERE document_id = ?",
         (document_id,)).fetchone()
-    if existing is None or existing["document_role"] != "CONTRACTOR_SUBMITTAL":
+    if not submittal_fill.is_submittal(existing, reviewed):
         return None
     if existing["confirmed_by"] is not None:
         return None
@@ -730,7 +728,7 @@ _CONTROLLED_VOCABULARY_FIELDS = frozenset({"discipline"})
 #: SQL below and are NEVER caller data - this tuple is the whitelist.
 SUBMITTAL_METADATA_FIELDS: tuple[str, ...] = (
     "document_number", "revision", "project", "service", "discipline",
-    "equipment_tags",
+    "equipment_tags", "title",
 )
 
 _FLAGS = re.I | re.M
@@ -808,7 +806,7 @@ _DISCIPLINE_LABELS = {
 
 _CONFIDENCE = {
     "document_number": 0.8, "revision": 0.75, "project": 0.75,
-    "equipment_tags": 0.75, "service": 0.7, "discipline": 0.7,
+    "equipment_tags": 0.75, "service": 0.7, "discipline": 0.7, "title": 0.7,
 }
 
 #: A6/#922: this was `re.compile(r"[?-??]")` - the source held literal "?"
@@ -1027,7 +1025,7 @@ def suggest_submittal_metadata(pages: Sequence[dict]) -> MetadataSuggestion:
             confidence=_CONFIDENCE["equipment_tags"],
             classifier_version=SUBMITTAL_METADATA_CLASSIFIER_VERSION)
 
-    return MetadataSuggestion(found=found, conflicts=conflicts)
+    return submittal_fill.add_title(MetadataSuggestion(found, conflicts), ordered)
 
 
 def _load_evidence(raw: str | None) -> dict:
@@ -1088,7 +1086,7 @@ def _audit_field_change(document_id: str, *, field_name: str, old_value,
 
 
 def classify_metadata_for_submittal(
-    document_id: str, *, classified_by: str = "submittal_metadata_classifier",
+    document_id: str, *, classified_by="submittal_metadata_classifier", reviewed=False,
 ) -> dict:
     """Infer and store the title-block fields of ONE CONTRACTOR_SUBMITTAL.
 
@@ -1115,7 +1113,7 @@ def classify_metadata_for_submittal(
     existing = conn.execute(
         "SELECT * FROM document_classification WHERE document_id = ?",
         (document_id,)).fetchone()
-    if existing is None or existing["document_role"] != "CONTRACTOR_SUBMITTAL":
+    if not submittal_fill.is_submittal(existing, reviewed):
         return {}
     if existing["confirmed_by"] is not None:
         return {}
