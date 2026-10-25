@@ -372,7 +372,9 @@ def _read_page(reading: FormReading, page: int, text: str, model_call, rules: di
                batch_size: int, found: dict, absent: Counter) -> None:
     errors: list[Reason] = []
     asked = [f for f in reading.fields if label_on_page(f, text, rules)]
-    absent.update(f.key for f in reading.fields if f not in asked)  # label not printed here
+    kept = {f.key for f in asked}
+    # a field whose label is not printed on this page is absent from it
+    absent.update(f.key for f in reading.fields if f.key not in kept)
     groups = batches(asked, batch_size)
     for group in groups:
         try:
