@@ -176,3 +176,17 @@ def test_a_mixed_sequence_of_calls_uses_exactly_one_distinct_num_ctx(monkeypatch
             rp.OllamaProvider().reason(packet)
     assert len(seen) == 18
     assert {b["options"]["num_ctx"] for b in seen} == {SHARED}
+
+
+def test_changing_the_shared_window_changes_the_run_stamp_and_the_reader_key(monkeypatch):
+    """s2's blocker 1: two runs at different LOCAL_NUM_CTX must not look alike,
+    and the reader must not reuse answers read at another window."""
+    from app import config, datasheet_ai
+
+    assert "local_num_ctx" in config.ANSWER_AFFECTING_SETTINGS
+    monkeypatch.setattr(settings, "local_num_ctx", 8192)
+    stamp, key = config.config_version(), datasheet_ai._effective_window()
+    monkeypatch.setattr(settings, "local_num_ctx", 16384)
+    assert config.config_version() != stamp
+    assert datasheet_ai._effective_window() != key
+    assert datasheet_ai._effective_window() == 16384

@@ -1519,7 +1519,7 @@ settings = Settings()
 #: Deliberately excludes host, port, paths and auth: a report generated on a
 #: different port is not a different answer.
 ANSWER_AFFECTING_SETTINGS = (
-    "answer_model", "num_ctx", "max_output_tokens", "temperature",
+    "answer_model", "num_ctx", "local_num_ctx", "max_output_tokens", "temperature",
     "chat_max_output_tokens", "chat_temperature_document", "chat_temperature_general",
     "chat_history_turns", "chat_history_token_budget", "chat_history_local_token_budget",
     "chat_tool_max_calls", "chat_thinking_budget_tokens", "chat_vision_max_pages_per_answer",
