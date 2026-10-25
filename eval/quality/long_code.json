@@ -28,6 +28,7 @@
   "backend/app/ingest.py": 1135,
   "backend/app/main.py": 3678,
   "backend/app/market_providers.py": 959,
+  "backend/app/match_rules.py": 803,
   "backend/app/ocr.py": 826,
   "backend/app/reader_api.py": 818,
   "backend/app/reasoning_provider.py": 977,

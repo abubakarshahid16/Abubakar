@@ -60,7 +60,7 @@ import re
 from functools import cache, lru_cache
 from pathlib import Path
 
-from . import claims, required_values
+from . import claims, required_values, statement_asks
 
 # ------------------------------------------------------------------ reasons
 #: Why a containment hit was refused. Every refusal carries one of these so a
@@ -73,6 +73,7 @@ COMPOUND_TERM = "compound_term"
 QUALIFIER = "qualifier"
 #: Rule 6 (order 139): the two sides name different kinds of quantity.
 QUANTITY_KIND = "quantity_kind"
+NOT_ASKED = "not_asked"  # orders 180.1 item 2: see statement_asks
 
 REASONS: tuple[str, ...] = (
     UNIT_DIMENSION,
@@ -82,6 +83,7 @@ REASONS: tuple[str, ...] = (
     QUALIFIER,
     QUANTITY_KIND,
     required_values.REQUIRED_KIND,
+    NOT_ASKED,
 )
 
 # ------------------------------------------------------------------ domains
@@ -796,4 +798,6 @@ def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
         return COMPOUND_TERM
     if qualifier_conflict(requirement, fact.get("field_name") or ""):
         return QUALIFIER
+    if fact.get("is_blank") and not statement_asks.asks_to_state(requirement):
+        return NOT_ASKED
     return None
