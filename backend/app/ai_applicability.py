@@ -351,11 +351,8 @@ def datasheet_heading(classification: dict | None) -> list[str]:
     doc = (classification or {}).get("document_id")
     if not doc:
         return []
-    row = connect().execute(
-        "SELECT text FROM chunks WHERE document_id = ? AND page_start = 1"
-        " ORDER BY ordinal LIMIT 1",
-        (doc,),
-    ).fetchone()
+    sql = "SELECT text FROM chunks WHERE document_id = ? AND page_start = 1 ORDER BY ordinal LIMIT 1"
+    row = connect().execute(sql, (doc,)).fetchone()
     lines = [" ".join(ln.split()) for ln in (row["text"] if row else "").splitlines()]
     heads = [ln for ln in lines if ln and len(ln.split()) <= _HEADING_WORDS]
     return heads[:_HEADING_LINES]

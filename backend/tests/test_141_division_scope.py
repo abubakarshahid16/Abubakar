@@ -797,7 +797,12 @@ def _sheet_with_heading(heading=HEADING):
     classifier found neither); the heading is only in its page text."""
     from app import classification
 
-    _doc("sub", "sheet.pdf", "CONTRACTOR_SUBMITTAL", [(1, f"{heading}\nDESIGN PRESSURE 9 barg\n")])
+    _doc(
+        "sub",
+        "sheet.pdf",
+        "CONTRACTOR_SUBMITTAL",
+        [(1, f"{heading}\nDESIGN PRESSURE 9 barg\n")],
+    )
     return classification.of_document("sub")
 
 
@@ -826,9 +831,7 @@ def test_a_part_that_only_repeats_what_the_heading_says_applies(temp_storage):
     # the order 196 case: the standard's scope sentence names the equipment the
     # sheet is headed with; before, nothing stored named it and the clause was held
     stored = _sheet_with_heading()
-    model = FakeModel(
-        scope=PUMP_LIMITED, construction=_yes(f"heading: {HEADING}")
-    )
+    model = FakeModel(scope=PUMP_LIMITED, construction=_yes(f"heading: {HEADING}"))
     out = _pump_gate(stored, model)
     assert out["summary"]["limited"] == 1  # the part really was read as limited
     assert _ids(out["kept"]) == ["pc"] and out["held"] == [] and out["items"] == []
@@ -838,7 +841,9 @@ def test_a_real_limit_the_heading_does_not_state_stays_held(temp_storage):
     # a heading of a different kind of equipment names nothing of the part's
     # construction: the model's "yes" is not backed by a stated line, so it is held
     stored = _sheet_with_heading("TURBINE DATASHEET")
-    model = FakeModel(scope=PUMP_LIMITED, construction=_yes("heading: TURBINE DATASHEET"))
+    model = FakeModel(
+        scope=PUMP_LIMITED, construction=_yes("heading: TURBINE DATASHEET")
+    )
     out = _pump_gate(stored, model)
     assert out["kept"] == [] and _ids(out["held"]) == ["pc"]
 
