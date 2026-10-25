@@ -133,6 +133,9 @@ def markdown(
             lines.append(f"- {v}: {r}")
     lines += [
         "",
+        '"kept" is a candidate for the Mac run, not a decision: small sample, and false Meets are '
+        "scored on the review path only.",
+        "",
         "Scores are code checks (words and figures in the cited text), not a judge model: compare variants "
         "with each other, never with published scores.",
     ]
