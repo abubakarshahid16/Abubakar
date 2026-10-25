@@ -140,3 +140,15 @@ def test_the_run_fails_on_a_planted_name(tmp_path, monkeypatch, bad, capsys):
     monkeypatch.setattr(check, "SCAN", ((base, (".py",)),))
     assert check.main() == 1
     assert "planted.py:1" in capsys.readouterr().out
+
+
+def test_the_checklists_that_drive_verdicts_are_inside_the_scan():
+    """cloud-3's question on #1275: `backend/app/reference/*.json` (the review
+    checklists, the vocabularies) is the likeliest place for a rule shaped around
+    one sheet. It lives under `backend/app`, so it is scanned as data (a name there
+    always fails); `scripts/` and `eval/` are outside the scan, on purpose."""
+    scanned = {p.relative_to(check.ROOT).as_posix() for p in check.files()}
+    assert "backend/app/reference/datasheet_checks.json" in scanned
+    assert not any(
+        p.startswith(("scripts/", "eval/", "backend/tests/")) for p in scanned
+    )
