@@ -96,9 +96,10 @@ def test_the_model_is_asked_for_the_requirement_fields_too():
     def model(prompt: str) -> str:
         asked.append(prompt)
         return json.dumps({"fields": []})
-    run = fr.read_document({1: "Casing note: 6 in"}, None, model_call=model, extra_subjects=["widget clearance"])
+    page = "Casing note: 6 in\nWidget clearance: 4 mm"  # the label is printed, or it is not asked (order 206.1)
+    run = fr.read_document({1: page}, None, model_call=model, extra_subjects=["widget clearance"])
     assert run["form"] is not None
     assert any("Widget clearance" in p for p in asked), "the new field is on the form the model is shown"
     plain = []
-    fr.read_document({1: "Casing note: 6 in"}, None, model_call=lambda p: (plain.append(p), json.dumps({"fields": []}))[1])
+    fr.read_document({1: page}, None, model_call=lambda p: (plain.append(p), json.dumps({"fields": []}))[1])
     assert not any("Widget clearance" in p for p in plain), "without extras the form is the type's own"

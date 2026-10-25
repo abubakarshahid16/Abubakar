@@ -18,8 +18,9 @@ def _count_calls(monkeypatch, size: int) -> list[str]:
     def model(prompt: str) -> str:
         asked.append(prompt)
         return json.dumps({"fields": []})
-    run = fr.read_document({1: "Casing note: 6 in"}, None, model_call=model,
-                           extra_subjects=[f"invented field {i}" for i in range(30)])
+    subjects = [f"invented field {i}" for i in range(30)]
+    printed = "Casing note: 6 in\n" + "\n".join(f"{s}: 1" for s in subjects)  # every label printed
+    run = fr.read_document({1: printed}, None, model_call=model, extra_subjects=subjects)
     assert run["form_batch_size"] == size
     return asked
 
