@@ -18,14 +18,33 @@ export const BASE = "/api";
 /** Statuses that mean nothing served the request at all. */
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
-/** The bearer token, in memory only.
+/** The bearer token, in memory only - and the BROWSER no longer holds one.
  *
- *  Never localStorage: it outlives the tab, and every XSS then becomes
- *  credential theft rather than a session-length nuisance. The cost is that a
- *  reload logs you out, which the login screen states rather than leaving the
- *  reader to discover.
+ *  The browser signs in with `session: "cookie"` (order 164.2): the server
+ *  keeps the login in an HttpOnly cookie the page can neither read nor copy,
+ *  so a reload (or a backend restart) keeps the reader signed in. This
+ *  variable stays for a bearer login (a tool, a test); it is never
+ *  localStorage, where every XSS becomes credential theft.
  */
 export let token: string | null = null;
+/** True once the server has signed this tab in by cookie (a login, or `me`
+ *  answering 200 at start). It carries no secret: the cookie is the server's. */
+let cookieSession = false;
+
+/** The header a cookie-borne WRITE must carry (the server's CSRF layer). */
+export const SESSION_HEADER = { name: "X-Requested-With", value: "rag-ui" } as const;
+
+/** Mark a request as this app's own: the CSRF header on every request, the
+ *  bearer header when a bearer token is held. The one place both are set. */
+export function markSession(headers: Headers): void {
+  headers.set(SESSION_HEADER.name, SESSION_HEADER.value);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+}
+
+export function setCookieSession(active: boolean) {
+  cookieSession = active;
+  tokenGeneration += 1;
+}
 let onUnauthenticated: (() => void) | null = null;
 
 /** Bumped whenever the token changes, so a GET shared by `request()` is never
@@ -39,7 +58,7 @@ export function setToken(next: string | null) {
 }
 
 export function isSignedIn() {
-  return token !== null;
+  return token !== null || cookieSession;
 }
 
 /** Attach the bearer header to a transport this module does not own.
@@ -53,9 +72,11 @@ export function isSignedIn() {
  *  The token is handed to a SETTER rather than returned, so it still has
  *  exactly one destination: an Authorization header. A `getToken()` would be a
  *  value any caller could log, put in a URL or store, and the whole reason it
- *  lives in memory only is that it must not be any of those.
+ *  lives in memory only (when a bearer token is used at all) is that it must not
+ *  be any of those.
  */
 export function authorize(setHeader: (name: string, value: string) => void) {
+  setHeader(SESSION_HEADER.name, SESSION_HEADER.value);
   if (token) setHeader("Authorization", `Bearer ${token}`);
 }
 
@@ -75,6 +96,7 @@ export function onSignedOut(fn: (() => void) | null) {
 export function signOutOn401(status: number): void {
   if (status === 401) {
     token = null;
+    cookieSession = false;
     tokenGeneration += 1;
     onUnauthenticated?.();
   }
@@ -250,7 +272,7 @@ export function count(value: string | null): number | null {
 export async function fetchImageObjectUrl(url: string): Promise<ImageObjectResult> {
   try {
     const headers = new Headers();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    markSession(headers);
     const response = await fetch(url, { headers });
     if (!response.ok) {
       signOutOn401(response.status);
@@ -273,8 +295,9 @@ export async function downloadReport(path: string, fallback: string): Promise<Do
   try {
     const headers = new Headers();
     // The one place a token is attached on this path - the header, never the
-    // URL. `${BASE}${path}` below is built from the id alone.
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    // URL (the cookie, when there is one, rides by itself). `${BASE}${path}`
+    // below is built from the id alone.
+    markSession(headers);
     response = await fetch(`${BASE}${path}`, { headers });
   } catch (e) {
     return {
@@ -402,7 +425,7 @@ async function fetchAndParse(path: string, init?: RequestInit): Promise<Fetched>
     // The single fetch in the module, which is why the token can be attached
     // in exactly one place - the module's own principle, stated at the top.
     const headers = new Headers(init?.headers);
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    markSession(headers);
     response = await fetch(`${BASE}${path}`, { ...init, headers });
   } catch (e) {
     // fetch only rejects on a network-level failure - the server is down

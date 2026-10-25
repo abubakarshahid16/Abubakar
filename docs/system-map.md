@@ -55,6 +55,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `applicability_v2` | Choose the standards that apply to a submittal |
 | `assertions` | Compliance language a sentence asserts, and whether its evidence asserts it |
 | `auth` | WHO a request is. `access.py` decides WHAT it may see |
+| `auth_session` | The browser's sign-in (order 164.2): HttpOnly cookie, CSRF layers, where Secure is set, sign-out that ends the token on the server |
 | `blank_markers` | ONE HOME for "this datasheet cell says the value is not provided yet" |
 | `chat` | Conversations, messages, and follow-up resolution |
 | `chat_actions` | What a reader does WITH a chat answer: rate it, and file a drafted comment |

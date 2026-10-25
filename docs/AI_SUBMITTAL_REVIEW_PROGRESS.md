@@ -353,6 +353,8 @@ token keeps exactly one destination, an `Authorization` header, because a
 returned value is one any caller could log, put in a URL or store, and the whole
 reason it lives in memory only is that it must not be.
 
+> **Since owner order 164.2 (PR #1242) the browser no longer holds a token at all:** its sign-in is an `HttpOnly`, `SameSite=Strict` cookie the page cannot read, and `api.authorize` serves the bearer fallback and tools only. See `docs/design-authentication.md` § Storage and A-1242.
+
 ## 14. Files changed (Phase 2)
 
 | File | Change |

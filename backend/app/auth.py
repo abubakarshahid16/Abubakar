@@ -205,7 +205,8 @@ def issue_token(user_id: str, now: float | None = None) -> str:
     epoch = int(row["token_epoch"]) if row else 0
     body = json.dumps(
         {"u": user_id, "e": epoch, "v": TOKEN_VERSION,
-         "x": int(now + settings.auth_token_seconds)},
+         "x": int(now + settings.auth_token_seconds),
+         "n": secrets.token_hex(8)},  # one token per login: a sign-out ends only its own
         separators=(",", ":"), sort_keys=True,
     ).encode("utf-8")
     signature = hmac.new(_secret(), body, hashlib.sha256).digest()
@@ -571,19 +572,23 @@ def resolve_user_id(request: Request) -> str | None:
 
     `is_active` is re-read here rather than trusted from the token, so
     deactivating a user takes effect on their next request instead of when
-    their token expires.
+    their token expires. The token is the bearer header's, else the browser's
+    cookie (which a write must back with the CSRF layers) - `auth_session`.
     """
-    header = request.headers.get("authorization") or ""
-    scheme, _, token = header.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
+    from . import auth_session  # at call time: it imports this module
+
+    token = auth_session.request_token(request)
+    user_id = read_token(token) if token else None
+    if not user_id or auth_session.is_signed_out(token):
         return None
-    user_id = read_token(token.strip())
-    if not user_id:
-        return None
-    row = connect().execute(
-        "SELECT id FROM users WHERE id = ? AND is_active = 1 AND token_epoch = ?",
-        (user_id, _token_epoch(token.strip())),
-    ).fetchone()
+    row = (
+        connect()
+        .execute(
+            "SELECT id FROM users WHERE id = ? AND is_active = 1 AND token_epoch = ?",
+            (user_id, _token_epoch(token)),
+        )
+        .fetchone()
+    )
     return row["id"] if row else None
 
 
@@ -624,7 +629,9 @@ def announce_mode() -> None:
         log.warning(
             "AUTH_MODE=%s - every request sees every document, and no login is "
             "required. Set AUTH_MODE=demo_required in backend/.env to enforce "
-            "access control.", settings.auth_mode)
+            "access control.",
+            settings.auth_mode,
+        )
         return
     secret = (settings.auth_secret or "").strip()
     log.info(
@@ -632,6 +639,11 @@ def announce_mode() -> None:
         settings.auth_mode,
         f"present ({len(secret)} chars)" if secret else "ABSENT",
     )
+    if str(settings.auth_cookie_secure or "").strip().lower() == "false":
+        log.warning(
+            "AUTH_COOKIE_SECURE=false - the sign-in cookie is sent without the "
+            "Secure flag even over https. Leave it on auto unless you mean this."
+        )
 
 
 def install() -> None:

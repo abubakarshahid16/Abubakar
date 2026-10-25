@@ -1457,6 +1457,7 @@ class Coverage(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+    session: Literal["token", "cookie"] = "token"  # cookie: the browser's login
 
 
 class PasswordResetRequest(BaseModel):
@@ -1504,10 +1505,9 @@ class AuthStatus(BaseModel):
 
 
 class LoginResult(BaseModel):
-    token: str = Field(
-        description="bearer token. The client holds this in memory only - "
-        "never localStorage, where every XSS becomes credential theft rather "
-        "than a session-length nuisance. A reload logs you out."
+    token: str | None = Field(
+        description="bearer token, for a tool. null when the login went into "
+        "the HttpOnly cookie (session 'cookie'): the page never holds it."
     )
     user: Me
     expires_in_seconds: int
