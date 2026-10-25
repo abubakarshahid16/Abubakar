@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-from . import acronyms, facet_memo, fts_index, lexical, numparse
+from . import acronyms, facet_memo, fts_index, lexical, numparse, time_units
 from .sentence_guard import NOT_AN_ABBREVIATION
 
 NORMALIZER_VERSION = "1"
@@ -157,16 +157,7 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     "degc": ("temperature", "C", 1.0),
     # percent
     "%": ("percent", "%", 1.0),
-    # time -> h
-    "h": ("time", "h", 1.0),
-    "hr": ("time", "h", 1.0),
-    "hrs": ("time", "h", 1.0),
-    "hour": ("time", "h", 1.0),
-    "hours": ("time", "h", 1.0),
-    "min": ("time", "h", 1.0 / 60.0),
-    "mins": ("time", "h", 1.0 / 60.0),
-    "minute": ("time", "h", 1.0 / 60.0),
-    "minutes": ("time", "h", 1.0 / 60.0),
+    **time_units.TABLE,  # time -> h (hours, minutes, seconds, ms, days)
     # voltage -> V
     "v": ("voltage", "V", 1.0),
     "kv": ("voltage", "V", 1000.0),

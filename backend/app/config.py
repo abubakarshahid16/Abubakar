@@ -403,10 +403,9 @@ class Settings(BaseSettings):
     #: string split - see `model_host_of`.
     answer_model_allowed_hosts: tuple[str, ...] = ()
     answer_model: str = "qwen3.5:4b"
+    answer_prompt_variant: str = "default"
     #: Resident size of the answer model. Used to warn BEFORE someone presses
-    #: Explain: with 14.7 GB of 16 GB already in use, Tier 2 will swap hard or
-    #: fail, and that is a fact worth surfacing before the button is clicked
-    #: rather than after a two-minute stall in front of a client.
+    #: Explain: with 14.7 GB of 16 GB in use, Tier 2 swaps hard or fails.
     answer_model_ram_bytes: int = 3_400_000_000
 
     # ---------------------------------------------------------- AI task runner
@@ -1539,6 +1538,7 @@ ANSWER_AFFECTING_SETTINGS = (
     "ai_applicability_enabled", "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
 )
+ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
 
 
 def config_version() -> str:
