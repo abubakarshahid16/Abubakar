@@ -20,6 +20,7 @@ code -> same (version, input_hash), which is what "reproducible" means here.
 from __future__ import annotations
 
 import hashlib
+import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -44,3 +45,27 @@ def input_hash(*parts: str | None) -> str:
         digest.update((part or "").encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+#: Readers whose AI reading is written by `datasheets._write_ai_reading`, the one
+#: writer that sets `quote_on_page`: the AI reader and the form reader (default
+#: since #1004), whose own `reader` replaces the first in the box. A test pins both.
+PROVED_QUOTE_READERS = frozenset({"datasheet_ai", "form_reader"})
+
+
+def ai_quote_proved(fact: dict | None) -> dict | None:
+    """The AI reader's provenance (`engine`, `model`) when this fact was read
+    by `datasheet_ai` or the form reader and the code proved its quote on the
+    page; else None (`comparison.low_trust_reason` trusts it, planner decision
+    2026-10-11)."""
+    try:
+        box = json.loads((fact or {}).get("bbox") or "{}")
+    except (TypeError, ValueError):
+        return None
+    if (
+        isinstance(box, dict)
+        and box.get("reader") in PROVED_QUOTE_READERS
+        and box.get("quote_on_page") is True
+    ):
+        return box
+    return None

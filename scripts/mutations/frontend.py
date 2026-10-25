@@ -294,8 +294,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the page-coverage line drops the unread pages and reads as "
                     "'every page read' (B3, UI)",
         path=REPO / "frontend" / "src" / "components" / "review" / "reviewFormat.ts",
-        anchor="  if (!unread.length) return `${head}.`;\n",
-        replacement="  return `${head}.`;\n",
+        anchor="  if (!unread.length) return `${head}${noField}.`;\n",
+        replacement="  return `${head}${noField}.`;\n",
         target="src/components/review/reviewFormat.test.ts",
         keyword="names the unread pages",
         tags=("honesty", "ui"),

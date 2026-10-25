@@ -436,8 +436,8 @@ class Settings(BaseSettings):
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
     #: #141 a DIVISION of a standard limited by its own scope sentence to one
-    #: construction (`ai_applicability.division_gate`). ON (#805 rule 1); off
-    #: or failing, nothing changes. At most this many divisions read per run.
+    #: construction (`ai_applicability.division_gate`). ON (#805 rule 1); off,
+    #: nothing changes; a part not read (or past the per-run limit) is HELD.
     ai_division_scope_enabled: bool = True
     ai_division_scope_max_per_run: int = 120
     #: #645 clause to check: for each clause sentence stored with no limit

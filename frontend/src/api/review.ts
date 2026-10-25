@@ -12,6 +12,8 @@ import type {
   CrsIssueGate,
   CrsIssuedCopyList,
   ClauseCoverage,
+  FactBatchConfirmation,
+  PageFactList,
   AnalysisGapsResult,
   AnalysisRecommendationResult,
   AnalysisRequest,
@@ -251,6 +253,20 @@ export const reviews = {
       `/reviews/runs/${encodeURIComponent(runId)}/standards/override`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
       hasArrayField("standards"),
+    ),
+  /** Order 164.1: the values the program read on one page of this review's datasheet. */
+  pageFacts: (runId: string, page: number) =>
+    request<PageFactList>(
+      `/reviews/runs/${encodeURIComponent(runId)}/facts?page=${encodeURIComponent(String(page))}`,
+      undefined,
+      hasArrayField("facts"),
+    ),
+  /** Order 164.1: confirm the ticked values of one page, all or none; the run is
+   *  judged again, so the answer says how many findings now have a verdict. */
+  confirmPageFacts: (runId: string, factIds: string[]) =>
+    request<FactBatchConfirmation>(
+      `/reviews/runs/${encodeURIComponent(runId)}/facts/confirm`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fact_ids: factIds }) },
     ),
   /** P3: cancel a queued review now, or a running one at its next step. */
   cancelJob: (jobId: string) =>
