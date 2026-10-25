@@ -23,7 +23,7 @@ REGISTER = DOCS / "ai-register.md"
 CONTROL_FILES = ("README.md", "responsibilities.md", "ai-register.md", "data-classification.md",
                  "least-privilege.md", "logging.md", "approvals.md", "kill-switch.md",
                  "incident-response.md", "severity-and-roles.md", "exercises.md", "evidence.md",
-                 "threat-levels.md")
+                 "threat-levels.md", "drill-pack.md")
 AI_WORDS = re.compile(r"(^|_)(ai|reasoning|judge|match|model|reader|wording|vision|llm)(_|$)")
 _ROW = re.compile(r"^\|\s*`([a-z0-9_]+)`\s*\|\s*`([^`]*)`\s*\|")
 SWITCH_HEADING = "## AI switches"
