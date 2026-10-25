@@ -2,7 +2,9 @@
 type checks. `datasheet_checks.py` is in the danger zone (rule 6). PR #1270: ids
 M1270-01 onwards, phase 1270."""
 from __future__ import annotations
+
 from ._base import APP, Mutation
+
 _T = "tests/test_900_ambiguous_role.py"
 _TAGS = ("honesty", "900")
 MUTATIONS: tuple[Mutation, ...] = (
