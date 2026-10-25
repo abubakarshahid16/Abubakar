@@ -39,4 +39,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_T,
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1278-04",
+        phase=1278,
+        description="the off switch does not reach the AI tasks (part-scope step): their stored answers are still used",
+        path=_P,
+        anchor="    use_cache = use_cache and settings.ai_answer_reuse_enabled",
+        replacement="    use_cache = use_cache",
+        target="tests/test_w4b_644_ai_task_runner.py",
+        tags=("honesty", "critical"),
+    ),
 )

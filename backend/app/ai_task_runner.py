@@ -427,6 +427,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
         return _failed(spec, model, f"the text is {words} words; a task reads at most "
                                     f"{settings.ai_task_max_words}. Split it into passages.")
     key = cache_key(spec, model, text)
+    use_cache = use_cache and settings.ai_answer_reuse_enabled  # order 205: off = fresh
     if use_cache:
         hit = _cache_get(key)
         if hit is not None:

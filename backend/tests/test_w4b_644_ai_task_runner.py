@@ -291,3 +291,21 @@ def test_nothing_is_unloaded_when_no_model_call_was_made():
     unloaded = []
     runner.run_batch(provider=Fake([]), pause=lambda: None, unload=lambda p: unloaded.append(p))
     assert unloaded == []
+
+
+def test_the_reuse_switch_covers_the_ai_tasks_too(monkeypatch):
+    """Order 205 (cloud's read of #1278): `run_task` - the part-scope step, the
+    clause checks, the passage reader - keeps its own stored answers. With
+    AI_ANSWER_REUSE_ENABLED off they are neither read nor written, so a test
+    "asked fresh" really asks everything fresh."""
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", True)
+    on = Fake([GOOD, GOOD])
+    runner.run_task(SPEC, TEXT, provider=on)
+    runner.run_task(SPEC, TEXT, provider=on)
+    assert len(on.packets) == 1  # on: the second is reused
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", False)
+    off = Fake([GOOD, GOOD])
+    runner.run_task(SPEC, TEXT, provider=off)
+    runner.run_task(SPEC, TEXT, provider=off)
+    assert len(off.packets) == 2  # off: asked every time, the stored answer ignored
+
