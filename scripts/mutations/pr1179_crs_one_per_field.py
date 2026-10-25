@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "a field row is keyed on its leading clause, so a re-run adding a clause "
         "renumbers it",
         '    if key[0] == "field":\n        return field_comment_key(key[1], key[2])\n'
-        "    return _subject_key(f)\n",
+        '    return comment_key(*key) if key[0] == "blanks" else _subject_key(f)\n',
         "    return _subject_key(f)\n",
         "field_row_number_key_survives_a_new_clause",
     ),
