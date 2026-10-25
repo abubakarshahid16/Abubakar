@@ -68,6 +68,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `chat_tools` | Claude-first chat (2026-09-27): the tools Claude may call |
 | `chat_web` | The chat's web lane: ask first, send one phrase, cite what came back |
 | `chunker` | Step 3 - structure-aware chunking |
+| `answer_prompts` | Wording variants of the local answer prompt, off by default; measured by `eval/answer_quality/` (order 189) |
 | `citations` | Shared [S#] citation-marker syntax, used by both answer.py and synthesis.py |
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
