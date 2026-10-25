@@ -244,11 +244,16 @@ jobs:
           python scripts/pf1_collect.py --db "$WORK/pf1-copy.sqlite" \
             --runs "$WORK/runs" --mode main --model "$MODEL"
 
+      # Always, not only on failure: a run can end "success" with every page
+      # unread (the 2026-10-25 dry run did), and the logs are the only way to
+      # see why. Invented sheets only, so printing is safe.
       - name: Show the server logs (invented sheets only, safe to print)
-        if: failure()
+        if: always()
         run: |
-          echo "--- ollama.log"; tail -n 40 "$RUNNER_TEMP/ollama.log" || true
-          echo "--- backend.log"; tail -n 40 "$RUNNER_TEMP/backend.log" || true
+          echo "--- backend.log: lines naming an error, warning or timeout"
+          grep -iE "error|warn|timed? ?out|traceback|failed" "$RUNNER_TEMP/backend.log" | tail -n 60 || true
+          echo "--- backend.log: last 60 lines"; tail -n 60 "$RUNNER_TEMP/backend.log" || true
+          echo "--- ollama.log: last 30 lines"; tail -n 30 "$RUNNER_TEMP/ollama.log" || true
 
       - name: Say what it cost
         if: always()

@@ -181,8 +181,8 @@ def test_the_servers_run_with_the_macs_model_settings():
 
 
 def test_a_failed_run_prints_the_server_logs():
-    failing = [s for s in _steps() if s.get("if") == "failure()"]
-    assert failing and "backend.log" in failing[0]["run"]
+    shown = [s for s in _steps() if "backend.log" in s.get("run", "") and s.get("if") == "always()"]
+    assert shown, "the logs must print on success too: a run can end 'success' with nothing read"
 
 
 def test_the_ai_call_timeout_is_an_input_that_defaults_to_the_macs_120():
