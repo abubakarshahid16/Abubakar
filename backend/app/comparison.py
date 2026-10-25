@@ -2433,9 +2433,9 @@ def _run_comparison(
     # the contractor omitted a value that could sit on a page nobody read.
     page_ledger.refresh(submittal_id, as_submittal=True)
     pages_read = pages_read_with_reading(submittal_id)
-    # THE SHEET'S KIND, ONCE PER RUN: the stored word (engineer or classifier), else the fields.
+    # THE SHEET'S KIND, ONCE PER RUN: the stored word (engineer or classifier) first.
     from . import classification as classification_mod
-    classification_mod.submittal_fill.ensure(submittal_id)  # order 196: fill the type and title if empty
+    classification_mod.submittal_fill.ensure(submittal_id)  # order 196: type, title
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict. None with the

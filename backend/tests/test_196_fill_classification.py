@@ -10,11 +10,24 @@ model; no real document."""
 from __future__ import annotations
 
 import json
+import uuid
 
 import pytest
 
-from app import classification, db, submittal_fill, submittal_review
+from app import (
+    ai_task_runner,
+    classification,
+    comparison,
+    datasheets,
+    db,
+    scope_ledger,
+    standards,
+    submittal_fill,
+    submittal_review,
+)
 from app.config import settings
+from tests.test_141_division_scope import FakeModel
+from tests.test_141_division_scope import _doc as _std_doc
 
 NOW = "2026-10-25T00:00:00Z"
 FORM_LINE = (
@@ -138,10 +151,6 @@ def test_the_heading_lead_cuts_at_a_field_label_and_drops_the_labels_word():
 
 # ------------------- the whole review: a sheet with no stored type or title
 
-import uuid  # noqa: E402
-
-from app import comparison, datasheets, scope_ledger, standards  # noqa: E402
-from tests.test_141_division_scope import FakeModel  # noqa: E402,F401
 from tests.test_141_division_scope import _doc as _std_doc
 
 PUMP_SCOPE = "This invented standard covers centrifugal pumps."
@@ -162,8 +171,6 @@ YES = {
 
 
 def _review(monkeypatch, model):
-    from app import ai_task_runner
-
     monkeypatch.setattr(settings, "match_enabled", False)
     monkeypatch.setattr(settings, "ai_clause_checks_enabled", False)
     monkeypatch.setattr(settings, "ai_division_scope_enabled", True)
