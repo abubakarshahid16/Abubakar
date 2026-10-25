@@ -251,7 +251,7 @@ def _ollama_call(packet_shape: dict | None = None):
             shape["prompt_version"],
             model,
             shape["json_schema"],
-            f"{OLLAMA_NUM_CTX}/{shape['num_predict']}\x00{prompt}",
+            f"{max(OLLAMA_NUM_CTX, model_transport.shared_window())}/{shape['num_predict']}\x00{prompt}",
             ask,
             asked=asked,
             keep_if=lambda text: (

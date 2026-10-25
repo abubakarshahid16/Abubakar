@@ -553,7 +553,7 @@ def test_every_ollama_caller_asks_for_the_same_runner(monkeypatch):
         {"requirement_text": "noise shall not exceed 90 dB(A)", "id": "r"},
         [{"field_name": "Noise level", "id": "f"}])
     assert len(seen) == 4
-    expected = (settings.num_ctx, settings.num_thread, settings.num_batch, "45m")
+    expected = (settings.local_num_ctx, settings.num_thread, settings.num_batch, "45m")
     assert [_runner(b) for b in seen] == [expected] * 4
 
 
@@ -563,7 +563,7 @@ def test_a_larger_context_is_kept_and_a_smaller_one_raised(monkeypatch):
     seen = _capture_posts(monkeypatch)
     OllamaProvider().reason(Packet(prompt="q", num_ctx=16384, num_predict=10))
     OllamaProvider().reason(Packet(prompt="q", num_ctx=1024, num_predict=10))
-    assert [b["options"]["num_ctx"] for b in seen] == [16384, settings.num_ctx]
+    assert [b["options"]["num_ctx"] for b in seen] == [16384, settings.local_num_ctx]
 
 
 def test_the_streamed_path_sends_the_same_runner_options(monkeypatch):
@@ -602,7 +602,7 @@ def test_the_streamed_path_sends_the_same_runner_options(monkeypatch):
     list(model_transport.stream_json("/api/generate",
                                      {"model": "m", "prompt": "p", "options": {"num_ctx": 2048}},
                                      timeout=5))
-    assert _runner(captured["body"]) == (settings.num_ctx, settings.num_thread,
+    assert _runner(captured["body"]) == (settings.local_num_ctx, settings.num_thread,
                                          settings.num_batch, settings.ollama_keep_alive)
 
 
