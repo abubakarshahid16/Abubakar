@@ -796,8 +796,6 @@ _KIND_WORDS = {
     "offered": ("offered", "vendor", "proposed", "supplier"),
     "measured": ("measured", "test", "tested", "actual", "as built"),
 }
-# WHOLE WORDS ("Inspection" is not "spec"; "Latest" is not "test").
-_KIND_RE = {k: re.compile(r"\b(?:" + "|".join(map(re.escape, w)) + r")\b") for k, w in _KIND_WORDS.items()}
 
 
 def _label_column(fact: dict) -> tuple[str, str | None]:
@@ -822,7 +820,10 @@ def rule_kind(fact: dict) -> str | None:
     column = " ".join(str(_label_column(fact)[1] or "").lower().split())
     if not column:
         return None
-    return next((kind for kind, pattern in _KIND_RE.items() if pattern.search(column)), None)
+    for kind, words in _KIND_WORDS.items():
+        if re.search(r"\b(?:" + "|".join(map(re.escape, words)) + r")\b", column):
+            return kind  # whole words: "Inspection" is not "spec"
+    return None
 
 
 def ai_raw_value(fact: dict) -> str:
