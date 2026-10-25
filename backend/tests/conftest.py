@@ -177,6 +177,26 @@ def _the_local_answer_cache_is_off_unless_a_test_asks_for_it(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _the_engines_model_list_is_not_asked_unless_a_test_asks_for_it():
+    """`ai_task_runner.model_status` asks the engine which models it holds (cached
+    60 s). A test that did not set that up must not depend on the machine's own
+    Ollama: with a model server running that lacks the configured tag, the AI
+    steps would run on another model and a dashboard warning would appear (this
+    failed `test_metrics` on a developer Mac while CI, with no engine, was green).
+    "Cannot be asked" is cached as the answer of a machine with no engine; the
+    fall-back tests clear the cache and fake the engine themselves."""
+    import time
+
+    from app import ai_task_runner
+
+    ai_task_runner._tags_cache["entry"] = (time.monotonic() + 1e9, None)
+    ai_task_runner._logged.clear()
+    yield
+    ai_task_runner._tags_cache.clear()
+    ai_task_runner._logged.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_test_reaches_past_loopback():
     """Fail, by name, any test that tried to open a non-loopback socket.
 
