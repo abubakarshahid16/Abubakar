@@ -342,8 +342,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="OFFER CATEGORICAL AND BLANK FACTS as candidates, which is "
                     "how the insulation false friend reaches a model",
         path=APP / "comparison.py",
-        anchor='        if not fact_has_number(fact) or fact.get("is_blank"):\n            continue\n        if not _units_comparable(',
-        replacement='        if False:\n            continue\n        if not _units_comparable(',
+        anchor='        if not fact_has_number(fact) or fact.get("is_blank"):\n            continue\n        if match_rules.is_purchaser_kind(fact):',
+        replacement='        if False:\n            continue\n        if match_rules.is_purchaser_kind(fact):',
         target="tests/test_model_matching.py",
         keyword="categorical_fact_never_enters or blank_fact_never_enters",
         tags=("honesty", "critical"),

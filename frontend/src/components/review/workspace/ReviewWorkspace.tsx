@@ -524,6 +524,7 @@ export function ReviewWorkspace({
               runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
               decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers} readOnly={readOnly}
               showKeys={view.mode === "detailed"} serverNotes={data.serverNotes ?? 0} groupingStale={data.groupingStale ?? false}
+              onValuesConfirmed={() => void refresh()}
               footer={(
                 <>
                   <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}

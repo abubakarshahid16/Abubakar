@@ -217,6 +217,17 @@ describe("B3: which pages were read into fields", () => {
     expect(line).toContain("may still be there");
   });
 
+  it("says pages read with no checklist field apart from the pages fields were read from (order 165)", () => {
+    const run = { page_coverage: {
+      pages_total: 11, fact_pages: [4, 5, 6, 7, 8, 9, 10, 11], pages_not_read_into_fields: [],
+      not_read_reasons: {}, pages_read_no_field: [1, 2, 3],
+    } } as unknown as ReviewRunSummary;
+    expect(pageCoverageLine(run)).toBe(
+      "Fields read from 8 of 11 pages (pages 4-11); pages 1-3 read, no checklist field found.");
+    const one = { page_coverage: { ...run.page_coverage, pages_read_no_field: [1], pages_not_read_into_fields: [2] } } as unknown as ReviewRunSummary;
+    expect(pageCoverageLine(one)).toContain("page 1 read, no checklist field found; page 2 not read into fields");
+  });
+
   it("does not warn when every page was read", () => {
     const line = pageCoverageLine(coverage([1, 2], [], 2));
     expect(line).toBe("Fields read from 2 of 2 pages (pages 1-2).");
@@ -339,6 +350,8 @@ describe("section 3: the readiness strip's page line", () => {
   it("says nothing when the page count is unknown, and states the denominator otherwise", () => {
     expect(pagesReadLine({ pages_total: null, pages_read: 0 })).toBe("");
     expect(pagesReadLine({ pages_total: 5, pages_read: 3 })).toBe("Pages read: 3 of 5");
+    expect(pagesReadLine({ pages_total: 5, pages_read: 3, pages_read_no_field: [1] }))
+      .toBe("Pages read: 3 of 5; page 1 read, no checklist field found");
   });
 });
 
