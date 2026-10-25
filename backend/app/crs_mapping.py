@@ -26,10 +26,17 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
-from . import crs_ai_drafts, crs_item_series, method_notes, severity_rule, standard_ids
+from . import (
+    crs_ai_drafts,
+    crs_blank_fields,
+    crs_item_series,
+    method_notes,
+    severity_rule,
+    standard_ids,
+)
 
 # isort: split
-from . import paragraph_ids
+from . import equipment_subtype, paragraph_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -120,19 +127,7 @@ _PAGE_READER_ONLY_MARKER = "PAGE_READER_ONLY"
 ROW_KIND_PAGE_READER_ONLY = "page_reader_only"
 
 
-def _page_list(pages: list[int]) -> str:
-    """`[1, 2, 3, 7]` -> `1-3, 7` - the shape the findings themselves use."""
-    out, run = [], []
-    for p in sorted(pages):
-        if run and p == run[-1] + 1:
-            run.append(p)
-            continue
-        if run:
-            out.append(f"{run[0]}-{run[-1]}" if len(run) > 1 else str(run[0]))
-        run = [p]
-    if run:
-        out.append(f"{run[0]}-{run[-1]}" if len(run) > 1 else str(run[0]))
-    return ", ".join(out)
+_page_list = crs_blank_fields.page_list
 
 
 _LEGACY_MARKERS = (_REQUIRES_OTHER_DOCUMENT_MARKER, _UNREAD_PAGES_MARKER, _PAGE_READER_ONLY_MARKER)
@@ -225,7 +220,7 @@ def finding_comment_key(f: dict) -> str:
     key = _group_key(f)
     if key[0] == "field":
         return field_comment_key(key[1], key[2])
-    return _subject_key(f)
+    return comment_key(*key) if key[0] == "blanks" else _subject_key(f)
 
 
 def rejected_comment_keys(findings: list[dict]) -> set[str]:
@@ -849,6 +844,8 @@ def _group_key(f: dict) -> tuple:
     An engineer's wording splits a group in `_grouped`, list-level."""
     text = _fold(f.get("requirement_source_text"))
     bucket = _bucket_of(f)
+    if crs_blank_fields.is_unrequired_blank(f):
+        return ("blanks", crs_blank_fields.ROW_KEY)
     if not text or bucket in _ONE_ROW_BUCKETS:
         return ("one", str(f.get("id") or id(f)))
     label = _fold(_field_label(f)) if bucket in FIELD_GROUPED_BUCKETS else ""
@@ -905,8 +902,8 @@ def _leader_order(f: dict) -> tuple:
 
 def _key_text(key: tuple) -> str:
     """A `_group_key` tuple as the string key the run summary sends."""
-    if key[0] == "one":
-        return f"one:{key[1]}"
+    if key[0] in ("one", "blanks"):
+        return f"{key[0]}:{key[1]}"
     if key[0] == "field":
         return "field:" + field_comment_key(key[1], key[2])
     return "req:" + comment_key("requirement group", *key[1:])
@@ -1408,8 +1405,7 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
         ident = r["identifier"]
         rows.append({
             "finding_id": "", "document_name": submittal_name, "page_section": "",
-            "comment": (f"Contractor did not reference {ident}; confirm compliance with "
-                        f"{ident} (required because {r['reason']})."),
+            "comment": equipment_subtype.not_cited_words(r),
             "comment_by": "AI Review", "standard_reference": ident,
             "row_kind": ROW_KIND_STANDARD_NOT_CITED, "severity": "",
             "engineer_confirmed": False,
@@ -1489,8 +1485,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             group, kind = item["findings"], item["row_kind"]
             f = group[0]
             machine = _finding_text(f)  # 95 6b: kept as ai_comment
-            if kind != ROW_KIND_DATASHEET_CHECK:
-                machine = engineer_comment_text(group)
+            if kind != ROW_KIND_DATASHEET_CHECK or crs_blank_fields.is_row(group):
+                machine = crs_blank_fields.comment_or(group, engineer_comment_text)
             text = f.get("engineer_comment") or machine
             rows.append(
                 {
@@ -1502,7 +1498,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     # the row open with the next finding behind it.
                     "finding_ids": [g["id"] for g in group if g.get("id")],
                     "document_name": submittal_name,
-                    "page_section": _page_section(group),
+                    "page_section": crs_blank_fields.section_or(group, _page_section),
                     "comment": text,
                     "ai_comment": machine,
                     "edited": text.strip() != machine.strip(),

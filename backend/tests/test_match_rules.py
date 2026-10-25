@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import comparison, match_rules
+from app import comparison, match_rules, required_values
 
 
 def requirement(subject, text=None, **over):
@@ -291,11 +291,11 @@ class TestCompoundTerm:
             "the pump bearing temperature shall be monitored continuously",
             requirement_type="statement", value=None, raw_value=None,
             unit=None, raw_unit=None)
-        # a blank with no unit printed: a field in bar would be another
+        # a filled field with no unit printed: a field in bar would be another
         # quantity than a temperature (rule 6) and is refused for that
+        # (a blank would also be refused by the asks rule, orders 180.1 item 2)
         result = comparison.match_by_containment(
-            req,
-            [fact("Bearing", is_blank=True, raw_value=None, raw_unit=None, unit=None)],
+            req, [fact("Bearing", raw_value="sleeve", raw_unit=None, unit=None)]
         )
         assert result["fact"]["field_name"] == "Bearing"
         assert result["refused"] == []
@@ -338,7 +338,8 @@ class TestRefusal:
             match_rules.COMPOUND_TERM,
             match_rules.QUALIFIER,
             match_rules.QUANTITY_KIND,
-            match_rules.REQUIRED_KIND,
+            required_values.REQUIRED_KIND,
+            match_rules.NOT_ASKED,
         }
 
     def test_no_rule_fires_on_the_plain_case(self):
