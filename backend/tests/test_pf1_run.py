@@ -28,6 +28,7 @@ class FakeServer:
         self.uploads: list[str] = []
         self.fields: list[dict | None] = []
         self.polls = 0
+        self.puts: list[tuple[str, dict]] = []
 
     def request(self, method, path, json_body=None, file=None, fields=None):
         self.calls.append((method, path))
@@ -47,6 +48,9 @@ class FakeServer:
                 return 400, None
             n = len(self.uploads)
             return 200, {"document": {"id": f"doc{n}"}, "job_id": f"ing{n}"}
+        if method == "PUT" and path.endswith("/classification"):
+            self.puts.append((path, json_body))
+            return self.script.get("put", (200, {"document_id": "x"}))
         if path == "/api/documents/bulk/role":
             return 200, {"updated": len(json_body["document_ids"])}
         if path.endswith("/requirements/extract-async"):
@@ -74,6 +78,7 @@ def _entry(name="pf1-01", standard="pf1-01.standard.pdf", held_out=False):
         "held_out": held_out,
         "datasheet": f"{name}.datasheet.pdf",
         "standard": standard,
+        "standard_number": "STD-01" if standard else None,
     }
 
 
@@ -373,3 +378,36 @@ def test_a_server_that_says_its_database_is_a_copy_is_accepted(tmp_path):
         sleep=lambda s: None,
     )
     assert records[0]["status"] == "completed"
+
+
+def test_the_standards_number_is_recorded_so_the_review_applies_it_to_its_sheet():
+    """Found by the first PF1 run: an uploaded standard has no recorded number,
+    the review includes a standard only by its recorded number, so 0 of 23 keyed
+    items were checked. The number goes in right after the role, before the
+    requirements are extracted."""
+    server = FakeServer()
+    record = _run(server)
+    assert record["status"] == "completed"
+    assert server.puts == [
+        (
+            "/api/documents/doc1/classification",
+            {"document_role": "COMPANY_STANDARD", "document_number": "STD-01"},
+        )
+    ]
+    order = [c for c in server.calls if c[0] in ("POST", "PUT")]
+    assert order.index(("PUT", "/api/documents/doc1/classification")) < order.index(
+        ("POST", "/api/standards/doc1/requirements/extract-async")
+    )
+
+
+def test_a_refused_number_ends_the_sheet_with_a_plain_error_not_a_silent_skip():
+    record = _run(FakeServer(put=(403, None)))
+    assert record["status"] == "error"
+    assert "document number" in record["error"]
+
+
+def test_a_standard_with_no_number_in_the_index_records_none():
+    server = FakeServer()
+    entry = {**_entry(), "standard_number": None}
+    _run(server, entry)
+    assert server.puts == []

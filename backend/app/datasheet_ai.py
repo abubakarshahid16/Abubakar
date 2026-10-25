@@ -201,8 +201,8 @@ def _ollama_call(packet_shape: dict | None = None):
     """`packet_shape` (form reader, #form-reader): the JSON schema, prompt
     version and answer budget of a caller with its own answer shape. None -
     this reader's own `_SCHEMA` and sizes, exactly as before."""
-    from . import model_transport
-    from .reasoning_provider import OllamaProvider, Packet
+    from . import ai_task_runner, model_transport
+    from .reasoning_provider import OllamaProvider, Packet, schema_errors
 
     # The same gate every request passes (`model_transport.endpoint` ->
     # `config.check_model_url`), asked once up front so a refused host is a
@@ -214,20 +214,51 @@ def _ollama_call(packet_shape: dict | None = None):
     # Owner order 2026-10-11: the local model is slow - every call has its
     # own timeout (DATASHEET_AI_TIMEOUT_SECONDS), not the provider's 15 min.
     model = settings.datasheet_ai_ollama_model or settings.answer_model
-    provider = OllamaProvider(model, timeout=float(settings.datasheet_ai_timeout_seconds))
+    provider = OllamaProvider(
+        model, timeout=float(settings.datasheet_ai_timeout_seconds), retry_timeouts=True
+    )
     shape = {"json_schema": _SCHEMA, "prompt_version": PROMPT_VERSION,
              "num_predict": OLLAMA_NUM_PREDICT, **(packet_shape or {})}
 
+    asked: dict[str, int] = {}
+
     def call(prompt: str) -> str:
-        response = provider.reason(Packet(
-            prompt=prompt, num_ctx=OLLAMA_NUM_CTX, num_predict=shape["num_predict"],
-            temperature=0.0, json_schema=shape["json_schema"], step=STEP,
-            prompt_version=shape["prompt_version"]))
-        if response.truncated:
-            # A cut-off JSON answer is not an answer; never parsed as one.
-            # Its text goes with the refusal, for `_read`'s smaller parts.
-            raise AnswerCutOff(response.text)
-        return response.text
+        # REUSE (order 163.3): the stored answer to the same prompt (page text
+        # + rule inputs), prompt version, answer shape and model; see
+        # `ai_task_runner.reuse_or_ask`. Only an answer that parses into the
+        # expected JSON shape is kept: a malformed or empty one is asked
+        # again next time. The text goes through every gate a fresh one does.
+        def ask() -> str:
+            response = provider.reason(
+                Packet(
+                    prompt=prompt,
+                    num_ctx=OLLAMA_NUM_CTX,
+                    num_predict=shape["num_predict"],
+                    temperature=0.0,
+                    json_schema=shape["json_schema"],
+                    step=STEP,
+                    prompt_version=shape["prompt_version"],
+                )
+            )
+            if response.truncated:
+                # A cut-off JSON answer is not an answer; never parsed as one.
+                # Its text goes with the refusal, for `_read`'s smaller parts.
+                raise AnswerCutOff(response.text)
+            return response.text
+
+        return ai_task_runner.reuse_or_ask(
+            STEP,
+            shape["prompt_version"],
+            model,
+            shape["json_schema"],
+            f"{OLLAMA_NUM_CTX}/{shape['num_predict']}\x00{prompt}",
+            ask,
+            asked=asked,
+            keep_if=lambda text: (
+                shape["json_schema"] is not None
+                and not schema_errors(text, shape["json_schema"])
+            ),
+        )
 
     call.engine = OLLAMA
     call.model = model

@@ -251,10 +251,18 @@ def prepare_standard(
     *,
     timeout: float,
     disciplines: list[str] | None = None,
+    number: str | None = None,
     **wait,
 ) -> str:
-    """Upload a standard, set it as a company standard, and wait for its
-    ingestion and its requirement extraction. Returns the document id."""
+    """Upload a standard, set it as a company standard, record its document
+    number, and wait for its ingestion and its requirement extraction. Returns
+    the document id.
+
+    The number is the engineer's step of confirming what the standard is. The
+    review includes a standard a sheet names only by the standard's RECORDED
+    number: a number found in the file name or the title is "possible match,
+    engineer to confirm" and is not included, so without it the standard is
+    never applied to its sheet and nothing is checked."""
     doc_id, job_id = upload(transport, path, disciplines)
     state = wait_job(transport, job_id, timeout=timeout, **wait)
     if state not in OK_STATES:
@@ -268,6 +276,15 @@ def prepare_standard(
         "setting the standard's role",
         ok=(200, 207),
     )
+    if number:
+        _expect(
+            *transport.request(
+                "PUT",
+                f"/api/documents/{doc_id}/classification",
+                {"document_role": "COMPANY_STANDARD", "document_number": number},
+            ),
+            "recording the standard's document number",
+        )
     queued = _expect(
         *transport.request(
             "POST", f"/api/standards/{doc_id}/requirements/extract-async"
@@ -315,6 +332,7 @@ def run_sheet(
                 folder / entry["standard"],
                 timeout=timeout,
                 disciplines=disciplines,
+                number=entry.get("standard_number"),
                 **wait,
             )
         sheet_id, job_id = upload(transport, folder / entry["datasheet"], disciplines)

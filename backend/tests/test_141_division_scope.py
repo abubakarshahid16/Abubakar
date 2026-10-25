@@ -115,7 +115,7 @@ class FakeModel:
 
     def __init__(self, scope=None, construction=None, *, fail=None):
         self.requested_model = "test-model"
-        self.replies = {"division": scope, "construction": construction}
+        self.replies = {"division": scope, "construction": construction, "titles": None}
         self.fail = fail
         self.calls: list[str] = []
 
@@ -130,9 +130,12 @@ class FakeModel:
                 if "Part TT" in passage
                 else NOT_LIMITED
             )
+        elif prompt.startswith("The TEXT is a list of sub-heading titles"):
+            kind, default = "titles", {"titles": []}
         else:
             kind, default = "construction", NOT_GRAPHITE
-        self.calls.append(kind)
+        if kind != "titles":
+            self.calls.append(kind)
         if self.fail:
             raise ProviderRefused(self.fail)
         reply = self.replies[kind]
@@ -220,9 +223,12 @@ def test_a_graphite_only_part_applies_to_a_graphite_vessel(temp_storage):
         "quote": "Shell material: Impervious graphite block",
         "is_that": "yes",
     }
+    # the model's "yes" is taken from the stated line only when that line names
+    # the part's construction: it is read for the graphite part, and for the
+    # titanium part the same answer names nothing, so that one is held
     out = _gate(FakeModel(construction=yes), facts=GRAPHITE)
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"]
-    assert out["items"] == [] and out["held"] == []
+    assert _ids(out["kept"]) == ["aa", "zz"]
+    assert out["items"] == [] and _ids(out["held"]) == ["tt"]
 
 
 def test_no_construction_stated_goes_to_the_engineer(temp_storage):
@@ -244,10 +250,20 @@ def test_an_unsure_model_goes_to_the_engineer(temp_storage):
     assert out["items"] == []
 
 
-def test_with_the_model_failing_nothing_is_excluded(temp_storage):
+def test_with_the_model_failing_nothing_is_excluded_and_nothing_is_compared(
+    temp_storage,
+):
     out = _gate(FakeModel(fail="the model could not be reached"))
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"]
-    assert out["items"] == [] and out["held"] == []
+    # order 173.2: a scope step that did not run is never a pass. Nothing is
+    # excluded, and every requirement of a division it could not screen is HELD
+    # for the engineer instead of being compared to a verdict.
+    assert out["kept"] == [] and out["items"] == []
+    assert _ids(out["held"]) == ["aa", "zz", "tt"]
+    assert {h["code"] for h in out["held"]} == {"applicability_unsure"}
+    assert all(
+        "did not read this part's scope sentence" in h["detail"] for h in out["held"]
+    )
+    assert all(h["decided_by"] == "code:scope-not-read" for h in out["held"])
     assert out["summary"]["could_not_read"] == 3
 
 
@@ -255,7 +271,8 @@ def test_a_model_that_stops_answering_is_not_asked_again_in_the_run(temp_storage
     model = FakeModel(fail="read timeout")
     out = _gate(model)
     assert model.calls == ["division"]
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"] and out["items"] == []
+    assert out["kept"] == [] and out["items"] == []
+    assert _ids(out["held"]) == ["aa", "zz", "tt"]
     assert out["summary"]["could_not_read"] == 3
     assert "the divisions after it were not read" in out["summary"]["stopped"]
 
@@ -268,8 +285,10 @@ def test_a_scope_quote_not_in_the_standard_is_ignored(temp_storage):
     }
     model = FakeModel(scope=lambda p: made_up if "Part TT" in p else NOT_LIMITED)
     out = _gate(model)
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"]
-    assert out["items"] == [] and out["held"] == []
+    # the invented quote is not used to exclude anything; the division it was
+    # about is held (its scope was not read), the others are untouched
+    assert _ids(out["kept"]) == ["aa", "zz"] and out["items"] == []
+    assert _ids(out["held"]) == ["tt"]
     # read twice (one retry naming the problem), then refused; never asked further
     assert model.calls.count("division") == 4 and "construction" not in model.calls
 
@@ -277,13 +296,23 @@ def test_a_scope_quote_not_in_the_standard_is_ignored(temp_storage):
 def test_a_construction_not_in_the_scope_sentence_is_ignored(temp_storage):
     wrong = {**LIMITED_TT, "construction": "constructed of cast iron"}
     out = _gate(FakeModel(scope=lambda p: wrong if "Part TT" in p else NOT_LIMITED))
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"]
+    assert _ids(out["kept"]) == ["aa", "zz"] and out["items"] == []
+    assert _ids(out["held"]) == ["tt"]
 
 
 def test_a_no_resting_on_a_line_that_is_not_stated_is_ignored(temp_storage):
     invented = {**NOT_GRAPHITE, "quote": "Shell material: stainless steel"}
     out = _gate(FakeModel(construction=invented))
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"] and out["items"] == []
+    # the reply cannot be used (refused after one retry): the construction was
+    # not read, so the limited parts are held - not compared, not excluded
+    assert _ids(out["kept"]) == ["aa"] and out["items"] == []
+    assert _ids(out["held"]) == ["zz", "tt"]
+    assert all(h["decided_by"] == "code:scope-not-read" for h in out["held"])
+    assert all(
+        "did not read whether this equipment is of that construction" in h["detail"]
+        for h in out["held"]
+    )
+    assert out["summary"]["requirements_held_construction_not_read"] == 2
 
 
 def test_any_stated_value_naming_the_construction_sends_it_to_the_engineer(
@@ -340,7 +369,9 @@ def test_a_heading_that_starts_no_division_ends_the_one_before_it(temp_storage):
     }
     out = _gate(FakeModel(), pages=[*PAGES, appendix], reqs=(GENERAL, TITAN, formula))
     assert _ids(out["items"]) == ["tt"]
-    assert "f" in _ids(out["kept"])
+    # the break opens no part the model confirms; what follows it inherits the
+    # titanium part's exclusion DOWNGRADED to a hold, never kept, never excluded
+    assert "f" not in _ids(out["kept"]) and _ids(out["held"]) == ["f"]
 
 
 def test_a_page_with_two_headings_starts_no_division_and_ends_the_one_before(
@@ -360,7 +391,8 @@ def test_a_page_with_two_headings_starts_no_division_and_ends_the_one_before(
         "source_text": "1-1 Cylindrical shells shall be designed with formula one.",
     }
     out = _gate(FakeModel(), pages=[*PAGES, both], reqs=(TITAN, formula))
-    assert _ids(out["items"]) == ["tt"] and _ids(out["kept"]) == ["f"]
+    assert _ids(out["items"]) == ["tt"] and _ids(out["held"]) == ["f"]
+    assert out["kept"] == []
 
 
 def test_the_division_s_own_scope_is_read_never_a_sub_clause_s():
@@ -653,3 +685,19 @@ def test_a_review_with_the_division_reader_off_changes_nothing(
     result, stored, ids = _review(monkeypatch, model, enabled=False)
     assert {stored[i]["state"] for i in ids.values()} == {scope_ledger.CHECKED}
     assert model.calls == [] and "division_scope" not in result["requirement_split"]
+
+
+def test_a_review_whose_scope_step_could_not_run_holds_the_division_not_a_verdict(
+    temp_storage, monkeypatch
+):
+    # order 173.2: the model could not be reached, so the scope step never ran.
+    # The special parts are HELD for the engineer; they are not compared.
+    result, stored, ids = _review(
+        monkeypatch, FakeModel(fail="the model could not be reached")
+    )
+    for name in ("zz", "tt"):
+        assert stored[ids[name]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
+        assert stored[ids[name]]["reason_code"] == "applicability_unsure"
+        assert "did not read this part's scope" in stored[ids[name]]["reason"]
+        assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
+    assert result["requirement_split"]["division_scope"]["could_not_read"] == 3

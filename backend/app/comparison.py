@@ -56,6 +56,7 @@ from . import (absence, claims, conditions, datasheets, errors, field_copies, fi
                 page_ledger, requirements_3b, review, schemas, stated_value, submittal_review)
 from .config import settings
 from .db import connect
+from .provenance import ai_quote_proved
 
 # ----------------------------------------------------------------- statuses
 
@@ -572,18 +573,6 @@ def low_trust_reason(fact: dict | None) -> str | None:
     return None
 
 
-def ai_quote_proved(fact: dict | None) -> dict | None:
-    """The AI reader's provenance (`engine`, `model`) when this fact was read
-    by `datasheet_ai` and the code proved its quote on the page; else None."""
-    try:
-        box = json.loads((fact or {}).get("bbox") or "{}")
-    except (TypeError, ValueError):
-        return None
-    if isinstance(box, dict) and box.get("reader") == "datasheet_ai" and box.get("quote_on_page") is True:
-        return box
-    return None
-
-
 #: The verdicts an untrusted value may not produce. BOTH of them (audit
 #: leftover 2026-09-30): a COMPLIANT resting on an OCR-fallback or model-read
 #: value is the same guess as a breach resting on one - it only fails the
@@ -621,6 +610,43 @@ _HELD_ON_UNSURE_KIND = frozenset(
 #: A rationale that already leads with its own machine reason ("unit_mismatch:",
 #: "LOW_TRUST_VALUE:"): an engineer question asked for that reason keeps it.
 _LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
+
+
+def _required_value_only(
+    verdict: dict, requirement: dict, purchaser_facts: list[dict], sheet: str | None
+) -> dict:
+    """#882: when the only value the sheet gives a clause is the purchaser's own
+    required one, the finding says the submittal states no offered value and
+    names the page the requirement was read on. Any other verdict is returned
+    as it came."""
+    if verdict.get("status") not in (MISSING_INFORMATION, NOT_IN_DOCUMENT_SCOPE):
+        return verdict
+    seen = {
+        r["name"]
+        for r in match_by_containment(requirement, purchaser_facts, sheet_kind=sheet)[
+            "refused"
+        ]
+        if r["reason"] == match_rules.REQUIRED_KIND
+    }
+    pages = sorted(
+        {
+            f["page"]
+            for f in purchaser_facts
+            if f.get("page") is not None
+            and _normalise_for_match(f.get("field_name")) in seen
+        }
+    )
+    if not pages:
+        return verdict
+    return {
+        **verdict,
+        "status": MISSING_INFORMATION,
+        "rationale": (
+            f"{REQUIRED_VALUE_ONLY}: the submittal does not state an offered value; the "
+            "sheet's only value for this field is the purchaser's required one "
+            f"(page {', '.join(str(n) for n in pages)}), which is not the contractor's submission"
+        ),
+    }
 
 
 def _hold_unsure_kind(
@@ -1773,8 +1799,7 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
             f"{page_ledger.page_list(page_reader_only)}. No value for this "
             f"requirement was found in the fields read from {where} of {total}")}
     return {**verdict, "rationale": (
-        f"{verdict.get('rationale') or ''}; fields were read from every page "
-        f"({where} of {total})")}
+        f"{verdict.get('rationale') or ''}; {page_ledger.every_page_read(pages, where, total)}")}
 
 
 def _confidence_label(value: float) -> str:
@@ -2419,6 +2444,11 @@ def _run_comparison(
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
+    # #882 A REQUIRED VALUE IS NEVER THE CONTRACTOR'S SUBMITTED VALUE: it leaves
+    # the pool every matcher and judge draws from (counted in the outcome).
+    purchaser_facts = [f for f in facts if match_rules.is_purchaser_kind(f)]
+    purchaser_values = len(purchaser_facts)
+    facts = [f for f in facts if not match_rules.is_purchaser_kind(f)]
     # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
     # ANSWERS IT. The rest are counted, one grouped line per standard, in the
     # run's outcome; a definition or unconfirmed garbled text is never a check.
@@ -2805,6 +2835,11 @@ def _run_comparison(
                     "status": NEEDS_ENGINEER_REVIEW,
                     "rationale": field_copies.ambiguous_rationale(match),
                 }
+            # #882: A REQUIRED VALUE IS CONTEXT, NEVER THE SUBMISSION.
+            if fact is None and purchaser_facts and not rule_verdict:
+                verdict = _required_value_only(
+                    verdict, governing_requirement, purchaser_facts, sheet
+                )
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
             # is only the contractor's omission if every page was read into fields.
             if fact is None and verdict.get("status") == MISSING_INFORMATION:
@@ -3106,6 +3141,7 @@ def _run_comparison(
         "requirements_excluded": gated["excluded"],
         "table_values_not_compared": table_values_not_compared,
         "facts_in_scope": len(facts),
+        "purchaser_values_not_used": purchaser_values,
         "matches_attempted": matches_attempted,
         "matches_made": matches_made,
         "model_matches": model_matches,
@@ -3196,6 +3232,8 @@ PAIRING_NOT_CHECKED = "pairing_not_checked"
 #: Every containment hit was refused by a `match_rules` rule. The `refused`
 #: list on the result names each hit and the rule that removed it.
 REFUSED_BY_RULE = "refused_by_rule"
+#: #882: the sheet gives only the purchaser's own required value for the field.
+REQUIRED_VALUE_ONLY = "required_value_only"
 TABLE_ROW_REASON = "table_row"
 #: Why a numeric comparison was refused although both numbers were present:
 #: the requirement's number is a MARGIN from a reference the submittal does
@@ -3811,6 +3849,8 @@ def candidate_facts(requirement: dict, facts: list[dict]) -> list[dict]:
     for fact in facts:
         if not fact_has_number(fact) or fact.get("is_blank"):
             continue
+        if match_rules.is_purchaser_kind(fact):
+            continue  # #882: what the purchaser requires is not a submitted value
         if not _units_comparable(requirement, fact,
                                  requirement_unit, _unit_measure(fact)):
             continue
@@ -3900,9 +3940,20 @@ def _json_object_in(text: str | None) -> str:
     return text[start:end + 1] if 0 <= start < end else text
 
 
-def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, str | None]:
-    """One call. Returns `(PairChoice, None)` or `(None, reason)`."""
-    from . import model_transport
+#: Part of the stored-answer key of the pair-choice call: change it when the
+#: instruction, the options or the answer shape of `_ask_model_once` change.
+MATCH_PROMPT_VERSION = "match-pair-choice-1"
+
+
+def _ask_model_once(
+    requirement: dict, candidates: list[dict], nth: int = 0
+) -> tuple[object, str | None]:
+    """One call. Returns `(PairChoice, None)` or `(None, reason)`.
+
+    `nth` says which ask of the same question this is (the stability check
+    asks twice): each ask is its own stored answer, so a reused pair of
+    answers is the pair the model really gave."""
+    from . import ai_task_runner, model_transport
     if (str(settings.match_engine or "ollama").strip().lower()) == "claude":
         answer, why = _ask_claude_for_a_pair(build_prompt(requirement, candidates))
         if why is not None:
@@ -3935,12 +3986,31 @@ def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, 
             "num_batch": settings.num_batch,
         },
     }
-    try:
-        raw = model_transport.post_json(
+
+    # REUSE (order 163.3): the stored answer to the same prompt, options,
+    # prompt version and model, kept only when it passed the code check; the
+    # reused text is checked by `_checked_choice` exactly like a fresh one.
+    def ask() -> str:
+        raw = model_transport.post_json_retrying(
             "/api/generate", body, timeout=settings.match_timeout_seconds)
+        return (raw or {}).get("response") or ""
+
+    try:
+        answer = ai_task_runner.reuse_or_ask(
+            "match-pair-choice",
+            MATCH_PROMPT_VERSION,
+            str(body["model"]),
+            None,
+            json.dumps(
+                {"prompt": body["prompt"], "options": body["options"]}, sort_keys=True
+            ),
+            ask,
+            nth=nth,
+            keep_if=lambda text: _checked_choice(text, candidates)[1] is None,
+        )
     except Exception as exc:  # noqa: BLE001 - refused, timed out, or answered wrongly
         return errors.fell_back("comparison: the local pair-choice call failed; the pair stays unchosen", exc, (None, MODEL_UNAVAILABLE))
-    return _checked_choice((raw or {}).get("response") or "", candidates)
+    return _checked_choice(answer, candidates)
 
 
 def _checked_choice(answer: str, candidates: list[dict]) -> tuple[object, str | None]:
@@ -4006,7 +4076,7 @@ def match_by_model(requirement: dict, facts: list[dict], *,
         return _none_match(MODEL_BUDGET)
     if budget is not None:
         budget.spend()
-    second, reason = _ask_model_once(requirement, candidates)
+    second, reason = _ask_model_once(requirement, candidates, nth=1)
     if reason is not None:
         return _none_match(reason)
     if first.choice != second.choice:
@@ -4238,14 +4308,14 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     """
     req_ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
     fact_ids = sorted({f["fact_id"] for f in findings if f.get("fact_id")})
-    # A-761b: a standard whose "clauses" are table numbers gets no clause
-    # number on the CRS ("paragraph not identified"), never "cl. 0.3".
+    from . import paragraph_ids
     from . import standards as standards_mod
     known = standards_mod.paragraph_ids_known(
         {f.get("standard_document_id") for f in findings if f.get("standard_document_id")})
     for f in findings:
         if f.get("standard_document_id") in known:
             f["clause_identified"] = known[f["standard_document_id"]]
+    paragraph_ids.attach(findings)
     requirements: dict = {}
     facts: dict = {}
     conn = connect()

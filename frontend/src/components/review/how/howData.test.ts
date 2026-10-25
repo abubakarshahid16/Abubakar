@@ -93,6 +93,19 @@ describe("pagesMeaning reads the stored reading record", () => {
     expect(line).not.toMatch(/every/i);
     expect(line).toContain("not recorded");
   });
+  it("names pages read with no checklist field apart from the pages fields were read from (order 165)", () => {
+    const run = { ...base, page_coverage: {
+      pages_total: 11, fact_pages: [4, 5, 6, 7, 8, 9, 10, 11], pages_not_read_into_fields: [], not_read_reasons: {},
+      pages_read_no_field: [1, 2, 3],
+      reading: { status: "complete", pages_total: 11, incomplete_pages: [], reasons: {} },
+    } } as unknown as ReviewRunSummary;
+    expect(pageFacts(run).readNoField.value).toEqual([1, 2, 3]);
+    const line = pagesMeaning(run);
+    expect(line).toContain("3 of 11 pages (pages 1-3) were read and held no checklist field");
+    expect(line).toContain("not counted as pages fields were read from");
+    expect(pagesMeaning({ ...run, page_coverage: { ...run.page_coverage, pages_read_no_field: undefined } } as unknown as ReviewRunSummary))
+      .not.toContain("no checklist field");
+  });
   it("claims all pages only when the run stored the reading as complete", () => {
     const run = { ...base, page_coverage: {
       pages_total: 2, fact_pages: [1, 2], pages_not_read_into_fields: [], not_read_reasons: {}, pages_ai_not_read: [],

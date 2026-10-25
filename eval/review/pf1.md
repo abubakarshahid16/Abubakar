@@ -20,6 +20,17 @@ builders, never used when fixing anything, scored only by the merger session.
 The builder refuses an output folder inside a git repository: held-out answers
 in a repository are not held out.
 
+**The one exception (planner, 20 Oct 2026, option (a)).** So that a GitHub
+Actions workflow (order 171) can review the invented sheets, `pf1_set.py build
+--allow-in-git --out <repo>/backend/tests/fixtures/synthetic/pf1` may write the **invented tuning
+sheets** into the repository. The builder refuses the whole build, writes
+nothing and names only counts when the spec holds any document with `held_out:
+true` or any library-group document (it carries text of the client's
+standards), and it refuses any folder but `backend/tests/fixtures/synthetic/pf1` (the one folder the no-client-data guard lets a .pdf be tracked in). Held-out
+sheets and answers, the library group and every real document stay out of git.
+Reason: tuning sheets are invented and are the ones builders may see and fix
+against; the held-out sheets are the only ones that must stay unseen.
+
 ## Two groups (owner, 13 Oct 2026)
 
 * **Library group (the main one).** Invented sheets planted against
@@ -171,7 +182,8 @@ one after its baseline.
 
 `scripts/pf1_run.py` sends each sheet of the built set through a **test**
 server: upload (the invented group also uploads its invented standard, sets it
-as a company standard and extracts it), start the review, wait for its job,
+as a company standard, records its document number from the index (the review
+includes a standard only by its recorded number) and extracts it), start the review, wait for its job,
 write `<id>.run.json` (run id, job state, minutes; no document text) and
 `run-index.json`. It does not score: export the findings from a copy of the
 test server's database with `scripts/review_score.py export --run RUN_ID`, then

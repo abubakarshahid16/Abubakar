@@ -33,11 +33,23 @@ Nothing here names a standard or a datasheet.
 """
 from __future__ import annotations
 
-import bisect
 import re
 
 from . import ai_task_runner, requirement_quality, scope_ledger, service_scope, subject_scope
 from .ai import output_limits
+from .division_text import (  # noqa: F401 - re-exported: the names tests and callers use
+    NOT_READ_COUNTS,
+    SCOPE_WORDS,
+    division_of,
+    divisions,
+    ledger_item,
+    not_read_rec,
+    place,
+    scope_passage,
+    sub_of,
+    sub_units,
+    unscreened,
+)
 
 CATEGORIES = ["other_equipment", "service_condition_not_met", "informative_note",
               "definition", "none"]
@@ -113,7 +125,9 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     vocab = subject_scope.vocabulary()
     equipment, _ = subject_scope.submittal_equipment(classification, facts, vocab)
     head = context(classification, facts)
-    model = getattr(provider, "requested_model", None) or ai_task_runner.settings.ai_task_model
+    # one provider: the model named in the ledger is the model that ran
+    provider = provider or ai_task_runner.make_provider()
+    model = getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
     kept: list[dict] = []
     items: list[dict] = []
     notes: dict = {}
@@ -149,151 +163,6 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
             "not_asked": len(requirements) - asked}
 
 
-# --------------------------------------- #141: a division's own scope sentence
-# Where a standard's DIVISIONS (parts, appendices, annexes, chapters) are, and
-# where each requirement sits; the gate is below. No standard or part is named:
-# the words are the structural words standards use for a top-level division.
-
-#: A division heading: the structural word, a short id (a number, or one to
-#: four capitals with an optional "-A" letter), then the end of the line or a
-#: title (`subject_scope._TITLE_REST`). The word is capitalised ("Part",
-#: "PART"): a "part" inside a wrapped sentence is not a heading, and neither
-#: is "Part 3 of this" (a lower-case word follows the id).
-_DIVISION = re.compile(
-    r"^(?:(?i:(?:non-?)?mandatory|normative|informative)\s+)?"
-    r"(?:P(?i:art)|A(?i:ppendix|nnex)|C(?i:hapter))\s+"
-    r"(?P<id>\d{1,3}[A-Z]?|[A-Z]{1,4}(?:-[A-Z]{1,2})?)(?![A-Za-z0-9])"
-    + subject_scope._TITLE_REST
-)
-#: A contents-page entry: a heading with a title that ends in a page number.
-_CONTENTS_TAIL = re.compile(r"[A-Za-z)]\s*[.\s]*\s\d{1,4}$")
-
-
-def _page_lines(text: subject_scope.StandardText, lo: int, hi: int) -> list[int]:
-    """The indices of the lines of the page that runs from `lo` to `hi`."""
-    first = bisect.bisect_left(text.offsets, lo, hi=len(text.lines))
-    last = bisect.bisect_left(text.offsets, hi, lo=first, hi=len(text.lines))
-    return list(range(first, last))
-
-
-#: A division heading is among this many first lines of its page.
-_DIVISION_TOP = 5
-#: How far into a division its scope clause is looked for (lines), and how
-#: many words of the division the model reads.
-_SCOPE_LOOK = 160
-SCOPE_WORDS = 170
-_SCOPE_LINE = re.compile(r"\bscope\b", re.IGNORECASE)
-
-
-def divisions(text: subject_scope.StandardText) -> list[dict]:
-    """The divisions of a standard and the lines that end them, in order:
-    {"at" (offset in the folded text), "line" (index), "name", "heading"}.
-
-    A division STARTS A PAGE: its heading is among the first lines of a page
-    (`_DIVISION_TOP`), and that page holds no other heading-like line. EVERY
-    other heading-like line - a wrapped cross-reference ("... see" / "Part
-    X"), a heading below the top of a page, a page with two of them, a
-    contents entry - ENDS the division it is in: it is a break (name None),
-    and what follows it sits in no division until the next start, so it stays
-    a check. A missed heading can therefore never lend the division before it
-    to the next one's requirements. A running header, and a heading repeated
-    for the division it is already in (a "(continued)" title), are neither."""
-    out: list[dict] = []
-    pages = [_page_lines(text, lo, hi) for lo, hi in text.page_bounds.values()]
-    running = subject_scope._running_lines([[text.lines[i] for i in p] for p in pages])
-    for indices in pages:
-        first = indices[0] if indices else 0
-        heads: list[tuple[int, tuple[str, str], bool]] = []
-        for index in indices:
-            line = text.lines[index]
-            match = _DIVISION.match(line)
-            if match is None or re.sub(r"\d+", "#", line) in running:
-                continue
-            listed = bool(line[match.end("id") :].strip()) and bool(
-                _CONTENTS_TAIL.search(line)
-            )
-            # the division's name: its structural word and id ("appendix 9")
-            word = line[: match.start("id")].split()[-1].casefold()
-            heads.append((index, (word, match.group("id").upper()), listed))
-        if not heads:
-            continue
-        top, _name, listed = heads[0]
-        starts = (
-            len({name for _i, name, _l in heads}) == 1
-            and not listed
-            and top - first < _DIVISION_TOP
-        )
-        for index, name, _listed in heads:
-            if out and out[-1]["name"] == name:
-                continue
-            out.append(
-                {
-                    "at": text.offsets[index],
-                    "line": index,
-                    "name": name if starts and index == top else None,
-                    "heading": text.lines[index],
-                }
-            )
-    return out
-
-
-def division_of(
-    requirement: dict, text: subject_scope.StandardText, divs: list[dict]
-) -> dict | None:
-    """The division a requirement sits in, or None when it sits before the
-    first one, after a break, or cannot be placed: where its sentence sits in
-    the text first, else its page (a division starts a page) - a page that
-    holds a break is in none."""
-    at = text.place(requirement)
-    if at is None:
-        bounds = text.page_bounds.get(subject_scope._page_of(requirement))
-        if bounds is None or bounds[1] <= bounds[0]:
-            return None
-        if any(d["name"] is None and bounds[0] <= d["at"] < bounds[1] for d in divs):
-            return None
-        at = bounds[1] - 1
-    inside = [d for d in divs if d["at"] <= at]
-    return inside[-1] if inside and inside[-1]["name"] is not None else None
-
-
-#: The heading and the lines right after it: always read.
-_OPENING = 4
-
-
-def scope_passage(text: subject_scope.StandardText, div: dict, end: int | None) -> str:
-    """What the model reads of a division: its heading and the lines right
-    after it, then its OWN scope clause - the first line naming "scope" in the
-    division's first clause (before a second sub-clause heading) - up to the
-    next sub-clause heading, at most `SCOPE_WORDS` words, never past the
-    division's end (`end`: the next start or break). A scope line of a later
-    sub-clause is never read as the division's: with none in the first
-    clause, only the opening is read."""
-    stop = len(text.lines) if end is None else end
-    first = div["line"]
-    opening = min(first + _OPENING, stop)
-    scope_at = None
-    subs = 0
-    for i in range(first + 1, min(first + _SCOPE_LOOK, stop)):
-        # the heading first: a scope line of the SECOND sub-clause is not the
-        # division's own
-        if subject_scope._heading(text.lines[i]) is not None:
-            subs += 1
-            if subs > 1:
-                break
-        if _SCOPE_LINE.search(text.lines[i]):
-            scope_at = i
-            break
-    words: list[str] = " ".join(text.lines[first:opening]).split()
-    if scope_at is not None:
-        for i in range(max(scope_at, opening), stop):
-            if i > scope_at and subject_scope._heading(text.lines[i]) is not None:
-                break
-            if len(words) >= SCOPE_WORDS:
-                break
-            words.extend(text.lines[i].split())
-    return " ".join(words[:SCOPE_WORDS])
-
-
 def folded_in(needle: object, haystack: object, *, least: int = 1) -> bool:
     """Is `needle` in `haystack`, compared on letters and digits only (so a
     word hyphenated over a line break still matches)?"""
@@ -318,8 +187,10 @@ def folded_in(needle: object, haystack: object, *, least: int = 1) -> bool:
 #      the stated line names ANOTHER member of the same exclusive material
 #      family (`conditions`, #920). The model's "yes" keeps it a check.
 # Anything code cannot decide is held for the engineer (`applicability_unsure`).
-# A model that is off, fails, stops answering or gives a reply code cannot
-# verify changes nothing: every requirement stays a check.
+# A part whose scope was NOT READ (the model fails, stops answering, gives a
+# reply code cannot verify, or the run's limit is reached) is never a pass: its
+# requirements are HELD for the engineer (order 173.2). Switched off
+# (`ai_division_scope_enabled`), nothing changes.
 
 SCOPE_SCHEMA = {
     "type": "object",
@@ -535,6 +406,13 @@ def _read(task, text: str, provider, run: dict) -> dict | None:
     return None
 
 
+def _yes_is_stated(reply: dict, stated: list[str], construction: str) -> bool:
+    """Is the model's "yes" backed by a STATED line that names the
+    construction and is the line it quoted?"""
+    line = next((s for s in stated if folded_in(reply.get("quote"), s, least=4)), None)
+    return line is not None and _names(line.partition(": ")[2] or line, construction)
+
+
 def _division_decision(
     scope: dict,
     stated: list[str],
@@ -543,10 +421,13 @@ def _division_decision(
     provider,
     run: dict,
 ) -> tuple[str, str | None]:
-    """("does_not_apply" | "unsure" | "applies", the stated line and the
-    other material code read) for a division limited to the construction.
-    Code decides "does not apply"; a read that fails is "applies" (nothing
-    excluded or held on it); what code cannot decide is "unsure"."""
+    """("does_not_apply" | "unsure" | "applies" | "unread", the stated line
+    and the other material code read) for a division limited to the
+    construction. Code decides "does not apply"; a read that fails is
+    "unread" (nothing excluded or held on it, but the gate counts it); a
+    "yes" counts as "applies" only when a stated line names the construction
+    and the model's quote is that line, else it is "unsure"; what code cannot
+    decide is "unsure"."""
     from . import conditions
 
     construction = scope["construction"]
@@ -558,8 +439,12 @@ def _division_decision(
         provider,
         run,
     )
-    if first is None or first.get("is_that") == "yes":
-        return "applies", None
+    if first is None:
+        return "unread", None
+    if first.get("is_that") == "yes":
+        return (
+            "applies" if _yes_is_stated(first, stated, construction) else "unsure"
+        ), None
     if first.get("is_that") != "no" or _named_anywhere(
         construction, classification, facts
     ):
@@ -611,7 +496,8 @@ def division_gate(
 ) -> dict:
     """#141: requirements of a standard's division whose own scope limits it
     to a construction code finds this equipment is not do not apply; what
-    code cannot decide is held for the engineer. Returns {"kept", "items" (does not apply, code
+    code cannot decide, and a part the model did not read, is held for the
+    engineer. Returns {"kept", "items" (does not apply, code
     `outside_division_scope`), "held" (applies, not checked, code
     `applicability_unsure`), "summary"}. Never fails a review: on an error
     nothing changes (every requirement stays a check)."""
@@ -643,116 +529,231 @@ def division_gate(
         )
 
 
-def _place(requirements: list[dict], pages_of) -> tuple[dict, dict, dict]:
-    """Where each requirement sits: ({id(requirement): (standard, division)},
-    {(standard, division): (division, passage, page)}, {key: requirements})."""
-    where: dict[int, tuple[str, int]] = {}
-    passages: dict[tuple[str, int], tuple[dict, str, int | None]] = {}
-    counts: dict[tuple[str, int], int] = {}
-    for sid in dict.fromkeys(r.get("standard_document_id") for r in requirements):
-        text = subject_scope.StandardText(pages_of(sid)) if sid else None
-        divs = divisions(text) if text is not None else []
-        for k, div in enumerate(divs):
-            if div["name"] is not None:
-                end = divs[k + 1]["line"] if k + 1 < len(divs) else None
-                page = next(
-                    (
-                        p
-                        for p, (lo, hi) in text.page_bounds.items()
-                        if lo <= div["at"] < hi
-                    ),
-                    None,
-                )
-                passages[(sid, k)] = (div, scope_passage(text, div, end), page)
-        index = {id(d): k for k, d in enumerate(divs)}
-        for r in requirements:
-            div = (
-                divs
-                and r.get("standard_document_id") == sid
-                and division_of(r, text, divs)
-            )
-            if div:
-                where[id(r)] = key = (sid, index[id(div)])
-                counts[key] = counts.get(key, 0) + 1
-    return where, passages, counts
+def _decide_unit(unit: dict, ctx: dict) -> dict:
+    """Read one unit (spends one read of the run's budget) and decide:
+    {"status": "read" | "unread" | "beyond", "verdict": "kept" | "held" |
+    "does_not_apply", "scope", "unit", ...}. "unsure" is held for the engineer;
+    so is a unit the model could not be read for or the limit left unread
+    (`not_read`: never compared, the gate counts it). A candidate start (found by shape or break) can only be held, never
+    excluded, even when the model confirms it: nothing checks it is a real
+    start of a part."""
+    from . import clause_scope
 
-
-def _item(requirement: dict, found: dict, standard_labels: dict, model: str) -> dict:
-    """The ledger item for a requirement of a decided division."""
-    sid = requirement.get("standard_document_id")
-    scope = found["scope"]
-    said = (
-        f"{found['div']['heading']} of {standard_labels.get(sid) or sid} applies only to "
-        f'{scope["construction"].strip()}: "{scope["quote"].strip()}"'
-        + (f" (page {found['page']})" if found["page"] is not None else "")
+    summary = ctx["summary"]
+    if ctx["budget"] is not None and ctx["budget"] <= 0:
+        summary["not_read_limit"] += 1
+        return not_read_rec(unit, "beyond")
+    if ctx["budget"] is not None:
+        ctx["budget"] -= 1
+    passage = scope_passage(unit["text"], unit["div"], unit["end"])
+    scope = _read(SCOPE_TASK, passage, ctx["provider"], ctx["run"])
+    summary["could_not_read" if scope is None else "read"] += 1
+    rec = {"status": "read", "verdict": "kept", "scope": scope, "unit": unit}
+    if scope is None:
+        return not_read_rec(unit, "scope")
+    if scope.get("limited") == "unsure":
+        return {**rec, "verdict": "held", "unsure": True}
+    if scope.get("limited") != "yes":
+        return rec
+    summary["limited"] += 1
+    verdict, line = _division_decision(
+        scope,
+        ctx["stated"],
+        ctx["classification"],
+        ctx["facts"],
+        ctx["provider"],
+        ctx["run"],
     )
-    if found["verdict"] == "does_not_apply":
-        code = "outside_division_scope"
-        detail = (
-            f'{said}; the datasheet states "{found["line"]}, another material of that '
-            "family (the model read the scope sentence and the stated line; code decided)"
-        )
-    else:
-        code = "applicability_unsure"
-        detail = (
-            f"{said}; the datasheet does not settle whether this equipment is of that "
-            "construction - an engineer decides"
-        )
-    return {
-        "requirement": requirement,
-        "code": code,
-        "detail": detail,
-        "decided_by": f"ai:{model}+code",
-    }
+    if verdict == "unread":
+        return not_read_rec(unit, "construction", scope)
+    rec["own"] = True
+    if verdict == "applies":
+        return rec
+    verdict = "held" if verdict == "unsure" else verdict
+    if unit["kind"] == "candidate":  # found by shape: nothing checks it is a start
+        verdict = clause_scope.downgrade(verdict)
+    return {**rec, "verdict": verdict, "line": line}
 
 
-def _division_gate(
-    requirements, *, classification, facts, standard_labels, provider, limit, pages_of
-) -> dict:
-    model = (
-        getattr(provider, "requested_model", None)
-        or ai_task_runner.settings.ai_task_model
+def _subparts(unit: dict, wanted: set, ctx: dict) -> tuple[list[dict], list | None]:
+    """(flagged, skipped): the sub-headings of a division the model flags as
+    limited to a material, form, construction or grade (each verified by
+    `clause_scope`), and the sub-headings that were NOT screened - None when
+    none of them was (the run's budget is spent or the model stopped), else the
+    ones past the titles one read can carry. A screen that fails (a reply that
+    does not fit, a model error) is not a screen with none flagged: None."""
+    from . import clause_scope
+
+    found = clause_scope.subclause_units(
+        unit["text"], unit["div"], unit["end"], wanted, limit=None
     )
-    where, passages, counts = _place(requirements, pages_of)
-    order = sorted(counts, key=lambda key: -counts[key])
-    asked = order if limit is None else order[:limit]
-    stated = stated_construction(classification, facts)
-    decided: dict[tuple[str, int], dict] = {}
-    summary = dict.fromkeys(("read", "could_not_read", "limited"), 0)
-    summary.update(divisions=len(order), not_read_limit=len(order) - len(asked))
-    run: dict = {}
-    for key in asked:
-        div, passage, page = passages[key]
-        scope = _read(SCOPE_TASK, passage, provider, run)
-        summary["could_not_read" if scope is None else "read"] += 1
-        if scope is None or scope.get("limited") != "yes":
-            continue
-        summary["limited"] += 1
-        verdict, line = _division_decision(
-            scope, stated, classification, facts, provider, run
-        )
-        if verdict != "applies":
-            decided[key] = {
-                "verdict": verdict,
-                "line": line,
-                "div": div,
-                "page": page,
-                "scope": scope,
-            }
-    if run.get("stopped"):
-        summary["stopped"] = f"{run['stopped']}; the divisions after it were not read"
+    if not found:
+        return [], []
+    if ctx["run"].get("stopped") or (ctx["budget"] is not None and ctx["budget"] <= 0):
+        return [], None
+    if ctx["budget"] is not None:
+        ctx["budget"] -= 1
+    head = found[: clause_scope.MAX_TITLES]
+    flagged = clause_scope.screen_titles(head, ctx["provider"], ctx["run"])
+    if flagged is None or ctx["run"].get("stopped"):  # the screen failed
+        return [], None
+    return flagged, found[clause_scope.MAX_TITLES :]
+
+
+def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
+    """Read the divisions and candidate starts the largest first, then the
+    flagged sub-parts (also those holding no requirement of their own but an
+    inner sub-part's) the largest first, all within the run's budget.
+    Returns ({key: decision}, {id(requirement): [sub-part keys, outer first]});
+    `ctx["screen_failed"]` gets the requirements whose sub-headings the screen
+    did not carry (it failed, was not run or left them out): they are HELD.
+    `ctx["by_page"]` gets those kept but counted: no line, or in a kept
+    candidate start (never screened)."""
+    recs: dict[tuple, dict] = {}
+    subs: list[dict] = []
+    ctx["screen_failed"], ctx["by_page"] = set(), set()
+    todo = sorted(
+        (u for u in units.values() if u["weight"]), key=lambda u: -u["weight"]
+    )
+    for unit in todo:
+        recs[unit["key"]] = rec = _decide_unit(unit, ctx)
+        open_part = rec["status"] == "read" and rec["verdict"] == "kept"
+        if unit["kind"] == "division" and open_part:
+            lines = {ln for key, ln in where.values() if key == unit["key"]}
+            flagged, skipped = _subparts(unit, lines - {None}, ctx)
+            failed, by_page = unscreened(unit, where, skipped)
+            ctx["screen_failed"] |= failed
+            ctx["by_page"] |= by_page
+            subs += sub_units(unit, flagged)
+        elif unit["kind"] == "candidate" and open_part:  # never sub-screened
+            ctx["by_page"] |= unscreened(unit, where, [], screened=False)[1]
+    subs_of = sub_of(subs, where)
+    for sub in sorted(subs, key=lambda s: -s["count"]):
+        if sub["count"]:
+            recs[sub["key"]] = _decide_unit(sub, ctx)
+    if subs:
+        ctx["summary"]["subparts_flagged"] = len(subs)
+    return recs, subs_of
+
+
+#: How restrictive a verdict is: a requirement takes the highest of its parts.
+_RANK = {"kept": 0, "held": 1, "does_not_apply": 2}
+
+
+def _effective(requirement: dict, where, sub_map, recs, units) -> dict | None:
+    """The decision that holds for a requirement: the most restrictive of its
+    part's and of EVERY flagged sub-part that contains it (an outer one is read
+    even when only an inner one holds the requirement); a part or sub-part
+    that was not read is held (`not_read`), so it outranks a kept one. A
+    candidate start the model read and did not confirm as a new part inherits the part before it
+    DOWNGRADED (excluded -> held), unless the model was unsure of it, which
+    holds: a false break never rescues a clause from a limited part, and code
+    never excludes on inheritance or on a candidate's own reading (a start
+    found by shape or break can only hold; `_decide_unit` caps it)."""
+    from . import clause_scope
+
+    placed = where.get(id(requirement))
+    if placed is None:
+        return None
+    unit = units[placed[0]]
+    rec = recs[unit["key"]]
+    if (
+        rec["status"] == "read"
+        and unit["kind"] == "candidate"
+        and not (rec.get("own") or rec.get("unsure"))
+    ):
+        prev = recs.get(unit["prev"]["key"]) if unit["prev"] else None
+        if prev and clause_scope.downgrade(prev["verdict"]) == "held":
+            rec = {**prev, "verdict": "held", "via": unit["div"]["heading"]}
+        else:
+            rec = {**rec, "verdict": "kept"}
+    subs = [recs[k] for k in sub_map.get(id(requirement), []) if k in recs]
+    return max([rec, *subs], key=lambda r: _RANK[r["verdict"]])
+
+
+def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
+    """(kept, items, held, counts): every requirement with the decision that
+    holds for it. `marks`: the ids of the requirements "unplaced", whose
+    sub-headings the screen did not carry ("screen_failed", held) and which
+    were placed "by_page" only or sit in a candidate start (kept, counted).
+    Counts are of requirements; a count of none is left out."""
     kept: list[dict] = []
     out: dict[str, list[dict]] = {
         "outside_division_scope": [],
         "applicability_unsure": [],
     }
+    counts: dict[str, int] = {}
+
+    def count(name: str) -> None:
+        counts[name] = counts.get(name, 0) + 1
+
     for r in requirements:
-        found = decided.get(where.get(id(r)))
-        if found is None:
+        rec = _effective(r, where, sub_map, recs, units)
+        if id(r) in marks["unplaced"]:
+            count("requirements_unplaced")
+        if rec and rec["verdict"] == "kept" and id(r) in marks["screen_failed"]:
+            rec = not_read_rec(units[where[id(r)][0]], "screen")
+        if rec is None or rec["verdict"] == "kept":
             kept.append(r)
-        else:
-            item = _item(r, found, standard_labels, model)
-            out[item["code"]].append(item)
-    items, held = out["outside_division_scope"], out["applicability_unsure"]
-    summary.update(does_not_apply=len(items), held=len(held))
+            if id(r) in marks["by_page"]:
+                count("requirements_kept_sub_headings_not_screened")
+            continue
+        item = ledger_item(r, rec, labels, model)
+        out[item["code"]].append(item)
+        if rec.get("not_read"):
+            count(NOT_READ_COUNTS[rec["not_read"]])
+        elif rec.get("unsure") and not rec.get("via"):
+            count("requirements_held_unsure")
+    return kept, out["outside_division_scope"], out["applicability_unsure"], counts
+
+
+def _division_gate(
+    requirements, *, classification, facts, standard_labels, provider, limit, pages_of
+) -> dict:
+    # one provider for the whole run: the model recorded is the model that read
+    provider = provider or ai_task_runner.make_provider()
+    model = getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
+    units, where, unplaced = place(requirements, pages_of)
+    divisions_read = [
+        u for u in units.values() if u["weight"] and u["kind"] == "division"
+    ]
+    summary: dict = dict.fromkeys(("read", "could_not_read", "limited"), 0)
+    summary.update(divisions=len(divisions_read), not_read_limit=0)
+    ctx = {
+        "summary": summary,
+        "budget": limit,
+        "provider": provider,
+        "run": {},
+        "classification": classification,
+        "facts": facts,
+        "stated": stated_construction(classification, facts),
+    }
+    recs, subs_of = _read_all(units, where, ctx)
+    if stopped := ctx["run"].get("stopped"):
+        summary["stopped"] = f"{stopped}; the divisions after it were not read"
+        summary["model_unavailable"] = stopped
+    marks = {
+        "unplaced": unplaced,
+        "screen_failed": ctx["screen_failed"],
+        "by_page": ctx["by_page"],
+    }
+    kept, items, held, counts = _sort_out(
+        requirements, where, marks, subs_of, recs, units, standard_labels, model
+    )
+    candidates = sum(
+        1
+        for key, rec in recs.items()
+        if units.get(key, {}).get("kind") == "candidate" and rec["status"] == "read"
+    )
+    # the denominator of every requirement count: the requirements of the
+    # standards in this review, and nothing else
+    summary.update(does_not_apply=len(items), held=len(held), **counts)
+    summary["requirements_gated"] = len(requirements)
+    if candidates:
+        summary["candidates_read"] = candidates
+    model_status = ai_task_runner.model_status()
+    if model_status["fallback"] and model == model_status["used"]:
+        summary["model_fallback"] = (
+            f"{model_status['reason']}; {model_status['used']} read the scopes"
+        )
     return {"kept": kept, "items": items, "held": held, "summary": summary}
