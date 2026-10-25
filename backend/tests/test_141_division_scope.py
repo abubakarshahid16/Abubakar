@@ -763,3 +763,102 @@ def test_a_review_whose_scope_gate_crashes_holds_the_requirements_not_a_verdict(
         assert "(RuntimeError)" in stored[ids[name]]["reason"]
         assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
     assert result["requirement_split"]["division_scope"]["requirements_gated"] == 3
+
+
+# ------------------------- a sheet that says what it is only in its heading
+
+
+PUMP_SCOPE = "This invented standard covers centrifugal pumps."
+PUMP_PAGES = [
+    (
+        1,
+        "PART PP\nREQUIREMENTS FOR CENTRIFUGAL PUMPS\nPP-1 SCOPE\n"
+        + PUMP_SCOPE
+        + "\nPP-2 The casing shall be tested at 12 bar.\n",
+    )
+]
+PUMP_REQ = {
+    "id": "pc",
+    "standard_document_id": "std",
+    "page": 1,
+    "requirement_text": "The casing shall be tested at 12 bar.",
+    "source_text": "PP-2 The casing shall be tested at 12 bar.",
+}
+PUMP_LIMITED = {
+    "limited": "yes",
+    "construction": "centrifugal pumps",
+    "quote": PUMP_SCOPE,
+}
+HEADING = "CENTRIFUGAL PUMP DATASHEET"
+
+
+def _sheet_with_heading(heading=HEADING):
+    """A sheet whose classification holds NO equipment type and NO title (the
+    classifier found neither); the heading is only in its page text."""
+    from app import classification
+
+    _doc("sub", "sheet.pdf", "CONTRACTOR_SUBMITTAL", [(1, f"{heading}\nDESIGN PRESSURE 9 barg\n")])
+    return classification.of_document("sub")
+
+
+def _pump_gate(stored, model):
+    return ai_applicability.division_gate(
+        [dict(PUMP_REQ)],
+        classification=stored,
+        facts=[],
+        standard_labels={"std": "PUMP-STD"},
+        provider=model,
+        pages_of=lambda sid: PUMP_PAGES,
+    )
+
+
+def _yes(quote):
+    return {"equipment_is": "centrifugal pump", "quote": quote, "is_that": "yes"}
+
+
+def test_the_sheets_own_heading_is_a_stated_line(temp_storage):
+    stored = _sheet_with_heading()
+    assert not stored.get("equipment_type") and not stored.get("title")
+    assert f"heading: {HEADING}" in ai_applicability.stated_construction(stored, [])
+
+
+def test_a_part_that_only_repeats_what_the_heading_says_applies(temp_storage):
+    # the order 196 case: the standard's scope sentence names the equipment the
+    # sheet is headed with; before, nothing stored named it and the clause was held
+    stored = _sheet_with_heading()
+    model = FakeModel(
+        scope=PUMP_LIMITED, construction=_yes(f"heading: {HEADING}")
+    )
+    out = _pump_gate(stored, model)
+    assert out["summary"]["limited"] == 1  # the part really was read as limited
+    assert _ids(out["kept"]) == ["pc"] and out["held"] == [] and out["items"] == []
+
+
+def test_a_real_limit_the_heading_does_not_state_stays_held(temp_storage):
+    # a heading of a different kind of equipment names nothing of the part's
+    # construction: the model's "yes" is not backed by a stated line, so it is held
+    stored = _sheet_with_heading("TURBINE DATASHEET")
+    model = FakeModel(scope=PUMP_LIMITED, construction=_yes("heading: TURBINE DATASHEET"))
+    out = _pump_gate(stored, model)
+    assert out["kept"] == [] and _ids(out["held"]) == ["pc"]
+
+
+def test_a_yes_that_quotes_no_stated_line_stays_held(temp_storage):
+    stored = _sheet_with_heading()
+    model = FakeModel(scope=PUMP_LIMITED, construction=_yes("a pump of some kind"))
+    out = _pump_gate(stored, model)
+    assert out["kept"] == [] and _ids(out["held"]) == ["pc"]
+
+
+def test_a_models_no_never_excludes_a_part_the_heading_names(temp_storage):
+    # the heading names the construction: code never excludes on the model's
+    # "no" alone (it is held for the engineer)
+    stored = _sheet_with_heading()
+    no = {"equipment_is": "other", "quote": f"heading: {HEADING}", "is_that": "no"}
+    out = _pump_gate(stored, FakeModel(scope=PUMP_LIMITED, construction=no))
+    assert out["items"] == [] and _ids(out["held"]) == ["pc"]
+
+
+def test_a_document_with_no_known_text_has_no_heading(temp_storage):
+    assert ai_applicability.datasheet_heading({"equipment_type": "Pump"}) == []
+    assert ai_applicability.datasheet_heading({"document_id": "missing"}) == []

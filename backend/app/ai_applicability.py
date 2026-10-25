@@ -327,6 +327,7 @@ def _named_anywhere(
     for code to say, so such a division is never excluded."""
     values = [
         *(classification or {}).values(),
+        *datasheet_heading(classification),
         *(
             f.get("field_value") or f.get("raw_value")
             for f in facts
@@ -336,11 +337,36 @@ def _named_anywhere(
     return any(_names(v, construction) for v in values if isinstance(v, str) and v)
 
 
+_HEADING_LINES, _HEADING_WORDS = 2, 8
+
+
+def datasheet_heading(classification: dict | None) -> list[str]:
+    """The first short lines of the datasheet's first page: a sheet says what
+    it is in its heading even when no equipment type or title was stored for
+    it. Empty when the document or its text is not known. Its own words, never
+    a word list: whether a line names the construction is decided by
+    `_names`, as for every stated line."""
+    from .db import connect
+
+    doc = (classification or {}).get("document_id")
+    if not doc:
+        return []
+    row = connect().execute(
+        "SELECT text FROM chunks WHERE document_id = ? AND page_start = 1"
+        " ORDER BY ordinal LIMIT 1",
+        (doc,),
+    ).fetchone()
+    lines = [" ".join(ln.split()) for ln in (row["text"] if row else "").splitlines()]
+    heads = [ln for ln in lines if ln and len(ln.split()) <= _HEADING_WORDS]
+    return heads[:_HEADING_LINES]
+
+
 def stated_construction(classification: dict | None, facts: list[dict]) -> list[str]:
     """What the datasheet states about what its equipment is and is made of:
-    the classification's equipment type and title, then the facts the role
-    tests read as a material or an equipment class (`conditions`), one line
-    per distinct value, within `_STATED_WORDS` words."""
+    the classification's equipment type and title, the sheet's own first-page
+    heading, then the facts the role tests read as a material or an equipment
+    class (`conditions`), one line per distinct value, within `_STATED_WORDS`
+    words."""
     from . import conditions
 
     classification = classification or {}
@@ -349,6 +375,7 @@ def stated_construction(classification: dict | None, facts: list[dict]) -> list[
         for key, label in (("equipment_type", "equipment type"), ("title", "title"))
         if classification.get(key)
     ]
+    lines += [f"heading: {head}" for head in datasheet_heading(classification)]
     seen: set[str] = set()
     for shape in (conditions.SHAPE_MATERIAL, conditions.SHAPE_CLASS):
         for fact in conditions._candidate_facts(shape, facts):
