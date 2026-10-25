@@ -183,3 +183,11 @@ def test_the_servers_run_with_the_macs_model_settings():
 def test_a_failed_run_prints_the_server_logs():
     failing = [s for s in _steps() if s.get("if") == "failure()"]
     assert failing and "backend.log" in failing[0]["run"]
+
+
+def test_the_ai_call_timeout_is_an_input_that_defaults_to_the_macs_120():
+    inputs = _workflow()[True]["workflow_dispatch"]["inputs"]
+    assert inputs["match_timeout"]["default"] == "120"
+    steps = {s.get("name", ""): s for s in _steps()}
+    env = steps["Start the backend on a fresh test database"]["env"]
+    assert "inputs.match_timeout" in env["MATCH_TIMEOUT_SECONDS"]

@@ -39,6 +39,11 @@ on:
         description: "Model tag (the Mac's), e.g. qwen3.5:4b-q4_K_M"
         required: true
         type: string
+      match_timeout:
+        description: "Seconds per AI call (the Mac uses 120; a 2-core CPU may need more)"
+        required: false
+        default: "120"
+        type: string
       sheets:
         description: "Sheet ids, comma separated; empty = every tuning sheet"
         required: false
@@ -193,7 +198,7 @@ jobs:
           PORT: "18080"
           HEAVY_JOB_LOCK: "off"
           ANSWER_MODEL: ${{ inputs.model }}
-          MATCH_TIMEOUT_SECONDS: "120"
+          MATCH_TIMEOUT_SECONDS: ${{ inputs.match_timeout }}
           REASONING_PROVIDER: ollama
           DATASHEET_AI_READER: ollama
           MATCH_ENGINE: ollama
