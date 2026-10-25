@@ -6,7 +6,7 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _T = "tests/test_896_time_units.py"
-_C = APP / "claims.py"
+_C = APP / "time_units.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
@@ -14,7 +14,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1271,
         description="seconds are no longer a time unit again (480 s against 8 minutes is a mismatch)",
         path=_C,
-        anchor='    "s": ("time", "h", 1.0 / 3600.0),\n',
+        anchor='    ("s sec secs second seconds", 1.0 / 3600.0),\n',
         replacement="",
         target=_T,
         tags=("honesty", "critical"),
@@ -24,8 +24,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1271,
         description="a millisecond is read as a second (250 ms limit met by 0.3 s)",
         path=_C,
-        anchor='    "ms": ("time", "h", 1.0 / 3600000.0),\n',
-        replacement='    "ms": ("time", "h", 1.0 / 3600.0),\n',
+        anchor='    ("ms msec millisecond milliseconds", 1.0 / 3600000.0),\n',
+        replacement='    ("ms msec millisecond milliseconds", 1.0 / 3600.0),\n',
         target=_T,
         tags=("honesty", "critical"),
     ),
@@ -34,8 +34,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1271,
         description="a day is read as an hour",
         path=_C,
-        anchor='    "day": ("time", "h", 24.0),\n',
-        replacement='    "day": ("time", "h", 1.0),\n',
+        anchor='    ("day days", 24.0),\n',
+        replacement='    ("day days", 1.0),\n',
         target=_T,
         tags=("honesty",),
     ),

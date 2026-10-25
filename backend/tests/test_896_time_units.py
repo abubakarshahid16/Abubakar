@@ -40,6 +40,15 @@ def _limit(subject, operator, value, unit):
         ("days", "2", 48.0),
         ("Seconds", "30", 30 / 3600),
         ("minutes", "8", 8 / 60),
+        # the rows that were already there are unchanged
+        ("h", "2", 2.0),
+        ("hr", "2", 2.0),
+        ("hrs", "2", 2.0),
+        ("hour", "2", 2.0),
+        ("hours", "2", 2.0),
+        ("min", "30", 0.5),
+        ("mins", "30", 0.5),
+        ("minute", "30", 0.5),
     ],
 )
 def test_the_time_units_convert_to_hours_in_the_one_table(unit, value, hours):
