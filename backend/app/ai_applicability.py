@@ -340,22 +340,40 @@ def _named_anywhere(
 _HEADING_LINES, _HEADING_WORDS = 2, 8
 
 
+def _lead(line: str) -> str:
+    """A short line whole; a long line only up to its first field label
+    ("Doc No.:"), since a form's heading and its first fields often share one
+    line with no break. A long line with no label is prose, not a heading."""
+    words = line.split()
+    if len(words) <= _HEADING_WORDS:
+        return " ".join(words)
+    labels = [n for n, word in enumerate(words) if word.endswith(":")]
+    head = words[: labels[0]] if labels else []
+    return " ".join(head) if len(head) <= _HEADING_WORDS else ""
+
+
 def datasheet_heading(classification: dict | None) -> list[str]:
     """The first short lines of the datasheet's first page: a sheet says what
     it is in its heading even when no equipment type or title was stored for
-    it. Empty when the document or its text is not known. Its own words, never
-    a word list: whether a line names the construction is decided by
-    `_names`, as for every stated line."""
+    it. The page's own text is read (it keeps its line breaks); a document with
+    no page text falls back to its first chunk, which may be ONE line. Empty
+    when the document or its text is not known. Its own words, never a word
+    list: whether a line names the construction is decided by `_names`, as for
+    every stated line."""
     from .db import connect
 
     doc = (classification or {}).get("document_id")
     if not doc:
         return []
-    sql = "SELECT text FROM chunks WHERE document_id = ? AND page_start = 1 ORDER BY ordinal LIMIT 1"
-    row = connect().execute(sql, (doc,)).fetchone()
-    lines = [" ".join(ln.split()) for ln in (row["text"] if row else "").splitlines()]
-    heads = [ln for ln in lines if ln and len(ln.split()) <= _HEADING_WORDS]
-    return heads[:_HEADING_LINES]
+    conn = connect()
+    row = conn.execute(
+        "SELECT text FROM pages WHERE document_id = ? AND page_no = 1", (doc,)
+    ).fetchone()
+    if not (row and (row["text"] or "").strip()):
+        sql = "SELECT text FROM chunks WHERE document_id = ? AND page_start = 1 ORDER BY ordinal LIMIT 1"
+        row = conn.execute(sql, (doc,)).fetchone()
+    lines = (_lead(ln) for ln in (row["text"] if row else "").splitlines())
+    return [ln for ln in lines if ln][:_HEADING_LINES]
 
 
 def stated_construction(classification: dict | None, facts: list[dict]) -> list[str]:
