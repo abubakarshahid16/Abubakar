@@ -231,8 +231,9 @@ export function LoginView({
             tooltip would be hiding the product's best argument. */}
         <p className="mt-5 text-xs leading-relaxed text-slateish-400">
           Your sign-in is kept in a protected browser cookie that this page cannot
-          read. It lasts 8 hours or until you sign out; reloading the page does not
-          sign you out. Over plain http on a network address the server keeps no
+          read. It lasts 8 hours or until you sign out, and it survives closing the
+          browser: on a shared computer, sign out. Reloading the page does not sign
+          you out. Over plain http on a network address the server keeps no
           cookie, and then a reload does sign you out.
         </p>
         {/* Whether Claude is switched on is not knowable before sign-in (the

@@ -56,7 +56,7 @@ from . import access
 from . import admin as admin_mod
 from . import playbooks as playbooks_mod
 from . import requirement_split as requirement_split_mod
-from . import auth as auth_mod
+from . import auth as auth_mod, auth_session as auth_session_mod
 from . import errors
 from . import analysis as analysis_mod
 from . import market as market_mod
@@ -258,7 +258,7 @@ async def _orphaning_refused(_request: Request, exc: orphan_guard.OrphaningRefus
 # Vite dev server only. No wildcard - this API serves document content.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(auth_mod.DEV_ORIGINS),
+    allow_origins=list(auth_session_mod.DEV_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=[paging_mod.TOTAL_HEADER],  # a bare list's total (order 117 item 5)
@@ -280,7 +280,7 @@ from .api import standards as api_standards  # noqa: E402
 # Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
 for _r in (api_documents, api_document_classification, api_document_files, api_admin):
     app.include_router(_r.router)
-app.include_router(auth_mod.router)
+app.include_router(auth_session_mod.router)
 app.include_router(api_run_summary.router)
 app.include_router(api_review_templates.router)
 app.include_router(api_standards.router)
@@ -647,7 +647,7 @@ def login(body: schemas.LoginRequest, request: Request, response: Response):
         # is None for some transports (a raw ASGI call): the email bucket only.
         client_host = request.client.host if request.client else None
         result = auth_mod.login(body.email, body.password, client_host=client_host)
-        return auth_mod.session_login(body.session, request, response, result)
+        return auth_session_mod.session_login(body.session, request, response, result)
     except auth_mod.AuthError as exc:
         headers = ({"Retry-After": str(exc.retry_after)}
                    if exc.retry_after else None)

@@ -475,8 +475,8 @@ export const reports = {
   /** Fetch the report PDF as bytes, with the bearer token on the request.
    *
    *  This replaces a `window.open(downloadUrl(id))` navigation. A navigation
-   *  carries no Authorization header, and the token is in memory only (see
-   *  the note on `token`), so under auth_mode=demo_required the download
+   *  carries no Authorization header, and a bearer token is in memory only (see
+   *  the note on `token`; a cookie login rides a navigation, the fallback does not), so under auth_mode=demo_required the download
    *  resolved to an empty scope and the backend answered 404 - telling the
    *  reader that a report listed on that same screen did not exist. The old
    *  comment here conceded the path only worked while auth was disabled.

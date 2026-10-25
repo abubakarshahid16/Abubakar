@@ -2,8 +2,9 @@
  * In-app links that go through the app's own navigation.
  *
  * A plain `<a href="/documents">` makes the browser load the page again, and
- * the sign-in token lives in memory only - so such a link signed the reader
- * out. This one calls the app's `onNavigate` (history push, no reload). The
+ * the sign-in token lived in memory only then (a browser login now rides a
+ * cookie and survives a reload, but the fallback bearer login does not) - so
+ * such a link signed the reader out. This one calls the app's `onNavigate` (history push, no reload). The
  * href is kept so "open in new tab" still works; a modified click is left to
  * the browser.
  *

@@ -53,8 +53,6 @@ from typing import TYPE_CHECKING
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, VerifyMismatchError
-from fastapi import APIRouter, Request, Response
-from pydantic import BaseModel
 
 from .config import settings
 from .db import connect
@@ -68,7 +66,7 @@ _log = logging.getLogger("rag_intelligence.auth")
 _MALFORMED = (ValueError, TypeError, AttributeError)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    pass
+    from fastapi import Request
 
 #: Argon2id at the library's defaults, which track the current OWASP guidance.
 #: Not tuned here: a hand-picked memory cost on one laptop is a number nobody
@@ -207,7 +205,8 @@ def issue_token(user_id: str, now: float | None = None) -> str:
     epoch = int(row["token_epoch"]) if row else 0
     body = json.dumps(
         {"u": user_id, "e": epoch, "v": TOKEN_VERSION,
-         "x": int(now + settings.auth_token_seconds)},
+         "x": int(now + settings.auth_token_seconds),
+         "n": secrets.token_hex(8)},  # one token per login: a sign-out ends only its own
         separators=(",", ":"), sort_keys=True,
     ).encode("utf-8")
     signature = hmac.new(_secret(), body, hashlib.sha256).digest()
@@ -565,110 +564,6 @@ def describe(user_id: str) -> dict | None:
 # -------------------------------------------------------------- the resolver
 
 
-# ------------------------------------------------------------ the cookie session
-#
-# Owner order 164.2: the browser's login lives in an HttpOnly cookie, so the
-# page never holds the token and a reload keeps the user signed in. The token
-# is the SAME signed blob (same 8 hours, same revoke and deactivate checks);
-# only where the browser keeps it changes. A bearer header still works and
-# wins: it is not cookie-borne, so it needs none of the CSRF layers below.
-
-COOKIE_NAME = "rag_session"
-#: A write that rides on the cookie must carry this header: a page on another
-#: site cannot set it without a CORS preflight, and the CORS list is the dev
-#: origin only.
-CSRF_HEADER = "x-requested-with"
-CSRF_VALUE = "rag-ui"
-SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-#: The Vite dev origins (the same list the CORS middleware allows).
-DEV_ORIGINS = ("http://127.0.0.1:5173", "http://localhost:5173")
-
-
-def _origin_ok(request: Request) -> bool:
-    """No Origin header (a tool, not a browser page) is fine; a browser page's
-    Origin must be this server's own host or the dev origin."""
-    origin = request.headers.get("origin")
-    if origin is None:
-        return True
-    if origin in DEV_ORIGINS:
-        return True
-    own = (request.headers.get("host") or "").lower()
-    return bool(own) and origin.lower().partition("://")[2] == own
-
-
-def csrf_ok(request: Request) -> bool:
-    """True when a cookie-borne request may act: reads always, a write only with
-    the custom header AND a matching Origin."""
-    if request.method in SAFE_METHODS:
-        return True
-    return request.headers.get(CSRF_HEADER) == CSRF_VALUE and _origin_ok(request)
-
-
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-
-
-def cookie_plan(request: Request) -> bool | None:
-    """`Secure` for the sign-in cookie, or None when the cookie is refused.
-
-    `auto` (default) goes by where the request came from, never by a header a
-    client can forge: https is Secure; plain http on a loopback host is allowed
-    (Safari drops a Secure cookie there); plain http on a network address would
-    put the cookie on the wire, so it is refused (None) and the login falls back
-    to the bearer token. `X-Forwarded-Proto` is not read: a proxy that
-    terminates https tells the server through uvicorn's own proxy-headers
-    setting. `false` forces non-Secure (an owner's explicit choice); `true`
-    keeps Secure on loopback too."""
-    mode = str(settings.auth_cookie_secure or "auto").strip().lower()
-    if mode == "false":
-        return False
-    if request.url.scheme == "https":
-        return True
-    if (request.url.hostname or "").lower() in LOOPBACK_HOSTS:
-        return mode == "true"
-    return None
-
-
-def session_login(session: str, request: Request, response, result: dict) -> dict:
-    """The browser's login (`session == "cookie"`): the token goes into the
-    HttpOnly cookie and out of the body. Refused (see `cookie_plan`) it stays in
-    the body, the bearer way, and the page keeps it in memory."""
-    secure = cookie_plan(request) if session == "cookie" else None
-    if secure is None:
-        return result
-    response.set_cookie(
-        COOKIE_NAME,
-        result["token"],
-        max_age=settings.auth_token_seconds,
-        path="/",
-        httponly=True,
-        samesite="strict",
-        secure=secure,
-    )
-    return {**result, "token": None}
-
-
-router = APIRouter()
-
-
-class LogoutResult(BaseModel):
-    signed_out: bool
-
-
-@router.post("/api/auth/logout", response_model=LogoutResult)
-def logout(request: Request, response: Response):
-    """Forget the browser's sign-in: clear the cookie. No session is needed (a
-    sign-out of nobody is still fine) and nothing is written. A bearer token,
-    held by a tool, is the tool's to drop; use `/api/auth/revoke` to end it."""
-    response.delete_cookie(
-        COOKIE_NAME,
-        path="/",
-        httponly=True,
-        samesite="strict",
-        secure=bool(cookie_plan(request)),
-    )
-    return {"signed_out": True}
-
-
 def resolve_user_id(request: Request) -> str | None:
     """The entire client-influenced surface of authorisation.
 
@@ -677,19 +572,14 @@ def resolve_user_id(request: Request) -> str | None:
 
     `is_active` is re-read here rather than trusted from the token, so
     deactivating a user takes effect on their next request instead of when
-    their token expires.
+    their token expires. The token is the bearer header's, else the browser's
+    cookie (which a write must back with the CSRF layers) - `auth_session`.
     """
-    header = request.headers.get("authorization") or ""
-    scheme, _, token = header.partition(" ")
-    token = token.strip()
-    if scheme.lower() != "bearer" or not token:
-        # Order 164.2: the browser's cookie. A write on it must also pass the
-        # CSRF layers; one that does not is simply not signed in.
-        token = request.cookies.get(COOKIE_NAME) or ""
-        if not token or not csrf_ok(request):
-            return None
-    user_id = read_token(token)
-    if not user_id:
+    from . import auth_session  # at call time: it imports this module
+
+    token = auth_session.request_token(request)
+    user_id = read_token(token) if token else None
+    if not user_id or auth_session.is_signed_out(token):
         return None
     row = (
         connect()
@@ -749,6 +639,11 @@ def announce_mode() -> None:
         settings.auth_mode,
         f"present ({len(secret)} chars)" if secret else "ABSENT",
     )
+    if str(settings.auth_cookie_secure or "").strip().lower() == "false":
+        log.warning(
+            "AUTH_COOKIE_SECURE=false - the sign-in cookie is sent without the "
+            "Secure flag even over https. Leave it on auto unless you mean this."
+        )
 
 
 def install() -> None:

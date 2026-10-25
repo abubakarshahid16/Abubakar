@@ -206,7 +206,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const bumpChats = useCallback(() => setChatVersion((v) => v + 1), []);
   const [session, setSession] = useState<Session>({ s: "checking" });
 
-  // The bearer token, mirrored here ONLY so the admin screen can be handed one.
+  // The bearer token, when there is one, mirrored here ONLY so the admin
+  // screen can be handed one. A browser login by cookie (the default, order
+  // 164.2) has none: the page holds no token and this stays null.
   //
   // api/client.ts owns the token and deliberately exposes no getter (it is a
   // module-level variable, never localStorage), and AdminScreen's transport

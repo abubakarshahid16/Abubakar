@@ -72,7 +72,8 @@ export function isSignedIn() {
  *  The token is handed to a SETTER rather than returned, so it still has
  *  exactly one destination: an Authorization header. A `getToken()` would be a
  *  value any caller could log, put in a URL or store, and the whole reason it
- *  lives in memory only is that it must not be any of those.
+ *  lives in memory only (when a bearer token is used at all) is that it must not
+ *  be any of those.
  */
 export function authorize(setHeader: (name: string, value: string) => void) {
   setHeader(SESSION_HEADER.name, SESSION_HEADER.value);
