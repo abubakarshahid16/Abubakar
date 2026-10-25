@@ -30,12 +30,11 @@ _log = logging.getLogger("rag_intelligence.auth")
 # wins: it is not cookie-borne, so it needs none of the CSRF layers below.
 
 COOKIE_NAME = "rag_session"
-#: A write that rides on the cookie must carry this header: a page on another
+#: Any request that rides on the cookie must carry this header: a page on another
 #: site cannot set it without a CORS preflight, and the CORS list is the dev
 #: origin only.
 CSRF_HEADER = "x-requested-with"
 CSRF_VALUE = "rag-ui"
-SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 #: The Vite dev origins (the same list the CORS middleware allows).
 DEV_ORIGINS = ("http://127.0.0.1:5173", "http://localhost:5173")
 
@@ -53,10 +52,13 @@ def _origin_ok(request: Request) -> bool:
 
 
 def csrf_ok(request: Request) -> bool:
-    """True when a cookie-borne request may act: reads always, a write only with
-    the custom header AND a matching Origin."""
-    if request.method in SAFE_METHODS:
-        return True
+    """True when a cookie-borne request may act: EVERY method, a read included,
+    needs the custom header AND a matching Origin. A GET is not harmless here: it
+    can run the model, and a page on another localhost port is the same SITE, so
+    SameSite=Strict alone would still send the cookie with an <img> or a link. No
+    such tag or form can set the header, so the cookie is useless to any page but
+    ours (s2's review of #1242). The bearer path is not cookie-borne and is
+    unchanged."""
     return request.headers.get(CSRF_HEADER) == CSRF_VALUE and _origin_ok(request)
 
 

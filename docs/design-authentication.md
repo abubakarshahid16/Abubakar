@@ -140,9 +140,11 @@ would have expired anyway). Client, since the owner's order 164.2 (PR #1242):
 the **browser** signs in by an `HttpOnly`, `SameSite=Strict` cookie
 (`rag_session`) that the page cannot read, so a reload or a backend restart keeps
 the user signed in for the token's 8 hours, and no token is in `localStorage` or
-in a JavaScript variable. A cookie-borne **write** also needs the
+in a JavaScript variable. A cookie-borne request of **any method, a read included**, also needs the
 `X-Requested-With: rag-ui` header and an `Origin` that is absent or this
-server's. `Secure` follows where the request came from (https, or loopback
+server's (a page on another localhost port is the same *site*, so `SameSite=Strict`
+alone would still send the cookie with an `<img>` or a link, and a GET can run the
+model). `Secure` follows where the request came from (https, or loopback
 without it); plain http to a network address gets **no cookie** and the login
 falls back to the bearer token in a module-level variable in `client.ts` (a
 reload then logs you out, and the screen says so). Tools and scripts keep the

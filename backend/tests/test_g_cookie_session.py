@@ -41,8 +41,10 @@ def network_hosts(monkeypatch):
     monkeypatch.setattr(settings, "allowed_hosts", "files.example.test,192.168.1.20")
 
 
-def _client(base="http://127.0.0.1:8000"):
-    return TestClient(app, base_url=base)
+def _client(base="http://127.0.0.1:8000", *, header=True):
+    """Like the app: every call carries the custom header, unless a test says
+    it is another page (`header=False`: an <img>, a link, a form cannot set it)."""
+    return TestClient(app, base_url=base, headers=HEADER if header else None)
 
 
 def _sign_in(client, email="boss@example.test", password=PASSWORD_A, **extra):
@@ -83,7 +85,7 @@ def test_the_cookie_signs_the_user_in_for_a_read(admin_and_user):
 
 def test_a_cookie_write_needs_the_custom_header(admin_and_user):
     _admin, other = admin_and_user
-    c = _client()
+    c = _client(header=False)
     _sign_in(c, session="cookie")
     assert (
         c.post(f"/api/auth/revoke/{other}").status_code == 404
@@ -303,34 +305,10 @@ def test_a_forged_forwarded_proto_does_not_make_a_network_request_secure(
     assert "set-cookie" not in r.headers and r.json()["token"]
 
 
-def test_no_state_changing_route_is_a_get():
-    """SameSite plus the custom header protects writes only if writes are never
-    GETs. A route walk: no GET path names a write, and no GET handler's own body
-    writes to the database."""
-    import inspect
-    import re
-
-    verbs = re.compile(
-        r"/(delete|create|revoke|reset|logout|login|start|cancel|confirm|import|"
-        r"rebuild|upload|ingest|update|add|remove|set|run)(/|$|-|_)"
-    )
-    write_sql = re.compile(
-        r"\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b", re.I
-    )
-    offenders = []
-    for route in app.routes:
-        if "GET" not in (getattr(route, "methods", None) or ()):
-            continue
-        path = route.path
-        if verbs.search(path):
-            offenders.append(("path", path))
-        try:
-            source = inspect.getsource(route.endpoint)
-        except (OSError, TypeError):
-            continue
-        if write_sql.search(source):
-            offenders.append(("body", path))
-    assert offenders == []
+# `test_no_state_changing_route_is_a_get` (a heuristic over `app.routes`, which
+# skipped the included routers) is replaced by `test_w7_get_routes_read_only.py`,
+# the walk over every GET route; and since a cookie-borne GET now needs the custom
+# header as well (tests above), a GET could not be driven by another page anyway.
 
 
 def test_the_cookie_value_never_reaches_a_log_or_an_error(admin_and_user, caplog):
@@ -373,3 +351,72 @@ def test_every_login_is_its_own_token_even_in_the_same_second(admin_and_user):
     assert auth.issue_token(user_id, now=1_000_000.0) != auth.issue_token(
         user_id, now=1_000_000.0
     )
+
+
+# ----------------------------------- every cookie-borne request needs the header
+def test_a_cookie_read_without_the_header_is_not_signed_in(admin_and_user):
+    """s2's blocking finding on #1242: an <img src> or a link on a page on another
+    localhost port is the same SITE, so SameSite=Strict still sent the cookie on a
+    GET - and `GET /api/answer?tier=generated` runs the model. A GET with only the
+    cookie (no header) is now simply not signed in."""
+    signed = _client()
+    _sign_in(signed, session="cookie")
+    value = signed.cookies.get("rag_session")
+    other_page = _client(header=False)
+    other_page.cookies.set("rag_session", value)
+    for path in ("/api/auth/me", "/api/metrics", "/api/reviews"):
+        assert other_page.get(path).status_code == 401, path
+    # routes that answer an anonymous caller: the cookie changes nothing for it
+    for path in ("/api/documents", "/api/answer?q=anything&tier=generated"):
+        anon = _client(header=False).get(path)
+        got = other_page.get(path)
+        assert (got.status_code, got.json() if got.content else None) == (
+            anon.status_code,
+            anon.json() if anon.content else None,
+        ), path
+    assert signed.get("/api/auth/me").status_code == 200  # the app's own call
+
+
+def test_a_cookie_read_from_another_origin_is_not_signed_in(admin_and_user):
+    c = _client()
+    _sign_in(c, session="cookie")
+    r = c.get("/api/auth/me", headers={"Origin": "http://127.0.0.1:9999"})
+    assert r.status_code == 401
+
+
+def test_a_bearer_read_needs_neither_the_header_nor_an_origin(admin_and_user):
+    token = _sign_in(_client(header=False)).json()["token"]
+    r = _client(header=False).get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+
+
+# ------------------------------------------------------- the fail-closed path
+def test_a_database_fault_reading_the_sign_out_list_refuses_the_token(
+    admin_and_user, monkeypatch
+):
+    """Only "no such table" means nobody ever signed out; any other fault must
+    refuse (changing that to fail open passed every test before this one)."""
+    import sqlite3
+
+    c = _client()
+    token = _sign_in(_client(header=False)).json()["token"]
+    real = db.connect
+
+    class Broken:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def execute(self, sql, *args):
+            if "revoked_sessions" in sql:
+                raise sqlite3.OperationalError("database is locked")
+            return self._inner.execute(sql, *args)
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    monkeypatch.setattr(auth_session, "connect", lambda: Broken(real()))
+    assert auth_session.is_signed_out(token) is True
+    r = c.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
