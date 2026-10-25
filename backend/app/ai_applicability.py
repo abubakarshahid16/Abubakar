@@ -342,8 +342,8 @@ _HEADING_LINES, _HEADING_WORDS = 2, 8
 
 def _lead(line: str) -> str:
     """A short line whole; a long line only up to its first field label
-    ("Doc No.:"), since a form's heading and its first fields often share one
-    line with no break. A long line with no label is prose, not a heading."""
+    ("Doc No.:"), since a form's heading and fields often share one line. A
+    long line with no label is prose, not a heading."""
     words = line.split()
     if len(words) <= _HEADING_WORDS:
         return " ".join(words)
@@ -354,21 +354,18 @@ def _lead(line: str) -> str:
 
 def datasheet_heading(classification: dict | None) -> list[str]:
     """The first short lines of the datasheet's first page: a sheet says what
-    it is in its heading even when no equipment type or title was stored for
-    it. The page's own text is read (it keeps its line breaks); a document with
-    no page text falls back to its first chunk, which may be ONE line. Empty
-    when the document or its text is not known. Its own words, never a word
-    list: whether a line names the construction is decided by `_names`, as for
-    every stated line."""
+    it is in its heading even when no equipment type or title was stored. The
+    page text is read (it keeps its line breaks); a document with none falls
+    back to its first chunk, which may be ONE line. Its own words, no word
+    list: `_names` decides whether a line names the construction."""
     from .db import connect
 
     doc = (classification or {}).get("document_id")
     if not doc:
         return []
     conn = connect()
-    row = conn.execute(
-        "SELECT text FROM pages WHERE document_id = ? AND page_no = 1", (doc,)
-    ).fetchone()
+    sql = "SELECT text FROM pages WHERE document_id = ? AND page_no = 1"
+    row = conn.execute(sql, (doc,)).fetchone()
     if not (row and (row["text"] or "").strip()):
         sql = "SELECT text FROM chunks WHERE document_id = ? AND page_start = 1 ORDER BY ordinal LIMIT 1"
         row = conn.execute(sql, (doc,)).fetchone()
@@ -378,10 +375,9 @@ def datasheet_heading(classification: dict | None) -> list[str]:
 
 def stated_construction(classification: dict | None, facts: list[dict]) -> list[str]:
     """What the datasheet states about what its equipment is and is made of:
-    the classification's equipment type and title, the sheet's own first-page
-    heading, then the facts the role tests read as a material or an equipment
-    class (`conditions`), one line per distinct value, within `_STATED_WORDS`
-    words."""
+    the classification's equipment type and title, its first-page heading, then
+    the facts the role tests read as a material or an equipment class
+    (`conditions`), one line per distinct value, within `_STATED_WORDS`."""
     from . import conditions
 
     classification = classification or {}
