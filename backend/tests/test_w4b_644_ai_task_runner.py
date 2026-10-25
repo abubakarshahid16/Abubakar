@@ -308,4 +308,3 @@ def test_the_reuse_switch_covers_the_ai_tasks_too(monkeypatch):
     runner.run_task(SPEC, TEXT, provider=off)
     runner.run_task(SPEC, TEXT, provider=off)
     assert len(off.packets) == 2  # off: asked every time, the stored answer ignored
-
