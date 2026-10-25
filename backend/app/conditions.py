@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import re
 
-from . import claims, condition_choice, field_links
+from . import claims, condition_choice, condition_stated, field_links
 
 #: The condition is established and holds — the comparison may proceed.
 SATISFIED = "SATISFIED"
@@ -337,15 +337,8 @@ def _evaluate_terms(shape: str, condition: str, facts: list[dict]) -> dict:
                 return _result(SATISFIED, shape, condition,
                                f"{fact.get('field_name')!r} states {term!r}",
                                _evidence_of(fact))
-    # #899: "NONE OF THEM SAYS THE WORD" IS NOT CONTRARY EVIDENCE. PF1's first
-    # run: "For a conventional valve, the built-up back pressure shall not
-    # exceed 10 %" was excused on a sheet that states "Valve type:
-    # Conventional" with 14 % - because the VALUE "Conventional" does not
-    # contain the word "valve". A field that does not repeat the condition's
-    # word says nothing about it. The clause is excused only when a stated
-    # value NAMES SOMETHING ELSE of the same kind: another material, another
-    # service, another class of equipment. THIS is the only route to
-    # NOT_APPLICABLE, and it carries its proof.
+    # #899: a field that does not repeat the condition's word is NOT contrary evidence;
+    # only a stated value naming SOMETHING ELSE of the same kind excuses a clause.
     for said in stated:
         other = _names_another_of_the_family(_fold(said.get("field_value")), terms, shape)
         if other is not None:
@@ -965,8 +958,7 @@ def unread_condition(requirement: dict | None) -> str | None:
     return None
 
 
-def evaluate(requirement: dict, facts: list[dict] | None,
-             about: dict | None = None) -> dict | None:
+def _evaluate_v1(requirement, facts, about=None) -> dict | None:
     """Is this requirement's condition established, and does it hold?
 
     Returns None when there is no condition to evaluate — the caller then
@@ -1008,3 +1000,8 @@ def evaluate(requirement: dict, facts: list[dict] | None,
     if shape == SHAPE_NUMERIC:
         return _evaluate_numeric(condition, list(facts))
     return _evaluate_terms(shape, condition, list(facts))
+
+
+def evaluate(requirement, facts, about=None) -> dict | None:
+    """`_evaluate_v1`; an UNKNOWN is settled by a stated or ruled-out field (#899)."""
+    return condition_stated.refine(_evaluate_v1(requirement, facts, about), facts, about)

@@ -68,6 +68,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `chat_tools` | Claude-first chat (2026-09-27): the tools Claude may call |
 | `chat_web` | The chat's web lane: ask first, send one phrase, cite what came back |
 | `chunker` | Step 3 - structure-aware chunking |
+| `answer_prompts` | Wording variants of the local answer prompt, off by default; measured by `eval/answer_quality/` (order 189) |
 | `citations` | Shared [S#] citation-marker syntax, used by both answer.py and synthesis.py |
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
@@ -83,6 +84,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `comparators` | The one vocabulary of limit-direction words: which way does a sentence say a limit points (#915) |
 | `condition_choice` | Which clause applies: conditions in a question and in a passage |
 | `conditions` | B24 — can a requirement's condition be established from the submittal? |
+| `condition_stated` | #899 (PF2): an UNKNOWN condition is settled by a trusted field that names the equipment and says the qualifier ("Valve type: Conventional" establishes "a conventional valve"), or by a field named for the thing that states none ("Internal lining: None" rules out "an internal lining is specified"); negation, placeholders, untrusted values and conflicts decide nothing |
 | `config` | Settings from backend/.env and defaults |
 | `context_budget` | Keep the evidence inside the model's context window, and say when it does not |
 | `corpus` | Questions about the corpus itself, and counts that pretend to be about it |
@@ -213,6 +215,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `submittal_review` | Schema and scoped read paths for the AI submittal review workflow |
 | `symbols` | Repair glyphs an old PDF's symbol font extracted as the wrong character |
 | `synthesis` | Stage 3 and stage 4: the consolidated summary, and the advisory recommendation |
+| `time_units` | The time rows of the one unit table: hours, minutes, seconds, milliseconds, days (#896) |
 | `table_gate` | Which requirements a review may check (#598) |
 | `tables` | Structured rows and columns for chunks already identified as tables |
 | `telemetry` | Measured rates and latencies, persisted |
