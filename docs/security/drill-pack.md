@@ -6,7 +6,7 @@ Everything needed to run the first drill in one sitting, so the result is a reco
 
 - Pick a time-keeper (anyone who is not the incident lead). They hold the clock and write the times.
 - Invite: the owner (incident lead), the planner, s2 (the PC agent that runs the backend), KJO IT security (Q47: functions outside the project team). Legal and communications join through KJO IT for the yearly drill only.
-- Everyone has the five files above open. Nobody reads a secret aloud; the "key" in this drill is a made-up string.
+- Everyone has the four files above open. Nobody reads a secret aloud; the "key" in this drill is a made-up string.
 
 ## The scenario
 
