@@ -178,15 +178,29 @@ def test_a_mixed_sequence_of_calls_uses_exactly_one_distinct_num_ctx(monkeypatch
     assert {b["options"]["num_ctx"] for b in seen} == {SHARED}
 
 
-def test_changing_the_shared_window_changes_the_run_stamp_and_the_reader_key(monkeypatch):
+def test_changing_the_shared_window_changes_the_run_stamp_and_the_reader_key(
+    monkeypatch,
+):
     """s2's blocker 1: two runs at different LOCAL_NUM_CTX must not look alike,
     and the reader must not reuse answers read at another window."""
-    from app import config, datasheet_ai
+    from app import ai_task_runner, config, datasheet_ai
 
     assert "local_num_ctx" in config.ANSWER_AFFECTING_SETTINGS
+    keys: list[str] = []
+    monkeypatch.setattr(
+        ai_task_runner,
+        "reuse_or_ask",
+        lambda step, version, model, schema, key, ask, **kw: keys.append(key) or "",
+    )
+
+    def stamp_and_key():
+        call, _ = datasheet_ai._ollama_call()
+        call("PROMPT")
+        return config.config_version(), keys[-1]
+
     monkeypatch.setattr(settings, "local_num_ctx", 8192)
-    stamp, key = config.config_version(), datasheet_ai._effective_window()
+    before = stamp_and_key()
     monkeypatch.setattr(settings, "local_num_ctx", 16384)
-    assert config.config_version() != stamp
-    assert datasheet_ai._effective_window() != key
-    assert datasheet_ai._effective_window() == 16384
+    after = stamp_and_key()
+    assert after[0] != before[0]
+    assert after[1] != before[1] and after[1].startswith("16384/")

@@ -114,15 +114,6 @@ UNCONFIRMED = "the AI reader read this page and did not read this value"
 #: than a chat answer.
 OLLAMA_NUM_CTX = 8192
 OLLAMA_NUM_PREDICT = 2048
-
-
-def _effective_window() -> int:
-    """The window the reader really runs at: the transport raises every local
-    call to the shared size, so a larger `LOCAL_NUM_CTX` changes what the model
-    sees. The stored-answer key uses this, never the literal above."""
-    return max(OLLAMA_NUM_CTX, int(settings.num_ctx), int(settings.local_num_ctx))
-
-
 PROMPT_VERSION = "datasheet-ai-1"
 
 #: What the local engine is asked to return (enforced in the engine by
@@ -260,7 +251,7 @@ def _ollama_call(packet_shape: dict | None = None):
             shape["prompt_version"],
             model,
             shape["json_schema"],
-            f"{_effective_window()}/{shape['num_predict']}\x00{prompt}",
+            f"{max(OLLAMA_NUM_CTX, model_transport.shared_window())}/{shape['num_predict']}\x00{prompt}",
             ask,
             asked=asked,
             keep_if=lambda text: (

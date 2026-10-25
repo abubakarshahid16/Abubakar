@@ -491,7 +491,6 @@ class Settings(BaseSettings):
     # 4096 -> six of eight, a correct doc17-vs-doc20 comparison, 88 s. The cost is
     # real, not a regression; below ~1.5 GB free it swaps anyway. PROMPT size only.
     num_ctx: int = 4096
-    #: Window every local call runs at (LOCAL_NUM_CTX); one size, no reloads.
     local_num_ctx: int = Field(8192, ge=2048, le=131072)
 
     # -------------------------------- model-assisted requirement matching
@@ -1519,7 +1518,7 @@ settings = Settings()
 #: Deliberately excludes host, port, paths and auth: a report generated on a
 #: different port is not a different answer.
 ANSWER_AFFECTING_SETTINGS = (
-    "answer_model", "num_ctx", "local_num_ctx", "max_output_tokens", "temperature",
+    "answer_model", "num_ctx", "max_output_tokens", "temperature",
     "chat_max_output_tokens", "chat_temperature_document", "chat_temperature_general",
     "chat_history_turns", "chat_history_token_budget", "chat_history_local_token_budget",
     "chat_tool_max_calls", "chat_thinking_budget_tokens", "chat_vision_max_pages_per_answer",
@@ -1529,6 +1528,7 @@ ANSWER_AFFECTING_SETTINGS = (
     "answer_top_k", "generated_context_passages",
     "claude_context_passages", "claude_context_chars", "claude_context_tokens",
     "ocr_rec_model", "ocr_expected_script",
+    "local_num_ctx",
     # A8/#922: these change a REVIEW's verdict (which engine answered, which
     # reader read the sheet, whether applicability is decided by taxonomy or
     # by model reasoning), not only a chat answer; config_version is stamped

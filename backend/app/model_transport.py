@@ -125,6 +125,11 @@ def endpoint(path: str) -> str:
 RUNNER_PATHS = frozenset({"/api/generate", "/api/chat"})
 
 
+def shared_window() -> int:
+    """The one context window every local call runs at (see `runner_options`)."""
+    return max(int(settings.num_ctx), int(settings.local_num_ctx))
+
+
 def runner_options(num_ctx: int | None = None) -> dict[str, object]:
     """The options that decide WHICH RUNNER Ollama keeps loaded. One home.
 
@@ -146,9 +151,8 @@ def runner_options(num_ctx: int | None = None) -> dict[str, object]:
     than hidden by truncating its prompt. Only the Ollama runner paths come
     through here; the Claude lane never does (`reader_transport`).
     """
-    shared = max(int(settings.num_ctx), int(settings.local_num_ctx))
     return {
-        "num_ctx": max(int(num_ctx or 0), shared),
+        "num_ctx": max(int(num_ctx or 0), shared_window()),
         "num_thread": settings.num_thread,
         "num_batch": settings.num_batch,
     }
