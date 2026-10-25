@@ -148,6 +148,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `market_providers` | Three tiers of public information, one row shape, and no socket in sight |
 | `market_transport` | The one place in this codebase that may open a socket to the public internet |
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
+| `closing_noun` | Reads the quantity a sentence names LAST ("... of its travel") so a label that runs from it into the subject can be paired (#913) |
 | `method_notes` | Order 159: marks the notes on HOW a pairing was made, so the engineer's copy keeps them and the contractor's copy leaves them off |
 | `metrics` | Everything the dashboard shows, and nothing it does not measure |
 | `model_evidence` | Verification of a local model's quoted evidence (B5 bounded model assistance, owner-approved 2026-09-25) |
