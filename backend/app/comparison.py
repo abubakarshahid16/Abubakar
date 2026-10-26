@@ -114,6 +114,7 @@ CONDITION_NOT_MET = "condition_not_met"
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
 #: the code through completeness rather than by masquerading as a breach.
+AI_DRAFT_ORIGINS = ("ai_engineering_check", "web_standard_check")
 BLOCKING = frozenset({NON_COMPLIANT})
 #: The statuses `_recommend_code` knows how to count. Any other value (None,
 #: CONDITIONAL, a status added later) is UNRECOGNISED and can never approve.
@@ -2062,10 +2063,9 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
     numbers (section 15). The POLICY is fixed; the labels are not.
     """
     approved, with_comments, rejected, manual = codes
-    statuses = [f.get("compliance_status") for f in findings
-                if f.get("origin") not in ("ai_engineering_check", "web_standard_check")]
-    # #450: A STATUS THIS POLICY DOES NOT KNOW IS NOT A PASS (None, a later one).
-    # An AI check's draft never counts here, whatever its status (order 224).
+    kept = [f for f in findings if f.get("origin") not in AI_DRAFT_ORIGINS]
+    statuses = [f.get("compliance_status") for f in kept]
+    # #450: a status this policy does not know is not a pass; an AI draft never counts.
     unrecognised = [s for s in statuses if s not in RECOGNISED_STATUSES]
 
     blocking = [s for s in statuses if s in BLOCKING]

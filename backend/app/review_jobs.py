@@ -218,7 +218,9 @@ def _settle_drafts(run_id: str) -> None:
     except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
         import logging
 
-        logging.getLogger(__name__).warning("AI check drafts not settled: %s", type(exc).__name__)
+        logging.getLogger(__name__).warning(
+            "AI check drafts not settled: %s", type(exc).__name__
+        )
 
 
 def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
