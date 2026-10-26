@@ -362,6 +362,10 @@ def read_document(
     )
     run = as_ai_run(reading, pages, engine=engine, model=model, unavailable=None)
     run["equipment_type"] = equipment_type
+    # order 224.9: WHICH field was refused and why (counts only, never text)
+    run["rejected_fields"] = dict(
+        Counter(f"{r['field_key']}: {r['reason']}" for r in reading.rejected)
+    )
     run["form_batch_size"] = int(
         settings.form_reader_batch_size
     )  # what the run asked per call

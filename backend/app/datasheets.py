@@ -3067,7 +3067,7 @@ def _ai_gate(fact: dict, furniture: set[str]) -> str | None:
     because its quote on the page is the proof the gate stands in for."""
     label, value = fact.get("field") or "", fact.get("value") or ""
     raw = " ".join(p for p in (value, fact.get("unit")) if p)
-    if is_blank_value(raw)[0]:
+    if is_blank_value(raw)[0] and not fact.get("form_blank"):
         return "blank"
     noise = row_noise.noise_reason(label, value)
     if noise:
@@ -4282,11 +4282,11 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
                               if not out.get("error") and out.get("cut_off")),
             "facts_written": ai_stats.get("facts_written", 0), "agreed": ai_stats.get("agreed", 0),
             "conflicts": ai_stats.get("conflicts", 0), "ai_only": ai_stats.get("ai_only", 0),
-            # #845: the AI's readings the code gate refused (checks in
-            # `claude_datasheet.accept` and `_ai_gate`), so the run card can
-            # say "N of M readings refused by the gate".
             "refused_by_gate": (sum((ai_stats.get("proposals_rejected") or {}).values())
                                 + sum((ai_stats.get("dropped") or {}).values())),
+            "rejected_fields": ai_run.get("rejected_fields") or {},
+            "refused_by_reason": {**(ai_stats.get("proposals_rejected") or {}),
+                                  **{f"dropped: {k}": n for k, n in (ai_stats.get("dropped") or {}).items()}},
             "unconfirmed": ai_stats.get("unconfirmed", 0), **extra}
 
 
