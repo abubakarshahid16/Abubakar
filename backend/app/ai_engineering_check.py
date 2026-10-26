@@ -9,10 +9,10 @@ general knowledge - and then refuses every one it cannot prove is honest.
 
 WHAT IT IS NOT, ENFORCED IN CODE:
 
-  * NEVER A VERDICT. An item is stored with NO compliance status, pending,
-    unconfirmed, `origin = 'ai_engineering_check'`. `comparison.recommend_code`
-    counts statuses, so an item cannot move the suggested review code; and it
-    runs after that code was decided.
+  * NEVER A VERDICT. An item is stored pending, unconfirmed, `origin =
+    'ai_engineering_check'`; it keeps NO status (order 224.1); `ai_check_drafts`
+    counts it in its own bucket and marks exact repeats. `comparison._recommend_code` ignores this origin,
+    so an item cannot move the suggested review code; it runs after that too.
   * NEVER FROM THE STANDARD. It may NAME a standard the observation relates to
     (a name, not text). It may cite a clause only when that standard is HELD
     for this run and a requirement at that clause was read from it; it may not

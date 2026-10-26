@@ -3,12 +3,10 @@ import type { ReviewFinding } from "../../../types/api";
 import type { CrsRow } from "./crsRows";
 import { saveCrsDecisions } from "./saveCrsDecisions";
 
-const confirm = vi.fn();
 const update = vi.fn();
 const decideCrsFinding = vi.fn();
 vi.mock("../../../api/client", () => ({
   reviews: {
-    confirm: (...a: unknown[]) => confirm(...a),
     update: (...a: unknown[]) => update(...a),
     decideCrsFinding: (...a: unknown[]) => decideCrsFinding(...a),
   },
@@ -26,7 +24,7 @@ function row(key: string, findings: ReviewFinding[]): CrsRow {
 }
 
 beforeEach(() => {
-  for (const fn of [confirm, update, decideCrsFinding]) {
+  for (const fn of [update, decideCrsFinding]) {
     fn.mockReset();
     fn.mockResolvedValue(OK);
   }
@@ -34,7 +32,7 @@ beforeEach(() => {
 
 describe("#1124 follow-up: a grouped row that fails half-way", () => {
   it("says how many of its findings reached the record", async () => {
-    confirm.mockResolvedValueOnce(OK).mockResolvedValueOnce(REFUSED);
+    decideCrsFinding.mockResolvedValueOnce(OK).mockResolvedValueOnce(REFUSED);
     const r = row("r1", [finding("a"), finding("b"), finding("c")]);
 
     const out = await saveCrsDecisions("run-1", [r], { r1: { kind: "keep" } }, ["r1"]);
@@ -48,7 +46,7 @@ describe("#1124 follow-up: a grouped row that fails half-way", () => {
   });
 
   it("a row refused at its first finding wrote nothing and says only why", async () => {
-    confirm.mockResolvedValue(REFUSED);
+    decideCrsFinding.mockResolvedValue(REFUSED);
     const out = await saveCrsDecisions("run-1", [row("r1", [finding("a")])], { r1: { kind: "keep" } }, ["r1"]);
     expect(out.failed).toEqual([{
       key: "r1", message: "Comment 1: Not allowed.", words: "Comment 1 was not saved. Try again in a moment.", detail: "Not allowed.",
@@ -59,10 +57,34 @@ describe("#1124 follow-up: a grouped row that fails half-way", () => {
 
 describe("#1124 follow-up: a decision the record already holds is not sent again", () => {
   it("a Keep skips a finding that is already confirmed", async () => {
-    const r = row("r1", [finding("a", { confirmed_by: "eng" }), finding("b")]);
+    const r = row("r1", [finding("a", { confirmed_by: "eng", approval_status: "accepted" }), finding("b")]);
     const out = await saveCrsDecisions("run-1", [r], { r1: { kind: "keep" } }, ["r1"]);
-    expect(confirm.mock.calls).toEqual([["b"]]);
+    expect(decideCrsFinding.mock.calls).toEqual([["run-1", "b", "accept", "", "kept_as_written", undefined]]);
     expect(out.saved).toEqual(["r1"]);
+  });
+
+  /** Order 214 fix 10. MUTATION PROOF: put back `reviewsApi.confirm` for a Keep
+   *  and these fail - a kept comment must have a decision record with a reason. */
+  it("a comment confirmed the old way (no decision record) is kept again, with its reason", async () => {
+    const r = row("r1", [finding("a", { confirmed_by: "eng" })]);
+    await saveCrsDecisions("run-1", [r], { r1: { kind: "keep" } }, ["r1"]);
+    expect(decideCrsFinding.mock.calls).toEqual([["run-1", "a", "accept", "", "kept_as_written", undefined]]);
+  });
+
+  it("Keep all remaining sends one record per row, sharing the click's id", async () => {
+    const rows = [row("r1", [finding("a")]), row("r2", [finding("b")])];
+    await saveCrsDecisions("run-1", rows, { r1: { kind: "keep", clickId: "c-1" }, r2: { kind: "keep", clickId: "c-1" } }, ["r1", "r2"]);
+    expect(decideCrsFinding.mock.calls).toEqual([
+      ["run-1", "a", "accept", "", "kept_in_bulk", "c-1"],
+      ["run-1", "b", "accept", "", "kept_in_bulk", "c-1"],
+    ]);
+  });
+
+  it("an edit saves the wording, then the decision that names why it is kept", async () => {
+    const edit = { kind: "edit" as const, observation: "", requiredAction: "State the set pressure." };
+    await saveCrsDecisions("run-1", [row("r1", [finding("a")])], { r1: edit }, ["r1"]);
+    expect(update.mock.calls).toEqual([["a", { engineer_comment: "State the set pressure." }]]);
+    expect(decideCrsFinding.mock.calls).toEqual([["run-1", "a", "accept", "", "edited_by_engineer"]]);
   });
 
   it("a Remove skips a finding that is already rejected", async () => {
@@ -79,9 +101,9 @@ describe("#1124 follow-up: a decision the record already holds is not sent again
   });
 
   it("a row the record already holds whole saves with no call and writes nothing", async () => {
-    const r = row("r1", [finding("a", { confirmed_by: "eng" })]);
+    const r = row("r1", [finding("a", { confirmed_by: "eng", approval_status: "accepted" })]);
     const out = await saveCrsDecisions("run-1", [r], { r1: { kind: "keep" } }, ["r1"]);
-    expect(confirm).not.toHaveBeenCalled();
+    expect(decideCrsFinding).not.toHaveBeenCalled();
     expect(out).toEqual({ saved: ["r1"], failed: [], missing: [], wrote: false });
   });
 });
@@ -102,7 +124,7 @@ describe("v2.1 round 2: a comment that is no longer on the sheet", () => {
   });
 
   it("a sign-in that ended says so in plain words, the server's words kept as detail", async () => {
-    confirm.mockResolvedValue({ ok: false, disconnected: false, error: { code: "unauthenticated", message: "Token expired (401)." } });
+    decideCrsFinding.mockResolvedValue({ ok: false, disconnected: false, error: { code: "unauthenticated", message: "Token expired (401)." } });
     const out = await saveCrsDecisions("run-1", [{ ...row("r1", [finding("a")]), commentNo: 3 } as CrsRow], { r1: { kind: "keep" } }, ["r1"]);
     expect(out.failed[0].words).toBe("Comment 3 was not saved. Your sign-in has ended. Sign in again to carry on.");
     expect(out.failed[0].detail).toBe("Token expired (401).");
