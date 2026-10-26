@@ -327,6 +327,7 @@ def _named_anywhere(
     for code to say, so such a division is never excluded."""
     values = [
         *(classification or {}).values(),
+        *datasheet_heading(classification),
         *(
             f.get("field_value") or f.get("raw_value")
             for f in facts
@@ -336,11 +337,47 @@ def _named_anywhere(
     return any(_names(v, construction) for v in values if isinstance(v, str) and v)
 
 
+_HEADING_LINES, _HEADING_WORDS = 2, 8
+
+
+def _lead(line: str) -> str:
+    """A short line whole; a long line only up to its first field label
+    ("Doc No.:"), since a form's heading and fields often share one line. A
+    long line with no label is prose, not a heading."""
+    words = line.split()
+    if len(words) <= _HEADING_WORDS:
+        return " ".join(words)
+    labels = [n for n, word in enumerate(words) if word.endswith(":")]
+    head = words[: labels[0]] if labels else []
+    return " ".join(head) if len(head) <= _HEADING_WORDS else ""
+
+
+def datasheet_heading(classification: dict | None) -> list[str]:
+    """The first short lines of the datasheet's first page: a sheet says what
+    it is in its heading even when no equipment type or title was stored. The
+    page text is read (it keeps its line breaks); a document with none falls
+    back to its first chunk, which may be ONE line. Its own words, no word
+    list: `_names` decides whether a line names the construction."""
+    from .db import connect
+
+    doc = (classification or {}).get("document_id")
+    if not doc:
+        return []
+    conn = connect()
+    sql = "SELECT text FROM pages WHERE document_id = ? AND page_no = 1"
+    row = conn.execute(sql, (doc,)).fetchone()
+    if not (row and (row["text"] or "").strip()):
+        sql = "SELECT text FROM chunks WHERE document_id = ? AND page_start = 1 ORDER BY ordinal LIMIT 1"
+        row = conn.execute(sql, (doc,)).fetchone()
+    lines = (_lead(ln) for ln in (row["text"] if row else "").splitlines())
+    return [ln for ln in lines if ln][:_HEADING_LINES]
+
+
 def stated_construction(classification: dict | None, facts: list[dict]) -> list[str]:
     """What the datasheet states about what its equipment is and is made of:
-    the classification's equipment type and title, then the facts the role
-    tests read as a material or an equipment class (`conditions`), one line
-    per distinct value, within `_STATED_WORDS` words."""
+    the classification's equipment type and title, its first-page heading, then
+    the facts the role tests read as a material or an equipment class
+    (`conditions`), one line per distinct value, within `_STATED_WORDS`."""
     from . import conditions
 
     classification = classification or {}
@@ -349,6 +386,7 @@ def stated_construction(classification: dict | None, facts: list[dict]) -> list[
         for key, label in (("equipment_type", "equipment type"), ("title", "title"))
         if classification.get(key)
     ]
+    lines += [f"heading: {head}" for head in datasheet_heading(classification)]
     seen: set[str] = set()
     for shape in (conditions.SHAPE_MATERIAL, conditions.SHAPE_CLASS):
         for fact in conditions._candidate_facts(shape, facts):

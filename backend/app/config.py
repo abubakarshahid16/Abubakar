@@ -434,18 +434,17 @@ class Settings(BaseSettings):
     #: `ai_task_model`. At most this many requirements per run are asked.
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
-    #: #141 a DIVISION of a standard limited by its own scope sentence to one
+    #: #141 a part of a standard limited by its own scope sentence to one
     #: construction (`ai_applicability.division_gate`). ON (#805 rule 1); off,
     #: nothing changes; a part not read (or past the per-run limit) is HELD.
     ai_division_scope_enabled: bool = True
+    ai_answer_reuse_enabled: bool = True  # order 205: off for the final client test
     ai_division_scope_max_per_run: int = 120
-    #: #645 clause to check: for each clause sentence stored with no limit
-    #: that the review could not decide, the local model PROPOSES a check
-    #: (field, limit, unit, condition, quote); code verifies every part
-    #: against the sentence and keeps what passes as a DRAFT for the engineer
-    #: - never a verdict. ON by default (#805 rule 1, AI-first); the model is
-    #: `ai_task_model`, so standards text stays on this machine. At most this
-    #: many sentences per run are asked (one model call each).
+    #: #645 clause to check: for a clause sentence with no stored limit that
+    #: the review could not decide, the local model PROPOSES a check (field,
+    #: limit, unit, condition, quote); code verifies every part and keeps what
+    #: passes as a DRAFT for the engineer, never a verdict. ON by default
+    #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a
@@ -1537,6 +1536,7 @@ ANSWER_AFFECTING_SETTINGS = (
     "ai_task_model", "datasheet_ai_reader", "match_engine",
     "ai_applicability_enabled", "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
+    "ai_answer_reuse_enabled",
 )
 ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
 

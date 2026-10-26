@@ -23,6 +23,7 @@ does not make one.
 | `answer_model_allow_remote_host` | `False` | permanent | | | Egress gate for the local-model URL (rule 1) |
 | `ai_applicability_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | AI "does not apply" proposals per requirement |
 | `ai_division_scope_enabled` | `True` | rollout | 2026-10-20 | 2026-11-03 | Scope of a standard's division read from its own scope sentence (#1182); off, nothing changes; a part the model did not read is held for the engineer |
+| `ai_answer_reuse_enabled` | `True` | permanent | | | Reuse of a stored local AI answer to the exact same question (#1221, order 205). Off for the final test before anything goes to a client: every page is read fresh |
 | `ai_clause_checks_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI check proposals for undecided clauses (#645) |
 | `rule_auto_use_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Proven rule families used without an engineer |
 | `match_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI matcher (#794) |
