@@ -420,23 +420,37 @@ def recover_stale(*, on_startup: bool = False) -> int:
     if on_startup:
         dead += " OR claimed_by IS NULL OR claimed_by NOT LIKE :mine"
     dead += ")"
-    args = {"stage": STAGE, "cutoff": job_queue.stale_cutoff(), "now": _now(),
-            "mine": f"w-{job_queue.process_token()}-%"}
+    args = {
+        "stage": STAGE,
+        "cutoff": job_queue.stale_cutoff(),
+        "now": _now(),
+        "mine": f"w-{job_queue.process_token()}-%",
+    }
     with conn:
         stopped = conn.execute(
             "UPDATE jobs SET state = 'cancelled', claimed_by = NULL, claimed_at = NULL,"
             " next_attempt_at = NULL, updated_at = :now WHERE stage = :stage AND state = 'running'"
-            f" AND cancel_requested = 1 AND {dead} RETURNING id, review_run_id", args).fetchall()
+            f" AND cancel_requested = 1 AND {dead} RETURNING id, review_run_id",
+            args,
+        ).fetchall()
         for r in stopped:
-            conn.execute("UPDATE review_runs SET status = 'cancelled', updated_at = ? WHERE id = ?",
-                         (args["now"], r["review_run_id"]))
-            job_queue.audit(conn, "job.cancelled", r["id"], detail=f"stage={STAGE} after a restart")
+            conn.execute(
+                "UPDATE review_runs SET status = 'cancelled', updated_at = ? WHERE id = ?",
+                (args["now"], r["review_run_id"]),
+            )
+            job_queue.audit(
+                conn, "job.cancelled", r["id"], detail=f"stage={STAGE} after a restart"
+            )
         rows = conn.execute(
             "UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL,"
             f" updated_at = :now WHERE stage = :stage AND state = 'running' AND {dead}"
-            " RETURNING id, review_run_id", args).fetchall()
+            " RETURNING id, review_run_id",
+            args,
+        ).fetchall()
         for r in rows:
-            conn.execute("UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
-                         (args["now"], r["review_run_id"]))
+            conn.execute(
+                "UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
+                (args["now"], r["review_run_id"]),
+            )
             job_queue.audit(conn, "job.recovered", r["id"], detail=f"stage={STAGE}")
     return len(rows) + len(stopped)
