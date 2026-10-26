@@ -23,8 +23,8 @@ MUTATIONS: tuple[Mutation, ...] = (
        "    elif len({(_provided(g), g.get(\"contractor_page\")) for g in group}) > 1:\n",
        "    elif False:\n", "three_tags"),
     _m(7103, "a system miss is put on the contractor again", _M,
-       "        return (f\"Engineer to check whether the datasheet states {what}: no field this \"\n"
-       "                \"system read was paired with it.\")",
+       "        return (f\"Clarification requested: no field read from the datasheet was paired with \"\n"
+       "                f\"{what}; please indicate where it is stated, or confirm it is not stated.\")",
        "        return f\"Contractor to state {what} on the datasheet.\"", "engineers_question"),
     _m(7104, "the row severity is the first finding's, not the worst", _M,
        "    return next((s for s in SEVERITY_ORDER if s in found), \"\")",

@@ -872,9 +872,9 @@ class IngestionWorker:
             # rebuild it in the background, never inside the next request.
             acronyms_mod.warm_in_background()
             _queue_extraction_if_standard(doc_id)
-            _extract_facts_if_contractor_submittal(doc_id)
-            _classify_equipment_type_if_contractor_submittal(doc_id)
+            _classify_equipment_type_if_contractor_submittal(doc_id)  # R1: BEFORE facts
             _classify_metadata_if_contractor_submittal(doc_id)
+            _extract_facts_if_contractor_submittal(doc_id)
             # LAST, after fact extraction, so the ledger carries its outcome.
             _refresh_page_ledger(doc_id)
 
@@ -925,10 +925,10 @@ def on_role_changed(document_id: str, *, classify: bool = True) -> None:
     if row is None or row["status"] != states.READY:
         return
     _queue_extraction_if_standard(document_id)
-    _extract_facts_if_contractor_submittal(document_id)
-    if classify:
+    if classify:  # BEFORE the facts are read (order 211, audit R1)
         _classify_equipment_type_if_contractor_submittal(document_id)
         _classify_metadata_if_contractor_submittal(document_id)
+    _extract_facts_if_contractor_submittal(document_id)
     _refresh_page_ledger(document_id)
 
 

@@ -1,13 +1,12 @@
 {
  "ruff": "0.16.6",
- "total": 1572,
+ "total": 1571,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
   "backend/app/acronyms.py::SIM102": 1,
   "backend/app/acronyms.py::UP031": 1,
   "backend/app/admin.py::UP017": 4,
-  "backend/app/ai_applicability.py::I001": 1,
   "backend/app/ai_applicability.py::RUF021": 1,
   "backend/app/ai_engineering_check.py::I001": 2,
   "backend/app/ai_engineering_check.py::RUF021": 1,

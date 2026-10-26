@@ -271,8 +271,10 @@ def test_a_review_holds_a_list_and_a_sentence_for_another_service(
     assert stored[ids["plan"]]["reason_code"] == "service_unknown"
     assert "plan 32" in stored[ids["plan"]]["reason"]
     assert stored[ids["plain"]]["state"] == scope_ledger.CHECKED
-    for name in ("list", "plan"):
-        assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
+    assert not any(f.get("requirement_id") == ids["list"] for f in result["findings"])
+    # order 210 fix 3: the held sentence reaches the engineer as a row, not a pass
+    (row,) = [f for f in result["findings"] if f.get("requirement_id") == ids["plan"]]
+    assert row["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
 
 
 def test_a_service_the_vocabulary_already_decides_is_left_to_it():

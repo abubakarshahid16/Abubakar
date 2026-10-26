@@ -19,6 +19,7 @@ from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
 from . import crs_export as crs_export_mod
 from . import crs_issue as crs_issue_mod
+from . import crs_carry as crs_carry_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
@@ -2558,11 +2559,12 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
                 and row.get("row_kind") != crs_mapping_mod.ROW_KIND_CARRIED_FORWARD]
         # #1178 review: a row still holding an AI/web draft prints a waiting
         # sentence, not the words an engineer confirmed under this number -
-        # its stored text is kept, never overwritten.
+        # its stored text is kept, never overwritten (K1: nor a carried tick's).
         snapshots = {
             row["crs_row_key"]: row
             for row in mine
             if not str(row.get("ai_review_comment") or "").strip()
+            and not row.get("confirmed_by_number")
         }
         if mine:
             crs_numbers_mod.assign(
@@ -2843,14 +2845,11 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
                 continue
             row["crs_status"] = crs_numbers_mod.resolution_cell(record)
             row["crs_response"] = crs_numbers_mod.response_cell(record)
-            # AN ISSUED NUMBER IS AN ENGINEER'S CONFIRMATION, CARRIED. It is
-            # only ever issued for a comment an engineer made theirs, and the
-            # key is the comment's subject including the value the sheet
-            # states - so the same comment raised again by a re-run or on a
-            # resubmittal is the one already confirmed, and is issued as such.
-            row["engineer_confirmed"] = True
-            # 1b: a draft re-raised under an issued number keeps the words issued.
-            crs_mapping_mod.carry_issued_wording(row, record, _display_names)
+            # AN ISSUED NUMBER IS AN ENGINEER'S CONFIRMATION, CARRIED - for the words they
+            # confirmed (K1: other words under the same number need a fresh tick, `crs_carry`).
+            if crs_carry_mod.carry_confirmation(row, record):
+                # 1b: a draft re-raised under an issued number keeps the words issued.
+                crs_mapping_mod.carry_issued_wording(row, record, _display_names)
     _replaced_numbers(crs_scope, rows)
     crs_issue_mod.apply_row_decisions(review_run_id, rows)  # #986: rows with no finding
     # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover

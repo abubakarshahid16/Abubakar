@@ -30,6 +30,9 @@ from app.config import settings
 
 NOW = "2026-10-19T00:00:00Z"
 
+# order 210: a held requirement is an engineer row, never a verdict
+HELD_ROW = {"NEEDS_ENGINEER_REVIEW"}
+
 
 def _qualifiers(text: str, cited: str) -> list[tuple[str, str]]:
     start = text.index(cited)
@@ -913,7 +916,11 @@ def test_a_review_on_an_unsure_reading_leaves_the_rest_for_the_engineer(
     for key in ("full", "hard"):
         assert stored[ids[key]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
         assert stored[ids[key]]["reason_code"] == "applicability_unsure"
-        assert not any(f.get("requirement_id") == ids[key] for f in result["findings"])
+        assert {
+            f["compliance_status"]
+            for f in result["findings"]
+            if f.get("requirement_id") == ids[key]
+        } <= HELD_ROW
 
 
 def test_a_verdict_held_for_an_unproven_rule_stays_a_crs_line():
