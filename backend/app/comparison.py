@@ -52,7 +52,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, held_findings, match_rules, method_notes, numparse,
+from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
@@ -2937,10 +2937,10 @@ def _run_comparison(
                              "citation_resolves": not unresolved})
 
     # ORDER 210 FIX 3: a held requirement is also an engineer-review row.
-    held_findings.add(
-        held_items, prepare_finding=_prepare_finding, pending=pending, rows=prepared_rows,
-        findings=findings, review_run_id=review_run_id, submittal_document_id=submittal_id,
-        stored_replaced=replace)
+    from . import held_findings
+
+    run = (review_run_id, submittal_id, replace)
+    held_findings.add(held_items, pending, prepared_rows, findings, run)
 
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
     # datasheet self-checks below, which add their own rows to this run and

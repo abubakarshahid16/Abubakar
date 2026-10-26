@@ -43,31 +43,30 @@ def verdict(item: dict, ledger_reason: str) -> dict:
 
 
 def add(
-    held: list[dict],
-    *,
-    prepare_finding,
-    pending: dict,
-    rows: list,
-    findings: list,
-    **common,
+    held: list[dict], pending: dict, rows: list, findings: list, run: tuple
 ) -> None:
     """Add a finding for each held requirement that has none yet to the run's
-    `rows` (written once) and `findings` (returned). `prepare_finding` is the
-    comparison's own row builder, so every gate it applies (citation
-    resolution, duplicates) applies here too."""
+    `rows` (written once) and `findings` (returned), through the comparison's own
+    row builder, so every gate it applies (citation resolution, duplicates)
+    applies here too. `run` is (review run id, submittal id, whether the run's
+    stored findings are being replaced)."""
+    from .comparison import _prepare_finding as prepare_finding
     from .scope_ledger import REASONS
 
+    run_id, submittal_id, replace = run
     for item in held:
         requirement = item["requirement"]
         if not eligible(item) or (requirement.get("id"), None) in pending:
             continue
         fallback = REASONS.get(item.get("code") or "", ("", "no reason recorded"))[1]
         row, unresolved = prepare_finding(
+            review_run_id=run_id,
+            submittal_document_id=submittal_id,
             requirement=requirement,
             fact=None,
             verdict=verdict(item, fallback),
             pending=pending,
-            **common,
+            stored_replaced=replace,
         )
         pending[(row["requirement_id"], None)] = row["id"]
         rows.append(row)

@@ -916,8 +916,11 @@ def test_a_review_on_an_unsure_reading_leaves_the_rest_for_the_engineer(
     for key in ("full", "hard"):
         assert stored[ids[key]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
         assert stored[ids[key]]["reason_code"] == "applicability_unsure"
-        assert {f["compliance_status"] for f in result["findings"]
-                if f.get("requirement_id") == ids[key]} <= HELD_ROW
+        assert {
+            f["compliance_status"]
+            for f in result["findings"]
+            if f.get("requirement_id") == ids[key]
+        } <= HELD_ROW
 
 
 def test_a_verdict_held_for_an_unproven_rule_stays_a_crs_line():
