@@ -60,14 +60,26 @@ def test_a_reference_without_a_number_is_still_a_comparison_with_another_field()
 
 
 def test_a_unit_the_system_cannot_convert_is_left_alone():
-    # kg/s is not a unit the comparison converts yet: keep the old route
-    # (an engineer reads it) rather than store a limit it cannot compare.
+    # Nm3/h needs a stated reference condition to convert, which the
+    # comparison does not have: keep the old route (an engineer reads it)
+    # rather than store a limit it cannot compare.
     assert (
         r3b.parse_limit(
-            "The relieving capacity shall be at least the required capacity of 5 kg/s."
+            "The relieving capacity shall be at least the required capacity of 5 Nm3/h."
         )
         is None
     )
+
+
+def test_a_flow_unit_the_system_now_converts_becomes_a_limit():
+    # kg/s converts since #1290 (rate_units): 5 kg/s is 18000 kg/h exactly.
+    limit = r3b.parse_limit(
+        "The relieving capacity shall be at least the required capacity of 5 kg/s."
+    )
+    assert limit is not None
+    assert limit["operator"] == ">="
+    assert limit["unit"] == "kg/h"
+    assert limit["value"] == pytest.approx(18000.0)
 
 
 # Review of #1295 (s3, cloud): the stated number is the limit only when nothing
