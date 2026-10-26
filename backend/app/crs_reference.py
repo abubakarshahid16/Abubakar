@@ -11,6 +11,9 @@ guessed, and a year that is not an edition is not read as one:
     ("API 650 2020 Addendum 1 2021" is the 2020 edition);
   * a date in a file name ("rev 2024-05-01") and a pressure class or rating ("Class 2000",
     "2500 psi", "# 1500") are numbers, not editions;
+  * two different years left after those skips ("ISO 9001:2015 (reaffirmed 2020)", "rev 2019
+    approved 2023", "2019-2023") cannot be told apart by any list of words, so the edition is not
+    recorded rather than the last year guessed;
   * no edition known says so ("edition not recorded"); a name that already carries its edition
     year is not given it twice.
 """
@@ -40,7 +43,7 @@ def edition_of(name: str) -> str | None:
     what is NOT an edition."""
     text = str(name or "").replace("_", " ")
     first_number = _NUMBERISH.search(text)
-    best = None
+    left: list[str] = []
     for found in standard_ids._EDITION_YEAR.finditer(text):
         if first_number and found.start() == first_number.start():
             continue  # the standard's own number ("ISO 2014")
@@ -52,8 +55,8 @@ def edition_of(name: str) -> str | None:
             text, found.end()
         ):
             continue  # a pressure class or rating ("Class 2000", "2500 psi")
-        best = found.group(1)
-    return best
+        left.append(found.group(1))
+    return left[0] if len(set(left)) == 1 else None
 
 
 def tail(finding: dict, name: str, clause: str, page) -> str:
