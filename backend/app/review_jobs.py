@@ -208,6 +208,19 @@ def _record_check_failure(run_id: str, column: str, name: str, exc: BaseExceptio
         logging.getLogger(__name__).warning("could not record %s failure", column)
 
 
+def _settle_drafts(run_id: str) -> None:
+    """Order 224 item 4: the AI checks' drafts get "engineer to check" and a
+    repeat becomes one row. Never fails the review."""
+    try:
+        from . import ai_check_drafts
+
+        ai_check_drafts.settle(run_id)
+    except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
+        import logging
+
+        logging.getLogger(__name__).warning("AI check drafts not settled: %s", type(exc).__name__)
+
+
 def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     """Owner order 2d: the AI engineering check, AFTER the comparison decided
     the code, only with its flag on. Drafts only; a failure here (budget,
@@ -229,6 +242,7 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
             logging.getLogger(__name__).info(
                 "AI engineering check incomplete for run %s: %s calls, reason=%s",
                 run_id, result.get("calls_made"), result.get("reason"))
+        _settle_drafts(run_id)
     except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
         import logging
         logging.getLogger(__name__).warning("AI engineering check skipped: %s", type(exc).__name__)
@@ -252,6 +266,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
             run_id, allowed_document_ids=scope, missing_identifiers=missing,
             fetch_search=market_transport.transport(),
             fetch_text=lambda url, timeout: market_transport.fetch_text(url, timeout=timeout))
+        _settle_drafts(run_id)
     except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
         import logging
         logging.getLogger(__name__).warning("web standards check skipped: %s", type(exc).__name__)

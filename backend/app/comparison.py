@@ -2062,10 +2062,10 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
     numbers (section 15). The POLICY is fixed; the labels are not.
     """
     approved, with_comments, rejected, manual = codes
-    statuses = [f.get("compliance_status") for f in findings]
-    # #450: A STATUS THIS POLICY DOES NOT KNOW IS NOT A PASS. Only the listed
-    # statuses are counted below; one that is not (None, a status added later)
-    # used to fall through to "every evaluated requirement is met".
+    statuses = [f.get("compliance_status") for f in findings
+                if f.get("origin") not in ("ai_engineering_check", "web_standard_check")]
+    # #450: A STATUS THIS POLICY DOES NOT KNOW IS NOT A PASS (None, a later one).
+    # An AI check's draft never counts here, whatever its status (order 224).
     unrecognised = [s for s in statuses if s not in RECOGNISED_STATUSES]
 
     blocking = [s for s in statuses if s in BLOCKING]
