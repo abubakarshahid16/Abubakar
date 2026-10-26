@@ -29,3 +29,14 @@ M-03, 216400C and I-06 run on the release head with the local model: fewer lines
 
 ## Merge
 Merge commits, not squash. A release PR shows only its own changes once the one under it is merged. After each merge s2 confirms the plan issues closed (order 151) and the worktrees of merged PRs are removed.
+
+## Speed rules (orders 215 and 216, permanent)
+The pre-push guard (`.githooks/pre-push`, runs `scripts/pre_push_guard.py`) enforces R1 and warns on R2. Switch it on once per clone and worktree, at the start of every session: `git config core.hooksPath .githooks`.
+- **R1. Check before you push.** Format only the lines you touched (never reformat a whole old file: `python scripts/quality_ratchet.py format-check --base origin/main` is the test; ruff 0.16.6 from `backend/.venv` or your session), then `check_lint_baseline.py check`, `check_mutation_anchors.py`, `check_system_map.py`, the tests of the modules you changed. A PR that fails CI on formatting, size or anchors is a miss: fix it within 10 minutes.
+- **R2. Fresh with main before review.** Merge current main into your branch and push before asking for review, and again whenever main moves while the PR waits. Say "up to date with main at <sha>" in the review request.
+- **R3. Next-job queue.** Your #1238 note has a "Next job: ..." line from the plan. When a job ends, start the next at once.
+- **R4. Backup packer.** If fixes are labelled `state:approved` and s1 has not posted a pack within 15 minutes, s2 packs them (same bundle rules); s1 does the same for s2.
+- **R5. Doorbell on any mention.** s1, s2, s3 wake on ANY `@s1`/`@s2`/`@s3` mention on #692 or their PRs.
+- **R6. Builder teams for big fixes.** A fix expected to take over 90 minutes is built with the agent-team skill, one PR behind a switch; start in plan mode (post the plan, then build).
+- **R7. Wake on news, sleep longer when waiting.** Cloud helpers check every 10 minutes only with an open PR in review or a job in progress, otherwise every 30. Every #1238 note ends with "Next wake: HH:MM PKT". A pause stops work, never the wake-ups; after any restart, rebook the chain and the hourly net first.
+- **R8. Test only what changed.** Small fixes: the Rule C quick PF1 run only. The full real-sheet test runs once per bundle. Fixes that change reading, rules, prompts, model or the comment sheet always get the full test before release (orders 191.1 / 192.1).
