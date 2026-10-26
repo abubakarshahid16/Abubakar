@@ -16,9 +16,10 @@ for the engineer, never a quote of an unrelated clause.
 "and" and "or" are not in the list: "maximum and minimum design temperature" is
 about both of its labels.
 
-A subject that opens with a bare quantity noun and "of" ("type of enclosure",
-"number of stages", "power of the motor") is read both as written and without
-that opening, so the field "enclosure" still pairs with "type of enclosure".
+A subject that opens with a kind noun and "of" ("type of enclosure", "number of
+stages", "class of the flange") is read both as written and without that opening, so
+the field "enclosure" still pairs with "type of enclosure". A measured quantity
+("capacity of", "power of", "size of", "level of") is never skipped.
 A subject that opens with a condition ("at normal flow the valve ...") is not
 helped: its first words are the condition, and a label there is the condition,
 not what the clause is about.
@@ -71,25 +72,10 @@ COMPLEMENT_WORDS = frozenset(
 )
 
 
-#: A bare quantity noun that may open a subject before "of": "type of enclosure".
-QUANTITY_NOUNS = frozenset(
-    {
-        "type",
-        "number",
-        "material",
-        "value",
-        "rating",
-        "class",
-        "size",
-        "grade",
-        "kind",
-        "degree",
-        "amount",
-        "level",
-        "power",
-        "capacity",
-    }
-)
+#: A noun that names a KIND, not a measured quantity, and may open a subject before "of":
+#: "type of enclosure". Measured quantities ("capacity of", "power of", "size of") are not here:
+#: "capacity of the relief valve" is about the capacity, never about the valve.
+QUANTITY_NOUNS = frozenset({"type", "kind", "number", "class", "grade", "material"})
 
 
 def _head_run(words: list[str], label: list[str]) -> bool:

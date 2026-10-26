@@ -31,7 +31,10 @@ from tests.test_match_rules import fact, requirement
         # an opening quantity noun + "of" is skipped: the field still pairs
         ("type of enclosure", "enclosure", True),
         ("number of stages", "stages", True),
-        ("power of the motor", "motor", True),
+        ("class of the flange", "flange", True),
+        # a measured quantity is never skipped: its label after "of" is not what the clause is about
+        ("power of the motor", "motor", False),
+        ("capacity of the relief valve", "relief valve", False),
         ("type of the cut water for rated power", "rated power", False),
         # the label only appears inside a complement, a list or a condition
         ("cut water clearance for rated power", "rated power", False),
@@ -167,9 +170,12 @@ def test_a_plural_subject_does_not_pair_a_singular_numeric_label():
     assert comparison.match_by_containment(req, facts)["fact"] is None
 
 
-def test_an_opening_quantity_noun_is_loose_by_design():
-    """ "power of the motor" pairs the field "Motor": the opening is skipped so that
-    "type of enclosure" still pairs "Enclosure". Stated in A-1302."""
+def test_a_measured_quantity_opening_never_pairs_the_equipment_after_it():
+    """The danger case: the clause is about a capacity (SCFH); "Relief valve" is the
+    equipment, a pressure field: it must not answer it."""
+    req = requirement("capacity of the relief valve", raw_unit="SCFH")
+    facts = [fact("Relief valve", raw_value="340", raw_unit="psig")]
+    assert comparison.match_by_containment(req, facts)["fact"] is None
     req = requirement("power of the motor", raw_unit="kW")
     facts = [fact("Motor", raw_value="55", raw_unit="kW")]
-    assert comparison.match_by_containment(req, facts)["fact"] is facts[0]
+    assert comparison.match_by_containment(req, facts)["fact"] is None
