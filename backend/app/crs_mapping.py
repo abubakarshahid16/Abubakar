@@ -36,7 +36,10 @@ from . import (
 )
 
 # isort: split
-from . import crs_reference, equipment_subtype, paragraph_ids
+from . import crs_page_words, crs_reference, equipment_subtype
+
+# isort: split
+from . import paragraph_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -547,21 +550,21 @@ def reasoning_text(group: list[dict]) -> str:
 
 
 def _page_section(group: list[dict]) -> str:
-    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)".
-    Never the standard's file name - that is the Standard Reference column."""
+    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)"; a value looked
+    for and not found: "Not found on pages 1-5 - <field>" (order 228.4). Never the standard's
+    file name or the chunk's section heading (on a ruled form, another cell's text)."""
     f = group[0]
-    pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
-    field = _field_label(f) + crs_item_series.items_suffix(group)
-    tags = _items(group)
-    where = (f"p.{_page_list(pages)}" if pages else "")
-    if field:
-        where = f"{where} - {field}" if where else field
-    if tags:
-        where += f" ({', '.join(tags)})"
-    # The chunk's section heading is NOT printed here: on a ruled form it is
-    # routinely another cell's text ("3.5 RATED POWER" on the audit's pump
-    # sheet), and the page + field + tag already say where the value is.
-    return where
+    pages = sorted(
+        {g.get("contractor_page") for g in group if g.get("contractor_page")}
+    )
+    return crs_page_words.where(
+        pages,
+        f"p.{_page_list(pages)}" if pages else "",
+        _field_label(f) + crs_item_series.items_suffix(group),
+        _items(group),
+        {g.get("document_id") for g in group},
+        any(g.get("fact_id") for g in group),
+    )
 
 
 _OP_WORDS = {">=": "not less than", "<=": "not more than", ">": "more than",
