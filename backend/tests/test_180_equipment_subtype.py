@@ -126,7 +126,8 @@ def test_a_sheet_with_no_pump_type_gets_engineer_questions_not_missing_rows():
     assert all(r["unsure"] for r in check["required_not_cited"])
     rows = crs_mapping.standards_check_rows(check, "sheet")
     assert rows and all(
-        r["comment"].startswith("Engineer to check whether") for r in rows
+        r["comment"].startswith("Clarification requested: please confirm whether")
+        for r in rows
     )
     assert not any("did not reference" in r["comment"] for r in rows)
     assert "does not state the pump type" in rows[0]["comment"]

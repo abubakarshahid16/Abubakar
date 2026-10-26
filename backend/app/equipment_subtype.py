@@ -129,7 +129,7 @@ def not_cited_words(r: dict) -> str:
     ident = r["identifier"]
     if r.get("unsure"):
         return (
-            f"Engineer to check whether {ident} applies: it governs only "
+            f"Clarification requested: please confirm whether {ident} applies; it governs only "
             f"{' / '.join(r.get('governs') or [])} {r.get('kind') or 'equipment'}, "
             f"and the datasheet does not state the {r.get('kind') or 'equipment'} type."
         )
