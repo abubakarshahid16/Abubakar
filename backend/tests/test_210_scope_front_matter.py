@@ -18,12 +18,13 @@ from app import ai_applicability, division_text, scope_type_words, subject_scope
 from app.config import settings
 from tests.test_141_division_scope import (
     GENERAL,
-    LIMITED,
-    PAGES as PART_PAGES,
     SPECIAL,
     STEEL,
     FakeModel,
-    temp_storage,  # noqa: F401 - fixture
+    temp_storage,  # noqa: F401 - used through usefixtures
+)
+from tests.test_141_division_scope import (
+    PAGES as PART_PAGES,
 )
 
 SCOPE = "This invented standard covers centrifugal pumps."
@@ -37,6 +38,7 @@ TITLE_BLOCK = [
         "5.1 Seals\nThe mechanical seal plan shall be stated on the datasheet.\n",
     )
 ]
+pytestmark = pytest.mark.usefixtures("temp_storage")
 LIMITS = {"limited": "yes", "construction": "centrifugal pumps", "quote": SCOPE}
 UNSURE_TYPE = {"equipment_is": "not stated", "quote": "", "is_that": "unsure"}
 PRESSURE = {
@@ -91,9 +93,7 @@ def test_the_title_block_is_one_unit_of_its_own_and_is_front_matter():
     assert division_text.is_front_matter(unit)
 
 
-def test_the_pump_case_an_unsure_type_read_no_longer_holds_the_whole_standard(
-    temp_storage,
-):
+def test_the_pump_case_an_unsure_type_read_no_longer_holds_the_whole_standard():
     out = _gate(_model())
     assert _ids(out["kept"]) == ["dp", "seal"] and out["held"] == []
     assert out["summary"]["requirements_kept_scope_not_confirmed"] == 2
@@ -103,20 +103,20 @@ def test_the_pump_case_an_unsure_type_read_no_longer_holds_the_whole_standard(
     }
 
 
-def test_a_scope_read_that_failed_on_the_title_block_is_kept_with_a_note(temp_storage):
+def test_a_scope_read_that_failed_on_the_title_block_is_kept_with_a_note():
     out = _gate(_model(fail="the model is down"))
     assert _ids(out["kept"]) == ["dp", "seal"] and out["held"] == []
     assert set(out["notes"]) == {"dp", "seal"}
 
 
-def test_an_unsure_scope_on_the_title_block_is_kept_with_a_note(temp_storage):
+def test_an_unsure_scope_on_the_title_block_is_kept_with_a_note():
     out = _gate(
         _model(scope={"limited": "unsure", "construction": None, "quote": None})
     )
     assert _ids(out["kept"]) == ["dp", "seal"] and set(out["notes"]) == {"dp", "seal"}
 
 
-def test_a_real_part_whose_scope_read_failed_is_still_held(temp_storage):
+def test_a_real_part_whose_scope_read_failed_is_still_held():
     """A-1239: a NAMED part (Part ZZ) that nobody could read is never compared."""
     out = _gate(
         _model(fail="the model is down"),
@@ -127,7 +127,7 @@ def test_a_real_part_whose_scope_read_failed_is_still_held(temp_storage):
     assert "zz" in _ids(out["held"]) and out["notes"] == {}
 
 
-def test_a_real_part_the_model_is_unsure_of_is_still_held(temp_storage):
+def test_a_real_part_the_model_is_unsure_of_is_still_held():
     unsure = _model(scope={"limited": "unsure", "construction": None, "quote": None})
     out = _gate(
         unsure,
@@ -139,7 +139,7 @@ def test_a_real_part_the_model_is_unsure_of_is_still_held(temp_storage):
     assert _ids(out["held"]) == ["zz"] and out["notes"] == {}
 
 
-def test_a_title_block_with_a_stated_other_material_stays_held(temp_storage):
+def test_a_title_block_with_a_stated_other_material_stays_held():
     """Code found a stated material of another family: that evidence is not
     softened (a candidate start can only hold, never exclude, as before)."""
     pages = [
@@ -194,7 +194,7 @@ def test_every_word_of_the_construction_must_be_in_the_type_or_title(
     )
 
 
-def test_the_rule_is_off_by_default_and_the_model_is_asked(temp_storage):
+def test_the_rule_is_off_by_default_and_the_model_is_asked():
     assert settings.scope_type_words_rule_enabled is False
     model = _model()
     _gate(
@@ -210,9 +210,7 @@ def test_the_rule_is_off_by_default_and_the_model_is_asked(temp_storage):
     assert "construction" in model.calls
 
 
-def test_switched_on_the_rule_applies_without_asking_the_model(
-    temp_storage, monkeypatch
-):
+def test_switched_on_the_rule_applies_without_asking_the_model(monkeypatch):
     monkeypatch.setattr(settings, "scope_type_words_rule_enabled", True)
     model = _model()
     out = _gate(model)

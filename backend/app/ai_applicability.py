@@ -726,7 +726,13 @@ def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
             count(NOT_READ_COUNTS[rec["not_read"]])
         elif rec.get("unsure") and not rec.get("via"):
             count("requirements_held_unsure")
-    return kept, out["outside_division_scope"], out["applicability_unsure"], counts, notes
+    return (
+        kept,
+        out["outside_division_scope"],
+        out["applicability_unsure"],
+        counts,
+        notes,
+    )
 
 
 def _division_gate(
@@ -778,4 +784,10 @@ def _division_gate(
         summary["model_fallback"] = (
             f"{model_status['reason']}; {model_status['used']} read the scopes"
         )
-    return {"kept": kept, "items": items, "held": held, "summary": summary, "notes": notes}
+    return {
+        "kept": kept,
+        "items": items,
+        "held": held,
+        "summary": summary,
+        "notes": notes,
+    }
