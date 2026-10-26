@@ -2438,22 +2438,16 @@ def _run_comparison(
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
-    # rule_trust (#947): who stands behind each rule's verdict. None with the
-    # switch off: no proof is read and no finding is labelled.
+    # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
     trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
     # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
-    # except pressure relief valves 115 dB(A)"). Audit 2026-09-30: neither
-    # production caller passed one, so every exception was dead code and a
-    # PSV at 100 dB(A) was reported as a breach. Derived HERE, once, so no
-    # caller can forget it; a caller that names a subject still wins.
+    # except pressure relief valves 115 dB(A)"); derived HERE, once, so no
+    # caller can forget it (audit 2026-09-30); a caller's own subject wins.
     if subject is None:
         subject = equipment_subject(stored)
     # #453 A REQUIREMENT ABOUT A DIFFERENT KIND OF EQUIPMENT IS NOT A CHECK.
-    # Steam-turbine casing relief was applied to gas-service relief valves.
-    # A requirement is kept when its subject fits this submittal's equipment,
-    # when it has no specific subject, or when either is unclear; the rest are
-    # counted and grouped on the run, never dropped silently. See
-    # `subject_scope`.
+    # Kept when its subject fits, has none, or either is unclear; the rest are
+    # counted and grouped on the run, never dropped silently (`subject_scope`).
     in_scope = len(requirements)
     scoped = subject_scope.gate(
         requirements, classification=stored, facts=facts,
@@ -2941,6 +2935,12 @@ def _run_comparison(
             prepared_rows.append(row)
             findings.append({**row, "unresolved_evidence": unresolved,
                              "citation_resolves": not unresolved})
+
+    # ORDER 210 FIX 3: a held requirement is also an engineer-review row.
+    from . import held_findings
+
+    run = (review_run_id, submittal_id, replace, standard_labels)
+    held_findings.add(held_items, pending, prepared_rows, findings, run)
 
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
     # datasheet self-checks below, which add their own rows to this run and

@@ -173,6 +173,7 @@ def hold_non_requirements(requirements: list[dict]) -> dict:
                 {
                     "requirement": requirement,
                     "code": "applicability_unsure",
+                    "not_a_requirement": True,
                     "detail": (
                         "it lists items and states no requirement (no must, shall, "
                         "provide or limit); an engineer decides whether it asks for anything"
