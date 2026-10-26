@@ -30,6 +30,8 @@ from .datasheets import normalise_field_name
 #: The most fields one model call is asked to fill. A long list is cut into
 #: batches of at most this many, each its own call (and its own two runs).
 MAX_BATCH = 25
+#: How many "also printed as" spellings the prompt shows for one field.
+MAX_SYNONYMS_SHOWN = 6
 #: Longest quote a field may carry - `claude_datasheet.MAX_QUOTE_CHARS`.
 MAX_QUOTE_CHARS = 240
 FOUND = "found"
@@ -199,8 +201,16 @@ FIELDS:
 
 
 def _field_line(f: Field) -> str:
-    extra = f"; also printed as: {', '.join(f.synonyms[:6])}" if f.synonyms else ""
-    kind = f"; expected unit kind: {f.unit_kind}" if f.unit_kind and f.unit_kind != "text" else ""
+    extra = (
+        f"; also printed as: {', '.join(f.synonyms[:MAX_SYNONYMS_SHOWN])}"
+        if f.synonyms
+        else ""
+    )
+    kind = (
+        f"; expected unit kind: {f.unit_kind}"
+        if f.unit_kind and f.unit_kind != "text"
+        else ""
+    )
     return f"  - {f.key}: {f.name}{extra}{kind}\n"
 
 
