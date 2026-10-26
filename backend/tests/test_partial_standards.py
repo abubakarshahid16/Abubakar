@@ -127,7 +127,9 @@ def test_a_crs_never_prints_a_table_number_as_a_clause():
     assert "cl. 0.3" in crs_mapping._standard_reference(finding)                  # not flagged: unchanged
     flagged = {**finding, "clause_identified": False}
     ref = crs_mapping._standard_reference(flagged)
-    assert "cl. 0.3" not in ref and "paragraph not identified" in ref and "(p.12)" in ref
+    assert "cl. 0.3" not in ref
+    assert "paragraph not identified" not in ref
+    assert "(p.12)" in ref
 
 
 def test_a_standard_whose_clauses_are_table_numbers_is_detected(temp_storage):

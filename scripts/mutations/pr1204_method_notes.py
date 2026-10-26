@@ -16,7 +16,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="""reason, note = verdict.get("rationale") or "", method_notes.wrap(notes)""",
         replacement='''reason, note = verdict.get("rationale") or "", "(" + "; ".join(notes) + ")"''',
         target=_T,
-        keyword="synonym_pairing_keeps_its_note_off",
+        keyword="synonym_pairing_keeps_its_note_off or internal_copy_keeps_the_note",
         tags=("honesty",),
     ),
     Mutation(

@@ -121,7 +121,7 @@ def test_the_reader_is_asked_with_the_labels_a_relief_valve_sheet_prints():
 def test_a_printed_label_the_data_did_not_know_is_a_reader_gap_not_the_contractors_omission():
     pages = {
         1: "1 Set pressure 10 barg\n2 Max. allow. working pressure 12 barg\n"
-        "31 Calculated area 1.287 in2\n32 Actual discharge area 1.2 in2"
+        "32 Actual discharge area 1.2 in2"
     }
     r = dc.evaluate(SHEET, equipment_type=PSV, page_texts=pages)
     (area,) = [x for x in r if x["rule_id"] == "PSV-12"]
@@ -132,3 +132,21 @@ def test_the_wording_claims_only_that_wording_for_the_field_appears():
     detail = results()["PSV-12"]["detail"]
     assert "on the sheet" not in detail
     assert "wording for it appears on page 1" in detail
+
+
+def test_no_spelling_is_listed_for_two_roles():
+    """"Calculated area" is the area the sizing REQUIRES; listed for the orifice
+    area too, the reader could store it as the valve's own area and "area at
+    least required" would compare the number with itself."""
+    seen = {}
+    for role, body in dc.load_rules()["roles"].items():
+        for spelling in body.get("printed_as", []):
+            assert seen.setdefault(spelling.lower(), role) == role, spelling
+
+
+def test_the_required_area_is_never_offered_as_the_orifice_area():
+    from app import form_reader_fields as ff
+
+    fields = {f.key: f for f in ff.field_list_for(PSV)}
+    assert "calculated area" not in fields["orifice_area"].synonyms
+    assert "calculated area" in fields["required_area"].synonyms

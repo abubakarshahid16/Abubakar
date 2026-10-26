@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -47,6 +48,7 @@ from .claude_spend import StopRun
 from .datasheets import normalise_field_name, primary_unit
 from .form_reader_fields import (
     FOUND,
+    LEFT_BLANK,
     MAX_BATCH,
     NOT_ON_PAGE,
     PROMPT_VERSION,
@@ -94,6 +96,9 @@ class Reason(Enum):
     STATUS_UNKNOWN = "status_unknown"
     VALUE_MISSING = "value_missing"
     VALUE_IS_BLANK_MARKER = "value_is_blank_marker"
+    #: "left_blank" with a value that is not a blank marker, or a marker the
+    #: quote does not show.
+    BLANK_MARKER_NOT_PROVEN = "blank_marker_not_proven"
     QUOTE_MISSING = "quote_missing"
     QUOTE_NOT_ON_PAGE = "quote_not_on_page"
     QUOTE_TOO_BROAD = "quote_too_broad"
@@ -227,6 +232,33 @@ def verify(f: Field, item: dict, page_text: str, rules: dict) -> Reason | None:
     return _check_unit(f, item, printed, page_text, rules)
 
 
+def verify_blank(f: Field, item: dict, page_text: str, rules: dict) -> Reason | None:
+    """None when a "left_blank" answer is proven: the value is a blank marker
+    (code decides, `blank_markers.classify`), the quote is on the page, names
+    the field's label, and ENDS with the marker as printed with nothing but
+    the label before it (no digit): a marker found inside a real value ("10-12
+    barg", "(later revision)") proves nothing. The model only points."""
+    value, quote = item["value"].strip(), item["quote"]
+    if not value or blank_markers.classify(value)[1] in ("empty", "placeholder"):
+        return Reason.BLANK_MARKER_NOT_PROVEN
+    if not blank_markers.classify(value)[0]:
+        return Reason.BLANK_MARKER_NOT_PROVEN
+    if not quote.strip():
+        return Reason.QUOTE_MISSING
+    if not quote_on_page(quote, page_text):
+        return Reason.QUOTE_NOT_ON_PAGE
+    if claude_datasheet._quote_too_broad(quote, _fold(page_text)):
+        return Reason.QUOTE_TOO_BROAD
+    printed = claude_datasheet.without_fill(_fold(quote)).rstrip(" .;,|:")
+    marker = _fold(value).rstrip(" .;,|:")
+    head = printed[: len(printed) - len(marker)]
+    if not marker or not printed.endswith(marker) or re.search(r"\d", head):
+        return Reason.BLANK_MARKER_NOT_PROVEN
+    if head and head[-1].isalnum():  # the marker is the tail of a longer word
+        return Reason.BLANK_MARKER_NOT_PROVEN
+    return None if label_in_quote(f, printed, rules) else Reason.LABEL_NOT_IN_QUOTE
+
+
 # ------------------------------------------------------------- one answer
 
 def _item(raw: dict) -> dict:
@@ -257,8 +289,10 @@ def parse_answer(raw: object, keys: set[str]) -> tuple[dict[str, dict], Reason |
 
 
 def _identity(item: dict | None) -> tuple:
-    if item is None or item["status"] != FOUND:
+    if item is None or item["status"] not in (FOUND, LEFT_BLANK):
         return (item or {}).get("status") or NOT_ON_PAGE, None, None
+    if item["status"] == LEFT_BLANK:
+        return LEFT_BLANK, _fold(item["value"]), None
     return FOUND, numparse.fold_numbers(item["value"]), _fold(item["unit"])
 
 
@@ -291,12 +325,26 @@ def _runs(model_call, prompt: str, keys: set[str], runs: int) -> tuple[list[dict
 
 
 def _fact(f: Field, item: dict, page: int) -> dict:
-    return {"field": f.name, "field_name": normalise_field_name(f.name), "field_key": f.key,
-            "value": item["value"], "unit": item["unit"] or None, "quote": item["quote"],
-            "kind": KIND, "page": page, "extraction_method": EXTRACTION_METHOD,
-            "confidence": CONFIDENCE,
-            "provenance": {"reader": READER, "field_key": f.key, "page": page,
-                           "quote": item["quote"], "prompt_version": PROMPT_VERSION}}
+    return {
+        "field": f.name,
+        "field_name": normalise_field_name(f.name),
+        "field_key": f.key,
+        "value": item["value"],
+        "unit": item["unit"] or None,
+        "quote": item["quote"],
+        "kind": KIND,
+        "page": page,
+        "extraction_method": EXTRACTION_METHOD,
+        "form_blank": item["status"] == LEFT_BLANK,
+        "confidence": CONFIDENCE,
+        "provenance": {
+            "reader": READER,
+            "field_key": f.key,
+            "page": page,
+            "quote": item["quote"],
+            "prompt_version": PROMPT_VERSION,
+        },
+    }
 
 
 def read_batch(fields: list[Field], page_text: str, page: int, model_call, rules: dict,
@@ -318,6 +366,8 @@ def read_batch(fields: list[Field], page_text: str, page: int, model_call, rules
             continue
         elif first["status"] not in STATUSES:
             reason = Reason.STATUS_UNKNOWN
+        elif first["status"] == LEFT_BLANK:
+            reason = verify_blank(f, first, page_text, rules)
         else:
             reason = verify(f, first, page_text, rules)
         if reason is None:
@@ -335,7 +385,14 @@ def _decide(reading: FormReading, found: dict[str, list[dict]], absent: dict[str
     none -> NOT_ON_PAGE when every page read said so, else MISSING."""
     for f in reading.fields:
         facts = found.get(f.key, [])
-        values = {_identity({**x, "status": FOUND}) for x in facts}
+        if any(not x["form_blank"] for x in facts):
+            facts = [
+                x for x in facts if not x["form_blank"]
+            ]  # a value beats a blank elsewhere
+        values = {
+            _identity({**x, "status": LEFT_BLANK if x["form_blank"] else FOUND})
+            for x in facts
+        }
         if len(values) == 1:
             keep = facts[0]
             keep["provenance"]["also_on_pages"] = [x["page"] for x in facts[1:]]

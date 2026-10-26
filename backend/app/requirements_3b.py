@@ -30,7 +30,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from . import claims, numparse
+from . import claims, numparse, own_value_limit
 
 #: What kind of thing a requirement states. Enforced in Pydantic
 #: (`schemas.RequirementType`), stored as plain TEXT.
@@ -1126,12 +1126,11 @@ def parse_limit(sentence: str) -> dict | None:
     """A numeric limit out of one sentence, or None.
 
     None means "this sentence states no limit I recognise", and the caller
-    records the requirement as a `statement`. It does NOT mean the sentence is
-    not a requirement.
+    records a `statement`; it does NOT mean it is not a requirement.
     """
     match = _LIMIT.search(sentence)
     if not match:
-        return _parse_trailing_limit(sentence)
+        return own_value_limit.parse(sentence) or _parse_trailing_limit(sentence)
     phrase = _canonical_comparator(match.group("cmp"))
     operator = _OPERATOR.get(phrase)
     if operator is None:

@@ -24,10 +24,12 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="_VERDICTS_HELD_ON_LOW_TRUST = frozenset({NON_COMPLIANT})\n",
              target=_T, keyword="untrusted_value_is_held_too or held_compliance",
              tags=("honesty", "critical")),
-    Mutation(id="M1601", phase=_P, description="the CRS question prints the LOW_TRUST_VALUE code",
+    # Re-targeted (K7/K8): the question no longer prints the reason at all; the mutation puts the
+    # reason (and its LOW_TRUST code) back into the contractor-facing comment.
+    Mutation(id="M1601", phase=_P, description="the CRS question prints the program's reason again",
              path=APP / "crs_mapping.py",
-             anchor="    return re.sub(r\"^(?:[a-z_]+|[A-Z][A-Z_]+):\\s*\", \"\", text)\n",
-             replacement="    return re.sub(r\"^[a-z_]+:\\s*\", \"\", text)\n",
+             anchor="    return f\"Clarification requested: please confirm {what} and where the datasheet states it.\"\n",
+             replacement="    return f\"Clarification requested: {_reason_words(finding).rstrip('.')}.\"\n",
              target=_T, keyword="held_compliance", tags=("honesty",)),
     # 2. no unit is said as no unit
     Mutation(id="M1602", phase=_P, description="two unitless values are blamed on units ''",

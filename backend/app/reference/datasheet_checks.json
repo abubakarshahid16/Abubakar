@@ -133,9 +133,7 @@
         "effective area",
         "orifice area",
         "selected area",
-        "calculated area",
-        "actual discharge area",
-        "discharge area"
+        "actual discharge area"
       ]
     },
     "required_area": {
