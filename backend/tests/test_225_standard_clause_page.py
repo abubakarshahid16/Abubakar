@@ -216,3 +216,10 @@ def test_the_crs_reference_of_a_checklist_row_names_the_clause_and_page_only_whe
     assert crs_mapping._standard_reference(
         {**row, "standard_clause": None, "standard_page": 14}
     ) == ("Datasheet check PSV-02")
+
+
+def test_two_applicable_standards_that_are_both_the_label_are_not_picked_between():
+    first = _document("API-520-I.pdf", [DEFINITIONS])
+    second = _document("API 520-I (copy).pdf", [DEFINITIONS])
+    run = _run(_document("sheet.pdf", ["x"]), [first, second])
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (None, None)

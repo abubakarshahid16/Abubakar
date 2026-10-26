@@ -55,27 +55,29 @@ def _standard_of(run_id: str, label: str) -> str | None:
     return next(iter(found)) if len(found) == 1 else None
 
 
+def _opens_heading(lines: list[str], at: int, clause: str) -> bool:
+    """Does `clause` open a heading at line `at`? Its title on the same line, or
+    (OCR keeps them apart) the number alone and the title on the next line. A
+    title that ends in a page number is a contents entry, not a heading."""
+    m = _DOTTED.match(lines[at])
+    if m and m.group("id") == clause:
+        return not _CONTENTS_TAIL.search(m.group("rest"))
+    following = lines[at + 1] if at + 1 < len(lines) else ""
+    alone = re.fullmatch(rf"{re.escape(clause)}\.?", lines[at])
+    return bool(
+        alone
+        and re.match(r"[A-Za-z]", following)
+        and not _CONTENTS_TAIL.search(following)
+    )
+
+
 def _pages_with(text_of_pages: list[tuple[int, str]], clause: str) -> set[int]:
-    """The pages where `clause` opens a heading line, contents pages left out."""
+    """The pages where `clause` opens a heading line."""
     pages: set[int] = set()
     for number, text in text_of_pages:
         lines = [ln.strip() for ln in (text or "").splitlines()]
-        dotted = [m for m in (_DOTTED.match(ln) for ln in lines) if m]
-        tails = sum(1 for m in dotted if _CONTENTS_TAIL.search(m.group("rest")))
-        if len(dotted) >= 5 and tails * 2 >= len(dotted):
-            continue  # a contents page: most of its numbered lines end in a page number
-        # a number alone on its line, the term on the next (OCR keeps them apart)
-        for at, line in enumerate(lines):
-            m = _DOTTED.match(line)
-            alone = re.fullmatch(rf"{re.escape(clause)}\.?", line)
-            if (
-                m
-                and m.group("id") == clause
-                and not _CONTENTS_TAIL.search(m.group("rest"))
-            ) or (
-                alone and at + 1 < len(lines) and re.match(r"[A-Za-z]", lines[at + 1])
-            ):
-                pages.add(number)
+        if any(_opens_heading(lines, at, clause) for at in range(len(lines))):
+            pages.add(number)
     return pages
 
 
