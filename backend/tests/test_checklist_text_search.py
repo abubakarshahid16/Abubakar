@@ -41,7 +41,10 @@ def test_a_label_on_the_sheet_that_was_not_read_is_a_reader_gap_with_its_page():
     for item in ("PSV-13", "PSV-12"):      # orifice designation (wrapped label), orifice area ("Effective area")
         assert r[item]["status"] == "NEEDS_ENGINEER_REVIEW"
         assert r[item]["reader_gap"] is True and r[item]["pages"] == [1]
-        assert "wording for it appears on page 1" in r[item]["detail"] and "engineer to check" in r[item]["detail"]
+        assert (
+            "wording for it appears on page 1" in r[item]["detail"]
+            and "engineer to check" in r[item]["detail"]
+        )
 
 
 def test_a_label_in_no_pages_text_is_missing_for_the_contractor():
@@ -87,8 +90,15 @@ def test_the_review_states_its_reader_coverage():
     cov = dc.coverage(dc.evaluate(SHEET, equipment_type=PSV, page_texts=PAGES))
     assert cov["read"] == 2 and cov["fields"] > cov["read"]
     assert cov["on_sheet_not_read"] >= 2 and 1 in cov["gap_pages"]
-    line = [ln for ln in absence.split_lines({"checklist_coverage": cov}) if ln.startswith("Checklist fields")][0]
-    assert f"read 2 of {cov['fields']}" in line and "wording on the sheet, not read" in line
+    line = [
+        ln
+        for ln in absence.split_lines({"checklist_coverage": cov})
+        if ln.startswith("Checklist fields")
+    ][0]
+    assert (
+        f"read 2 of {cov['fields']}" in line
+        and "wording on the sheet, not read" in line
+    )
 
 
 # ---- order 228.9: the labels a relief-valve sheet prints for these fields
