@@ -218,6 +218,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `symbols` | Repair glyphs an old PDF's symbol font extracted as the wrong character |
 | `synthesis` | Stage 3 and stage 4: the consolidated summary, and the advisory recommendation |
 | `time_units` | The time rows of the one unit table: hours, minutes, seconds, milliseconds, days (#896) |
+| `rate_units` | The flow-rate rows of the one unit table: kg/s, t/h, l/min, m3/s and their kin, exact factors only (#1290) |
 | `table_gate` | Which requirements a review may check (#598) |
 | `tables` | Structured rows and columns for chunks already identified as tables |
 | `telemetry` | Measured rates and latencies, persisted |
