@@ -15,6 +15,13 @@ for the engineer, never a quote of an unrelated clause.
 
 "and" and "or" are not in the list: "maximum and minimum design temperature" is
 about both of its labels.
+
+A subject that opens with a bare quantity noun and "of" ("type of enclosure",
+"number of stages", "power of the motor") is read both as written and without
+that opening, so the field "enclosure" still pairs with "type of enclosure".
+A subject that opens with a condition ("at normal flow the valve ...") is not
+helped: its first words are the condition, and a label there is the condition,
+not what the clause is about.
 """
 
 from __future__ import annotations
@@ -64,13 +71,41 @@ COMPLEMENT_WORDS = frozenset(
 )
 
 
+#: A bare quantity noun that may open a subject before "of": "type of enclosure".
+QUANTITY_NOUNS = frozenset(
+    {
+        "type",
+        "number",
+        "material",
+        "value",
+        "rating",
+        "class",
+        "size",
+        "grade",
+        "kind",
+        "degree",
+        "amount",
+        "level",
+        "power",
+        "capacity",
+    }
+)
+
+
+def _head_run(words: list[str], label: list[str]) -> bool:
+    for start in range(len(words) - len(label) + 1):
+        if words[start : start + len(label)] == label:
+            return not any(word in COMPLEMENT_WORDS for word in words[:start])
+    return False
+
+
 def names_head(subject: str, name: str) -> bool:
     """Is `name` a whole-word sequence in `subject` with no complement word
     before it? Both are already lowercased words (`_normalise_for_match`)."""
     words, label = subject.split(), name.split()
     if not label:
         return False
-    for start in range(len(words) - len(label) + 1):
-        if words[start : start + len(label)] == label:
-            return not any(word in COMPLEMENT_WORDS for word in words[:start])
-    return False
+    if _head_run(words, label):
+        return True
+    opens = len(words) > 2 and words[0] in QUANTITY_NOUNS and words[1] == "of"
+    return opens and _head_run(words[2:], label)

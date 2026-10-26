@@ -28,6 +28,11 @@ from tests.test_match_rules import fact, requirement
         ),
         ("maximum and minimum design temperature", "minimum design temperature", True),
         ("degree of protection of the motor", "degree of protection", True),
+        # an opening quantity noun + "of" is skipped: the field still pairs
+        ("type of enclosure", "enclosure", True),
+        ("number of stages", "stages", True),
+        ("power of the motor", "motor", True),
+        ("type of the cut water for rated power", "rated power", False),
         # the label only appears inside a complement, a list or a condition
         ("cut water clearance for rated power", "rated power", False),
         ("generator package list including fittings", "fittings", False),
@@ -98,3 +103,38 @@ def test_a_statement_about_the_field_pairs_it():
         _statement("casing material of the pump"), facts
     )
     assert result["fact"] is facts[0]
+
+
+def test_normalised_shapes_pair_through_the_real_route(tmp_path):
+    """An article, a hyphen, a leading adjective and a parenthetical stay in the head."""
+    cases = [
+        ("The Rated-Power of the motor", "Rated power"),
+        ("Maximum rated power", "Rated power"),
+        ("vessel MAWP (12 barg)", "MAWP"),
+        ("Type of enclosure", "Enclosure"),
+    ]
+    for subject, label in cases:
+        req = requirement(subject, raw_unit="kW")
+        facts = [fact(label, raw_value="55", raw_unit="kW")]
+        assert comparison.match_by_containment(req, facts)["fact"] is facts[0], subject
+
+
+def test_when_the_rule_empties_the_first_pass_a_later_route_may_pick_another_row():
+    """The rule only removes a label outside the head; a LATER route (the closing
+    noun, #913) can then pair a different row. "Normal flow" no longer claims
+    "At normal flow the valve ..."; the travel row does."""
+    from tests.test_913_closing_noun import _fact, _req
+
+    plain, travel = _fact("Normal flow"), _fact("Travel at normal flow")
+    result = comparison.match_by_containment(_req(), [plain, travel])
+    assert result["fact"] is travel
+
+
+def test_the_abbreviation_route_obeys_the_same_rule():
+    """ "Max operating temp" meets "maximum operating temperature" only when the
+    label heads the subject, never inside a complement."""
+    facts = [fact("Max operating temp", raw_value="80", raw_unit="C")]
+    inside = requirement("clearance for maximum operating temperature", raw_unit="C")
+    assert comparison.match_by_containment(inside, facts)["fact"] is None
+    heads = requirement("maximum operating temperature of the casing", raw_unit="C")
+    assert comparison.match_by_containment(heads, facts)["fact"] is facts[0]

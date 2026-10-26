@@ -162,6 +162,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
+| `pairing_head` | A field is a clause's field only when the label stands in the subject's head, not in a complement (audit C5) |
 | `pdf_flow` | #633 item 6: PDF text that wraps and continues on the next page, never dropped (layout only) |
 | `pageimage` | On-demand page rendering |
 | `passages` | Small-to-big: search small, show big |
@@ -221,7 +222,6 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `symbols` | Repair glyphs an old PDF's symbol font extracted as the wrong character |
 | `synthesis` | Stage 3 and stage 4: the consolidated summary, and the advisory recommendation |
 | `time_units` | The time rows of the one unit table: hours, minutes, seconds, milliseconds, days (#896) |
-| `pairing_head` | A field is a clause's field only when the label stands in the subject's head, not in a complement (audit C5) |
 | `table_gate` | Which requirements a review may check (#598) |
 | `tables` | Structured rows and columns for chunks already identified as tables |
 | `telemetry` | Measured rates and latencies, persisted |
