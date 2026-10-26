@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Pre-push guard (order 216): refuse a push that CI would send back, and say
+# how to fix it. Install once per clone/worktree:  git config core.hooksPath .githooks
+# Bypass (emergency only):  git push --no-verify
+#
+# Only a push that creates or updates a branch is checked; deleting one is not.
+set -uo pipefail
+
+check=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  case "$local_sha" in
+    0000000000000000000000000000000000000000|"") ;;
+    *) check=1 ;;
+  esac
+done
+[ "$check" = 1 ] || exit 0
+
+root=$(git rev-parse --show-toplevel)
+for py in "${PRE_PUSH_PYTHON:-}" python3 python; do
+  [ -n "$py" ] && command -v "$py" >/dev/null 2>&1 && exec "$py" "$root/scripts/pre_push_guard.py"
+done
+echo "pre-push: REFUSED. No python3 on PATH, so the checks cannot run (set PRE_PUSH_PYTHON)."
+exit 1
