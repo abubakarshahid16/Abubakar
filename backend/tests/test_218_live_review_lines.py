@@ -129,3 +129,119 @@ def test_the_page_line_counts_values_and_names_a_failure(console, monkeypatch):
         console.lines[1]
         == "[1/10 READ] page 3 of 5: read failed: no text on this page, 0.0 s, model=ollama"
     )
+
+
+# ------------------------------------------------ order 218.1: the live file and the stages
+
+
+@pytest.fixture
+def live_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "review_debug", True)
+    return tmp_path / "debug" / review_trace.LIVE_FILE
+
+
+def test_every_live_line_also_goes_to_the_file_with_a_time(console, live_file):
+    review_trace.live("hello")
+    review_trace.live("second")
+    lines = live_file.read_text(encoding="utf-8").splitlines()
+    assert [line[9:] for line in lines] == ["hello", "second"]
+    assert lines[0][2] == ":" and lines[0][8] == " "  # HH:MM:SS then the line
+    assert console.lines == ["hello", "second"]
+
+
+def test_the_file_grows_during_a_read_of_a_small_invented_sheet(console, live_file):
+    datasheet_ai.read_pages(
+        {1: "Design pressure 9 barg", 2: "Design temperature 90 C"}, fake_model
+    )
+    text = live_file.read_text(encoding="utf-8")
+    assert text.count("[1/10 READ] page") == 2 and "model=invented-model:1b" in text
+
+
+def test_nothing_is_written_with_the_switch_off(console, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "review_debug", False)
+    review_trace.live("x")
+    assert not (tmp_path / "debug").exists()
+    assert review_trace.install_live([("x", "f", "l")], providers=False) == 0
+
+
+def test_a_wrapped_stage_passes_the_result_through_and_writes_start_and_end(
+    console, live_file
+):
+    import types
+
+    module = types.ModuleType("fake_stage")
+    module.work = lambda items, scale=1: [i * scale for i in items]
+    assert (
+        review_trace.install_live([(module, "work", "do the work")], providers=False)
+        == 1
+    )
+    assert module.work([1, 2], scale=3) == [3, 6]  # arguments in, result out, untouched
+    assert (
+        review_trace.install_live([(module, "work", "do the work")], providers=False)
+        == 0
+    )  # once only
+    text = live_file.read_text(encoding="utf-8")
+    assert (
+        "do the work: start" in text
+        and "do the work: done in " in text
+        and "| 2 items" in text
+    )
+
+
+def test_a_failing_stage_is_reported_and_still_raises(console, live_file):
+    import types
+
+    module = types.ModuleType("fake_stage")
+
+    def broken():
+        raise ValueError("document words")
+
+    module.broken = broken
+    review_trace.install_live([(module, "broken", "stage")], providers=False)
+    with pytest.raises(ValueError):
+        module.broken()
+    text = live_file.read_text(encoding="utf-8")
+    assert "stage: failed after " in text and "(ValueError)" in text
+    assert "document words" not in text  # the type only, never the message
+
+
+def test_an_ai_call_and_an_ai_task_each_print_one_line(console, live_file):
+    from types import SimpleNamespace as NS
+
+    class Provider:
+        def reason(self, packet):
+            return NS(
+                model_tag="invented-model:1b",
+                tokens_in=120,
+                tokens_out=30,
+                wall_time_s=8.4,
+                finish_reason="stop",
+            )
+
+    Provider.reason = review_trace._ai_call(Provider.reason)
+    Provider().reason(NS(step="ai_task:part_scope"))
+    run_task = review_trace._ai_task(
+        lambda spec, text, **kw: NS(model="invented-model:1b", cached=True, state="ok")
+    )
+    run_task(NS(name="part_scope"), "text")
+    first, second = [
+        line[9:] for line in live_file.read_text(encoding="utf-8").splitlines()
+    ]
+    assert first.startswith(
+        "AI call | task=ai_task:part_scope | model=invented-model:1b | "
+    )
+    assert first.endswith(" | tokens=120/30 | cache=miss")
+    assert second.startswith("AI task | task=part_scope | model=invented-model:1b | ")
+    assert second.endswith(" | cache=hit | state=ok")
+
+
+def test_every_followed_stage_still_exists():
+    """A renamed function would silently drop out of the live file."""
+    import importlib
+
+    for holder, name, _label in review_trace.STAGES:
+        assert callable(
+            getattr(importlib.import_module(f"app.{holder}"), name, None)
+        ), (holder, name)

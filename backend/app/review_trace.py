@@ -31,6 +31,9 @@ other reader of the run gets the records built now under their own grants
 """
 from __future__ import annotations
 
+import functools
+import importlib
+import inspect
 import json
 import logging
 import time
@@ -43,6 +46,8 @@ from . import errors
 from .config import settings
 
 LOGGER_NAME = "review.debug"
+#: Every live line is also appended here, for `tail -f` in a second terminal.
+LIVE_FILE = "live.log"
 log = logging.getLogger(LOGGER_NAME)
 log.propagate = False  # never into the server's normal log handlers
 
@@ -265,6 +270,11 @@ def live(line: str) -> None:
     try:
         _console()
         log.info(line)
+        folder = debug_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%H:%M:%S")
+        with (folder / LIVE_FILE).open("a", encoding="utf-8") as handle:
+            handle.write(f"{stamp} {line}\n")  # closed per line = flushed
     except Exception:  # a debug line never breaks a review
         logging.getLogger(__name__).warning(
             "review debug line not printed", exc_info=True
@@ -297,6 +307,111 @@ def page_line(
     result = f"read failed: {out['error']}" if out.get("error") else f"{found} values"
     head = f"[1/{len(STEPS)} READ] page {page_no}{total}"
     live(f"{head}: {result}, {seconds:.1f} s, model={model}")
+
+
+#: The real stage functions the live file follows: (module, function, label).
+#: Only names that exist are wrapped; a missing one is skipped, never an error.
+STAGES = (
+    ("extract", "extract_document", "extract text (OCR where a page needs it)"),
+    ("chunker", "chunk_document", "chunk document"),
+    ("fts_index", "index_document", "index document"),
+    ("classification", "classify_equipment_type_for_submittal", "equipment type and title"),
+    ("classification", "classify_metadata_for_submittal", "discipline and metadata"),
+    ("datasheets", "extract_facts", "read values (code readers)"),
+    ("applicability", "select", "standards chosen"),
+    ("comparison", "run_comparison", "compare and decide"),
+    ("search", "search", "chat retrieval"),
+    ("reranker", "rerank", "chat rerank"),
+    ("answer", "answer", "chat answer"),
+    ("answer", "verify_claims", "chat evidence check"),
+)
+
+
+def _brief(result: object) -> str:
+    """A short result for an END line: an item count when the result has one."""
+    return f" | {len(result)} items" if isinstance(result, (list, tuple, dict, set)) else ""
+
+
+def _stage(label: str, function):
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        live(f"{label}: start")
+        started = time.monotonic()
+        try:
+            result = function(*args, **kwargs)
+        except BaseException as exc:
+            live(f"{label}: failed after {time.monotonic() - started:.1f} s ({type(exc).__name__})")
+            raise
+        live(f"{label}: done in {time.monotonic() - started:.1f} s{_brief(result)}")
+        return result
+
+    wrapper.live_wrapped = True
+    return wrapper
+
+
+def _ai_call(function):
+    @functools.wraps(function)
+    def wrapper(self, packet, *args, **kwargs):
+        started = time.monotonic()
+        response = function(self, packet, *args, **kwargs)
+        seconds = time.monotonic() - started
+        cache = "hit" if (response.finish_reason == "cache_hit" or not response.wall_time_s) else "miss"
+        live(f"AI call | task={getattr(packet, 'step', '?')} | model={response.model_tag} | {seconds:.1f} s"
+             f" | tokens={response.tokens_in}/{response.tokens_out} | cache={cache}")
+        return response
+
+    wrapper.live_wrapped = True
+    return wrapper
+
+
+def _ai_task(function):
+    @functools.wraps(function)
+    def wrapper(spec, text, **kwargs):
+        started = time.monotonic()
+        result = function(spec, text, **kwargs)
+        live(f"AI task | task={spec.name} | model={result.model} | {time.monotonic() - started:.1f} s"
+             f" | cache={'hit' if result.cached else 'miss'} | state={result.state}")
+        return result
+
+    wrapper.live_wrapped = True
+    return wrapper
+
+
+def _wrap(holder, name: str, make) -> bool:
+    function = getattr(holder, name, None)
+    if (function is None or getattr(function, "live_wrapped", False)
+            or inspect.isgeneratorfunction(function) or inspect.iscoroutinefunction(function)):
+        return False
+    setattr(holder, name, make(function))
+    return True
+
+
+def install_live(stages=None, *, providers: bool = True) -> int:
+    """With `REVIEW_DEBUG` on, wrap the real stage functions and the model
+    providers so the live file follows the whole pipeline. Called once at
+    server start (`run.py`). A wrapper passes arguments and results through
+    untouched and never raises on its own account. Returns how many functions
+    were wrapped (0 with the switch off or when a name is missing)."""
+    if not settings.review_debug:
+        return 0
+    wrapped = 0
+    for holder, name, label in (stages if stages is not None else STAGES):
+        try:
+            module = importlib.import_module(f"app.{holder}") if isinstance(holder, str) else holder
+            wrapped += _wrap(module, name, lambda f, label=label: _stage(label, f))
+        except Exception:  # a stage that cannot be wrapped is skipped
+            logging.getLogger(__name__).warning("live trace: %s not wrapped", name, exc_info=True)
+    if providers:
+        try:
+            from . import ai_task_runner, reasoning_provider
+
+            wrapped += _wrap(reasoning_provider.OllamaProvider, "reason", _ai_call)
+            wrapped += _wrap(reasoning_provider.ClaudeProvider, "reason", _ai_call)
+            wrapped += _wrap(ai_task_runner, "run_task", _ai_task)
+        except Exception:  # the stage lines still work
+            logging.getLogger(__name__).warning("live trace: providers not wrapped", exc_info=True)
+    live(f"live trace on: {wrapped} functions followed; this file: {debug_dir() / LIVE_FILE}")
+    return wrapped
 
 
 @contextmanager
