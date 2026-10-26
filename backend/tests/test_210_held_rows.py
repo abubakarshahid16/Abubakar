@@ -233,3 +233,50 @@ def test_the_kind_of_hold_decides_the_group():
         )
         == "scope_unsure"
     )
+
+
+def test_a_hold_that_is_not_the_division_gates_is_not_called_a_part_scope_hold():
+    from app import comparison as cmp_
+    from app import held_findings
+
+    held = [
+        {
+            "requirement": {
+                "id": f"r{i}",
+                "clause": f"4.{i}",
+                "standard_document_id": "std",
+            },
+            "code": "applicability_unsure",
+            "detail": "the datasheet cites this standard for specific clauses only",
+            "decided_by": "code",
+        }
+        for i in range(6)
+    ]
+    assert {held_findings.kind_of(h) for h in held} == {"other"}
+    made = []
+
+    def fake(**kw):
+        row = {
+            "id": "f",
+            "requirement_id": kw["requirement"]["id"],
+            "ai_rationale": kw["verdict"]["rationale"],
+        }
+        made.append(row)
+        return row, []
+
+    import app.comparison as c
+
+    original = c._prepare_finding
+    c._prepare_finding = fake
+    try:
+        rows, findings = [], []
+        held_findings.add(
+            held, {}, rows, findings, ("run", "sub", False, {"std": "STD-1"})
+        )
+    finally:
+        c._prepare_finding = original
+    assert len(rows) == 1
+    text = rows[0]["ai_rationale"]
+    assert "6 requirements of STD-1 were held for reasons that differ" in text
+    assert "part of the standard" not in text
+    assert cmp_.NEEDS_ENGINEER_REVIEW in text or "Held, not compared" in text

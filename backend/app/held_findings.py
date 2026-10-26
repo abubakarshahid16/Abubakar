@@ -50,15 +50,21 @@ KINDS = {
     "service": "the sentence names a service the datasheet does not state",
     "part_not_read": "the part of the standard it belongs to could not be read",
     "scope_unsure": "whether the part of the standard it belongs to applies could not be confirmed",
+    "other": "",
 }
 
 
 def kind_of(item: dict) -> str:
+    """The kind of hold, named only when it is the one the item really is; any
+    other hold (the citation gate's, a conditional clause's) is "other"."""
+    decided_by = str(item.get("decided_by") or "")
     if item.get("code") == "service_unknown":
         return "service"
-    if str(item.get("decided_by") or "").startswith("code:scope-not-read"):
+    if decided_by.startswith("code:scope-not-read"):
         return "part_not_read"
-    return "scope_unsure"
+    if decided_by.startswith("ai:"):
+        return "scope_unsure"
+    return "other"
 
 
 def _group_row(prepare_finding, group: list[dict], kind: str, label: str, common: dict):
@@ -74,7 +80,8 @@ def _group_row(prepare_finding, group: list[dict], kind: str, label: str, common
         " ..." if len(clauses) > FIRST_CLAUSES else ""
     )
     said = (
-        f"{len(group)} requirements of {label} were held: {KINDS[kind]}"
+        f"{len(group)} requirements of {label} were held"
+        + (f": {KINDS[kind]}" if KINDS[kind] else " for reasons that differ")
         + (f" (clauses {shown})" if shown else "")
         + "; their exact reasons and the full list are in this run's scope ledger"
     )

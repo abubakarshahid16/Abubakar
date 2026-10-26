@@ -59,4 +59,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_T,
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1283-06",
+        phase=1283,
+        description="a hold that is not the division gate's own is called a part-scope hold again",
+        path=_H,
+        anchor='    return "other"\n',
+        replacement='    return "scope_unsure"\n',
+        target=_T,
+        tags=("honesty",),
+    ),
 )
