@@ -179,3 +179,57 @@ def test_which_held_items_become_rows():
     assert said["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert "magnetic-drive" in said["rationale"] and "fallback" not in said["rationale"]
     assert "fallback" in held_findings.verdict({"code": "x"}, "fallback")["rationale"]
+
+
+def _plans(n):
+    return {
+        f"p{i}": f"The seal flush shall follow Plan {30 + i} with a clean fluid."
+        for i in range(n)
+    }
+
+
+def test_many_held_clauses_of_one_standard_and_kind_are_one_row_with_the_count():
+    _, run, result = _review(_plans(40), [("Seal plan", "Plan 11")], "Pump")
+    ledger = [
+        d
+        for d in scope_ledger.decisions_for(run)
+        if d["reason_code"] == "service_unknown"
+    ]
+    assert len(ledger) == 40  # the ledger still holds every requirement
+    rows = [
+        f
+        for f in result["findings"]
+        if f["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    ]
+    assert len(rows) == 1
+    assert "40 requirements" in rows[0]["ai_rationale"]
+    assert "scope ledger" in rows[0]["ai_rationale"]
+    assert len(_stored_rows(run, rows[0]["requirement_id"])) == 1
+
+
+def test_a_few_held_clauses_keep_a_row_each():
+    ids, _, result = _review(_plans(3), [("Seal plan", "Plan 11")], "Pump")
+    rows = [
+        f
+        for f in result["findings"]
+        if f["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    ]
+    assert sorted(f["requirement_id"] for f in rows) == sorted(ids.values())
+
+
+def test_the_kind_of_hold_decides_the_group():
+    from app import held_findings
+
+    assert held_findings.kind_of({"code": "service_unknown"}) == "service"
+    assert (
+        held_findings.kind_of(
+            {"code": "applicability_unsure", "decided_by": "code:scope-not-read"}
+        )
+        == "part_not_read"
+    )
+    assert (
+        held_findings.kind_of(
+            {"code": "applicability_unsure", "decided_by": "ai:m+code"}
+        )
+        == "scope_unsure"
+    )

@@ -49,4 +49,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_T,
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1283-05",
+        phase=1283,
+        description="a standard with many held requirements gets a row each again (a real sheet: 1,937 lines)",
+        path=_H,
+        anchor="        if len(group) > GROUP_ABOVE:\n",
+        replacement="        if False:\n",
+        target=_T,
+        tags=("honesty",),
+    ),
 )

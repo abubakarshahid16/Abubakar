@@ -2939,7 +2939,7 @@ def _run_comparison(
     # ORDER 210 FIX 3: a held requirement is also an engineer-review row.
     from . import held_findings
 
-    run = (review_run_id, submittal_id, replace)
+    run = (review_run_id, submittal_id, replace, standard_labels)
     held_findings.add(held_items, pending, prepared_rows, findings, run)
 
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
