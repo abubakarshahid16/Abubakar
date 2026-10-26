@@ -40,7 +40,8 @@ vi.mock("../../../api/client", async (importOriginal) => {
     ...real,
     reviews: {
       ...real.reviews,
-      confirm: (...a: unknown[]) => confirm(...a),
+      // a Keep reaches the record through the decision route (order 214 fix 10)
+      decideCrsFinding: (_run: string, ...a: unknown[]) => confirm(...a),
       previewCrs: (...a: unknown[]) => previewCrs(...a),
       crsIssueGate: no,
       reviewRuns: no,
