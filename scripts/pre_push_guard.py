@@ -15,6 +15,9 @@ so a machine now refuses the push. Only what the branch changed against
 
 It also WARNS (never blocks) when the branch is behind `origin/main` (R2).
 
+NOTE: the diff is `origin/main...HEAD` of the CHECKED-OUT branch; pushing a different
+branch than the one checked out checks the wrong files.
+
 ruff is found the same way on the Mac and in cloud sessions: `$PRE_PUSH_PYTHON`,
 then `backend/.venv`, then the Python running this script, `python3`, `python`;
 the first that reports ruff 0.16.6 wins. If none does the push is REFUSED with
@@ -59,7 +62,9 @@ def _run(cmd: list[str], cwd: Path, timeout: int = 300) -> tuple[int, str]:
 
 def has_ruff(python: str, root: Path = REPO) -> bool:
     code, out = _run([python, "-m", "ruff", "--version"], root, timeout=30)
-    return code == 0 and RUFF_VERSION in out
+    return (
+        code == 0 and re.search(rf"\bruff {re.escape(RUFF_VERSION)}\b", out) is not None
+    )
 
 
 def candidate_pythons(root: Path = REPO) -> list[str]:
@@ -153,6 +158,30 @@ def plan(
                 [python, str(scripts / "check_lint_baseline.py"), "check"],
                 root,
                 "fix the new finding it names (do not run `record` to hide it)",
+            )
+        )
+        steps.append(
+            (
+                "every module is reached",
+                [python, str(scripts / "check_unused_modules.py")],
+                root,
+                "wire the new module in, or delete it",
+            )
+        )
+        steps.append(
+            (
+                "flag register",
+                [python, str(scripts / "check_flag_expiry.py"), "--no-dates"],
+                root,
+                "list the new on/off setting in docs/flags.md",
+            )
+        )
+        steps.append(
+            (
+                "no test-sheet names in code",
+                [python, str(scripts / "check_no_test_sheet_names.py")],
+                root,
+                "remove the datasheet/part name it shows from the code (order 143: no per-sheet code)",
             )
         )
         steps.append(

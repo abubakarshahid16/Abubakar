@@ -147,3 +147,14 @@ def test_each_kind_of_change_selects_its_checks(tmp_path):
     assert (
         names(["frontend/src/a.tsx"]) == []
     )  # no node_modules here: skipped, not failed
+
+
+def test_a_longer_version_number_is_not_the_pinned_one(monkeypatch):
+    monkeypatch.setattr(
+        guard, "_run", lambda cmd, cwd, timeout=300: (0, "ruff 0.16.60\n")
+    )
+    assert not guard.has_ruff("py")
+    monkeypatch.setattr(
+        guard, "_run", lambda cmd, cwd, timeout=300: (0, f"ruff {guard.RUFF_VERSION}\n")
+    )
+    assert guard.has_ruff("py")

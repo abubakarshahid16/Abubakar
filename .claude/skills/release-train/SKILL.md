@@ -31,7 +31,7 @@ M-03, 216400C and I-06 run on the release head with the local model: fewer lines
 Merge commits, not squash. A release PR shows only its own changes once the one under it is merged. After each merge s2 confirms the plan issues closed (order 151) and the worktrees of merged PRs are removed.
 
 ## Speed rules (orders 215 and 216, permanent)
-The pre-push guard (`.githooks/pre-push`, runs `scripts/pre_push_guard.py`) enforces R1 and warns on R2. Switch it on once per clone and worktree, at the start of every session: `git config core.hooksPath .githooks`.
+The pre-push guard (`.githooks/pre-push`, runs `scripts/pre_push_guard.py`) enforces R1 and warns on R2. Switch it on once per clone and worktree, at the start of every session: `git config core.hooksPath .githooks`. Cloud sessions: run `python3 -m pip install ruff==0.16.6` once (the guard needs exactly that ruff and says so when it is missing; it is not a broken hook).
 - **R1. Check before you push.** Format only the lines you touched (never reformat a whole old file: `python scripts/quality_ratchet.py format-check --base origin/main` is the test; ruff 0.16.6 from `backend/.venv` or your session), then `check_lint_baseline.py check`, `check_mutation_anchors.py`, `check_system_map.py`, the tests of the modules you changed. A PR that fails CI on formatting, size or anchors is a miss: fix it within 10 minutes.
 - **R2. Fresh with main before review.** Merge current main into your branch and push before asking for review, and again whenever main moves while the PR waits. Say "up to date with main at <sha>" in the review request.
 - **R3. Next-job queue.** Your #1238 note has a "Next job: ..." line from the plan. When a job ends, start the next at once.
