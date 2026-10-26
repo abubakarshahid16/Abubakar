@@ -28,6 +28,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `clause_scope` | Choose the standards that apply to a submittal |
 | `division_text` | Choose the standards that apply to a submittal |
+| `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
