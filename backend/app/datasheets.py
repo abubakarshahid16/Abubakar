@@ -4258,8 +4258,7 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
     otherwise the engine and model, how many pages the model read, and each
     page left to the code readers (`code_only`, page -> reason: unavailable,
     timed out, out of time, an unusable answer)."""
-    #: #918: what the CODE readers could not read, by page and reader, and what
-    #: the office reader left out - kept whether or not an AI reader ran.
+    #: #918: what the CODE readers could not read and the office reader left out.
     extra = {}
     if page_failures:
         extra["page_failures"] = {str(p): sorted(r) for p, r in sorted(page_failures.items())}
@@ -4270,6 +4269,7 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
     from .datasheet_ai import parts_summary  # order 139
 
     extra.update(parts_summary(ai_run))
+    extra["asked_subjects"] = list(ai_run.get("asked_subjects") or [])  # order 211 R2
     read = sorted(p for p, out in ai_run["pages"].items() if not out.get("error"))
     return {"engine": ai_run["engine"], "model": ai_run.get("model"), "pages": len(pages),
             "pages_read": len(read),

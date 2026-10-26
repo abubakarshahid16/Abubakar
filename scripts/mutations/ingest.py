@@ -21,9 +21,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="PUT THE WIRING BACK: drop the ingestion-side call, so a "
                     "submittal that only ever gets uploaded never gets facts",
         path=APP / "ingest.py",
-        anchor="            _queue_extraction_if_standard(doc_id)\n"
+        anchor="            _classify_metadata_if_contractor_submittal(doc_id)\n"
                "            _extract_facts_if_contractor_submittal(doc_id)",
-        replacement="            _queue_extraction_if_standard(doc_id)",
+        replacement="            _classify_metadata_if_contractor_submittal(doc_id)",
         target=_INGEST_FACTS_TEST,
         keyword="gets_facts_from_ingestion_alone",
         tags=("critical",),
@@ -51,9 +51,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "submittal that only ever gets uploaded never gets an "
                     "equipment_type",
         path=APP / "ingest.py",
-        anchor="            _extract_facts_if_contractor_submittal(doc_id)\n"
+        anchor="            _queue_extraction_if_standard(doc_id)\n"
                "            _classify_equipment_type_if_contractor_submittal(doc_id)",
-        replacement="            _extract_facts_if_contractor_submittal(doc_id)",
+        replacement="            _queue_extraction_if_standard(doc_id)",
         target=_EQUIPMENT_TYPE_TEST,
         keyword="test_a_pump_datasheet_is_classified_as_a_pump_not_a_vessel"
                 " or test_a_psv_datasheet_is_classified_as_a_valve_not_a_pump",

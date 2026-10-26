@@ -24,7 +24,14 @@ import json
 import uuid
 from pathlib import Path
 
-from . import access, job_progress, job_queue, provenance, submittal_fill
+from . import (
+    access,
+    job_progress,
+    job_queue,
+    provenance,
+    reread_for_standards,
+    submittal_fill,
+)
 from .config import config_version, settings
 from .db import connect
 
@@ -286,7 +293,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         with review_trace.timed(timings, "read"), _reporting_pages(conn, job_id):
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
         _step(conn, job_id, 1)
-        with review_trace.timed(timings, "standards"):
+        with review_trace.timed(timings, "standards"), _reporting_pages(conn, job_id):
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
@@ -294,6 +301,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             from . import company_standard_confirm
 
             held = company_standard_confirm.held_readable(scope)
+            reread_for_standards.for_review(submittal, scope, run_id, timings)
         _step(conn, job_id, 2)
         with review_trace.timed(timings, "compare"):
             comparison.run_comparison(
@@ -309,8 +317,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         # number (drafts not issued). Never fails the run (see the helper).
         from .main import number_crs_rows
         number_crs_rows(run_id, requester)
-        # R26 step 8 (#763): the model words each machine CRS comment; a code
-        # lock keeps every fact. Never fails the run (see the helper).
+        # R26 step 8 (#763): the model words each CRS comment; never fails the run.
         from .main import word_crs_rows
         word_crs_rows(run_id, requester)
         # #791 part 1: the run's step-by-step trace, stored behind the run's
