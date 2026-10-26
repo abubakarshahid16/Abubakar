@@ -1,0 +1,41 @@
+name: auto-label
+
+# Order 216 item 3: `state:approved` goes on a pull request when every check on
+# its current head is green AND a comment from the owner, a member or a
+# collaborator says "approved" and names that head's sha; it comes off when a
+# new head is pushed or a check fails. LABELS ONLY: no merge, no push, no
+# `contents: write`. Rule and its limit: scripts/auto_label.py.
+#
+# `pull_request_target` and `issue_comment` run the BASE branch's code, and
+# this job never checks out or runs anything from the pull request.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [synchronize]
+  workflow_run:
+    workflows: [tests, tests-windows]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: auto-label-${{ github.event.issue.number || github.event.pull_request.number || github.event.workflow_run.head_sha || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # A comment event only matters on a pull request.
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 scripts/auto_label.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
