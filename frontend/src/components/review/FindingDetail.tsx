@@ -214,6 +214,7 @@ function FindingDetailBody(
           page={finding.standard_page ?? null}
           detail={finding.standard_clause ? `clause ${finding.standard_clause}` : null}
           fallbackName={standardNames?.get(finding.standard_document_id ?? "")}
+          notLocated={Boolean(finding.standard_clause) && !finding.standard_page}
           onOpen={(doc, page) => { setSideBySide(false); setOpen({ doc, page }); }}
         />
         <Citation
@@ -376,26 +377,30 @@ function FindingDetailBody(
   );
 }
 
-function Citation({ title, document, page, detail, fallbackName, onOpen }: {
+function Citation({ title, document, page, detail, fallbackName, notLocated, onOpen }: {
   title: string;
   document: DocumentRecord | null;
   page: number | null;
   detail: string | null;
   fallbackName?: string;
+  /** The row cites a clause but no page was found for it (order 225): said, never a page 1. */
+  notLocated?: boolean;
   onOpen: (doc: DocumentRecord, page: number | null) => void;
 }) {
+  const name = title === "Standard" ? "standard" : "datasheet";
   return (
     <div className="rounded-[var(--radius-sm)] border border-ink-700 bg-ink-900 p-3">
       <h5 className="text-xs uppercase tracking-wide text-slateish-400">{title}</h5>
       <p className="mt-1 text-sm text-slateish-200">{document?.filename ?? fallbackName ?? ""}</p>
       {page ? <p className="text-xs text-slateish-400">page {page}</p> : null}
+      {notLocated && !page ? <p className="text-xs text-slateish-400">{name} page not located</p> : null}
       {detail ? <p className="mt-1 text-xs text-slateish-400">{detail}</p> : null}
       {document ? (
         <button
           type="button" onClick={() => onOpen(document, page)}
           className="mt-2 rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-signal-300"
         >
-          Open at page {page ?? 1}
+          {notLocated && !page ? `Open the ${name}` : `Open ${name} at page ${page ?? 1}`}
         </button>
       ) : (
         <p className="mt-2 text-xs text-slateish-500">
