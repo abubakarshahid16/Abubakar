@@ -12,6 +12,7 @@ from . import chat as chat_mod
 from . import classification as classification_mod
 from . import absence as absence_mod
 from . import ai_engineering_check as ai_engineering_check_mod
+from . import ai_check_drafts as ai_check_drafts_mod
 from . import ai_numbers as ai_numbers_mod
 from . import evidence_boxes as evidence_boxes_mod
 from . import applicability as applicability_mod
@@ -1273,35 +1274,33 @@ def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
             "removed": sorted(before[k] for k in before.keys() - now.keys())}
 
 
-def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str]]:
-    """`_run_summary`'s finding numbers for one run: the total (the denominator,
-    findings with no status included), the count per status, and the distinct
-    equipment tags. One grouped count gives the total and the per-status
-    counts (order 109); both read only from indexes."""
+def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
+    """`_run_summary`'s finding numbers for one run: the total (findings with no status
+    included), the count per status, the distinct tags and the AI drafts (their own bucket)."""
     by_status: dict[str, int] = {}
-    total = 0
+    total = drafts = 0
     for row in connect().execute(
-            "SELECT compliance_status, COUNT(*) AS n FROM review_findings"
-            " WHERE review_run_id = ? GROUP BY compliance_status", (run_id,)):
+            f"SELECT compliance_status, {ai_check_drafts_mod.DRAFT_SQL} AS draft, COUNT(*) AS n FROM"
+            " review_findings WHERE review_run_id = ? GROUP BY compliance_status, draft", (run_id,)):
         total += row["n"]
         if row["compliance_status"] is not None:
             by_status[row["compliance_status"]] = row["n"]
+        elif row["draft"]:
+            drafts += row["n"]
     tags = [
         row["equipment_tag"] for row in connect().execute(
             "SELECT DISTINCT equipment_tag FROM review_findings"
             " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
             " ORDER BY equipment_tag", (run_id,))
     ]
-    return total, by_status, tags
+    return total, by_status, tags, drafts
 
 
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     """One review run as every screen shows it.
 
-    ONE DEFINITION OF "HOW MANY FINDINGS, OF WHAT". The runs list, the
-    dashboard's recent table and the code-decision response all return this
-    shape, and three copies of it would drift into three different answers to
-    the same question.
+    ONE DEFINITION OF "HOW MANY FINDINGS, OF WHAT": the runs list, the dashboard
+    and the code-decision response all return this shape.
 
     COUNTED IN SQL. Loading every finding to count them read 1,580 rows per
     run - fourteen thousand across nine runs - to produce six numbers, and
@@ -1314,7 +1313,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     instead of each reading it again; the plain sentence and the AI-check
     status are computed once.
     """
-    findings_total, by_status, tags = _finding_counts(run["id"])
+    findings_total, by_status, tags, drafts = _finding_counts(run["id"])
     job = review_jobs_mod.job_for_run(run["id"])
     outcome = comparison_mod.run_outcome(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run) or {}
@@ -1338,6 +1337,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
             (run["id"],)).fetchone()["n"],
         "findings_total": findings_total,
         "by_status": by_status,
+        "ai_observations": drafts,
         "recommended_code": outcome.get("recommended_code"),
         # 2g: plain words for the engineer; the technical sentence under "Details".
         # A run stored before 2g gets its plain sentence from the same counts.

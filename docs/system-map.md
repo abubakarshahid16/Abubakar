@@ -31,6 +31,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `same_value` | When two readings of a field are one value: the same number and unit with a plain note; a note that changes the meaning stays a second value |
 | `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
+| `ai_check_drafts` | The AI checks' drafts keep no status, are counted as "AI observations (draft, no verdict)", and an exact repeat is marked |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
