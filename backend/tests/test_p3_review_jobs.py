@@ -256,3 +256,46 @@ def test_a_review_that_leaves_a_held_company_standard_out_says_so_on_the_run(
     note = json.loads(_run_row(run_id)["outcome_json"])[csc.RUN_NOTE_KEY]
     assert note["standard_document_ids"] == ["std-held"]
     assert "count as confirmed" in note["sentence"]
+
+
+# ---- order 231: a restart must not leave a dead worker's claim blocking the queue 15 minutes
+
+def _claim_as(world, worker):
+    run_id, job_id = _enqueue(world)
+    assert review_jobs.claim_next(worker) == job_id
+    return run_id, job_id
+
+
+def test_a_restart_recovers_a_foreign_fresh_claim_at_once_but_the_loop_waits_for_the_timeout(world):
+    run_id, job_id = _claim_as(world, "w-deadproc-1")  # fresh claim of another process
+    assert review_jobs.recover_stale() == 0 and _job(job_id)["state"] == "running"
+    assert review_jobs.recover_stale(on_startup=True) == 1
+    assert _job(job_id)["state"] == "queued" and _run_row(run_id)["status"] == "queued"
+    assert review_jobs.claim_next("w-new") == job_id
+
+
+def test_a_cancelled_run_found_running_after_a_restart_is_cancelled_not_requeued(world):
+    run_id, job_id = _claim_as(world, "w-deadproc-1")
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET cancel_requested = 1 WHERE id = ?", (job_id,))
+    assert review_jobs.recover_stale(on_startup=True) == 1
+    assert _job(job_id)["state"] == "cancelled" and _run_row(run_id)["status"] == "cancelled"
+    assert review_jobs.claim_next("w-new") is None  # nothing waits to start
+
+
+def test_a_cancel_with_a_stale_claim_is_cancelled_by_the_periodic_sweep_too(world):
+    run_id, job_id = _claim_as(world, "w-deadproc-1")
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET cancel_requested = 1, claimed_at = '2000-01-01T00:00:00Z'"
+                     " WHERE id = ?", (job_id,))
+    assert review_jobs.recover_stale() == 1
+    assert _job(job_id)["state"] == "cancelled" and _run_row(run_id)["status"] == "cancelled"
+
+
+def test_this_processs_own_fresh_claim_is_never_touched(world):
+    run_id, job_id = _claim_as(world, job_queue.worker_id())
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET cancel_requested = 1 WHERE id = ?", (job_id,))
+    assert review_jobs.recover_stale() == 0
+    assert review_jobs.recover_stale(on_startup=True) == 0
+    assert _job(job_id)["state"] == "running" and _run_row(run_id)["status"] != "cancelled"

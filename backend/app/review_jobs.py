@@ -403,19 +403,40 @@ def cancel(job_id: str, *, actor_user_id: str | None) -> tuple[bool, str | None]
     return False, state
 
 
-def recover_stale() -> int:
-    """Startup: a review job left `running` by a dead process goes back to the
-    queue, and its run with it. Only stale claims - a live worker keeps its
-    claim fresh at every step."""
+def recover_stale(*, on_startup: bool = False) -> int:
+    """A review job left `running` by a dead process goes back to the queue, and
+    its run with it - unless its cancel was already asked for: that one is
+    CANCELLED (job and run) and never re-queued to run again. Returns how many
+    jobs were put back or cancelled.
+
+    Dead means a claim not refreshed for `CLAIM_STALE_SECONDS`. At startup (`on_startup`)
+    every claim held by a worker that is not THIS process is dead at once: the app runs
+    one worker, so a restart ends every old claim (order 231: a cancelled run's claim kept
+    the next review "Waiting to start" for 15 minutes). A live worker's fresh claim is
+    never touched by the periodic sweep, and at startup this process has claimed nothing yet.
+    """
     conn = connect()
+    dead = "(claimed_at IS NULL OR claimed_at < :cutoff"
+    if on_startup:
+        dead += " OR claimed_by IS NULL OR claimed_by NOT LIKE :mine"
+    dead += ")"
+    args = {"stage": STAGE, "cutoff": job_queue.stale_cutoff(), "now": _now(),
+            "mine": f"w-{job_queue.process_token()}-%"}
     with conn:
+        stopped = conn.execute(
+            "UPDATE jobs SET state = 'cancelled', claimed_by = NULL, claimed_at = NULL,"
+            " next_attempt_at = NULL, updated_at = :now WHERE stage = :stage AND state = 'running'"
+            f" AND cancel_requested = 1 AND {dead} RETURNING id, review_run_id", args).fetchall()
+        for r in stopped:
+            conn.execute("UPDATE review_runs SET status = 'cancelled', updated_at = ? WHERE id = ?",
+                         (args["now"], r["review_run_id"]))
+            job_queue.audit(conn, "job.cancelled", r["id"], detail=f"stage={STAGE} after a restart")
         rows = conn.execute(
             "UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL,"
-            " updated_at = ? WHERE stage = ? AND state = 'running'"
-            " AND (claimed_at IS NULL OR claimed_at < ?) RETURNING id, review_run_id",
-            (_now(), STAGE, job_queue.stale_cutoff())).fetchall()
+            f" updated_at = :now WHERE stage = :stage AND state = 'running' AND {dead}"
+            " RETURNING id, review_run_id", args).fetchall()
         for r in rows:
             conn.execute("UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
-                         (_now(), r["review_run_id"]))
+                         (args["now"], r["review_run_id"]))
             job_queue.audit(conn, "job.recovered", r["id"], detail=f"stage={STAGE}")
-    return len(rows)
+    return len(rows) + len(stopped)

@@ -207,7 +207,7 @@ async def lifespan(app: FastAPI):
     # the time the worker first looks at it.
     try:
         standards_mod.recover_stale_extraction_jobs()
-        review_jobs_mod.recover_stale()
+        review_jobs_mod.recover_stale(on_startup=True)
     except Exception as exc:  # noqa: BLE001 - a sweep that fails must not stop boot
         import logging as _logging
         _logging.getLogger("uvicorn.error").warning("the recovery of stale extraction and review jobs failed (%s); "

@@ -72,6 +72,11 @@ CLAIM_STALE_SECONDS = 15 * 60
 _PROCESS_TOKEN = uuid.uuid4().hex[:8]
 
 
+def process_token() -> str:
+    """This process's random part of every worker id it hands out (`w-<token>-<thread>`)."""
+    return _PROCESS_TOKEN
+
+
 def worker_id() -> str:
     """The default claimant: this process, this thread.
 
