@@ -429,16 +429,16 @@ class Settings(BaseSettings):
     #: starved by background work.
     ai_task_min_free_ram_gb: float = 1.5
     #: #647 AI applicability in a review: the model PROPOSES "does not apply"
-    #: with a quoted reason, code confirms it from stated facts or it stays a
-    #: check. OFF by default (one model call per requirement); the model is
-    #: `ai_task_model`. At most this many requirements per run are asked.
+    #: with a quoted reason; code confirms it or it stays a check. OFF by
+    #: default (a model call per requirement); at most this many per run.
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
-    #: #141 a DIVISION of a standard limited by its own scope sentence to one
-    #: construction (`ai_applicability.division_gate`). ON (#805 rule 1); off,
-    #: nothing changes; a part not read (or past the per-run limit) is HELD.
+    #: #141 a DIVISION limited by its own scope sentence to one construction
+    #: (`ai_applicability.division_gate`). ON (#805 rule 1); off, nothing changes.
     ai_division_scope_enabled: bool = True
     ai_division_scope_max_per_run: int = 120
+    #: Order 210 FIX 2, DRAFT, OFF until the owner says yes (`scope_type_words`).
+    scope_type_words_rule_enabled: bool = False
     #: #645 clause to check: for each clause sentence stored with no limit
     #: that the review could not decide, the local model PROPOSES a check
     #: (field, limit, unit, condition, quote); code verifies every part
@@ -1538,7 +1538,7 @@ ANSWER_AFFECTING_SETTINGS = (
     "ai_applicability_enabled", "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
 )
-ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
+ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant", "scope_type_words_rule_enabled")
 
 
 def config_version() -> str:

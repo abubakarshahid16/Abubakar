@@ -35,7 +35,15 @@ from __future__ import annotations
 
 import re
 
-from . import ai_task_runner, requirement_quality, scope_ledger, service_scope, subject_scope
+from . import (
+    ai_task_runner,
+    division_text,
+    requirement_quality,
+    scope_ledger,
+    scope_type_words,
+    service_scope,
+    subject_scope,
+)
 from .ai import output_limits
 from .division_text import (  # noqa: F401 - re-exported: the names tests and callers use
     NOT_READ_COUNTS,
@@ -309,14 +317,7 @@ _STATED_WORDS = 220
 def _names(value: object, construction: str) -> bool:
     """Does `value` name any word of `construction` (four letters or more;
     a plural "s" does not count, so "vessel" names "vessels")?"""
-
-    def words(text: object) -> set[str]:
-        return {
-            w[:-1] if w.endswith("s") else w
-            for w in re.findall(r"[a-z]{4,}", subject_scope._fold(text))
-        }
-
-    return bool(words(value) & words(construction))
+    return bool(scope_type_words.words(value) & scope_type_words.words(construction))
 
 
 def _named_anywhere(
@@ -434,6 +435,9 @@ def _division_decision(
     construction = scope["construction"]
     if not stated:
         return "unsure", None
+    rule_on = ai_task_runner.settings.scope_type_words_rule_enabled
+    if rule_on and scope_type_words.construction_in_type(construction, classification):
+        return "applies", None
     first = _read(
         CONSTRUCTION_TASK,
         _construction_text(construction, scope["quote"], stated),
@@ -533,6 +537,17 @@ def division_gate(
 
 
 def _decide_unit(unit: dict, ctx: dict) -> dict:
+    """`_read_unit`, except that a hold on the TITLE BLOCK of a standard is not
+    a hold (order 210, FIX 2): see `division_text.is_front_matter`. Its
+    requirements are compared as usual and carry a "scope not confirmed" note."""
+    rec = _read_unit(unit, ctx)
+    code_found_nothing = rec["verdict"] == "held" and not rec.get("line")
+    if code_found_nothing and division_text.is_front_matter(unit):
+        return {**rec, "verdict": "kept", "not_confirmed": True}
+    return rec
+
+
+def _read_unit(unit: dict, ctx: dict) -> dict:
     """Read one unit (spends one read of the run's budget) and decide:
     {"status": "read" | "unread" | "beyond", "verdict": "kept" | "held" |
     "does_not_apply", "scope", "unit", ...}. "unsure" is held for the engineer;
@@ -686,6 +701,7 @@ def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
         "applicability_unsure": [],
     }
     counts: dict[str, int] = {}
+    notes: dict = {}
 
     def count(name: str) -> None:
         counts[name] = counts.get(name, 0) + 1
@@ -700,6 +716,9 @@ def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
             kept.append(r)
             if id(r) in marks["by_page"]:
                 count("requirements_kept_sub_headings_not_screened")
+            if rec and rec.get("not_confirmed"):
+                count("requirements_kept_scope_not_confirmed")
+                notes[r.get("id")] = scope_type_words.SCOPE_NOT_CONFIRMED
             continue
         item = ledger_item(r, rec, labels, model)
         out[item["code"]].append(item)
@@ -707,7 +726,7 @@ def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
             count(NOT_READ_COUNTS[rec["not_read"]])
         elif rec.get("unsure") and not rec.get("via"):
             count("requirements_held_unsure")
-    return kept, out["outside_division_scope"], out["applicability_unsure"], counts
+    return kept, out["outside_division_scope"], out["applicability_unsure"], counts, notes
 
 
 def _division_gate(
@@ -740,7 +759,7 @@ def _division_gate(
         "screen_failed": ctx["screen_failed"],
         "by_page": ctx["by_page"],
     }
-    kept, items, held, counts = _sort_out(
+    kept, items, held, counts, notes = _sort_out(
         requirements, where, marks, subs_of, recs, units, standard_labels, model
     )
     candidates = sum(
@@ -759,4 +778,4 @@ def _division_gate(
         summary["model_fallback"] = (
             f"{model_status['reason']}; {model_status['used']} read the scopes"
         )
-    return {"kept": kept, "items": items, "held": held, "summary": summary}
+    return {"kept": kept, "items": items, "held": held, "summary": summary, "notes": notes}

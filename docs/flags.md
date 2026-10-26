@@ -23,6 +23,7 @@ does not make one.
 | `answer_model_allow_remote_host` | `False` | permanent | | | Egress gate for the local-model URL (rule 1) |
 | `ai_applicability_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | AI "does not apply" proposals per requirement |
 | `ai_division_scope_enabled` | `True` | rollout | 2026-10-20 | 2026-11-03 | Scope of a standard's division read from its own scope sentence (#1182); off, nothing changes; a part the model did not read is held for the engineer |
+| `scope_type_words_rule_enabled` | `False` | rollout | 2026-10-26 | 2026-11-09 | Draft (order 210 FIX 2): a part whose construction words are all in the sheet's equipment type or title applies without asking the model; OFF until the owner says yes |
 | `ai_clause_checks_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI check proposals for undecided clauses (#645) |
 | `rule_auto_use_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Proven rule families used without an engineer |
 | `match_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI matcher (#794) |

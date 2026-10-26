@@ -2499,7 +2499,7 @@ def _run_comparison(
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's
     # decision, for the engineer. See `ai_applicability`.
-    ai_notes: dict = {}
+    ai_notes: dict = dict(divided.get("notes") or {})
     ai_applicability_summary = None
     if settings.ai_applicability_enabled:
         from . import ai_applicability
@@ -2507,7 +2507,7 @@ def _run_comparison(
                                    limit=settings.ai_applicability_max_per_run)
         requirements = ai["kept"]
         extra_not_applied.extend(ai["items"])
-        ai_notes = ai["notes"]
+        ai_notes.update(ai["notes"])
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
