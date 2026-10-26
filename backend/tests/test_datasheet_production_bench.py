@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import math
 import os
 import re
 from pathlib import Path
@@ -114,16 +113,16 @@ def test_hybrid_reads_the_xlsx_through_the_real_extract_path(key):
 
 def _form_and_merge_calls(reading: dict, merge_calls: int) -> int:
     """Production's default reader (#882, DATASHEET_READER_MODE=form) makes two
-    passes: the form reader, one call per batch of its field list, and the
-    merge reader (`datasheet_ai.read_pages`, two runs of each page). A form
-    page is a call per batch whether it was read or failed: the stand-in
-    models here answer the merge reader's shape only, so the form's page
-    fails (`model_malformed`) and the facts come from the merge pass."""
+    passes: the form reader and the merge reader (`datasheet_ai.read_pages`, two
+    runs of each page). The form reader asks only the fields whose label is
+    printed on the page (#1280), in batches, and its report counts a question
+    per run (`questions_asked` = batches x `read_form(runs=2)`). The stand-in
+    models here answer the merge reader's shape only, so every form batch FAILS
+    on its first run and `_runs` stops there: a batch costs ONE call. A page
+    whose labels are not printed costs the form reader no call at all."""
     ai = reading["ai_reader"]
     assert ai["reader"] == "form_reader" and ai["form"]["fields"] > 0
-    form = ai["form"]
-    batches = math.ceil(form["fields"] / settings.form_reader_batch_size)
-    return merge_calls + batches * (form["pages_read"] + form["pages_failed"])
+    return merge_calls + ai["form"]["questions_asked"] // 2
 
 
 @pytest.mark.slow
@@ -133,7 +132,7 @@ def test_hybrid_reads_a_pdf_through_the_real_extract_path(key):
                                    model_call=bench.oracle_model_call(entry))
     assert reading["status"] == "read"
     # merge: two runs of one page
-    assert reading["calls"] == _form_and_merge_calls(reading, 2) > 2
+    assert reading["calls"] == _form_and_merge_calls(reading, 2) >= 2
     assert "extract" in reading["stages"] and "chunk" in reading["stages"]
     assert reading["ai_reader"]["ai_only"] >= 5
     assert any(f["method"] == datasheet_ai.EXTRACTION_METHOD for f in reading["facts"])

@@ -322,12 +322,13 @@ describe("CrsSheetView", () => {
       await screen.findByTestId("crs-headline");
       expect(screen.queryByTestId("save-bar")).not.toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
-      expect(confirm).not.toHaveBeenCalled();
+      expect(decideCrsFinding).not.toHaveBeenCalled();
       expect(screen.getByTestId("save-bar")).toHaveTextContent("1 decision not saved yet");
       expect(screen.getByRole("button", { name: /Sign and export/ })).toBeDisabled();
       expect(screen.getByRole("button", { name: "Download working copy" })).toBeDisabled();
       await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
-      expect(confirm).toHaveBeenCalledWith("a");
+      // order 214 fix 10: a Keep is a decision with a named reason
+      expect(decideCrsFinding).toHaveBeenCalledWith(expect.anything(), "a", "accept", "", "kept_as_written", undefined);
       expect(await screen.findByText("1 decision saved to the record.")).toBeInTheDocument();
       expect(screen.queryByTestId("save-bar")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Download working copy" })).toBeEnabled();
@@ -344,7 +345,7 @@ describe("CrsSheetView", () => {
       await userEvent.click(screen.getByRole("button", { name: "Save wording" }));
       await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
       expect(update).toHaveBeenCalledWith("a", { engineer_comment: "Contractor to state the set pressure in barg." });
-      expect(confirm).not.toHaveBeenCalled();
+      expect(decideCrsFinding).toHaveBeenCalledWith(expect.anything(), "a", "accept", "", "edited_by_engineer");
     });
 
     it("a Remove sends a reject with its listed reason code", async () => {
@@ -358,7 +359,7 @@ describe("CrsSheetView", () => {
     });
 
     it("a row the server refuses stays unsaved and says why", async () => {
-      confirm.mockResolvedValue({ ok: false, error: { code: "forbidden", message: "Not allowed." } });
+      decideCrsFinding.mockResolvedValue({ ok: false, error: { code: "forbidden", message: "Not allowed." } });
       mount();
       await screen.findByTestId("crs-headline");
       await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
@@ -662,9 +663,9 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     decideCrsPage.mockImplementation(async () => { recorded.page4 = true; return { ok: true, data: {} }; });
     decideCrsFinding.mockImplementation(async (_run: string, id: string) => {
       if (id === "row-key-std") recorded.other = true;
+      if (id === "a") recorded.a = true;
       return { ok: true, data: {} };
     });
-    confirm.mockImplementation(async (id: string) => { if (id === "a") recorded.a = true; return { ok: true, data: {} }; });
   });
 
   it("signs a run from the sheet alone: code, unread page, comments and other items, then Sign and export", async () => {

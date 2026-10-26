@@ -381,7 +381,7 @@ def _value_of(fact: dict) -> str:
     return " ".join((fact.get("field_value") or "").split())
 
 
-def _same_value_key(fact: dict) -> tuple:
+def same_value_key(fact: dict) -> tuple:
     """What two rows must share to be ONE value. The quantity when it parses
     ("3,300 kPa" = "3300 kPa" = "3.3 MPa"; gauge and absolute kept apart),
     else the written text with spacing and thousands separators folded."""
@@ -421,7 +421,7 @@ def _read_field(facts: list[dict], names) -> tuple[str, list[dict]]:
             break
     if not hits:
         return ABSENT, []
-    return (SINGLE if len({_same_value_key(f) for f in hits}) == 1 else CONFLICT), hits
+    return (SINGLE if len({same_value_key(f) for f in hits}) == 1 else CONFLICT), hits
 
 
 def _conflict_words(field: str, hits: list[dict]) -> str:

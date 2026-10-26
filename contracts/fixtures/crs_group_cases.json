@@ -50,7 +50,7 @@
       ],
       "expected_rows": [
         {"finding_ids": ["c1"], "priority": 2, "priority_label": "Missing value", "action": null, "clause_count": 1},
-        {"finding_ids": ["c2", "c3"], "priority": 3, "priority_label": "Engineer to check", "action": "Clarification requested: no field read from the datasheet was paired with Design pressure; please indicate where it is stated, or confirm it is not stated.", "clause_count": 2}
+        {"finding_ids": ["c2", "c3"], "priority": 3, "priority_label": "Engineer to check", "action": "Clarification requested: please indicate where the datasheet states Design pressure, or confirm it is not stated.", "clause_count": 2}
       ],
       "not_on_sheet": []
     },

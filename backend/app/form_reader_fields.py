@@ -34,8 +34,11 @@ MAX_BATCH = 25
 MAX_QUOTE_CHARS = 240
 FOUND = "found"
 NOT_ON_PAGE = "not_on_page"
-STATUSES = (FOUND, NOT_ON_PAGE)
-PROMPT_VERSION = "form-reader-1"
+#: The field's row is printed but its value is left to the vendor ("By
+#: Contractor", "TBA"): a BLANK fact with its marker, not "not on the page".
+LEFT_BLANK = "left_blank"
+STATUSES = (FOUND, NOT_ON_PAGE, LEFT_BLANK)
+PROMPT_VERSION = "form-reader-2"
 
 
 @dataclass(frozen=True)
@@ -187,10 +190,14 @@ For EVERY field in the list below, return exactly one object:
   quote     - the EXACT words from the page (at most 240 characters, one
               span, copied character for character) that contain BOTH the
               field's label (or one of its other names) AND the value
-  status    - "found", or "not_on_page" when this page does not state the
-              field; then value, unit and quote are ""
-Never guess. Never write a quote that is not on the page. A blank cell,
-"TBA", "By vendor" or "later" is not a value: answer "not_on_page".
+  status    - "found"; "not_on_page" when this page does not show the
+              field at all (then value, unit and quote are ""); or
+              "left_blank" when the field's row IS printed but its value is
+              left to the vendor ("TBA", "By vendor", "By Contractor",
+              "later"): then value is that marker exactly as printed, unit
+              is "", and quote holds the label AND the marker
+Never guess. Never write a quote that is not on the page. "TBA", "By vendor"
+or "later" is not a value: answer "left_blank", never "found".
 
 Answer with JSON only: {"fields": [ ... ]}
 
@@ -213,6 +220,7 @@ def build_prompt(fields: list[Field], page_text: str, page_no: int) -> str:
 
 __all__ = [
     "FOUND",
+    "LEFT_BLANK",
     "MAX_BATCH",
     "NOT_ON_PAGE",
     "PROMPT_VERSION",
