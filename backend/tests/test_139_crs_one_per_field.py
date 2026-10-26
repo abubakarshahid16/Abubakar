@@ -153,8 +153,8 @@ def test_engineer_to_check_questions_of_one_field_are_one_row():
     assert lines[0] == "Clarification requested on Rated power."
     assert lines[2:] == [
         "Supporting clauses (2):",
-        "- STD-100 cl. 8.1 (p.4): clause 8.1 is in kW and the value in hp.",
-        "- STD-100 cl. 8.3 (p.4): clause 8.3 is in kW and the value in hp.",
+        "- STD-100 (edition not recorded) cl. 8.1 (p.4): clause 8.1 is in kW and the value in hp.",
+        "- STD-100 (edition not recorded) cl. 8.3 (p.4): clause 8.3 is in kW and the value in hp.",
     ]
     assert rows[0]["crs_action"] == "Clarification requested on Rated power."
 
@@ -165,9 +165,9 @@ def test_grouped_comment_lists_supporting_clauses():
         "Contractor to complete the field 'Corrosion allowance' (left blank).",
         "Datasheet p.2, Corrosion allowance (P-101) is left blank.",
         "Supporting clauses (3):",
-        '- STD-100 cl. 4.3 (p.4): "The value shall be stated per clause 4.3."',
-        '- STD-100 cl. 5.1 (p.4): "The value shall be stated per clause 5.1."',
-        '- STD-100 cl. 10.2 (p.4): "The value shall be stated per clause 10.2."',
+        '- STD-100 (edition not recorded) cl. 4.3 (p.4): "The value shall be stated per clause 4.3."',
+        '- STD-100 (edition not recorded) cl. 5.1 (p.4): "The value shall be stated per clause 5.1."',
+        '- STD-100 (edition not recorded) cl. 10.2 (p.4): "The value shall be stated per clause 10.2."',
     ]
     assert rows[0]["standard_reference"].count("; ") == 2, (
         "every reference still listed"
@@ -199,7 +199,7 @@ def test_a_long_clause_is_cut_and_a_shared_clause_says_each_requirement():
     assert lines[2] == "Supporting clauses (2):"
     # order 139 part 2 (review of #1179, rule 4): every requirement is said.
     first = lines[3]
-    assert first.startswith('- STD-100 cl. 4.1 (p.4): "A long word')
+    assert first.startswith('- STD-100 (edition not recorded) cl. 4.1 (p.4): "A long word')
     assert first.endswith(' ...." "A second requirement of 4.1."')
 
 
@@ -223,7 +223,7 @@ def test_one_row_never_hides_a_second_question_of_the_same_clause():
     assert row["crs_action"] == "Clarification requested on Rated power."
     assert row["comment"].split("\n")[2:] == [
         "Supporting clauses (1):",
-        "- STD-100 cl. 5.1 (p.4): clause 5.1 is in kW and the value in hp."
+        "- STD-100 (edition not recorded) cl. 5.1 (p.4): clause 5.1 is in kW and the value in hp."
         " the value was read with low trust.",
     ]
     # Two blank-value requirements of one clause: both sentences, too.
@@ -241,7 +241,7 @@ def test_single_clause_row_text_is_unchanged():
     """A field row of ONE clause prints today's sentence, byte for byte."""
     [row] = _rows([_f("a", "4.3"), _f("a2", "4.3", equipment_tag="P-102")])
     assert row["comment"] == (
-        'STD-100 cl. 4.3 (p.4): "The value shall be stated per clause 4.3." '
+        'STD-100 (edition not recorded) cl. 4.3 (p.4): "The value shall be stated per clause 4.3." '
         "Datasheet p.2, Corrosion allowance (P-101, P-102) is left blank. "
         "Contractor to complete the field 'Corrosion allowance' (left blank)."
     )

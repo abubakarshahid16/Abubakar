@@ -98,6 +98,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
 | `crs_carry` | K1 (code audit 26 Oct): an issued CRS number carries the engineer's confirmation only for the words they confirmed; other words under the same number need a fresh tick (the number stays) |
+| `crs_reference` | Order 227: what a CRS Standard Reference says after the standard's name: its edition (stored on the finding or printed in the standard's own name; "edition not recorded" when unknown, never guessed), the clause words and the page |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
