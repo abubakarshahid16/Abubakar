@@ -23,7 +23,7 @@ NOT_RECORDED = "edition not recorded"
 
 _NUMBERISH = re.compile(r"\d")
 _SIDE_YEAR = re.compile(
-    r"(?:addend\w*|amend\w*|errat\w*|supplement\w*|corrigend\w*|\bamd\b|\badd\b)"
+    r"(?:addend\w*|amend\w*|errat\w*|suppl\w*|corrigend\w*|\bamd|\bcor|\badd)"
     r"[\s.\-_]*(?:no\.?)?[\s.\-_]*\d{0,2}[\s.\-_,:]*$"
     r"|(?:\+|\b)A\d{1,2}[\s.\-_,:]*$",
     re.IGNORECASE,

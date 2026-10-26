@@ -146,12 +146,21 @@ def test_a_row_issued_before_references_named_their_edition_is_not_seen_as_chang
     """Order 227: the edition gained by the Standard Reference (and so by the comment's lead)
     is not the words changing; a real change still is."""
     old = {"comment": "STD-100 cl. 4.3 (p.4): requires X. Contractor to revise X."}
-    for lead in ("STD-100 (edition not recorded) cl. 4.3 (p.4)", "STD-100 (2023) cl. 4.3 (p.4)"):
+    for lead in (
+        "STD-100 (edition not recorded) cl. 4.3 (p.4)",
+        "STD-100 (2023) cl. 4.3 (p.4)",
+    ):
         now = {"comment": f"{lead}: requires X. Contractor to revise X."}
         assert not crs_carry.words_changed_since_issue(now, old)
-    changed = {"comment": "STD-100 (2023) cl. 4.3 (p.4): requires Y. Contractor to revise Y."}
+    changed = {
+        "comment": "STD-100 (2023) cl. 4.3 (p.4): requires Y. Contractor to revise Y."
+    }
     assert crs_carry.words_changed_since_issue(changed, old)
     # two editions of the same clause are two comments once the first one named its edition
-    named = {"comment": "STD-100 (2019) cl. 4.3 (p.4): requires X. Contractor to revise X."}
-    now = {"comment": "STD-100 (2023) cl. 4.3 (p.4): requires X. Contractor to revise X."}
+    named = {
+        "comment": "STD-100 (2019) cl. 4.3 (p.4): requires X. Contractor to revise X."
+    }
+    now = {
+        "comment": "STD-100 (2023) cl. 4.3 (p.4): requires X. Contractor to revise X."
+    }
     assert crs_carry.words_changed_since_issue(now, named)
