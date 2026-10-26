@@ -1,10 +1,10 @@
-"""Order 224 item 4: the AI checks' drafts carry a status and a repeat is one row.
+"""Order 224.1: the AI checks' drafts keep NO status, sit in their own bucket and an exact repeat is marked, never deleted.
 
 On the owner's I-06 run (four relief valves, one per page) the AI engineering
 check wrote "valve size is blank" once per page, each with an EMPTY status.
-Now every draft ends with "engineer to check", the same observation on several
-pages is ONE row listing the pages and tags, and a draft can still never move
-the suggested review code. Invented text, a throwaway database, no model.
+The status stays empty (a draft is not a verdict), the drafts are counted as
+"AI observations (draft, no verdict)", exact repeats are marked and every row
+keeps its page, tag and quote; a draft can never move the suggested code. Invented text, a throwaway database, no model.
 """
 
 from __future__ import annotations
@@ -43,6 +43,8 @@ def world(tmp_path, monkeypatch):
 
 def _draft(
     page,
+    quote="340 psig",
+    standard="doc_std",
     text="The valve size is blank.",
     action="State the valve size.",
     field="Valve size",
@@ -64,8 +66,9 @@ def _draft(
     with db.connect() as conn:
         conn.execute(
             "UPDATE review_findings SET review_run_id = ?, origin = ?, contractor_page = ?,"
-            " contractor_section = ?, ai_rationale = 'AI engineering check.' WHERE id = ?",
-            (RUN, origin, page, field, made["id"]),
+            " contractor_section = ?, contractor_evidence_text = ?, standard_document_id = ?,"
+            " ai_rationale = 'AI engineering check.' WHERE id = ?",
+            (RUN, origin, page, field, quote, standard, made["id"]),
         )
     return made["id"]
 
@@ -89,52 +92,52 @@ def _rows(origin=ai_check_drafts.AI_ORIGIN):
     ]
 
 
-def test_every_status_less_draft_ends_with_engineer_to_check():
+def test_a_draft_never_gets_a_status_and_is_counted_in_its_own_bucket():
     _draft(1, text="One thing.")
     _draft(2, text="Another thing.", field="Other")
-    out = ai_check_drafts.settle(RUN)
-    assert out == {"statused": 2, "merged": 0}
-    assert {r["compliance_status"] for r in _rows()} == {"NEEDS_ENGINEER_REVIEW"}
-    assert ai_check_drafts.settle(RUN) == {
-        "statused": 0,
-        "merged": 0,
-    }  # a second call changes nothing
-
-
-def test_the_web_checks_drafts_get_a_status_too():
-    _draft(1, origin=ai_check_drafts.WEB_ORIGIN)
+    _draft(3, origin=ai_check_drafts.WEB_ORIGIN)
     ai_check_drafts.settle(RUN)
-    assert [r["compliance_status"] for r in _rows(ai_check_drafts.WEB_ORIGIN)] == [
-        "NEEDS_ENGINEER_REVIEW"
-    ]
+    assert {r["compliance_status"] for r in _rows()} == {None}
+    assert {r["compliance_status"] for r in _rows(ai_check_drafts.WEB_ORIGIN)} == {None}
+    assert ai_check_drafts.observation_count(RUN) == 3
+    assert ai_check_drafts.BUCKET_LABEL == "AI observations (draft, no verdict)"
 
 
-def test_four_pages_with_the_same_observation_become_one_row_listing_pages_and_tags():
-    for page, tag in ((1, "PSV-1"), (2, "PSV-2"), (3, "PSV-3"), (4, "PSV-4")):
+def test_exact_repeats_are_marked_and_every_row_keeps_its_page_tag_and_quote():
+    for page, tag in ((1, "PSV-1"), (2, "PSV-2"), (3, "PSV-3")):
         _draft(page)
         _tag(page, tag)
-    out = ai_check_drafts.settle(RUN)
+    assert ai_check_drafts.settle(RUN) == {"marked": 2}
     rows = _rows()
-    assert out["merged"] == 3 and len(rows) == 1
-    assert rows[0]["contractor_page"] == 1
-    assert (
-        "Same observation on pages 1, 2, 3, 4 (tags PSV-1, PSV-2, PSV-3, PSV-4)."
-        in rows[0]["ai_rationale"]
+    assert [r["contractor_page"] for r in rows] == [1, 2, 3]  # nothing deleted
+    assert "Exact repeat" not in rows[0]["ai_rationale"]
+    assert all(
+        "Exact repeat of the observation on page 1." in r["ai_rationale"]
+        for r in rows[1:]
     )
-    assert rows[0]["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
+    assert {r["contractor_evidence_text"] for r in rows} == {"340 psig"}
 
 
-def test_different_observations_stay_separate():
-    _draft(1, text="The valve size is blank.")
-    _draft(2, text="The fluid phase is blank.", field="Fluid phase")
-    _draft(
-        3, text="The valve size is blank.", field="Other field"
-    )  # same words, another field
+def test_a_second_call_changes_nothing():
+    _draft(1)
+    _draft(2)
     ai_check_drafts.settle(RUN)
-    assert len(_rows()) == 3
+    before = [r["ai_rationale"] for r in _rows()]
+    assert ai_check_drafts.settle(RUN) == {"marked": 0}
+    assert [r["ai_rationale"] for r in _rows()] == before
 
 
-def test_a_draft_an_engineer_decided_is_never_merged_or_removed():
+def test_a_different_quoted_value_or_standard_or_field_is_not_a_repeat():
+    _draft(1)
+    _draft(2, quote="130 psig")
+    _draft(3, standard="doc_other")
+    _draft(4, field="Other field")
+    _draft(5, text="The fluid phase is blank.")
+    assert ai_check_drafts.settle(RUN) == {"marked": 0}
+    assert all("Exact repeat" not in r["ai_rationale"] for r in _rows())
+
+
+def test_a_draft_an_engineer_decided_is_never_touched():
     keep = _draft(1)
     decided = _draft(2)
     with db.connect() as conn:
@@ -143,16 +146,15 @@ def test_a_draft_an_engineer_decided_is_never_merged_or_removed():
             (decided,),
         )
     ai_check_drafts.settle(RUN)
-    ids = {r["id"] for r in _rows()}
-    assert ids == {keep, decided}
+    rows = {r["id"]: r for r in _rows()}
+    assert set(rows) == {keep, decided}
+    assert rows[decided]["ai_rationale"] == "AI engineering check."
 
 
 def test_a_pile_of_drafts_never_moves_the_suggested_code():
     """The rule that mattered before the status: a draft cannot change the code."""
     met = {"compliance_status": "COMPLIANT", "origin": None}
-    drafts = [
-        {"compliance_status": "NEEDS_ENGINEER_REVIEW", "origin": "ai_engineering_check"}
-    ] * 40
+    drafts = [{"compliance_status": None, "origin": "ai_engineering_check"}] * 40
     drafts += [
         {"compliance_status": "NON_COMPLIANT", "origin": "web_standard_check"}
     ] * 3

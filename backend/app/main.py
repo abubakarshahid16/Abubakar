@@ -12,6 +12,7 @@ from . import chat as chat_mod
 from . import classification as classification_mod
 from . import absence as absence_mod
 from . import ai_engineering_check as ai_engineering_check_mod
+from . import ai_check_drafts as ai_check_drafts_mod
 from . import ai_numbers as ai_numbers_mod
 from . import evidence_boxes as evidence_boxes_mod
 from . import applicability as applicability_mod
@@ -1297,10 +1298,8 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str]]:
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     """One review run as every screen shows it.
 
-    ONE DEFINITION OF "HOW MANY FINDINGS, OF WHAT". The runs list, the
-    dashboard's recent table and the code-decision response all return this
-    shape, and three copies of it would drift into three different answers to
-    the same question.
+    ONE DEFINITION OF "HOW MANY FINDINGS, OF WHAT": the runs list, the dashboard
+    and the code-decision response all return this shape.
 
     COUNTED IN SQL. Loading every finding to count them read 1,580 rows per
     run - fourteen thousand across nine runs - to produce six numbers, and
@@ -1337,6 +1336,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
             (run["id"],)).fetchone()["n"],
         "findings_total": findings_total,
         "by_status": by_status,
+        "ai_observations": ai_check_drafts_mod.observation_count(run["id"]),
         "recommended_code": outcome.get("recommended_code"),
         # 2g: plain words for the engineer; the technical sentence under "Details".
         # A run stored before 2g gets its plain sentence from the same counts.

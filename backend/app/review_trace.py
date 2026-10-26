@@ -39,7 +39,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import errors
+from . import ai_check_drafts, errors
 from .config import settings
 
 LOGGER_NAME = "review.debug"
@@ -51,7 +51,18 @@ STEPS = ("READ", "CLEAN", "EQUIPMENT", "STANDARDS", "CHECKLIST",
 #: Statuses as the decide step names them.
 _DECISIONS = (("COMPLIANT", "meets"), ("NON_COMPLIANT", "fails"),
               ("MISSING_INFORMATION", "missing"), ("NEEDS_ENGINEER_REVIEW", "engineer"),
-              ("NOT_APPLICABLE", "n/a"), ("NOT_IN_DOCUMENT_SCOPE", "other doc"))
+              ("NOT_APPLICABLE", "n/a"), ("NOT_IN_DOCUMENT_SCOPE", "other doc"),
+              (ai_check_drafts.DRAFT_BUCKET, ai_check_drafts.BUCKET_LABEL))
+
+
+def _status_counts(findings: list[dict]) -> Counter:
+    """Order 224.1: a draft of the AI checks has no status; it is counted in
+    its own named bucket, never as "engineer to check"."""
+    return Counter(
+        f.get("compliance_status")
+        or (ai_check_drafts.DRAFT_BUCKET if f.get("origin") in ai_check_drafts.DRAFT_ORIGINS else None)
+        for f in findings
+    )
 
 
 def debug_dir() -> Path:
@@ -169,7 +180,7 @@ def build(review_run_id: str, scope) -> dict:
         + ("; ".join(f"{r['reason']} {r['count']}" for r in reasons[:5]) or "none recorded"),
         counts={"findings": len(rules), "paired": paired}))
     # 7 DECIDE
-    status = Counter(f.get("compliance_status") for f in findings)
+    status = _status_counts(findings)
     decided = status.get("COMPLIANT", 0) + status.get("NON_COMPLIANT", 0)
     steps.append(_step("DECIDE", " | ".join(f"{label} {status.get(s, 0)}" for s, label in _DECISIONS),
                        warning="0 decisions (no meets, no fails)" if findings and not decided else None,

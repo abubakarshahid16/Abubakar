@@ -209,8 +209,8 @@ def _record_check_failure(run_id: str, column: str, name: str, exc: BaseExceptio
 
 
 def _settle_drafts(run_id: str) -> None:
-    """Order 224 item 4: the AI checks' drafts get "engineer to check" and a
-    repeat becomes one row. Never fails the review."""
+    """Order 224.1: exact repeats among the AI check's drafts are marked.
+    Never fails the review."""
     try:
         from . import ai_check_drafts
 
