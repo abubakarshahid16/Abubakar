@@ -782,3 +782,161 @@ def test_a_review_whose_scope_gate_crashes_holds_the_requirements_not_a_verdict(
             if f.get("requirement_id") == ids[name]
         } <= HELD_ROW
     assert result["requirement_split"]["division_scope"]["requirements_gated"] == 3
+
+
+# ------------------------- a sheet that says what it is only in its heading
+
+
+PUMP_SCOPE = "This invented standard covers centrifugal pumps."
+PUMP_PAGES = [
+    (
+        1,
+        "PART PP\nREQUIREMENTS FOR CENTRIFUGAL PUMPS\nPP-1 SCOPE\n"
+        + PUMP_SCOPE
+        + "\nPP-2 The casing shall be tested at 12 bar.\n",
+    )
+]
+PUMP_REQ = {
+    "id": "pc",
+    "standard_document_id": "std",
+    "page": 1,
+    "requirement_text": "The casing shall be tested at 12 bar.",
+    "source_text": "PP-2 The casing shall be tested at 12 bar.",
+}
+PUMP_LIMITED = {
+    "limited": "yes",
+    "construction": "centrifugal pumps",
+    "quote": PUMP_SCOPE,
+}
+HEADING = "CENTRIFUGAL PUMP DATASHEET"
+
+
+def _sheet_with_heading(heading=HEADING):
+    """A sheet whose classification holds NO equipment type and NO title (the
+    classifier found neither); the heading is only in its page text."""
+    from app import classification
+
+    _doc(
+        "sub",
+        "sheet.pdf",
+        "CONTRACTOR_SUBMITTAL",
+        [(1, f"{heading}\nDESIGN PRESSURE 9 barg\n")],
+    )
+    return classification.of_document("sub")
+
+
+def _pump_gate(stored, model):
+    return ai_applicability.division_gate(
+        [dict(PUMP_REQ)],
+        classification=stored,
+        facts=[],
+        standard_labels={"std": "PUMP-STD"},
+        provider=model,
+        pages_of=lambda sid: PUMP_PAGES,
+    )
+
+
+def _yes(quote):
+    return {"equipment_is": "centrifugal pump", "quote": quote, "is_that": "yes"}
+
+
+def test_the_sheets_own_heading_is_a_stated_line(temp_storage):
+    stored = _sheet_with_heading()
+    assert not stored.get("equipment_type") and not stored.get("title")
+    assert f"heading: {HEADING}" in ai_applicability.stated_construction(stored, [])
+
+
+def test_a_part_that_only_repeats_what_the_heading_says_applies(temp_storage):
+    # the order 196 case: the standard's scope sentence names the equipment the
+    # sheet is headed with; before, nothing stored named it and the clause was held
+    stored = _sheet_with_heading()
+    model = FakeModel(scope=PUMP_LIMITED, construction=_yes(f"heading: {HEADING}"))
+    out = _pump_gate(stored, model)
+    assert out["summary"]["limited"] == 1  # the part really was read as limited
+    assert _ids(out["kept"]) == ["pc"] and out["held"] == [] and out["items"] == []
+
+
+def test_a_real_limit_the_heading_does_not_state_stays_held(temp_storage):
+    # a heading of a different kind of equipment names nothing of the part's
+    # construction: the model's "yes" is not backed by a stated line, so it is held
+    stored = _sheet_with_heading("TURBINE DATASHEET")
+    model = FakeModel(
+        scope=PUMP_LIMITED, construction=_yes("heading: TURBINE DATASHEET")
+    )
+    out = _pump_gate(stored, model)
+    assert out["kept"] == [] and _ids(out["held"]) == ["pc"]
+
+
+def test_a_yes_that_quotes_no_stated_line_stays_held(temp_storage):
+    stored = _sheet_with_heading()
+    model = FakeModel(scope=PUMP_LIMITED, construction=_yes("a pump of some kind"))
+    out = _pump_gate(stored, model)
+    assert out["kept"] == [] and _ids(out["held"]) == ["pc"]
+
+
+def test_a_models_no_never_excludes_a_part_the_heading_names(temp_storage):
+    # the heading names the construction: code never excludes on the model's
+    # "no" alone (it is held for the engineer)
+    stored = _sheet_with_heading()
+    no = {"equipment_is": "other", "quote": f"heading: {HEADING}", "is_that": "no"}
+    out = _pump_gate(stored, FakeModel(scope=PUMP_LIMITED, construction=no))
+    assert out["items"] == [] and _ids(out["held"]) == ["pc"]
+
+
+def test_a_document_with_no_known_text_has_no_heading(temp_storage):
+    assert ai_applicability.datasheet_heading({"equipment_type": "Pump"}) == []
+    assert ai_applicability.datasheet_heading({"document_id": "missing"}) == []
+
+
+FORM_LINE = (
+    "CENTRIFUGAL PUMP DATASHEET Doc No.: PF1-DS-0101 Tag No.: SYN-P-0101 Rev: 0 "
+    "Project: Synthetic Plant 0001 Sheet 1 of 2"
+)
+
+
+def test_a_heading_stored_as_one_line_with_its_fields_is_read(temp_storage):
+    # s2's finding on #1273: the chunker stores a form's heading and its first
+    # fields as ONE line (about 18 words); the short-line filter dropped it
+    from app import classification
+
+    _doc("sub", "sheet.pdf", "CONTRACTOR_SUBMITTAL", [(1, FORM_LINE)])
+    stored = classification.of_document("sub")
+    assert ai_applicability.datasheet_heading(stored) == [
+        "CENTRIFUGAL PUMP DATASHEET Doc"
+    ]
+
+
+def test_a_chunk_with_no_line_breaks_is_read_when_the_page_is_not_stored(temp_storage):
+    from app import classification
+
+    _doc("sub", "sheet.pdf", "CONTRACTOR_SUBMITTAL", [(1, FORM_LINE)])
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pages WHERE document_id = 'sub'")
+    stored = classification.of_document("sub")
+    assert ai_applicability.datasheet_heading(stored) == [
+        "CENTRIFUGAL PUMP DATASHEET Doc"
+    ]
+
+
+def test_a_long_line_with_no_field_label_is_prose_not_a_heading(temp_storage):
+    from app import classification
+
+    prose = "This sheet is issued by the vendor for the purchaser of the equipment named below"
+    _doc("sub", "sheet.pdf", "CONTRACTOR_SUBMITTAL", [(1, prose)])
+    assert ai_applicability.datasheet_heading(classification.of_document("sub")) == []
+
+
+def test_the_pump_part_applies_when_the_heading_shares_its_line_with_fields(
+    temp_storage,
+):
+    from app import classification
+
+    _doc("sub", "sheet.pdf", "CONTRACTOR_SUBMITTAL", [(1, FORM_LINE)])
+    stored = classification.of_document("sub")
+    model = FakeModel(
+        scope=PUMP_LIMITED,
+        construction=_yes("heading: CENTRIFUGAL PUMP DATASHEET Doc"),
+    )
+    out = _pump_gate(stored, model)
+    assert out["summary"]["limited"] == 1
+    assert _ids(out["kept"]) == ["pc"] and out["held"] == []

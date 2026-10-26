@@ -167,8 +167,8 @@ _IDENTITY_MEMO: dict[str, tuple[float, str | None]] = {}
 
 
 def model_identity(requested: str) -> str | None:
-    """`tag@digest` of the local model as the engine reports it (`/api/tags`),
-    or None when it cannot be told - in which case nothing is cached or reused
+    """`tag@digest|ollama/<version>` of the local model and its engine as the
+    engine reports them (`/api/tags`, `/api/version`), or None when it cannot be told - in which case nothing is cached or reused
     (a floating tag that was re-pulled must not reuse an old model's answer).
     The probe sends nothing derived from a document."""
     now = time.monotonic()
@@ -178,12 +178,19 @@ def model_identity(requested: str) -> str | None:
     identity: str | None = None
     try:
         tags = model_transport.get_json("/api/tags", timeout=3.0, required=False) or {}
+        # The ENGINE's version joins the identity (order 205): a new Ollama can
+        # read the same prompt differently, so it never reuses an old answer. An
+        # engine that will not say its version has no identity (no reuse).
+        info = model_transport.get_json("/api/version", timeout=3.0, required=False)
+        version = str((info or {}).get("version") or "")
         for entry in tags.get("models") or []:
             names = {str(entry.get("name") or ""), str(entry.get("model") or "")}
             if requested in names or f"{requested}:latest" in names:
                 digest = str(entry.get("digest") or "")
-                if digest:
-                    identity = f"{entry.get('name') or requested}@{digest}"
+                if digest and version:
+                    identity = (
+                        f"{entry.get('name') or requested}@{digest}|ollama/{version}"
+                    )
                 break
     except Exception as exc:  # noqa: BLE001 - logged (type only); an unreachable engine means "no cache"
         _log.info(
@@ -255,7 +262,8 @@ def reuse_or_ask(
 
     A stored answer is reused only when ALL of these are unchanged: the prompt
     text (page text and rule inputs are in it), `version`, the model's identity
-    (tag + digest as the engine reports it) and `schema`. Anything different -
+    (tag + digest, and the engine's version, as it reports them) and `schema`;
+    `AI_ANSWER_REUSE_ENABLED=false` turns the whole reuse off. Anything different -
     or an engine whose identity cannot be told - calls `ask()` as before.
     `ask` raises on a failure, and a failure is never stored. `keep_if` stores
     only an answer the caller's own code check accepted. `asked` counts how
@@ -264,6 +272,8 @@ def reuse_or_ask(
     The reused text is returned to the caller, whose gates run on it exactly as
     on a fresh one: the cache decides nothing.
     """
+    if not settings.ai_answer_reuse_enabled:
+        return ask()  # reuse off (the final client test): nothing read, nothing kept
     identity = model_identity(model)
     if identity is None:
         return ask()
@@ -417,6 +427,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
         return _failed(spec, model, f"the text is {words} words; a task reads at most "
                                     f"{settings.ai_task_max_words}. Split it into passages.")
     key = cache_key(spec, model, text)
+    use_cache = use_cache and settings.ai_answer_reuse_enabled  # order 205: off = fresh
     if use_cache:
         hit = _cache_get(key)
         if hit is not None:

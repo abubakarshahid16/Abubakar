@@ -105,6 +105,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
 | `form_reader_run` | Run the form reader over a datasheet for extraction |
 | `severity_rule` | One rule for a severity word: a failed requirement is never minor |
+| `datasheet_roles` | Which role a datasheet field name states when it fits several: the one the sheet's equipment type checks (#900) |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
@@ -147,6 +148,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `market_providers` | Three tiers of public information, one row shape, and no socket in sight |
 | `market_transport` | The one place in this codebase that may open a socket to the public internet |
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
+| `closing_noun` | Reads the quantity a sentence names LAST ("... of its travel") so a label that runs from it into the subject can be paired (#913) |
 | `method_notes` | Order 159: marks the notes on HOW a pairing was made, so the engineer's copy keeps them and the contractor's copy leaves them off |
 | `metrics` | Everything the dashboard shows, and nothing it does not measure |
 | `model_evidence` | Verification of a local model's quoted evidence (B5 bounded model assistance, owner-approved 2026-09-25) |
@@ -211,6 +213,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `states` | Document lifecycle state machine |
 | `stored_paths` | A stored file's path, relative to `data_dir`, resolved on read (order 121 C) |
 | `structured_search` | Small, scope-aware search over EPC workflow records |
+| `submittal_fill` | Order 206.1: a contractor datasheet's empty title and equipment type filled from its own heading (the line that says DATA SHEET), at READY and again when its review starts |
 | `subject_scope` | What a requirement is ABOUT, and whether it applies to this submittal (#453) |
 | `submittal_review` | Schema and scoped read paths for the AI submittal review workflow |
 | `symbols` | Repair glyphs an old PDF's symbol font extracted as the wrong character |
