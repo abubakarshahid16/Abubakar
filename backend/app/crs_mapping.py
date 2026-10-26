@@ -36,7 +36,7 @@ from . import (
 )
 
 # isort: split
-from . import equipment_subtype, paragraph_ids
+from . import crs_reference, equipment_subtype, paragraph_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -477,7 +477,7 @@ def _standard_reference(finding: dict) -> str:
     if not std:
         return ""
     page = finding.get("standard_page")
-    return std + paragraph_ids.cited(finding) + (f" (p.{page})" if page else "")
+    return std + crs_reference.tail(finding, std, paragraph_ids.cited(finding), page)
 
 
 def _field_label(finding: dict) -> str:

@@ -31,7 +31,7 @@ CALC = {"id": "f2", "origin": "datasheet_check", "compliance_status": "NON_COMPL
 
 def test_the_chain_is_value_page_clause_result_and_why():
     assert crs_mapping.reasoning_text([BREACH]) == (
-        "Read: Noise level = 95 dB(A) (p.2). Clause: API 610 cl. 6.1.14 (p.12). "
+        "Read: Noise level = 95 dB(A) (p.2). Clause: API 610 (edition not recorded) cl. 6.1.14 (p.12). "
         "Result: does not meet. Why: 95 dB(A) is above the limit of 90 dB(A).")
 
 
