@@ -14,28 +14,38 @@ unit the system cannot convert, and a reference with no number.
 from __future__ import annotations
 
 import re
+from functools import cache
 
-from . import requirements_3b as r3b
 
-_OWN_VALUE = re.compile(
-    r"(?P<cmp>"
-    + r3b._CMP_RE
-    + r")\s*(?:the\s+)?(?P<ref>[A-Za-z][A-Za-z0-9 \-/]{1,60}?)"
-    r"\s+of\s+(?P<value>[-+]?" + r3b._VALUE + r")\s*(?P<unit>" + r3b._UNIT + r")"
-    r"(?![\w/])(?!\s*(?:or|and|to)\s+\d)",
-    re.IGNORECASE,
-)
-_PICKS_ONE = re.compile(
-    r"\b(?:greater|lesser|higher|lower|larger|smaller|sum|total|difference|"
-    r"average|ratio|half|twice|double|times|multiple|percent)\b",
-    re.IGNORECASE,
-)
+@cache
+def _patterns() -> tuple[re.Pattern, re.Pattern]:
+    """Built on first use: this module is imported by `requirements_3b`, whose
+    vocabulary the patterns are made of."""
+    from . import requirements_3b as r3b
+
+    own_value = re.compile(
+        r"(?P<cmp>"
+        + r3b._CMP_RE
+        + r")\s*(?:the\s+)?(?P<ref>[A-Za-z][A-Za-z0-9 \-/]{1,60}?)"
+        r"\s+of\s+(?P<value>[-+]?" + r3b._VALUE + r")\s*(?P<unit>" + r3b._UNIT + r")"
+        r"(?![\w/])(?!\s*(?:or|and|to)\s+\d)",
+        re.IGNORECASE,
+    )
+    picks_one = re.compile(
+        r"\b(?:greater|lesser|higher|lower|larger|smaller|sum|total|difference|"
+        r"average|ratio|half|twice|double|times|multiple|percent)\b",
+        re.IGNORECASE,
+    )
+    return own_value, picks_one
 
 
 def parse(sentence: str) -> dict | None:
     """The limit the sentence states through a reference, or None."""
-    match = _OWN_VALUE.search(sentence or "")
-    if match is None or _PICKS_ONE.search(match.group("ref")):
+    from . import requirements_3b as r3b
+
+    own_value, picks_one = _patterns()
+    match = own_value.search(sentence or "")
+    if match is None or picks_one.search(match.group("ref")):
         return None
     operator = r3b._OPERATOR.get(r3b._canonical_comparator(match.group("cmp")))
     raw_unit = r3b.unit_token(match.group("unit"))
