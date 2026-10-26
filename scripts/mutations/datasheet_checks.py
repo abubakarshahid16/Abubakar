@@ -17,7 +17,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="gauge_against_absolute", tags=("honesty", "critical")),
     Mutation(id="M1058", phase=89, description="one of two different values under one name is picked",
              path=_M,
-             anchor="            if len({_shown(f) for f in left}) != 1 or len({_shown(f) for f in right}) != 1:\n",
+             anchor="            if len({_key(f) for f in left}) != 1 or len({_key(f) for f in right}) != 1:\n",
              replacement="            if not left or not right:\n",
              target=_T, keyword="two_different_values_under_one_name", tags=("honesty",)),
     Mutation(id="M1059", phase=89, description="an absent mandatory field is not reported",

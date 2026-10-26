@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-from . import acronyms, facet_memo, fts_index, lexical, numparse, time_units
+from . import acronyms, facet_memo, fts_index, lexical, numparse, rate_units, time_units
 from .sentence_guard import NOT_AN_ABBREVIATION
 
 NORMALIZER_VERSION = "1"
@@ -134,18 +134,15 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     "kj/kgk": ("specific_heat", "kJ/kgK", 1.0),
     # COMPOUND ENGINEERING UNITS read WHOLE (audit N6: "mm/s" used to be cut at
     # the slash and read as a LENGTH). Each factor is exact by definition:
-    # 1 in is 25.4 mm. L/min and L/s stay recognised-not-converted. A velocity is
-    # its own dimension, so 4.5 in/s can never compare with a 4.5 mm length.
+    # 1 in is 25.4 mm. A velocity is its own dimension, so 4.5 in/s can never
+    # compare with a 4.5 mm length.
     "mm/s": ("velocity", "mm/s", 1.0),
     "mm/sec": ("velocity", "mm/s", 1.0),
     "in/s": ("velocity", "mm/s", 25.4),
     "in/sec": ("velocity", "mm/s", 25.4),
     "m/s": ("velocity", "mm/s", 1000.0),
     "m/sec": ("velocity", "mm/s", 1000.0),
-    "m3/h": ("volumetric_flow", "m3/h", 1.0),
-    "m3/hr": ("volumetric_flow", "m3/h", 1.0),
-    "kg/h": ("mass_flow", "kg/h", 1.0),
-    "kg/hr": ("mass_flow", "kg/h", 1.0),
+    **rate_units.TABLE,  # kg/s, t/h, l/min, m3/s ...: exact, see rate_units.py
     # pressure -> MPa
     "mpa": ("pressure", "MPa", 1.0),
     "bar": ("pressure", "MPa", 0.1),
@@ -234,9 +231,9 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     # reference, and converting either to MPa would let 13 psia compare with
     # 13 psig. The unit guard compares raw spellings, so they never do.
     "psia": "pressure", "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",
-    # Volumetric flow and application rate (fire water): the only spellings
-    # of their quantities here, so no conversion to invent.
-    "l/s": None, "l/min": None, "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,
+    # Application rate (fire water): the only spelling of its quantity here,
+    # so no conversion to invent.
+    "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,
     "kn/m3": None, "lux": None,
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",

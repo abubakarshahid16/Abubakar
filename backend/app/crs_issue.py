@@ -39,6 +39,7 @@ from . import crs_machine_words, page_ledger
 from .config import settings
 from .crs_mapping import (
     ROW_KIND_CARRIED_FORWARD,
+    ROW_KIND_ENGINEER_COMMENT,
     ROW_KIND_SAFETY_TICK,
     row_has_no_issuable_text,
 )
@@ -58,6 +59,15 @@ REMOVAL_REASONS = {
     "accept_deviation": "Accept deviation",
     "duplicate": "Duplicate",
 }
+
+#: Order 214 fix 10: why a comment is KEPT - the same closed list for Keep, Keep
+#: all remaining and an edit, so no kept row is without a named reason.
+KEEP_REASONS = {
+    "kept_as_written": "Kept as written",
+    "kept_in_bulk": "Kept in bulk (Keep all remaining)",
+    "edited_by_engineer": "Kept with the engineer's own wording",
+}
+ALL_REASONS = {**REMOVAL_REASONS, **KEEP_REASONS}
 
 #: Why a run's contractor copy cannot be issued yet - plain words.
 NO_PAGE_COVERAGE = (
@@ -144,6 +154,8 @@ def ensure_schema() -> None:
         columns = {r[1] for r in conn.execute("PRAGMA table_info(crs_issue_decisions)")}
         if "reason_code" not in columns:  # piece 6a; older rows keep NULL
             conn.execute("ALTER TABLE crs_issue_decisions ADD COLUMN reason_code TEXT")
+        if "click_id" not in columns:  # order 214 fix 10; older rows keep NULL
+            conn.execute("ALTER TABLE crs_issue_decisions ADD COLUMN click_id TEXT")
         conn.execute("""CREATE TABLE IF NOT EXISTS crs_issued_copies (
             id TEXT PRIMARY KEY,
             review_run_id TEXT NOT NULL,
@@ -242,6 +254,36 @@ def _page_items(
     return unread, checked_pages, page_coverage.get("pages_total")
 
 
+def _kept_without_record(row: dict, recorded: set[str]) -> bool:
+    """Order 214 fix 10: a comment kept by the old Keep (a confirmation with no
+    decision record, so no named reason) is still an open item - the engineer
+    keeps it again and the record is written. Never back-filled: that would
+    invent a decision. Chat comments, numbers carried from an issued copy and
+    rows with no finding behind them are not this case."""
+    fid = row.get("finding_id") or ""
+    if (
+        not fid
+        or fid in recorded
+        or row.get("crs_ref")
+        or row.get("row_kind") in (ROW_KIND_ENGINEER_COMMENT, ROW_KIND_CARRIED_FORWARD)
+    ):
+        return False
+    from . import review
+
+    f = review.get(fid) or {}
+    return bool(
+        f
+        and f.get("origin") != "chat"
+        and (f.get("confirmed_by") or f.get("approval_status") == "accepted")
+    )
+
+
+def _confirmed_with_record(row: dict, recorded: set[str]) -> bool:
+    return bool(row.get("engineer_confirmed")) and not _kept_without_record(
+        row, recorded
+    )
+
+
 def open_items(
     review_run_id: str,
     rows: list[dict],
@@ -266,6 +308,7 @@ def open_items(
         blockers.append(NO_PAGE_COVERAGE)
     seen: set[str] = set()
     findings: list[dict] = []
+    recorded = {d["subject"] for d in decisions(review_run_id) if d["kind"] == FINDING}
     for n, row in enumerate(rows, start=1):
         # A9/#923: a row with NO finding_id (#754 F5b's "standard not cited"/
         # "standard not applicable" rows have none - they are synthesised
@@ -276,12 +319,11 @@ def open_items(
         # from the row's own `comment_key`) is set on EVERY row, with or
         # without a finding_id, and `engineer_confirmed` is already derived
         # from it uniformly (`crs_numbers.row_keys`/`lookup`) - so a
-        # no-finding_id row is gated the same way a finding-bearing one is,
-        # not skipped.
+        # no-finding_id row is gated like a finding-bearing one.
         subject = row.get("finding_id") or row.get("crs_row_key") or ""
         if (
             not subject
-            or row.get("engineer_confirmed")
+            or _confirmed_with_record(row, recorded)
             or row.get("engineer_rejected")
             or subject in seen
         ):
@@ -340,12 +382,13 @@ def _record(
     reason: str,
     actor: str,
     reason_code: str | None = None,
+    click_id: str | None = None,
 ) -> dict:
     reason = " ".join((reason or "").split())
     if reason_code is not None:
-        # Order 95 piece 6a (a): a listed removal reason IS the engineer's
-        # reason; with nothing typed, its own words are stored.
-        reason = reason or REMOVAL_REASONS[reason_code]
+        # Order 95 piece 6a (a): a listed reason IS the engineer's reason;
+        # with nothing typed, its own words are stored.
+        reason = reason or ALL_REASONS[reason_code]
     elif len(reason) < MIN_REASON_LENGTH:
         raise IssueError(
             f"a decision needs the engineer's reason "
@@ -364,12 +407,14 @@ def _record(
         "decided_by": actor,
         "decided_at": _now(),
         "reason_code": reason_code,
+        "click_id": click_id,
     }
     conn = connect()
     with conn:
         conn.execute(
             "INSERT INTO crs_issue_decisions (id, review_run_id, kind, subject, decision,"
-            " reason, decided_by, decided_at, reason_code) VALUES (?,?,?,?,?,?,?,?,?)",
+            " reason, decided_by, decided_at, reason_code, click_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
             tuple(row.values()),
         )
     return row
@@ -393,31 +438,42 @@ def decide_finding(
     reason: str,
     actor: str,
     reason_code: str | None = None,
+    click_id: str | None = None,
 ) -> dict:
     """The engineer accepts or rejects one finding of the run. The caller
     writes the decision on the finding itself; this keeps the reason, and
     tells rule_trust when the finding was decided by a proven rule.
 
-    Piece 6a: a reject may name why from REMOVAL_REASONS; an accept carries
-    no removal code, and an unknown code is refused."""
+    Piece 6a: a reject may name why from REMOVAL_REASONS. Order 214 fix 10: an
+    accept may name why from KEEP_REASONS (Keep, Keep all, an edit), and
+    `click_id` ties the records of one bulk click together. A code outside
+    the list for its decision is refused."""
     if decision not in FINDING_DECISIONS:
         raise IssueError("a finding is accepted or rejected")
-    if reason_code is not None and (
-        decision != REJECT or reason_code not in REMOVAL_REASONS
-    ):
+    listed = REMOVAL_REASONS if decision == REJECT else KEEP_REASONS
+    if reason_code is not None and reason_code not in listed:
         raise IssueError(
-            "a removal reason is one of the listed reasons, and only on a removal"
+            "the reason is not one of the listed reasons for this decision"
         )
     record = _record(
-        review_run_id, FINDING, finding_id, decision, reason, actor, reason_code
+        review_run_id,
+        FINDING,
+        finding_id,
+        decision,
+        reason,
+        actor,
+        reason_code,
+        click_id,
     )
     # rule_trust (#947 step 10): on a finding a PROVEN rule decided, this
     # decision is the family's spot-check outcome (a reject drops its proof).
+    # A bulk keep is no spot check: it never counts as one "correct" per row.
     from . import review, rule_trust
 
-    rule_trust.record_engineer_decision(
-        review.get(finding_id) or {}, decision, actor=actor, note=reason
-    )
+    if reason_code != "kept_in_bulk":
+        rule_trust.record_engineer_decision(
+            review.get(finding_id) or {}, decision, actor=actor, note=reason
+        )
     return record
 
 

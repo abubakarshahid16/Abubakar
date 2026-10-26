@@ -292,9 +292,9 @@ def test_no_value_on_a_page_read_only_by_the_page_reader_is_for_an_engineer(tmp_
     assert finding["ai_rationale"].startswith(
         "PAGE_READER_ONLY: value not found by the page reader - engineer to check the page 1")
     view = TestClient(app).get(f"/api/reviews/runs/{run}/crs/preview").json()
-    assert not [r for r in view["rows"] if "PAGE_READER_ONLY" in (r.get("comment") or "")
-                or "page reader" in (r.get("comment") or "")], \
-        "a page-reader absence reached the contractor's comment column"
+    # the run's one finding is that absence: no CRS row at all (K7/K8: a question row now
+    # reads "Clarification requested: ...", so the old text search would no longer see it)
+    assert not view["rows"], "a page-reader absence reached the contractor's comment column"
     # 2f: one internal Review note instead.
     assert [n["count"] for n in view["review_notes"]
             if n["note"].startswith("Value not found by the page reader")] == [1]
