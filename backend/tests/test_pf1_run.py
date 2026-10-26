@@ -29,6 +29,7 @@ class FakeServer:
         self.fields: list[dict | None] = []
         self.polls = 0
         self.puts: list[tuple[str, dict]] = []
+        self.roles: list[dict] = []
 
     def request(self, method, path, json_body=None, file=None, fields=None):
         self.calls.append((method, path))
@@ -52,6 +53,9 @@ class FakeServer:
             self.puts.append((path, json_body))
             return self.script.get("put", (200, {"document_id": "x"}))
         if path == "/api/documents/bulk/role":
+            self.roles.append(json_body)
+            if json_body["document_role"] in self.script.get("refused_roles", ()):
+                return 400, None
             return 200, {"updated": len(json_body["document_ids"])}
         if path.endswith("/requirements/extract-async"):
             return 200, {"job_id": "ext1", "state": "queued"}
@@ -111,6 +115,7 @@ def test_a_sheet_runs_the_whole_path_in_order_and_the_record_holds_ids_only():
         ("POST", "/api/documents/bulk/role"),
         ("POST", "/api/standards/doc1/requirements/extract-async"),
         ("POST", "/api/documents"),
+        ("POST", "/api/documents/bulk/role"),
         ("POST", "/api/reviews/run"),
     ]
     assert server.uploads == ["pf1-01.standard.pdf", "pf1-01.datasheet.pdf"]
@@ -411,3 +416,24 @@ def test_a_standard_with_no_number_in_the_index_records_none():
     entry = {**_entry(), "standard_number": None}
     _run(server, entry)
     assert server.puts == []
+
+
+def test_the_sheet_is_marked_as_a_contractor_submittal_before_its_review():
+    """Order 206.1: the client workflow marks the file; the READY and role-change
+    hooks then fill its equipment type and title. Without the mark a sheet was
+    reviewed with empty fields and the part-scope step held every clause."""
+    server = FakeServer()
+    _run(server)
+    assert server.roles == [
+        {"document_ids": ["doc1"], "document_role": "COMPANY_STANDARD"},
+        {"document_ids": ["doc2"], "document_role": "CONTRACTOR_SUBMITTAL"},
+    ]
+    posts = [c for c in server.calls if c[0] == "POST"]
+    assert posts.index(("POST", "/api/reviews/run")) > len(posts) - 2
+
+
+def test_a_refused_submittal_mark_ends_the_sheet_before_any_review():
+    server = FakeServer(refused_roles=("CONTRACTOR_SUBMITTAL",))
+    record = _run(server)
+    assert record["status"] != "completed" and record["error"]
+    assert ("POST", "/api/reviews/run") not in server.calls

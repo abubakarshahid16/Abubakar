@@ -319,23 +319,58 @@ def test_a_pair_choice_that_fails_the_code_check_is_not_stored(
     assert engine.calls == 2
 
 
-def test_a_model_identity_is_the_tag_and_digest_the_engine_reports(monkeypatch):
-    seen = {"n": 0}
+def _engine_probe(monkeypatch, *, version="0.40.6", digest="abc", tags_ok=True):
+    """The engine's two read-only probes: `/api/tags` (model + digest) and
+    `/api/version`. `seen` counts the probes; `state` changes between reads."""
+    state = {"version": version, "digest": digest, "n": 0}
 
     def get_json(path, *, timeout, required=True):
-        seen["n"] += 1
+        state["n"] += 1
+        if path == "/api/version":
+            return {"version": state["version"]} if state["version"] else None
         return {
             "models": [
-                {"name": "local-0001:latest", "digest": "abc"},
+                {"name": "local-0001:latest", "digest": state["digest"]},
                 {"name": "other", "digest": "zzz"},
             ]
         }
 
     monkeypatch.setattr(model_transport, "get_json", get_json)
     ai_task_runner._IDENTITY_MEMO.clear()
-    assert _REAL_IDENTITY("local-0001") == "local-0001:latest@abc"
-    assert _REAL_IDENTITY("local-0001") == "local-0001:latest@abc" and seen["n"] == 1
+    return state
+
+
+def test_a_model_identity_is_the_tag_digest_and_engine_version_the_engine_reports(
+    monkeypatch,
+):
+    state = _engine_probe(monkeypatch)
+    want = "local-0001:latest@abc|ollama/0.40.6"
+    assert _REAL_IDENTITY("local-0001") == want
+    probes = state["n"]
+    assert _REAL_IDENTITY("local-0001") == want and state["n"] == probes  # memoised
     assert _REAL_IDENTITY("not-pulled") is None
+
+
+def test_an_engine_that_will_not_say_its_version_has_no_identity(monkeypatch):
+    _engine_probe(monkeypatch, version="")
+    assert _REAL_IDENTITY("local-0001") is None
+
+
+def test_a_new_engine_version_never_reuses_an_old_answer(monkeypatch):
+    """Order 205: the engine's version is part of the key. Same page, same model
+    digest, a different Ollama: asked again."""
+    state = _engine_probe(monkeypatch, version="0.40.6")
+    monkeypatch.setattr(ai_task_runner, "model_identity", _REAL_IDENTITY)
+    engine = Engine(_reply([GOOD]))
+    monkeypatch.setattr(model_transport, "post_json", engine)
+    _read()
+    assert engine.calls == 2
+    _read()
+    assert engine.calls == 2  # same engine: reused
+    state["version"] = "0.41.0"
+    ai_task_runner._IDENTITY_MEMO.clear()
+    _read()
+    assert engine.calls == 4  # new engine: asked again
 
 
 def test_an_unreachable_engine_has_no_identity(monkeypatch):
@@ -345,6 +380,60 @@ def test_an_unreachable_engine_has_no_identity(monkeypatch):
     monkeypatch.setattr(model_transport, "get_json", down)
     ai_task_runner._IDENTITY_MEMO.clear()
     assert _REAL_IDENTITY("local-0001") is None
+
+
+# ------------------------------------------------ the switch (order 205)
+
+
+def test_with_reuse_off_every_page_is_read_fresh_and_nothing_is_kept(
+    monkeypatch, known_model
+):
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", False)
+    engine = Engine(_reply([GOOD]))
+    monkeypatch.setattr(model_transport, "post_json", engine)
+    _read()
+    _read()
+    assert engine.calls == 4  # nothing reused, however identical
+    conn = db.connect()
+    table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_task_cache'"
+    ).fetchone()
+    # and nothing written either: no table at all, or no row in it
+    assert (
+        table is None or conn.execute("SELECT 1 FROM ai_task_cache").fetchone() is None
+    )
+
+
+def test_reuse_on_and_off_give_the_same_reading(monkeypatch, known_model):
+    """The cache decides nothing: the same engine answers, the same gates run."""
+    engine = Engine(_reply([GOOD]))
+    monkeypatch.setattr(model_transport, "post_json", engine)
+    off = (monkeypatch.setattr(settings, "ai_answer_reuse_enabled", False), _read())[1]
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", True)
+    first_on = _read()
+    second_on = _read()  # reused
+    assert first_on["accepted"] == off["accepted"] == second_on["accepted"]
+    assert len(off["accepted"]) == 1
+
+
+def test_the_switch_covers_the_matcher_too(monkeypatch, known_model):
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", False)
+    calls = {"n": 0}
+
+    def ask():
+        calls["n"] += 1
+        return "answer"
+
+    for _ in range(2):
+        assert (
+            ai_task_runner.reuse_or_ask("t", "v", "local-0001", None, "p", ask)
+            == "answer"
+        )
+    assert calls["n"] == 2
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", True)
+    for _ in range(2):
+        ai_task_runner.reuse_or_ask("t", "v", "local-0001", None, "p", ask)
+    assert calls["n"] == 3  # on: the second is reused
 
 
 # ------------------------------------------------ only a well-shaped answer is kept

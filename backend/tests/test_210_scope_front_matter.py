@@ -139,6 +139,29 @@ def test_a_real_part_the_model_is_unsure_of_is_still_held():
     assert _ids(out["held"]) == ["zz"] and out["notes"] == {}
 
 
+def test_a_model_no_resting_on_a_stated_line_stays_held_on_the_title_block():
+    """s3's probe: the standard covers centrifugal pumps, the sheet's own type
+    line says Reciprocating Pump, the model says NO quoting it. Code cannot turn
+    that into another material of a family, so it is not 'does not apply'; it is
+    still the sheet speaking against the standard, so it is HELD, not compared."""
+    no = {
+        "equipment_is": "Reciprocating Pump",
+        "quote": "equipment type: Reciprocating Pump",
+        "is_that": "no",
+    }
+    out = _gate(_model(construction=no), equipment="Reciprocating Pump")
+    assert _ids(out["held"]) == ["dp", "seal"] and out["kept"] == []
+    assert out["notes"] == {}
+
+
+def test_a_model_no_that_quotes_no_stated_line_is_an_unread_read_and_is_softened():
+    """A rejected reply (its quote is no stated line) is an UNREAD construction:
+    on the title block that is a kept clause with the note, like a model that is down."""
+    no_quote = {"equipment_is": "x", "quote": "something else", "is_that": "no"}
+    out = _gate(_model(construction=no_quote), equipment="Reciprocating Pump")
+    assert _ids(out["kept"]) == ["dp", "seal"] and out["held"] == []
+
+
 def test_a_title_block_with_a_stated_other_material_stays_held():
     """Code found a stated material of another family: that evidence is not
     softened (a candidate start can only hold, never exclude, as before)."""

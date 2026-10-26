@@ -153,6 +153,10 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_division_scope_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
     "scope_type_words_rule_enabled": False,
+    # Order 205: a cache that only SKIPS a local model call; on is the code
+    # default and the safe value (the suite stubs the model identity, so
+    # nothing is reused until a test asks for it).
+    "ai_answer_reuse_enabled": True,
     # --- notifications (SMTP)
     "smtp_enabled": False,
     "smtp_host": "",

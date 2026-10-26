@@ -59,6 +59,16 @@ from .division_text import (  # noqa: F401 - re-exported: the names tests and ca
     sub_units,
     unscreened,
 )
+from .scope_type_words import (  # noqa: F401 - re-exported: the names tests and callers use
+    datasheet_heading,
+    stated_construction,
+)
+from .scope_type_words import (
+    named_anywhere as _named_anywhere,
+)
+from .scope_type_words import (
+    names as _names,
+)
 
 CATEGORIES = ["other_equipment", "service_condition_not_met", "informative_note",
               "definition", "none"]
@@ -282,6 +292,11 @@ def _stated_lines(text: str) -> list[str]:
     return [line[2:] for line in text.splitlines() if line.startswith("- ")]
 
 
+#: Said about a model "no" whose own quoted stated line shares a word with the
+#: construction: the sheet speaks against the model's "no" (`_read` marks it).
+NAMES_ITSELF = "the quoted line names the construction itself"
+
+
 def _construction_problems(data: dict, text: str) -> list[str]:
     """Code's check of a "no": the quote is one of the stated lines, and that
     line's value does not itself name the construction."""
@@ -293,7 +308,7 @@ def _construction_problems(data: dict, text: str) -> list[str]:
     if line is None:
         return ["the quote is not one of the STATED lines"]
     if _names(line.partition(": ")[2] or line, construction):
-        return ["the quoted line names the construction itself"]
+        return [NAMES_ITSELF]
     return []
 
 
@@ -309,70 +324,6 @@ CONSTRUCTION_TASK = ai_task_runner.register(
         ),
     )
 )
-
-#: The words of the stated lines the model reads (the task reads ~300).
-_STATED_WORDS = 220
-
-
-def _names(value: object, construction: str) -> bool:
-    """Does `value` name any word of `construction` (four letters or more;
-    a plural "s" does not count, so "vessel" names "vessels")?"""
-    return bool(scope_type_words.words(value) & scope_type_words.words(construction))
-
-
-def _named_anywhere(
-    construction: str, classification: dict | None, facts: list[dict]
-) -> bool:
-    """Does ANY stated value of the datasheet (every fact, uncut), or its
-    classification, name the construction? A main part or only a seal: not
-    for code to say, so such a division is never excluded."""
-    values = [
-        *(classification or {}).values(),
-        *(
-            f.get("field_value") or f.get("raw_value")
-            for f in facts
-            if not f.get("is_blank")
-        ),
-    ]
-    return any(_names(v, construction) for v in values if isinstance(v, str) and v)
-
-
-def stated_construction(classification: dict | None, facts: list[dict]) -> list[str]:
-    """What the datasheet states about what its equipment is and is made of:
-    the classification's equipment type and title, then the facts the role
-    tests read as a material or an equipment class (`conditions`), one line
-    per distinct value, within `_STATED_WORDS` words."""
-    from . import conditions
-
-    classification = classification or {}
-    lines = [
-        f"{label}: {classification[key]}"
-        for key, label in (("equipment_type", "equipment type"), ("title", "title"))
-        if classification.get(key)
-    ]
-    seen: set[str] = set()
-    for shape in (conditions.SHAPE_MATERIAL, conditions.SHAPE_CLASS):
-        for fact in conditions._candidate_facts(shape, facts):
-            value = str(fact.get("field_value") or "").strip()
-            if (
-                fact.get("is_blank")
-                or conditions._is_empty(value)
-                or value.casefold() in seen
-            ):
-                continue
-            seen.add(value.casefold())
-            lines.append(
-                f"{fact.get('field_label') or fact.get('field_name')}: {value}"
-            )
-    out: list[str] = []
-    words = 0
-    for line in lines:
-        words += len(line.split())
-        if words > _STATED_WORDS:
-            break
-        out.append(" ".join(line.split()))
-    return out
-
 
 def _construction_text(construction: str, quote: str, stated: list[str]) -> str:
     return "\n".join(
@@ -403,6 +354,7 @@ def _read(task, text: str, provider, run: dict) -> dict | None:
     result = ai_task_runner.run_task(task, text, provider=provider)
     if result.state == ai_task_runner.STATE_OK:
         return result.data
+    run["contradicted"] = NAMES_ITSELF in (result.reason or "")
     if (result.reason or "").startswith(_MODEL_DOWN):
         run["stopped"] = result.reason
     return None
@@ -429,7 +381,10 @@ def _division_decision(
     "unread" (nothing excluded or held on it, but the gate counts it); a
     "yes" counts as "applies" only when a stated line names the construction
     and the model's quote is that line, else it is "unsure"; what code cannot
-    decide is "unsure"."""
+    decide is "unsure"; a model "no" resting on a stated line that code cannot
+    turn into another material is "contradicted" (held like "unsure", but the
+    sheet's own line speaks against the construction, so a title block is never
+    relaxed on it, order 210)."""
     from . import conditions
 
     construction = scope["construction"]
@@ -444,28 +399,30 @@ def _division_decision(
         provider,
         run,
     )
-    if first is None:
-        return "unread", None
+    if first is None:  # a rejected "no" whose own quote names it is not "unread"
+        return ("contradicted" if run.pop("contradicted", False) else "unread"), None
     if first.get("is_that") == "yes":
         return (
             "applies" if _yes_is_stated(first, stated, construction) else "unsure"
         ), None
-    if first.get("is_that") != "no" or _named_anywhere(
-        construction, classification, facts
-    ):
+    if first.get("is_that") != "no":
         return "unsure", None
     line = next((s for s in stated if folded_in(first.get("quote"), s, least=4)), None)
+    if _named_anywhere(construction, classification, facts):
+        return ("contradicted" if line else "unsure"), None
     if line is None:
         return "applies", None
     value = conditions._fold(line.partition(": ")[2] or line)
     if _LAYER.search(value):
-        return "unsure", None
+        return "contradicted", None
     other = conditions._names_another_of_the_family(
         value,
         [conditions._fold(construction)],
         conditions.SHAPE_MATERIAL,
     )
-    return ("does_not_apply", f'{line}" names {other}') if other else ("unsure", None)
+    if other:
+        return "does_not_apply", f'{line}" names {other}'
+    return "contradicted", None  # a stated line the model says is NOT that construction
 
 
 def division_gate_for_run(
@@ -537,12 +494,15 @@ def division_gate(
 
 
 def _decide_unit(unit: dict, ctx: dict) -> dict:
-    """`_read_unit`, except that a hold on the TITLE BLOCK of a standard is not
-    a hold (order 210, FIX 2): see `division_text.is_front_matter`. Its
-    requirements are compared as usual and carry a "scope not confirmed" note."""
+    """`_read_unit`, except that a hold on the TITLE BLOCK of a standard that
+    rests on a read that failed or was unsure is not a hold (order 210, FIX 2,
+    `division_text.is_front_matter`): its requirements are compared as usual and
+    carry a "scope not confirmed" note. A hold on a stated material of another
+    family (`line`, code's own finding) or on a model "no" resting on a stated
+    line (`contradicted`) stays a hold."""
     rec = _read_unit(unit, ctx)
-    code_found_nothing = rec["verdict"] == "held" and not rec.get("line")
-    if code_found_nothing and division_text.is_front_matter(unit):
+    stands = rec["verdict"] == "held" and not (rec.get("line") or rec.get("contradicted"))
+    if stands and division_text.is_front_matter(unit):
         return {**rec, "verdict": "kept", "not_confirmed": True}
     return rec
 
@@ -587,7 +547,8 @@ def _read_unit(unit: dict, ctx: dict) -> dict:
     rec["own"] = True
     if verdict == "applies":
         return rec
-    verdict = "held" if verdict == "unsure" else verdict
+    rec["contradicted"] = verdict == "contradicted"
+    verdict = "held" if verdict in ("unsure", "contradicted") else verdict
     if unit["kind"] == "candidate":  # found by shape: nothing checks it is a start
         verdict = clause_scope.downgrade(verdict)
     return {**rec, "verdict": verdict, "line": line}
