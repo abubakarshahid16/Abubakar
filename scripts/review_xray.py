@@ -18,8 +18,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
-from app import live_guard  # noqa: E402
 from tools import review_xray  # noqa: E402
+
+from app import live_guard  # noqa: E402
 
 LIVE = REPO / "backend" / "data" / "rag_intelligence.sqlite"
 
