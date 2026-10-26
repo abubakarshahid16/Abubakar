@@ -633,8 +633,8 @@ def _action(finding: dict, field: str) -> str:
         # #725 F7: NOT PAIRED IS THE SYSTEM'S MISS UNTIL AN ENGINEER SAYS
         # OTHERWISE. No field read from the sheet answered it; the sheet may
         # state it under another name. Never "Contractor to state" here.
-        return (f"Clarification requested: no field read from the datasheet was paired with "
-                f"{what}; please indicate where it is stated, or confirm it is not stated.")
+        return (f"Clarification requested: please indicate where the datasheet states "
+                f"{what}, or confirm it is not stated.")
     return f"Clarification requested: {_reason_words(finding).rstrip('.')}."
 
 

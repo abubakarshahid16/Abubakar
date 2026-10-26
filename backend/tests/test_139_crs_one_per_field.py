@@ -106,8 +106,8 @@ def test_blank_and_not_found_stay_separate_rows():
         "Contractor to complete the field 'Corrosion allowance' (left blank)."
     )
     assert rows[1]["comment"].startswith(
-        "Clarification requested: no field read from the datasheet was paired with Corrosion "
-        "allowance; please indicate where it is stated, or confirm it is not stated.\n"
+        "Clarification requested: please indicate where the datasheet states Corrosion "
+        "allowance, or confirm it is not stated.\n"
     )
     assert rows[0]["comment_key"] != rows[1]["comment_key"]
     assert rows[0]["crs_group"] != rows[1]["crs_group"], (

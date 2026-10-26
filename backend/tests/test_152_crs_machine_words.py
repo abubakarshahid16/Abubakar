@@ -46,6 +46,11 @@ def _row(n: int, comment: str, **over) -> dict:
         ("Written by a Language Model.", "Language Model"),
         ("Engineer to check whether the datasheet states X.", "Engineer to check"),
         ("No field this system read was paired with it.", "this system"),
+        ("There is no field read from the datasheet for it.", "no field read from"),
+        ("The value was read with validation state needs_review.", "validation state"),
+        ("Value not found by the page reader.", "page reader"),
+        ("Automatic result: meets the standard.", "Automatic result"),
+        ("ENGINEER TO TICK (safety field): clause 4.", "ENGINEER TO TICK"),
     ],
 )
 def test_machine_words_are_found(text, word):
@@ -57,13 +62,25 @@ def test_the_program_talking_to_the_engineer_is_not_a_contractor_comment():
     program's note to the engineer cannot be issued as it stands; the words the
     program now writes for the contractor are clean."""
     stuck = "Engineer to check: the value was read with validation state 'x'."
-    assert mw.find_machine_words(stuck) == ["Engineer to check"]
+    assert mw.find_machine_words(stuck) == ["Engineer to check", "validation state"]
     for words in (
-        "Clarification requested: no field read from the datasheet was paired with Design "
-        "pressure; please indicate where it is stated, or confirm it is not stated.",
+        "Clarification requested: please indicate where the datasheet states Design "
+        "pressure, or confirm it is not stated.",
+        "Not answered by any field read from the datasheet (pages 1-3).",
         "Clarification requested on Rated power.",
     ):
         assert mw.find_machine_words(words) == []
+
+
+def test_ordinary_engineering_english_is_not_program_voice():
+    """K7/K8 must not block honest quoted clause text: a field a standard "reads", a
+    reader of a gauge, the state of a validation, and an automatic start are plain words."""
+    plain = (
+        "The gauge reader shall be fitted; the validation of the weld state is by test; "
+        "an automatic start is not permitted. Not answered by any field read from the datasheet "
+        "(pages 1-3). Please indicate where the datasheet states the rated flow."
+    )
+    assert mw.find_machine_words(plain) == []
 
 
 def test_model_ids_and_engine_names_come_from_the_settings(monkeypatch):

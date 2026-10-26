@@ -52,7 +52,7 @@ def test_a_requirement_no_field_was_paired_with_is_an_engineers_question():
                 "standard_clause": "6.2", "requirement_source_text": "The lift shall be stated.",
                 "crs_field_label": "LIFT", "ai_rationale": "no field read from the submittal answers this requirement"}
     [row] = build_crs_rows([unpaired], [], "psv.pdf")
-    assert "no field read from the datasheet was paired with LIFT" in row["comment"]
+    assert "please indicate where the datasheet states LIFT" in row["comment"]
     assert "Contractor to" not in row["comment"]
 
 
