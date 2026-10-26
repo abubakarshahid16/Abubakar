@@ -66,3 +66,12 @@ def test_a_field_read_on_a_page_keeps_its_page():
         "fact_id": "f1",
     }
     assert cm._page_section([f]).startswith("p.2 - ")
+
+
+def test_a_value_that_was_read_but_has_no_page_is_not_called_not_found():
+    f = {
+        "origin": "datasheet_check",
+        "contractor_section": "Set pressure",
+        "fact_id": "f1",
+    }
+    assert not cm._page_section([f]).startswith("Not found")
