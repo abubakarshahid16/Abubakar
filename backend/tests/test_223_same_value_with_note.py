@@ -31,20 +31,21 @@ def _result(facts, rule_id="DS-C1"):
 
 
 def test_the_same_number_with_a_note_is_one_value_and_is_compared():
-    facts = full_vessel() + [
-        _with_note("design pressure", "23.5", "(By Contractor, as per Code)")
+    facts = [
+        *full_vessel(),
+        _with_note("design pressure", "23.5", "(By Contractor, as per Code)"),
     ]
     result = _result(facts)
     assert result["status"] == "COMPLIANT", result
 
 
 def test_a_trailing_note_after_the_unit_is_still_one_value():
-    facts = full_vessel() + [_with_note("operating pressure", "20", "Note - 2")]
+    facts = [*full_vessel(), _with_note("operating pressure", "20", "Note - 2")]
     assert _result(facts)["status"] == "COMPLIANT"
 
 
 def test_a_different_number_stays_two_values_for_the_engineer():
-    facts = full_vessel() + [P("design pressure", "15")]
+    facts = [*full_vessel(), P("design pressure", "15")]
     result = _result(facts)
     assert result["status"] == "NEEDS_ENGINEER_REVIEW"
     assert "two different values" in result["detail"]
@@ -52,8 +53,9 @@ def test_a_different_number_stays_two_values_for_the_engineer():
 
 def test_the_same_number_with_a_note_does_not_hide_a_real_breach():
     # design 18 (with a note, twice) is still below operating 20
-    facts = full_vessel(**{"design pressure": P("design pressure", "18")}) + [
-        _with_note("design pressure", "18", "(per Code)")
+    facts = [
+        *full_vessel(**{"design pressure": P("design pressure", "18")}),
+        _with_note("design pressure", "18", "(per Code)"),
     ]
     assert _result(facts)["status"] == "NON_COMPLIANT"
 
