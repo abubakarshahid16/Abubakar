@@ -46,8 +46,8 @@ Rules:
    datasheet's printed label, else the matched phrase, else for a not-found
    value the clause's clean subject). The bucket is IN the key.
 2. **Blank and not-found stay separate rows** even for the same field: their
-   actions differ ("Contractor to complete the field 'X' (left blank)." vs "Engineer to check whether
-   the datasheet states X: no field this system read was paired with it.").
+   actions differ ("Contractor to complete the field 'X' (left blank)." vs "Clarification requested: no field
+   read from the datasheet was paired with X; ...").
    Merging them would either ask the contractor for something the system
    only failed to find (honesty audit 50, #725 F7) or hide a real blank.
 3. **No field label -> today's key** (`"req:"` + digest of today's
@@ -131,8 +131,8 @@ Supporting clauses (<n>):
 ```
 
 - `<action line>`: `blank` -> `Contractor to complete the field '<Field>' (left blank).` (`Contractor to provide <Field>.` when the sheet gave a value, or when a tag of the row did);
-  `not_found` -> `Engineer to check whether the datasheet states <Field>: no field this system read was paired with it.`;
-  `question` -> `Engineer to check <Field>.` (`<Field>` = `_field_label`).
+  `not_found` -> `Clarification requested: no field read from the datasheet was paired with <Field>; please indicate where it is stated, or confirm it is not stated.`;
+  `question` -> `Clarification requested on <Field>.` (`<Field>` = `_field_label`).
   This line is also `crs_groups()[i]["action"]` and the summary's
   `crs_action`.
 - `<said line>`: the sentence `engineer_comment_text` already builds for the
