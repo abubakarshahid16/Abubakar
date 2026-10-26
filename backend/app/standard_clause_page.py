@@ -125,13 +125,20 @@ def _standard_of(run_id: str, label: str) -> str | None:
         )
         .fetchall()
     )
+    # The file name and the recorded number identify a standard; the TITLE only by the
+    # exact flat key, since a supplement's title ("... Supplement to API 520") names the
+    # base standard too and `same_standard` would take it for it.
     found = {
         r["id"]
         for r in rows
         if any(
             standard_ids.same_standard(label, name)
-            for name in (r["filename"], r["document_number"], r["title"])
+            for name in (r["filename"], r["document_number"])
             if name
+        )
+        or (
+            r["title"]
+            and standard_ids.flat_key(label) == standard_ids.flat_key(r["title"])
         )
     }
     return next(iter(found)) if len(found) == 1 else None
@@ -169,11 +176,34 @@ def _opens_heading(lines: list[str], at: int, clause: str) -> bool:
     )
 
 
-def _pages_with(text_of_pages: list[tuple[int, str]], clause: str) -> set[int]:
-    """The pages where `clause` opens a heading line, contents pages left out."""
+def _line_key(line: str) -> str:
+    return re.sub(r"\d+", "#", line.lower())
+
+
+def _repeated_lines(text_of_pages: list[tuple[int, str]]) -> frozenset[str]:
+    """Lines (digits folded) that appear on at least three pages: running headers and
+    footers ("4 API STANDARD 520, PART I", "Page 12 of 146"), never headings."""
+    seen: dict[str, set[int]] = {}
+    for number, text in text_of_pages:
+        for line in (ln.strip() for ln in (text or "").splitlines()):
+            if line:
+                seen.setdefault(_line_key(line), set()).add(number)
+    return frozenset(key for key, pages in seen.items() if len(pages) >= 3)
+
+
+def _pages_with(
+    text_of_pages: list[tuple[int, str]],
+    clause: str,
+    repeated: frozenset[str] | None = None,
+) -> set[int]:
+    """The pages where `clause` opens a heading line: contents pages and running headers
+    left out."""
+    if repeated is None:
+        repeated = _repeated_lines(text_of_pages)
     pages: set[int] = set()
     for number, text in text_of_pages:
         lines = [ln.strip() for ln in (text or "").splitlines()]
+        lines = ["" if _line_key(ln) in repeated else ln for ln in lines]
         if _contents_page(lines):
             continue
         if any(_opens_heading(lines, at, clause) for at in range(len(lines))):
@@ -193,8 +223,15 @@ def _pages_of(standard: str, signature: tuple) -> tuple:
     return tuple((r["page_no"], r["text"] or "") for r in rows)
 
 
+@lru_cache(maxsize=64)
+def _running_of(standard: str, signature: tuple) -> frozenset[str]:
+    return _repeated_lines(list(_pages_of(standard, signature)))
+
+
 def _page_of(standard: str, clause: str, signature: tuple) -> int | None:
-    pages = _pages_with(list(_pages_of(standard, signature)), clause)
+    pages = _pages_with(
+        list(_pages_of(standard, signature)), clause, _running_of(standard, signature)
+    )
     return next(iter(pages)) if len(pages) == 1 else None
 
 

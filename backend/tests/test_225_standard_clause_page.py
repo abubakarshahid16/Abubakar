@@ -45,6 +45,7 @@ def temp_storage(tmp_path, monkeypatch):
     submittal_review.ensure_schema()
     review_mod.ensure_schema()
     standard_clause_page._pages_of.cache_clear()
+    standard_clause_page._running_of.cache_clear()
     yield
     db.reset_connection()
 
@@ -329,3 +330,41 @@ def test_a_connection_that_cannot_be_opened_never_fails_the_store(monkeypatch):
         run, sheet, [_result("API 520-I", "3.26")], pages_read={}
     )
     assert len(written) == 1 and written[0].get("standard_page") is None
+
+
+def test_a_running_header_is_not_a_whole_number_heading_and_the_real_heading_is_found():
+    header = "4 API STANDARD 520, PART I\nbody text of the page.\n"
+    pages = [header.replace("body", f"body {n}") for n in range(6)] + [
+        "4 Scope\nthe scope.\n"
+    ]
+    _std, run = _world(pages)
+    assert (
+        standard_clause_page.locate(run, "API 520-I", "4")[1] == 7
+    )  # the page of "4 Scope"
+    # the same number only in the running header: no heading at all
+    _std2, run2 = _world(
+        [header.replace("body", f"body {n}") for n in range(6)], name="API-520-II.pdf"
+    )
+    assert standard_clause_page.locate(run2, "API 520-II", "4") == (None, None)
+
+
+def test_a_supplement_whose_title_names_the_base_standard_is_not_the_base_standard():
+    supplement = _document("scan-0099.pdf", [DEFINITIONS])
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification (document_id, title, suggested_by) VALUES (?,?,?)",
+            (supplement, "Pressure Relief Valves - Supplement to API 520", "test"),
+        )
+    run = _run(_document("sheet.pdf", ["x"]), [supplement])
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (None, None)
+
+
+def test_the_title_still_identifies_a_standard_when_it_is_exactly_the_label():
+    std = _document("scan-0042.pdf", [DEFINITIONS])
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification (document_id, title, suggested_by) VALUES (?,?,?)",
+            (std, "API 520-I", "test"),
+        )
+    run = _run(_document("sheet.pdf", ["x"]), [std])
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (std, 1)
