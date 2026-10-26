@@ -633,9 +633,9 @@ def _action(finding: dict, field: str) -> str:
         # #725 F7: NOT PAIRED IS THE SYSTEM'S MISS UNTIL AN ENGINEER SAYS
         # OTHERWISE. No field read from the sheet answered it; the sheet may
         # state it under another name. Never "Contractor to state" here.
-        return (f"Engineer to check whether the datasheet states {what}: no field this "
-                "system read was paired with it.")
-    return f"Engineer to check: {_reason_words(finding).rstrip('.')}."
+        return (f"Clarification requested: no field read from the datasheet was paired with "
+                f"{what}; please indicate where it is stated, or confirm it is not stated.")
+    return f"Clarification requested: {_reason_words(finding).rstrip('.')}."
 
 
 def engineer_comment_text(group: list[dict]) -> str:
@@ -757,7 +757,7 @@ def group_action(group: list[dict]) -> str | None:
     f = group[0]
     field = _field_label(f)
     if _bucket_of(f) == BUCKET_QUESTION:
-        return f"Engineer to check {field}."
+        return f"Clarification requested on {field}."
     return _action(crs_blank_fields.action_leader(group), field)
 
 

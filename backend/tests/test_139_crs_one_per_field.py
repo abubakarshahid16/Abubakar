@@ -106,8 +106,8 @@ def test_blank_and_not_found_stay_separate_rows():
         "Contractor to complete the field 'Corrosion allowance' (left blank)."
     )
     assert rows[1]["comment"].startswith(
-        "Engineer to check whether the datasheet states Corrosion allowance: no field this "
-        "system read was paired with it.\n"
+        "Clarification requested: no field read from the datasheet was paired with Corrosion "
+        "allowance; please indicate where it is stated, or confirm it is not stated.\n"
     )
     assert rows[0]["comment_key"] != rows[1]["comment_key"]
     assert rows[0]["crs_group"] != rows[1]["crs_group"], (
@@ -150,13 +150,13 @@ def test_engineer_to_check_questions_of_one_field_are_one_row():
     rows = _rows([_question("e1", "8.1"), _question("e2", "8.3")])
     assert _partition(rows) == [["e1", "e2"]]
     lines = rows[0]["comment"].split("\n")
-    assert lines[0] == "Engineer to check Rated power."
+    assert lines[0] == "Clarification requested on Rated power."
     assert lines[2:] == [
         "Supporting clauses (2):",
         "- STD-100 cl. 8.1 (p.4): clause 8.1 is in kW and the value in hp.",
         "- STD-100 cl. 8.3 (p.4): clause 8.3 is in kW and the value in hp.",
     ]
-    assert rows[0]["crs_action"] == "Engineer to check Rated power."
+    assert rows[0]["crs_action"] == "Clarification requested on Rated power."
 
 
 def test_grouped_comment_lists_supporting_clauses():
@@ -220,7 +220,7 @@ def test_one_row_never_hides_a_second_question_of_the_same_clause():
     )
     assert _partition(rows) == [["a", "b"]]
     [row] = rows
-    assert row["crs_action"] == "Engineer to check Rated power."
+    assert row["crs_action"] == "Clarification requested on Rated power."
     assert row["comment"].split("\n")[2:] == [
         "Supporting clauses (1):",
         "- STD-100 cl. 5.1 (p.4): clause 5.1 is in kW and the value in hp."

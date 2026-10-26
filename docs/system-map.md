@@ -28,6 +28,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `clause_scope` | Choose the standards that apply to a submittal |
 | `division_text` | Choose the standards that apply to a submittal |
+| `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
@@ -96,6 +97,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
+| `crs_carry` | K1 (code audit 26 Oct): an issued CRS number carries the engineer's confirmation only for the words they confirmed; other words under the same number need a fresh tick (the number stays) |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
@@ -179,6 +181,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `reranker` | Cross-encoder reranking, local and CPU-only |
 | `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; rules from reference/review_tiers.json, the data the screen reads too (order 133); display only |
 | `review_counts` | Order 152.2: the CRS sheet's counts in ROWS (comments, needs you, met), the findings behind the comment rows, Review notes and removed, from the run's findings and the file's grouping, each with its unit; the run summary sends it as `sheet`; display only |
+| `held_findings` | A requirement the review held (service not stated, scope unsure) also becomes an engineer-review finding with its reason (order 210) |
 | `held_reasons` | Order 161 C (163.4): a reason for EVERY finding held for the engineer (stored code, else the program's own leading code, else whether a datasheet field was paired), counted in the run summary; display and measurement only, no rationale, code or verdict changes |
 | `paragraph_ids` | Order 161 C: the paragraph a CRS row cites, read from the standard's own numbering (the shape most of its headings share, plus the sub-paragraph in force) when its stored clause is a table number or missing; display only, never guessed, the stored clause is left as it was |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
