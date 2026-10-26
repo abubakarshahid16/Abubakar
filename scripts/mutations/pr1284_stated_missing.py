@@ -8,8 +8,10 @@ from ._base import APP, Mutation
 
 _T = "tests/test_210_stated_clause_missing.py"
 _PATH = APP / "comparison.py"
-_COND = ("                and not field_links.asks_only_to_be_stated(\n"
-         "                    requirement.get(\"source_text\") or requirement.get(\"requirement_text\")):\n")
+_COND = (
+    "                and not field_links.asks_only_to_be_stated(\n"
+    '                    requirement.get("source_text") or requirement.get("requirement_text")):\n'
+)
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
@@ -29,8 +31,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="every unmatched statement becomes an omission (the exception is inverted)",
         path=_PATH,
         anchor=_COND,
-        replacement=("                and field_links.asks_only_to_be_stated(\n"
-                     "                    requirement.get(\"source_text\") or requirement.get(\"requirement_text\")):\n"),
+        replacement=(
+            "                and field_links.asks_only_to_be_stated(\n"
+            '                    requirement.get("source_text") or requirement.get("requirement_text")):\n'
+        ),
         target=_T,
         keyword="stated_clause_with_no_field_is_missing_information or another_documents_question",
         tags=("pr1284", "comparison"),

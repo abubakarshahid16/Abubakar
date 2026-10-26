@@ -10,6 +10,7 @@ protection, motor D2 starting method. Invented clauses only; no model.
 It is never a pass, and only when every page was read (`qualify_by_pages`
 still downgrades an unread page to the engineer).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -27,9 +28,15 @@ PF1_CLAUSES = [
 
 
 def _req(text, rtype="statement"):
-    return {"id": "req-1", "standard_document_id": "std", "clause": "9.1",
-            "requirement_type": rtype, "requirement_text": text,
-            "source_text": text, "subject": "x"}
+    return {
+        "id": "req-1",
+        "standard_document_id": "std",
+        "clause": "9.1",
+        "requirement_type": rtype,
+        "requirement_text": text,
+        "source_text": text,
+        "subject": "x",
+    }
 
 
 @pytest.mark.parametrize("text", PF1_CLAUSES)
@@ -55,5 +62,7 @@ def test_a_conditional_stated_clause_is_not_turned_into_an_omission():
 def test_an_unread_page_still_sends_it_to_the_engineer():
     verdict = comparison._compare(_req(PF1_CLAUSES[0]), None, submittal_facts=[])
     qualified = comparison.qualify_by_pages(
-        verdict, {"pages_total": 3, "fact_pages": [1, 2], "pages_not_read_into_fields": [3]})
+        verdict,
+        {"pages_total": 3, "fact_pages": [1, 2], "pages_not_read_into_fields": [3]},
+    )
     assert qualified["status"] == comparison.NEEDS_ENGINEER_REVIEW
