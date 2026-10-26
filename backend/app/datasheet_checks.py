@@ -35,6 +35,7 @@ import re
 from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, severity_rule
+from .rule_eval import same_value_key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
 
@@ -326,13 +327,11 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                 right = right or common.get(rule["right"], [])
             if not left or not right:
                 continue    # absent: the mandatory-field checks say so
-            # #633: A PAIR THAT CANNOT BE COMPARED IS SAID, NOT SKIPPED. Both
-            # fields are on the sheet; if they cannot be checked against each
-            # other (a name with two different values, a value that is not a
-            # number, two different scales or pressure bases) a design pressure
-            # below the operating pressure would be invisible. It is an
-            # engineer's question, with the reason; never a guess either way.
-            if len({_shown(f) for f in left}) != 1 or len({_shown(f) for f in right}) != 1:
+            # #633: A PAIR THAT CANNOT BE COMPARED IS SAID, NOT SKIPPED (two
+            # different values, a non-number, two scales or pressure bases):
+            # an engineer's question with the reason, never a guess either way.
+            # The same number and unit with a note is ONE value (order 223).
+            if len({_key(f) for f in left}) != 1 or len({_key(f) for f in right}) != 1:
                 out.append(_result(rule["id"], NEEDS_ENGINEER_REVIEW, rule["text"],
                                    _sentence(
                                        "a field in this pair has two different values on the "
@@ -521,7 +520,7 @@ def _one(found: list[dict]) -> tuple[dict | None, str | None]:
     """The one value a field states, or why there is not one."""
     if not found:
         return None, "absent"
-    if len({_shown(f) for f in found}) != 1:
+    if len({_key(f) for f in found}) != 1:
         return None, "two different values"
     return found[0], None
 
