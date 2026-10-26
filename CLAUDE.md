@@ -125,6 +125,19 @@ carries the client's name; only the owner can rename it.
     it also helps, or does not hurt, sheets it was not built on (invented +
     held-out totals).
 
+## Mistakes not to repeat (26 Oct)
+
+One line each; the fix is an order, and a machine now checks what it can.
+When a mistake is called out on #692, add one line here in your next PR.
+
+- Pushed unformatted code, so CI sent the PR back (order 215 R1; `.githooks/pre-push`).
+- Formatted a whole old file: never whole-file format, only the lines you touched (order 216.4; `quality_ratchet.py format-check --base origin/main` is the test).
+- Asked for review on a branch that was behind main (R2).
+- The packer slept for hours while approved fixes waited (R4: s2 packs after 15 minutes).
+- Doorbell answered only to "urgent" (R5: any mention).
+- A pause also stopped the wake-ups, so an order was missed (order 211: pause stops work, never wake-ups).
+- Plan tasks were closed without a before/after run (order 213: close only when every acceptance line is proven on main).
+
 ## Who does what
 
 - **Claude Code in VS Code (this file's reader):** backend, git, GitHub.
