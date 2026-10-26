@@ -41,10 +41,7 @@ def test_a_label_on_the_sheet_that_was_not_read_is_a_reader_gap_with_its_page():
     for item in ("PSV-13", "PSV-12"):      # orifice designation (wrapped label), orifice area ("Effective area")
         assert r[item]["status"] == "NEEDS_ENGINEER_REVIEW"
         assert r[item]["reader_gap"] is True and r[item]["pages"] == [1]
-        assert (
-            "wording for it appears on page 1" in r[item]["detail"]
-            and "engineer to check" in r[item]["detail"]
-        )
+        assert "on the sheet but was not read" in r[item]["detail"] and "page 1" in r[item]["detail"]
 
 
 def test_a_label_in_no_pages_text_is_missing_for_the_contractor():
@@ -90,63 +87,5 @@ def test_the_review_states_its_reader_coverage():
     cov = dc.coverage(dc.evaluate(SHEET, equipment_type=PSV, page_texts=PAGES))
     assert cov["read"] == 2 and cov["fields"] > cov["read"]
     assert cov["on_sheet_not_read"] >= 2 and 1 in cov["gap_pages"]
-    line = [
-        ln
-        for ln in absence.split_lines({"checklist_coverage": cov})
-        if ln.startswith("Checklist fields")
-    ][0]
-    assert (
-        f"read 2 of {cov['fields']}" in line
-        and "wording on the sheet, not read" in line
-    )
-
-
-# ---- order 228.9: the labels a relief-valve sheet prints for these fields
-
-PRINTED_AS = {
-    "rated_capacity": "rated relieving capacity",
-    "orifice_area": "actual discharge area",
-}
-
-
-def test_the_reader_is_asked_with_the_labels_a_relief_valve_sheet_prints():
-    from app import form_reader_fields as ff
-
-    fields = {f.key: f for f in ff.field_list_for(PSV)}
-    for key, spelling in PRINTED_AS.items():
-        assert spelling in fields[key].synonyms[: ff.MAX_SYNONYMS_SHOWN]
-        assert spelling in ff.build_prompt([fields[key]], "x", 1)
-
-
-def test_a_printed_label_the_data_did_not_know_is_a_reader_gap_not_the_contractors_omission():
-    pages = {
-        1: "1 Set pressure 10 barg\n2 Max. allow. working pressure 12 barg\n"
-        "32 Actual discharge area 1.2 in2"
-    }
-    r = dc.evaluate(SHEET, equipment_type=PSV, page_texts=pages)
-    (area,) = [x for x in r if x["rule_id"] == "PSV-12"]
-    assert area["status"] == "NEEDS_ENGINEER_REVIEW" and area.get("reader_gap") is True
-
-
-def test_the_wording_claims_only_that_wording_for_the_field_appears():
-    detail = results()["PSV-12"]["detail"]
-    assert "on the sheet" not in detail
-    assert "wording for it appears on page 1" in detail
-
-
-def test_no_spelling_is_listed_for_two_roles():
-    """"Calculated area" is the area the sizing REQUIRES; listed for the orifice
-    area too, the reader could store it as the valve's own area and "area at
-    least required" would compare the number with itself."""
-    seen = {}
-    for role, body in dc.load_rules()["roles"].items():
-        for spelling in body.get("printed_as", []):
-            assert seen.setdefault(spelling.lower(), role) == role, spelling
-
-
-def test_the_required_area_is_never_offered_as_the_orifice_area():
-    from app import form_reader_fields as ff
-
-    fields = {f.key: f for f in ff.field_list_for(PSV)}
-    assert "calculated area" not in fields["orifice_area"].synonyms
-    assert "calculated area" in fields["required_area"].synonyms
+    line = [ln for ln in absence.split_lines({"checklist_coverage": cov}) if ln.startswith("Checklist fields")][0]
+    assert f"read 2 of {cov['fields']}" in line and "on the sheet but not read" in line

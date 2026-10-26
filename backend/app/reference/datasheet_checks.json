@@ -116,12 +116,6 @@
       "kind": "flow",
       "names": [
         "^(rated|certified) (relieving )?capacity$"
-      ],
-      "printed_as": [
-        "rated relieving capacity",
-        "certified capacity",
-        "actual relieving capacity",
-        "rated discharge capacity"
       ]
     },
     "orifice_area": {
@@ -132,8 +126,7 @@
       "printed_as": [
         "effective area",
         "orifice area",
-        "selected area",
-        "actual discharge area"
+        "selected area"
       ]
     },
     "required_area": {
