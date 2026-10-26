@@ -5,8 +5,10 @@ not a verdict, so it NEVER gets a `compliance_status` (empty stays empty), and
 it is counted in its own bucket, "AI observations (draft, no verdict)", beside
 the status counts, never inside "engineer to check".
 
-`settle(run)` runs once after the checks. Drafts that are EXACT repeats (same
-observation, same action, same field, same quoted value, same standard) are
+`settle(run)` runs after the checks (the review job and the `/ai-check` and
+`/web-check` routes call it). Drafts of the AI check that are EXACT repeats
+(same observation, action, field, quoted value, and the same standard NAMED in
+the draft's reason; the web check's drafts are counted but not marked) are
 marked, not merged and never deleted: the lowest page stays the first reading
 and each repeat keeps its own page, tag and quote, and its reason ends "Exact
 repeat of the observation on page N." A draft an engineer already decided on
@@ -19,6 +21,7 @@ ignores these origins. Counts only in logs, no text.
 from __future__ import annotations
 
 import logging
+import re
 
 from . import review as review_mod
 from .db import connect
@@ -30,10 +33,19 @@ DRAFT_ORIGINS = (AI_ORIGIN, WEB_ORIGIN)
 DRAFT_BUCKET = "AI_OBSERVATION"
 BUCKET_LABEL = "AI observations (draft, no verdict)"
 _MARK = "Exact repeat of the observation on page"
+#: The check writes the standard a draft relates to into its reason, never a
+#: document id, so that sentence is the draft's "which standard".
+_RELATES = re.compile(r"Relates to: (.*?)\.(?:\s|$)")
 
 
 def _fold(value: object) -> str:
     return " ".join(str(value or "").lower().split())
+
+
+def _standard_of(rationale: str | None) -> str:
+    """The standard the draft says it relates to, folded; "" when none named."""
+    found = _RELATES.search(rationale or "")
+    return _fold(found.group(1)) if found else ""
 
 
 def observation_count(review_run_id: str) -> int:
@@ -58,7 +70,7 @@ def settle(review_run_id: str) -> dict:
     with conn:
         drafts = conn.execute(
             "SELECT id, finding, required_action, contractor_section, contractor_page,"
-            " contractor_evidence_text, standard_document_id, standard_clause, ai_rationale"
+            " contractor_evidence_text, ai_rationale"
             " FROM review_findings WHERE review_run_id = ? AND origin = ?"
             f" AND {review_mod.UNDECIDED_SQL}"
             " ORDER BY COALESCE(contractor_page, 1000000), created_at, id",
@@ -72,8 +84,7 @@ def settle(review_run_id: str) -> dict:
                 _fold(row["required_action"]),
                 _fold(row["contractor_section"]),
                 _fold(row["contractor_evidence_text"]),
-                row["standard_document_id"] or "",
-                _fold(row["standard_clause"]),
+                _standard_of(row["ai_rationale"]),
             )
             first = first_of.setdefault(key, row)
             if first is row or _MARK in (row["ai_rationale"] or ""):

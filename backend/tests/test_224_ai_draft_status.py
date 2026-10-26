@@ -44,7 +44,7 @@ def world(tmp_path, monkeypatch):
 def _draft(
     page,
     quote="340 psig",
-    standard="doc_std",
+    standard="API 520",
     text="The valve size is blank.",
     action="State the valve size.",
     field="Valve size",
@@ -63,12 +63,16 @@ def _draft(
         },
         created_by=None,
     )
+    # the sentence the check really writes (`ai_engineering_check`): the standard
+    # a draft relates to is named in its reason, never stored as a document id
+    rationale = (
+        f"AI engineering check. Relates to: {standard}. Written by a local model."
+    )
     with db.connect() as conn:
         conn.execute(
             "UPDATE review_findings SET review_run_id = ?, origin = ?, contractor_page = ?,"
-            " contractor_section = ?, contractor_evidence_text = ?, standard_document_id = ?,"
-            " ai_rationale = 'AI engineering check.' WHERE id = ?",
-            (RUN, origin, page, field, quote, standard, made["id"]),
+            " contractor_section = ?, contractor_evidence_text = ?, ai_rationale = ? WHERE id = ?",
+            (RUN, origin, page, field, quote, rationale, made["id"]),
         )
     return made["id"]
 
@@ -130,7 +134,7 @@ def test_a_second_call_changes_nothing():
 def test_a_different_quoted_value_or_standard_or_field_is_not_a_repeat():
     _draft(1)
     _draft(2, quote="130 psig")
-    _draft(3, standard="doc_other")
+    _draft(3, standard="API 526")
     _draft(4, field="Other field")
     _draft(5, text="The fluid phase is blank.")
     assert ai_check_drafts.settle(RUN) == {"marked": 0}
@@ -148,7 +152,7 @@ def test_a_draft_an_engineer_decided_is_never_touched():
     ai_check_drafts.settle(RUN)
     rows = {r["id"]: r for r in _rows()}
     assert set(rows) == {keep, decided}
-    assert rows[decided]["ai_rationale"] == "AI engineering check."
+    assert "Exact repeat" not in rows[decided]["ai_rationale"]
 
 
 def test_a_pile_of_drafts_never_moves_the_suggested_code():
@@ -207,3 +211,29 @@ def test_the_decide_step_counts_drafts_in_their_own_bucket_not_as_engineer_to_ch
     assert (ai_check_drafts.DRAFT_BUCKET, ai_check_drafts.BUCKET_LABEL) in (
         review_trace._DECISIONS
     )
+
+
+def test_the_two_claude_api_routes_settle_the_drafts_too(monkeypatch):
+    """/ai-check and /web-check ran the checks but never settled them, so a
+    run re-checked there kept its repeats unmarked."""
+    from app import access, ai_engineering_check, claude_api, web_standards
+
+    seen = []
+    monkeypatch.setattr(ai_check_drafts, "settle", lambda run_id: seen.append(run_id))
+    monkeypatch.setattr(ai_engineering_check, "available", lambda: (True, ""))
+    monkeypatch.setattr(
+        ai_engineering_check, "run_check", lambda *a, **k: {"ran": True}
+    )
+    monkeypatch.setattr(web_standards, "available", lambda: (True, ""))
+    monkeypatch.setattr(web_standards, "run_check", lambda *a, **k: {"ran": True})
+    monkeypatch.setattr("app.main._missing_references", lambda *a, **k: [])
+    from app import market_transport
+
+    monkeypatch.setattr(market_transport, "transport", lambda: None)
+    scope = access.AccessScope(
+        unrestricted=True, user_id="u", allowed_document_ids=frozenset({SUB})
+    )
+    request = type("R", (), {"query_params": {}})()
+    claude_api.review_ai_check(RUN, request, scope)
+    claude_api.review_web_check(RUN, request, scope)
+    assert seen == [RUN, RUN]

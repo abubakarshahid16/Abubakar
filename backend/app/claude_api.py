@@ -433,7 +433,7 @@ def review_ai_check(
     """Owner order 2d: run the AI engineering check for a run again. Drafts
     only - pending, unconfirmed, never counted in the review code. 409 when
     the flag or the Claude lane is off; nothing is sent then."""
-    from . import ai_engineering_check, claude_spend
+    from . import ai_engineering_check, claude_spend, review_jobs
     from . import reasoning_provider as rp
     from .main import _missing_references
     reject_unknown_params(request, set())
@@ -449,6 +449,7 @@ def review_ai_check(
     except (claude_spend.BudgetExceeded, rp.ProviderRefused) as exc:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             MODEL_DISABLED, f"the AI engineering check did not run: {type(exc).__name__}")) from None
+    review_jobs.settle_drafts(review_run_id)
     return {"review_run_id": review_run_id, **result}
 
 
@@ -480,7 +481,7 @@ def review_web_check(
     attempted. Drafts only - pending, unconfirmed, never counted in the
     review code. 409 when the flag or the market lane is off; nothing is
     sent then."""
-    from . import web_standards
+    from . import review_jobs, web_standards
     from .main import _missing_references
     reject_unknown_params(request, set())
     _require_identity_to_write(scope)
@@ -495,4 +496,5 @@ def review_web_check(
             run["submittal_document_id"], scope.allowed_document_ids),
         fetch_search=market_transport.transport(),
         fetch_text=lambda url, timeout: market_transport.fetch_text(url, timeout=timeout))
+    review_jobs.settle_drafts(review_run_id)
     return {"review_run_id": review_run_id, **result}
