@@ -16,36 +16,57 @@ from .job_queue import now_iso as _now
 
 
 def recover(stage: str, *, at_startup: bool = False) -> int:
-    """How many jobs were recovered or cancelled. See `review_jobs.recover_stale`."""
+    """How many jobs were recovered or cancelled. See `review_jobs.recover_stale`.
+
+    Each job is taken by ONE conditional UPDATE that repeats the "dead" test, like a
+    claim: a worker that refreshed its claim between the look and the update is never put
+    back in the queue (it would run twice)."""
     conn = connect()
-    mine = f"w-{job_queue._PROCESS_TOKEN}-%"
     foreign = (
         " OR claimed_by IS NULL OR claimed_by NOT LIKE :mine" if at_startup else ""
     )
+    dead = f"(claimed_at IS NULL OR claimed_at < :cutoff{foreign})"
+    args = {
+        "stage": stage,
+        "cutoff": job_queue.stale_cutoff(),
+        "mine": f"w-{job_queue._PROCESS_TOKEN}-%",
+    }
+    done = 0
     with conn:
-        jobs = conn.execute(
-            "SELECT id, review_run_id, cancel_requested FROM jobs WHERE stage = :stage"
-            f" AND state = 'running' AND (claimed_at IS NULL OR claimed_at < :cutoff{foreign})",
-            {"stage": stage, "cutoff": job_queue.stale_cutoff(), "mine": mine},
+        ids = conn.execute(
+            f"SELECT id FROM jobs WHERE stage = :stage AND state = 'running' AND {dead}",
+            args,
         ).fetchall()
-        for job in jobs:
-            if job["cancel_requested"]:
-                _cancel(conn, job, stage)
+        for found in ids:
+            taken = conn.execute(
+                "UPDATE jobs SET state = CASE cancel_requested WHEN 1 THEN :cancelled ELSE 'queued' END,"
+                " claimed_by = NULL, claimed_at = NULL, updated_at = :now"
+                f" WHERE id = :id AND stage = :stage AND state = 'running' AND {dead}"
+                " RETURNING id, review_run_id, cancel_requested",
+                {
+                    **args,
+                    "id": found["id"],
+                    "now": _now(),
+                    "cancelled": job_queue.CANCELLED,
+                },
+            ).fetchone()
+            if taken is None:  # its worker refreshed the claim in between: a live job
+                continue
+            done += 1
+            if taken["cancel_requested"]:
+                _cancel(conn, taken, stage)
                 continue
             conn.execute(
-                "UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL,"
-                " updated_at = ? WHERE id = ?",
-                (_now(), job["id"]),
-            )
-            conn.execute(
                 "UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
-                (_now(), job["review_run_id"]),
+                (_now(), taken["review_run_id"]),
             )
-            job_queue.audit(conn, "job.recovered", job["id"], detail=f"stage={stage}")
-    return len(jobs)
+            job_queue.audit(conn, "job.recovered", taken["id"], detail=f"stage={stage}")
+    return done
 
 
 def _cancel(conn, job, stage: str) -> None:
+    """The run of a job already marked cancelled ends like a cancel a live worker honours:
+    its undecided findings are removed and its outcome says it was cancelled."""
     conn.execute(
         "DELETE FROM review_findings WHERE review_run_id = ?"
         f" AND {review_mod.UNDECIDED_SQL}",
@@ -59,11 +80,6 @@ def _cancel(conn, job, stage: str) -> None:
             _now(),
             job["review_run_id"],
         ),
-    )
-    conn.execute(
-        "UPDATE jobs SET state = ?, claimed_by = NULL, claimed_at = NULL, updated_at = ?"
-        " WHERE id = ?",
-        (job_queue.CANCELLED, _now(), job["id"]),
     )
     job_queue.audit(
         conn,

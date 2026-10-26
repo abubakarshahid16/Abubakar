@@ -82,3 +82,55 @@ def test_the_next_review_starts_at_once_after_the_restart(world):
     second_run, second = _enqueue(world)
     assert review_jobs.claim_next("w-new") == second
     assert _run_row(second_run)["status"] == "running"
+
+
+def test_a_claim_refreshed_between_the_look_and_the_update_is_not_put_back_in_the_queue(
+    world, monkeypatch
+):
+    """The race: the sweep finds a stale job, its worker refreshes the claim, the update must
+    not requeue it (it would run twice). Simulated by refreshing the claim right after the SELECT."""
+    from app import review_recovery
+
+    _run_id, job_id = _claimed_by(world)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE jobs SET claimed_at = '2000-01-01T00:00:00Z' WHERE id = ?",
+            (job_id,),
+        )
+    real = review_recovery.connect()
+
+    class Spy:
+        """Delegates to the real connection and refreshes the claim after the first SELECT."""
+
+        def __init__(self):
+            self.refreshed = False
+
+        def execute(self, sql, params=()):
+            cur = real.execute(sql, params)
+            if not self.refreshed and sql.lstrip().startswith("SELECT id FROM jobs"):
+                rows = cur.fetchall()
+                real.execute(
+                    "UPDATE jobs SET claimed_at = ? WHERE id = ?",
+                    (job_queue.now_iso(), job_id),
+                )
+                self.refreshed = True
+                return _Rows(rows)
+            return cur
+
+        def __enter__(self):
+            real.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return real.__exit__(*exc)
+
+    class _Rows:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def fetchall(self):
+            return self.rows
+
+    monkeypatch.setattr(review_recovery, "connect", lambda: Spy())
+    assert review_jobs.recover_stale() == 0
+    assert _job(job_id)["state"] == "running"
