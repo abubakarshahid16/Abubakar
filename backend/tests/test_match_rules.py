@@ -194,7 +194,10 @@ class TestTableLookupInput:
         """THE MEASURED CASE. Two fields are contained in the subject;
         longest-wins picked the input (26 chars) over the constrained quantity
         (24 chars). With the rule before the tie, the constrained one wins."""
-        req = requirement(D001_6_2_3, text=D001_6_2_3, raw_unit="bar")
+        # Both labels stand in the subject's head (neither follows a complement
+        # word), so the pairing rule of audit C5 does not remove either: rule 3 does.
+        req = requirement("maximum operating pressure and internal design pressure",
+                          text=D001_6_2_3, raw_unit="bar")
         facts = [fact("maximum operating pressure", raw_value="2.2", raw_unit="bar (ga)"),
                  fact("internal design pressure", raw_value="3.5", raw_unit="bar (ga)")]
         result = comparison.match_by_containment(req, facts)
@@ -254,11 +257,23 @@ class TestTableLookupInput:
             {"name": "maximum operating pressure", "reason": match_rules.TABLE_LOOKUP_INPUT}]
 
     def test_without_the_constrained_field_the_input_alone_is_silence(self):
-        req = requirement(D001_6_2_3, text=D001_6_2_3, raw_unit="bar")
+        req = requirement("maximum operating pressure", text=D001_6_2_3, raw_unit="bar")
         facts = [fact("maximum operating pressure", raw_unit="bar (ga)")]
         result = comparison.match_by_containment(req, facts)
         assert result["fact"] is None
         assert result["reason"] == comparison.REFUSED_BY_RULE
+
+    def test_the_whole_sentence_as_subject_never_pairs_the_table_input(self):
+        """With the clause's whole sentence as the subject, the input stands after
+        "according to the following table", not in the head: it is no candidate at
+        all (audit C5), so the constrained quantity is the only hit."""
+        req = requirement(D001_6_2_3, text=D001_6_2_3, raw_unit="bar")
+        facts = [fact("maximum operating pressure", raw_value="2.2", raw_unit="bar (ga)"),
+                 fact("internal design pressure", raw_value="3.5", raw_unit="bar (ga)")]
+        result = comparison.match_by_containment(req, facts)
+        assert result["matched_phrase"] == "internal design pressure"
+        only_input = comparison.match_by_containment(req, facts[:1])
+        assert only_input["fact"] is None
 
 
 # ---------------------------------------------------------- rule 4: compound

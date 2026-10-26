@@ -52,7 +52,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
+from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse, pairing_head,
                 page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
@@ -3391,13 +3391,13 @@ def _containment_hits(requirement: dict, subject: str, facts: list[dict],
         if len(name) < 4 or len(canonical_name) < 4:
             # A one- or two-word fragment is contained in half of everything.
             continue
-        if _contains_words(subject, name):
+        if pairing_head.names_head(subject, name):
             hits.append({"fact": fact, "name": name, "key": canonical_name,
                          "item": item, "synonym": None})
-        elif _contains_words(canonical_subject, canonical_name):
+        elif pairing_head.names_head(canonical_subject, canonical_name):
             hits.append({"fact": fact, "name": name, "key": canonical_name,
                          "item": item, "synonym": canonical_name})
-        elif (_contains_words(subject_form, _match_form(name))
+        elif (pairing_head.names_head(subject_form, _match_form(name))
               and len(_match_form(name)) >= 4
               and claims.same_quantity(requirement.get("raw_unit"), fact.get("raw_unit"))):
             # ABBREVIATION / GENERIC-WORD TOLERANCE (audit N5): "Noise" meets
@@ -3551,7 +3551,7 @@ def match_statement(requirement: dict, facts: list[dict], *,
         hits = [hit for hit in _containment_hits(
             requirement, subject, facts,
             lambda f: not f.get("is_blank") and bool(str(f.get("field_value") or "").strip()))
-            if len(hit["name"].split()) >= 2 and _contains_words(_singular(subject), _singular(hit["name"]))]
+            if len(hit["name"].split()) >= 2 and pairing_head.names_head(_singular(subject), _singular(hit["name"]))]
         # TWO READERS, ONE ROW: the layout reader and the AI reader both read
         # the same label with the same words on the same page. That is one
         # answer, not a tie. Readings that DIFFER stay a tie - a question.
