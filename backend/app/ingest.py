@@ -1094,9 +1094,9 @@ def _classify_metadata_if_contractor_submittal(document_id: str) -> None:
     and a failure is RECORDED as a visible `jobs` row - never raised, never
     silently dropped - while the document stays READY.
     """
-    from . import classification
+    from . import submittal_fill  # the classifier, then the heading fill (206.1)
     try:
-        classification.classify_metadata_for_submittal(document_id)
+        submittal_fill.classify(document_id)
     except Exception as exc:  # noqa: BLE001 - recorded below, never re-raised
         safe = errors.record_failure(
             exc, document_id=document_id, stage="submittal_metadata_classify")

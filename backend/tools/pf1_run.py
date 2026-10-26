@@ -339,6 +339,19 @@ def run_sheet(
         state = wait_job(transport, job_id, timeout=timeout, **wait)
         if state not in OK_STATES:
             raise RunError(f"the sheet's ingestion ended {state}")
+        # The client workflow marks the file as a contractor submittal (the
+        # app's own step); the READY and role-change hooks then fill its
+        # equipment type, title and discipline. Without it a review reads a
+        # sheet that does not say what it is (order 206.1).
+        _expect(
+            *transport.request(
+                "POST",
+                "/api/documents/bulk/role",
+                {"document_ids": [sheet_id], "document_role": "CONTRACTOR_SUBMITTAL"},
+            ),
+            "marking the sheet as a contractor submittal",
+            ok=(200, 207),
+        )
         run = _expect(
             *transport.request(
                 "POST", "/api/reviews/run", {"submittal_document_id": sheet_id}

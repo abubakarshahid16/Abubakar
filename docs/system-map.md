@@ -212,6 +212,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `states` | Document lifecycle state machine |
 | `stored_paths` | A stored file's path, relative to `data_dir`, resolved on read (order 121 C) |
 | `structured_search` | Small, scope-aware search over EPC workflow records |
+| `submittal_fill` | Order 206.1: a contractor datasheet's empty title and equipment type filled from its own heading (the line that says DATA SHEET), at READY and again when its review starts |
 | `subject_scope` | What a requirement is ABOUT, and whether it applies to this submittal (#453) |
 | `submittal_review` | Schema and scoped read paths for the AI submittal review workflow |
 | `symbols` | Repair glyphs an old PDF's symbol font extracted as the wrong character |
