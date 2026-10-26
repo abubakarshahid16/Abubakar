@@ -64,6 +64,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--timeout", type=float, default=3600.0, help="seconds per step"
     )
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=120.0,
+        help="seconds one HTTP call may take (a CPU machine needs far more)",
+    )
     args = parser.parse_args(argv)
     try:
         base = pf1_run.check_server(args.server, args.test_server)
@@ -77,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
                 "give --email and set PF1_PASSWORD in the environment, or --no-login"
             )
         index = json.loads((Path(args.set) / "index.json").read_text(encoding="utf-8"))
-        transport = pf1_run.HttpTransport(base)
+        transport = pf1_run.HttpTransport(base, timeout=args.request_timeout)
         if not args.no_login:
             transport.token = pf1_run.login(transport, args.email, password)
         records = pf1_run.run_set(
