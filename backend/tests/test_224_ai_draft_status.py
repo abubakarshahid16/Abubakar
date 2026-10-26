@@ -103,7 +103,10 @@ def test_a_draft_never_gets_a_status_and_is_counted_in_its_own_bucket():
     ai_check_drafts.settle(RUN)
     assert {r["compliance_status"] for r in _rows()} == {None}
     assert {r["compliance_status"] for r in _rows(ai_check_drafts.WEB_ORIGIN)} == {None}
-    assert ai_check_drafts.observation_count(RUN) == 3
+    from app import main
+
+    total, by_status, _tags, drafts = main._finding_counts(RUN)
+    assert (total, by_status, drafts) == (3, {}, 3)  # the bucket, not a status
     assert ai_check_drafts.BUCKET_LABEL == "AI observations (draft, no verdict)"
 
 
@@ -237,3 +240,35 @@ def test_the_two_claude_api_routes_settle_the_drafts_too(monkeypatch):
     claude_api.review_ai_check(RUN, request, scope)
     claude_api.review_web_check(RUN, request, scope)
     assert seen == [RUN, RUN]
+
+
+def test_a_repeat_with_no_page_is_marked_once_and_a_rerun_adds_nothing():
+    """The no-page note lacked the mark the skip check looks for, so every
+    re-run appended it again."""
+    _draft(None)
+    _draft(None)
+    assert ai_check_drafts.settle(RUN) == {"marked": 1}
+    once = [r["ai_rationale"] for r in _rows()]
+    assert ai_check_drafts.settle(RUN) == {"marked": 0}
+    assert [r["ai_rationale"] for r in _rows()] == once
+    assert sum(r.count("Exact repeat of") for r in once) == 1  # one mark, in total
+
+
+def test_the_web_checks_exact_repeats_are_marked_by_their_source_address():
+    def web(page, url):
+        made = _draft(page, origin=ai_check_drafts.WEB_ORIGIN)
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE review_findings SET ai_rationale = ? WHERE id = ?",
+                (
+                    f"Edition not confirmed. Source: Some page (2025), {url}. Quote: x",
+                    made,
+                ),
+            )
+
+    web(1, "https://example.test/a")
+    web(2, "https://example.test/a")
+    web(3, "https://example.test/b")  # same words, another source
+    assert ai_check_drafts.settle(RUN) == {"marked": 1}
+    rows = _rows(ai_check_drafts.WEB_ORIGIN)
+    assert [("Exact repeat" in r["ai_rationale"]) for r in rows] == [False, True, False]
