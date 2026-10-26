@@ -743,7 +743,10 @@ def test_the_page_section_column_carries_the_datasheet_page_and_field():
     assert where == "p.4 - Design pressure (2003-47-V-0001A/B)"
     assert "SAES-D-001" not in where
     assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
-    assert ws.cell(row=FIRST_DATA_ROW, column=8).value == "SAES-D-001 (edition not recorded) cl. 6.2.2 (p.14)"
+    assert (
+        ws.cell(row=FIRST_DATA_ROW, column=8).value
+        == "SAES-D-001 (edition not recorded) cl. 6.2.2 (p.14)"
+    )
 
 
 def _refs(ws) -> list[str]:

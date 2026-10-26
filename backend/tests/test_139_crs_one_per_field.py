@@ -199,7 +199,9 @@ def test_a_long_clause_is_cut_and_a_shared_clause_says_each_requirement():
     assert lines[2] == "Supporting clauses (2):"
     # order 139 part 2 (review of #1179, rule 4): every requirement is said.
     first = lines[3]
-    assert first.startswith('- STD-100 (edition not recorded) cl. 4.1 (p.4): "A long word')
+    assert first.startswith(
+        '- STD-100 (edition not recorded) cl. 4.1 (p.4): "A long word'
+    )
     assert first.endswith(' ...." "A second requirement of 4.1."')
 
 

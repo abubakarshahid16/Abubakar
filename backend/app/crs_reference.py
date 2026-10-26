@@ -20,11 +20,10 @@ def tail(finding: dict, name: str, clause: str, page) -> str:
 
 
 def edition_words(finding: dict, name: str) -> str:
-    """ " (2023)" or " (edition not recorded)" for the standard called `name` ("" when the
-    name already ends in or contains its edition year)."""
-    edition = str(
-        finding.get("standard_edition") or ""
-    ).strip() or standard_ids.edition_of(name)
+    """The edition words for the standard called `name`: (2023), or (edition not recorded);
+    nothing when the name already carries its edition year."""
+    stored = str(finding.get("standard_edition") or "").strip()
+    edition = stored or standard_ids.edition_of(name)
     if not edition:
         return f" ({NOT_RECORDED})"
     return "" if edition in name else f" ({edition})"
