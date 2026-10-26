@@ -172,3 +172,24 @@ def test_the_ai_wording_lock_keeps_the_edition_and_refuses_a_changed_one():
         crs_wording.lock(good.replace("(2023)", "(2019)"), row)
         == crs_wording.NUMBER_CHANGED
     )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ISO 9001:2015 (reaffirmed 2020).pdf",
+        "ANSI B16.5 2017 Reaff 2021.pdf",
+        "API 650 2020 Addendum 2 (2021).pdf",
+        "SAES-G-005 rev 2019 approved 2023.pdf",
+        "SAES-G-005 2019-2023.pdf",
+    ],
+)
+def test_two_different_years_left_means_no_edition_not_the_last_guess(name):
+    """No list of side-words is complete (reaffirmed, reconfirmed, approved, withdrawn ...):
+    when two different years remain the edition is not recorded rather than guessed."""
+    assert crs_reference.edition_of(name) is None
+    assert "(edition not recorded)" in _ref(name)
+
+
+def test_the_same_year_twice_is_still_that_year():
+    assert crs_reference.edition_of("SAES-G-005 2023 (rev 2023).pdf") == "2023"
