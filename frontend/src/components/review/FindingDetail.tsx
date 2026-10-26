@@ -400,7 +400,7 @@ function Citation({ title, document, page, detail, fallbackName, notLocated, onO
           type="button" onClick={() => onOpen(document, page)}
           className="mt-2 rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-signal-300"
         >
-          {notLocated && !page ? `Open the ${name}` : `Open ${name} at page ${page ?? 1}`}
+          {page ? `Open ${name} at page ${page}` : `Open the ${name}`}
         </button>
       ) : (
         <p className="mt-2 text-xs text-slateish-500">

@@ -65,7 +65,7 @@ def _document(name: str, pages: list[str] | None = None) -> str:
     return doc
 
 
-def _run(sheet: str, standards: list[str]) -> str:
+def _run(sheet: str, standards: list[str], included: int = 1) -> str:
     run = str(uuid.uuid4())
     with db.connect() as conn:
         conn.execute(
@@ -76,8 +76,8 @@ def _run(sheet: str, standards: list[str]) -> str:
         for i, std in enumerate(standards):
             conn.execute(
                 "INSERT INTO review_applicable_standards (id,review_run_id,standard_document_id,"
-                "selection_reason,selection_method,included,created_at) VALUES (?,?,?,?,'rule',1,?)",
-                (f"ras-{run}-{i}", run, std, "invented", f"{NOW}{i}"),
+                "selection_reason,selection_method,included,created_at) VALUES (?,?,?,?,'rule',?,?)",
+                (f"ras-{run}-{i}", run, std, "invented", included, f"{NOW}{i}"),
             )
     return run
 
@@ -269,3 +269,32 @@ def test_a_contents_page_of_single_spaced_entries_is_skipped_as_a_whole():
     )
     std, run = _world([contents, "3.26 term number 26\nbody text.\n"])
     assert standard_clause_page.locate(run, "API 520-I", "3.26") == (std, 2)
+
+
+def test_a_standard_the_engineer_excluded_from_the_run_is_not_linked():
+    std = _document("API-520-I.pdf", [DEFINITIONS])
+    run = _run(_document("sheet.pdf", ["x"]), [std], included=0)
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (None, None)
+
+
+def test_an_ocr_digit_confusion_in_the_clause_number_is_not_located():
+    _std, run = _world(["3.2G maximum allowable working pressure\nbody text.\n"])
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (None, None)
+
+
+def test_a_failure_to_attach_never_fails_the_store_and_leaves_the_findings(monkeypatch):
+    _std, run = _world([DEFINITIONS])
+    sheet = (
+        db.connect()
+        .execute("SELECT submittal_document_id FROM review_runs WHERE id=?", (run,))
+        .fetchone()[0]
+    )
+
+    def boom(*args):
+        raise RuntimeError("pages table locked")
+
+    monkeypatch.setattr(standard_clause_page, "locate", boom)
+    written = datasheet_checks.store(
+        run, sheet, [_result("API 520-I", "3.26")], pages_read={}
+    )
+    assert len(written) == 1 and written[0].get("standard_page") is None

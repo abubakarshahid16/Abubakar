@@ -5,7 +5,7 @@ The finding it writes used to carry that text and nothing to open: no standard
 document, no page, so an engineer could not go from the row to the clause. This
 finds both, from the standard's own page text (OCR text included):
 
-  * the standard is the one of the run's applicable standards that carries that
+  * the standard is the one of the run's INCLUDED applicable standards that carries that
     label (`standard_ids.same_standard`, the rule the checklist's own matching
     uses), so a caller can only be pointed at what the run already read;
   * the page is the ONE page where the clause number opens a heading line of the
@@ -18,6 +18,7 @@ Read only; no network.
 
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
 
@@ -119,7 +120,7 @@ def _standard_of(run_id: str, label: str) -> str | None:
             "SELECT d.id, d.filename, c.document_number, c.title"
             " FROM review_applicable_standards a JOIN documents d ON d.id = a.standard_document_id"
             " LEFT JOIN document_classification c ON c.document_id = d.id"
-            " WHERE a.review_run_id = ?",
+            " WHERE a.review_run_id = ? AND a.included = 1",
             (run_id,),
         )
         .fetchall()
@@ -227,11 +228,21 @@ def attach(run_id: str, findings: list[dict]) -> None:
     conn = connect()
     for finding in findings:
         label, _, clause = (finding.get("standard_clause") or "").rpartition(" ")
-        standard, page = locate(run_id, label, clause)
-        if standard and page:
-            with conn:
-                conn.execute(
-                    "UPDATE review_findings SET standard_document_id = ?, standard_page = ? WHERE id = ?",
-                    (standard, page, finding["id"]),
+        try:
+            standard, page = locate(run_id, label, clause)
+            if standard and page:
+                with conn:
+                    conn.execute(
+                        "UPDATE review_findings SET standard_document_id = ?, standard_page = ? WHERE id = ?",
+                        (standard, page, finding["id"]),
+                    )
+                finding["standard_document_id"], finding["standard_page"] = (
+                    standard,
+                    page,
                 )
-            finding["standard_document_id"], finding["standard_page"] = standard, page
+        except Exception as exc:  # noqa: BLE001 - a link is optional; the findings are already written
+            logging.getLogger(__name__).warning(
+                "standard page not attached to finding %s: %s",
+                finding.get("id"),
+                type(exc).__name__,
+            )

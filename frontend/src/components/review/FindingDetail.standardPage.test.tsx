@@ -60,6 +60,14 @@ describe("the standard link on a row", () => {
     expect(screen.queryByRole("button", { name: /Open standard at page/ })).toBeNull();
   });
 
+  it("a datasheet side with no page opens the document, never 'page 1'", () => {
+    render(
+      <FindingDetail finding={finding({ contractor_page: null })} documents={[SUB, STD]} onChanged={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Open the datasheet" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open datasheet at page/ })).toBeNull();
+  });
+
   it("a row that cites no clause says nothing about a page", () => {
     render(
       <FindingDetail
