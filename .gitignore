@@ -44,6 +44,7 @@ test-results/
 # The PF1 tuning set (backend/tests/fixtures/synthetic/pf1/, #881): invented sheets and
 # standards only; held-out sheets never go in Git.
 !backend/tests/fixtures/synthetic/pf1/*.pdf
+!backend/tests/fixtures/synthetic/pf1_scanned/*.pdf
 
 # Scratch folders left by audit runs (pytest basetemp and similar). Ignored
 # explicitly because their subfolders can be permission-denied, which makes git
