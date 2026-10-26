@@ -6,10 +6,12 @@ equipment tag of its group ("Rated capacity (PSV-1, PSV-2, ... 40 tags)", over 3
 characters). It now says where the engineer should know it was NOT found, and the tags are
 cut to three and a count:
 
-    "Not found on pages 1-5 - Rated capacity (PSV-1, PSV-2, PSV-3 and 37 more)"
+    "Not found on the datasheet (5 pages) - Rated capacity (PSV-1, PSV-2, PSV-3 and 37 more)"
 
-The range is the submittal's own page count (`documents.page_count`, else its `pages` rows); unknown: "Not found on the
-datasheet". Display only; a finding's wording and verdict are not touched.
+The count is the submittal's own (`documents.page_count`, else its `pages` rows), stated as
+the size of the document, never as "pages searched"; unknown: "Not found on the datasheet";
+several documents in one group: "Not found on the datasheets". Display only; a finding's
+wording and verdict are not touched.
 """
 
 from __future__ import annotations
@@ -48,21 +50,25 @@ def where(
     page_text: str,
     field: str,
     tags: list[str],
-    document_id: str | None,
+    document_ids: set[str | None],
     read: bool,
 ) -> str:
     """The Page/Section text. With pages, or with a value that was read but has no page
     recorded: `page_text` ("p.1-2"), the field and the tags, as before. With nothing read
-    (`read` False, no page): "Not found on pages 1-N", the field and at most three tags."""
+    (`read` False, no page): "Not found on the datasheet (9 pages)", the field and at most
+    three tags. It states the document's own page count, never that those pages were
+    searched (an unread page is said by the row's own text); a group that spans several
+    documents says "the datasheets" and no count."""
     if pages or read or not (field or tags):
         text = f"{page_text} - {field}" if field and page_text else page_text or field
         return text + (f" ({', '.join(tags)})" if tags else "")
-    total = _page_count(document_id)
+    documents = {d for d in document_ids if d}
+    total = _page_count(next(iter(documents))) if len(documents) == 1 else 0
     lead = (
-        f"Not found on pages 1-{total}"
-        if total > 1
-        else "Not found on page 1"
-        if total == 1
+        "Not found on the datasheets"
+        if len(documents) > 1
+        else f"Not found on the datasheet ({total} page{'s' if total > 1 else ''})"
+        if total
         else "Not found on the datasheet"
     )
     return f"{lead} - {field}{_tags(tags)}" if field else lead + _tags(tags)

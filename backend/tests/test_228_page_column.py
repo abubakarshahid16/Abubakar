@@ -61,7 +61,7 @@ def test_a_value_not_found_names_the_pages_looked_at_and_cuts_the_tag_list():
     cell = crs_mapping._page_section(group)
     assert (
         cell
-        == "Not found on pages 1-5 - Rated capacity (PSV-1, PSV-2, PSV-3 and 37 more)"
+        == "Not found on the datasheet (5 pages) - Rated capacity (PSV-1, PSV-2, PSV-3 and 37 more)"
     )
     assert len(cell) < 90
 
@@ -87,37 +87,42 @@ def test_a_value_that_was_read_but_has_no_page_is_never_called_not_found():
     assert "Not found" not in cell and "Rated capacity" in cell
 
 
-def test_the_page_count_comes_from_the_submittals_own_pages():
+def test_the_count_is_the_documents_size_never_a_claim_that_its_pages_were_searched():
     assert (
-        crs_page_words.where([], "", "Size", [], _sheet(1), False)
-        == "Not found on page 1 - Size"
+        crs_page_words.where([], "", "Size", [], {_sheet(1)}, False)
+        == "Not found on the datasheet (1 page) - Size"
     )
     assert (
-        crs_page_words.where([], "", "Size", [], _sheet(12), False)
-        == "Not found on pages 1-12 - Size"
+        crs_page_words.where([], "", "Size", [], {_sheet(12)}, False)
+        == "Not found on the datasheet (12 pages) - Size"
     )
     assert (
-        crs_page_words.where([], "", "Size", [], None, False)
+        crs_page_words.where([], "", "Size", [], {None}, False)
         == "Not found on the datasheet - Size"
     )
     assert (
-        crs_page_words.where([], "", "Size", [], "no-such-document", False)
+        crs_page_words.where([], "", "Size", [], {"no-such-document"}, False)
         == "Not found on the datasheet - Size"
     )
+
+
+def test_a_group_that_spans_several_documents_says_so_and_gives_no_count():
+    cell = crs_page_words.where([], "", "Size", [], {_sheet(5), _sheet(7)}, False)
+    assert cell == "Not found on the datasheets - Size"
 
 
 def test_a_row_with_no_field_no_tag_and_no_page_stays_empty():
-    assert crs_page_words.where([], "", "", [], _sheet(3), False) == ""
+    assert crs_page_words.where([], "", "", [], {_sheet(3)}, False) == ""
 
 
 def test_the_documents_own_page_count_wins_over_the_number_of_page_rows():
-    """A scan or a missing page row must not shorten the range: the record says 9 pages."""
+    """A scan or a missing page row must not shorten the count: the record says 9 pages."""
     assert crs_page_words.where(
-        [], "", "Size", [], _sheet(9, stored_pages=6), False
-    ) == ("Not found on pages 1-9 - Size")
+        [], "", "Size", [], {_sheet(9, stored_pages=6)}, False
+    ) == ("Not found on the datasheet (9 pages) - Size")
 
 
 def test_the_page_rows_are_counted_only_when_the_record_has_no_count():
     assert crs_page_words.where(
-        [], "", "Size", [], _sheet(0, stored_pages=4), False
-    ) == ("Not found on pages 1-4 - Size")
+        [], "", "Size", [], {_sheet(0, stored_pages=4)}, False
+    ) == ("Not found on the datasheet (4 pages) - Size")

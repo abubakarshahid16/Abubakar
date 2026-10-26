@@ -559,7 +559,7 @@ def _page_section(group: list[dict]) -> str:
         f"p.{_page_list(pages)}" if pages else "",
         _field_label(f) + crs_item_series.items_suffix(group),
         _items(group),
-        f.get("document_id"),
+        {g.get("document_id") for g in group},
         any(g.get("fact_id") for g in group),
     )
 
