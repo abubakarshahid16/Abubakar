@@ -63,7 +63,14 @@ def main() -> None:
     # processes it spawns, which inherit the environment - open the live file.
     # Every other process must pass live_guard.prepare_live_write first.
     from app import live_guard
+
     live_guard.mark_server_process()
+    # Order 218.1: follow the whole pipeline in debug/live.log. This MUST stay before
+    # uvicorn imports the app: modules doing `from .x import f` must bind the wrapped f.
+    if settings.review_debug:
+        from app import review_trace
+
+        review_trace.install_live()
     uvicorn.run(
         "app.main:app",
         host=settings.host,
