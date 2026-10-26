@@ -47,7 +47,10 @@ def _row(n: int, comment: str, **over) -> dict:
         ("Engineer to check whether the datasheet states X.", "Engineer to check"),
         ("No field this system read was paired with it.", "this system read"),
         ("There is no field read from the datasheet for it.", "no field read from"),
-        ("The value was read with validation state needs_review.", "read with validation state"),
+        (
+            "The value was read with validation state needs_review.",
+            "read with validation state",
+        ),
         ("Value not found by the page reader.", "by the page reader"),
         ("Automatic result: meets the standard.", "Automatic result"),
         ("ENGINEER TO TICK (safety field): clause 4.", "ENGINEER TO TICK"),
@@ -62,7 +65,10 @@ def test_the_program_talking_to_the_engineer_is_not_a_contractor_comment():
     program's note to the engineer cannot be issued as it stands; the words the
     program now writes for the contractor are clean."""
     stuck = "Engineer to check: the value was read with validation state 'x'."
-    assert mw.find_machine_words(stuck) == ["Engineer to check", "read with validation state"]
+    assert mw.find_machine_words(stuck) == [
+        "Engineer to check",
+        "read with validation state",
+    ]
     for words in (
         "Clarification requested: please indicate where the datasheet states Design "
         "pressure, or confirm it is not stated.",
