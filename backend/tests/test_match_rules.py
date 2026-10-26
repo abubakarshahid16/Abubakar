@@ -285,6 +285,7 @@ class TestTableLookupInput:
         ]
         result = comparison.match_by_containment(req, facts)
         assert result["matched_phrase"] == "internal design pressure"
+        assert result["refused"] == [] and result["reason"] is None  # the input was no candidate
         only_input = comparison.match_by_containment(req, facts[:1])
         assert only_input["fact"] is None
         # not a refusal any more: the input is no candidate, so nothing was refused

@@ -80,4 +80,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_T,
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1302-08",
+        phase=1302,
+        description="whole words only is lost in the head test: 'design pressure' is found inside 'redesign pressure'",
+        path=_P,
+        anchor="        if words[start : start + len(label)] == label:\n",
+        replacement='        if " ".join(label) in " ".join(words[start:]):\n',
+        target=_T,
+        tags=("honesty", "critical"),
+    ),
 )
