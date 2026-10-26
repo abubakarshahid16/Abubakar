@@ -21,10 +21,13 @@ from app.db import connect
 
 # Order 211 (audit R1): the classifiers run BEFORE the facts are read, so the
 # reader knows what the sheet is (`test_211_classify_before_read.py`).
-HOOKS = ("_queue_extraction_if_standard",
-         "_classify_equipment_type_if_contractor_submittal",
-         "_classify_metadata_if_contractor_submittal",
-         "_extract_facts_if_contractor_submittal", "_refresh_page_ledger")
+HOOKS = (
+    "_queue_extraction_if_standard",
+    "_classify_equipment_type_if_contractor_submittal",
+    "_classify_metadata_if_contractor_submittal",
+    "_extract_facts_if_contractor_submittal",
+    "_refresh_page_ledger",
+)
 CLASSIFIERS = HOOKS[1:3]
 
 
