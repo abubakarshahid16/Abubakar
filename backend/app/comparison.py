@@ -866,13 +866,13 @@ def _compare(requirement: dict, fact: dict | None, *,
             "exception_applied": None,
         }
     if fact is None:
-        # B9, RULE R1 (owner-approved, to be sample-checked before trusted):
-        # a `statement` names no field, subject or value a datasheet could
-        # fill in, so "the sheet does not state it" says nothing about the
-        # contractor - the question is answered by another document. Only
-        # when NOTHING matched: a statement that did meet a fact, blank or
-        # not, is still judged below exactly as before.
-        if requirement.get("requirement_type") == requirements_3b.STATEMENT:
+        # B9, RULE R1 (owner-approved): an unmatched `statement` naming no
+        # field or value is answered by another document. EXCEPT a clause
+        # asking only to be stated on the datasheet (order 210 FIX 1): a
+        # datasheet fills that, so missing is the contractor's omission.
+        if requirement.get("requirement_type") == requirements_3b.STATEMENT \
+                and not field_links.asks_only_to_be_stated(
+                    requirement.get("source_text") or requirement.get("requirement_text")):
             return {
                 "status": NOT_IN_DOCUMENT_SCOPE,
                 # WHAT WAS CHECKED, NOT A CLAIM ABOUT ANOTHER DOCUMENT (CRS
