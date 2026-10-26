@@ -24,7 +24,7 @@ import json
 import uuid
 from pathlib import Path
 
-from . import access, job_progress, job_queue, provenance
+from . import access, job_progress, job_queue, provenance, submittal_fill
 from .config import config_version, settings
 from .db import connect
 
@@ -270,7 +270,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     Documents page as the worker having no heartbeat / "not moving", when it
     is in fact still working through this one job.
     """
-    from . import applicability, comparison, errors, submittal_review
+    from . import applicability, comparison, errors, review_trace, submittal_review
     conn = connect()
     job = conn.execute("SELECT * FROM jobs WHERE id = ? AND state = 'running' AND claimed_by = ?",
                        (job_id, worker_id)).fetchone()
@@ -281,13 +281,13 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     try:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
-        from . import review_trace
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
         _step(conn, job_id, 0)
         with review_trace.timed(timings, "read"), _reporting_pages(conn, job_id):
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
         _step(conn, job_id, 1)
         with review_trace.timed(timings, "standards"):
+            submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
             # #620: the Company standards selection left out as held; said on the run below.
