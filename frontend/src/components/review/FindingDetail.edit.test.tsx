@@ -55,6 +55,8 @@ beforeEach(() => {
   update.mockReset();
   documentCall.mockResolvedValue({ ok: false, error: { message: "not found" } });
   update.mockResolvedValue({ ok: true, data: finding() });
+  decideCrsFinding.mockReset();
+  decideCrsFinding.mockResolvedValue({ ok: true, data: {} });
 });
 
 describe("Edit comment", () => {
@@ -72,6 +74,8 @@ describe("Edit comment", () => {
       engineer_comment: "Contractor to state the noise level at 1 m.",
     });
     expect(onChanged).toHaveBeenCalled();
+    // order 214 fix 10: the edit is kept with a named reason on the record
+    expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "f-1", "accept", "", "edited_by_engineer");
   });
 
   it("prefills the textarea with the existing engineer_comment", async () => {

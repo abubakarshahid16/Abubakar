@@ -163,7 +163,8 @@ def test_the_clause_unit_and_the_copies_notes_are_kept_off_too():
     ]
     f = _finding(f"unit_mismatch: the units differ. {method_notes.wrap(notes)}")
     comment = crs_mapping.engineer_comment_text([f])
-    assert "the units differ" in comment
+    # K7/K8: the contractor comment asks for confirmation; the reason is in the internal cell
+    assert "the units differ" in crs_mapping.reasoning_text([f])
     assert "same field is also on the sheet" not in comment
     assert "read from its own text" not in comment
     assert method_notes.OPEN not in comment

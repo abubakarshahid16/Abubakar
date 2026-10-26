@@ -50,7 +50,7 @@ describe("crs grouping parity with the server (contracts/fixtures/crs_group_case
       expect(grouped.map((r) => r.clauseCount)).toEqual(c.expected_rows.map((r) => r.clause_count));
       expect(grouped.map((r) => r.priorityLabel)).toEqual(c.expected_rows.map((r) => r.priority_label));
       expect(grouped.map((r) => supportingClauseLines(r)[0] ?? null)).toEqual(
-        c.expected_rows.map((r) => (r.action ? `Supporting clauses (${r.clause_count}):` : null)));
+        c.expected_rows.map((r) => (r.action ? `Supporting clause${r.clause_count === 1 ? "" : "s"} (${r.clause_count}):` : null)));
       const onGrouped = new Set(grouped.flatMap((r) => r.findings.map((f) => f.id)));
       for (const id of c.not_on_sheet) expect(onGrouped.has(id)).toBe(false);
       const onAny = new Set(rows.flatMap((r) => r.findings.map((f) => f.id)));

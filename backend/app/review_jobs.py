@@ -24,7 +24,14 @@ import json
 import uuid
 from pathlib import Path
 
-from . import access, job_progress, job_queue, provenance, submittal_fill
+from . import (
+    access,
+    job_progress,
+    job_queue,
+    provenance,
+    reread_for_standards,
+    submittal_fill,
+)
 from .config import config_version, settings
 from .db import connect
 
@@ -208,6 +215,21 @@ def _record_check_failure(run_id: str, column: str, name: str, exc: BaseExceptio
         logging.getLogger(__name__).warning("could not record %s failure", column)
 
 
+def settle_drafts(run_id: str) -> None:
+    """Order 224.1: exact repeats among the AI check's drafts are marked.
+    Never fails the review."""
+    try:
+        from . import ai_check_drafts
+
+        ai_check_drafts.settle(run_id)
+    except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "AI check drafts not settled: %s", type(exc).__name__
+        )
+
+
 def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     """Owner order 2d: the AI engineering check, AFTER the comparison decided
     the code, only with its flag on. Drafts only; a failure here (budget,
@@ -229,6 +251,7 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
             logging.getLogger(__name__).info(
                 "AI engineering check incomplete for run %s: %s calls, reason=%s",
                 run_id, result.get("calls_made"), result.get("reason"))
+        settle_drafts(run_id)
     except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
         import logging
         logging.getLogger(__name__).warning("AI engineering check skipped: %s", type(exc).__name__)
@@ -252,6 +275,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
             run_id, allowed_document_ids=scope, missing_identifiers=missing,
             fetch_search=market_transport.transport(),
             fetch_text=lambda url, timeout: market_transport.fetch_text(url, timeout=timeout))
+        settle_drafts(run_id)
     except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
         import logging
         logging.getLogger(__name__).warning("web standards check skipped: %s", type(exc).__name__)
@@ -286,7 +310,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         with review_trace.timed(timings, "read"), _reporting_pages(conn, job_id):
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
         _step(conn, job_id, 1)
-        with review_trace.timed(timings, "standards"):
+        with review_trace.timed(timings, "standards"), _reporting_pages(conn, job_id):
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
@@ -294,6 +318,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             from . import company_standard_confirm
 
             held = company_standard_confirm.held_readable(scope)
+            reread_for_standards.for_review(submittal, scope, run_id, timings)
         _step(conn, job_id, 2)
         with review_trace.timed(timings, "compare"):
             comparison.run_comparison(
@@ -309,8 +334,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         # number (drafts not issued). Never fails the run (see the helper).
         from .main import number_crs_rows
         number_crs_rows(run_id, requester)
-        # R26 step 8 (#763): the model words each machine CRS comment; a code
-        # lock keeps every fact. Never fails the run (see the helper).
+        # R26 step 8 (#763): the model words each CRS comment; never fails the run.
         from .main import word_crs_rows
         word_crs_rows(run_id, requester)
         # #791 part 1: the run's step-by-step trace, stored behind the run's

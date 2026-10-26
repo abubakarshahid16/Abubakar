@@ -302,15 +302,16 @@ def cited(finding: dict) -> str:
     """What a CRS standard reference prints after the standard's name: " cl. 4.3"
     for a clause that is a paragraph id; for a table number (`clause_identified`
     False) or no clause, " cl. <paragraph>" when the standard's own text names
-    one (`paragraph_id`), else " (paragraph not identified)" for a table number
-    (never the table number itself) and nothing for no clause."""
+    one (`paragraph_id`), else nothing: a table number is never printed as a
+    clause, and the page the reference prints beside it still resolves (K7/K8:
+    "paragraph not identified" was the program talking about itself)."""
     clause = finding.get("standard_clause")
     if clause and finding.get("clause_identified") is not False:
         return f" cl. {clause}"
     paragraph = finding.get("paragraph_id")
     if paragraph:
         return f" cl. {paragraph}"
-    return " (paragraph not identified)" if clause else ""
+    return ""
 
 
 _CACHE: dict = {}
