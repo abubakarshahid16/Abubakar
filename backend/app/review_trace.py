@@ -247,6 +247,7 @@ PHASE_OF = {"READ": "read", "CLEAN": "read", "EQUIPMENT": "read", "STANDARDS": "
 
 # ------------------------------------------------------- live lines (order 218)
 
+
 def _console() -> None:
     """The console handler of the `review.debug` logger, once."""
     if not log.handlers:
@@ -265,25 +266,37 @@ def live(line: str) -> None:
         _console()
         log.info(line)
     except Exception:  # a debug line never breaks a review
-        logging.getLogger(__name__).warning("review debug line not printed", exc_info=True)
+        logging.getLogger(__name__).warning(
+            "review debug line not printed", exc_info=True
+        )
 
 
 def _label(phase: str) -> str:
     """`[1,2,3/10 READ,CLEAN,EQUIPMENT]`: the numbered steps a phase covers."""
     steps = [(i, s) for i, s in enumerate(STEPS, 1) if PHASE_OF.get(s) == phase]
-    return (f"[{','.join(str(i) for i, _ in steps)}/{len(STEPS)} "
-            f"{','.join(s for _, s in steps)}]") if steps else f"[{phase}]"
+    if not steps:
+        return f"[{phase}]"
+    numbers = ",".join(str(i) for i, _ in steps)
+    names = ",".join(s for _, s in steps)
+    return f"[{numbers}/{len(STEPS)} {names}]"
 
 
-def page_line(page_no: int, where: tuple[int, int] | None, out: dict, seconds: float,
-              model_call, engine: str | None) -> None:
+def page_line(
+    page_no: int,
+    where: tuple[int, int] | None,
+    out: dict,
+    seconds: float,
+    model_call,
+    engine: str | None,
+) -> None:
     """One line when the datasheet reader finishes a page: how many values
     the AI found, how long it took, and the model that ran."""
     total = f" of {where[1]}" if where else ""
     model = getattr(model_call, "model", None) or engine or "unknown"
     found = len(out.get("accepted") or [])
     result = f"read failed: {out['error']}" if out.get("error") else f"{found} values"
-    live(f"[1/{len(STEPS)} READ] page {page_no}{total}: {result}, {seconds:.1f} s, model={model}")
+    head = f"[1/{len(STEPS)} READ] page {page_no}{total}"
+    live(f"{head}: {result}, {seconds:.1f} s, model={model}")
 
 
 @contextmanager
