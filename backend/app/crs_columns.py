@@ -20,7 +20,9 @@ def checklist_reference(finding: dict) -> str:
     if cited:
         page = finding.get("standard_page")
         return cited + (f" (p.{page})" if page else "")
-    m = _CHECK_ID.match(finding.get("requirement_source_text") or finding.get("ai_rationale") or "")
+    m = _CHECK_ID.match(
+        finding.get("requirement_source_text") or finding.get("ai_rationale") or ""
+    )
     return m.group(1) if m else "Datasheet check"
 
 
