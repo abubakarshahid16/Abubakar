@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, severity_rule
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
 
@@ -62,12 +62,8 @@ def _fold(text) -> str:
     return " ".join(str(text or "").lower().replace(":", " ").split())
 
 
-def role_of(field_name: str, rules: dict) -> str | None:
-    name = _fold(field_name)
-    for role, spec in rules["roles"].items():
-        if any(re.search(p, name) for p in spec["names"]):
-            return role
-    return None
+def role_of(field_name: str, rules: dict, prefer=frozenset()) -> str | None:
+    return datasheet_roles.role_of(field_name, rules, prefer)  # #900
 
 
 #: #898: how many leading words may qualify a field name ("casing", "shell
@@ -225,10 +221,10 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
     """Every check's result for one datasheet. Pure."""
     rules = rules or load_rules()
     by_tag: dict[str | None, dict[str, list[dict]]] = {}
-    #: #898: fields that state a role under a leading qualifier, per tag.
-    qualified: dict[str | None, dict[str, list[dict]]] = {}
+    qualified: dict[str | None, dict[str, list[dict]]] = {}  # #898: under a qualifier
+    wanted = datasheet_roles.wanted_roles(equipment_type, rules)
     for fact in facts:
-        role = role_of(fact.get("field_name") or "", rules)
+        role = role_of(fact.get("field_name") or "", rules, wanted)
         if role:
             by_tag.setdefault(fact.get("equipment_tag"), {}).setdefault(role, []).append(fact)
         elif (under := qualified_role_of(fact.get("field_name") or "", rules)) and not fact.get("is_blank"):

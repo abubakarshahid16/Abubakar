@@ -116,17 +116,37 @@ class FormReading:
     rejected: list[dict] = field(default_factory=list)
     errors: dict[int, str] = field(default_factory=dict)
     pages_read: list[int] = field(default_factory=list)
+    #: per page: model questions asked, and fields not asked because their
+    #: label is printed nowhere on the page (order 206.1; synonym gaps stay findable)
+    questions: dict[int, int] = field(default_factory=dict)
+    not_asked: dict[int, int] = field(default_factory=dict)
     stopped: str | None = None
     timed_out: list[int] = field(default_factory=list)
     seconds: float = 0.0
 
     def counts(self) -> dict:
         tally = Counter(self.status.values())
-        return {"fields": len(self.fields), "filled": tally[FILLED],
-                "not_on_page": tally[NOT_ON_PAGE], "missing": tally[MISSING],
-                "conflicts": tally[CONFLICT], "pages_read": len(self.pages_read),
-                "pages_failed": len(self.errors),
-                "rejected_by_reason": dict(sorted(Counter(r["reason"] for r in self.rejected).items()))}
+        return {
+            "fields": len(self.fields),
+            "filled": tally[FILLED],
+            "not_on_page": tally[NOT_ON_PAGE],
+            "missing": tally[MISSING],
+            "conflicts": tally[CONFLICT],
+            "pages_read": len(self.pages_read),
+            "pages_failed": len(self.errors),
+            "questions_asked": sum(self.questions.values()),
+            "fields_not_asked": sum(self.not_asked.values()),
+            "per_page": {
+                p: {
+                    "questions": self.questions.get(p, 0),
+                    "fields_not_asked": self.not_asked.get(p, 0),
+                }
+                for p in sorted(set(self.questions) | set(self.not_asked))
+            },
+            "rejected_by_reason": dict(
+                sorted(Counter(r["reason"] for r in self.rejected).items())
+            ),
+        }
 
 
 # ------------------------------------------------------------- verification
@@ -146,6 +166,17 @@ def label_in_quote(f: Field, printed: str, rules: dict) -> bool:
     if datasheet_checks.label_search(f.key, rules, {1: printed}):
         return True
     return any(claude_datasheet._field_in_quote(s, printed) for s in (f.name, *f.synonyms))
+
+
+def label_on_page(f: Field, page_text: str, rules: dict) -> bool:
+    """Could ANY quote from this page carry the field's label? `verify` refuses
+    every value whose quote lacks the label (`label_in_quote`), and a quote is
+    a piece of the page, so a field whose label (role patterns, words near each
+    other, name or synonym) is printed nowhere on the page cannot be answered:
+    asking the model for it is a wasted question (#882, order 206.1). Checked on
+    the page folded the way a quote is, so the test is the gate's own, on more
+    text; a doubtful page is never skipped (the caller asks when this is True)."""
+    return label_in_quote(f, claude_datasheet.without_fill(_fold(page_text)), rules)
 
 
 def unit_kind_of(unit: str, rules: dict) -> str | None:
@@ -360,7 +391,13 @@ def _page_skip(reading: FormReading, text: str, started: float, max_seconds: flo
 def _read_page(reading: FormReading, page: int, text: str, model_call, rules: dict, runs: int,
                batch_size: int, found: dict, absent: Counter) -> None:
     errors: list[Reason] = []
-    groups = batches(reading.fields, batch_size)
+    asked = [f for f in reading.fields if label_on_page(f, text, rules)]
+    kept = {f.key for f in asked}
+    # a field whose label is not printed on this page is absent from it
+    absent.update(f.key for f in reading.fields if f.key not in kept)
+    groups = batches(asked, batch_size)
+    reading.questions[page] = len(groups) * runs
+    reading.not_asked[page] = len(reading.fields) - len(asked)
     for group in groups:
         try:
             facts, rejected, gone, err = read_batch(

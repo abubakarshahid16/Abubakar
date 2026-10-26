@@ -151,6 +151,10 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_clause_checks_enabled": False,
     # #141: a local model call per division of a standard a review holds.
     "ai_division_scope_enabled": False,
+    # Order 205: a cache that only SKIPS a local model call; on is the code
+    # default and the safe value (the suite stubs the model identity, so
+    # nothing is reused until a test asks for it).
+    "ai_answer_reuse_enabled": True,
     # --- notifications (SMTP)
     "smtp_enabled": False,
     "smtp_host": "",

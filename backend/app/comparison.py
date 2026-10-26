@@ -52,7 +52,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
+from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
@@ -3337,29 +3337,28 @@ def match_by_containment(requirement: dict, facts: list[dict], *,
         return match_statement(requirement, facts, sheet_kind=sheet_kind)
     if not is_matchable(requirement):
         return none
-    # THE TEST IS THE RAW NUMBER, NOT THE NORMALISED ONE.
-    #
-    # `value` is NULL for every unit `claims` recognises but does not convert -
-    # dB(A) among them, which is the product's own worked example. Scoping on
-    # it would have excluded the flagship comparison from matching at all,
-    # while looking like a tightening. Two values in the same unit compare
-    # perfectly well without a conversion, and `compare` already refuses the
-    # pairs that cannot.
+    # THE TEST IS THE RAW NUMBER, NOT THE NORMALISED ONE: `value` is NULL for
+    # every unit `claims` recognises but does not convert (dB(A) among them), so
+    # scoping on it would exclude the flagship comparison; `compare` already
+    # refuses the pairs that cannot be compared.
     if requirement.get("raw_value") in (None, ""):
         return none
     subject = _normalise_for_match(requirement.get("subject"))
     if not subject:
         return none
 
-    # NUMBERS FIRST; A BLANK ONLY WHEN NO NUMBER ANSWERS THE CLAUSE (CRS
-    # quick wins). A "vendor to advise" field is the most common real CRS
-    # comment, and `compare` has always had its branch ("the submittal
-    # leaves this field to be provided") - but no blank ever reached it,
-    # because this pass skipped every fact without a number.
+    # NUMBERS FIRST; A BLANK ONLY WHEN NO NUMBER ANSWERS THE CLAUSE (CRS quick
+    # wins): "vendor to advise" is the commonest CRS comment, and `compare` has
+    # always had its branch, but no blank ever reached it.
+    is_blank = lambda f: bool(f.get("is_blank"))  # noqa: E731
     hits = _containment_hits(requirement, subject, facts, fact_has_number)
     if not hits:
-        hits = _containment_hits(requirement, subject, facts,
-                                 lambda f: bool(f.get("is_blank")))
+        hits = _containment_hits(requirement, subject, facts, is_blank)
+    # #913: only when nothing paired, the quantity named at the sentence end.
+    composed, closing = closing_noun.compose(requirement, subject)
+    for eligible in (fact_has_number, is_blank) if composed else ():
+        found = _containment_hits(requirement, composed, facts, eligible)
+        hits = hits or closing_noun.straddling(found, composed, closing)
     if not hits:
         return none
     return _resolve_hits(requirement, facts, hits, sheet_kind=sheet_kind)
