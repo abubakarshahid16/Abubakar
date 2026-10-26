@@ -411,30 +411,6 @@ def recover_stale(*, at_startup: bool = False) -> int:
     process exists), every claim held by another process: a restart means every old
     claim is dead, so a cancelled or crashed review no longer blocks the queue for
     `CLAIM_STALE_SECONDS`. The sweep inside the drain loop stays stale-only."""
-    conn = connect()
-    mine = f"w-{job_queue._PROCESS_TOKEN}-%"
-    foreign = " OR claimed_by IS NULL OR claimed_by NOT LIKE :mine" if at_startup else ""
-    with conn:
-        jobs = conn.execute(
-            "SELECT id, review_run_id, cancel_requested FROM jobs WHERE stage = :stage"
-            f" AND state = 'running' AND (claimed_at IS NULL OR claimed_at < :cutoff{foreign})",
-            {"stage": STAGE, "cutoff": job_queue.stale_cutoff(), "mine": mine}).fetchall()
-        for r in jobs:
-            if r["cancel_requested"]:
-                from . import review as review_mod
-                conn.execute("DELETE FROM review_findings WHERE review_run_id = ?"
-                             f" AND {review_mod.UNDECIDED_SQL}", (r["review_run_id"],))
-                conn.execute("UPDATE review_runs SET status = 'cancelled', outcome_json = ?,"
-                             " updated_at = ? WHERE id = ?",
-                             (json.dumps({"error": "cancelled by an engineer before it finished"}),
-                              _now(), r["review_run_id"]))
-                conn.execute("UPDATE jobs SET state = ?, claimed_by = NULL, claimed_at = NULL,"
-                             " updated_at = ? WHERE id = ?", (job_queue.CANCELLED, _now(), r["id"]))
-                job_queue.audit(conn, "job.cancelled", r["id"], detail="cancel found after a restart")
-                continue
-            conn.execute("UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL,"
-                         " updated_at = ? WHERE id = ?", (_now(), r["id"]))
-            conn.execute("UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
-                         (_now(), r["review_run_id"]))
-            job_queue.audit(conn, "job.recovered", r["id"], detail=f"stage={STAGE}")
-    return len(jobs)
+    from . import review_recovery
+
+    return review_recovery.recover(STAGE, at_startup=at_startup)
