@@ -84,11 +84,22 @@ def test_a_label_that_does_not_straddle_the_join_never_pairs(label):
     assert _paired(_req(), _fact(label)) is None
 
 
-def test_a_plain_pairing_is_left_alone():
-    """When the subject already holds the label, the closing noun is not consulted."""
+def test_a_condition_the_clause_opens_with_is_not_the_quantity_it_is_about():
+    """ "At normal flow the valve ... travel": "Normal flow" is the CONDITION the
+    sentence opens with (it stands after "at"), not what the clause is about, so
+    it no longer claims the clause (audit C5, audit C5 pairing rule); the closing
+    noun finds the travel row."""
     plain = _fact("Normal flow")
     other = _fact("Travel at normal flow")
-    assert _paired(_req(), plain, other) is plain
+    assert _paired(_req(), plain, other) is other
+
+
+def test_a_plain_pairing_is_left_alone_when_the_label_heads_the_subject():
+    """When the subject already holds the label as its head, the closing noun is
+    not consulted."""
+    plain = _fact("Normal flow")
+    other = _fact("Travel at normal flow")
+    assert _paired(_req(subject="Normal flow the valve"), plain, other) is plain
 
 
 def test_two_rows_that_both_fit_are_a_tie_not_a_pick():
