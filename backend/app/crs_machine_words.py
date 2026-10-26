@@ -78,13 +78,14 @@ PHRASES = (
     "language model",
     "llm",
     "engineer to check",
-    "this system",
+    "this system read",
     "no field read from",
-    "validation state",
-    "page reader",
+    "read with validation state",
+    "by the page reader",
     "automatic result",
     "engineer to tick",
-    "this engine",
+    "this engine reads",
+    "this engine cannot",
 )
 
 

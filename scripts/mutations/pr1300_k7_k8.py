@@ -26,8 +26,8 @@ def _phrase(i: int, phrase: str) -> Mutation:
 
 MUTATIONS: tuple[Mutation, ...] = (
     _phrase(1, "no field read from"),
-    _phrase(2, "validation state"),
-    _phrase(3, "page reader"),
+    _phrase(2, "read with validation state"),
+    _phrase(3, "by the page reader"),
     _phrase(4, "automatic result"),
     _phrase(5, "engineer to tick"),
     Mutation(
@@ -46,7 +46,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1300,
         description="'this engine' is no longer an internal phrase the issue gate blocks",
         path=APP / "crs_machine_words.py",
-        anchor='    "this engine",\n',
+        anchor='    "this engine reads",\n',
         replacement="",
         target="tests/test_k78_issue_rows_carry_no_program_voice.py",
         keyword="this_engine",

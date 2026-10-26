@@ -92,4 +92,4 @@ def test_a_ticked_row_that_still_says_this_engine_is_stopped():
         "engineer_confirmed": True,
     }
     [hit] = mw.scan_issue_rows([stuck])
-    assert hit["cell"] == "comment" and hit["words"] == ["this engine"]
+    assert hit["cell"] == "comment" and hit["words"] == ["this engine reads"]
