@@ -27,7 +27,7 @@ def _claimed_by(world, who: str = W):
     return run_id, job_id
 
 
-def test_at_startup_a_fresh_claim_of_a_dead_process_is_recovered_at_once(world):  # noqa: F811
+def test_at_startup_a_fresh_claim_of_a_dead_process_is_recovered_at_once(world):
     run_id, job_id = _claimed_by(world)
     assert (
         review_jobs.recover_stale() == 0
@@ -38,13 +38,13 @@ def test_at_startup_a_fresh_claim_of_a_dead_process_is_recovered_at_once(world):
     assert review_jobs.claim_next("w-new") == job_id
 
 
-def test_at_startup_a_claim_of_this_process_is_left_alone(world):  # noqa: F811
+def test_at_startup_a_claim_of_this_process_is_left_alone(world):
     _run_id, job_id = _claimed_by(world, who=job_queue.worker_id())
     assert review_jobs.recover_stale(at_startup=True) == 0
     assert _job(job_id)["state"] == "running"
 
 
-def test_a_cancelled_review_found_after_a_restart_is_cancelled_not_queued_again(world):  # noqa: F811
+def test_a_cancelled_review_found_after_a_restart_is_cancelled_not_queued_again(world):
     run_id, job_id = _claimed_by(world)
     with db.connect() as conn:
         conn.execute("UPDATE jobs SET cancel_requested = 1 WHERE id = ?", (job_id,))
@@ -70,7 +70,7 @@ def test_a_cancelled_review_with_a_stale_claim_is_cancelled_by_the_drain_loops_s
     )
 
 
-def test_the_next_review_starts_at_once_after_the_restart(world):  # noqa: F811
+def test_the_next_review_starts_at_once_after_the_restart(world):
     """The owner's case: a cancelled review holds a claim; the next review must not wait."""
     _first_run, first = _claimed_by(world)
     with db.connect() as conn:
