@@ -187,6 +187,8 @@ def test_every_run_prints_the_server_logs_and_the_page_ledger():
     assert shown and shown[0].get("if") == "always()"
     run = shown[0]["run"]
     assert "ollama.log" in run and "page_ledger" in run and "facts_status" in run
+    # the ledger column is page_no (a wrong name ended the 26 Oct ledger with a traceback)
+    assert "SELECT page_no," in run and "run record" in run and ".run.json" in run
 
 
 def test_the_reader_is_given_the_time_a_cpu_page_call_needs():
