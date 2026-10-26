@@ -120,9 +120,9 @@ def test_normalised_shapes_pair_through_the_real_route(tmp_path):
 
 
 def test_when_the_rule_empties_the_first_pass_a_later_route_may_pick_another_row():
-    """The rule only removes a label outside the head; a LATER route (the closing
-    noun, #913) can then pair a different row. "Normal flow" no longer claims
-    "At normal flow the valve ..."; the travel row does."""
+    """The rule never pairs a label outside the head; when it empties the first
+    pass, a LATER route (the closing noun, #913) can pair a different row.
+    "Normal flow" no longer claims "At normal flow the valve ..."; the travel row does."""
     from tests.test_913_closing_noun import _fact, _req
 
     plain, travel = _fact("Normal flow"), _fact("Travel at normal flow")
@@ -138,3 +138,38 @@ def test_the_abbreviation_route_obeys_the_same_rule():
     assert comparison.match_by_containment(inside, facts)["fact"] is None
     heads = requirement("maximum operating temperature of the casing", raw_unit="C")
     assert comparison.match_by_containment(heads, facts)["fact"] is facts[0]
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "where the pump is at rated power",
+        "when rated power is exceeded",
+        "if rated power is stated",
+        "per rated power of the driver",
+        "in rated power operation",
+    ],
+)
+def test_a_subject_that_opens_with_a_condition_word_pairs_nothing_with_a_label_after_it(
+    subject,
+):
+    """The stated cost of the rule: a label that follows an opening condition word is
+    the condition, not what the clause is about; the clause goes to the engineer."""
+    req = requirement(subject, raw_unit="kW")
+    facts = [fact("Rated power", raw_value="55", raw_unit="kW")]
+    assert comparison.match_by_containment(req, facts)["fact"] is None
+
+
+def test_a_plural_subject_does_not_pair_a_singular_numeric_label():
+    """Whole words, as before the rule: "rated powers" is not "rated power"."""
+    req = requirement("rated powers of the motors", raw_unit="kW")
+    facts = [fact("Rated power", raw_value="55", raw_unit="kW")]
+    assert comparison.match_by_containment(req, facts)["fact"] is None
+
+
+def test_an_opening_quantity_noun_is_loose_by_design():
+    """ "power of the motor" pairs the field "Motor": the opening is skipped so that
+    "type of enclosure" still pairs "Enclosure". Stated in A-1302."""
+    req = requirement("power of the motor", raw_unit="kW")
+    facts = [fact("Motor", raw_value="55", raw_unit="kW")]
+    assert comparison.match_by_containment(req, facts)["fact"] is facts[0]
