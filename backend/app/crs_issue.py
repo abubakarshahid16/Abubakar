@@ -467,11 +467,13 @@ def decide_finding(
     )
     # rule_trust (#947 step 10): on a finding a PROVEN rule decided, this
     # decision is the family's spot-check outcome (a reject drops its proof).
+    # A bulk keep is no spot check: it never counts as one "correct" per row.
     from . import review, rule_trust
 
-    rule_trust.record_engineer_decision(
-        review.get(finding_id) or {}, decision, actor=actor, note=reason
-    )
+    if reason_code != "kept_in_bulk":
+        rule_trust.record_engineer_decision(
+            review.get(finding_id) or {}, decision, actor=actor, note=reason
+        )
     return record
 
 

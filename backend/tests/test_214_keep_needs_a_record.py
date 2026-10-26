@@ -121,3 +121,34 @@ def test_a_record_never_changes_the_verdict_of_a_failed_requirement():
         run, fid, "accept", reason="", actor="eng", reason_code="kept_as_written"
     )
     assert review.get(fid)["compliance_status"] == before == "NON_COMPLIANT"
+
+
+def test_a_bulk_keep_is_no_rule_trust_spot_check(monkeypatch):
+    """A bulk click must not write one "correct" spot-check outcome per row; a
+    single Keep and a removal still count."""
+    from app import rule_trust
+
+    seen: list[str] = []
+    monkeypatch.setattr(
+        rule_trust,
+        "record_engineer_decision",
+        lambda finding, decision, **kw: seen.append(decision),
+    )
+    run, fid = _kept_old_way()
+    crs_issue.decide_finding(
+        run,
+        fid,
+        "accept",
+        reason="",
+        actor="eng",
+        reason_code="kept_in_bulk",
+        click_id="c",
+    )
+    assert seen == []
+    crs_issue.decide_finding(
+        run, fid, "accept", reason="", actor="eng", reason_code="kept_as_written"
+    )
+    crs_issue.decide_finding(
+        run, fid, "reject", reason="", actor="eng", reason_code="duplicate"
+    )
+    assert seen == ["accept", "reject"]
