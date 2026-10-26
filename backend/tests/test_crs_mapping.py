@@ -41,7 +41,8 @@ def test_breaches_come_first_then_missing_values_then_questions_never_a_pass():
     assert "Clarification requested: please confirm" in rows[1]["comment"]
     assert "no comparison made" not in rows[1]["comment"]
     assert "no comparison made" in rows[1]["reasoning"]
-    assert "table_row" not in rows[1]["comment"]  # order 139 part 2 (the internal cell may carry the code)
+    # order 139 part 2 (the internal cell may carry the code)
+    assert "table_row" not in rows[1]["comment"]
 
 
 BLANK = {"compliance_status": "MISSING_INFORMATION", "id": "b1",
