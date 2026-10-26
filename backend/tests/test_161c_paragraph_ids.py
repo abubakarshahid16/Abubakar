@@ -209,7 +209,8 @@ def test_the_crs_cites_the_paragraph_instead_of_saying_it_is_not_identified():
         "standard_page": 12,
         "clause_identified": False,
     }
-    assert "paragraph not identified" in crs_mapping._standard_reference(base)
+    plain = crs_mapping._standard_reference(base)
+    assert "cl. 0.3" not in plain and "paragraph not identified" not in plain and "(p.12)" in plain
     got = crs_mapping._standard_reference({**base, "paragraph_id": "XQ-20(b)"})
     assert (
         "cl. XQ-20(b)" in got

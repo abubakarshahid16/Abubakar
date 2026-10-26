@@ -68,8 +68,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "06",
         "the clause list is not capped",
-        '    lines = [f"Supporting clauses ({n}):", *(e[2] for e in entries[:MAX_CLAUSE_LINES])]\n',
-        '    lines = [f"Supporting clauses ({n}):", *(e[2] for e in entries)]\n',
+        '    lines = [heading, *(e[2] for e in entries[:MAX_CLAUSE_LINES])]\n',
+        '    lines = [heading, *(e[2] for e in entries)]\n',
         "long_clause_list_says_how_many_more",
     ),
     _m(
@@ -138,7 +138,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "19",
         "rule 4: a clause line says only its first requirement or reason",
-        '        words = " ".join(dict.fromkeys(_point_words(m, question) for m in members))\n',
+        '        words = " ".join(dict.fromkeys(_point_words(m) for m in members))\n',
         "        words = _point_words(g, question)\n",
         "one_row_never_hides_a_second_question",
     ),

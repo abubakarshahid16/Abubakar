@@ -609,7 +609,8 @@ def _provided(finding: dict) -> str:
     blank = finding.get("crs_is_blank")
     if blank or (finding.get("ai_rationale") or "").startswith(
             "the submittal leaves this field to be provided"):
-        return f"is left to be provided ('{value}')" if value else "is left blank"
+        shown = value if value.strip("_-. ") else ""
+        return f"is left to be provided ('{shown}')" if shown else "is left blank"
     return f"states {value}" if value else "states no readable value"
 
 
@@ -633,9 +634,11 @@ def _action(finding: dict, field: str) -> str:
         # #725 F7: NOT PAIRED IS THE SYSTEM'S MISS UNTIL AN ENGINEER SAYS
         # OTHERWISE. No field read from the sheet answered it; the sheet may
         # state it under another name. Never "Contractor to state" here.
-        return (f"Clarification requested: please indicate where the datasheet states "
-                f"{what}, or confirm it is not stated.")
-    return f"Clarification requested: {_reason_words(finding).rstrip('.')}."
+        return (
+            f"Clarification requested: please indicate where the datasheet states "
+            f"{what}, or confirm it is not stated."
+        )
+    return f"Clarification requested: please confirm {what} and where the datasheet states it."
 
 
 def engineer_comment_text(group: list[dict]) -> str:
@@ -720,11 +723,8 @@ def _is_field_row(group: list[dict]) -> bool:
     return _group_key(group[0])[0] == "field"
 
 
-def _point_words(g: dict, question: bool) -> str:
-    """What one finding of a field row asks, in the clause line's words: an
-    engineer's question's reason, else the requirement's own sentence."""
-    if question:
-        return _cut(_reason_words(g), CLAUSE_LINE_CHARS) + "."
+def _point_words(g: dict) -> str:
+    """What one finding of a field row asks: its requirement's own sentence (K7/K8)."""
     return _requirement_words(g, CLAUSE_LINE_CHARS)
 
 
@@ -740,7 +740,7 @@ def point_count(group: list[dict]) -> int:
                 str(g.get("standard_document_id") or ""),
                 str(g.get("standard_clause") or ""),
                 _fold(g.get("requirement_source_text")),
-                _point_words(g, question) if question else "",
+                _cut(_reason_words(g), CLAUSE_LINE_CHARS) if question else "",
             )
             for g in group
         }
@@ -770,18 +770,18 @@ def _supporting_clause_lines(group: list[dict]) -> list[str]:
     Reference)". [] for any other row."""
     if group_action(group) is None:
         return []
-    question = _bucket_of(group[0]) == BUCKET_QUESTION
     entries = []
     for members in _clauses(group).values():
         g = members[0]
         ref = _standard_reference(g) or "Requirement"
-        words = " ".join(dict.fromkeys(_point_words(m, question) for m in members))
+        words = " ".join(dict.fromkeys(_point_words(m) for m in members))
         entries.append(
             (_clause_key(g.get("standard_clause")), ref, f"- {ref}: {words}")
         )
     entries.sort(key=lambda e: (e[0], e[1]))
     n = len(entries)
-    lines = [f"Supporting clauses ({n}):", *(e[2] for e in entries[:MAX_CLAUSE_LINES])]
+    heading = f"Supporting clause{'' if n == 1 else 's'} ({n}):"
+    lines = [heading, *(e[2] for e in entries[:MAX_CLAUSE_LINES])]
     if n > MAX_CLAUSE_LINES:
         lines.append(
             f"- and {n - MAX_CLAUSE_LINES} more of these {n} (see Standard Reference)."

@@ -23,9 +23,8 @@ MUTATIONS: tuple[Mutation, ...] = (
        "    elif len({(_provided(g), g.get(\"contractor_page\")) for g in group}) > 1:\n",
        "    elif False:\n", "three_tags"),
     _m(7103, "a system miss is put on the contractor again", _M,
-       "        return (f\"Clarification requested: please indicate where the datasheet states \"\n"
-       "                f\"{what}, or confirm it is not stated.\")",
-       "        return f\"Contractor to state {what} on the datasheet.\"", "engineers_question"),
+       "            f\"Clarification requested: please indicate where the datasheet states \"\n",
+       "            f\"Contractor to state \"\n", "engineers_question"),
     _m(7104, "the row severity is the first finding's, not the worst", _M,
        "    return next((s for s in SEVERITY_ORDER if s in found), \"\")",
        "    return str(group[0].get(\"severity\") or \"\")", "worst_severity"),

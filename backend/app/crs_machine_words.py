@@ -69,7 +69,7 @@ DOC_ID = re.compile(r"\bdoc_[0-9a-f]{12}\b")
 #:      ("Engineer to check whether ...: no field this system read ...");
 #:      such a row, once ticked, must be reworded before it can be issued
 #:  no field read from / validation state / page reader / automatic result /
-#:      engineer to tick - the program's own account of how it read or decided
+#:      engineer to tick / this engine - the program's own account of how it read or decided
 #:      (K7/K8, order 224): the engineer's cell to read, not the contractor's
 PHRASES = (
     "synonym table",
@@ -84,6 +84,7 @@ PHRASES = (
     "page reader",
     "automatic result",
     "engineer to tick",
+    "this engine",
 )
 
 

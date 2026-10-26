@@ -151,11 +151,11 @@ def test_engineer_to_check_questions_of_one_field_are_one_row():
     assert _partition(rows) == [["e1", "e2"]]
     lines = rows[0]["comment"].split("\n")
     assert lines[0] == "Clarification requested on Rated power."
-    assert lines[2:] == [
-        "Supporting clauses (2):",
-        "- STD-100 cl. 8.1 (p.4): clause 8.1 is in kW and the value in hp.",
-        "- STD-100 cl. 8.3 (p.4): clause 8.3 is in kW and the value in hp.",
-    ]
+    # K7/K8: the clause lines say what each clause requires, never the program's reason
+    assert lines[2] == "Supporting clauses (2):"
+    assert lines[3].startswith("- STD-100 cl. 8.1 (p.4): ")
+    assert lines[4].startswith("- STD-100 cl. 8.3 (p.4): ")
+    assert "kW" not in rows[0]["comment"] and "in hp" not in rows[0]["comment"]
     assert rows[0]["crs_action"] == "Clarification requested on Rated power."
 
 
@@ -221,11 +221,11 @@ def test_one_row_never_hides_a_second_question_of_the_same_clause():
     assert _partition(rows) == [["a", "b"]]
     [row] = rows
     assert row["crs_action"] == "Clarification requested on Rated power."
-    assert row["comment"].split("\n")[2:] == [
-        "Supporting clauses (1):",
-        "- STD-100 cl. 5.1 (p.4): clause 5.1 is in kW and the value in hp."
-        " the value was read with low trust.",
-    ]
+    lines = row["comment"].split("\n")
+    assert lines[2] == "Supporting clause (1):"  # one clause: singular (K7/K8)
+    assert lines[3].startswith("- STD-100 cl. 5.1 (p.4): ")
+    # the reason stays in the internal reasoning cell
+    assert "low trust" not in row["comment"]
     # Two blank-value requirements of one clause: both sentences, too.
     [blank] = _rows(
         [

@@ -36,9 +36,12 @@ def test_breaches_come_first_then_missing_values_then_questions_never_a_pass():
     ]
     assert [r["priority"] for r in rows] == [1, 3, 3]  # order 139 part 2
     assert "8 g/L" in rows[0]["comment"]
-    # the question's reason, in words, WITHOUT its machine code
-    assert "no comparison made" in rows[1]["comment"]  # order 139 part 2
-    assert "table_row" not in rows[1]["comment"]  # order 139 part 2
+    # K7/K8: the question is worded for the contractor; its reason (no machine code) is in
+    # the internal reasoning cell, where the engineer reads why it is a question
+    assert "Clarification requested: please confirm" in rows[1]["comment"]
+    assert "no comparison made" not in rows[1]["comment"]
+    assert "no comparison made" in rows[1]["reasoning"]
+    assert "table_row" not in rows[1]["comment"]  # order 139 part 2 (the internal cell may carry the code)
 
 
 BLANK = {"compliance_status": "MISSING_INFORMATION", "id": "b1",
