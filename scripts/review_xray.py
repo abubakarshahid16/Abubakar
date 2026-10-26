@@ -18,6 +18,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
+from app import live_guard  # noqa: E402
 from tools import review_xray  # noqa: E402
 
 LIVE = REPO / "backend" / "data" / "rag_intelligence.sqlite"
@@ -34,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
     db = Path(args.db).resolve()
-    if db == LIVE.resolve():
+    if db == LIVE.resolve() or live_guard.is_live_shaped(db):
         print(
             "refused: that is the live database. Copy it first (live_guard.diagnostic_copy()) and pass the copy."
         )
@@ -51,7 +52,12 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.out)
         if args.out
         else REPO / "backend" / "data" / "debug" / f"xray-{args.run}.html"
-    )
+    ).resolve()
+    if out.is_relative_to(REPO) and not out.is_relative_to(REPO / "backend" / "data"):
+        print(
+            "refused: the page holds document text; write it outside the repo or under backend/data/ (git-ignored)."
+        )
+        return 2
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(review_xray.render_html(report), encoding="utf-8")
     print(

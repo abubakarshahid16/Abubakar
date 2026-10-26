@@ -177,11 +177,61 @@ def test_what_the_system_did_not_store_is_said_not_guessed(run_id):
     assert "no run id" in by_id["ai"]["note"]
 
 
-def test_the_comment_sheet_section_shows_rows_or_says_why_it_could_not(run_id):
-    section = {
-        s["id"]: s for s in review_xray.build(settings.db_path, run_id)["sections"]
-    }["crs"]
-    assert section["rows"] or "Not built here" in section["note"]
+def test_the_comment_sheet_section_has_the_rows_the_review_screen_builds(run_id):
+    section = _by_id(run_id)["crs"]
+    assert "Not built here" not in section["note"]
+    assert any(
+        r[1] == "non_compliant" and "design pressure not less than 12 barg" in r[4]
+        for r in section["rows"]
+    )
+
+
+def _script(name):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        name, Path(__file__).resolve().parents[2] / "scripts" / "review_xray.py"
+    )
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    return script
+
+
+def test_another_checkouts_live_database_is_refused_by_the_shape_of_its_path(
+    tmp_path, capsys
+):
+    other = tmp_path / "project" / "backend" / "data" / "rag_intelligence.sqlite"
+    other.parent.mkdir(parents=True)
+    other.write_bytes(b"")
+    assert _script("xray_live").main(["--run", "x", "--db", str(other)]) == 2
+    assert "live database" in capsys.readouterr().out
+
+
+def test_a_page_may_not_be_written_into_a_tracked_place_in_the_repo(
+    run_id, tmp_path, capsys
+):
+    script = _script("xray_out")
+    tracked = script.REPO / "docs" / "xray-test.html"
+    args = ["--run", run_id, "--db", str(settings.db_path)]
+    assert script.main([*args, "--out", str(tracked)]) == 2
+    assert not tracked.exists() and "document text" in capsys.readouterr().out
+    assert script.main([*args, "--out", str(tmp_path / "ok.html")]) == 0
+    assert (tmp_path / "ok.html").exists()
+
+
+def test_a_copy_in_a_folder_with_hash_space_and_percent_is_read_not_missed(
+    run_id, tmp_path
+):
+    import shutil
+
+    odd = tmp_path / "x y#1%2f"
+    odd.mkdir()
+    for suffix in ("", "-wal", "-shm"):
+        src = Path(str(settings.db_path) + suffix)
+        if src.exists():
+            shutil.copy2(src, str(odd / "copy.sqlite") + suffix)
+    report = review_xray.build(odd / "copy.sqlite", run_id)
+    assert report["run_id"] == run_id and report["sections"][0]["rows"]
 
 
 def test_the_script_refuses_the_live_database(tmp_path, capsys):

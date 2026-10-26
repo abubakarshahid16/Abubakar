@@ -683,7 +683,7 @@ def ai_calls(conn: sqlite3.Connection, run_id: str) -> dict:
 def build(db_path: Path | str, run_id: str) -> dict:
     """The nine sections for `run_id`, read from `db_path` read-only."""
     path = Path(db_path)
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
         run = _run(conn, run_id)
