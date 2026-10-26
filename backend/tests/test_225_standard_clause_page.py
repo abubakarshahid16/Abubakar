@@ -150,14 +150,6 @@ def _result(standard: str, clause: str) -> dict:
     }
 
 
-def _findings(run: str, sheet: str) -> list[dict]:
-    return (
-        [f for f in review_mod.list_for_run(run)]
-        if hasattr(review_mod, "list_for_run")
-        else []
-    )
-
-
 def test_a_checklist_finding_is_written_with_its_standard_and_page_when_located():
     std, run = _world([CONTENTS, DEFINITIONS])
     sheet = (

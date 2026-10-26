@@ -1155,9 +1155,8 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     from . import comparison, standard_clause_page
     from . import review as review_mod
     written = []
-    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete
-    # (`review.UNDECIDED_SQL`) and not written again beside it (audit
-    # 2026-09-30): same rule, same field, same tag, same value.
+    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete and
+    # not written again beside it (audit 2026-09-30): same rule, field, tag, value.
     fold = lambda v: " ".join(str(v or "").lower().split())  # noqa: E731
     rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
                  fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
@@ -1187,9 +1186,10 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
         if (fold(f"{LABEL} {r['rule_id']}: {r['text']}"), r["fact_id"],
                 fold(r["equipment_tag"]), fold(r["field"])) in rejected:
             continue
-        # A9/#923: every field in ONE transaction (a crash between create and
-        # update once left a finding with no run and no origin).
-        std_id, std_page = standard_clause_page.locate(review_run_id, r.get("standard"), r.get("clause"))
+        # A9/#923: every field in ONE transaction. This used to create the
+        # finding, then UPDATE it with review_run_id/origin/compliance_status
+        # etc. in a second transaction - a crash between them left a finding
+        # with no run and no origin, invisible to the run that made it.
         finding = review_mod.create({
             "document_id": submittal_id, "category": "technical_query",
             "severity": severity_rule.stored_severity(
@@ -1208,7 +1208,6 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
                             else f"{LABEL} {r['rule_id']}: {detail}"),
             "fact_id": r["fact_id"], "equipment_tag": r["equipment_tag"],
             "standard_clause": f"{r['standard']} {r['clause']}" if r.get("clause") else None,
-            "standard_document_id": std_id, "standard_page": std_page,
             "trust_label": r.get("trust_label"), "tier": r.get("tier"),
             "show_for_engineer_tick": (int(bool(r["show_for_engineer_tick"]))
                                        if "trust_label" in r else None),
@@ -1216,4 +1215,5 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
         }, created_by=None)
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})
+    standard_clause_page.attach(review_run_id, written)
     return written

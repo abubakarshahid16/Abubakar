@@ -116,3 +116,20 @@ def locate(
     )
     page = _page_of(standard, clause, (size["n"], size["c"], str(settings.db_path)))
     return (standard, page) if page else (None, None)
+
+
+def attach(run_id: str, findings: list[dict]) -> None:
+    """Set `standard_document_id` and `standard_page` on each written checklist
+    finding whose cited clause is located (in the database and in place); a
+    finding whose standard or clause is not located is left exactly as it was."""
+    conn = connect()
+    for finding in findings:
+        label, _, clause = (finding.get("standard_clause") or "").rpartition(" ")
+        standard, page = locate(run_id, label, clause)
+        if standard and page:
+            with conn:
+                conn.execute(
+                    "UPDATE review_findings SET standard_document_id = ?, standard_page = ? WHERE id = ?",
+                    (standard, page, finding["id"]),
+                )
+            finding["standard_document_id"], finding["standard_page"] = standard, page

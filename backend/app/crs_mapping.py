@@ -466,13 +466,13 @@ def _std_short(name) -> str:
 
 def _standard_reference(finding: dict) -> str:
     """The Standard Reference column: "SAES-D-901 cl. 4.3 (p.1)", or "Datasheet
-    check DS-M1" for a kind B check (its clause and page when located, order
-    225). Its OWN column: the contractor looks for THEIR page elsewhere."""
+    check DS-M1" for a kind B check (+ its clause and page when located, order 225)."""
     if finding.get("origin") == _DATASHEET_ORIGIN:
         m = re.match(r"(Datasheet check [A-Z]+-[A-Z0-9]+)",
                      finding.get("requirement_source_text") or finding.get("ai_rationale") or "")
-        check, cited = (m.group(1) if m else "Datasheet check"), finding.get("standard_clause")
-        return f"{check}: {cited} (p.{finding['standard_page']})" if cited and finding.get("standard_page") else check
+        check = m.group(1) if m else "Datasheet check"
+        cited, page = finding.get("standard_clause"), finding.get("standard_page")
+        return f"{check}: {cited} (p.{page})" if cited and page else check
     std = _std_short(finding.get("standard_name") or finding.get("standard_document_id"))
     if not std:
         return ""
