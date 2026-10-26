@@ -866,13 +866,13 @@ def _compare(requirement: dict, fact: dict | None, *,
             "exception_applied": None,
         }
     if fact is None:
-        # B9, RULE R1 (owner-approved): an unmatched `statement` naming no
-        # field or value is answered by another document. EXCEPT a clause
-        # asking only to be stated on the datasheet (order 210 FIX 1): a
-        # datasheet fills that, so missing is the contractor's omission.
-        if requirement.get("requirement_type") == requirements_3b.STATEMENT \
-                and not field_links.asks_only_to_be_stated(
-                    requirement.get("source_text") or requirement.get("requirement_text")):
+        # B9, RULE R1: an unmatched `statement` is another document's question,
+        # EXCEPT one asking only to be stated on the datasheet (order 210 FIX 1).
+        if requirement.get(
+            "requirement_type"
+        ) == requirements_3b.STATEMENT and not field_links.asks_only_to_be_stated(
+            requirement.get("source_text") or requirement.get("requirement_text")
+        ):
             return {
                 "status": NOT_IN_DOCUMENT_SCOPE,
                 # WHAT WAS CHECKED, NOT A CLAIM ABOUT ANOTHER DOCUMENT (CRS
