@@ -245,3 +245,19 @@ def test_every_followed_stage_still_exists():
         assert callable(
             getattr(importlib.import_module(f"app.{holder}"), name, None)
         ), (holder, name)
+
+
+def test_a_bare_response_or_result_is_returned_unchanged_and_raises_nothing(
+    console, live_file
+):
+    """The model answered; a line that cannot be built must not undo that."""
+    bare_response, bare_result = object(), object()
+
+    class Provider:
+        def reason(self, packet):
+            return bare_response
+
+    Provider.reason = review_trace._ai_call(Provider.reason)
+    assert Provider().reason(object()) is bare_response
+    run_task = review_trace._ai_task(lambda spec, text, **kw: bare_result)
+    assert run_task(object(), "text") is bare_result

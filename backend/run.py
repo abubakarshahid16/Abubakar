@@ -65,9 +65,9 @@ def main() -> None:
     from app import live_guard
 
     live_guard.mark_server_process()
-    if (
-        settings.review_debug
-    ):  # order 218.1: follow the whole pipeline in debug/live.log
+    # Order 218.1: follow the whole pipeline in debug/live.log. This MUST stay before
+    # uvicorn imports the app: modules doing `from .x import f` must bind the wrapped f.
+    if settings.review_debug:
         from app import review_trace
 
         review_trace.install_live()

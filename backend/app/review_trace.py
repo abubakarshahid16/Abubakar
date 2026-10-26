@@ -364,16 +364,21 @@ def _ai_call(function):
     def wrapper(self, packet, *args, **kwargs):
         started = time.monotonic()
         response = function(self, packet, *args, **kwargs)
-        seconds = time.monotonic() - started
-        cache = (
-            "hit"
-            if (response.finish_reason == "cache_hit" or not response.wall_time_s)
-            else "miss"
-        )
-        live(
-            f"AI call | task={getattr(packet, 'step', '?')} | model={response.model_tag} | {seconds:.1f} s"
-            f" | tokens={response.tokens_in}/{response.tokens_out} | cache={cache}"
-        )
+        try:  # the model answered: a line that cannot be built must not undo that
+            seconds = time.monotonic() - started
+            cached = getattr(
+                response, "finish_reason", ""
+            ) == "cache_hit" or not getattr(response, "wall_time_s", 0)
+            live(
+                f"AI call | task={getattr(packet, 'step', '?')} | "
+                f"model={getattr(response, 'model_tag', '?')} | {seconds:.1f} s"
+                f" | tokens={getattr(response, 'tokens_in', '?')}/"
+                f"{getattr(response, 'tokens_out', '?')} | cache={'hit' if cached else 'miss'}"
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "live trace: AI call line not built", exc_info=True
+            )
         return response
 
     wrapper.live_wrapped = True
@@ -385,10 +390,17 @@ def _ai_task(function):
     def wrapper(spec, text, **kwargs):
         started = time.monotonic()
         result = function(spec, text, **kwargs)
-        live(
-            f"AI task | task={spec.name} | model={result.model} | {time.monotonic() - started:.1f} s"
-            f" | cache={'hit' if result.cached else 'miss'} | state={result.state}"
-        )
+        try:  # same rule: the task ran; the line is only a watcher
+            cache = "hit" if getattr(result, "cached", False) else "miss"
+            live(
+                f"AI task | task={getattr(spec, 'name', '?')} | "
+                f"model={getattr(result, 'model', '?')} | {time.monotonic() - started:.1f} s"
+                f" | cache={cache} | state={getattr(result, 'state', '?')}"
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "live trace: AI task line not built", exc_info=True
+            )
         return result
 
     wrapper.live_wrapped = True
