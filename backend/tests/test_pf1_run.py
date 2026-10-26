@@ -437,3 +437,30 @@ def test_a_refused_submittal_mark_ends_the_sheet_before_any_review():
     record = _run(server)
     assert record["status"] != "completed" and record["error"]
     assert ("POST", "/api/reviews/run") not in server.calls
+
+
+def test_the_script_hands_its_request_timeout_to_the_transport(monkeypatch, tmp_path):
+    """A CPU machine needs far more than the 120 s a single HTTP call had: the
+    26 Oct GitHub run died on a client-side TimeoutError after 2 minutes."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "pf1_run.py"
+    spec = importlib.util.spec_from_file_location("pf1_run_script", path)
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    seen = {}
+
+    def fake_transport(base, token=None, timeout=120.0):
+        seen["timeout"] = timeout
+        raise pf1_run.RunError("stop here")
+
+    monkeypatch.setattr(script.pf1_run, "check_server", lambda url, test: url)
+    monkeypatch.setattr(script.pf1_run, "check_db_copy", lambda path: None)
+    monkeypatch.setattr(script.pf1_run, "HttpTransport", fake_transport)
+    (tmp_path / "index.json").write_text("{}")
+    base = ["--set", str(tmp_path), "--out", str(tmp_path), "--no-login"]
+    base += ["--server", "http://127.0.0.1:18080", "--test-server"]
+    assert script.main(base) == 2
+    assert seen["timeout"] == 120.0
+    assert script.main([*base, "--request-timeout", "1800"]) == 2
+    assert seen["timeout"] == 1800.0

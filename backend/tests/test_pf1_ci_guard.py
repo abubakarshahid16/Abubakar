@@ -198,3 +198,11 @@ def test_the_reader_is_given_the_time_a_cpu_page_call_needs():
     backend = steps["Start the backend on a fresh test database"]["env"]
     assert float(backend["DATASHEET_AI_TIMEOUT_SECONDS"]) >= 1500
     assert float(backend["DATASHEET_AI_MAX_SECONDS"]) >= 14400
+
+
+def test_a_cpu_page_call_may_take_longer_than_the_two_minute_default_request_limit():
+    """Run 6 (26 Oct) ended with `the server could not be reached (TimeoutError)`
+    after 2 minutes: one HTTP call of the runner had the default 120 s."""
+    run = next(s["run"] for s in _steps() if s.get("name") == "Review the sheet")
+    assert "--request-timeout" in run
+    assert int(run.split("--request-timeout")[1].split()[0]) >= 900
