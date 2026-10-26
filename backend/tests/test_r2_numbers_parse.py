@@ -196,6 +196,8 @@ def test_tolerant_match_needs_units_both_stated_and_alike():
         _req("Maximum operating speed", "rpm"), [_fact("Max operating speed", "rpm")])["fact"] is not None
 
 
-def test_l_per_min_is_read_whole_but_not_converted():
+def test_l_per_min_is_read_whole_and_converted_to_the_flow_base():
+    """It was recognised-not-converted until #1290; 50 L/min is 3 m3/h exactly."""
     (m,) = claims.extract_measurements("Flow is 50 L/min.")
-    assert m.raw_unit == "L/min" and m.normalized_value is None
+    assert m.raw_unit == "L/min" and m.normalized_unit == "m3/h"
+    assert m.normalized_value == pytest.approx(3.0)

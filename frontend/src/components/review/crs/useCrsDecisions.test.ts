@@ -47,7 +47,8 @@ describe("useCrsDecisions: Accept all and undo", () => {
     expect(result.current.canUndo).toBe(false);
     act(() => result.current.undo());
     expect(result.current.state.decisions).toEqual({
-      [a]: { kind: "keep" }, [b]: { kind: "remove", reason: "Duplicate" }, [c]: { kind: "keep" },
+      [a]: { kind: "keep", clickId: expect.any(String) }, [b]: { kind: "remove", reason: "Duplicate" },
+      [c]: { kind: "keep", clickId: expect.any(String) },
     });
   });
 

@@ -72,7 +72,10 @@ function FindingDetailBody(
 
   async function confirm() {
     setAction({ kind: "working" });
-    const result = await reviewsApi.confirm(finding.id);
+    // Order 214 fix 10: a Keep is a decision with a named reason, like a removal.
+    const result = finding.review_run_id
+      ? await reviewsApi.decideCrsFinding(finding.review_run_id, finding.id, "accept", "", "kept_as_written")
+      : await reviewsApi.confirm(finding.id);
     if (!result.ok) {
       // SHOWN AS THE API RETURNED IT, never retried silently: a refusal
       // under scope is a real answer and hiding it would leave the engineer
@@ -97,6 +100,13 @@ function FindingDetailBody(
     const result = await reviewsApi.update(finding.id, { engineer_comment: text });
     if (!result.ok) {
       setAction({ kind: "error", message: result.error.message });
+      return;
+    }
+    const kept = finding.review_run_id
+      ? await reviewsApi.decideCrsFinding(finding.review_run_id, finding.id, "accept", "", "edited_by_engineer")
+      : null;
+    if (kept && !kept.ok) {
+      setAction({ kind: "error", message: kept.error.message });
       return;
     }
     setEditing(false);

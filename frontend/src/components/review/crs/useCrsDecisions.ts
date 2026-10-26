@@ -58,7 +58,7 @@ export const REMOVE_REASON_CODES: Record<RemoveReason, string> = {
 };
 
 export type Decision =
-  | { kind: "keep" }
+  | { kind: "keep"; clickId?: string }
   | { kind: "edit"; observation: string; requiredAction: string }
   | { kind: "remove"; reason: RemoveReason };
 
@@ -172,6 +172,11 @@ export function keepOnlyDraftsOf(user: string | null): void {
 export const CrsDraftContext = createContext<string | null>(null);
 
 const REASONS = new Set<string>(REMOVE_REASONS);
+
+/** Ties the records of one "Keep all remaining" click together (order 214). */
+function newClickId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `click-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 function isDecision(value: unknown): value is Decision {
   if (!value || typeof value !== "object") return false;
@@ -368,7 +373,8 @@ export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
     setAccepted(targets);
     setState((s) => {
       const decisions = { ...s.decisions };
-      for (const key of targets) decisions[key] = { kind: "keep" };
+      const clickId = newClickId();
+      for (const key of targets) decisions[key] = { kind: "keep", clickId };
       return { ...s, decisions };
     });
     return targets.length;

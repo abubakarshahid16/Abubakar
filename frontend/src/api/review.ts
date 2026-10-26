@@ -364,13 +364,15 @@ export const reviews = {
       }),
   /** PF5: the engineer accepts or rejects one open finding, with a reason.
    *  Order 95 piece 6a: a reject may carry a listed `reasonCode` instead of
-   *  typed words; the server stores the code's own words. */
-  decideCrsFinding: (runId: string, findingId: string, decision: "accept" | "reject", reason: string, reasonCode?: string) =>
+   *  typed words; the server stores the code's own words. Order 214 fix 10: an
+   *  accept (Keep, Keep all, an edit) names its reason the same way, and
+   *  `clickId` ties the rows of one bulk click together. */
+  decideCrsFinding: (runId: string, findingId: string, decision: "accept" | "reject", reason: string, reasonCode?: string, clickId?: string) =>
     request<CrsIssueDecision>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/open-items/findings/${encodeURIComponent(findingId)}/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reasonCode ? { decision, reason, reason_code: reasonCode } : { decision, reason }),
+        body: JSON.stringify({ decision, reason, ...(reasonCode ? { reason_code: reasonCode } : {}), ...(clickId ? { click_id: clickId } : {}) }),
       }),
   /** Order 95 piece 6a: every decision on the run's CRS - who, when, why
    *  and the removal reason code - newest first. Read only. */
