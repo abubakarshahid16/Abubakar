@@ -40,6 +40,7 @@ export interface CrsIssueDecision {
   decided_at: string;
   /** order 95 piece 6a: the removal reason code; null when none was given */
   reason_code?: string | null;
+  click_id?: string | null;
 }
 
 /** Order 95 piece 6a: every decision on a run, newest first. */

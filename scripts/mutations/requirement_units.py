@@ -7,8 +7,8 @@ from ._base import APP, Mutation
 _T = "tests/test_193_requirement_units.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
-    Mutation(id="M865", phase=75, description="#193: flow units are unknown again, so fire-water limits lose their unit",
-             path=APP / "claims.py", anchor='    "l/s": None, "l/min": None, "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,\n',
+    Mutation(id="M865", phase=75, description="#193: application-rate units are unknown again, so fire-water limits lose their unit",
+             path=APP / "claims.py", anchor='    "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,\n',
              replacement="", target=_T, keyword="printed_unit_is_kept", tags=("extraction",)),
     Mutation(id="M866", phase=75, description="#193: absolute and gauge kPa/psi are unknown again",
              path=APP / "claims.py", anchor='    "psia": "pressure", "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",\n',

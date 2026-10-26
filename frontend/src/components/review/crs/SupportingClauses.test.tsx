@@ -27,7 +27,7 @@ describe("SupportingClauses", () => {
   });
   it("lists the one clause of a row asking two things of it (rule 4)", () => {
     render(<SupportingClauses row={row({ clauseCount: 1, clauses: ["STD-100.pdf, clause 1"] })} />);
-    expect(screen.getByText("Supporting clauses (1):")).toBeInTheDocument();
+    expect(screen.getByText("Supporting clause (1):")).toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 });

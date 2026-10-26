@@ -593,6 +593,7 @@ def _read_in_parts(
     return _parts_outcome(state, page_no, engine)
 
 
+@job_progress.logged
 def _read(
     page_text: str,
     page_no: int,
@@ -608,9 +609,8 @@ def _read(
     not be read (engine failure, malformed answer) and `stopped` (the limit's
     count key) when a budget cap refused a call. An answer cut off by the
     output limit reads the page again in parts (`_read_in_parts`), within
-    `deadline` (`time.monotonic()`). Only the exception's TYPE is kept - a
-    message could carry a URL, never a page's words, but the type is all a
-    reader of the result needs."""
+    `deadline` (`time.monotonic()`). Only the exception's TYPE is kept: a
+    message could carry a URL; the type is all a reader needs."""
     try:
         out = claude_datasheet.read_page(page_text, page_no, None, model_call)
     except AnswerCutOff:
