@@ -2356,15 +2356,14 @@ class CrsIssueGate(BaseModel):
 
 
 class CrsIssueDecisionRequest(BaseModel):
-    """The engineer's decision on one open item, with their reason. Who and
-    when come from the signed-in caller and the clock, never the body.
-    A removal with a listed `reason_code` may leave `reason` empty: the
-    code's own words are stored (order 95 piece 6a (a))."""
+    """The engineer's decision on one open item, with their reason (who and when
+    are the caller's). A listed `reason_code` may leave `reason` empty."""
     reason: str = Field(default="", max_length=2000)
     #: findings only: accept (the comment goes to the contractor) or reject
     decision: Literal["accept", "reject"] | None = None
-    #: order 95 piece 6a: on a reject, why - one of crs_issue.REMOVAL_REASONS
+    #: 6a/fix 10: a crs_issue REMOVAL_REASONS key (reject) or KEEP_REASONS key
     reason_code: str | None = None
+    click_id: str | None = Field(default=None, max_length=64)
 
 
 class CrsIssueDecision(BaseModel):
@@ -2378,6 +2377,7 @@ class CrsIssueDecision(BaseModel):
     decided_at: str
     #: order 95 piece 6a: the removal reason code; null when none was given
     reason_code: str | None = None
+    click_id: str | None = None
 
 
 class CrsIssueDecisionList(ListPage):

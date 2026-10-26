@@ -3336,10 +3336,9 @@ def decide_crs_open_finding(
     body: schemas.CrsIssueDecisionRequest,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """PF5 (#885): the engineer accepts or rejects one finding of the run,
-    with a reason, without waiting for any AI step. The decision is written
-    on the finding (accepted and confirmed, or rejected, by the caller) and
-    the reason is kept beside it."""
+    """PF5 (#885): the engineer accepts or rejects one finding of the run, with
+    a reason, without waiting for any AI step. The decision is written on the
+    finding (by the caller) and the reason is kept beside it."""
     actor = _crs_decision_actor(review_run_id, scope)
     rows = _crs_content(review_run_id, scope, "internal")[0]
     current = review_mod.get(finding_id)
@@ -3356,6 +3355,7 @@ def decide_crs_open_finding(
             reason=body.reason,
             actor=actor,
             reason_code=body.reason_code,
+            click_id=body.click_id,
         )
     except crs_issue_mod.IssueError as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(

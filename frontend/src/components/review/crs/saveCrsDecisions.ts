@@ -2,10 +2,12 @@
  * Order 95 piece 6c: "Save decisions" sends what the engineer decided on the
  * CRS-first Sheet to the record, row by row, through existing routes only:
  *
- * - Keep: a confirm PATCH for every finding in the row (#986).
+ * - Keep: the CRS decision route, `accept` with a listed keep reason
+ *   (`kept_as_written`, or `kept_in_bulk` and the click's id after "Keep all
+ *   remaining"), for every finding in the row (#986; order 214 fix 10).
  * - Edit wording: the Required action saved as `engineer_comment` on every
- *   finding in the row; saving it confirms the comment. The Observation is
- *   the review's own and is not sent.
+ *   finding in the row, then the same `accept` (`edited_by_engineer`). The
+ *   Observation is the review's own and is not sent.
  * - Remove: the CRS decision route, `reject` with the listed `reason_code`
  *   (piece 6a), for every finding in the row.
  *
@@ -58,9 +60,20 @@ export interface SaveOutcome {
 /** The record already holds this decision on the finding, so sending it again
  *  would only repeat it. */
 function alreadyOnRecord(finding: ReviewFinding, decision: Decision): boolean {
-  if (decision.kind === "keep") return Boolean(finding.confirmed_by);
-  if (decision.kind === "edit") return finding.engineer_comment === decision.requiredAction.trim();
+  if (decision.kind === "keep") return finding.approval_status === "accepted" && Boolean(finding.confirmed_by);
+  if (decision.kind === "edit") {
+    return finding.engineer_comment === decision.requiredAction.trim() && finding.approval_status === "accepted";
+  }
   return finding.approval_status === "rejected";
+}
+
+/** The wording first, then the decision that names why it is kept. */
+async function saveEdit(runId: string, finding: ReviewFinding, requiredAction: string) {
+  if (finding.engineer_comment !== requiredAction) {
+    const res = await reviewsApi.update(finding.id, { engineer_comment: requiredAction });
+    if (!res.ok) return res;
+  }
+  return reviewsApi.decideCrsFinding(runId, finding.id, "accept", "", "edited_by_engineer");
 }
 
 async function saveRow(
@@ -74,9 +87,10 @@ async function saveRow(
   for (const finding of row.findings) {
     if (!alreadyOnRecord(finding, decision)) {
       const res = decision.kind === "keep"
-        ? await reviewsApi.confirm(finding.id)
+        ? await reviewsApi.decideCrsFinding(
+          runId, finding.id, "accept", "", decision.clickId ? "kept_in_bulk" : "kept_as_written", decision.clickId)
         : decision.kind === "edit"
-          ? await reviewsApi.update(finding.id, { engineer_comment: decision.requiredAction.trim() })
+          ? await saveEdit(runId, finding, decision.requiredAction.trim())
           : await reviewsApi.decideCrsFinding(runId, finding.id, "reject", "", REMOVE_REASON_CODES[decision.reason]);
       if (!res.ok) return { done, wrote, error: res.error.message, failure: res };
       wrote = true;
