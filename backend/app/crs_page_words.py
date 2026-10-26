@@ -8,7 +8,7 @@ cut to three and a count:
 
     "Not found on pages 1-5 - Rated capacity (PSV-1, PSV-2, PSV-3 and 37 more)"
 
-The range is the submittal's own page count (its `pages` table); unknown: "Not found on the
+The range is the submittal's own page count (`documents.page_count`, else its `pages` rows); unknown: "Not found on the
 datasheet". Display only; a finding's wording and verdict are not touched.
 """
 
@@ -21,16 +21,20 @@ MAX_TAGS = 3
 
 
 def _page_count(document_id: str | None) -> int:
+    """The submittal's page count as the document record states it (`documents.page_count`);
+    the number of its `pages` rows only when the record has none."""
     if not document_id:
         return 0
-    row = (
-        connect()
-        .execute(
-            "SELECT COUNT(*) AS n FROM pages WHERE document_id = ?", (document_id,)
-        )
-        .fetchone()
-    )
-    return int(row["n"]) if row else 0
+    conn = connect()
+    row = conn.execute(
+        "SELECT page_count FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
+    if row and row["page_count"]:
+        return int(row["page_count"])
+    rows = conn.execute(
+        "SELECT COUNT(*) AS n FROM pages WHERE document_id = ?", (document_id,)
+    ).fetchone()
+    return int(rows["n"]) if rows else 0
 
 
 def _tags(tags: list[str]) -> str:

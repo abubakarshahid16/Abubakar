@@ -49,4 +49,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_T,
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1312-05",
+        phase=1312,
+        description="the range counts page rows even when the document record states its page count",
+        path=_P,
+        anchor='    if row and row["page_count"]:\n',
+        replacement="    if False:\n",
+        target=_T,
+        tags=("honesty",),
+    ),
 )

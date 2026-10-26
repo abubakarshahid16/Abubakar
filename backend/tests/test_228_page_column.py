@@ -24,7 +24,9 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _sheet(pages: int) -> str:
+def _sheet(pages: int, stored_pages: int | None = None) -> str:
+    """A submittal whose record says `pages` pages and that holds `stored_pages` page rows
+    (default: the same). The two differ on a scan or when a page row is missing."""
     doc = str(uuid.uuid4())
     with db.connect() as conn:
         conn.execute(
@@ -32,7 +34,7 @@ def _sheet(pages: int) -> str:
             " VALUES (?,?,?,1,'/x','ready',?,?)",
             (doc, "sheet.pdf", f"sha-{doc}", pages, NOW),
         )
-        for n in range(1, pages + 1):
+        for n in range(1, (pages if stored_pages is None else stored_pages) + 1):
             conn.execute(
                 "INSERT INTO pages (document_id,page_no,text,char_count,batch_no) VALUES (?,?,?,?,0)",
                 (doc, n, "x", 1),
@@ -106,3 +108,16 @@ def test_the_page_count_comes_from_the_submittals_own_pages():
 
 def test_a_row_with_no_field_no_tag_and_no_page_stays_empty():
     assert crs_page_words.where([], "", "", [], _sheet(3), False) == ""
+
+
+def test_the_documents_own_page_count_wins_over_the_number_of_page_rows():
+    """A scan or a missing page row must not shorten the range: the record says 9 pages."""
+    assert crs_page_words.where(
+        [], "", "Size", [], _sheet(9, stored_pages=6), False
+    ) == ("Not found on pages 1-9 - Size")
+
+
+def test_the_page_rows_are_counted_only_when_the_record_has_no_count():
+    assert crs_page_words.where(
+        [], "", "Size", [], _sheet(0, stored_pages=4), False
+    ) == ("Not found on pages 1-4 - Size")
