@@ -439,8 +439,7 @@ class Settings(BaseSettings):
     ai_division_scope_enabled: bool = True
     ai_answer_reuse_enabled: bool = True  # order 205: off for the final client test
     ai_division_scope_max_per_run: int = 120
-    #: Order 210 FIX 2, DRAFT, OFF until the owner says yes (`scope_type_words`).
-    scope_type_words_rule_enabled: bool = False
+    scope_type_words_rule_enabled: bool = False  # order 210 FIX 2 draft, off until the owner says yes
     #: #645 clause to check: for a clause sentence with no stored limit that
     #: the review could not decide, the local model PROPOSES a check (field,
     #: limit, unit, condition, quote); code verifies every part and keeps what
