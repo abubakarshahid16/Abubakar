@@ -224,7 +224,8 @@ jobs:
         run: |
           python scripts/pf1_run.py --set backend/tests/fixtures/synthetic/pf1 --out "$WORK/runs" \
             --server http://127.0.0.1:18080 --test-server --no-login \
-            --db-copy "$WORK/pf1.sqlite" --only "$SHEET" --timeout 16000
+            --db-copy "$WORK/pf1.sqlite" --only "$SHEET" --timeout 16000 \
+            --request-timeout 1800
 
       # `pf1_collect.py` (#1233) reads the run from a COPY, read-only, writes the
       # findings and completes the run record with the DECLARED mode (main = the
