@@ -116,17 +116,37 @@ class FormReading:
     rejected: list[dict] = field(default_factory=list)
     errors: dict[int, str] = field(default_factory=dict)
     pages_read: list[int] = field(default_factory=list)
+    #: per page: model questions asked, and fields not asked because their
+    #: label is printed nowhere on the page (order 206.1; synonym gaps stay findable)
+    questions: dict[int, int] = field(default_factory=dict)
+    not_asked: dict[int, int] = field(default_factory=dict)
     stopped: str | None = None
     timed_out: list[int] = field(default_factory=list)
     seconds: float = 0.0
 
     def counts(self) -> dict:
         tally = Counter(self.status.values())
-        return {"fields": len(self.fields), "filled": tally[FILLED],
-                "not_on_page": tally[NOT_ON_PAGE], "missing": tally[MISSING],
-                "conflicts": tally[CONFLICT], "pages_read": len(self.pages_read),
-                "pages_failed": len(self.errors),
-                "rejected_by_reason": dict(sorted(Counter(r["reason"] for r in self.rejected).items()))}
+        return {
+            "fields": len(self.fields),
+            "filled": tally[FILLED],
+            "not_on_page": tally[NOT_ON_PAGE],
+            "missing": tally[MISSING],
+            "conflicts": tally[CONFLICT],
+            "pages_read": len(self.pages_read),
+            "pages_failed": len(self.errors),
+            "questions_asked": sum(self.questions.values()),
+            "fields_not_asked": sum(self.not_asked.values()),
+            "per_page": {
+                p: {
+                    "questions": self.questions.get(p, 0),
+                    "fields_not_asked": self.not_asked.get(p, 0),
+                }
+                for p in sorted(set(self.questions) | set(self.not_asked))
+            },
+            "rejected_by_reason": dict(
+                sorted(Counter(r["reason"] for r in self.rejected).items())
+            ),
+        }
 
 
 # ------------------------------------------------------------- verification
@@ -376,6 +396,8 @@ def _read_page(reading: FormReading, page: int, text: str, model_call, rules: di
     # a field whose label is not printed on this page is absent from it
     absent.update(f.key for f in reading.fields if f.key not in kept)
     groups = batches(asked, batch_size)
+    reading.questions[page] = len(groups) * runs
+    reading.not_asked[page] = len(reading.fields) - len(asked)
     for group in groups:
         try:
             facts, rejected, gone, err = read_batch(

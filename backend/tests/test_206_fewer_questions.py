@@ -140,3 +140,25 @@ def test_whatever_the_gate_would_accept_the_filter_keeps():
 def test_a_page_without_text_is_still_skipped_by_the_page_rule(text):
     reading, model = _read(text)
     assert model.prompts == [] and reading.errors == {1: "no text on this page"}
+
+
+def test_the_summary_counts_the_questions_and_the_fields_not_asked_per_page():
+    reading, model = _read(PAGE, equipment=LONG, batch_size=8)
+    counts = reading.counts()
+    assert counts["questions_asked"] == len(model.prompts) > 0
+    assert counts["fields_not_asked"] == len(reading.fields) - sum(
+        1
+        for f in reading.fields
+        if form_reader.label_on_page(f, PAGE, datasheet_checks.load_rules())
+    )
+    assert counts["per_page"][1] == {
+        "questions": counts["questions_asked"],
+        "fields_not_asked": counts["fields_not_asked"],
+    }
+
+
+def test_a_page_that_prints_no_label_counts_zero_questions_and_all_fields_not_asked():
+    reading, _ = _read("Revision A - issued for review\n", equipment=LONG)
+    counts = reading.counts()
+    assert counts["questions_asked"] == 0
+    assert counts["fields_not_asked"] == len(reading.fields)
