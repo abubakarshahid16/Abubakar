@@ -87,7 +87,7 @@ def test_a_label_that_does_not_straddle_the_join_never_pairs(label):
 def test_a_condition_the_clause_opens_with_is_not_the_quantity_it_is_about():
     """ "At normal flow the valve ... travel": "Normal flow" is the CONDITION the
     sentence opens with (it stands after "at"), not what the clause is about, so
-    it no longer claims the clause (audit C5, #1290s pairing rule); the closing
+    it no longer claims the clause (audit C5, audit C5 pairing rule); the closing
     noun finds the travel row."""
     plain = _fact("Normal flow")
     other = _fact("Travel at normal flow")

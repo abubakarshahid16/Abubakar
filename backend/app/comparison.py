@@ -3551,7 +3551,7 @@ def match_statement(requirement: dict, facts: list[dict], *,
         hits = [hit for hit in _containment_hits(
             requirement, subject, facts,
             lambda f: not f.get("is_blank") and bool(str(f.get("field_value") or "").strip()))
-            if len(hit["name"].split()) >= 2 and field_links.names_head(_singular(subject), _singular(hit["name"]))]
+            if len(hit["name"].split()) >= 2 and _contains_words(_singular(subject), _singular(hit["name"]))]
         # TWO READERS, ONE ROW: the layout reader and the AI reader both read
         # the same label with the same words on the same page. That is one
         # answer, not a tie. Readings that DIFFER stay a tie - a question.

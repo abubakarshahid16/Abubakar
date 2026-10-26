@@ -66,6 +66,14 @@ def test_a_one_word_label_does_not_claim_a_clause_that_says_the_word():
     assert match["fact"] is None and verdict["status"] == comparison.NOT_IN_DOCUMENT_SCOPE
 
 
+def test_a_one_word_label_at_the_head_of_the_subject_still_does_not_claim_the_clause():
+    """The head rule (audit C5) already keeps "service" out of "pump in sour
+    service"; here the word HEADS the subject, so only the two-word guard holds."""
+    match, verdict = _judge("Service conditions for the pump shall be stated.", "service conditions for the pump",
+                            [_fact("service", "Cooling water")])
+    assert match["fact"] is None and verdict["status"] == comparison.NOT_IN_DOCUMENT_SCOPE
+
+
 def test_two_readers_reading_the_same_words_are_one_answer_and_differing_readings_a_question():
     same = [_fact("casing material", "Cast iron"), _fact("casing material", "cast  IRON", method="model")]
     match, _verdict = _judge(CASING, "casing material", same)

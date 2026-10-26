@@ -116,9 +116,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M112", phase=8,
         description="MATCH ON A SUBSTRING instead of whole words, so "
                     "'design pressure' matches inside 'redesign pressure'",
-        path=APP / "comparison.py",
-        anchor=r'    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None',
-        replacement="    return needle in haystack",
+        path=APP / "pairing_head.py",  # the whole-word test moved here (audit C5)
+        anchor="        if words[start : start + len(label)] == label:\n",
+        replacement='        if " ".join(label) in " ".join(words[start:]):\n',
         target="tests/test_containment_match.py",
         keyword="whole_words",
         tags=("honesty", "critical"),

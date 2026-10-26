@@ -70,37 +70,31 @@ def _statement(subject):
 
 @pytest.mark.parametrize(
     "subject",
-    ["generator package list including fittings", "references to the manufacturer"],
+    [
+        "generator package list including casing material",
+        "references to the casing material",
+        "cut water clearance for casing material",
+    ],
 )
 def test_a_statement_that_only_mentions_the_field_pairs_nothing(subject):
-    label = "Fittings" if "fittings" in subject else "Manufacturer"
-    facts = [
-        {
-            "id": "f1",
-            "field_name": label,
-            "field_value": "Stainless steel",
-            "raw_value": "Stainless steel",
-            "raw_unit": "",
-            "is_blank": False,
-        }
-    ]
+    facts = [_named("Casing material", "Cast iron")]
     assert comparison.match_statement(_statement(subject), facts)["fact"] is None
 
 
+def _named(label, value):
+    return {
+        "id": "f1",
+        "field_name": label,
+        "field_value": value,
+        "raw_value": value,
+        "raw_unit": "",
+        "is_blank": False,
+    }
+
+
 def test_a_statement_about_the_field_pairs_it():
-    facts = [
-        {
-            "id": "f1",
-            "field_name": "Manufacturer",
-            "field_value": "Acme Pumps",
-            "raw_value": "Acme Pumps",
-            "raw_unit": "",
-            "is_blank": False,
-        }
-    ]
-    assert (
-        comparison.match_statement(_statement("manufacturer of the pump"), facts)[
-            "fact"
-        ]
-        is facts[0]
+    facts = [_named("Casing material", "Cast iron")]
+    result = comparison.match_statement(
+        _statement("casing material of the pump"), facts
     )
+    assert result["fact"] is facts[0]
