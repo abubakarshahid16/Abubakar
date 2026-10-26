@@ -224,7 +224,7 @@ export function supportingClauseLines(row: CrsRow): string[] {
   const listed = row.clauses ?? [];
   if (!row.crsAction || n < 1) return [];
   const more = n - listed.length;
-  return [`Supporting clauses (${n}):`, ...listed, ...(more > 0 ? [`and ${more} more of these ${n}`] : [])];
+  return [n === 1 ? `Supporting clause (${n}):` : `Supporting clauses (${n}):`, ...listed, ...(more > 0 ? [`and ${more} more of these ${n}`] : [])];
 }
 
 /** The findings still on the sheet, and how many the engineer already
