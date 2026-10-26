@@ -80,7 +80,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a one-clause row says 'clauses'",
         path=APP / "crs_mapping.py",
         anchor="    heading = f\"Supporting clause{'' if n == 1 else 's'} ({n}):\"\n",
-        replacement="    heading = f\"Supporting clauses ({n}):\"\n",
+        replacement='    heading = f"Supporting clauses ({n}):"\n',
         target="tests/test_k78_issue_rows_carry_no_program_voice.py",
         keyword="singular_heading",
         tags=_TAGS,

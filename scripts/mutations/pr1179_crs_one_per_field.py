@@ -68,8 +68,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "06",
         "the clause list is not capped",
-        '    lines = [heading, *(e[2] for e in entries[:MAX_CLAUSE_LINES])]\n',
-        '    lines = [heading, *(e[2] for e in entries)]\n',
+        "    lines = [heading, *(e[2] for e in entries[:MAX_CLAUSE_LINES])]\n",
+        "    lines = [heading, *(e[2] for e in entries)]\n",
         "long_clause_list_says_how_many_more",
     ),
     _m(
