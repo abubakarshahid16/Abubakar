@@ -196,14 +196,23 @@ class TestTableLookupInput:
         (24 chars). With the rule before the tie, the constrained one wins."""
         # Both labels stand in the subject's head (neither follows a complement
         # word), so the pairing rule of audit C5 does not remove either: rule 3 does.
-        req = requirement("maximum operating pressure and internal design pressure",
-                          text=D001_6_2_3, raw_unit="bar")
-        facts = [fact("maximum operating pressure", raw_value="2.2", raw_unit="bar (ga)"),
-                 fact("internal design pressure", raw_value="3.5", raw_unit="bar (ga)")]
+        req = requirement(
+            "maximum operating pressure and internal design pressure",
+            text=D001_6_2_3,
+            raw_unit="bar",
+        )
+        facts = [
+            fact("maximum operating pressure", raw_value="2.2", raw_unit="bar (ga)"),
+            fact("internal design pressure", raw_value="3.5", raw_unit="bar (ga)"),
+        ]
         result = comparison.match_by_containment(req, facts)
         assert result["matched_phrase"] == "internal design pressure"
         assert result["refused"] == [
-            {"name": "maximum operating pressure", "reason": match_rules.TABLE_LOOKUP_INPUT}]
+            {
+                "name": "maximum operating pressure",
+                "reason": match_rules.TABLE_LOOKUP_INPUT,
+            }
+        ]
 
     # #193, measured 2026-09-24 against the vessel regression document's
     # labelled pairing sheet (gold/PAIRS-*): SAES-E-014
@@ -257,7 +266,9 @@ class TestTableLookupInput:
             {"name": "maximum operating pressure", "reason": match_rules.TABLE_LOOKUP_INPUT}]
 
     def test_without_the_constrained_field_the_input_alone_is_silence(self):
-        req = requirement("maximum operating pressure", text=D001_6_2_3, raw_unit="bar")
+        req = requirement(
+            "maximum operating pressure", text=D001_6_2_3, raw_unit="bar"
+        )
         facts = [fact("maximum operating pressure", raw_unit="bar (ga)")]
         result = comparison.match_by_containment(req, facts)
         assert result["fact"] is None
@@ -268,8 +279,10 @@ class TestTableLookupInput:
         "according to the following table", not in the head: it is no candidate at
         all (audit C5), so the constrained quantity is the only hit."""
         req = requirement(D001_6_2_3, text=D001_6_2_3, raw_unit="bar")
-        facts = [fact("maximum operating pressure", raw_value="2.2", raw_unit="bar (ga)"),
-                 fact("internal design pressure", raw_value="3.5", raw_unit="bar (ga)")]
+        facts = [
+            fact("maximum operating pressure", raw_value="2.2", raw_unit="bar (ga)"),
+            fact("internal design pressure", raw_value="3.5", raw_unit="bar (ga)"),
+        ]
         result = comparison.match_by_containment(req, facts)
         assert result["matched_phrase"] == "internal design pressure"
         only_input = comparison.match_by_containment(req, facts[:1])

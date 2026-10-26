@@ -21,9 +21,46 @@ from __future__ import annotations
 
 #: Words that open a complement, a relative clause or a list item.
 COMPLEMENT_WORDS = frozenset(
-    "of for in at on with within without by from to into onto per via including "
-    "include includes between among during under over when where while which that "
-    "whose about against across after before through upon unless if".split()
+    {
+        "of",
+        "for",
+        "in",
+        "at",
+        "on",
+        "with",
+        "within",
+        "without",
+        "by",
+        "from",
+        "to",
+        "into",
+        "onto",
+        "per",
+        "via",
+        "including",
+        "include",
+        "includes",
+        "between",
+        "among",
+        "during",
+        "under",
+        "over",
+        "when",
+        "where",
+        "while",
+        "which",
+        "that",
+        "whose",
+        "about",
+        "against",
+        "across",
+        "after",
+        "before",
+        "through",
+        "upon",
+        "unless",
+        "if",
+    }
 )
 
 
