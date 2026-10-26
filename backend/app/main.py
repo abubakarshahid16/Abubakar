@@ -2559,8 +2559,7 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
                 and row.get("row_kind") != crs_mapping_mod.ROW_KIND_CARRIED_FORWARD]
         # #1178 review: a row still holding an AI/web draft prints a waiting
         # sentence, not the words an engineer confirmed under this number -
-        # its stored text is kept, never overwritten.
-        # K1: a row confirmed only by its number says nothing new; it keeps the words it has.
+        # its stored text is kept, never overwritten (K1: nor a carried tick's).
         snapshots = {
             row["crs_row_key"]: row
             for row in mine

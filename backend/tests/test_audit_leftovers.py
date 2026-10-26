@@ -67,7 +67,10 @@ def test_a_held_compliance_is_a_crs_question_that_says_why():
     rows = TestClient(app).get(f"/api/reviews/runs/{run}/crs/preview").json()["rows"]
     [row] = [r for r in rows if "100 dB(A)" in r["comment"]]
     assert row["row_kind"] == "needs_engineer_review"
-    assert "Clarification requested: the value was read with validation state" in row["comment"]
+    assert (
+        "Clarification requested: the value was read with validation state"
+        in row["comment"]
+    )
     assert "neither compliant nor a breach" in row["comment"]
     assert comparison.LOW_TRUST_VALUE not in row["comment"]
 
