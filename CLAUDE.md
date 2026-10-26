@@ -131,6 +131,7 @@ One line each; the fix is an order, and a machine now checks what it can.
 When a mistake is called out on #692, add one line here in your next PR.
 
 - Pushed unformatted code, so CI sent the PR back (order 215 R1; `.githooks/pre-push`).
+- Formatted a whole old file: never whole-file format, only the lines you touched (order 216.4; `quality_ratchet.py format-check --base origin/main` is the test).
 - Asked for review on a branch that was behind main (R2).
 - The packer slept for hours while approved fixes waited (R4: s2 packs after 15 minutes).
 - Doorbell answered only to "urgent" (R5: any mention).

@@ -7,7 +7,8 @@ so a machine now refuses the push. Only what the branch changed against
   * formatting of the lines the branch touched: `quality_ratchet.py format-check
     --base origin/main` - NOT whole-file `ruff format --check`, which would
     fail on every drifting line of a big file the branch only touched a little;
-  * `check_lint_baseline.py check`, `check_mutation_anchors.py`,
+  * the size and quality ratchet (`quality_ratchet.py check`, the same line CI runs),
+    `check_lint_baseline.py check`, `check_mutation_anchors.py`,
     `check_system_map.py` (Python changes);
   * `gen_contract_types.py --check` when contract files or models changed;
   * the frontend type check when frontend files changed.
@@ -130,6 +131,20 @@ def plan(
                 root,
                 "format ONLY the lines you changed (or a new file whole): "
                 "python -m ruff format <new-file>; for an old file, rewrap just your lines to ruff's shape",
+            )
+        )
+        steps.append(
+            (
+                "size and quality ratchet",
+                [
+                    python,
+                    str(scripts / "quality_ratchet.py"),
+                    "check",
+                    "--baseline",
+                    "eval/quality/baseline.json",
+                ],
+                root,
+                "a file or function got longer: shrink it, or move code out (the numbers may only go down)",
             )
         )
         steps.append(
