@@ -88,6 +88,65 @@ _GENERIC = frozenset(
     }
 )
 
+#: Prepositions, conjunctions, auxiliaries and participles that join words but name no
+#: service: "put INTO service", "inspected BEFORE service", "the FOLLOWING application",
+#: "maintained DURING service". A phrase whose word right before "service" or
+#: "application" is one of these names nothing (order 228.5).
+_FUNCTION_WORDS = frozenset(
+    {
+        "into",
+        "onto",
+        "upon",
+        "before",
+        "after",
+        "during",
+        "within",
+        "without",
+        "until",
+        "while",
+        "since",
+        "through",
+        "across",
+        "around",
+        "between",
+        "among",
+        "against",
+        "about",
+        "above",
+        "below",
+        "from",
+        "following",
+        "preceding",
+        "using",
+        "being",
+        "been",
+        "have",
+        "has",
+        "will",
+        "shall",
+        "should",
+        "must",
+        "may",
+        "than",
+        "then",
+        "also",
+        "only",
+        "per",
+        "via",
+        "of",
+        "in",
+        "on",
+        "at",
+        "to",
+        "by",
+        "as",
+        "is",
+        "are",
+        "was",
+        "be",
+    }
+)
+
 _PLAN = re.compile(r"\bplan\s+(\d{1,2}[a-z]?)\b", re.IGNORECASE)
 _NAMED = re.compile(
     r"\b((?:[a-z][a-z\-]+\s+){1,2})(?:service|application|applications)\b",
@@ -125,6 +184,12 @@ def _significant(phrase: str) -> list[str]:
     ]
 
 
+def _names_nothing(phrase: str) -> bool:
+    """The word right before "service" / "application" is a function word."""
+    words = re.findall(r"[a-z][a-z\-]+", phrase.casefold())
+    return bool(words) and words[-1] in _FUNCTION_WORDS
+
+
 def named_conditions(requirement: dict) -> list[str]:
     """What the sentence says it applies to, as the words it used ("Plan 32",
     "<words> service"); [] when it names none."""
@@ -132,6 +197,8 @@ def named_conditions(requirement: dict) -> list[str]:
     found = [f"plan {m.group(1)}".casefold() for m in _PLAN.finditer(text)]
     for pattern in (_NAMED, _DUTY):
         for m in pattern.finditer(text):
+            if pattern is _NAMED and _names_nothing(m.group(1)):
+                continue
             words = _significant(m.group(1))
             if words:
                 found.append(" ".join(words))
