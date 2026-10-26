@@ -2560,11 +2560,12 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
         # #1178 review: a row still holding an AI/web draft prints a waiting
         # sentence, not the words an engineer confirmed under this number -
         # its stored text is kept, never overwritten.
+        # K1: a row confirmed only by its number says nothing new; it keeps the words it has.
         snapshots = {
             row["crs_row_key"]: row
             for row in mine
             if not str(row.get("ai_review_comment") or "").strip()
-            and not row.get("confirmed_by_number")  # K1: a carried tick says nothing new
+            and not row.get("confirmed_by_number")
         }
         if mine:
             crs_numbers_mod.assign(
