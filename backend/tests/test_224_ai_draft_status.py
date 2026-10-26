@@ -272,3 +272,22 @@ def test_the_web_checks_exact_repeats_are_marked_by_their_source_address():
     assert ai_check_drafts.settle(RUN) == {"marked": 1}
     rows = _rows(ai_check_drafts.WEB_ORIGIN)
     assert [("Exact repeat" in r["ai_rationale"]) for r in rows] == [False, True, False]
+
+
+def test_a_status_is_counted_once_for_a_draft_and_a_finding_alike():
+    """The count groups by draft-or-not; a status that both kinds carry must add up, not overwrite."""
+    from app import main
+
+    a = _draft(1)
+    b = _draft(2, text="Another.")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET compliance_status = 'NEEDS_ENGINEER_REVIEW' WHERE id IN (?, ?)",
+            (a, b),
+        )
+        conn.execute(
+            "UPDATE review_findings SET origin = NULL WHERE id = ?",
+            (b,),
+        )
+    _total, by_status, _tags, drafts = main._finding_counts(RUN)
+    assert by_status == {"NEEDS_ENGINEER_REVIEW": 2} and drafts == 0

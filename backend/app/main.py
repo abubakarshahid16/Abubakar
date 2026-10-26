@@ -1283,8 +1283,8 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
             f"SELECT compliance_status, {ai_check_drafts_mod.DRAFT_SQL} AS draft, COUNT(*) AS n FROM"
             " review_findings WHERE review_run_id = ? GROUP BY compliance_status, draft", (run_id,)):
         total += row["n"]
-        if row["compliance_status"] is not None:
-            by_status[row["compliance_status"]] = row["n"]
+        if (status := row["compliance_status"]) is not None:
+            by_status[status] = by_status.get(status, 0) + row["n"]
         elif row["draft"]:
             drafts += row["n"]
     tags = [
