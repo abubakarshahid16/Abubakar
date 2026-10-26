@@ -85,3 +85,65 @@ def test_the_edition_reaches_the_row_and_the_comment_lead():
 def test_the_phrase_is_not_the_program_talking_to_the_contractor():
     ref = _ref("SAES-G-005.pdf")
     assert mw.find_machine_words(ref) == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["ISO 2014.pdf", "NFPA 2001.pdf", "IEC 2000.pdf", "BS 1992.pdf", "ISO_2014.pdf"],
+)
+def test_a_standards_own_number_is_not_its_edition(name):
+    """Cloud's review of #1307: a four-digit standard NUMBER printed as a year is a fact
+    the sheet never stated (rule 4); it must read 'edition not recorded'."""
+    assert crs_reference.edition_of(name) is None
+    assert "(edition not recorded)" in _ref(name)
+
+
+@pytest.mark.parametrize(
+    "name, edition",
+    [
+        ("API 650 2020 Addendum 1 2021.pdf", "2020"),
+        ("API-650-2020-Add-1-2021.pdf", "2020"),
+        ("EN 1092-1 2018+A1 2020.pdf", "2018"),
+        ("API 653 2018 Amendment 2.pdf", "2018"),
+        ("NFPA 2001 2018 Edition.pdf", "2018"),
+        ("ISO 9001:2015.pdf", "2015"),
+        ("ASME-B16.5-2020.pdf", "2020"),
+    ],
+)
+def test_an_addendum_or_amendment_year_is_not_the_edition(name, edition):
+    assert crs_reference.edition_of(name) == edition
+
+
+def test_an_addendum_alone_gives_no_edition():
+    assert crs_reference.edition_of("API 650 Addendum 1 2021.pdf") is None
+
+
+def test_the_year_must_be_a_whole_number_in_the_name_to_count_as_printed_there():
+    """'2023' inside '20230' is not the name carrying its year: the edition is still shown."""
+    assert "(2023)" in _ref("SAES-G-20230.pdf", standard_edition="2023")
+
+
+def test_the_ai_wording_lock_keeps_the_edition_and_refuses_a_changed_one():
+    from app import crs_wording
+
+    row = {
+        "row_kind": "non_compliant",
+        "comment": (
+            "SAES-G-005 (2023) cl. 4.3.5 (p.15): requires noise level not more than 85 dB(A). "
+            "Datasheet p.3, Noise level states 92. Contractor to revise Noise level to meet the "
+            "requirement, or submit a deviation request with justification for Company approval."
+        ),
+        "crs_row_key": "k1",
+        "standard_reference": "SAES-G-005 (2023) cl. 4.3.5 (p.15)",
+        "page_section": "p.3 - Noise level",
+    }
+    good = (
+        "Per SAES-G-005 (2023) cl. 4.3.5, the noise level is required to be not more than "
+        "85 dB(A); the datasheet (p.3) states 92. Please revise the noise level to meet the "
+        "requirement, or submit a deviation request with justification for Company approval."
+    )
+    assert crs_wording.lock(good, row) is None
+    assert (
+        crs_wording.lock(good.replace("(2023)", "(2019)"), row)
+        == crs_wording.NUMBER_CHANGED
+    )
