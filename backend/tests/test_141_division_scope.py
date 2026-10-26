@@ -109,6 +109,9 @@ NOT_GRAPHITE = {
     "is_that": "no",
 }
 
+# order 210: a held requirement is an engineer row, never a verdict
+HELD_ROW = {"NEEDS_ENGINEER_REVIEW"}
+
 
 class FakeModel:
     """Answers each task by its instruction; counts the calls (no weights)."""
@@ -666,7 +669,11 @@ def test_a_review_does_not_apply_a_division_limited_to_another_construction(
     assert stored[ids["tt"]]["state"] == scope_ledger.DOES_NOT_APPLY
     assert stored[ids["tt"]]["reason_code"] == "outside_division_scope"
     assert TT_SCOPE in stored[ids["tt"]]["reason"]
-    assert not any(f.get("requirement_id") == ids["tt"] for f in result["findings"])
+    assert {
+        f["compliance_status"]
+        for f in result["findings"]
+        if f.get("requirement_id") == ids["tt"]
+    } <= HELD_ROW
     assert result["requirement_split"]["division_scope"]["does_not_apply"] == 1
 
 
@@ -675,7 +682,11 @@ def test_a_review_holds_an_unsure_division_for_the_engineer(temp_storage, monkey
     result, stored, ids = _review(monkeypatch, FakeModel(construction=unsure))
     assert stored[ids["zz"]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
     assert stored[ids["zz"]]["reason_code"] == "applicability_unsure"
-    assert not any(f.get("requirement_id") == ids["zz"] for f in result["findings"])
+    assert {
+        f["compliance_status"]
+        for f in result["findings"]
+        if f.get("requirement_id") == ids["zz"]
+    } <= HELD_ROW
 
 
 def test_a_review_with_the_division_reader_off_changes_nothing(
@@ -699,7 +710,11 @@ def test_a_review_whose_scope_step_could_not_run_holds_the_division_not_a_verdic
         assert stored[ids[name]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
         assert stored[ids[name]]["reason_code"] == "applicability_unsure"
         assert "did not read this part's scope" in stored[ids[name]]["reason"]
-        assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
+        assert {
+            f["compliance_status"]
+            for f in result["findings"]
+            if f.get("requirement_id") == ids[name]
+        } <= HELD_ROW
     assert result["requirement_split"]["division_scope"]["could_not_read"] == 3
 
 
@@ -761,7 +776,11 @@ def test_a_review_whose_scope_gate_crashes_holds_the_requirements_not_a_verdict(
         assert stored[ids[name]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
         assert stored[ids[name]]["reason_code"] == "applicability_unsure"
         assert "(RuntimeError)" in stored[ids[name]]["reason"]
-        assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
+        assert {
+            f["compliance_status"]
+            for f in result["findings"]
+            if f.get("requirement_id") == ids[name]
+        } <= HELD_ROW
     assert result["requirement_split"]["division_scope"]["requirements_gated"] == 3
 
 

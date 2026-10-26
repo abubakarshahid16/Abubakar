@@ -771,8 +771,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="PUT B9 BACK: an unmatched statement is the contractor's "
                     "MISSING_INFORMATION again",
         path=APP / "comparison.py",
-        anchor="        if requirement.get(\"requirement_type\") == requirements_3b.STATEMENT:",
-        replacement="        if False:",
+        anchor='        if requirement.get(\n            "requirement_type"\n        ) == requirements_3b.STATEMENT and',
+        replacement='        if False and requirement.get(\n            "requirement_type"\n        ) == requirements_3b.STATEMENT and',
         target="tests/test_comparison.py",
         keyword="not_in_document_scope_not_missing",
         tags=("honesty", "critical"),

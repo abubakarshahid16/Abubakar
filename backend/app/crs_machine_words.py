@@ -65,12 +65,17 @@ DOC_ID = re.compile(r"\bdoc_[0-9a-f]{12}\b")
 #:      program linked two field names (the bare word "containment" is
 #:      ordinary engineering English, so it is not listed)
 #:  language model / llm - the AI that read or worded something
+#:  engineer to check / this system - the program talking to the engineer
+#:      ("Engineer to check whether ...: no field this system read ...");
+#:      such a row, once ticked, must be reworded before it can be issued
 PHRASES = (
     "synonym table",
     "containment match",
     "matched by containment",
     "language model",
     "llm",
+    "engineer to check",
+    "this system",
 )
 
 

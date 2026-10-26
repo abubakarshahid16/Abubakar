@@ -867,13 +867,13 @@ def _compare(requirement: dict, fact: dict | None, *,
             "exception_applied": None,
         }
     if fact is None:
-        # B9, RULE R1 (owner-approved, to be sample-checked before trusted):
-        # a `statement` names no field, subject or value a datasheet could
-        # fill in, so "the sheet does not state it" says nothing about the
-        # contractor - the question is answered by another document. Only
-        # when NOTHING matched: a statement that did meet a fact, blank or
-        # not, is still judged below exactly as before.
-        if requirement.get("requirement_type") == requirements_3b.STATEMENT:
+        # B9, RULE R1: an unmatched `statement` is another document's question,
+        # EXCEPT one asking only to be stated on the datasheet (order 210 FIX 1).
+        if requirement.get(
+            "requirement_type"
+        ) == requirements_3b.STATEMENT and not field_links.asks_only_to_be_stated(
+            requirement.get("source_text") or requirement.get("requirement_text")
+        ):
             return {
                 "status": NOT_IN_DOCUMENT_SCOPE,
                 # WHAT WAS CHECKED, NOT A CLAIM ABOUT ANOTHER DOCUMENT (CRS
@@ -2438,22 +2438,16 @@ def _run_comparison(
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
-    # rule_trust (#947): who stands behind each rule's verdict. None with the
-    # switch off: no proof is read and no finding is labelled.
+    # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
     trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
     # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
-    # except pressure relief valves 115 dB(A)"). Audit 2026-09-30: neither
-    # production caller passed one, so every exception was dead code and a
-    # PSV at 100 dB(A) was reported as a breach. Derived HERE, once, so no
-    # caller can forget it; a caller that names a subject still wins.
+    # except pressure relief valves 115 dB(A)"); derived HERE, once, so no
+    # caller can forget it (audit 2026-09-30); a caller's own subject wins.
     if subject is None:
         subject = equipment_subject(stored)
     # #453 A REQUIREMENT ABOUT A DIFFERENT KIND OF EQUIPMENT IS NOT A CHECK.
-    # Steam-turbine casing relief was applied to gas-service relief valves.
-    # A requirement is kept when its subject fits this submittal's equipment,
-    # when it has no specific subject, or when either is unclear; the rest are
-    # counted and grouped on the run, never dropped silently. See
-    # `subject_scope`.
+    # Kept when its subject fits, has none, or either is unclear; the rest are
+    # counted and grouped on the run, never dropped silently (`subject_scope`).
     in_scope = len(requirements)
     scoped = subject_scope.gate(
         requirements, classification=stored, facts=facts,
@@ -2499,7 +2493,7 @@ def _run_comparison(
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's
     # decision, for the engineer. See `ai_applicability`.
-    ai_notes: dict = {}
+    ai_notes: dict = dict(divided.get("notes") or {})
     ai_applicability_summary = None
     if settings.ai_applicability_enabled:
         from . import ai_applicability
@@ -2507,7 +2501,7 @@ def _run_comparison(
                                    limit=settings.ai_applicability_max_per_run)
         requirements = ai["kept"]
         extra_not_applied.extend(ai["items"])
-        ai_notes = ai["notes"]
+        ai_notes.update(ai["notes"])
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
@@ -2941,6 +2935,12 @@ def _run_comparison(
             prepared_rows.append(row)
             findings.append({**row, "unresolved_evidence": unresolved,
                              "citation_resolves": not unresolved})
+
+    # ORDER 210 FIX 3: a held requirement is also an engineer-review row.
+    from . import held_findings
+
+    run = (review_run_id, submittal_id, replace, standard_labels)
+    held_findings.add(held_items, pending, prepared_rows, findings, run)
 
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
     # datasheet self-checks below, which add their own rows to this run and

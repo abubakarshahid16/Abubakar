@@ -50,7 +50,7 @@
       ],
       "expected_rows": [
         {"finding_ids": ["c1"], "priority": 2, "priority_label": "Missing value", "action": null, "clause_count": 1},
-        {"finding_ids": ["c2", "c3"], "priority": 3, "priority_label": "Engineer to check", "action": "Engineer to check whether the datasheet states Design pressure: no field this system read was paired with it.", "clause_count": 2}
+        {"finding_ids": ["c2", "c3"], "priority": 3, "priority_label": "Engineer to check", "action": "Clarification requested: no field read from the datasheet was paired with Design pressure; please indicate where it is stated, or confirm it is not stated.", "clause_count": 2}
       ],
       "not_on_sheet": []
     },
@@ -73,7 +73,7 @@
         {"id": "e2", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "8.3", "requirement_source_text": "8.3 Rated power shall include a 10 % margin.", "matched_phrase": "Rated power", "fact_id": "fact-4", "contractor_page": 4, "contractor_evidence_text": "15 hp", "crs_is_blank": false, "reason_code": "LOW_TRUST_VALUE", "ai_rationale": "LOW_TRUST_VALUE: the value was read with low trust."}
       ],
       "expected_rows": [
-        {"finding_ids": ["e1", "e2"], "priority": 3, "priority_label": "Engineer to check", "action": "Engineer to check Rated power.", "clause_count": 2}
+        {"finding_ids": ["e1", "e2"], "priority": 3, "priority_label": "Engineer to check", "action": "Clarification requested on Rated power.", "clause_count": 2}
       ],
       "not_on_sheet": []
     },
@@ -160,7 +160,7 @@
         {"id": "k2", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "14.1", "requirement_source_text": "14.1 Motor rating shall include a service factor.", "matched_phrase": "Motor rating", "fact_id": "fact-13", "contractor_page": 4, "contractor_evidence_text": "15 hp", "crs_is_blank": false, "reason_code": "LOW_TRUST_VALUE", "ai_rationale": "LOW_TRUST_VALUE: the value was read with low trust."}
       ],
       "expected_rows": [
-        {"finding_ids": ["k1", "k2"], "priority": 3, "priority_label": "Engineer to check", "action": "Engineer to check Motor rating.", "clause_count": 1}
+        {"finding_ids": ["k1", "k2"], "priority": 3, "priority_label": "Engineer to check", "action": "Clarification requested on Motor rating.", "clause_count": 1}
       ],
       "not_on_sheet": []
     },

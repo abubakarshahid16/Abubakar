@@ -205,6 +205,24 @@ def _end_line(text: subject_scope.StandardText, end: int) -> int | None:
     return None if line >= len(text.lines) else line
 
 
+#: The title block of a standard is among its first lines.
+_TITLE_BLOCK_LINES = 6
+
+
+def is_front_matter(unit: dict) -> bool:
+    """Is this unit the TITLE BLOCK of its standard (order 210, FIX 2)? A
+    candidate start (found by shape, never a named Part/Appendix/Annex/Chapter)
+    that is the first start of the standard and sits among its first lines is a
+    title page or a whole-document scope, not a part: the standard's own scope
+    says what it covers, and the standard was chosen for this equipment. A
+    named division, a later start and a sub-part are never front matter."""
+    return (
+        unit["kind"] == "candidate"
+        and unit.get("first", False)
+        and unit["div"]["line"] < _TITLE_BLOCK_LINES
+    )
+
+
 def _new_unit(sid, text, tops: list[dict], k: int, prev: dict | None) -> dict:
     """The unit that starts at `tops[k]`: a division, or a candidate start
     (`prev`: the named division before it, whose verdict it may inherit)."""
@@ -218,6 +236,7 @@ def _new_unit(sid, text, tops: list[dict], k: int, prev: dict | None) -> dict:
         "count": 0,
         "weight": 0,
         "prev": prev,
+        "first": k == 0,
         "kind": "division" if top["kind"] == "division" else "candidate",
     }
 

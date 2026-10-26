@@ -49,6 +49,9 @@ LIMITED_TI = {
 }
 UNSURE = {"limited": "unsure", "construction": None, "quote": None}
 
+# order 210: a held requirement is an engineer row, never a verdict
+HELD_ROW = {"NEEDS_ENGINEER_REVIEW"}
+
 
 def req(rid: str, page: int, sentence: str) -> dict:
     return {
@@ -489,7 +492,11 @@ def test_a_review_holds_an_unsure_part_and_stores_the_counts(stub, monkeypatch):
     assert stored[ids["zz"]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
     assert stored[ids["zz"]]["reason_code"] == "applicability_unsure"
     assert stored[ids["aa"]]["state"] == scope_ledger.CHECKED
-    assert not any(f.get("requirement_id") == ids["zz"] for f in result["findings"])
+    assert {
+        f["compliance_status"]
+        for f in result["findings"]
+        if f.get("requirement_id") == ids["zz"]
+    } <= HELD_ROW
     counts = result["requirement_split"]["division_scope"]
     assert counts["requirements_held_unsure"] == 1
     assert counts["requirements_gated"] == 3
@@ -696,7 +703,11 @@ def test_a_review_with_the_model_down_holds_every_placed_clause_and_says_so(
         assert stored[ids[name]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
         assert stored[ids[name]]["reason_code"] == "applicability_unsure"
         # nothing was compared on it: no finding rests on it
-        assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
+        assert {
+            f["compliance_status"]
+            for f in result["findings"]
+            if f.get("requirement_id") == ids[name]
+        } <= HELD_ROW
     counts = result["requirement_split"]["division_scope"]
     assert counts["requirements_held_scope_not_read"] == 3
     assert "could not be reached" in counts["model_unavailable"]
