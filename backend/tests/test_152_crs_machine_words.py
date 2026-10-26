@@ -44,10 +44,26 @@ def _row(n: int, comment: str, **over) -> dict:
         ("Linked through the synonym table as 'x'.", "synonym table"),
         ("Paired by a containment match.", "containment match"),
         ("Written by a Language Model.", "Language Model"),
+        ("Engineer to check whether the datasheet states X.", "Engineer to check"),
+        ("No field this system read was paired with it.", "this system"),
     ],
 )
 def test_machine_words_are_found(text, word):
     assert word in mw.find_machine_words(text)
+
+
+def test_the_program_talking_to_the_engineer_is_not_a_contractor_comment():
+    """K2 (code audit 26 Oct): a question or not-found row that still holds the
+    program's note to the engineer cannot be issued as it stands; the words the
+    program now writes for the contractor are clean."""
+    stuck = "Engineer to check: the value was read with validation state 'x'."
+    assert mw.find_machine_words(stuck) == ["Engineer to check"]
+    for words in (
+        "Clarification requested: no field read from the datasheet was paired with Design "
+        "pressure; please indicate where it is stated, or confirm it is not stated.",
+        "Clarification requested on Rated power.",
+    ):
+        assert mw.find_machine_words(words) == []
 
 
 def test_model_ids_and_engine_names_come_from_the_settings(monkeypatch):
