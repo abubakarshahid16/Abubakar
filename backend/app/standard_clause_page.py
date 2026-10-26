@@ -176,8 +176,17 @@ def _opens_heading(lines: list[str], at: int, clause: str) -> bool:
     )
 
 
+_PAGE_NUMBER = re.compile(r"^\d{1,4}$|^\d{1,4}\s+|\s+\d{1,4}$")
+
+
 def _line_key(line: str) -> str:
-    return re.sub(r"\d+", "#", line.lower())
+    """The line with ONE plain whole number at its start or end folded ("4 API STANDARD",
+    "Page 12", "10"); a dotted clause number ("3.26", "5.1 General") is kept as it is."""
+    return _PAGE_NUMBER.sub(
+        lambda m: "#" + (" " if m.group().endswith(" ") else ""),
+        line.lower().strip(),
+        count=1,
+    )
 
 
 def _repeated_lines(text_of_pages: list[tuple[int, str]]) -> frozenset[str]:

@@ -368,3 +368,38 @@ def test_the_title_still_identifies_a_standard_when_it_is_exactly_the_label():
         )
     run = _run(_document("sheet.pdf", ["x"]), [std])
     assert standard_clause_page.locate(run, "API 520-I", "3.26") == (std, 1)
+
+
+def test_repeated_line_shapes_of_a_scanned_book_are_not_dropped_as_headers():
+    """A lone clause number on its own line and repeated titles are headings, not headers:
+    only a line that repeats with a plain page number is a running header."""
+    clauses = ["3.1", "3.2", "3.26", "3.49", "3.50", "3.51"]
+    titles = [
+        "accumulation",
+        "back pressure",
+        "maximum allowable working pressure",
+        "set pressure",
+        "blowdown",
+        "burst pressure",
+    ]
+    pages = [
+        f"{c}\n{t}\n  the definition of the term.\n" for c, t in zip(clauses, titles)
+    ]
+    pages += [f"{n}.1 General\nthe general part {n}.\n" for n in (4, 5, 6, 7)]
+    std, run = _world(pages)
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (std, 3)
+    assert standard_clause_page.locate(run, "API 520-I", "3.49") == (std, 4)
+    assert standard_clause_page.locate(run, "API 520-I", "5.1") == (std, 8)
+    # and a header with a page number is still dropped
+    assert standard_clause_page._line_key("Page 12") == standard_clause_page._line_key(
+        "Page 13"
+    )
+    assert standard_clause_page._line_key(
+        "4 API STANDARD 520, PART I"
+    ) == standard_clause_page._line_key("5 API STANDARD 520, PART I")
+    assert standard_clause_page._line_key("3.26") != standard_clause_page._line_key(
+        "3.27"
+    )
+    assert standard_clause_page._line_key(
+        "5.1 General"
+    ) != standard_clause_page._line_key("6.1 General")
