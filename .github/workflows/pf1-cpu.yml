@@ -250,14 +250,21 @@ jobs:
         run: |
           echo "--- ollama.log (last 80)"; tail -n 80 "$RUNNER_TEMP/ollama.log" || true
           echo "--- backend.log (last 80)"; tail -n 80 "$RUNNER_TEMP/backend.log" || true
+          echo "--- run record (status, error)"
+          python - <<'PY' || true
+          import glob, json, os
+          for f in sorted(glob.glob(os.environ["WORK"] + "/runs/*.run.json")):
+              r = json.load(open(f))
+              print(r.get("status"), r.get("error"))
+          PY
           echo "--- page ledger (page, facts_status, facts_reason)"
           python - <<'PY' || true
           import os, sqlite3
           path = os.environ["WORK"] + "/pf1.sqlite"
           con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
           rows = con.execute(
-              "SELECT page, facts_status, substr(coalesce(facts_reason, ''), 1, 160)"
-              " FROM page_ledger ORDER BY document_id, page"
+              "SELECT page_no, facts_status, substr(coalesce(facts_reason, ''), 1, 160)"
+              " FROM page_ledger ORDER BY document_id, page_no"
           )
           for row in rows:
               print(row)
