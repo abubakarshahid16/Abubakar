@@ -29,6 +29,9 @@ def _req(text: str, **more) -> dict:
         "Parts used after service shall be cleaned.",
         "Valves shall be checked prior to and while in service.",
         "Bearings shall be lubricated until service.",
+        "The unit is suitable for service after the test.",
+        "Equipment shall be ready for service.",
+        "Coatings released for application shall be logged.",
     ],
 )
 def test_a_function_word_before_service_names_no_condition(text):
@@ -43,6 +46,9 @@ def test_a_function_word_before_service_names_no_condition(text):
         ("Machines for offshore application shall be painted.", ["offshore"]),
         ("Pumps in fire water service shall be listed.", ["fire water"]),
         ("Seal flush shall follow Plan 32.", ["plan 32"]),
+        # only the words AFTER the last linking word name the service
+        ("Parts used before lethal service shall be marked.", ["lethal"]),
+        ("Seals subjected to sour service shall be of alloy 625.", ["sour"]),
     ],
 )
 def test_a_real_service_is_still_named(text, named):

@@ -88,23 +88,29 @@ _GENERIC = frozenset(
     }
 )
 
-#: Prepositions, conjunctions, auxiliaries and participles that join words but name no
-#: service: "put INTO service", "inspected BEFORE service", "the FOLLOWING application",
-#: "maintained DURING service". A phrase whose word right before "service" or
-#: "application" is one of these names nothing (order 228.5).
-_FUNCTION_WORDS = frozenset(
+#: Order 228.5: linking words (prepositions, conjunctions, auxiliaries, participles). Only the
+#: words AFTER the last one in the phrase before "service" / "application" can name a service:
+#: "put into service", "inspected before service", "suitable for service", "maintained during
+#: service" name none; "used before lethal service" names "lethal". Without this a sentence was
+#: held as "applies only to 'into'" (owner's walk-through: 17 requirements) [found-on].
+_BREAK = frozenset(
     {
         "into",
         "onto",
         "upon",
         "before",
         "after",
+        "prior",
         "during",
+        "throughout",
         "within",
         "without",
         "until",
         "while",
+        "whilst",
         "since",
+        "once",
+        "then",
         "through",
         "across",
         "around",
@@ -128,11 +134,11 @@ _FUNCTION_WORDS = frozenset(
         "must",
         "may",
         "than",
-        "then",
         "also",
         "only",
         "per",
         "via",
+        "for",
         "of",
         "in",
         "on",
@@ -143,9 +149,21 @@ _FUNCTION_WORDS = frozenset(
         "is",
         "are",
         "was",
+        "were",
         "be",
+        "it",
     }
 )
+
+
+def _after_last_break(phrase: str) -> str:
+    """The words of `phrase` after its last linking word ("" when it ends in one)."""
+    words = phrase.split()
+    for i in range(len(words) - 1, -1, -1):
+        if words[i].casefold() in _BREAK:
+            return " ".join(words[i + 1 :])
+    return phrase
+
 
 _PLAN = re.compile(r"\bplan\s+(\d{1,2}[a-z]?)\b", re.IGNORECASE)
 _NAMED = re.compile(
@@ -184,12 +202,6 @@ def _significant(phrase: str) -> list[str]:
     ]
 
 
-def _names_nothing(phrase: str) -> bool:
-    """The word right before "service" / "application" is a function word."""
-    words = re.findall(r"[a-z][a-z\-]+", phrase.casefold())
-    return bool(words) and words[-1] in _FUNCTION_WORDS
-
-
 def named_conditions(requirement: dict) -> list[str]:
     """What the sentence says it applies to, as the words it used ("Plan 32",
     "<words> service"); [] when it names none."""
@@ -197,9 +209,8 @@ def named_conditions(requirement: dict) -> list[str]:
     found = [f"plan {m.group(1)}".casefold() for m in _PLAN.finditer(text)]
     for pattern in (_NAMED, _DUTY):
         for m in pattern.finditer(text):
-            if pattern is _NAMED and _names_nothing(m.group(1)):
-                continue
-            words = _significant(m.group(1))
+            phrase = _after_last_break(m.group(1)) if pattern is _NAMED else m.group(1)
+            words = _significant(phrase)
             if words:
                 found.append(" ".join(words))
     return list(dict.fromkeys(found))
