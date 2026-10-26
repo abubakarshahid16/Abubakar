@@ -190,3 +190,20 @@ def test_the_review_job_settles_the_drafts_after_the_ai_check_and_never_fails_on
 
     monkeypatch.setattr(ai_check_drafts, "settle", boom)
     review_jobs._ai_check(RUN, frozenset({SUB}), [])  # the review stands
+
+
+def test_the_decide_step_counts_drafts_in_their_own_bucket_not_as_engineer_to_check():
+    from app import review_trace
+
+    findings = [
+        {"compliance_status": None, "origin": "ai_engineering_check"},
+        {"compliance_status": None, "origin": "web_standard_check"},
+        {"compliance_status": "NEEDS_ENGINEER_REVIEW", "origin": None},
+        {"compliance_status": None, "origin": None},
+    ]
+    counts = review_trace._status_counts(findings)
+    assert counts["NEEDS_ENGINEER_REVIEW"] == 1
+    assert counts[ai_check_drafts.DRAFT_BUCKET] == 2
+    assert (ai_check_drafts.DRAFT_BUCKET, ai_check_drafts.BUCKET_LABEL) in (
+        review_trace._DECISIONS
+    )

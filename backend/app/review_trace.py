@@ -51,8 +51,8 @@ STEPS = ("READ", "CLEAN", "EQUIPMENT", "STANDARDS", "CHECKLIST",
 #: Statuses as the decide step names them.
 _DECISIONS = (("COMPLIANT", "meets"), ("NON_COMPLIANT", "fails"),
               ("MISSING_INFORMATION", "missing"), ("NEEDS_ENGINEER_REVIEW", "engineer"),
-              ("NOT_APPLICABLE", "n/a"), ("NOT_IN_DOCUMENT_SCOPE", "other doc"),
-              (ai_check_drafts.DRAFT_BUCKET, ai_check_drafts.BUCKET_LABEL))
+              ("NOT_APPLICABLE", "n/a"), ("NOT_IN_DOCUMENT_SCOPE", "other doc"))
+_DECISIONS += ((ai_check_drafts.DRAFT_BUCKET, ai_check_drafts.BUCKET_LABEL),)
 
 
 def _status_counts(findings: list[dict]) -> Counter:
@@ -60,7 +60,11 @@ def _status_counts(findings: list[dict]) -> Counter:
     its own named bucket, never as "engineer to check"."""
     return Counter(
         f.get("compliance_status")
-        or (ai_check_drafts.DRAFT_BUCKET if f.get("origin") in ai_check_drafts.DRAFT_ORIGINS else None)
+        or (
+            ai_check_drafts.DRAFT_BUCKET
+            if f.get("origin") in ai_check_drafts.DRAFT_ORIGINS
+            else None
+        )
         for f in findings
     )
 
