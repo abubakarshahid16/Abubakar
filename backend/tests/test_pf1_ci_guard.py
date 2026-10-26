@@ -206,3 +206,40 @@ def test_a_cpu_page_call_may_take_longer_than_the_two_minute_default_request_lim
     run = next(s["run"] for s in _steps() if s.get("name") == "Review the sheet")
     assert "--request-timeout" in run
     assert int(run.split("--request-timeout")[1].split()[0]) >= 900
+
+
+def test_every_workflow_step_that_names_a_set_folder_names_the_invented_one():
+    """Logs now print on success too (order 224.7): a runner may only ever be pointed at the
+    invented tuning folder, the one `guard.plan` accepts."""
+    import re
+
+    workflow = _workflow()
+    runs = [
+        step.get("run", "")
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+    ]
+    named = [m for run in runs for m in re.findall(r"--set\s+(\S+)", run)]
+    assert named, "no step names a set folder"
+    assert set(named) == {guard.SET_DIR.as_posix()}
+
+
+def test_the_review_job_may_run_longer_than_the_readers_own_pass_and_the_step_limit():
+    """A job timeout shorter than the 4 h reader pass (or the runner's step limit) would cut a
+    run mid-sheet and leave a half record."""
+    import re
+
+    workflow = _workflow()
+    job = workflow["jobs"]["review"]
+    backend = {s.get("name", ""): s for s in job["steps"]}[
+        "Start the backend on a fresh test database"
+    ]["env"]
+    step_limit = int(
+        re.search(
+            r"--timeout\s+(\d+)",
+            next(s["run"] for s in job["steps"] if s.get("name") == "Review the sheet"),
+        ).group(1)
+    )
+    job_seconds = int(job["timeout-minutes"]) * 60
+    assert job_seconds > float(backend["DATASHEET_AI_MAX_SECONDS"])
+    assert job_seconds > step_limit
