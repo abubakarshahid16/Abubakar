@@ -326,3 +326,19 @@ def test_held_requirements_are_grouped_by_standard_and_reason_and_leave_the_tabl
 def test_every_table_gets_a_filter_box(run_id):
     page = review_xray.render_html(review_xray.build(settings.db_path, run_id))
     assert page.count("<input class='filter'") == page.count("<table>")
+
+
+def test_a_finding_with_no_status_is_an_ai_observation_not_none(run_id):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET compliance_status = NULL WHERE review_run_id = ?",
+            (run_id,),
+        )
+    section = _by_id(run_id)["comparison"]
+    assert section["counts"] == {
+        review_xray.AI_OBSERVATION: sum(section["counts"].values())
+    }
+    assert None not in section["counts"] and "None" not in {
+        str(r[1]) for r in section["rows"]
+    }
+    assert {r[1] for r in section["rows"]} <= {review_xray.AI_OBSERVATION}

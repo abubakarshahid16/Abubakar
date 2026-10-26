@@ -27,6 +27,8 @@ from pathlib import Path
 CELL = 220
 NOT_RECORDED = "not recorded"
 #: the start of a held requirement's finding text (`held_findings.HELD_REASON`)
+#: a finding with no status is an AI observation (draft, no verdict), never "undecided"
+AI_OBSERVATION = "AI observations (draft, no verdict)"
 HELD_PREFIX = "Held, not compared with the datasheet"
 
 
@@ -503,7 +505,8 @@ def comparison(conn: sqlite3.Connection, run_id: str) -> dict:
         " ORDER BY f.compliance_status, f.standard_clause",
         (run_id,),
     ):
-        counts[f["compliance_status"]] = counts.get(f["compliance_status"], 0) + 1
+        status = f["compliance_status"] or AI_OBSERVATION
+        counts[status] = counts.get(status, 0) + 1
         why = f["ai_rationale"] or ""
         if why.startswith(HELD_PREFIX):
             reason = why[len(HELD_PREFIX) :].split(". An engineer")[0].lstrip(": ")
@@ -527,7 +530,7 @@ def comparison(conn: sqlite3.Connection, run_id: str) -> dict:
         rows.append(
             [
                 f["standard_clause"] or "",
-                f["compliance_status"],
+                status,
                 required or "(no number)",
                 offered,
                 conv,
