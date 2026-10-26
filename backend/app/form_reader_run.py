@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import sqlite3
 from collections import Counter
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from . import claims, datasheet_ai
 from .config import settings
@@ -112,10 +114,31 @@ def requirement_subjects(standard_ids: list[str] | tuple[str, ...]) -> list[str]
     ]
 
 
+#: The standards a read is made for when the caller KNOWS them (the review has
+#: just chosen them, order 211 R2); None: the latest run's, as `standards_of`.
+_READING_FOR: ContextVar[tuple[str, ...] | None] = ContextVar(
+    "reading_for", default=None
+)
+
+
+@contextmanager
+def reading_for(standard_ids):
+    """Inside this block `standards_of` answers `standard_ids`, whatever the
+    document's latest run says."""
+    token = _READING_FOR.set(tuple(dict.fromkeys(i for i in standard_ids if i)))
+    try:
+        yield
+    finally:
+        _READING_FOR.reset(token)
+
+
 def standards_of(document_id: str) -> list[str]:
-    """The standards the sheet's form is built for: the latest review run's
-    included standards. [] when the sheet has no run yet (the form is then the
-    type's own)."""
+    """The standards the sheet's form is built for: the ones named by
+    `reading_for`, else the latest review run's included standards. [] when
+    there are none yet (the form is then the type's own)."""
+    forced = _READING_FOR.get()
+    if forced is not None:
+        return list(forced)
     try:
         run = (
             connect()
@@ -362,6 +385,9 @@ def read_document(
     )
     run = as_ai_run(reading, pages, engine=engine, model=model, unavailable=None)
     run["equipment_type"] = equipment_type
+    # The requirement fields this read asked for, kept in the run's summary so
+    # a later review can tell which of its standards' fields were never asked.
+    run["asked_subjects"] = [f.name for f in fields if f.key.startswith("req_")]
     run["form_batch_size"] = int(
         settings.form_reader_batch_size
     )  # what the run asked per call
@@ -378,6 +404,7 @@ __all__ = [
     "equipment_type_of",
     "read_document",
     "reader_mode",
+    "reading_for",
     "requirement_subjects",
     "standards_of",
 ]
