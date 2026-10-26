@@ -2,13 +2,16 @@
 so an approved-and-green PR no longer waits for a person to click.
 
 The label goes ON when BOTH hold for the PR's CURRENT head:
-  (a) every check run on the head has finished green (skipped and neutral runs
-      do not count; at least one real run must have passed), and
-  (b) a comment from the repository's owner, a member or a collaborator says
-      "approved" and names that exact head, by at least the first 8 characters
-      of its sha ("approved at 42baceb9"). A comment that negates it ("not
-      approved", "unapproved", "changes requested", "approval withheld") never
-      counts, and a comment on an older head names an older sha.
+  (a) every one of REQUIRED_CHECKS is present on the head and green (a check not
+      yet created counts as pending, so a PR cannot be labelled before its tests
+      have started; skipped and neutral runs are ignored), and
+  (b) the NEWEST comment from the owner, a member or a collaborator that
+      approves or withdraws this head approves it, in the one form
+      "approved at <first 8 or more characters of the head sha>". A hedge or
+      negation in that sentence ("not yet", "will be", "once", "cannot", "was
+      ... earlier", "unapproved", "changes requested") means it is not an
+      approval, and a later comment that names the head and refuses or hedges
+      cancels an earlier approval. A comment on an older head names an older sha.
 It comes OFF the moment a new head is pushed, or a check on the head fails.
 
 LABELS ONLY. This never merges, never pushes, never edits a comment, and the
@@ -18,7 +21,9 @@ it reads comment text only through a regular expression: nothing from a
 comment reaches a shell.
 
 LIMIT, stated plainly: every session posts as the owner's account, so (b)
-cannot tell a reviewer from the author. The rule still gives what it can: the
+cannot tell a reviewer from the author: the PR's own author could post "approved at
+<sha>" once the checks are green. Only a reviewer's comment should say it; s2's
+proof before release is unchanged. The rule still gives what it can: the
 sha in the comment must be the current head, so an approval can never carry
 over a later push.
 
@@ -47,22 +52,68 @@ BAD_CONCLUSIONS = {
     "stale",
 }
 IGNORED_CONCLUSIONS = {"skipped", "neutral"}
-_APPROVED = re.compile(r"\bapproved\b", re.IGNORECASE)
-_NEGATED = re.compile(
-    r"\b(not|never|un|dis|isn'?t|wasn'?t)[\s-]*approved\b|\bapproval\s+(withheld|revoked|withdrawn)\b"
-    r"|\bchanges\s+requested\b|\brequest(ed)?\s+changes\b",
+#: The checks every pull request here always shows. "Green" needs EVERY one present
+#: and successful, because a small workflow (gitleaks) finishes in seconds while the
+#: tests have not even created their jobs. A renamed check stops the label until this
+#: list is updated: that is the safe direction.
+REQUIRED_CHECKS = (
+    "backend (pytest)",
+    "backend lint, anchors and benchmarks",
+    "backend shard 1/3",
+    "backend shard 2/3",
+    "backend shard 3/3",
+    "does the app start?",
+    "frontend (vitest + tsc)",
+    "accessibility (axe serious/critical gate)",
+    "gitleaks",
+    "no-client-data guard",
+    "dependency audit (python)",
+    "dependency audit (frontend)",
+)
+#: The ONLY form that approves: "approved at <sha>" (or "on"), the sha being the head's.
+_APPROVAL = re.compile(
+    rf"\bapproved\s+(?:at|on)\s+`?([0-9a-f]{{{MIN_SHA},40}})\b", re.IGNORECASE
+)
+#: Words that make a sentence about approval a hedge, a refusal or a withdrawal.
+_HEDGE = re.compile(
+    r"\b(not|never|yet|cannot|can'?t|won'?t|wouldn'?t|would|will|once|if|until|unless|isn'?t|wasn'?t|"
+    r"withheld|revoked|withdrawn|pending|wait|earlier|older|previous|changes\s+requested|"
+    r"request(?:ed)?\s+changes)\b|\b(?:un|dis)[\s-]*approved\b",
     re.IGNORECASE,
 )
 _SHA = re.compile(rf"\b[0-9a-f]{{{MIN_SHA},40}}\b", re.IGNORECASE)
+_SENTENCE = re.compile(r"[.;!?\n]+")
+
+
+def _names_head(text: str, head_sha: str) -> bool:
+    return any(
+        head_sha.lower().startswith(token.lower()) for token in _SHA.findall(text)
+    )
 
 
 def approves(body: str, head_sha: str) -> bool:
-    """Does this comment approve exactly this head?"""
-    text = body or ""
-    if not _APPROVED.search(text) or _NEGATED.search(text):
-        return False
+    """Does this comment approve exactly this head? Only "approved at <sha>" does,
+    with that sha the head's, in a sentence that holds no hedge or negation."""
     head = head_sha.lower()
-    return any(head.startswith(token.lower()) for token in _SHA.findall(text))
+    for sentence in _SENTENCE.split(body or ""):
+        found = _APPROVAL.search(sentence)
+        if (
+            found
+            and head.startswith(found.group(1).lower())
+            and not _HEDGE.search(sentence)
+        ):
+            return True
+    return False
+
+
+def withdraws(body: str, head_sha: str) -> bool:
+    """A comment that names this head and refuses, hedges on or withdraws approval."""
+    text = body or ""
+    return (
+        _names_head(text, head_sha)
+        and bool(_HEDGE.search(text))
+        and not approves(text, head_sha)
+    )
 
 
 def checks_state(check_runs: list[dict]) -> str:
@@ -72,9 +123,30 @@ def checks_state(check_runs: list[dict]) -> str:
     ]
     if any(run.get("conclusion") in BAD_CONCLUSIONS for run in real):
         return "red"
-    if not real or any(run.get("status") != "completed" for run in real):
+    by_name = {run.get("name"): run for run in real}
+    for name in REQUIRED_CHECKS:
+        run = by_name.get(name)
+        if run is None or run.get("status") != "completed":
+            return "pending"
+    if any(run.get("status") != "completed" for run in real):
         return "pending"
     return "green" if all(run.get("conclusion") == "success" for run in real) else "red"
+
+
+def approved_now(comments: list[dict], head_sha: str) -> bool:
+    """The newest trusted human comment that approves or withdraws THIS head decides."""
+    for c in reversed(comments):  # the API lists comments oldest first
+        if (
+            c.get("author_association") not in TRUSTED
+            or (c.get("user") or {}).get("type") == "Bot"
+        ):
+            continue
+        body = c.get("body") or ""
+        if approves(body, head_sha):
+            return True
+        if withdraws(body, head_sha):
+            return False
+    return False
 
 
 def decide(
@@ -91,13 +163,7 @@ def decide(
     ):  # a new head was pushed: the old approval is void
         return "remove" if labelled else "keep"
     state = checks_state(check_runs)
-    approved = any(
-        c.get("author_association") in TRUSTED
-        and (c.get("user") or {}).get("type") != "Bot"
-        and approves(c.get("body") or "", head_sha)
-        for c in comments
-    )
-    if state == "green" and approved:
+    if state == "green" and approved_now(comments, head_sha):
         return "keep" if labelled else "add"
     if labelled and state == "red":
         return "remove"

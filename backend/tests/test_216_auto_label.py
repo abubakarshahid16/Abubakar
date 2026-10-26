@@ -21,10 +21,14 @@ spec.loader.exec_module(al)
 
 HEAD = "42baceb9d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6"
 OLD = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"
-GREEN = [
-    {"status": "completed", "conclusion": "success"},
-    {"status": "completed", "conclusion": "skipped"},
-]
+
+
+def run(name, conclusion="success", status="completed"):
+    return {"name": name, "status": status, "conclusion": conclusion}
+
+
+ALL = [run(name) for name in al.REQUIRED_CHECKS]
+GREEN = [*ALL, run("backend slow tests (nightly)", "skipped")]
 
 
 def comment(body, assoc="OWNER", kind="User"):
@@ -45,6 +49,10 @@ def test_green_and_approved_at_the_current_head_adds_the_label():
     assert (
         decide([comment("code approved at 42baceb9, nothing more from you")]) == "add"
     )
+    assert decide([comment("Approved on 42baceb9d1e2")]) == "add"
+    assert (
+        decide([comment("**approved at `42baceb9`** (re-check)")]) == "add"
+    )  # how reviewers write it
 
 
 def test_an_approval_of_an_older_head_does_not_count():
@@ -61,10 +69,33 @@ def test_an_approval_of_an_older_head_does_not_count():
         "approval withheld at 42baceb9",
         "not-approved 42baceb9",
         "42baceb9 is fine",
+        # reviewers' probes (s3, cloud) on the first version:
+        "Pushed 42baceb9, s2 approved the earlier head",
+        "#1284 reviewed; approved. head 42baceb9 is rebased",
+        "not yet approved at 42baceb9",
+        "cannot be approved at 42baceb9",
+        "will be approved once green at 42baceb9",
+        "approved at 42baceb9 -- NO WAIT, revoked",
+        "needs approval; was approved at 9f8e7d6c, now at 42baceb9",
+        "approved on 9f8e7d6c, 42baceb9 not yet reviewed",
+        "Code approved; one fix (head 42baceb9)",
     ],
 )
-def test_a_negated_or_missing_approval_never_counts(text):
+def test_a_negated_hedged_stale_or_loose_comment_never_approves(text):
     assert decide([comment(text)]) == "keep"
+
+
+def test_the_newest_trusted_comment_about_this_head_decides():
+    ask = comment("changes requested at 42baceb9")
+    ok = comment("approved at 42baceb9")
+    assert decide([ok, ask]) == "keep"  # a later refusal cancels the approval
+    assert decide([ask, ok]) == "add"  # a later approval wins
+    status = comment("s2 quick run on 42baceb9: 11 of 19 caught")
+    assert decide([ok, status]) == "add"  # a plain mention does not cancel it
+    assert decide([ok, comment("withdrawn: not approved at 42baceb9")]) == "keep"
+    assert (
+        decide([ok, comment("changes requested at 42baceb9", assoc="NONE")]) == "add"
+    )  # untrusted ignored
 
 
 def test_a_short_sha_is_not_enough():
@@ -81,14 +112,23 @@ def test_only_a_trusted_human_comment_counts():
     "runs, state",
     [
         (GREEN, "green"),
-        ([*GREEN, {"status": "in_progress", "conclusion": None}], "pending"),
-        ([*GREEN, {"status": "completed", "conclusion": "failure"}], "red"),
         (
-            [{"status": "completed", "conclusion": "skipped"}],
+            [run("gitleaks")],
             "pending",
-        ),  # nothing real ran
+        ),  # only a fast workflow has reported (s3's probe)
+        (ALL[:-1], "pending"),  # one required check not created yet
+        ([*ALL, run("extra", status="in_progress", conclusion=None)], "pending"),
+        (
+            [
+                *ALL[:-1],
+                run(al.REQUIRED_CHECKS[-1], status="in_progress", conclusion=None),
+            ],
+            "pending",
+        ),
+        ([*ALL, run("extra", "failure")], "red"),
+        ([*GREEN[:-2], run(al.REQUIRED_CHECKS[-1], "cancelled")], "red"),
+        ([run("backend slow tests (nightly)", "skipped")], "pending"),
         ([], "pending"),
-        ([{"status": "completed", "conclusion": "cancelled"}], "red"),
     ],
 )
 def test_the_state_of_the_checks(runs, state):
@@ -96,8 +136,8 @@ def test_the_state_of_the_checks(runs, state):
 
 
 def test_approved_but_not_green_gets_no_label():
-    pending = [*GREEN, {"status": "in_progress", "conclusion": None}]
-    red = [*GREEN, {"status": "completed", "conclusion": "failure"}]
+    pending = [run("gitleaks")]
+    red = [*GREEN, run("extra", "failure")]
     assert decide([comment("approved at 42baceb9")], runs=pending) == "keep"
     assert decide([comment("approved at 42baceb9")], runs=red) == "keep"
 
