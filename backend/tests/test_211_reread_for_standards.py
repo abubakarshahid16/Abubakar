@@ -18,6 +18,7 @@ from app import (
     review_jobs,
 )
 from app.config import settings
+from app.db import connect
 from app.form_reader_fields import field_list_for
 from tests.test_p3_review_jobs import (  # noqa: F401
     W,
@@ -108,7 +109,7 @@ def test_the_sheet_is_read_once_more_for_the_chosen_standards(reads, monkeypatch
         reread_for_standards, "missing_subjects", lambda d, ids: ["Set pressure"]
     )
     out = reread_for_standards.for_review("d", frozenset({"d"}), "run-1")
-    assert out == {"subjects": 1}
+    assert out["subjects"] == 1
     assert len(reads) == 1
     assert reads[0]["standards"] == ["s1", "s2"], (
         "the reader asks for THESE standards' fields"
@@ -139,7 +140,14 @@ def test_nothing_missing_is_no_second_read(reads, monkeypatch):
 
 @pytest.mark.parametrize(
     ("name", "value"),
-    [("datasheet_ai_reader", "off"), ("datasheet_reader_mode", "rules")],
+    [
+        ("datasheet_ai_reader", "off"),
+        (
+            "datasheet_ai_reader",
+            "claude",
+        ),  # a second pass would spend the API budget twice
+        ("datasheet_reader_mode", "rules"),
+    ],
 )
 def test_with_the_model_reader_or_the_form_off_there_is_no_second_read(
     reads, monkeypatch, name, value
@@ -227,3 +235,46 @@ def test_the_job_reads_again_after_the_standards_are_chosen_and_before_the_compa
     review_jobs.claim_next(W)
     assert review_jobs.run(job_id, W) == "done"
     assert order == ["select", ("reread", world["sub"], run_id), "compare"]
+
+
+def test_the_fact_counts_before_and_after_are_kept_in_the_trace_and_the_summary(
+    reads, monkeypatch
+):
+    counts = iter([7, 6])
+    kept = []
+    monkeypatch.setattr(reread_for_standards, "current_facts", lambda d: next(counts))
+    monkeypatch.setattr(
+        reread_for_standards, "keep_counts", lambda d, c: kept.append(c)
+    )
+    monkeypatch.setattr(
+        reread_for_standards, "missing_subjects", lambda d, ids: ["Set pressure"]
+    )
+    timings = {}
+    out = reread_for_standards.for_review("d", frozenset({"d"}), "run-1", timings)
+    assert out == {"subjects": 1, "facts_before": 7, "facts_after": 6}
+    assert (
+        timings["read_again"]["facts_before"] == 7
+        and timings["read_again"]["facts_after"] == 6
+    )
+    assert kept == [{"facts_before": 7, "facts_after": 6}]
+
+
+def test_the_counts_row_keeps_what_the_read_asked_and_never_edits_history(world):  # noqa: F811
+    sub = world["sub"]
+    datasheets.record_reader_summary(
+        sub, "v1", {"engine": "ollama", "asked_subjects": ["Set pressure"]}
+    )
+    before = reread_for_standards.current_facts(sub)
+    assert before == 1  # the world's one fact
+    reread_for_standards.keep_counts(sub, {"facts_before": 1, "facts_after": 1})
+    latest = datasheets.latest_reader_summary(sub)
+    assert latest["asked_subjects"] == ["Set pressure"]
+    assert latest["facts_before"] == 1 and latest["reread_for_standards"] is True
+    rows = (
+        connect()
+        .execute(
+            "SELECT COUNT(*) FROM datasheet_reader_runs WHERE document_id = ?", (sub,)
+        )
+        .fetchone()[0]
+    )
+    assert rows == 2, "a new row; the first reading's summary is still there"

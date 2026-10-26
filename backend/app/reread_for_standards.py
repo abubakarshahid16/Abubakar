@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from . import datasheets, form_reader_run, review_trace
+from . import datasheet_ai, datasheets, form_reader_run, review_trace
 from .config import settings
 from .db import connect
 from .form_reader_fields import field_list_for, with_requirement_fields
@@ -71,28 +71,67 @@ def missing_subjects(document_id: str, standard_ids: list[str]) -> list[str]:
     return [f.name for f in with_requirement_fields(asked, needed)[len(asked) :]]
 
 
+def current_facts(document_id: str) -> int:
+    """How many current (not superseded) facts the sheet has."""
+    return (
+        connect()
+        .execute(
+            "SELECT COUNT(*) FROM submittal_facts WHERE submittal_document_id = ?"
+            " AND superseded_at IS NULL",
+            (document_id,),
+        )
+        .fetchone()[0]
+    )
+
+
+def keep_counts(document_id: str, counts: dict) -> None:
+    """A new reader-summary row (the table is append-only) = the second read's
+    summary plus the two counts, so the latest summary still says what it asked."""
+    summary = datasheets.latest_reader_summary(document_id) or {}  # makes the table
+    row = (
+        connect()
+        .execute(
+            "SELECT extractor_version FROM datasheet_reader_runs"
+            " WHERE document_id = ? ORDER BY rowid DESC LIMIT 1",
+            (document_id,),
+        )
+        .fetchone()
+    )
+    datasheets.record_reader_summary(
+        document_id,
+        row["extractor_version"] if row else None,
+        {**summary, "reread_for_standards": True, **counts},
+    )
+
+
 def for_review(
     document_id: str, allowed_document_ids, run_id: str, timings: dict | None = None
 ) -> dict | None:
     """Read the sheet again when the run's chosen standards ask for fields the
     last read did not. Returns `{"subjects": n}` when it read again, else None;
     the extra read is shown in the job's phase `timings` as `read_again`.
-    Only in the form reader's mode with the model reader on. A failure leaves
-    the first reading in place (extraction is all-or-nothing) and is logged by
-    kind only, never with document text."""
+    Only in the form reader's mode with the LOCAL model reader: with the Claude
+    reader a second pass would send the approved pages to the API twice and spend
+    the budget twice, which nobody approved. A failure leaves the first reading
+    in place (extraction is all-or-nothing) and is logged by kind only, never
+    with document text. The current-fact counts before and after are kept in the
+    reader summary and the trace, so a value the second read missed is visible."""
     if (
         form_reader_run.reader_mode() != form_reader_run.FORM
-        or str(settings.datasheet_ai_reader or "off").strip().lower() == "off"
+        or str(settings.datasheet_ai_reader or "off").strip().lower()
+        != datasheet_ai.OLLAMA
     ):
         return None
     standard_ids = chosen_standards(run_id)
     missing = missing_subjects(document_id, standard_ids)
     if not missing:
         return None
+    timings = timings if timings is not None else {}
+    before = current_facts(document_id)
     try:
         with (
             form_reader_run.reading_for(standard_ids),
-            review_trace.timed(timings if timings is not None else {}, "read_again"),
+            review_trace.timed(timings, "read_again"),
         ):
             datasheets.extract_facts(
                 document_id,
@@ -105,4 +144,7 @@ def for_review(
             "reading again for the chosen standards failed: %s", type(exc).__name__
         )
         return None
-    return {"subjects": len(missing)}
+    counts = {"facts_before": before, "facts_after": current_facts(document_id)}
+    timings["read_again"].update(counts)
+    keep_counts(document_id, counts)
+    return {"subjects": len(missing), **counts}

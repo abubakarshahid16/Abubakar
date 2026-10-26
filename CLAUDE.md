@@ -137,6 +137,8 @@ When a mistake is called out on #692, add one line here in your next PR.
 - Doorbell answered only to "urgent" (R5: any mention).
 - A pause also stopped the wake-ups, so an order was missed (order 211: pause stops work, never wake-ups).
 - Plan tasks were closed without a before/after run (order 213: close only when every acceptance line is proven on main).
+- Moved lines a mutation anchor quotes and pushed without `check_mutation_anchors.py`, so CI went red (s3, #1285; the pre-push guard now runs it).
+- Added a second model pass without asking what it costs on the Claude lane (s3, #1288; a repeat read must be local-only).
 
 ## Who does what
 
