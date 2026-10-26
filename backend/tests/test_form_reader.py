@@ -252,8 +252,10 @@ def test_the_schema_is_flat():
 def test_a_long_list_is_read_in_batches_of_at_most_25():
     fields = form_reader_fields.field_list_for("Pressure Safety Valve")
     assert len(fields) > 25
+    # every label printed on the page, or the filter (order 206.1) would not ask for it
+    printed = "\n".join(f"{f.name}: 1" for f in fields)
     reading, model = _read(
-        LINES, [absent(f.key) for f in fields], equipment_type="Pressure Safety Valve"
+        printed, [absent(f.key) for f in fields], equipment_type="Pressure Safety Valve"
     )
     assert len(model.calls) == 4  # two batches, two runs each
     assert all(

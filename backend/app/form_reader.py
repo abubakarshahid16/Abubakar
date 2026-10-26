@@ -148,6 +148,17 @@ def label_in_quote(f: Field, printed: str, rules: dict) -> bool:
     return any(claude_datasheet._field_in_quote(s, printed) for s in (f.name, *f.synonyms))
 
 
+def label_on_page(f: Field, page_text: str, rules: dict) -> bool:
+    """Could ANY quote from this page carry the field's label? `verify` refuses
+    every value whose quote lacks the label (`label_in_quote`), and a quote is
+    a piece of the page, so a field whose label (role patterns, words near each
+    other, name or synonym) is printed nowhere on the page cannot be answered:
+    asking the model for it is a wasted question (#882, order 206.1). Checked on
+    the page folded the way a quote is, so the test is the gate's own, on more
+    text; a doubtful page is never skipped (the caller asks when this is True)."""
+    return label_in_quote(f, claude_datasheet.without_fill(_fold(page_text)), rules)
+
+
 def unit_kind_of(unit: str, rules: dict) -> str | None:
     """The unit kind a unit spelling belongs to, from the reference data's
     unit lists first, then `claims`' dimension table. None when unknown."""
@@ -360,7 +371,11 @@ def _page_skip(reading: FormReading, text: str, started: float, max_seconds: flo
 def _read_page(reading: FormReading, page: int, text: str, model_call, rules: dict, runs: int,
                batch_size: int, found: dict, absent: Counter) -> None:
     errors: list[Reason] = []
-    groups = batches(reading.fields, batch_size)
+    asked = [f for f in reading.fields if label_on_page(f, text, rules)]
+    kept = {f.key for f in asked}
+    # a field whose label is not printed on this page is absent from it
+    absent.update(f.key for f in reading.fields if f.key not in kept)
+    groups = batches(asked, batch_size)
     for group in groups:
         try:
             facts, rejected, gone, err = read_batch(
