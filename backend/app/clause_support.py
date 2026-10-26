@@ -92,7 +92,7 @@ _GENERIC = frozenset(
 #: words AFTER the last one in the phrase before "service" / "application" can name a service:
 #: "put into service", "inspected before service", "suitable for service", "maintained during
 #: service" name none; "used before lethal service" names "lethal". Without this a sentence was
-#: held as "applies only to 'into'" (owner's I-06 walk-through: 17 requirements).
+#: held as "applies only to 'into'" (owner's walk-through: 17 requirements) [found-on].
 _BREAK = frozenset(
     {
         "into", "onto", "upon", "before", "after", "prior", "during", "throughout", "within",
