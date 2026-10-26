@@ -206,17 +206,19 @@ def test_the_crs_reference_of_a_checklist_row_names_the_clause_and_page_only_whe
         "requirement_source_text": "Datasheet check PSV-02: The MAWP is stated.",
         "standard_clause": "API 520-I 3.26",
     }
+    # order 228.1: the source the item cites, never the program's check id
     assert crs_mapping._standard_reference({**row, "standard_page": 14}) == (
-        "Datasheet check PSV-02: API 520-I 3.26 (p.14)"
+        "API 520-I 3.26 (p.14)"
     )
-    # not located: the contractor copy says nothing about a missing page
+    # not located: the clause alone, no page is claimed
     assert (
         crs_mapping._standard_reference({**row, "standard_page": None})
-        == "Datasheet check PSV-02"
+        == "API 520-I 3.26"
     )
+    # no source at all: no id either
     assert crs_mapping._standard_reference(
         {**row, "standard_clause": None, "standard_page": 14}
-    ) == ("Datasheet check PSV-02")
+    ) == ("Datasheet check")
 
 
 def test_two_applicable_standards_that_are_both_the_label_are_not_picked_between():

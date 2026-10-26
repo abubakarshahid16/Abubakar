@@ -46,7 +46,9 @@ def test_a_calculation_row_carries_its_numbers():
     rows = crs_mapping.build_crs_rows([CALC], [], "psv.pdf")
     row = next(r for r in rows if r["finding_id"] == "f2")
     assert "calculated by API 520-I 5.6.3" in row["reasoning"]
-    assert "Clause: Datasheet check PSV-C01" in row["reasoning"]
+    # order 228.1: the check's id is internal; it is kept here, not in the Standard Reference
+    assert "Check: PSV-C01" in row["reasoning"]
+    assert "PSV-C01" not in row["standard_reference"]
 
 
 def test_every_machine_row_carries_its_chain():

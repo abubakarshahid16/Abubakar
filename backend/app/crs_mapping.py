@@ -182,7 +182,7 @@ def _ai_relates_to(finding: dict) -> str:
     """The standard NAME an AI item relates to, as `ai_engineering_check`
     stored it on the rationale ("... Relates to: <name>.")."""
     text = finding.get("ai_rationale") or ""
-    name = text.split("Relates to: ", 1)[1].rstrip(".") if "Relates to: " in text else ""
+    name = crs_reference.relates_to(text)
     return "" if name == "no standard named" else name
 
 
@@ -465,14 +465,10 @@ def _std_short(name) -> str:
 
 
 def _standard_reference(finding: dict) -> str:
-    """The Standard Reference column: "SAES-D-901 cl. 4.3 (p.1)", or "Datasheet
-    check DS-M1" for a kind B check (+ its clause and page when located, order 225)."""
+    """The Standard Reference column: "SAES-D-901 cl. 4.3 (p.1)"; a kind B check cites
+    its checklist source the same way (order 228.1)."""
     if finding.get("origin") == _DATASHEET_ORIGIN:
-        m = re.match(r"(Datasheet check [A-Z]+-[A-Z0-9]+)",
-                     finding.get("requirement_source_text") or finding.get("ai_rationale") or "")
-        check = m.group(1) if m else "Datasheet check"
-        cited, page = finding.get("standard_clause"), finding.get("standard_page")
-        return f"{check}: {cited} (p.{page})" if cited and page else check
+        return crs_reference.check_reference(finding)
     std = _std_short(finding.get("standard_name") or finding.get("standard_document_id"))
     if not std:
         return ""
@@ -537,6 +533,7 @@ def reasoning_text(group: list[dict]) -> str:
         reference = _standard_reference(f)
         if reference:
             bits.append(f"Clause: {reference}")
+        bits.extend(crs_reference.internal_bits(f))
         status = f.get("compliance_status")
         if status:
             bits.append(f"Result: {_RESULT_WORDS.get(status, status)}")

@@ -104,7 +104,7 @@ def _drafts_text(cm, group: list[dict]) -> tuple[str, str]:
         return drafts[0], ""
     numbered = " ".join(f"({i}) {d}" for i, d in enumerate(distinct.values(), 1))
     note = f"{len(distinct)} drafts about this field differ; all are kept."
-    return f"{note} {numbered}", note
+    return numbered, note  # the note is the screen's action line, never the comment (228.3)
 
 
 def row_extras(finding: dict) -> dict:

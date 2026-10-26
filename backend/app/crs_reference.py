@@ -59,3 +59,50 @@ def edition_words(finding: dict, name: str) -> str:
         return f" ({NOT_RECORDED})"
     present = re.search(rf"(?<!\d){re.escape(edition)}(?!\d)", name)
     return "" if present else f" ({edition})"
+
+
+def check_reference(finding: dict) -> str:
+    """A kind B (datasheet check) row's Standard Reference (order 228.1): the source its
+    checklist item cites, "API 520-I 3.20 (p.12)" with the page once located. A check with no
+    source prints "Datasheet check" and nothing else; its program id is internal."""
+    cited, page = finding.get("standard_clause"), finding.get("standard_page")
+    if not cited:
+        return "Datasheet check"
+    return f"{cited} (p.{page})" if page else str(cited)
+
+
+def check_id(finding: dict) -> str:
+    """ "PSV-14" of a kind B check: the program's own id, for the internal copy only."""
+    found = re.match(
+        r"Datasheet check ([A-Z]+-[A-Z0-9]+)",
+        finding.get("requirement_source_text") or finding.get("ai_rationale") or "",
+    )
+    return found.group(1) if found else ""
+
+
+def engine_of(finding: dict) -> str:
+    """The engine an AI draft says wrote it ("... Written by <engine>[,.] ..."): internal only."""
+    found = re.search(
+        r"Written by (\S+?)\.?(?:,|\s|$)", finding.get("ai_rationale") or ""
+    )
+    return found.group(1).rstrip(",") if found else ""
+
+
+def relates_to(rationale: str) -> str:
+    """The standard name after "Relates to: ", without the engine sentence that may follow."""
+    if "Relates to: " not in rationale:
+        return ""
+    return rationale.split("Relates to: ", 1)[1].split(" Written by ")[0].rstrip(".")
+
+
+def internal_bits(finding: dict) -> list[str]:
+    """What the INTERNAL reasoning cell keeps of a row's program-side names (order 228.1/228.2):
+    the check's id and the engine that wrote a draft."""
+    return [
+        text
+        for text in (
+            f"Check: {check_id(finding)}" if check_id(finding) else "",
+            f"Written by: {engine_of(finding)}" if engine_of(finding) else "",
+        )
+        if text
+    ]

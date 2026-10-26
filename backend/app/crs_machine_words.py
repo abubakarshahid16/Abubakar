@@ -71,6 +71,8 @@ DOC_ID = re.compile(r"\bdoc_[0-9a-f]{12}\b")
 #:  no field read from / validation state / page reader / automatic result /
 #:      engineer to tick / this engine - the program's own account of how it read or decided
 #:      (K7/K8, order 224): the engineer's cell to read, not the contractor's
+#:  this engine can evaluate / drafts about this field differ / blanks, one answer / places,
+#:      one answer / model-assigned field name - the same, found on the I-06 run (order 228.3)
 PHRASES = (
     "synonym table",
     "containment match",
@@ -86,6 +88,11 @@ PHRASES = (
     "engineer to tick",
     "this engine reads",
     "this engine cannot",
+    "this engine can evaluate",
+    "drafts about this field differ",
+    "blanks, one answer",
+    "places, one answer",
+    "model-assigned field name",
 )
 
 
