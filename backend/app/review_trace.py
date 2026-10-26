@@ -245,15 +245,58 @@ PHASE_OF = {"READ": "read", "CLEAN": "read", "EQUIPMENT": "read", "STANDARDS": "
             "COVERAGE": "compare", "CODE": "compare", "CRS": "checks"}
 
 
+# ------------------------------------------------------- live lines (order 218)
+
+def _console() -> None:
+    """The console handler of the `review.debug` logger, once."""
+    if not log.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        log.addHandler(handler)
+    log.setLevel(logging.INFO)
+
+
+def live(line: str) -> None:
+    """One line to the backend console AS IT HAPPENS, only with `REVIEW_DEBUG`
+    on (this machine's console; lines may carry document values). Never raises."""
+    if not settings.review_debug:
+        return
+    try:
+        _console()
+        log.info(line)
+    except Exception:  # a debug line never breaks a review
+        logging.getLogger(__name__).warning("review debug line not printed", exc_info=True)
+
+
+def _label(phase: str) -> str:
+    """`[1,2,3/10 READ,CLEAN,EQUIPMENT]`: the numbered steps a phase covers."""
+    steps = [(i, s) for i, s in enumerate(STEPS, 1) if PHASE_OF.get(s) == phase]
+    return (f"[{','.join(str(i) for i, _ in steps)}/{len(STEPS)} "
+            f"{','.join(s for _, s in steps)}]") if steps else f"[{phase}]"
+
+
+def page_line(page_no: int, where: tuple[int, int] | None, out: dict, seconds: float,
+              model_call, engine: str | None) -> None:
+    """One line when the datasheet reader finishes a page: how many values
+    the AI found, how long it took, and the model that ran."""
+    total = f" of {where[1]}" if where else ""
+    model = getattr(model_call, "model", None) or engine or "unknown"
+    found = len(out.get("accepted") or [])
+    result = f"read failed: {out['error']}" if out.get("error") else f"{found} values"
+    live(f"[1/{len(STEPS)} READ] page {page_no}{total}: {result}, {seconds:.1f} s, model={model}")
+
+
 @contextmanager
 def timed(timings: dict, phase: str):
     """Record when a phase of the review job started and how long it took -
     also when it raised (the trace then shows how far the run got)."""
     started, clock = datetime.now(UTC).isoformat(timespec="seconds"), time.monotonic()
+    live(f"{_label(phase)} started")
     try:
         yield
     finally:
         timings[phase] = {"started_at": started, "seconds": round(time.monotonic() - clock, 3)}
+        live(f"{_label(phase)} done in {timings[phase]['seconds']:.1f} s")
 
 
 def ensure_schema() -> None:
@@ -345,11 +388,7 @@ def emit(review_run_id: str, scope) -> list[str] | None:
         return None
     try:
         lines = render(build(review_run_id, scope), detail=settings.review_debug_detail)
-        if not log.handlers:
-            handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter("%(message)s"))
-            log.addHandler(handler)
-        log.setLevel(logging.INFO)
+        _console()
         for line in lines:
             log.info(line)
         folder = debug_dir()

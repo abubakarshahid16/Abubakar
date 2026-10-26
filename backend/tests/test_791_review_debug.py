@@ -51,12 +51,16 @@ def test_debug_on_prints_every_step_to_the_console_and_the_run_file(world, monke
         run_id = _finished_run(world)
     finally:
         logging.getLogger(review_trace.LOGGER_NAME).removeHandler(capture)
-    steps = [line for line in capture.lines if line.startswith("[")]
+    # Order 218: live lines (a phase started / done, a page read) share this logger and come BEFORE
+    # the end-of-review block, which is what the file holds.
+    first = next(i for i, line in enumerate(capture.lines) if line.startswith("=== REVIEW"))
+    block = capture.lines[first:]
+    steps = [line for line in block if line.startswith("[")]
     assert [line.split("]")[0].split(" ", 1)[1] for line in steps] == list(review_trace.STEPS)
-    assert capture.lines[0].startswith(f"=== REVIEW {run_id}")
+    assert block[0].startswith(f"=== REVIEW {run_id}")
     assert any("fails 1" in line for line in steps), "the decide step names the verdict"
     log_file = review_trace.debug_dir() / f"review-{run_id}.log"
-    assert log_file.read_text(encoding="utf-8").splitlines() == capture.lines
+    assert log_file.read_text(encoding="utf-8").splitlines() == block
 
 
 def test_detail_adds_one_line_per_item(world, monkeypatch):
