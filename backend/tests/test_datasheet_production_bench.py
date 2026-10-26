@@ -115,15 +115,14 @@ def _form_and_merge_calls(reading: dict, merge_calls: int) -> int:
     """Production's default reader (#882, DATASHEET_READER_MODE=form) makes two
     passes: the form reader and the merge reader (`datasheet_ai.read_pages`, two
     runs of each page). The form reader asks only the fields whose label is
-    printed on the page (#1280), and runs each question `form_reader_runs`
-    times, so its calls are the `questions_asked` it reports: a page whose
-    labels are not printed there costs it no call at all. A form page is a call
-    whether it was read or failed: the stand-in models here answer the merge
-    reader's shape only, so the form's page fails (`model_malformed`) and the
-    facts come from the merge pass."""
+    printed on the page (#1280), in batches, and its report counts a question
+    per run (`questions_asked` = batches x `read_form(runs=2)`). The stand-in
+    models here answer the merge reader's shape only, so every form batch FAILS
+    on its first run and `_runs` stops there: a batch costs ONE call. A page
+    whose labels are not printed costs the form reader no call at all."""
     ai = reading["ai_reader"]
     assert ai["reader"] == "form_reader" and ai["form"]["fields"] > 0
-    return merge_calls + ai["form"]["questions_asked"]
+    return merge_calls + ai["form"]["questions_asked"] // 2
 
 
 @pytest.mark.slow
