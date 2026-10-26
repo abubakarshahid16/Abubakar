@@ -19,10 +19,13 @@ from app import classification, db, ingest
 from app.config import settings
 from app.db import connect
 
-HOOKS = ("_queue_extraction_if_standard", "_extract_facts_if_contractor_submittal",
+# Order 211 (audit R1): the classifiers run BEFORE the facts are read, so the
+# reader knows what the sheet is (`test_211_classify_before_read.py`).
+HOOKS = ("_queue_extraction_if_standard",
          "_classify_equipment_type_if_contractor_submittal",
-         "_classify_metadata_if_contractor_submittal", "_refresh_page_ledger")
-CLASSIFIERS = HOOKS[2:4]
+         "_classify_metadata_if_contractor_submittal",
+         "_extract_facts_if_contractor_submittal", "_refresh_page_ledger")
+CLASSIFIERS = HOOKS[1:3]
 
 
 @pytest.fixture(autouse=True)
