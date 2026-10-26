@@ -99,6 +99,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
 | `crs_carry` | K1 (code audit 26 Oct): an issued CRS number carries the engineer's confirmation only for the words they confirmed; other words under the same number need a fresh tick (the number stays) |
 | `crs_mapping` | Write the CRS comment text |
+| `crs_page_words` | What the CRS Page/Section cell says: the datasheet page and field, or "Not found on pages 1-N" with at most three tags (order 228.4) |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
 | `crs_reply` | Read a contractor's returned Comment Resolution Sheet |
