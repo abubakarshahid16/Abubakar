@@ -4268,8 +4268,10 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
     if ai_run is None:
         return {"engine": "off", "pages": len(pages), **extra}
     from .datasheet_ai import parts_summary  # order 139
+    from .form_reader_run import refusal_summary  # order 224.9
 
     extra.update(parts_summary(ai_run))
+    extra.update(refusal_summary(ai_run, ai_stats))
     read = sorted(p for p, out in ai_run["pages"].items() if not out.get("error"))
     return {"engine": ai_run["engine"], "model": ai_run.get("model"), "pages": len(pages),
             "pages_read": len(read),
@@ -4284,9 +4286,6 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
             "conflicts": ai_stats.get("conflicts", 0), "ai_only": ai_stats.get("ai_only", 0),
             "refused_by_gate": (sum((ai_stats.get("proposals_rejected") or {}).values())
                                 + sum((ai_stats.get("dropped") or {}).values())),
-            "rejected_fields": ai_run.get("rejected_fields") or {},
-            "refused_by_reason": {**(ai_stats.get("proposals_rejected") or {}),
-                                  **{f"dropped: {k}": n for k, n in (ai_stats.get("dropped") or {}).items()}},
             "unconfirmed": ai_stats.get("unconfirmed", 0), **extra}
 
 

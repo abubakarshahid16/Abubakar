@@ -372,6 +372,17 @@ def read_document(
     return run
 
 
+def refusal_summary(ai_run: dict, ai_stats: dict) -> dict:
+    """Order 224.9, for `datasheets.reader_summary`: the readings the code gate
+    refused BY REASON (`dropped` reasons are prefixed), and the form reader's
+    refusals by field. Counts only, never a page's words."""
+    dropped = {f"dropped: {k}": n for k, n in (ai_stats.get("dropped") or {}).items()}
+    return {
+        "refused_by_reason": {**(ai_stats.get("proposals_rejected") or {}), **dropped},
+        "rejected_fields": ai_run.get("rejected_fields") or {},
+    }
+
+
 __all__ = [
     "FORM",
     "MERGE",
@@ -382,6 +393,7 @@ __all__ = [
     "equipment_type_of",
     "read_document",
     "reader_mode",
+    "refusal_summary",
     "requirement_subjects",
     "standards_of",
 ]

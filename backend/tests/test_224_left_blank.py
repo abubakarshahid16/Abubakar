@@ -29,6 +29,13 @@ from tests.test_form_reader import (  # noqa: F401
 )
 
 PAGE = "EQUIPMENT DATASHEET - CENTRIFUGAL PUMP\nRated flow: By Contractor\nDesign pressure: 23.5 barg\n"
+DP_BLANK = row(
+    "design_pressure",
+    "By Contractor",
+    "",
+    "Design pressure By Contractor",
+    "left_blank",
+)
 BLANK = row(
     "rated_flow", "By Contractor", "", "Rated flow: By Contractor", "left_blank"
 )
@@ -139,17 +146,20 @@ def test_end_to_end_the_blank_is_stored_as_a_blank_fact_the_checklist_reads(
     doc = _ingest(
         _datasheet_pdf(
             storage / "d.pdf",
-            [("Rated flow", "By Contractor"), ("Design pressure", "23.5 barg")],
+            [("Design pressure", "By Contractor"), ("Design temperature", "120 C")],
         )
     )
     monkeypatch.setattr(
         datasheet_ai,
         "model_call_for",
-        lambda engine=None, packet_shape=None: (FakeModel({1: [[BLANK]]}), None),
+        lambda engine=None, packet_shape=None: (FakeModel({1: [[DP_BLANK]]}), None),
     )
-    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    result = datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    assert result["ai_reader"]["form"]["filled"] >= 1, (
+        "the form reader's blank, not only the rules'"
+    )
     facts = datasheets.list_facts(doc, allowed_document_ids=frozenset({doc}))
-    blanks = [f for f in facts if f["field_name"] == "rated flow"]
+    blanks = [f for f in facts if f["field_name"] == "design pressure"]
     assert blanks and all(f["is_blank"] for f in blanks)
     assert blanks[0]["blank_marker"].lower() == "by contractor"
 
@@ -168,3 +178,48 @@ def test_the_reader_summary_says_which_field_was_refused_and_why():
     assert summary["rejected_fields"] == {"rated_flow: blank_marker_not_proven": 1}
     assert summary["refused_by_reason"] == {"x": 2, "dropped: blank": 1}
     assert summary["refused_by_gate"] == 3
+
+
+@pytest.mark.parametrize(
+    "value, line",
+    [
+        ("", "Rated flow: By Contractor"),  # an empty value proves nothing
+        ("-", "Rated flow: 10-12 m3/h"),  # a dash inside a range
+        ("later", "Rated flow: 10 m3/h (later revision)"),  # a word inside a note
+        ("later", "Rated flow: 5 m3/h later"),  # a real value comes before the marker
+    ],
+)
+def test_a_marker_found_inside_a_real_value_never_turns_it_into_a_blank(value, line):
+    reading, _ = _read(
+        "DATASHEET\n" + line + "\n", [row("rated_flow", value, "", line, "left_blank")]
+    )
+    assert reading.facts == [], "the marker was found inside a printed value"
+    assert [r["field_key"] for r in reading.rejected if r["field_key"] == "rated_flow"]
+
+
+def test_a_dash_cell_after_the_label_alone_is_a_proven_blank():
+    page = "DATASHEET\nRated flow -\n"
+    reading, _ = _read(page, [row("rated_flow", "-", "", "Rated flow -", "left_blank")])
+    assert [f["value"] for f in reading.facts if f["field_key"] == "rated_flow"] == [
+        "-"
+    ]
+
+
+def test_the_summary_names_the_refused_field_from_a_real_read():
+    model = FakeModel(
+        {
+            1: [
+                [
+                    row(
+                        "rated_flow",
+                        "42",
+                        "",
+                        "Rated flow: By Contractor",
+                        "left_blank",
+                    )
+                ]
+            ]
+        }
+    )
+    run = form_reader_run.read_document({1: PAGE}, PUMP, model_call=model)
+    assert run["rejected_fields"]["rated_flow: blank_marker_not_proven"] == 1
