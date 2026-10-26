@@ -289,6 +289,22 @@ describe("Record the final code (S1)", () => {
     expect(decideCode).toHaveBeenCalledWith("run-1", "B", null);
     await waitFor(() => expect(onCodeRecorded).toHaveBeenCalled());
   });
+
+  it("a pick made on one run does not stay ticked when the bar switches to another run", async () => {
+    const n = numbers({ finalCodeRecorded: false });
+    const { rerender } = render(
+      <ActionBar run={RUN} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={IDLE} />);
+    await userEvent.click(screen.getByRole("button", { name: "Record the final code" }));
+    await userEvent.click(within(screen.getByTestId("ws-final-code")).getByRole("radio", { name: /B/ }));
+    expect(within(screen.getByTestId("ws-final-code")).getByRole("radio", { name: /B/ })).toBeChecked();
+
+    rerender(
+      <ActionBar run={{ ...RUN, review_run_id: "run-2" }} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={IDLE} />);
+    const box = screen.getByTestId("ws-final-code");
+    expect(within(box).getByRole("radio", { name: /B/ })).not.toBeChecked();
+    expect(screen.getAllByRole("button", { name: "Record the final code" }).at(-1)).toBeDisabled();
+    expect(decideCode).not.toHaveBeenCalled();
+  });
 });
 
 /** N2: failed requests in the bar read as plain words; the server's own
