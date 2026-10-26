@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from pathlib import Path
 
 from . import classification
 from .db import connect
@@ -50,6 +51,9 @@ _DOCUMENT_WORDS = re.compile(
     r"\b(?:data[\s\-]*sheets?|specifications?|spec|technical|engineering)\b", re.I
 )
 _NAME_WORD = re.compile(r"[A-Za-z][A-Za-z\-/&]*")
+#: A standards number in a heading ("API 610", "ISO 9001"): a family and 2+ digits.
+_STANDARD_REF = re.compile(r"\b[A-Za-z]{2,6}[\s\-]?\d{2,}\S*")
+_STOP_PATH = Path(__file__).parent / "reference" / "non_equipment_words.json"
 
 
 def heading(pages: list[dict]) -> tuple[int, str] | None:
@@ -99,24 +103,58 @@ def _is_sentence(text: str) -> bool:
     return bool(words) and sum(w.islower() for w in words) * 2 > len(words)
 
 
+def _reference() -> dict:
+    return json.loads(_STOP_PATH.read_text(encoding="utf-8"))
+
+
+def _stop_words() -> frozenset[str]:
+    """Discipline and document-kind words: never equipment (reference file)."""
+    return frozenset(w.lower() for w in _reference()["words"]) | {
+        w.lower() for w in classification._DISCIPLINE_LABELS
+    }
+
+
+def _name_of(text: str) -> str | None:
+    """The equipment words of one stretch of a heading, or None. Plain words only
+    (a word with a digit, as in "API 610" or "ISO 9001", ends the name), none of
+    the discipline / document words, one to five of them."""
+    text = _STANDARD_REF.sub(" ", text)
+    words = []
+    for token in text.split():
+        if any(ch.isdigit() for ch in token):
+            break
+        word = _NAME_WORD.fullmatch(token.strip(",;"))
+        if word is None:
+            return None
+        words.append(word.group())
+    stop = _stop_words()
+    words = [w for w in words if w.lower() not in stop]
+    if not words or len(words) > _MAX_NAME_WORDS or any(len(w) < 3 for w in words):
+        return None
+    name = " ".join(words)
+    if name.lower() in _reference()["whole_names"]:
+        return None
+    return name.title()
+
+
 def equipment_name(heading_line: str) -> str | None:
-    """The equipment a heading names: its words without the "data sheet" words
-    and without anything after "for" ("PUMP DATA SHEET FOR RECYCLE WATER" is a
-    pump). One to five plain words, else None."""
+    """The equipment a heading names, or None. Its words without the "data sheet"
+    words ("PUMP DATA SHEET FOR RECYCLE WATER" is a pump). When nothing before
+    FOR is equipment ("MECHANICAL DATA SHEET FOR CENTRIFUGAL PUMPS"), the object
+    after FOR is read the same way."""
     text = _DATA_AT_END.sub(" ", heading_line)
     text = re.sub(r"\([^)]*\)", " ", _DOCUMENT_WORDS.sub(" ", text))
     parts = re.split(r"\bfor\b", text, maxsplit=1, flags=re.I)
-    text = (
-        parts[0]
-        if re.search(r"[A-Za-z]", parts[0])
-        else (parts[1] if len(parts) > 1 else "")
-    )
-    words = _NAME_WORD.findall(text)
-    if not words or len(words) > _MAX_NAME_WORDS or any(len(w) < 3 for w in words):
-        return None
-    if all(w.upper() in classification._DISCIPLINE_LABELS for w in words):
-        return None  # "MECHANICAL DATASHEET" names a discipline, not equipment
-    return " ".join(words).title()
+    front = _name_of(parts[0])
+    if front or len(parts) < 2 or not (_stop_only(parts[0]) or not parts[0].strip()):
+        return front
+    return _name_of(parts[1])
+
+
+def _stop_only(text: str) -> bool:
+    stop = _stop_words()
+    words = [t.lower() for t in _NAME_WORD.findall(text)]
+    return bool(words) and all(w in stop for w in words)
 
 
 def _now() -> str:

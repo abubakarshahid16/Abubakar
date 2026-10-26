@@ -390,3 +390,24 @@ def test_a_heading_with_a_discipline_word_names_no_equipment():
         submittal_fill.equipment_name("CENTRIFUGAL PUMP DATA SHEET")
         == "Centrifugal Pump"
     )
+
+
+@pytest.mark.parametrize(
+    "line, expected",
+    [
+        ("MECHANICAL DATA SHEET FOR CENTRIFUGAL PUMPS", "Centrifugal Pumps"),
+        ("INSTRUMENT DATA SHEET FOR LEVEL TRANSMITTER", "Level Transmitter"),
+        ("VENDOR DATA SHEET", None),
+        ("EQUIPMENT DATA SHEET", None),
+        ("GENERAL DATA SHEET", None),
+        ("REVISION DATA SHEET", None),
+        ("SAFETY DATA SHEET", None),
+        ("MATERIAL SAFETY DATA SHEET", None),
+        ("CONTRACTOR DATA SHEET", None),
+        ("MECHANICAL EQUIPMENT DATA SHEET", None),
+        ("API 610 PUMP DATA SHEET", "Pump"),
+        ("ISO 9001 DATA SHEET", None),
+    ],
+)
+def test_the_object_after_for_and_the_stop_words(line, expected):
+    assert submittal_fill.equipment_name(line) == expected
