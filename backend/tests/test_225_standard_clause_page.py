@@ -298,3 +298,34 @@ def test_a_failure_to_attach_never_fails_the_store_and_leaves_the_findings(monke
         run, sheet, [_result("API 520-I", "3.26")], pages_read={}
     )
     assert len(written) == 1 and written[0].get("standard_page") is None
+
+
+def test_a_connection_that_cannot_be_opened_never_fails_the_store(monkeypatch):
+    """`attach` opens its own connection inside the guarded block: a database that
+    cannot be reached after the findings are written must not undo them."""
+    _std, run = _world([DEFINITIONS])
+    sheet = (
+        db.connect()
+        .execute("SELECT submittal_document_id FROM review_runs WHERE id=?", (run,))
+        .fetchone()[0]
+    )
+    real = standard_clause_page.connect
+    calls = {"after_store": False}
+
+    def flaky():
+        if calls["after_store"]:
+            raise RuntimeError("database is locked")
+        return real()
+
+    monkeypatch.setattr(standard_clause_page, "connect", flaky)
+    original_attach = standard_clause_page.attach
+
+    def attach_with_locked_db(run_id, findings):
+        calls["after_store"] = True
+        return original_attach(run_id, findings)
+
+    monkeypatch.setattr(standard_clause_page, "attach", attach_with_locked_db)
+    written = datasheet_checks.store(
+        run, sheet, [_result("API 520-I", "3.26")], pages_read={}
+    )
+    assert len(written) == 1 and written[0].get("standard_page") is None
