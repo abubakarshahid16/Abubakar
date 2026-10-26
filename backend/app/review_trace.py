@@ -315,7 +315,11 @@ STAGES = (
     ("extract", "extract_document", "extract text (OCR where a page needs it)"),
     ("chunker", "chunk_document", "chunk document"),
     ("fts_index", "index_document", "index document"),
-    ("classification", "classify_equipment_type_for_submittal", "equipment type and title"),
+    (
+        "classification",
+        "classify_equipment_type_for_submittal",
+        "equipment type and title",
+    ),
     ("classification", "classify_metadata_for_submittal", "discipline and metadata"),
     ("datasheets", "extract_facts", "read values (code readers)"),
     ("applicability", "select", "standards chosen"),
@@ -329,7 +333,11 @@ STAGES = (
 
 def _brief(result: object) -> str:
     """A short result for an END line: an item count when the result has one."""
-    return f" | {len(result)} items" if isinstance(result, (list, tuple, dict, set)) else ""
+    return (
+        f" | {len(result)} items"
+        if isinstance(result, (list, tuple, dict, set))
+        else ""
+    )
 
 
 def _stage(label: str, function):
@@ -340,7 +348,9 @@ def _stage(label: str, function):
         try:
             result = function(*args, **kwargs)
         except BaseException as exc:
-            live(f"{label}: failed after {time.monotonic() - started:.1f} s ({type(exc).__name__})")
+            live(
+                f"{label}: failed after {time.monotonic() - started:.1f} s ({type(exc).__name__})"
+            )
             raise
         live(f"{label}: done in {time.monotonic() - started:.1f} s{_brief(result)}")
         return result
@@ -355,9 +365,15 @@ def _ai_call(function):
         started = time.monotonic()
         response = function(self, packet, *args, **kwargs)
         seconds = time.monotonic() - started
-        cache = "hit" if (response.finish_reason == "cache_hit" or not response.wall_time_s) else "miss"
-        live(f"AI call | task={getattr(packet, 'step', '?')} | model={response.model_tag} | {seconds:.1f} s"
-             f" | tokens={response.tokens_in}/{response.tokens_out} | cache={cache}")
+        cache = (
+            "hit"
+            if (response.finish_reason == "cache_hit" or not response.wall_time_s)
+            else "miss"
+        )
+        live(
+            f"AI call | task={getattr(packet, 'step', '?')} | model={response.model_tag} | {seconds:.1f} s"
+            f" | tokens={response.tokens_in}/{response.tokens_out} | cache={cache}"
+        )
         return response
 
     wrapper.live_wrapped = True
@@ -369,8 +385,10 @@ def _ai_task(function):
     def wrapper(spec, text, **kwargs):
         started = time.monotonic()
         result = function(spec, text, **kwargs)
-        live(f"AI task | task={spec.name} | model={result.model} | {time.monotonic() - started:.1f} s"
-             f" | cache={'hit' if result.cached else 'miss'} | state={result.state}")
+        live(
+            f"AI task | task={spec.name} | model={result.model} | {time.monotonic() - started:.1f} s"
+            f" | cache={'hit' if result.cached else 'miss'} | state={result.state}"
+        )
         return result
 
     wrapper.live_wrapped = True
@@ -379,8 +397,12 @@ def _ai_task(function):
 
 def _wrap(holder, name: str, make) -> bool:
     function = getattr(holder, name, None)
-    if (function is None or getattr(function, "live_wrapped", False)
-            or inspect.isgeneratorfunction(function) or inspect.iscoroutinefunction(function)):
+    if (
+        function is None
+        or getattr(function, "live_wrapped", False)
+        or inspect.isgeneratorfunction(function)
+        or inspect.iscoroutinefunction(function)
+    ):
         return False
     setattr(holder, name, make(function))
     return True
@@ -395,12 +417,18 @@ def install_live(stages=None, *, providers: bool = True) -> int:
     if not settings.review_debug:
         return 0
     wrapped = 0
-    for holder, name, label in (stages if stages is not None else STAGES):
+    for holder, name, label in stages if stages is not None else STAGES:
         try:
-            module = importlib.import_module(f"app.{holder}") if isinstance(holder, str) else holder
+            module = (
+                importlib.import_module(f"app.{holder}")
+                if isinstance(holder, str)
+                else holder
+            )
             wrapped += _wrap(module, name, lambda f, label=label: _stage(label, f))
         except Exception:  # a stage that cannot be wrapped is skipped
-            logging.getLogger(__name__).warning("live trace: %s not wrapped", name, exc_info=True)
+            logging.getLogger(__name__).warning(
+                "live trace: %s not wrapped", name, exc_info=True
+            )
     if providers:
         try:
             from . import ai_task_runner, reasoning_provider
@@ -409,8 +437,12 @@ def install_live(stages=None, *, providers: bool = True) -> int:
             wrapped += _wrap(reasoning_provider.ClaudeProvider, "reason", _ai_call)
             wrapped += _wrap(ai_task_runner, "run_task", _ai_task)
         except Exception:  # the stage lines still work
-            logging.getLogger(__name__).warning("live trace: providers not wrapped", exc_info=True)
-    live(f"live trace on: {wrapped} functions followed; this file: {debug_dir() / LIVE_FILE}")
+            logging.getLogger(__name__).warning(
+                "live trace: providers not wrapped", exc_info=True
+            )
+    live(
+        f"live trace on: {wrapped} functions followed; this file: {debug_dir() / LIVE_FILE}"
+    )
     return wrapped
 
 
