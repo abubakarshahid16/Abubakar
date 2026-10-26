@@ -35,7 +35,7 @@ import re
 from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, severity_rule
-from .rule_eval import same_value_key as _key
+from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
 

@@ -31,4 +31,27 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="trailing_note",
         tags=("pr1304", "datasheet_checks"),
     ),
+    Mutation(
+        id="M1304-03",
+        phase=1304,
+        description="the field a checklist item reads is told apart by its printed text again",
+        path=_M,
+        anchor="{_key(f) for f in found}",
+        replacement="{_shown(f) for f in found}",
+        target=_T,
+        keyword="checklist_item_reads",
+        tags=("pr1304", "datasheet_checks"),
+    ),
+    Mutation(
+        id="M1304-04",
+        phase=1304,
+        description="a note that changes the meaning (a condition, a bound, a negation) is collapsed into one value",
+        path=APP / "same_value.py",
+        anchor="    if _QUALIFIER.search(around):",
+        replacement="    if False:",
+        target=_T,
+        keyword="changes_the_meaning",
+        tags=("pr1304", "datasheet_checks"),
+    ),
 )
+
