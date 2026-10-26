@@ -43,7 +43,17 @@ describe("the standard link on a row", () => {
     expect(screen.queryByText("standard page not located")).toBeNull();
   });
 
-  it("a clause with no located page says so and offers no invented page", () => {
+  it("a checklist clause that was not located (no standard, no page stored) says so", () => {
+    render(
+      <FindingDetail
+        finding={finding({ standard_page: null, standard_document_id: null })} documents={[SUB]} onChanged={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("standard page not located")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open (the )?standard/ })).toBeNull();
+  });
+
+  it("a requirement row whose standard is known but whose page is not says so and offers no invented page", () => {
     render(<FindingDetail finding={finding({ standard_page: null })} documents={[SUB, STD]} onChanged={vi.fn()} />);
     expect(screen.getByText("standard page not located")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open the standard" })).toBeInTheDocument();

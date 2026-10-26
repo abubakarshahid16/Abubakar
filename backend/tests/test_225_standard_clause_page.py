@@ -44,7 +44,7 @@ def temp_storage(tmp_path, monkeypatch):
     db.init_db()
     submittal_review.ensure_schema()
     review_mod.ensure_schema()
-    standard_clause_page._page_of.cache_clear()
+    standard_clause_page._pages_of.cache_clear()
     yield
     db.reset_connection()
 
@@ -223,3 +223,49 @@ def test_two_applicable_standards_that_are_both_the_label_are_not_picked_between
     second = _document("API 520-I (copy).pdf", [DEFINITIONS])
     run = _run(_document("sheet.pdf", ["x"]), [first, second])
     assert standard_clause_page.locate(run, "API 520-I", "3.26") == (None, None)
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "see the pressure stated in\n3.26 shall be used for the test.\n",  # a wrapped cross-reference
+        "Table 4 limits\n3.26 mm\n3.27 mm\n",  # a table value
+        "Contents\n3.26 Maximum allowable working pressure\n14\n",  # a page number wrapped to the next line
+        "3.26 Maximum allowable working pressure ........ 14\n",  # dot leaders
+        "3,26 maximum allowable working pressure\n",  # OCR comma: not read as 3.26
+    ],
+)
+def test_a_line_that_only_looks_like_the_heading_is_not_the_page(page):
+    _std, run = _world([page, "no clause here\n"])
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (None, None)
+
+
+def test_a_bare_page_number_is_not_a_whole_number_clause():
+    _std, run = _world(
+        ["Page header\n10\nPump datasheet requirements\n", "8 Scope\nthe scope.\n"]
+    )
+    assert standard_clause_page.locate(run, "API 520-I", "10") == (None, None)
+    assert (
+        standard_clause_page.locate(run, "API 520-I", "8")[1] == 2
+    )  # a titled whole-number heading is found
+
+
+def test_a_heading_that_ends_in_a_number_is_still_a_heading():
+    std, run = _world(
+        ["3.26 Design to ISO 4126\nbody text.\n", "3.40 Flange Class 150\nbody.\n"]
+    )
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (std, 1)
+    assert standard_clause_page.locate(run, "API 520-I", "3.40") == (std, 2)
+
+
+def test_an_annex_clause_is_found():
+    std, run = _world(["Annex A\nA.2.1 Relief load\nbody text.\n"])
+    assert standard_clause_page.locate(run, "API 520-I", "A.2.1") == (std, 1)
+
+
+def test_a_contents_page_of_single_spaced_entries_is_skipped_as_a_whole():
+    contents = "Contents\n" + "".join(
+        f"3.{n} Term number {n} 1{n}\n" for n in range(20, 30)
+    )
+    std, run = _world([contents, "3.26 term number 26\nbody text.\n"])
+    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (std, 2)

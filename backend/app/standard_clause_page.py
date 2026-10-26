@@ -21,13 +21,94 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-from . import paragraph_ids, standard_ids
+from . import claims, paragraph_ids, standard_ids
 from .config import settings
 from .db import connect
 
-#: A heading line's trailing page number: a contents entry, not a heading.
-_CONTENTS_TAIL = re.compile(r"(?:\.{2,}|\s{2,}|\s)\d{1,4}\s*$")
-_DOTTED = paragraph_ids.SHAPES["dotted"]
+#: Contents entries: dot leaders, or a number after a tab or two spaces.
+_LEADER_TAIL = re.compile(r"(?:\.{2,}|\t|\s{2,})\s*\d{1,4}\s*$")
+#: Any trailing number: counted only for a whole contents PAGE, never for one line.
+_ANY_TAIL = re.compile(r"\s\d{1,4}\s*$")
+_BARE_NUMBER = re.compile(r"\d{1,4}")
+#: A numbered line that is not a heading: its first word is a function word, a
+#: modal or a unit ("3.26 shall be used", "3.26 mm", "3.26 in this clause").
+_NOT_A_TITLE = frozenset(
+    {
+        "shall",
+        "should",
+        "may",
+        "must",
+        "will",
+        "can",
+        "could",
+        "would",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "has",
+        "have",
+        "had",
+        "do",
+        "does",
+        "to",
+        "in",
+        "of",
+        "and",
+        "or",
+        "the",
+        "a",
+        "an",
+        "for",
+        "with",
+        "per",
+        "at",
+        "by",
+        "from",
+        "as",
+        "if",
+        "it",
+        "its",
+        "that",
+        "this",
+        "these",
+        "those",
+        "which",
+        "when",
+        "where",
+        "while",
+        "not",
+        "no",
+        "than",
+        "then",
+        "also",
+        "see",
+    }
+)
+_SHAPES = (paragraph_ids.SHAPES["dotted"], paragraph_ids.SHAPES["annex"])
+
+
+def _heading_of(line: str) -> tuple[str, str] | None:
+    """(clause id, the rest of the line) of a numbered line, else None."""
+    for shape in _SHAPES:
+        m = shape.match(line)
+        if m:
+            return m.group("id"), m.group("rest")
+    return None
+
+
+def _is_title(rest: str, clause: str) -> bool:
+    """Could `rest` be the title of heading `clause`? A word of three letters or
+    more that is no function word and no unit; a whole-number clause also needs a
+    capital (a bare page number or a running header is not a heading)."""
+    words = rest.split()
+    first = re.sub(r"[^A-Za-z]", "", words[0]) if words else ""
+    if len(first) < 3 or first.lower() in _NOT_A_TITLE or claims.unit_dimension(first):
+        return False
+    return "." in clause or rest[:1].isupper()
 
 
 def _standard_of(run_id: str, label: str) -> str | None:
@@ -55,45 +136,64 @@ def _standard_of(run_id: str, label: str) -> str | None:
     return next(iter(found)) if len(found) == 1 else None
 
 
+def _contents_page(lines: list[str]) -> bool:
+    """A contents page: most of its numbered lines end in a page number."""
+    numbered = [h for h in map(_heading_of, lines) if h]
+    ended = sum(1 for _, rest in numbered if _ANY_TAIL.search(" " + rest))
+    return len(numbered) >= 5 and ended * 2 >= len(numbered)
+
+
 def _opens_heading(lines: list[str], at: int, clause: str) -> bool:
-    """Does `clause` open a heading at line `at`? Its title on the same line, or
-    (OCR keeps them apart) the number alone and the title on the next line. A
-    title that ends in a page number is a contents entry, not a heading."""
-    m = _DOTTED.match(lines[at])
-    if m and m.group("id") == clause:
-        return not _CONTENTS_TAIL.search(m.group("rest"))
+    """Does `clause` open a heading at line `at`? Its title on the same line or,
+    when OCR keeps them apart, the number alone and the title on the next line. A
+    title with dot leaders or a tab-separated page number, or whose page number
+    wraps onto the next line, is a contents entry."""
+    here = _heading_of(lines[at])
     following = lines[at + 1] if at + 1 < len(lines) else ""
-    alone = re.fullmatch(rf"{re.escape(clause)}\.?", lines[at])
-    return bool(
-        alone
+    after = lines[at + 2] if at + 2 < len(lines) else ""
+    if here and here[0] == clause:
+        title, wrapped = here[1], following
+    elif (
+        clause == lines[at].rstrip(".")
+        and (clause[:1].isalpha() or "." in clause)
         and re.match(r"[A-Za-z]", following)
-        and not _CONTENTS_TAIL.search(following)
+    ):
+        title, wrapped = following, after
+    else:
+        return False
+    return (
+        _is_title(title, clause)
+        and not _LEADER_TAIL.search(title)
+        and not _BARE_NUMBER.fullmatch(wrapped)
     )
 
 
 def _pages_with(text_of_pages: list[tuple[int, str]], clause: str) -> set[int]:
-    """The pages where `clause` opens a heading line."""
+    """The pages where `clause` opens a heading line, contents pages left out."""
     pages: set[int] = set()
     for number, text in text_of_pages:
         lines = [ln.strip() for ln in (text or "").splitlines()]
+        if _contents_page(lines):
+            continue
         if any(_opens_heading(lines, at, clause) for at in range(len(lines))):
             pages.add(number)
     return pages
 
 
-@lru_cache(maxsize=512)
-def _page_of(standard: str, clause: str, signature: tuple) -> int | None:
-    """`signature` (page count, text size, db) is only the cache key: a changed standard is a new key."""
+@lru_cache(maxsize=64)
+def _pages_of(standard: str, signature: tuple) -> tuple:
+    """A standard's page texts, read once; `signature` (page count, text size,
+    database) is only the cache key: a changed standard is a new key."""
     del signature
-    rows = (
-        connect()
-        .execute(
-            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
-            (standard,),
-        )
-        .fetchall()
+    rows = connect().execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+        (standard,),
     )
-    pages = _pages_with([(r["page_no"], r["text"] or "") for r in rows], clause)
+    return tuple((r["page_no"], r["text"] or "") for r in rows)
+
+
+def _page_of(standard: str, clause: str, signature: tuple) -> int | None:
+    pages = _pages_with(list(_pages_of(standard, signature)), clause)
     return next(iter(pages)) if len(pages) == 1 else None
 
 
