@@ -180,6 +180,19 @@ def test_the_servers_run_with_the_macs_model_settings():
     assert "inputs.model" in backend["AI_TASK_MODEL"]
 
 
-def test_a_failed_run_prints_the_server_logs():
-    failing = [s for s in _steps() if s.get("if") == "failure()"]
-    assert failing and "backend.log" in failing[0]["run"]
+def test_every_run_prints_the_server_logs_and_the_page_ledger():
+    """Order 224.7: the 25 Oct runs "succeeded" and read 0 pages; the logs were
+    printed only on failure, so nobody saw why."""
+    shown = [s for s in _steps() if "page ledger" in s.get("name", "")]
+    assert shown and shown[0].get("if") == "always()"
+    run = shown[0]["run"]
+    assert "ollama.log" in run and "page_ledger" in run and "facts_status" in run
+
+
+def test_the_reader_is_given_the_time_a_cpu_page_call_needs():
+    """The defaults (180 s per call, 900 s per pass) cut every page call on a
+    2-core runner: 0 of 2 pages read."""
+    steps = {s.get("name", ""): s for s in _steps()}
+    backend = steps["Start the backend on a fresh test database"]["env"]
+    assert float(backend["DATASHEET_AI_TIMEOUT_SECONDS"]) >= 1500
+    assert float(backend["DATASHEET_AI_MAX_SECONDS"]) >= 14400
