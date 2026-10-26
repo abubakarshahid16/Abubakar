@@ -428,18 +428,17 @@ class Settings(BaseSettings):
     #: The queue pauses below this much free memory, so a chat answer is never
     #: starved by background work.
     ai_task_min_free_ram_gb: float = 1.5
-    #: #647 AI applicability in a review: the model PROPOSES "does not apply"
-    #: with a quoted reason; code confirms it or it stays a check. OFF by
-    #: default (a model call per requirement); at most this many per run.
+    #: #647 AI applicability: the model PROPOSES "does not apply" with a quote;
+    #: code confirms it or it stays a check. OFF by default; capped per run.
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
-    #: #141 a part of a standard limited by its own scope sentence to one
-    #: construction (`ai_applicability.division_gate`). ON (#805 rule 1); off,
-    #: nothing changes; a part not read (or past the per-run limit) is HELD.
+    #: #141 a part limited by its own scope sentence to one construction
+    #: (`ai_applicability.division_gate`). ON (#805 rule 1); off, nothing
+    #: changes; a part not read (or past the per-run limit) is HELD.
     ai_division_scope_enabled: bool = True
     ai_answer_reuse_enabled: bool = True  # order 205: off for the final client test
     ai_division_scope_max_per_run: int = 120
-    scope_type_words_rule_enabled: bool = False  # order 210 FIX 2 draft, off until the owner says yes
+    scope_type_words_rule_enabled: bool = False  # order 210 draft, off
     #: #645 clause to check: for a clause sentence with no stored limit that
     #: the review could not decide, the local model PROPOSES a check (field,
     #: limit, unit, condition, quote); code verifies every part and keeps what
@@ -1538,7 +1537,8 @@ ANSWER_AFFECTING_SETTINGS = (
     "ai_division_scope_enabled",
     "ai_answer_reuse_enabled",
 )
-ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant", "scope_type_words_rule_enabled")
+ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
+ANSWER_AFFECTING_SETTINGS += ("scope_type_words_rule_enabled",)
 
 
 def config_version() -> str:
