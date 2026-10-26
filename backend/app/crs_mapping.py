@@ -29,6 +29,7 @@ import re
 from . import (
     crs_ai_drafts,
     crs_blank_fields,
+    crs_columns,
     crs_item_series,
     method_notes,
     severity_rule,
@@ -182,7 +183,7 @@ def _ai_relates_to(finding: dict) -> str:
     """The standard NAME an AI item relates to, as `ai_engineering_check`
     stored it on the rationale ("... Relates to: <name>.")."""
     text = finding.get("ai_rationale") or ""
-    name = text.split("Relates to: ", 1)[1].rstrip(".") if "Relates to: " in text else ""
+    name = crs_columns.relates_to(text)
     return "" if name == "no standard named" else name
 
 
@@ -470,9 +471,7 @@ def _standard_reference(finding: dict) -> str:
     it used to ride in Page/Section as "SAES-D-901.pdf clause 4.3 p1 /
     submittal p1", where the contractor looks for THEIR page."""
     if finding.get("origin") == _DATASHEET_ORIGIN:
-        m = re.match(r"(Datasheet check [A-Z]+-[A-Z0-9]+)",
-                     finding.get("requirement_source_text") or finding.get("ai_rationale") or "")
-        return m.group(1) if m else "Datasheet check"
+        return crs_columns.checklist_reference(finding)
     std = _std_short(finding.get("standard_name") or finding.get("standard_document_id"))
     if not std:
         return ""
@@ -554,13 +553,14 @@ def _page_section(group: list[dict]) -> str:
     field = _field_label(f) + crs_item_series.items_suffix(group)
     tags = _items(group)
     where = (f"p.{_page_list(pages)}" if pages else "")
+    if crs_columns.not_on_the_sheet(group, pages):
+        where, tags = crs_columns.NOT_FOUND, []
     if field:
         where = f"{where} - {field}" if where else field
     if tags:
         where += f" ({', '.join(tags)})"
-    # The chunk's section heading is NOT printed here: on a ruled form it is
-    # routinely another cell's text ("3.5 RATED POWER" on the audit's pump
-    # sheet), and the page + field + tag already say where the value is.
+    # The chunk's section heading is NOT printed: on a ruled form it is often
+    # another cell's text ("3.5 RATED POWER"); page + field + tag say where.
     return where
 
 
