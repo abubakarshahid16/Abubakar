@@ -26,6 +26,8 @@ from pathlib import Path
 #: Longest cell shown; the full text stays in the database.
 CELL = 220
 NOT_RECORDED = "not recorded"
+#: the start of a held requirement's finding text (`held_findings.HELD_REASON`)
+HELD_PREFIX = "Held, not compared with the datasheet"
 
 
 def _short(value: object, limit: int = CELL) -> str:
@@ -49,9 +51,26 @@ def _rows(conn: sqlite3.Connection, sql: str, args: tuple = ()) -> list[sqlite3.
 
 
 def _section(
-    sid: str, title: str, note: str, columns: list[str], rows: list[list]
+    sid: str,
+    title: str,
+    note: str,
+    columns: list[str],
+    rows: list[list],
+    *,
+    counts: dict | None = None,
+    fold: tuple[int, str] | None = None,
 ) -> dict:
-    return {"id": sid, "title": title, "note": note, "columns": columns, "rows": rows}
+    """`counts`: label -> rows, shown above the table. `fold`: (column, value) -
+    rows with that value are shown in a closed <details> below the table."""
+    return {
+        "id": sid,
+        "title": title,
+        "note": note,
+        "columns": columns,
+        "rows": rows,
+        "counts": counts or {},
+        "fold": fold,
+    }
 
 
 def _run(conn: sqlite3.Connection, run_id: str) -> sqlite3.Row | None:
@@ -471,6 +490,8 @@ def pairing(conn: sqlite3.Connection, run_id: str) -> dict:
 def comparison(conn: sqlite3.Connection, run_id: str) -> dict:
     """7. Required against offered, and the rule that decided."""
     rows = []
+    held: dict[tuple[str, str], list[str]] = {}
+    counts: dict[str, int] = {}
     for f in _rows(
         conn,
         "SELECT f.standard_clause, sd.filename AS sfile, f.compliance_status, f.reason_code, f.ai_rationale, f.contractor_evidence_text,"
@@ -482,6 +503,14 @@ def comparison(conn: sqlite3.Connection, run_id: str) -> dict:
         " ORDER BY f.compliance_status, f.standard_clause",
         (run_id,),
     ):
+        counts[f["compliance_status"]] = counts.get(f["compliance_status"], 0) + 1
+        why = f["ai_rationale"] or ""
+        if why.startswith(HELD_PREFIX):
+            reason = why[len(HELD_PREFIX) :].split(". An engineer")[0].lstrip(": ")
+            held.setdefault((f["sfile"] or "", reason), []).append(
+                f["standard_clause"] or ""
+            )
+            continue
         required = " ".join(
             str(x)
             for x in (
@@ -507,10 +536,34 @@ def comparison(conn: sqlite3.Connection, run_id: str) -> dict:
                 _short(f["ai_rationale"], 200),
             ]
         )
+    held_rows = [
+        [
+            sfile,
+            reason,
+            len(cl),
+            ", ".join(c for c in cl[:8] if c) + (" ..." if len(cl) > 8 else ""),
+        ]
+        for (sfile, reason), cl in sorted(held.items(), key=lambda kv: -len(kv[1]))
+    ]
+    return [_comparison_section(rows, counts), _held_section(held_rows)]
+
+
+def _held_section(rows: list[list]) -> dict:
+    return _section(
+        "held",
+        "7b. Held requirements, by standard and reason",
+        "Requirements that apply but were NOT compared with the datasheet (an engineer decides). Grouped; the full list is in the run's scope ledger.",
+        ["standard", "reason held", "requirements", "first clauses"],
+        rows,
+    )
+
+
+def _comparison_section(rows: list[list], counts: dict) -> dict:
     return _section(
         "comparison",
         "7. Comparison: required, offered, verdict and the rule",
-        "'Offered, converted' shows the unit conversion the arithmetic used. The last columns are the rule that decided.",
+        "Counts per verdict first (held requirements are in 7b, but counted here). 'Offered, converted' shows the unit conversion the arithmetic used. "
+        "Rows 'not in document scope' are folded below the table.",
         [
             "clause",
             "verdict",
@@ -522,6 +575,8 @@ def comparison(conn: sqlite3.Connection, run_id: str) -> dict:
             "why",
         ],
         rows,
+        counts=dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+        fold=(1, "NOT_IN_DOCUMENT_SCOPE"),
     )
 
 
@@ -644,7 +699,7 @@ def build(db_path: Path | str, run_id: str) -> dict:
             standards(conn, run_id, outcome),
             coverage(conn, run_id, outcome),
             pairing(conn, run_id),
-            comparison(conn, run_id),
+            *comparison(conn, run_id),
         ]
         sections.append(crs(path, run_id))
         sections.append(ai_calls(conn, run_id))
@@ -658,8 +713,31 @@ _CSS = (
     "h2{font-size:16px;margin:28px 0 4px}p.note{color:#555;margin:2px 0 8px}"
     "table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:3px 6px;"
     "text-align:left;vertical-align:top}th{background:#f2f2f2}tr:nth-child(even){background:#fafafa}"
-    "nav a{margin-right:10px}.empty{color:#888}"
+    "nav a{margin-right:10px}.empty{color:#888}.counts{margin:4px 0}input.filter{margin:4px 0;width:260px}"
 )
+
+
+_JS = (
+    "document.querySelectorAll('input.filter').forEach(function(box){"
+    "box.addEventListener('input',function(){var q=box.value.toLowerCase();"
+    "var n=box.nextElementSibling;var t=n&&n.tagName=='TABLE'?n:null;if(!t)return;"
+    "t.querySelectorAll('tr').forEach(function(r,i){if(i==0)return;"
+    "r.style.display=r.textContent.toLowerCase().indexOf(q)<0?'none':'';});});});"
+)
+
+
+def _table(columns: list[str], rows: list[list]) -> str:
+    esc = html.escape
+    return (
+        "<table><tr>"
+        + "".join(f"<th>{esc(c)}</th>" for c in columns)
+        + "</tr>"
+        + "".join(
+            "<tr>" + "".join(f"<td>{esc(str(v))}</td>" for v in row) + "</tr>"
+            for row in rows
+        )
+        + "</table>"
+    )
 
 
 def render_html(report: dict) -> str:
@@ -682,18 +760,30 @@ def render_html(report: dict) -> str:
             f"<h2 id='{esc(s['id'])}'>{esc(s['title'])} <small>({len(s['rows'])})</small></h2>"
         )
         parts.append(f"<p class='note'>{esc(s['note'])}</p>")
+        if s.get("counts"):
+            parts.append(
+                "<p class='counts'>"
+                + " &middot; ".join(
+                    f"<b>{esc(str(k))}</b> {esc(str(n))}"
+                    for k, n in s["counts"].items()
+                )
+                + "</p>"
+            )
         if not s["rows"]:
             parts.append("<p class='empty'>nothing stored</p>")
             continue
+        fold = s.get("fold")
+        shown = [r for r in s["rows"] if not fold or r[fold[0]] != fold[1]]
+        folded = [r for r in s["rows"] if fold and r[fold[0]] == fold[1]]
         parts.append(
-            "<table><tr>"
-            + "".join(f"<th>{esc(c)}</th>" for c in s["columns"])
-            + "</tr>"
+            "<input class='filter' placeholder='filter rows' aria-label='filter rows'>"
         )
-        for row in s["rows"]:
+        parts.append(_table(s["columns"], shown))
+        if folded:
             parts.append(
-                "<tr>" + "".join(f"<td>{esc(str(v))}</td>" for v in row) + "</tr>"
+                f"<details><summary>{len(folded)} row(s) {esc(str(fold[1]))}</summary>"
+                + _table(s["columns"], folded)
+                + "</details>"
             )
-        parts.append("</table>")
-    parts.append("</body></html>")
+    parts.append(f"<script>{_JS}</script></body></html>")
     return "".join(parts)

@@ -126,6 +126,7 @@ def test_all_nine_sections_come_in_pipeline_order(run_id):
         "coverage",
         "pairing",
         "comparison",
+        "held",
         "crs",
         "ai",
     ]
@@ -211,6 +212,67 @@ def test_the_script_writes_one_local_page_for_a_copy_of_the_database(run_id, tmp
         == 0
     )
     text = out.read_text(encoding="utf-8")
-    assert "Review X-ray" in text and "<script>" not in text.replace(
-        "<script>alert", ""
+    assert "Review X-ray" in text
+    assert text.count("<script>") == 1, "only the page's own filter script"
+
+
+def _by_id(run_id):
+    return {s["id"]: s for s in review_xray.build(settings.db_path, run_id)["sections"]}
+
+
+def test_the_comparison_leads_with_the_count_per_verdict(run_id):
+    section = _by_id(run_id)["comparison"]
+    held = _by_id(run_id)["held"]["rows"]
+    total = sum(section["counts"].values())
+    assert total == len(section["rows"]) + sum(r[2] for r in held) > 0
+    page = review_xray.render_html(review_xray.build(settings.db_path, run_id))
+    first = page.index("class='counts'")
+    assert first < page.index("<table>", page.index("id='comparison'"))
+
+
+def test_not_in_document_scope_rows_are_folded_not_dropped(run_id):
+    report = {
+        "run_id": "r",
+        "sections": [
+            {
+                "id": "comparison",
+                "title": "t",
+                "note": "n",
+                "columns": ["a", "verdict"],
+                "rows": [["c1", "MET"], ["c2", "NOT_IN_DOCUMENT_SCOPE"]],
+                "counts": {},
+                "fold": (1, "NOT_IN_DOCUMENT_SCOPE"),
+            }
+        ],
+    }
+    page = review_xray.render_html(report)
+    open_part, _, folded = page.partition("<details>")
+    assert "c1" in open_part and "c2" not in open_part
+    assert "c2" in folded and "1 row(s) NOT_IN_DOCUMENT_SCOPE" in folded
+
+
+def test_held_requirements_are_grouped_by_standard_and_reason_and_leave_the_table(
+    run_id,
+):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET ai_rationale = ? WHERE review_run_id = ?",
+            (
+                review_xray.HELD_PREFIX
+                + ": the sentence names a service the datasheet does not state. An engineer decides.",
+                run_id,
+            ),
+        )
+    sections = _by_id(run_id)
+    assert sections["comparison"]["rows"] == []
+    rows = sections["held"]["rows"]
+    assert (
+        rows
+        and rows[0][1] == "the sentence names a service the datasheet does not state"
     )
+    assert sum(r[2] for r in rows) == sum(sections["comparison"]["counts"].values())
+
+
+def test_every_table_gets_a_filter_box(run_id):
+    page = review_xray.render_html(review_xray.build(settings.db_path, run_id))
+    assert page.count("<input class='filter'") == page.count("<table>")
