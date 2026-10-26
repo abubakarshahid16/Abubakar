@@ -80,11 +80,24 @@ def test_a_rate_whose_unit_is_not_exact_stays_unconverted(unit):
 
 
 def test_the_time_part_is_only_ever_a_fixed_number_of_hours():
-    assert set(rate_units._PER_HOUR) == {"h", "hr", "hrs", "hour", "min", "s", "sec", "d", "day"}
+    assert set(rate_units._PER_HOUR) == {
+        "h",
+        "hr",
+        "hrs",
+        "hour",
+        "min",
+        "s",
+        "sec",
+        "d",
+        "day",
+    }
 
 
 def test_a_mass_flow_and_a_volume_flow_are_not_the_same_quantity():
-    assert claims.normalise("1", "kg/s").dimension != claims.normalise("1", "m3/s").dimension
+    assert (
+        claims.normalise("1", "kg/s").dimension
+        != claims.normalise("1", "m3/s").dimension
+    )
 
 
 @pytest.mark.parametrize(
@@ -142,7 +155,9 @@ def test_a_flow_in_another_unit_is_compared_not_sent_back_as_a_mismatch(
     "limit_unit,value",
     [("kg/s", "3600 m3/h"), ("m3/h", "1 kg/s"), ("kg/s", "3600 Nm3/h")],
 )
-def test_a_flow_of_another_quantity_or_condition_is_never_a_pass(world, limit_unit, value):
+def test_a_flow_of_another_quantity_or_condition_is_never_a_pass(
+    world, limit_unit, value
+):
     found, _ = _review(
         "The capacity shall be at least 1.0 unit.",
         _limit("the capacity", ">=", "1.0", limit_unit),
