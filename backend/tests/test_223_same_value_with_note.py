@@ -101,36 +101,71 @@ def _f(raw, unit, text=None):
     return {"raw_value": raw, "raw_unit": unit, "field_value": text or f"{raw} {unit}"}
 
 
-@pytest.mark.parametrize(
-    "note",
-    [
-        "(By Contractor, as per Code)",
-        "Note - 2",
-        f"Note {chr(0x2013)} 2",
-        "(see data sheet note)",
-    ],
-)
+PLAIN_NOTES = [
+    "(By Contractor, as per Code)",
+    "Note - 2",
+    f"Note {chr(0x2013)} 2",
+    "(see data sheet note)",
+    "see note 3",
+    "[2]",
+    "by others",
+    "by vendor",
+    "per ASME VIII",
+    "per API 520",
+]
+
+#: Every one of these changes what the number means or how sure it is, so the two
+#: readings stay two values for the engineer (review of #1304: an allow-list, so a
+#: wording nobody listed cannot be merged).
+MEANING_CHANGING_NOTES = [
+    "at 20 C", "@ 120 C", "(max)", "(min)", "minimum", "except start-up",
+    "per 100 m", "- 2 bar", "for liquid service", "for gas", "liquid", "steam",
+    "cold", "(cold)", ", hot", "ambient", "full vacuum", "(test)", "hydrotest",
+    "(MAWP)", "without X", "w/o X", "w/ margin", "less 10", "minus 5", "(-10)",
+    "-10", "(shell side)", "(tube side)", "(A)", "(revised)", "(rev B)",
+    # provisional: a reading marked as not final is not the final value
+    "(TBC)", "(estimated)", "(approx.)", "(preliminary)", "(typical)", "typ.",
+    "(assumed)", "(calculated)", "(nominal)", "(to be confirmed by vendor)",
+    "(vendor to advise)", "- subject to change", ", not final",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("note", PLAIN_NOTES)
 def test_a_plain_note_does_not_make_a_second_value(note):
     assert same_value.key(_f("340", "psig", f"340 psig {note}")) == same_value.key(
         _f("340", "psig")
     )
 
 
+@pytest.mark.parametrize("note", MEANING_CHANGING_NOTES)
+def test_a_note_that_changes_the_meaning_stays_a_second_value(note):
+    assert same_value.key(_f("340", "psig", f"340 psig {note}")) != same_value.key(
+        _f("340", "psig")
+    )
+
+
 @pytest.mark.parametrize(
-    "text",
-    [
-        "340 psig at 20 C",
-        "340 psig @ 120 C",
-        "340 psig (max)",
-        "340 psig (min)",
-        "not 340 psig",
-        "340 psig except start-up",
-        "340 psig per 100 m",
-        "340 psig - 2 bar",
-    ],
+    "text", ["not 340 psig", "- 340 psig", "approx 340 psig", "~340 psig"]
 )
-def test_a_note_that_changes_the_meaning_stays_a_second_value(text):
+def test_a_word_or_sign_before_the_number_stays_a_second_value(text):
     assert same_value.key(_f("340", "psig", text)) != same_value.key(_f("340", "psig"))
+
+
+@pytest.mark.parametrize("word", ["xyzzy", "banana", "zone", "service", "left"])
+def test_a_word_nobody_listed_keeps_the_readings_apart(word):
+    """The guard is an allow-list: an arbitrary word is never neutral."""
+    assert same_value.key(_f("340", "psig", f"340 psig ({word})")) != same_value.key(
+        _f("340", "psig")
+    )
+
+
+def test_the_neutral_word_list_is_closed():
+    """Widening it needs a reason on a PR (it is the list of words that may merge
+    two readings): this fails when a word is added or removed."""
+    assert same_value.NEUTRAL_WORDS == frozenset(
+        "by vendor contractor supplier others as per code standard note notes see ref "
+        "refer reference to the data sheet datasheet".split()
+    )
 
 
 @pytest.mark.parametrize(
