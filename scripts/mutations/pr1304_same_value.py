@@ -54,4 +54,3 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=("pr1304", "datasheet_checks"),
     ),
 )
-
