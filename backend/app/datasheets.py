@@ -3067,7 +3067,7 @@ def _ai_gate(fact: dict, furniture: set[str]) -> str | None:
     because its quote on the page is the proof the gate stands in for."""
     label, value = fact.get("field") or "", fact.get("value") or ""
     raw = " ".join(p for p in (value, fact.get("unit")) if p)
-    if is_blank_value(raw)[0]:
+    if is_blank_value(raw)[0] and not fact.get("form_blank"):
         return "blank"
     noise = row_noise.noise_reason(label, value)
     if noise:
@@ -4267,9 +4267,11 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
     if ai_run is None:
         return {"engine": "off", "pages": len(pages), **extra}
     from .datasheet_ai import parts_summary  # order 139
+    from .form_reader_run import refusal_summary  # order 224.9
 
     extra.update(parts_summary(ai_run))
     extra["asked_subjects"] = list(ai_run.get("asked_subjects") or [])  # order 211 R2
+    extra.update(refusal_summary(ai_run, ai_stats))
     read = sorted(p for p, out in ai_run["pages"].items() if not out.get("error"))
     return {"engine": ai_run["engine"], "model": ai_run.get("model"), "pages": len(pages),
             "pages_read": len(read),
@@ -4282,9 +4284,6 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
                               if not out.get("error") and out.get("cut_off")),
             "facts_written": ai_stats.get("facts_written", 0), "agreed": ai_stats.get("agreed", 0),
             "conflicts": ai_stats.get("conflicts", 0), "ai_only": ai_stats.get("ai_only", 0),
-            # #845: the AI's readings the code gate refused (checks in
-            # `claude_datasheet.accept` and `_ai_gate`), so the run card can
-            # say "N of M readings refused by the gate".
             "refused_by_gate": (sum((ai_stats.get("proposals_rejected") or {}).values())
                                 + sum((ai_stats.get("dropped") or {}).values())),
             "unconfirmed": ai_stats.get("unconfirmed", 0), **extra}

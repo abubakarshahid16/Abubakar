@@ -77,8 +77,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1678", phase=1678,
              description="the rules' categorical value gate is applied to AI readings",
              path=_DS,
-             anchor="    if is_blank_value(raw)[0]:\n        return \"blank\"\n",
-             replacement="    if is_blank_value(raw)[0]:\n        return \"blank\"\n"
+             anchor="    if is_blank_value(raw)[0] and not fact.get(\"form_blank\"):\n        return \"blank\"\n",
+             replacement="    if is_blank_value(raw)[0] and not fact.get(\"form_blank\"):\n        return \"blank\"\n"
                          "    if not states_a_value(value):\n        return \"value gate\"\n",
              target=_T, keyword="free_text_answer_is_kept", tags=("datasheet_ai",)),
     Mutation(id="M1679", phase=1679,
