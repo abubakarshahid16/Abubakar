@@ -686,10 +686,13 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     // Order 127: the count carries its total and says what is left to tick.
     expect(screen.getByTestId("sign-pages")).toHaveTextContent("1 of 12 pages was not fully read. Tick each one once you have checked it yourself.");
 
-    // 1. The final code: the computer's proposal is pre-selected and named.
+    // 1. The final code: the computer's proposal is named but NOT pre-selected (order 228.7):
+    // the engineer picks it, then records it.
     const proposal = within(screen.getByTestId("sign-code")).getByRole("radio", { name: /Approved with Comments/ });
-    expect(proposal).toBeChecked();
+    expect(proposal).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Record the final code" })).toBeDisabled();
     expect(screen.getByTestId("sign-code")).toHaveTextContent("(the computer's proposal)");
+    await userEvent.click(proposal);
     await userEvent.click(screen.getByRole("button", { name: "Record the final code" }));
     expect(decideCode).toHaveBeenCalledWith("run-1", "Approved with Comments", null);
     await waitFor(() => expect(screen.getByTestId("sign-code")).toHaveTextContent("Final code recorded: Approved with Comments."));

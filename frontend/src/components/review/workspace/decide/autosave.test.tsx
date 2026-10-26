@@ -11,7 +11,7 @@
  * `disabled` check and "a signed review saves nothing" fails; drop
  * `forget(missing)` and "a comment no longer on the sheet" fails.
  */
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -283,6 +283,8 @@ describe("Record the final code (S1)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Record the final code" }));
     const box = screen.getByTestId("ws-final-code");
     expect(box).toHaveTextContent("(the computer's proposal)");
+    expect(screen.getAllByRole("button", { name: "Record the final code" }).at(-1)).toBeDisabled();  // nothing pre-chosen (228.7)
+    await userEvent.click(within(box).getByRole("radio", { name: /B/ }));
     await userEvent.click(screen.getAllByRole("button", { name: "Record the final code" }).at(-1)!);
     expect(decideCode).toHaveBeenCalledWith("run-1", "B", null);
     await waitFor(() => expect(onCodeRecorded).toHaveBeenCalled());
@@ -313,6 +315,7 @@ describe("plain words for failures in the bar (v2.1 round 2, N2)", () => {
     const n = numbers({ finalCodeRecorded: false });
     render(<ActionBar run={RUN} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={IDLE} />);
     await userEvent.click(screen.getByRole("button", { name: "Record the final code" }));
+    await userEvent.click(within(screen.getByTestId("ws-final-code")).getByRole("radio", { name: /B/ }));
     await userEvent.click(screen.getAllByRole("button", { name: "Record the final code" }).at(-1)!);
     const line = await screen.findByTestId("sign-code-error");
     expect(line.querySelector("p")).toHaveTextContent(
