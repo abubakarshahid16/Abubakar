@@ -119,6 +119,26 @@ def test_an_addendum_or_amendment_year_is_not_the_edition(name, edition):
     assert crs_reference.edition_of(name) == edition
 
 
+@pytest.mark.parametrize(
+    "name, edition",
+    [
+        ("SAES-J-600 rev 2024-05-01.pdf", None),
+        ("SAES-J-600 2019 rev 2024-05-01.pdf", "2019"),
+        ("SAES-J-600 rev 2024/05/01.pdf", None),
+        ("ASME B16.11 Class 2000.pdf", None),
+        ("ASME B16.11 cl. 2000.pdf", None),
+        ("ASME B16.5 2020 Class 1500.pdf", "2020"),
+        ("ASME B16.34 2500 psi.pdf", None),
+        ("ASME B16.34 2013 2500 lb.pdf", "2013"),
+        ("MSS SP-95 # 2000.pdf", None),
+        ("API 650 2020.pdf", "2020"),
+        ("SAES-G-005 2023-Rev.pdf", "2023"),
+    ],
+)
+def test_a_date_or_a_pressure_rating_is_not_the_edition(name, edition):
+    assert crs_reference.edition_of(name) == edition
+
+
 def test_an_addendum_alone_gives_no_edition():
     assert crs_reference.edition_of("API 650 Addendum 1 2021.pdf") is None
 
