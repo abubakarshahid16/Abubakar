@@ -9,6 +9,8 @@ two neighbouring counts are equal.
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from app import (
@@ -67,7 +69,7 @@ def test_every_phase_of_a_review_run_beats_the_workers_heartbeat(world, monkeypa
     assert all(phase in seen for phase in PHASES), seen
     counts = [seen[phase] for phase in PHASES]
     assert counts[0] > 0, "the first phase started without a beat"
-    assert all(a < b for a, b in zip(counts, counts[1:], strict=False)), (
+    assert all(a < b for a, b in pairwise(counts)), (
         f"a phase started without its own beat: {dict(zip(PHASES, counts, strict=True))}"
     )
 
@@ -87,4 +89,4 @@ def test_taking_one_phases_beat_out_is_noticed(world, monkeypatch, phase):
     monkeypatch.setattr(review_jobs, "_phase", phase_without)
     seen = _run(world, monkeypatch)
     counts = [seen[p] for p in PHASES]
-    assert not all(a < b for a, b in zip(counts, counts[1:], strict=False)), counts
+    assert not all(a < b for a, b in pairwise(counts)), counts
