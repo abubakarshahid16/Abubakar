@@ -218,3 +218,55 @@ def test_with_the_empty_cell_rule_both_lists_give_values_and_blanks():
     ):
         assert got[label]["is_blank"] is True, label
         assert got[label]["value_text"] in ("", None)
+
+
+def test_a_value_beside_an_empty_cell_with_a_unit_after_it_is_still_read():
+    """The planner's row: "Number of stages | (empty) | 4 | pcs" gives 4 on main."""
+    got = _grid_read(
+        [
+            ("Rated capacity", "125", "", "m3/h"),
+            ("Differential head", "85", "", "m"),
+            ("Number of stages", "", "4", "pcs"),
+            ("Design pressure", "10", "", "barg"),
+        ],
+        [50, 200, 260, 330, 450],
+    )
+    assert got["Number of stages"]["value_text"].startswith("4"), got
+
+
+def test_an_index_number_before_a_label_still_is_not_a_value():
+    got = _grid_read(
+        [
+            ("Rated capacity", "125 m3/h", "", ""),
+            ("Differential head", "85 m", "", ""),
+            ("Rated relieving capacity", "", "4", "Orifice designation"),
+        ],
+        [50, 200, 260, 330, 450],
+    )
+    assert "Rated relieving capacity" not in got or got["Rated relieving capacity"][
+        "value_text"
+    ] in ("", None)
+
+
+def test_a_merged_full_width_notes_row_and_a_section_heading_row_survive():
+    got = _grid_read(
+        [
+            ("1", "Design pressure", "10 barg", "2", "Design temperature", "50 C"),
+            ("3", "Operating pressure", "8 barg", "4", "Operating temperature", "40 C"),
+            ("", "SECTION A: SERVICE", "", "", "", ""),
+            ("5", "Set pressure", "9 barg", "6", "Fluid", "Water"),
+            (
+                "",
+                "NOTES: set pressure 9 barg at the stated temperature",
+                "",
+                "",
+                "",
+                "",
+            ),
+            ("7", "Flow", "20 m3/h", "8", "Phase", "Liquid"),
+        ],
+        [30, 50, 200, 330, 350, 500, 630],
+    )
+    assert got["Fluid"]["value_text"] == "Water"
+    assert got["Phase"]["value_text"] == "Liquid"
+    assert got["Design temperature"]["value_text"] == "50 C"

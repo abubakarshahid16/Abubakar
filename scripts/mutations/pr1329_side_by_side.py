@@ -86,4 +86,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="text_in_the_numbered_column",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1329-08",
+        phase=1329,
+        description="a unit or count word after an empty cell and a number counts as a label (a real value is lost)",
+        path=_F,
+        anchor="    return len(words) >= 2 or text.strip()[:1].isupper()\n",
+        replacement="    return True\n",
+        target=_T,
+        keyword="unit_after_it_is_still_read",
+        tags=("honesty",),
+    ),
 )

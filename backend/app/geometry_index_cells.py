@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from itertools import pairwise
 
-from . import blank_markers
+from . import blank_markers, claims
 
 MIN_NUMBERED_ROWS = 3
 _WHOLE_NUMBER = re.compile(r"^\s*(\d{1,3})\s*[.)]?\s*$")
@@ -89,13 +89,26 @@ def split(table: dict) -> dict:
 REFUSED = -1
 
 
+def _is_a_label(text: str) -> bool:
+    """A cell of words that names something: not a unit, and either two or more
+    words or one capitalised word ("Orifice designation", "Fluid"); a lone
+    lower-case word such as "pcs" is a unit or a count word, not a label."""
+    words = re.findall(r"[^\W\d_]{2,}", text)
+    if not words or claims.is_unit(text.strip()):
+        return False
+    return len(words) >= 2 or text.strip()[:1].isupper()
+
+
 def _is_next_items_number(texts: list[str], i: int) -> bool:
     """Cell `i` is a lone whole number, the cell before it is EMPTY (the answer
-    cell of the label to its left) and words follow: the number is the next
-    item's index, not that label's value ("Capacity | | 8 | Orifice designation")."""
+    cell of the label to its left) and the next filled cell is a LABEL: the
+    number is the next item's index, not that label's value ("Capacity | | 8 |
+    Orifice designation"). A unit or count word after it ("Number of stages | |
+    4 | pcs") leaves the number as the value."""
     if _number({"text": texts[i]}) is None or i == 0 or texts[i - 1]:
         return False
-    return any(re.search(r"[^\W\d_]{2,}", t) for t in texts[i + 1 :] if t)
+    following = next((t for t in texts[i + 1 :] if t), "")
+    return _is_a_label(following)
 
 
 def first_answer(
