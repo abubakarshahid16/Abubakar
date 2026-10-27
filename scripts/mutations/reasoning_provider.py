@@ -34,12 +34,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="swallow a transport failure into an empty answer instead "
                     "of a named refusal",
         path=APP / "reasoning_provider.py",
-        anchor=("        # Broad on purpose and it RE-RAISES: every transport failure becomes a named refusal.\n"
-                "        except Exception as exc:\n"
+        anchor=("        except Exception as exc:\n"
                 "            model_metrics.failed(self.requested_model, started, exc)\n"
                 '            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc'),
-        replacement=("        # Broad on purpose and it RE-RAISES: every transport failure becomes a named refusal.\n"
-                     "        except Exception as exc:\n"
+        replacement=("        except Exception as exc:\n"
                      '            raw = {"response": "", "model": self.requested_model}'),
         target=_PROVIDER_TEST, keyword="transport_failure_is_a_named_refusal",
         tags=("honesty", "critical"),
