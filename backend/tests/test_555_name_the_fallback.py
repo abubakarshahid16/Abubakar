@@ -186,6 +186,9 @@ def test_the_ai_check_hands_its_local_provider_the_note(
         }
 
     monkeypatch.setattr(aic, "_local_page_calls", spy)
+    monkeypatch.setattr(
+        settings, "review_ai_check_enabled", True
+    )  # the suite pins it off
     aic.run_check(run, allowed_document_ids=scope, cited=[])
     assert seen and isinstance(seen[0], rp.OllamaProvider)
     assert seen[0].fell_back == fallback_note.WORDS["KEY_MISSING"]
