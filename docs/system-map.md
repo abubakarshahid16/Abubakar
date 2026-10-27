@@ -106,6 +106,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
 | `run_finishing` | Order 236: a run whose job is still writing the AI comments, numbers and wording reads as running, not completed |
 | `model_metrics` | #503: per-model latency and error counts of the local model calls a review run makes, stored per run and model with the date (counts and seconds only) |
+| `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
 | `clause_check_rank` | Order 235 item 1: which clause sentences get the per-run clause-check budget (fields the sheet states, then a safety clause, then standards it cites, then figures) and each standard's share |
 | `crash_log` | Order 252: a native crash (bus error, segfault) leaves the stack of every thread in `<data>/logs/native-crash.log` |
@@ -193,6 +194,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `progress` | What the machine is doing right now, recorded when it actually happens |
 | `provenance` | Which code read which input: provenance for extracted rows (issue #177) |
 | `quality` | Content-quality gate |
+| `unsupported_script` | A page written mostly in Arabic script is not searched and says so: "language not supported, engineer review" (#564) |
 | `rates` | Throughput reporting |
 | `reader_api` | Layer 1 for STANDARDS: the model READS one sentence, Python VERIFIES it |
 | `reader_transport` | The one place in this codebase that may open a socket to the standards reader |
@@ -251,6 +253,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rate_units` | The flow-rate rows of the one unit table: kg/s, t/h, l/min, m3/s and their kin, exact factors only (#1290) |
 | `table_gate` | Which requirements a review may check (#598) |
 | `tables` | Structured rows and columns for chunks already identified as tables |
+| `table_consistency` | #531: a numeric table checked against itself (overlapping or gapped bands, a Total that is not the sum, a column that is not its own declared formula); findings are cited questions for the engineer, never "consistent" |
 | `telemetry` | Measured rates and latencies, persisted |
 | `understanding` | B6C: question understanding - structured, deterministic, retrieval-only |
 | `upload` | Step 1 - streaming PDF upload |

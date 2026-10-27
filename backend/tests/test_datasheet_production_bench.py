@@ -97,7 +97,9 @@ def test_hybrid_reads_the_xlsx_through_the_real_extract_path(key):
     assert ai["engine"] == "oracle" and ai["pages_read"] == 1
     assert ai["facts_written"] + ai["agreed"] >= 8
     model_facts = [f for f in out["facts"] if f["extraction_method"] == datasheet_ai.EXTRACTION_METHOD]
-    assert {f["field_label"] for f in model_facts} >= {"Pumped fluid", "Casing material"}
+    # "Casing material" is a role of the pump checklist (#1352), so the rules now read it too
+    # and it is agreed, not model-only; free text the rules still cannot read stays the AI's.
+    assert {f["field_label"] for f in model_facts} >= {"Pumped fluid", "Shaft seal"}
     [capacity] = [f for f in out["facts"] if f["field_label"] == "Capacity"]
     assert capacity["extraction_method"] == "xlsx" and capacity["raw_unit"] == "m3/h"
     assert capacity["confidence"] == datasheet_ai.AGREED_CONFIDENCE

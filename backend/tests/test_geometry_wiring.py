@@ -29,7 +29,7 @@ ITEMS = [
     (50, 100, "DESIGN PRESSURE: 10 barg"),
     (50, 140, "DESIGN TEMPERATURE: 120 C"),
     (50, 180, "CASE MOUNTING"), (220, 180, "____________"),
-    (50, 220, "BEARING TYPE"), (220, 220, "___BALL___"),
+    (50, 220, "COUPLING TYPE"), (220, 220, "___BALL___"),
     (50, 260, "SPEED:"), (140, 260, "2950 rpm"),
     (50, 300, "SUCTION PRESSURE"), (220, 300, "_________ bar g"),
 ]
@@ -151,10 +151,10 @@ def test_on_adds_geometry_facts_with_their_provenance(tmp_path, on):
     # R27 (#504): the one-line "Label : value" fields (design pressure and
     # temperature) are now read by the default rule reader, so they are no
     # longer geometry-only facts; the drawn-slot field still is.
-    assert "bearing type" in names
+    assert "coupling type" in names
     rule = {f["field_name"]: f for f in _current(doc) if f["extraction_method"] == "extracted"}
     assert {"design pressure", "design temperature"} <= set(rule)
-    bearing = names["bearing type"]
+    bearing = names["coupling type"]
     assert (bearing["field_value"], bearing["is_blank"], bearing["page"]) == ("BALL", 0, 1)
     assert bearing["source_text"] == "___BALL___"
     assert bearing["validation_state"] is None
@@ -259,7 +259,7 @@ def test_a_page_only_the_geometry_reader_read_is_read_into_fields(tmp_path, on):
     said "no_facts" while its facts sat in submittal_facts. An ABSENCE there
     is still an engineer's question (M595, test_b3_page_ledger.py)."""
     from app import page_ledger
-    doc = _store(tmp_path, items=[(50, 220, "BEARING TYPE"), (220, 220, "___BALL___")],
+    doc = _store(tmp_path, items=[(50, 220, "COUPLING TYPE"), (220, 220, "___BALL___")],
                  doc_id="doc_geo_only")
     result = _extract(doc)
     assert result["geometry_facts"] >= 1
@@ -292,14 +292,14 @@ def test_a_page_flagged_needs_ocr_routes_its_geometry_reading_to_review(
     for an engineer, not written as an ordinary confident fact. Reverting the
     `page_needs_ocr` wiring in `_geometry_rows_from_pdf_page`/the write loop
     makes this fail: the reading comes back `validation_state=None`."""
-    doc = _store(tmp_path, items=[(50, 220, "BEARING TYPE"), (220, 220, "___BALL___")],
+    doc = _store(tmp_path, items=[(50, 220, "COUPLING TYPE"), (220, 220, "___BALL___")],
                  doc_id="doc_geo_needs_ocr")
     with db.connect() as conn:
         conn.execute("UPDATE pages SET needs_ocr = 1 WHERE document_id = ? AND page_no = 1",
                      (doc,))
     _extract(doc)
     geo = [f for f in _current(doc) if f["extraction_method"] == "geometry"]
-    assert geo and geo[0]["field_name"] == "bearing type"
+    assert geo and geo[0]["field_name"] == "coupling type"
     assert geo[0]["validation_state"] == "needs_engineer_review"
     box = json.loads(geo[0]["bbox"])
     assert box["page_needs_ocr"] is True
@@ -308,11 +308,11 @@ def test_a_page_flagged_needs_ocr_routes_its_geometry_reading_to_review(
 def test_a_page_not_flagged_needs_ocr_is_unaffected(tmp_path, on):
     """Negative for the mutation target: the same page, `needs_ocr = 0` (the
     default `_store` writes), is written as an ordinary confident reading."""
-    doc = _store(tmp_path, items=[(50, 220, "BEARING TYPE"), (220, 220, "___BALL___")],
+    doc = _store(tmp_path, items=[(50, 220, "COUPLING TYPE"), (220, 220, "___BALL___")],
                  doc_id="doc_geo_no_ocr_flag")
     _extract(doc)
     geo = [f for f in _current(doc) if f["extraction_method"] == "geometry"]
-    assert geo and geo[0]["field_name"] == "bearing type"
+    assert geo and geo[0]["field_name"] == "coupling type"
     assert geo[0]["validation_state"] is None
     box = json.loads(geo[0]["bbox"])
     assert box["page_needs_ocr"] is False

@@ -41,9 +41,25 @@ _REQUIRES = re.compile(
     re.IGNORECASE,
 )
 
+#: Order 228.5b: the shortest word that may name a service ("wet", "dry", "gas", "oil").
+#: At four letters "applies only in wet service" named no service, the sentence was
+#: not held, and it was compared on a sheet that may be of the other service.
+MIN_SERVICE_WORD = 3
+
 #: Words that do not name a service, application or duty by themselves.
 _GENERIC = frozenset(
     {
+        "new",
+        "own",
+        "our",
+        "one",
+        "two",
+        "non",
+        "you",
+        "his",
+        "her",
+        "out",
+        "off",
         "the",
         "this",
         "that",
@@ -85,6 +101,34 @@ _GENERIC = frozenset(
         "over",
         "their",
         "its",
+        # order 260.5: words the phrase finder took for a service on a real run (a standards body,
+        # a reference word, a comparative, a location): none names a service by itself.
+        "asme",
+        "following",
+        "larger",
+        "similar",
+        "proposed",
+        "onshore",
+        "fluid",
+        # Order 228.5b: three-letter words that are not services (prefixes, limits, numbers).
+        "use",
+        "top",
+        "pre",
+        "sub",
+        "mid",
+        "end",
+        "max",
+        "min",
+        "std",
+        "low",
+        "six",
+        "ten",
+        "three",
+        "four",
+        "five",
+        "seven",
+        "eight",
+        "nine",
     }
 )
 
@@ -198,7 +242,7 @@ def _significant(phrase: str) -> list[str]:
     return [
         w
         for w in re.findall(r"[a-z][a-z\-]+", phrase.casefold())
-        if len(w) >= 4 and w not in _GENERIC
+        if len(w) >= MIN_SERVICE_WORD and w not in _GENERIC
     ]
 
 
