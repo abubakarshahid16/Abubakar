@@ -279,9 +279,10 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
     rewrites that pass `lock`. Returns and stores the run's summary."""
     ensure_schema()
     summary = {"enabled": bool(settings.crs_ai_wording_enabled), "model": None, "tried": 0,
-               "accepted": 0, "refused": {}, "refused_rows": {}, "not_tried": 0, "stopped": None,
+               "accepted": 0, "refused": {}, "not_tried": 0, "stopped": None,
                # #838: None, or why the local model ran in the cloud model's place.
                "local_instead": None}
+    summary["refused_rows"] = {}  # {row_key: reason}: `crs_ai_cell` says why per row
     if not summary["enabled"]:
         summary["stopped"] = "off (CRS_AI_WORDING_ENABLED=false)"
         return _store_summary(review_run_id, summary)
