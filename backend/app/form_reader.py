@@ -44,6 +44,7 @@ from . import (
     datasheet_checks,
     numparse,
 )
+from .ai.json_reply import unfenced_whole
 from .claude_spend import StopRun
 from .datasheets import normalise_field_name, primary_unit
 from .form_reader_fields import (
@@ -275,7 +276,7 @@ def parse_answer(raw: object, keys: set[str]) -> tuple[dict[str, dict], Reason |
     (one Markdown fence allowed); an object for a key not asked for is
     ignored; the first object for a key wins."""
     try:
-        body = json.loads(claude_datasheet._unfenced(raw))
+        body = json.loads(unfenced_whole(raw))
     except (json.JSONDecodeError, TypeError):
         return {}, Reason.MODEL_MALFORMED
     rows = body.get("fields") if isinstance(body, dict) else None
