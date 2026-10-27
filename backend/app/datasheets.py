@@ -51,7 +51,7 @@ from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan
                submittal_review, tables)
 from .config import settings
 from .db import connect
-from . import dual_unit_form, slot_options  # isort: skip
+from . import dual_unit_form, slot_options, table_pairs  # isort: skip
 
 #: Where a datasheet says a value is not filled in yet.
 #:
@@ -1584,14 +1584,11 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     a fact about anything), so an empty column 0 on row 1 means row 1 is
     still naming columns, not yet reporting a value.
 
-    CARRY-FORWARD FOR SPANNING HEADER CELLS. A header cell that names more
-    than one column beneath it - "ACCEPTANCE CRITERIA" over both
-    "FABRICATIONS" and "CASTINGS" - is written ONCE in the source table,
-    with the column(s) after it left empty. Read literally, the CASTINGS
-    column would lose that it is an acceptance-criteria column at all.
-    Carrying the last non-empty header cell rightward across the empty
-    ones it left behind restores the property a merged cell always had -
-    every column under it is still that column.
+    CARRY-FORWARD FOR SPANNING HEADER CELLS. A header cell naming more than
+    one column beneath it ("ACCEPTANCE CRITERIA" over "FABRICATIONS" and
+    "CASTINGS") is written ONCE, the columns after it left empty; carrying it
+    rightward over the empty ones keeps every column under it that column.
+    A four-column table of two forms side by side is read by `table_pairs` (#929).
     """
     if not shape:
         return []
@@ -1601,6 +1598,8 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
         for row in shape:
             out.extend(split_label_value(list(row)))
         return out
+    if (pairs := table_pairs.two_pairs_per_row(shape)) is not None:  # #929
+        return pairs
 
     def _padded(row: list[str]) -> list[str]:
         return [(c or "").strip() for c in row] + [""] * (width - len(row))
