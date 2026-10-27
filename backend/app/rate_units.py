@@ -63,3 +63,7 @@ TABLE: dict[str, tuple[str, str, float]] = {
     for numerator, amount in numerators.items()
     for per, hours in _PER_HOUR.items()
 }
+
+#: One-word spellings of a rate above: "USGPM" is a US gallon per minute, exact like its long form.
+for _alias, _long in {"usgpm": "usgal/min"}.items():
+    TABLE[_alias] = TABLE[_long]

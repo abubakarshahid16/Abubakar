@@ -1,4 +1,4 @@
-"""A quantity written in two unit systems with the second number in brackets after the first.
+"""A quantity written in two unit systems, the second one in brackets.
 
 API sheets print "24.8 (109) m3/h (USGPM)": the first number and the first unit are one system,
 the bracketed number and the bracketed unit the other. The cell reader (`datasheets.measure_value`)
@@ -6,14 +6,18 @@ read the number and then met a bracket where it expected the unit, so it kept th
 NO unit, and the mandatory-unit check said "stated ... without a unit" about a sheet that prints
 one (the 35B run on the M-03 pump sheet).
 
-The FIRST system is the value, as for "24.8 m3/h (109 USGPM)", which was already read that way.
-BOTH brackets must be units the unit table knows, and the first must be one it can convert
-("10 (20) kW (max)" is a rate and its qualifier; "10 (20) kW (min)" is not minutes). When both
-convert they must be the same dimension and state one quantity (the rule the slash form
-"10 barg / 145 psig" uses): two numbers that do not convert to each other are two quantities, and
-the cell is left as it was. When the second is recognised but not converted (a US gallon rate),
-it cannot be checked, and the first system is still the value. Anything else is not matched: "340 (23.4) psig" (one unit after two numbers) stays unplaced, because which number
-the unit belongs to cannot be told. No label, unit or sheet is named here.
+The FIRST system is the value. A bracket is read as the other system only when it can be CHECKED:
+both units are ones the unit table converts, they are of one dimension, and the two numbers state
+one quantity once converted (the rule the slash form "10 barg / 145 psig" uses). Nothing is
+accepted unchecked: "10 (20) kW (max)", "10 (12) bar (g)", "5 (7) m3/h (n)" and "10 (20) m3/h
+(min)" carry a NOTE in the bracket, not a second system, and are left as they were (no unit
+placed). "340 (23.4) psig" (one unit after two numbers) stays unplaced too: which number the unit
+belongs to cannot be told.
+
+The trailing form "24.8 m3/h (109 USGPM)" is checked the same way when its two units differ and
+both convert: two numbers that do not convert to each other are two quantities, and choosing the
+first would be a guess, so the cell is REFUSED (no value), as the slash form already is. No label,
+unit or sheet is named here.
 """
 
 from __future__ import annotations
@@ -23,34 +27,44 @@ from collections.abc import Callable
 
 from . import claims
 
+#: Returned for a cell that must be refused: a text no value pattern matches, so the cell reader
+#: ends with "no value" (what it does for any text that is not a quantity).
+REFUSED = "\x00"
+
+_NUM = r"[-+]?\d[\d.,]*"
+_UNIT = r"[^\s()\d][^()]*?"
 _INTERLEAVED = re.compile(
-    r"^(?P<v1>[-+]?\d[\d.,]*)\s*\(\s*(?P<v2>[-+]?\d[\d.,]*)\s*\)\s*"
-    r"(?P<u1>[^\s()\d][^()]*?)\s*\(\s*(?P<u2>[^\s()\d][^()]*?)\s*\)\s*$"
+    rf"^(?P<v1>{_NUM})\s*\(\s*(?P<v2>{_NUM})\s*\)\s*(?P<u1>{_UNIT})\s*\(\s*(?P<u2>{_UNIT})\s*\)\s*$"
+)
+_TRAILING = re.compile(
+    rf"^(?P<v1>{_NUM})\s*(?P<u1>{_UNIT})\s*\(\s*(?P<v2>{_NUM})\s*(?P<u2>{_UNIT})\s*\)\s*$"
 )
 
 
-def _dimension(text: str) -> tuple[bool, str | None]:
-    """(is a unit the table knows, its dimension or None when it is recognised but not converted)."""
+def _dimension(text: str) -> str | None:
+    """The dimension of a unit the table CONVERTS, else None (not a unit, or not converted)."""
     base, _ref = claims.split_reference(text.strip())
-    if not (base and claims.is_unit(base)):
-        return False, None
-    return True, claims.unit_dimension(base)
+    return claims.unit_dimension(base) if base and claims.is_unit(base) else None
+
+
+def _fold(unit: str) -> str:
+    return " ".join(unit.lower().split())
 
 
 def first_system(
     text: str, same_quantity: Callable[[str, str, str, str], bool]
 ) -> str | None:
-    """ "24.8 m3/h" out of "24.8 (109) m3/h (USGPM)", or None when the text is not this form
-    or its two halves cannot be shown to state one quantity."""
-    found = _INTERLEAVED.match(" ".join(text.split()))
+    """ "24.8 m3/h" out of "24.8 (109) m3/h (USGPM)"; `REFUSED` for "24.8 m3/h (30 USGPM)"; None
+    when the text is not a checked two-system form (the cell is then read exactly as before)."""
+    folded = " ".join(text.split())
+    interleaved = _INTERLEAVED.match(folded)
+    found = interleaved or _TRAILING.match(folded)
     if found is None:
         return None
     v1, u1, v2, u2 = (found[k] for k in ("v1", "u1", "v2", "u2"))
-    (known1, dim1), (known2, dim2) = _dimension(u1), _dimension(u2)
-    if not (known1 and known2 and dim1 is not None):
+    dim1, dim2 = _dimension(u1), _dimension(u2)
+    if dim1 is None or dim1 != dim2 or _fold(u1) == _fold(u2):
         return None
-    if dim2 is None:
-        return f"{v1} {u1.strip()}"  # the second unit is recognised, not converted: unchecked
-    if dim2 != dim1 or not same_quantity(v1, u1, v2, u2):
-        return None
-    return f"{v1} {u1.strip()}"
+    if same_quantity(v1, u1, v2, u2):
+        return f"{v1} {u1.strip()}"
+    return None if interleaved else REFUSED
