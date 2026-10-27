@@ -22,7 +22,7 @@ import pymupdf  # PyMuPDF
 from . import ocr, states
 from . import stored_paths
 from .config import settings
-from .pdf_guard import open_pdf
+from .pdf_guard import held, open_pdf, opened
 from .quality import normalise_text
 from . import tables as tables_mod
 from .db import connect
@@ -535,11 +535,12 @@ def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
         "SELECT page_no FROM page_ocr WHERE document_id = ?", (doc_id,))}
     updates = []
     newly_pending = 0
-    with open_pdf(stored_paths.local(doc["stored_path"])) as pdf:
+    with opened(stored_paths.local(doc["stored_path"])) as pdf:
         for r in rows:
-            if not 1 <= r["page_no"] <= pdf.page_count:
-                continue
-            route = ocr.route_page(pdf.load_page(r["page_no"] - 1), r["text"] or "")
+            with held():  # the lock per page: a page image is never held up for a whole file
+                if not 1 <= r["page_no"] <= pdf.page_count:
+                    continue
+                route = ocr.route_page(pdf.load_page(r["page_no"] - 1), r["text"] or "")
             result["pages"] += 1
             result["routes"][route.code] = result["routes"].get(route.code, 0) + 1
             if r["ocr_route_version"] != ocr.OCR_ROUTE_VERSION:

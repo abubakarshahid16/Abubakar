@@ -527,15 +527,18 @@ def read_pdf(path: str | os.PathLike, *, document_id: str | None = None,
 
     A page with no text layer and no OCR text stays an EMPTY `pdf_text` page: nothing is invented.
     """
-    import pymupdf
-
     from . import pdf_guard
     from .quality import normalise_text
 
     pages: list[PageText] = []
-    with pdf_guard.held(), pymupdf.open(str(path)) as doc:
-        count = doc.page_count
-        native = [normalise_text(doc.load_page(i).get_text("text") or "") for i in range(count)]
+    raw: list[str] = []
+    with pdf_guard.opened(str(path)) as doc:
+        with pdf_guard.held():
+            count = doc.page_count
+        for i in range(count):  # the lock per page: a page image is never held up for a whole file
+            with pdf_guard.held():
+                raw.append(doc.load_page(i).get_text("text") or "")
+    native = [normalise_text(text) for text in raw]
     for page_no, text in enumerate(native, start=1):
         if text.strip():
             pages.append(PageText(page_no, text, SOURCE_PDF_TEXT))

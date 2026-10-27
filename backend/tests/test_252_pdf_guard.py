@@ -280,3 +280,41 @@ def test_threads_rendering_pages_while_a_reader_runs_on_the_same_pdf(
         pix = pymupdf.Pixmap(str(path))  # raises on a truncated or half-written PNG
         assert pix.width > 0
     assert not list((tmp_path / "data").rglob("*.tmp")), "a temp file was left behind"
+
+
+def test_a_whole_file_read_lets_other_threads_in_between_pages(tmp_path, monkeypatch):
+    """`datasheet_inputs.read_pdf` takes the lock page by page: while it reads a 30-page file
+    another thread can get the lock long before the read ends (before, it held it for the whole
+    file and every page image waited)."""
+    from app import datasheet_inputs, quality
+
+    doc = pymupdf.open()
+    for n in range(30):
+        doc.new_page().insert_text((72, 72), f"Invented page {n + 1}")
+    path = tmp_path / "long.pdf"
+    doc.save(path)
+    doc.close()
+
+    def slow_normalise(text):  # runs outside the lock, once per page
+        time.sleep(0.02)
+        return text
+
+    monkeypatch.setattr(quality, "normalise_text", slow_normalise)
+    done = threading.Event()
+    reader = threading.Thread(
+        target=lambda: (datasheet_inputs.read_pdf(path), done.set())
+    )
+    reader.start()
+    time.sleep(0.05)
+    got = threading.Event()
+
+    def take_the_lock():
+        with pdf_guard.held():
+            got.set()
+
+    taker = threading.Thread(target=take_the_lock)
+    taker.start()
+    assert got.wait(timeout=0.3), "the lock was held for the whole file"
+    taker.join()
+    reader.join()
+    assert done.is_set()
