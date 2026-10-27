@@ -44,7 +44,7 @@ REVISION_ROWS = [["A", "Issued for Review", "A. Author", "B. Checker"],
                  ["B", "Issued for Design", "A. Author", "B. Checker"]]
 #: A two-column form the geometry FORM reader reads (a drawn blank field).
 FORM = [(50, 520, "CASE MOUNTING"), (220, 520, "____________"),
-        (50, 560, "BEARING TYPE"), (220, 560, "___BALL___")]
+        (50, 560, "COUPLING TYPE"), (220, 560, "___BALL___")]
 
 
 @pytest.fixture(autouse=True)
