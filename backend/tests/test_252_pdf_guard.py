@@ -4,7 +4,7 @@ Invented PDFs only."""
 
 from __future__ import annotations
 
-import re
+import ast
 import threading
 import time
 from pathlib import Path
@@ -87,33 +87,127 @@ def test_held_blocks_another_thread_until_it_leaves(pdf):
     assert order == ["first", "other"]
 
 
-#: These two files BUILD a document from nothing (`pymupdf.open()`, no file) inside a long export
-#: function that carries `@pdf_guard.guarded` instead.
-BUILDS_A_DOCUMENT = frozenset({"deliverables.py", "review.py"})
+#: PyMuPDF names that are plain value types (pure Python, no MuPDF context): not guarded.
+VALUE_TYPES = frozenset(
+    {"Rect", "IRect", "Point", "Matrix", "Quad", "paper_rect", "paper_size"}
+)
+#: Lock-taking context managers of `pdf_guard` (`opened` hands the document out WITHOUT the lock,
+#: so a call under it is not covered by it).
+LOCKS = frozenset({"held", "open_pdf"})
 
 
-def test_no_program_file_opens_a_pdf_outside_the_guard():
-    """Every `pymupdf.open(` is on a line that also takes `pdf_guard.held()`, or builds a document
-    inside a function marked `@pdf_guard.guarded`. The process-pool children of `extract` and
-    `ocr` go through `open_pdf` too (cheap, and one rule for everyone)."""
-    bare, builders = [], {}
+def _module_names(tree: ast.AST) -> set[str]:
+    """Every name `pymupdf` / `fitz` is bound to in the file (`import pymupdf as pm` too)."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {
+                a.asname or a.name for a in node.names if a.name in ("pymupdf", "fitz")
+            }
+    return names
+
+
+def _is_guard_call(expr: ast.AST, names: frozenset[str]) -> bool:
+    return (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr in names
+        and (
+            (
+                isinstance(expr.func.value, ast.Name)
+                and expr.func.value.id == "pdf_guard"
+            )
+            # `datasheets.pdf_guard.held()`: the module reached through another module
+            or (
+                isinstance(expr.func.value, ast.Attribute)
+                and expr.func.value.attr == "pdf_guard"
+            )
+        )
+    )
+
+
+def _covered(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    """The call sits under `with pdf_guard.held()/open_pdf(...)` or in a `@pdf_guard.guarded`
+    function (or one decorated with the bare name `guarded`)."""
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, (ast.With, ast.AsyncWith)) and any(
+            _is_guard_call(item.context_expr, LOCKS) for item in current.items
+        ):
+            return True
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for deco in current.decorator_list:
+                if (isinstance(deco, ast.Attribute) and deco.attr == "guarded") or (
+                    isinstance(deco, ast.Name) and deco.id == "guarded"
+                ):
+                    return True
+        current = parents.get(current)
+    return False
+
+
+def unguarded_calls(source: str) -> list[int]:
+    """Line numbers of calls into PyMuPDF (any alias) that are not under the lock, plus any
+    `from pymupdf import ...` (which would hide the module name)."""
+    tree = ast.parse(source)
+    names = _module_names(tree)
+    parents = {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+    bad = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module in ("pymupdf", "fitz")
+    ]
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in names
+            and node.func.attr not in VALUE_TYPES
+            and not _covered(node, parents)
+        ):
+            bad.append(node.lineno)
+    return sorted(bad)
+
+
+def test_no_program_file_calls_pymupdf_outside_the_guard():
+    """An AST scan, not a text search: `pymupdf.open`, `Document`, `Story`, `get_text_length`, any
+    alias (`import pymupdf as pm`) and `from pymupdf import ...` are all found. Every such call must
+    sit under `with pdf_guard.held()` / `open_pdf(...)` or in a `@pdf_guard.guarded` function (the
+    exemption is per function, not per file)."""
+    offenders = {}
     for path in sorted(APP.rglob("*.py")):
         if path.name == "pdf_guard.py":
             continue
-        name = path.relative_to(APP).as_posix()
-        text = path.read_text(encoding="utf-8")
-        for number, line in enumerate(text.splitlines(), start=1):
-            if not re.search(r"\b(?:pymupdf|fitz)\.open\(", line):
-                continue
-            if "pdf_guard.held()" in line:
-                continue
-            if name in BUILDS_A_DOCUMENT and "pymupdf.open()" in line:
-                builders[name] = text
-                continue
-            bare.append(f"{name}:{number}")
-    assert not bare, f"opens a PDF outside the guard: {bare}"
-    for name, text in builders.items():
-        assert "@pdf_guard.guarded" in text, f"{name} builds a document unguarded"
+        bad = unguarded_calls(path.read_text(encoding="utf-8"))
+        if bad:
+            offenders[path.relative_to(APP).as_posix()] = bad
+    assert not offenders, f"PyMuPDF used outside pdf_guard: {offenders}"
+
+
+def test_the_scan_finds_what_a_text_search_would_miss():
+    assert unguarded_calls("import pymupdf\ndoc = pymupdf.open(p)\n") == [2]
+    assert unguarded_calls("import pymupdf as pm\ndoc = pm.open(p)\n") == [2]
+    assert unguarded_calls("import pymupdf\nstory = pymupdf.Story(html=h)\n") == [2]
+    assert unguarded_calls("from pymupdf import open\n") == [1]
+    assert unguarded_calls("import pymupdf\nx = pymupdf.get_text_length('a')\n") == [2]
+    # a value type and covered calls are fine
+    assert unguarded_calls("import pymupdf\nr = pymupdf.Rect(0, 0, 1, 1)\n") == []
+    held = "import pymupdf\nwith pdf_guard.held():\n    d = pymupdf.open(p)\n"
+    assert unguarded_calls(held) == []
+    multi = "import pymupdf\nwith (\n    pdf_guard.held(),\n    pymupdf.open(p) as d,\n):\n    pass\n"
+    assert unguarded_calls(multi) == []
+    deco = "import pymupdf\n@pdf_guard.guarded\ndef f():\n    return pymupdf.open()\n"
+    assert unguarded_calls(deco) == []
+    other = "import pymupdf\n@pdf_guard.guarded\ndef f():\n    return 1\n\ndef g():\n    return pymupdf.open()\n"
+    assert unguarded_calls(other) == [7], "the exemption is per function"
+    opened = "import pymupdf\nwith pdf_guard.opened(p) as d:\n    x = pymupdf.get_text_length('a')\n"
+    assert unguarded_calls(opened) == [3], (
+        "opened() hands the document out without the lock"
+    )
 
 
 def test_a_guarded_function_runs_under_the_lock(pdf):

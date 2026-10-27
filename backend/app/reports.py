@@ -57,7 +57,7 @@ import pymupdf
 from . import access, chat, stored_paths
 from .config import config_version, settings
 from .db import connect
-from .pdf_guard import open_pdf
+from .pdf_guard import guarded, open_pdf
 
 TEMPLATE_VERSION = "2"
 RENDERER = f"pymupdf-{pymupdf.VersionBind}"
@@ -471,6 +471,7 @@ def _draw_furniture(doc: pymupdf.Document) -> None:
         )
 
 
+@guarded
 def render(snapshot: dict) -> bytes:
     """The PDF, from the snapshot and nothing else."""
     def rectfn(rect_num, filled):

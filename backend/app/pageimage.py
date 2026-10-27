@@ -50,8 +50,12 @@ def _save_png(pix, out: Path) -> None:
     """Write the PNG to a private temp file, then move it into place in one step: two requests
     rendering the same page must never serve a half-written file (order 252)."""
     tmp = out.with_name(f".{out.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_bytes(pix.tobytes("png"))
-    tmp.replace(out)
+    try:
+        tmp.write_bytes(pix.tobytes("png"))
+        tmp.replace(out)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def render_page(document: dict, page_no: int, dpi: int = 150) -> Path:
@@ -65,6 +69,10 @@ def render_page(document: dict, page_no: int, dpi: int = 150) -> Path:
 
     pdf_path = stored_paths.local(document["stored_path"])
     with open_pdf(pdf_path) as doc:
+        if (
+            out.exists() and out.stat().st_size > 0
+        ):  # another request rendered it while we waited
+            return out
         if page_no > doc.page_count:
             raise PageOutOfRange(
                 f"page {page_no} is out of range (document has {doc.page_count})"
@@ -73,6 +81,7 @@ def render_page(document: dict, page_no: int, dpi: int = 150) -> Path:
         # 72 dpi is PDF user space; scale from there.
         pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
         _save_png(pix, out)
+        del pix, page  # freed while the lock is still held
     return out
 
 
@@ -112,6 +121,10 @@ def render_page_with_highlight(
         return out
 
     with open_pdf(stored_paths.local(document["stored_path"])) as doc:
+        if (
+            out.exists() and out.stat().st_size > 0
+        ):  # another request rendered it while we waited
+            return out
         if not 1 <= page_no <= doc.page_count:
             raise PageOutOfRange(
                 f"page {page_no} is out of range (document has {doc.page_count})"
@@ -120,8 +133,10 @@ def render_page_with_highlight(
         shape = page.new_shape()
         for x0, y0, x1, y1 in rects:
             box = pymupdf.Rect(x0, y0, x1, y1) + (
-                -HIGHLIGHT_PADDING, -HIGHLIGHT_PADDING,
-                HIGHLIGHT_PADDING, HIGHLIGHT_PADDING,
+                -HIGHLIGHT_PADDING,
+                -HIGHLIGHT_PADDING,
+                HIGHLIGHT_PADDING,
+                HIGHLIGHT_PADDING,
             )
             shape.draw_rect(box)
         shape.finish(
@@ -133,6 +148,7 @@ def render_page_with_highlight(
         shape.commit()
         pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
         _save_png(pix, out)
+        del pix, page  # freed while the lock is still held
     return out
 
 
@@ -170,13 +186,22 @@ def render_page_with_marks(
     unknown = {state for _, state in drawn} - set(MARK_COLOURS)
     if unknown:
         raise ValueError(f"unknown mark state(s): {sorted(unknown)}")
-    mark = hashlib.sha256(repr([
-        ([tuple(round(v, 2) for v in r) for r in rects], state) for rects, state in drawn
-    ]).encode()).hexdigest()[:12]
+    mark = hashlib.sha256(
+        repr(
+            [
+                ([tuple(round(v, 2) for v in r) for r in rects], state)
+                for rects, state in drawn
+            ]
+        ).encode()
+    ).hexdigest()[:12]
     out = cache_path(document["sha256"], page_no, dpi, mark=f"m{mark}")
     if out.exists() and out.stat().st_size > 0:
         return out
     with open_pdf(stored_paths.local(document["stored_path"])) as doc:
+        if (
+            out.exists() and out.stat().st_size > 0
+        ):  # another request rendered it while we waited
+            return out
         if not 1 <= page_no <= doc.page_count:
             raise PageOutOfRange(
                 f"page {page_no} is out of range (document has {doc.page_count})"
@@ -193,4 +218,5 @@ def render_page_with_marks(
             shape.commit()
         pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
         _save_png(pix, out)
+        del pix, page  # freed while the lock is still held
     return out
