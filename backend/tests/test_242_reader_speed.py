@@ -351,3 +351,20 @@ def test_the_allowed_unexplained_numbers_come_from_the_setting(cuts):
     )
     cuts("skip_agreed_pages=3")
     assert reader_speed.agreed_pages(texts, form) == [1]
+
+
+def test_the_per_page_counts_reach_the_stored_reader_summary(cuts, monkeypatch):
+    """s2 found them missing from the stored summary: `refusal_summary` carries them."""
+    from app import datasheets
+
+    cuts("")
+    fake = _Both()
+    run = _two_page_run(monkeypatch, fake)
+    stats = {"proposals_rejected": {}, "dropped": {}}
+    summary = datasheets.reader_summary(
+        {**run, "asked_subjects": []}, stats, pages=[1, 2]
+    )
+    counts = summary["speed_counts"]
+    assert counts["pages_fully_agreed"] == [1] and counts["pages_merge_skipped"] == []
+    assert set(counts["merge_by_page"]) == {1, 2}
+    assert json.dumps(summary)  # it is storable

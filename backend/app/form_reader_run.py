@@ -438,9 +438,17 @@ def refusal_summary(ai_run: dict, ai_stats: dict) -> dict:
     refused BY REASON (`dropped` reasons are prefixed), and the form reader's
     refusals by field. Counts only, never a page's words."""
     dropped = {f"dropped: {k}": n for k, n in (ai_stats.get("dropped") or {}).items()}
+    form = ai_run.get("form") or {}
     return {
         "refused_by_reason": {**(ai_stats.get("proposals_rejected") or {}), **dropped},
         "rejected_fields": ai_run.get("rejected_fields") or {},
+        # order 246: per page, what the whole-page pass added and which pages the form
+        # read fully (page numbers and counts only), so a run shows where minutes go
+        "speed_counts": {
+            key: form[key]
+            for key in ("merge_by_page", "pages_fully_agreed", "pages_merge_skipped")
+            if key in form
+        },
     }
 
 
