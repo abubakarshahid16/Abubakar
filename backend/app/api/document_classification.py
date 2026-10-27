@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from .. import access, schemas
+from .. import access, register_type_split, schemas
 from .. import admin as admin_mod
 from .. import classification as classification_mod
 from .. import doc_router as doc_router_mod
@@ -31,9 +31,12 @@ def classification_vocabulary(
     about documents, so it is bounded by what they may read.
     """
     reject_unknown_params(request, set())
+    awaiting_type, not_in_register = register_type_split.untyped_split(scope)
     return {**classification_mod.vocabulary(),
             "needs_classification":
-                classification_mod.needs_classification(scope)}
+                classification_mod.needs_classification(scope),
+            "awaiting_type": awaiting_type,
+            "not_in_register": not_in_register}
 
 
 @router.get("/api/classification/coverage",

@@ -46,6 +46,13 @@ export interface TypeVocabulary {
   unconfirmedByType: Record<string, number>;
   /** Documents this caller can read with no confirmed classification. */
   needsClassification: number;
+  /** Documents this caller can read with no register type and no role:
+   *  unknown, still awaiting a type. Not the same set as `needsClassification`
+   *  (no CONFIRMED classification) (#1087). */
+  awaitingType: number;
+  /** Documents this caller can read with no register type and a role: not
+   *  waiting for a type (the register types only the deliverables it lists). */
+  notInRegister: number;
   /** True when these counts cover the whole corpus (admin), false when they
    *  cover this caller's grants. A count with no stated boundary reads as
    *  total, so a screen using it must say which. */
@@ -113,6 +120,8 @@ export function useTypeVocabularyLoad(): TypeVocabularyLoad {
       countByType,
       unconfirmedByType,
       needsClassification: vocab.needs_classification,
+      awaitingType: vocab.awaiting_type,
+      notInRegister: vocab.not_in_register,
       corpusWide: coverage?.corpus_wide ?? false,
       registerLoaded: coverage?.register_loaded ?? false,
     },

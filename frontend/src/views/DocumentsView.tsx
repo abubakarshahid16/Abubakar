@@ -19,6 +19,13 @@ import { useDocumentClassifications } from "../components/classification/useDocu
 import { useTypeVocabularyLoad } from "../components/classification/TypeFilter";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import type { ApiError, DocumentClassification, DocumentKindOption, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
+import {
+  AWAITING_TYPE,
+  AWAITING_TYPE_LABEL,
+  NOT_IN_REGISTER,
+  groupByType,
+  typeOf,
+} from "./documentTypeGroups";
 import { NOT_IN_REGISTER_LABEL } from "../components/classification/registerLabels";
 
 type Load =
@@ -91,70 +98,6 @@ export function groupByDiscipline(documents: DocumentRecord[]): DocumentGroup[] 
       if (b.name === UNCATEGORISED_GROUP) return -1;
       return a.name.localeCompare(b.name);
     });
-}
-
-/** The filter-chip and group key for "no confirmed type yet". Never a
- *  register type name - the register's own strings come from
- *  `vocabulary.types` and this must never collide with one of them. */
-const AWAITING_TYPE = "__awaiting_type__";
-
-/** The heading and filter-chip label for the group above. Kept as one
- *  constant so the filter chip, the group heading and any message about it
- *  are always the same words. */
-export const AWAITING_TYPE_LABEL = "Awaiting a type";
-
-export type TypeGroup = { name: string; documents: DocumentRecord[] };
-
-/**
- * A document's confirmed-or-not type, from the per-document classification
- * fetch - NEVER from anything on `DocumentRecord` itself, because
- * `GET /api/documents` does not carry it.
- *
- * A classification that has not answered yet (still in flight) is treated
- * the same as `doc_type: null` for grouping purposes: it renders in the
- * "awaiting a type" group until its real answer arrives, rather than being
- * hidden from the list altogether while loading.
- */
-function typeOf(doc: DocumentRecord, byId: Record<string, DocumentClassification>): string | null {
-  return byId[doc.id]?.doc_type ?? null;
-}
-
-/**
- * The documents, grouped by confirmed-or-guessed type - in the register's
- * own order, one group per `types` entry, plus a final "awaiting a type"
- * group. A type is never invented here: `types` comes from
- * `useTypeVocabulary`, which reads it from the register.
- *
- * Every group is built even when it has no documents - see the empty-group
- * message in the view. Hiding an empty group would be indistinguishable from
- * a group nobody thought to build, and this screen exists to be able to tell
- * the two apart.
- */
-export function groupByType(
-  documents: DocumentRecord[],
-  types: string[],
-  byId: Record<string, DocumentClassification>,
-): { groups: TypeGroup[]; awaiting: TypeGroup; notInRegister: TypeGroup } {
-  const groups: TypeGroup[] = types.map((t) => ({ name: t, documents: [] }));
-  const byName = new Map(groups.map((g) => [g.name, g]));
-  const awaiting: DocumentRecord[] = [];
-  const notInRegister: DocumentRecord[] = [];
-  for (const doc of documents) {
-    const t = typeOf(doc, byId);
-    const bucket = t !== null ? byName.get(t) : undefined;
-    // A type the classification carries but the register no longer lists is
-    // not something this screen invents a group for - the document still
-    // has to appear somewhere, so it falls back to "awaiting a type" rather
-    // than being silently dropped.
-    if (bucket) bucket.documents.push(doc);
-    else if (t === null && byId[doc.id]?.document_role) notInRegister.push(doc);
-    else awaiting.push(doc);
-  }
-  return {
-    groups,
-    awaiting: { name: AWAITING_TYPE_LABEL, documents: awaiting },
-    notInRegister: { name: NOT_IN_REGISTER_LABEL, documents: notInRegister },
-  };
 }
 
 export function DocumentsView({
@@ -503,7 +446,10 @@ export function DocumentsView({
     (doc: DocumentRecord) => {
       if (selectedTypes.length === 0) return true;
       const t = typeOf(doc, classifications);
-      return t === null ? selectedTypes.includes(AWAITING_TYPE) : selectedTypes.includes(t);
+      if (t !== null) return selectedTypes.includes(t);
+      return selectedTypes.includes(
+        classifications[doc.id]?.document_role ? NOT_IN_REGISTER : AWAITING_TYPE,
+      );
     },
     [selectedTypes, classifications],
   );
@@ -637,10 +583,16 @@ export function DocumentsView({
             ))}
             <FilterChip
               label={AWAITING_TYPE_LABEL}
-              count={vocabulary.needsClassification}
+              count={vocabulary.awaitingType}
               on={selectedTypes.includes(AWAITING_TYPE)}
               onClick={() => toggleType(AWAITING_TYPE)}
               amber
+            />
+            <FilterChip
+              label={NOT_IN_REGISTER_LABEL}
+              count={vocabulary.notInRegister}
+              on={selectedTypes.includes(NOT_IN_REGISTER)}
+              onClick={() => toggleType(NOT_IN_REGISTER)}
             />
           </div>
           {/* A count with no stated boundary reads as total. `corpus_wide` is
@@ -699,6 +651,24 @@ export function DocumentsView({
               const showType = (name: string) =>
                 selectedTypes.length === 0 || selectedTypes.includes(name);
               const showAwaiting = selectedTypes.length === 0 || selectedTypes.includes(AWAITING_TYPE);
+              const showNotInRegister =
+                selectedTypes.length === 0 || selectedTypes.includes(NOT_IN_REGISTER);
+              // One card per document, the same wherever its group is.
+              const card = (doc: DocumentRecord) => (
+                <DocumentCard
+                  key={doc.id}
+                  doc={doc}
+                  actions={actions}
+                  classification={classifications[doc.id]}
+                  types={types}
+                  isAdmin={isAdmin}
+                  onConfirmType={confirmType}
+                  kinds={kinds}
+                  onConfirmKind={confirmKind}
+                  selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
+                  onToggleSelected={isAdmin ? toggleSelected : undefined}
+                />
+              );
 
               return (
                 <>
@@ -728,21 +698,7 @@ export function DocumentsView({
                           </p>
                         ) : (
                           <ul className="virtual-list space-y-3">
-                            {group.documents.map((doc) => (
-                              <DocumentCard
-                                key={doc.id}
-                                doc={doc}
-                                actions={actions}
-                                classification={classifications[doc.id]}
-                                types={types}
-                                isAdmin={isAdmin}
-                                onConfirmType={confirmType}
-                                kinds={kinds}
-                                onConfirmKind={confirmKind}
-                                selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
-                                onToggleSelected={isAdmin ? toggleSelected : undefined}
-                              />
-                            ))}
+                            {group.documents.map(card)}
                           </ul>
                         )}
                       </div>
@@ -760,25 +716,11 @@ export function DocumentsView({
                         </span>
                       </h3>
                       <ul className="virtual-list space-y-3">
-                        {awaiting.documents.map((doc) => (
-                          <DocumentCard
-                            key={doc.id}
-                            doc={doc}
-                            actions={actions}
-                            classification={classifications[doc.id]}
-                            types={types}
-                            isAdmin={isAdmin}
-                            onConfirmType={confirmType}
-                            kinds={kinds}
-                            onConfirmKind={confirmKind}
-                            selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
-                            onToggleSelected={isAdmin ? toggleSelected : undefined}
-                          />
-                        ))}
+                        {awaiting.documents.map(card)}
                       </ul>
                     </div>
                   )}
-                  {showAwaiting && notInRegister.documents.length > 0 && (
+                  {showNotInRegister && notInRegister.documents.length > 0 && (
                     <div key={notInRegister.name}>
                       <h3
                         className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-slateish-400"
@@ -790,21 +732,7 @@ export function DocumentsView({
                         </span>
                       </h3>
                       <ul className="virtual-list space-y-3">
-                        {notInRegister.documents.map((doc) => (
-                          <DocumentCard
-                            key={doc.id}
-                            doc={doc}
-                            actions={actions}
-                            classification={classifications[doc.id]}
-                            types={types}
-                            isAdmin={isAdmin}
-                            onConfirmType={confirmType}
-                            kinds={kinds}
-                            onConfirmKind={confirmKind}
-                            selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
-                            onToggleSelected={isAdmin ? toggleSelected : undefined}
-                          />
-                        ))}
+                        {notInRegister.documents.map(card)}
                       </ul>
                     </div>
                   )}

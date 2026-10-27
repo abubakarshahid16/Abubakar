@@ -121,6 +121,8 @@ const defaultVocabulary: ClassificationVocabulary = {
   disciplines: ["Civil"],
   subjects: [],
   needs_classification: 0,
+  awaiting_type: 0,
+  not_in_register: 0,
 };
 
 const defaultCoverage: ClassificationCoverage = {
@@ -609,6 +611,8 @@ const threeTypeVocabulary: ClassificationVocabulary = {
   disciplines: ["Civil"],
   subjects: [],
   needs_classification: 1,
+  awaiting_type: 1,
+  not_in_register: 0,
 };
 
 function threeTypeCoverage(over: Partial<Record<string, number>> = {}): ClassificationCoverage {
@@ -711,7 +715,7 @@ describe("documents grouped by classification type", () => {
         makeDoc({ id: "d2", filename: "no-role-yet.pdf" }),
       ],
       {
-        vocabulary: threeTypeVocabulary,
+        vocabulary: { ...threeTypeVocabulary, awaiting_type: 3, not_in_register: 7 },
         coverage: threeTypeCoverage(),
         classificationById: {
           d1: classificationFor({ document_id: "d1", doc_type: null, confirmed: false, suggested_by: "none", document_role: "COMPANY_STANDARD" }),
@@ -731,6 +735,13 @@ describe("documents grouped by classification type", () => {
     const chips = screen.getAllByTestId("type-chip").map((c) => c.textContent);
     expect(chips).toContain("Not in the register");
     expect(chips).toContain("Awaiting a type");
+    // The filter chips carry the SERVER's split (documents in the caller's scope), not a count made here.
+    expect(screen.getByRole("checkbox", { name: /Not in the register/ })).toHaveTextContent("7");
+    expect(screen.getByRole("checkbox", { name: /Awaiting a type/ })).toHaveTextContent("3");
+    fireEvent.click(screen.getByRole("checkbox", { name: /Not in the register/ }));
+    expect(screen.getByText("company-standard.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("no-role-yet.pdf")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: /^All/ }));
     expect(screen.getByText("Not in the register", { selector: "[data-testid=type-chip]" })).toHaveAttribute(
       "title",
       expect.stringMatching(/not waiting for one/i),
