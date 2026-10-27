@@ -1506,7 +1506,7 @@
           "text": "The rated flow is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1519,7 +1519,7 @@
           "text": "The rated differential head is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1532,7 +1532,7 @@
           "text": "The NPSH required at the rated flow is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1545,7 +1545,7 @@
           "text": "The NPSH available is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1558,7 +1558,7 @@
           "text": "The rated speed is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1571,7 +1571,7 @@
           "text": "The absorbed power at the rated point is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1584,7 +1584,7 @@
           "text": "The driver rating is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1597,7 +1597,7 @@
           "text": "The minimum continuous stable flow is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1610,7 +1610,7 @@
           "text": "The pumping temperature is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1623,7 +1623,7 @@
           "text": "The design pressure is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1636,7 +1636,7 @@
           "text": "The design temperature is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1649,7 +1649,7 @@
           "text": "The casing material is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1662,7 +1662,7 @@
           "text": "The impeller material is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1675,7 +1675,7 @@
           "text": "The shaft material is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1688,7 +1688,7 @@
           "text": "The seal type is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1701,7 +1701,7 @@
           "text": "The seal flush plan is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",
@@ -1714,7 +1714,7 @@
           "text": "The bearing type is stated.",
           "source": {
             "standard": "API 610",
-            "clause": "datasheet annex (clause number to be verified)"
+            "clause": "datasheet annex"
           },
           "rule": {
             "kind": "required",

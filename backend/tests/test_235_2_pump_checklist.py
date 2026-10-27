@@ -65,9 +65,10 @@ def test_the_pump_checklist_is_a_draft_with_unverified_clauses_and_does_not_gove
     assert len(checklist["items"]) == 17
     for item in checklist["items"]:
         assert item["source"]["standard"] == "API 610"
-        assert (
-            "to be verified" in item["source"]["clause"]
-        )  # no clause number is claimed
+        # no clause number is claimed (the contractor's Standard Reference prints this text);
+        # "to be verified" lives in `clauses_verified` and the note, never in the clause
+        assert item["source"]["clause"] == "datasheet annex"
+        assert "verified" not in item["source"]["clause"].lower()
         assert (
             item["rule"]["kind"] == "required"
             and item["rule"]["field"] in RULES["roles"]
