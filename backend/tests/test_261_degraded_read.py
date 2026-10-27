@@ -1,27 +1,50 @@
 """Order 261.2: a degraded AI reading never makes a verdict more confident. s2's clean vs broken
-I-06 counts (refused 1 vs 46, facts 68 vs 39, conflicts 16 vs 4, checklist meets 81 vs 88, the
+I-06 counts (facts 68 vs 39, conflicts 16 vs 4, checklist meets 81 vs 88, the
 run summary saying nothing) as invented fixtures. No model, no network."""
 
 from __future__ import annotations
 
 import pytest
 
-from app import absence, datasheets, degraded_read
+from app import absence, datasheets, db, degraded_read, submittal_review
+from app.config import settings
 
+
+@pytest.fixture(autouse=True)
+def temp_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "degraded.sqlite")
+    db.reset_connection()
+    db.init_db()
+    submittal_review.ensure_schema()
+    submittal_review.migrate_facts_to_per_document()
+    yield
+    db.reset_connection()
+
+
+# s2's REAL clean I-06 read (35B): the AI proposes far more than it can prove, so "refused > agreed"
+# (117 > 58) is normal and says nothing about a broken engine.
 CLEAN = {
     "engine": "local",
     "pages": 5,
     "pages_read": 5,
     "timed_out": [],
-    "refused_by_gate": 1,
-    "agreed": 50,
+    "code_only": {},
+    "refused_by_gate": 117,
+    "agreed": 58,
     "facts_written": 68,
     "conflicts": 16,
 }
+# the same sheet when the engine failed under it: pages left to the code readers with an
+# unusable answer, fewer facts, fewer conflicts
 BROKEN = {
     **CLEAN,
+    "code_only": {
+        "2": "engine answer unusable (compute error)",
+        "4": "engine answer unusable (x)",
+    },
     "refused_by_gate": 46,
-    "agreed": 30,
+    "agreed": 24,
     "facts_written": 39,
     "conflicts": 4,
 }
@@ -55,11 +78,25 @@ def test_a_clean_read_is_not_degraded():
     assert degraded_read.assess(CLEAN) is None
 
 
-def test_more_refused_than_agreed_is_degraded_and_says_the_counts():
+def test_a_page_with_an_unusable_engine_answer_is_degraded_and_says_the_counts():
     record = degraded_read.assess(BROKEN)
-    assert record["why"] == ["refused"]
-    assert (record["refused"], record["agreed"]) == (46, 30)
-    assert "46 answer(s) refused" in degraded_read.line(record)
+    assert record["why"] == ["failed_pages"] and record["failed_pages"] == 2
+    assert "2 page(s) had an unusable or missing AI answer" in degraded_read.line(
+        record
+    )
+
+
+def test_many_refusals_alone_are_not_a_broken_read():
+    """s2's real clean reads refuse 117 and agree 58: that must not hold a single pass."""
+    assert CLEAN["refused_by_gate"] > CLEAN["agreed"]
+    assert degraded_read.assess(CLEAN) is None
+
+
+def test_a_page_with_no_text_is_a_fact_about_the_page_not_a_failure():
+    assert (
+        degraded_read.assess({**CLEAN, "code_only": {"1": "no text on this page"}})
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -89,7 +126,7 @@ def test_the_broken_read_gives_no_more_meets_than_the_clean_one(reader):
     assert {r["status"] for r in broken} == {"NEEDS_ENGINEER_REVIEW"}
     assert (
         "degraded" in broken[0]["detail"]
-        and "46 answer(s) refused" in broken[0]["detail"]
+        and "2 page(s) had an unusable or missing AI answer" in broken[0]["detail"]
     )
 
 
@@ -124,7 +161,9 @@ def test_a_clean_read_changes_nothing(reader):
 def test_the_split_carries_the_record_and_the_reader_summary(reader):
     reader(BROKEN)
     split = degraded_read.with_reader({"checked": 3}, "doc")
-    assert split["reader"] == BROKEN and split["degraded_read"]["why"] == ["refused"]
+    assert split["reader"] == BROKEN and split["degraded_read"]["why"] == [
+        "failed_pages"
+    ]
     reader(CLEAN)
     clean = degraded_read.with_reader({"checked": 3}, "doc")
     assert "degraded_read" not in clean and clean["reader"] == CLEAN
@@ -182,4 +221,4 @@ def test_a_whole_review_on_a_degraded_read_holds_every_checklist_pass(monkeypatc
     broken = _checklist_findings(run)
     assert "COMPLIANT" not in broken and "NEEDS_ENGINEER_REVIEW" in broken
     assert len(broken) == len(clean)
-    assert result["requirement_split"]["degraded_read"]["why"] == ["refused"]
+    assert result["requirement_split"]["degraded_read"]["why"] == ["failed_pages"]

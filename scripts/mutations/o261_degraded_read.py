@@ -11,12 +11,12 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1393-01",
         phase=1393,
-        description="a read where most answers were refused is not called degraded",
+        description="a page with an unusable engine answer does not make the read degraded",
         path=APP / "degraded_read.py",
-        anchor="    if refused > agreed:\n",
-        replacement="    if refused > agreed + 10_000:\n",
+        anchor="    if failed:\n",
+        replacement="    if False:\n",
         target=_T,
-        keyword="refused_than_agreed or whole_review or broken_read",
+        keyword="unusable or whole_review",
         tags=_TAGS,
     ),
     Mutation(

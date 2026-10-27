@@ -1,19 +1,24 @@
 """Order 261.2: a failed AI reading must never make a verdict more confident.
 
 The datasheet reader asks the AI for each page and keeps only what the code gates accept. When
-the AI's answers are mostly refused (more refused than agreed with the rule reader), or a page
-timed out, or the reader was stopped or unavailable, the reading is DEGRADED: the conflicts the
-AI would have raised never appear, so the rule reader's values stand unchallenged and the
-checklist reports MORE passes than a clean read (s2, 27 Oct: refused 1 vs 46, conflicts 16 vs 4,
-meets 81 vs 88, the run summary saying nothing). This module says so, in counts only, and holds
-every checklist pass for the engineer while the read is degraded. It never turns a failure into
-a pass, and never lifts a hold.
+a page's answer was unusable (an engine error), a page timed out, or the reader was stopped or
+unavailable, the reading is DEGRADED: the conflicts the AI would have raised never appear, so the
+rule reader's values stand unchallenged and the checklist can report MORE passes than a clean
+read (s2, 27 Oct: two 35B models on one Mac, AI facts 68 -> 39, conflicts 16 -> 4, meets 81 -> 88,
+the run summary saying nothing). This module says so, in counts only, and holds every checklist
+pass for the engineer while the read is degraded. It never turns a failure into a pass, and never
+lifts a hold.
+
+NOT a trigger: "more answers refused by the code gates than agreed". s2's real runs show a CLEAN
+read of the PSV sheet refuses 117 and agrees 58 (the AI always proposes more than it can prove),
+so that count says nothing about a broken engine. The refusal COUNTS are still recorded.
 """
 
 from __future__ import annotations
 
 from . import datasheets
 
+NO_TEXT = "no text on this page"
 HELD = (
     "Engineer to check: the rule reader found this stated, but the AI reader's reading of this "
     "datasheet was degraded ({why}), so the pass is not trusted."
@@ -28,9 +33,14 @@ def assess(summary: dict | None) -> dict | None:
     refused = int(summary.get("refused_by_gate") or 0)
     agreed = int(summary.get("agreed") or 0)
     timed_out = len(summary.get("timed_out") or [])
+    # a page left to the code readers because the engine's answer was unusable, ran out of
+    # time or was unavailable ("no text on this page" is a fact about the page, not a failure)
+    failed = sum(
+        1 for why in (summary.get("code_only") or {}).values() if why != NO_TEXT
+    )
     why = []
-    if refused > agreed:
-        why.append("refused")
+    if failed:
+        why.append("failed_pages")
     if timed_out:
         why.append("timed_out")
     if summary.get("stopped"):
@@ -43,6 +53,7 @@ def assess(summary: dict | None) -> dict | None:
         "refused": refused,
         "agreed": agreed,
         "timed_out_pages": timed_out,
+        "failed_pages": failed,
         "why": why,
     }
 
@@ -59,8 +70,7 @@ def line(record: dict) -> str:
 
 def _words(record: dict) -> str:
     said = {
-        "refused": f"{record['refused']} answer(s) refused by the code gates against "
-        f"{record['agreed']} agreed with the rule reader",
+        "failed_pages": f"{record['failed_pages']} page(s) had an unusable or missing AI answer",
         "timed_out": f"{record['timed_out_pages']} page(s) timed out",
         "stopped": "the reader was stopped before it finished",
         "unavailable": "the AI reader was unavailable",
