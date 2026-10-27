@@ -73,7 +73,10 @@ def _jpeg_size(data: bytes) -> tuple[int, int]:
 
 def size_of(data: bytes) -> tuple[int, int]:
     """(width, height) in pixels from the file header; decodes nothing."""
-    return _png_size(data) if data.startswith(PNG_MAGIC) else _jpeg_size(data)
+    try:
+        return _png_size(data) if data.startswith(PNG_MAGIC) else _jpeg_size(data)
+    except struct.error as exc:  # a header cut short inside a field
+        raise ImageRefused("the picture header is cut short") from exc
 
 
 def to_pdf_bytes(data: bytes) -> bytes:

@@ -110,3 +110,19 @@ def test_other_files_are_still_refused_as_not_a_pdf():
 def test_the_header_size_reads_both_formats():
     assert image_intake.size_of(_picture("png", 123, 45)) == (123, 45)
     assert image_intake.size_of(_picture("jpeg", 123, 45)) == (123, 45)
+
+
+@pytest.mark.parametrize(
+    "cut",
+    [
+        b"\xff\xd8\xff\xc0\x00\x11\x08\x00",
+        b"\xff\xd8\xff\xc0\x00\x11\x08\x00\x10",
+    ],
+)
+def test_a_jpeg_cut_inside_its_frame_header_is_refused_by_name(cut):
+    with pytest.raises(image_intake.ImageRefused):
+        image_intake.size_of(cut)
+    with pytest.raises(UploadError) as err:
+        ingest(io.BytesIO(cut), "cut.jpg")
+    assert err.value.code == "bad_image"
+    assert list(settings.upload_dir.glob("*")) == []
