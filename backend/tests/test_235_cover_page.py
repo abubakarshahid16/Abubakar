@@ -256,6 +256,9 @@ def test_a_path_left_from_an_earlier_sheet_is_never_read_outside_an_extraction(
         "* Flange rating: Class 300",
         "\u2022 Size: DN 50",
         "a) Casing material: Duplex",
+        "1.1 Casing material: Duplex",
+        "2.3.1 Size: DN 50",
+        "1.1. Flange rating: Class 300",
     ],
 )
 def test_a_numbered_or_bulleted_field_line_is_still_a_field_line(line):

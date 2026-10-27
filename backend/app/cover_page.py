@@ -74,7 +74,7 @@ _NEXT_WORD = re.compile(
 #: field the readers may have missed ("Casing material: Duplex", "Flange
 #: rating: Class 300", "Size: DN 50"), and the page stays unread.
 _FIELD_LINE = re.compile(
-    r"^\s*(?:[-*\u2022\u25aa\u2013]\s+|\(?\d{1,3}[.)]\s*|\(?[A-Za-z][.)]\s+)?"
+    r"^\s*(?:[-*\u2022\u25aa\u2013]\s+|\(?\d{1,3}(?:\.\d{1,3})*[.)]?\s+|\(?\d{1,3}[.)]\s*|\(?[A-Za-z][.)]\s+)?"
     r"([A-Za-z][\w ./()#-]{1,40}?)\s*[:=]\s*\S",
     re.MULTILINE,
 )
