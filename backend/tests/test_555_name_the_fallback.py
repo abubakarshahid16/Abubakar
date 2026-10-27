@@ -9,6 +9,8 @@ import pytest
 from app import chat_model, crs_wording, fallback_note
 from app import reasoning_provider as rp
 from app.config import settings
+from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
+from tests.test_review_ai_check import world  # noqa: F401 - fixture
 
 
 @pytest.fixture
@@ -100,16 +102,111 @@ def test_the_wording_step_records_the_fallback_in_the_engine_it_stores():
     assert crs_wording._ask(_fake(None), ROW)[2] == "ollama:m"
 
 
-def test_the_ai_check_records_the_fallback_in_its_engine():
+def _local_reply(self, packet):
+    return _response(tag="m")
+
+
+@pytest.fixture
+def closed_lane(monkeypatch):
+    """Claude asked for in the way `how` says and the lane closed (no key)."""
+
+    def set_up(how="claude"):
+        monkeypatch.setattr(settings, "reasoning_provider", how)
+        monkeypatch.setattr(settings, "crs_ai_wording_engine", "claude")
+        monkeypatch.setattr(settings, "review_ai_check_engine", "claude")
+        monkeypatch.setattr(rp.OllamaProvider, "reason", _local_reply)
+        monkeypatch.setattr(
+            rp,
+            "claude_unavailable",
+            lambda: (
+                ("KEY_MISSING", "no key") if how == "claude" else ("PROVIDER_OFF", "x")
+            ),
+        )
+        monkeypatch.setattr(
+            rp, "claude_unavailable_for_task", lambda engine: ("KEY_MISSING", "no key")
+        )
+        monkeypatch.setattr(rp, "claude_for_task", lambda *a, **k: None)
+
+    return set_up
+
+
+@pytest.mark.parametrize("how", ["claude", "per_task"])
+def test_the_wording_step_keeps_the_note_on_the_provider_it_really_uses(
+    closed_lane, how
+):
+    closed_lane(how)
+    provider, local_instead = crs_wording._provider_for_this_review()
+    assert isinstance(provider, rp.OllamaProvider) and local_instead is None
+    assert provider.fell_back == fallback_note.WORDS["KEY_MISSING"]
+    label = crs_wording._ask(provider, ROW)[2]
+    assert label == f"ollama:m (Claude not used: {fallback_note.WORDS['KEY_MISSING']})"
+
+
+def test_a_step_that_never_asked_for_claude_says_nothing(closed_lane, monkeypatch):
+    closed_lane("per_task")
+    monkeypatch.setattr(settings, "crs_ai_wording_engine", "ollama")
+    provider, _ = crs_wording._provider_for_this_review()
+    assert provider.fell_back is None
+    assert crs_wording._ask(provider, ROW)[2] == "ollama:m"
+
+
+def test_a_document_not_approved_for_the_cloud_model_is_named_for_a_step_that_asked(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "reasoning_provider", "per_task")
+    monkeypatch.setattr(rp, "claude_unavailable_for_task", lambda engine: (None, ""))
+    local = rp.OllamaProvider()
+    monkeypatch.setattr(rp, "claude_for_task", lambda *a, **k: None)
+    marked = fallback_note.or_local(local, "claude")
+    assert marked.fell_back == fallback_note.NOT_APPROVED
+
+
+def test_the_ai_check_hands_its_local_provider_the_note(
+    request, closed_lane, monkeypatch
+):
     from app import ai_engineering_check as aic
 
-    words = fallback_note.WORDS["KEY_MISSING"]
-    out = aic._call(_fake(words), None)[0]
-    assert fallback_note.engine_label(_fake(words), out).endswith(
-        f"(Claude not used: {words})"
-    )
-    import inspect
+    closed_lane("claude")
+    _sub, run, scope = request.getfixturevalue("world")
+    seen = []
 
-    src = inspect.getsource(aic)
-    assert src.count("fallback_note.engine_label(provider, response)") == 3
-    assert 'f"{response.provider}:{response.model_tag}"' not in src
+    def spy(provider, *a, **k):
+        seen.append(provider)
+        return {
+            "pages": 0,
+            "done": [],
+            "timed_out": [],
+            "failed": [],
+            "not_tried": [],
+            "no_value_read": [],
+            "no_blank_field": [],
+            "calls_made": 0,
+            "proposed": 0,
+            "engine": None,
+        }
+
+    monkeypatch.setattr(aic, "_local_page_calls", spy)
+    monkeypatch.setattr(
+        settings, "review_ai_check_enabled", True
+    )  # the suite pins it off
+    aic.run_check(run, allowed_document_ids=scope, cited=[])
+    assert seen and isinstance(seen[0], rp.OllamaProvider)
+    assert seen[0].fell_back == fallback_note.WORDS["KEY_MISSING"]
+
+
+def test_carry_copies_the_note_to_a_replacement_provider():
+    old = rp.OllamaProvider()
+    old.fell_back = "x"
+    assert fallback_note.carry(old, timeout=5.0).fell_back == "x"
+    assert fallback_note.carry(rp.OllamaProvider(), timeout=5.0).fell_back is None
+
+
+def test_a_global_claude_request_survives_a_step_that_did_not_ask_itself(
+    closed_lane, monkeypatch
+):
+    """REASONING_PROVIDER=claude and the wording step's own engine says ollama: only the provider
+    switch asked for Claude, and the fresh local provider must still carry that."""
+    closed_lane("claude")
+    monkeypatch.setattr(settings, "crs_ai_wording_engine", "ollama")
+    provider, _ = crs_wording._provider_for_this_review()
+    assert provider.fell_back == fallback_note.WORDS["KEY_MISSING"]

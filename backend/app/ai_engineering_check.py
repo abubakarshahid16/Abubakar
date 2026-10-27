@@ -782,7 +782,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
             # the review (its standards too) is approved: the full check, with
             # the clause list, runs on the cloud model. One unapproved
             # standard keeps it local, and the datasheet-only opinion follows.
-            provider = rp.claude_for_task(opinion_engine(), step=STEP) or provider
+            provider = fallback_note.or_local(provider, opinion_engine(), step=STEP)
         if isinstance(provider, rp.ClaudeProvider):
             # #838: documents not approved for the cloud model -> the local
             # model, said on the run. A budget refusal is NOT replaced.
@@ -796,7 +796,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         # output cap and its own timeout, so a review is never held for long.
         max_output_tokens = min(max_output_tokens, LOCAL_MAX_OUTPUT_TOKENS)
         timeout_s = float(settings.review_ai_check_local_timeout_s)
-        provider = rp.OllamaProvider(timeout=timeout_s)
+        provider = fallback_note.carry(provider, timeout=timeout_s)
     engine: str | None = None
 
     all_kept: list[dict] = []
