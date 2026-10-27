@@ -65,6 +65,10 @@ def main() -> None:
     from app import live_guard
 
     live_guard.mark_server_process()
+    # Order 252: a native crash (bus error, segfault) leaves every thread's stack in a file.
+    from app import crash_log
+
+    crash_log.enable(settings.data_dir / "logs" / "native-crash.log")
     # Order 218.1: follow the whole pipeline in debug/live.log. This MUST stay before
     # uvicorn imports the app: modules doing `from .x import f` must bind the wrapped f.
     if settings.review_debug:
