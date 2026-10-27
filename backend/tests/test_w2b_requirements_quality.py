@@ -285,12 +285,16 @@ def test_a_definition_never_reaches_a_review_run():
 # ====================================================== #597 text quality
 
 MIRRORED = "noitcurtsni eht ot dnuorg eht tnemec ni ro ni tsum eht lleh dna ssenisub"
+MIRRORED_SHORT = "noitcurtsni eht ot dnuorg eht tnemec"
 NORMAL_TEXT = "10 % or less overpressure"
 
 
 def test_garbled_and_mirrored_text_is_flagged_and_normal_text_is_not():
     """Test 4a."""
     assert requirement_quality.text_quality(MIRRORED) == "text_quality"
+    # a SHORT mirrored sentence (under 8 words) is caught only by the reversed-word rule; the
+    # "most words are in no dictionary" rule (#618) needs 8 words, so this keeps M2513 honest
+    assert requirement_quality.text_quality(MIRRORED_SHORT) == "text_quality"
     assert requirement_quality.text_quality("ɘht ƨɘɘɿɘq ɒ ɘɿɘhw") == "text_quality"
     assert requirement_quality.text_quality(
         "xqzk wpfr tvbn qwrt lkjh mnbv gfds zxcv") == "text_quality"

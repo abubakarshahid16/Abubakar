@@ -50,9 +50,9 @@ def test_one_problem_for_three_tags_is_one_row_with_each_tags_value():
 def test_a_requirement_no_field_was_paired_with_is_an_engineers_question():
     unpaired = {"compliance_status": "MISSING_INFORMATION", "id": "u", "standard_name": "SPEC-X.pdf",
                 "standard_clause": "6.2", "requirement_source_text": "The lift shall be stated.",
-                "crs_field_label": "LIFT", "ai_rationale": "no field read from the submittal answers this requirement"}
+                "crs_field_label": "SET PRESSURE", "ai_rationale": "no field read from the submittal answers this requirement"}
     [row] = build_crs_rows([unpaired], [], "psv.pdf")
-    assert "please indicate where the datasheet states LIFT" in row["comment"]
+    assert "please indicate where the datasheet states Set pressure" in row["comment"]
     assert "Contractor to" not in row["comment"]
 
 

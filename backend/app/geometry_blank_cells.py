@@ -38,6 +38,14 @@ INSET = 1.5
 MARKER = "empty cell"
 
 
+#: A fill whose EVERY colour channel is below this is dark (near black): a mark on a cell, not a
+#: background. The brightest channel decides, so a saturated red, green or blue shaded cell is not dark.
+DARK_FILL = 0.35
+#: A rectangle at most this many times the cell's own area belongs to ONE cell; a background or a
+#: band behind a row or the whole table is larger.
+ONE_CELL = 2.5
+
+
 def _holds(row_cells: list[dict], column: int) -> bool:
     return any(c["column"] == column and c["text"] for c in row_cells)
 
@@ -60,6 +68,42 @@ def _label_sits_where_labels_sit(
     return same * 2 > len(paired)
 
 
+#: Last words that are units in the table but name WHAT a field counts ("Design life years",
+#: "Service hours") or are ordinary words ("in"): not a value lost into the label.
+_COUNTED_THINGS = frozenset(
+    {
+        "in",
+        "year",
+        "years",
+        "yr",
+        "yrs",
+        "week",
+        "weeks",
+        "wk",
+        "wks",
+        "month",
+        "months",
+    }
+)
+
+
+def _ends_in_a_bare_unit(text: str) -> bool:
+    """A label of two or more words whose last word is a unit the table knows (two letters or more), NOT in brackets
+    ("Design pressure barg"): the number may have been lost from a value pushed into the label cell,
+    so the empty neighbour is not proof of a blank. A bracketed unit ("Design pressure (barg)") is
+    an ordinary label qualifier and stays a label."""
+    from . import claims
+
+    words = text.split()
+    last = words[-1].strip(",.;:") if words else ""
+    if len(words) < 2 or last[:1] in "([" or last[-1:] in ")]":
+        return False
+    word = last.lower()
+    if word in _COUNTED_THINGS or claims.unit_dimension(word) == "time":
+        return False
+    return len(last) >= 2 and claims.is_unit(last)
+
+
 def rows(
     table: dict[str, Any], index: int, cells: list[dict], filled: list[int]
 ) -> list[dict]:
@@ -75,6 +119,8 @@ def rows(
     # A value pushed into the label cell ("Design pressure 10 barg") is not a
     # label with an empty answer: a number in its last two words says so.
     if any(ch.isdigit() for word in text.split()[-2:] for ch in word):
+        return []
+    if _ends_in_a_bare_unit(text):
         return []
     if value.get("bbox") is None or value["text"]:
         return []
@@ -137,6 +183,25 @@ def _bounds(item: tuple) -> tuple[float, float, float, float] | None:
     return None
 
 
+def _area(box: tuple[float, float, float, float]) -> float:
+    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
+
+
+def _dark_over_one_cell(
+    inner: tuple[float, float, float, float],
+    box: tuple[float, float, float, float],
+    drawing: dict,
+) -> bool:
+    """A SOLID DARK fill about the size of this one cell is a mark (a blacked-out or hatched-out cell
+    reads "not applicable"), not the background behind a table. A light or mid fill stays a
+    background: a shaded input cell is a cell to be filled."""
+    fill = drawing.get("fill")
+    # no fill, an unknown colour model (CMYK) or not dark: a background
+    if not fill or len(fill) not in (1, 3) or max(fill) >= DARK_FILL:
+        return False
+    return _area(box) <= ONE_CELL * _area(inner)
+
+
 def _marks_the_cell(inner: tuple[float, float, float, float], drawing: dict) -> bool:
     """A drawn path puts something IN the cell only through a SEGMENT that meets
     it. The bounding box of a whole path would not do: a table grid drawn as one
@@ -155,7 +220,7 @@ def _marks_the_cell(inner: tuple[float, float, float, float], drawing: dict) -> 
             and box[2] >= inner[2]
             and box[3] >= inner[3]
         )
-        if item[0] == "re" and covers:
+        if item[0] == "re" and covers and not _dark_over_one_cell(inner, box, drawing):
             continue
         return True
     return not drawing.get("items") and _meets(inner, drawing["rect"])

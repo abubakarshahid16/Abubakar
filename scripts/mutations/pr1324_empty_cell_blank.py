@@ -91,7 +91,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1324,
         description="a fill behind the table counts as a mark in every cell, so no blank is ever emitted",
         path=_F,
-        anchor='        if item[0] == "re" and covers:\n            continue\n',
+        anchor='        if item[0] == "re" and covers and not _dark_over_one_cell(inner, box, drawing):\n            continue\n',
         replacement="",
         target=_T,
         keyword="drawn_as_one_path_or_on_a_fill",
