@@ -177,3 +177,20 @@ def test_a_finished_review_leaves_no_machine_row_blank_on_the_internal_copy(
         r["ai_review_comment"].startswith("Plain wording kept: ") for r in machine
     )
     assert all(not r["ai_review_comment"] for r in views["issue"])
+
+
+def test_a_run_stored_before_reasons_were_kept_per_row_does_not_claim_the_ai_offered_nothing():
+    crs_wording._store_summary(
+        "run-old",
+        {"enabled": True, "tried": 2, "refused": {crs_wording.NUMBER_CHANGED: 1}},
+    )
+    rows = [dict(MACHINE)]
+    crs_ai_cell.apply(rows, "run-old")
+    assert _note(rows[0]) == (
+        "Plain wording kept: the AI wording was not kept "
+        "(reason not recorded for this older review)"
+    )
+    crs_wording._store_summary("run-none", {"enabled": True, "tried": 0, "refused": {}})
+    rows = [dict(MACHINE)]
+    crs_ai_cell.apply(rows, "run-none")
+    assert "offered no wording" in _note(rows[0])
