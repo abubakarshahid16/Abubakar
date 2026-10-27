@@ -1853,20 +1853,11 @@ def completeness_for_run(
     }
 
 
-def _unchecked_causes(counts: dict) -> str:
-    """Why the requirements that apply were not checked, each cause with its
-    count (#139): the cited-clause step's unsure ones are not "no field"."""
-    unsure = min(counts.get("unsure_citation", 0), counts.get("not_compared", 0))
-    rest = counts.get("not_compared", 0) - unsure
-    if not unsure:
-        return "no matching field, or text that could not be read"
-    causes = [
-        f"{unsure} because the datasheet's citation does not say for certain "
-        "which clauses of the standard apply - the engineer decides"
-    ]
-    if rest:
-        causes.append(f"{rest} with no matching field, or text that could not be read")
-    return "; ".join(causes)
+def _unchecked_causes(counts: dict, reasons: list | None = None) -> str:
+    """Why the requirements that apply were not checked, with counts (#139)."""
+    from . import requirement_split
+
+    return requirement_split.causes(counts, reasons)
 
 
 def recommend_code(findings: list[dict], completeness: dict, *,
@@ -1874,7 +1865,8 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                    missing_references: list[str] | tuple[str, ...] = (),
                    page_coverage: dict | None = None,
                    unchecked_standards: list[str] | tuple[str, ...] = (),
-                   unchecked_counts: dict | None = None) -> dict:
+                   unchecked_counts: dict | None = None,
+                   unchecked_reasons: list | None = None) -> dict:
     """The recommendation, with `reason` in PLAIN WORDS for the engineer and
     the technical sentence kept as `details` (owner order 2g, 2026-09-26).
 
@@ -1902,7 +1894,7 @@ def recommend_code(findings: list[dict], completeness: dict, *,
         applies_n = unchecked_n + counts.get("checked", 0)
         result = {**result, "code": codes[3],
                   "reason": (f"Manual review: {unchecked_n} of {applies_n} requirements that apply "
-                             f"to this submittal were not checked ({_unchecked_causes(counts)}), "
+                             f"to this submittal were not checked ({_unchecked_causes(counts, unchecked_reasons)}), "
                              "so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
     # PF3 (#883): AN INCOMPLETE READING CANNOT BE APPROVED. A page the AI reader
@@ -3034,9 +3026,8 @@ def _run_comparison(
         split = {**split, "checklist_coverage": checklist_coverage}
     if divided["summary"]:  # #141: divisions limited by their own scope
         split = {**split, "division_scope": divided["summary"]}
-    # Owner order 2026-10-11: the run says which reader read the sheet - the
-    # AI engine and model, or "code readers only", and the pages the AI did
-    # not read (timed out, unavailable) with the reason.
+    # Owner order 2026-10-11: the run says which reader read the sheet (engine,
+    # model or "code readers only") and the pages the AI did not read, with the reason.
     reader = datasheets.latest_reader_summary(submittal_id)
     if reader:
         split = {**split, "reader": reader}
@@ -3051,7 +3042,8 @@ def _run_comparison(
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
                                     unchecked_standards=unchecked_standards,
-                                    unchecked_counts=unchecked_counts)
+                                    unchecked_counts=unchecked_counts,
+                                    unchecked_reasons=split["applies_not_checked_reasons"])
     _store_run_outcome(review_run_id, recommendation, coverage,
                        page_coverage=pages_read,
                        missing_references=missing_references or [],

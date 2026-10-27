@@ -136,6 +136,28 @@ def build(
     }
 
 
+def causes(counts: dict, reasons: list | None = None) -> str:
+    """Why the requirements that apply were not checked, each real reason with its count. `reasons`
+    is the split's `applies_not_checked_reasons`: they add up to the unchecked count, so nothing
+    is named that did not happen. Without them (a run stored before they were kept) only the
+    cited-clause cause (#139) is certain; the rest is said in general words."""
+    if reasons:
+        top = [f"{r['count']} {r['reason']}" for r in reasons[:4]]
+        more = sum(r["count"] for r in reasons[4:])
+        return "; ".join(top + ([f"{more} for other reasons"] if more else []))
+    unsure = min(counts.get("unsure_citation", 0), counts.get("not_compared", 0))
+    rest = counts.get("not_compared", 0) - unsure
+    if not unsure:
+        return "not compared with a value on the datasheet"
+    named = [
+        f"{unsure} because the datasheet's citation does not say for certain "
+        "which clauses of the standard apply - the engineer decides"
+    ]
+    if rest:
+        named.append(f"{rest} not compared with a value on the datasheet")
+    return "; ".join(named)
+
+
 def from_counts(counts: dict | None) -> dict | None:
     """A split for a run stored BEFORE this existed: only its three counts are
     known, so each group's reason is "no reason recorded" and nothing is
