@@ -37,7 +37,8 @@ from . import (
 )
 
 # isort: split
-from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
+from . import crs_checklist, crs_decider, crs_page_words, crs_reference
+from . import equipment_subtype
 
 # isort: split
 from . import paragraph_ids
@@ -538,7 +539,7 @@ def reasoning_text(group: list[dict]) -> str:
         reference = _standard_reference(f)
         if reference:
             bits.append(f"Clause: {reference}")
-        bits.extend(crs_reference.internal_bits(f))
+        bits.extend(crs_reference.internal_bits(f) + crs_checklist.draft_bits(f))
         status = f.get("compliance_status")
         if status:
             bits.append(f"Result: {_RESULT_WORDS.get(status, status)}")
@@ -1094,9 +1095,8 @@ def _bucket_of(f: dict) -> str | None:
     if origin == _WEB_ORIGIN:
         return BUCKET_WEB
     if origin == _DATASHEET_ORIGIN:
-        # rule_trust (#947): a check held because its rule is not proven is
-        # still a row - the engineer decides it.
-        if status in ("NON_COMPLIANT", _MISSING_INFORMATION) or f.get("rule_said"):
+        # rows: a breach, a gap, a check held as unproven (#947), a checklist item held
+        if crs_checklist.is_row(status, f):
             return BUCKET_CHECK
     elif status == "NON_COMPLIANT":
         return BUCKET_BREACH
