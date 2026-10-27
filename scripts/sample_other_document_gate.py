@@ -12,12 +12,14 @@ each row in exactly one class by re-reading its sentence in memory:
   weak_noun_only            only plan / record / report / procedure matched
   plausible_deliverable     none of the above: a document really is asked for
 
-The first four are the ways it is sent away wrongly; the last is the only one that should stay.
+The first four are SUSPECTED wrong sendings, a guess until an engineer has opened the sampled rows (use
+`--ids-out`); the last is the only one that should stay. The counts are approximate: the noun check
+uses the first place each noun occurs in the sentence, so a noun that appears twice is judged once.
 Counts only: no sentence, filename, page or clause number is printed (CLAUDE.md rule 1). With
 `--ids-out FILE` the finding ids per class go to a local file, so an engineer can open the rows
 on screen; ids are not document text. Read-only, and on a COPY only (a live-shaped path is refused).
 
-    python scripts/sample_other_document_gate.py --db <copy.sqlite> --review-run <id> [--sample 30]
+    python scripts/sample_other_document_gate.py --db <review-copy.sqlite> --review-run <id> [--sample 30]
 """
 
 from __future__ import annotations

@@ -81,3 +81,17 @@ def test_counts_only_and_deterministic(sample):
     assert report["sent_away_in_run"] == len(CASES) and report["sampled"] == 5
     assert sum(report["classes"].values()) == 5
     assert "The" not in str(report)  # no sentence text in the output
+
+
+def test_marker_is_what_the_real_compare_writes(sample):
+    from app import comparison
+
+    requirement = {
+        "requirement_type": "numeric_limit",
+        "requirement_text": "The vendor shall submit a calibration certificate.",
+        "required_evidence_type": "certificate",
+    }
+    verdict = comparison.compare(requirement, None)
+    assert verdict["status"] == sample.STATUS
+    assert sample.MARK in verdict["rationale"]
+    assert sample.MARK == comparison.REQUIRES_OTHER_DOCUMENT
