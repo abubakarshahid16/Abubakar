@@ -270,7 +270,8 @@ def _own_title(line: str, shape: str) -> str | None:
 def loose_share(
     texts: list[str], shape: str, skip: frozenset[str] = frozenset()
 ) -> float:
-    """The share of the standard's own heading lines whose title is `_loose`."""
+    """The share of the standard's own heading lines whose title is `_loose`; 1.0 when it has none
+    (nothing to calibrate on, so a sentence-like heading is never taken as the odd one out)."""
     titles = [
         t
         for text in texts
