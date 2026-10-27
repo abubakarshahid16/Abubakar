@@ -116,8 +116,8 @@ fails with `Cannot find module lightningcss...`. If that ever happens:
 ### B6. The answer model
 
 ```
-ollama pull qwen3.5:4b
-ollama list          → must show qwen3.5:4b
+ollama pull hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL
+ollama list          → must show the 35B model (22 GB; the machine needs about 24 GB free)
 ```
 
 ### B7. Start it

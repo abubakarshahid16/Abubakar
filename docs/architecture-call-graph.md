@@ -106,7 +106,7 @@ Every module that can open a socket:
 | `reader_transport.py` | Anthropic API | only `claude_api.py` | `standards_reader_enabled=False`, `..._allow_public_egress=False` | DEAD |
 | `notifications.py:64` (`smtplib.SMTP`) | `smtp_host` | management-summary e-mail, deliverable/risk notifications | `smtp_enabled=False` | OFF — covered by `tests/test_socket_containment.py` since #196 (`smtplib`/`ssl` roots; sole importer); bodies pinned by `tests/test_196_notification_bodies.py` |
 
-Models configured: `answer_model="qwen3.5:4b"` (Ollama 0.34.3 at 127.0.0.1:11434; installed
+Models configured: `answer_model="hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL"` (the default since 27 Oct 2026; before it `qwen3.5:4b`) (Ollama 0.34.3 at 127.0.0.1:11434; installed
 `qwen3.5:4b`, `qwen3.5:9b`, `mistral:7b`); embeddings e5-small int8 ONNX; reranker
 ms-marco-MiniLM-L-6-v2 int8 ONNX; OCR PP-OCRv6 tiny ONNX.
 
