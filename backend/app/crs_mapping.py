@@ -29,6 +29,7 @@ import re
 from . import (
     crs_ai_drafts,
     crs_blank_fields,
+    crs_checklist,
     crs_item_series,
     crs_no_field,
     method_notes,
@@ -37,8 +38,7 @@ from . import (
 )
 
 # isort: split
-from . import crs_checklist, crs_decider, crs_page_words, crs_reference
-from . import equipment_subtype
+from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
 from . import paragraph_ids

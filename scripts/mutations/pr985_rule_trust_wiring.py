@@ -55,7 +55,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M985-16", phase=985,
              description="a held datasheet check silently leaves the CRS",
              path=_M,
-             anchor='        if status in ("NON_COMPLIANT", _MISSING_INFORMATION) or f.get("rule_said"):\n',
+             anchor='        if crs_checklist.is_row(status, f):\n',
              replacement='        if status in ("NON_COMPLIANT", _MISSING_INFORMATION):\n',
              target=_T, keyword="every_datasheet_check_is_labelled_too", tags=("honesty", "critical")),
     Mutation(id="M985-17", phase=985,
