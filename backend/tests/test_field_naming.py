@@ -278,13 +278,15 @@ def test_with_the_flag_off_no_naming_runs(monkeypatch):
 
 
 def test_field_naming_has_its_own_switch_apart_from_the_geometry_reader(monkeypatch):
-    """Order 259.5: `FIELD_NAMING_ENABLED` alone turns the naming step on; the geometry reader stays off."""
+    """Order 259.5: `FIELD_NAMING_ENABLED` alone turns the naming step on; geometry stays off."""
     req, fact, run, scope = _world("Working press.", "12 bar")
     monkeypatch.setattr(settings, "geometry_reader_enabled", False)
     monkeypatch.setattr(settings, "field_naming_enabled", True)
-    monkeypatch.setattr(field_naming, "ensure_names", lambda *_a, **_k: {
+    names = {
         "requirements": {str(req["id"]): "working pressure"},
-        "facts": {str(fact["id"]): "working pressure"}})
+        "facts": {str(fact["id"]): "working pressure"},
+    }
+    monkeypatch.setattr(field_naming, "ensure_names", lambda *_a, **_k: names)
     result = comparison.run_comparison(run, allowed_document_ids=scope)
     assert result["findings"][0]["match_method"] == comparison.METHOD_FIELD_NAME
     assert result["field_name_matches"] == 1
