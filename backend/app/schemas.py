@@ -1006,9 +1006,9 @@ class ClassificationVocabulary(BaseModel):
     disciplines: list[str]
     subjects: list[SubjectRow]
     needs_classification: int = Field(
-        description="documents IN THIS CALLER'S SCOPE awaiting confirmation. "
-                    "Scoped, unlike the vocabulary: a count is a statement "
-                    "about documents")
+        description="documents IN THIS CALLER'S SCOPE awaiting confirmation (scoped)")
+    awaiting_type: int
+    not_in_register: int
 
 
 class DocumentSubject(BaseModel):
