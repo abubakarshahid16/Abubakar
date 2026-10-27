@@ -66,7 +66,7 @@ def test_short_quote_asks_for_the_label_and_value_cells_only(cuts):
     fields = form_reader_fields.field_list_for(None)
     prompt = form_reader_fields.build_prompt(fields, PAGE, 1)
     assert "shortest EXACT span" in prompt and "at most 240 characters" not in prompt
-    schema = form_reader_fields.schema_for(fields)
+    schema = reader_speed.shorten_schema(form_reader_fields.schema_for(fields))
     quote = schema["properties"]["fields"]["items"]["properties"]["quote"]
     assert quote["maxLength"] == reader_speed.SHORT_QUOTE_CHARS
     merged = claude_datasheet.build_prompt(PAGE, 1, [])

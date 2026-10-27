@@ -642,7 +642,7 @@ class Settings(BaseSettings):
     #:   "rules" - no AI reading at all (the rule readers only).
     #: Any other value is refused at startup. Env: DATASHEET_READER_MODE.
     datasheet_reader_mode: str = "form"
-    datasheet_reader_speed: str = ""  # order 242.1: cuts to reply length, see reader_speed.py
+    datasheet_reader_speed: str = ""  # 242.1, see reader_speed.py
     #: B8: after the structural answerability checks, a reasoning model
     #: (local Ollama, or Claude through reader_transport under the USD caps)
     #: judges whether the passages ANSWER the question. It may only downgrade

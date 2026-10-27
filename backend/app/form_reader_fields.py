@@ -172,7 +172,7 @@ def schema_for(fields: list[Field]) -> dict:
                 "field_key": {"type": "string", "enum": [f.key for f in fields]},
                 "value": {"type": "string"},
                 "unit": {"type": "string"},
-                "quote": {"type": "string", "maxLength": reader_speed.quote_limit(MAX_QUOTE_CHARS)},
+                "quote": {"type": "string", "maxLength": MAX_QUOTE_CHARS},
                 "status": {"type": "string", "enum": list(STATUSES)},
             },
             "required": ["field_key", "value", "unit", "quote", "status"]}}},

@@ -361,7 +361,7 @@ def read_document(
         model_call, why = datasheet_ai.model_call_for(
             None,
             packet_shape={
-                "json_schema": schema_for(fields),
+                "json_schema": reader_speed.shorten_schema(schema_for(fields)),
                 "prompt_version": reader_speed.version(PROMPT_VERSION),
                 "num_predict": NUM_PREDICT,
             },

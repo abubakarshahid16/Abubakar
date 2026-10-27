@@ -31,6 +31,7 @@ Unknown names are ignored (and listed by `unknown`). Pure functions; no model.
 
 from __future__ import annotations
 
+import copy
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -70,8 +71,16 @@ def unknown() -> list[str]:
     return [name for name in _named() if name not in CUTS]
 
 
-def quote_limit(default: int) -> int:
-    return SHORT_QUOTE_CHARS if SHORT_QUOTE in on() else default
+def shorten_schema(schema: dict) -> dict:
+    """The form's answer schema with the shorter quote limit when `short_quote`
+    is on (a copy); the same schema when it is off."""
+    if SHORT_QUOTE not in on():
+        return schema
+    out = copy.deepcopy(schema)
+    out["properties"]["fields"]["items"]["properties"]["quote"]["maxLength"] = (
+        SHORT_QUOTE_CHARS
+    )
+    return out
 
 
 def version(prompt_version: str) -> str:
@@ -104,7 +113,9 @@ def form_read_labels(form_run: dict | None) -> dict[int, list[str]]:
     return out
 
 
-_SKIP: ContextVar[dict[int, list[str]]] = ContextVar("reader_speed_skip", default={})
+_SKIP: ContextVar[dict[int, list[str]] | None] = ContextVar(
+    "reader_speed_skip", default=None
+)
 
 
 @contextmanager
@@ -117,15 +128,18 @@ def skipping(labels: dict[int, list[str]]):
         _SKIP.reset(token)
 
 
-def read_page(read, page_text: str, page_no: int, model_call, cut_off):
-    """`read(page_text, page_no, known, model_call)` for one page, with the
+def read_page(page_text: str, page_no: int, model_call, cut_off):
+    """`claude_datasheet.read_page` for one page, with the
     cuts: the labels to skip on this page (`skipping`), and a dense page treated
     as already cut off (`cut_off` is the reader's own exception, so it reads the
     page in parts at once, the way it does after a cut-off, without first
     spending two runs on a reply that would hit the cap)."""
     if dense(page_text):
         raise cut_off(None)
-    return read(page_text, page_no, _SKIP.get().get(page_no), model_call)
+    from . import claude_datasheet  # at call time: it imports this module
+
+    known = (_SKIP.get() or {}).get(page_no)
+    return claude_datasheet.read_page(page_text, page_no, known, model_call)
 
 
 def dense(page_text: str) -> bool:

@@ -612,7 +612,7 @@ def _read(
     `deadline` (`time.monotonic()`). Only the exception's TYPE is kept: a
     message could carry a URL; the type is all a reader needs."""
     try:
-        out = reader_speed.read_page(claude_datasheet.read_page, page_text, page_no, model_call, AnswerCutOff)
+        out = reader_speed.read_page(page_text, page_no, model_call, AnswerCutOff)
     except AnswerCutOff:
         return _read_in_parts(page_text, page_no, model_call, engine, deadline)
     except StopRun as exc:
