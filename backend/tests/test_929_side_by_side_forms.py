@@ -66,9 +66,13 @@ def test_a_title_row_is_not_an_answer():
 
 
 def test_a_pair_with_an_empty_answer_is_not_emitted():
-    shape = [*FORM[:3], ["Hydrostatic test pressure", "", "Joint efficiency", "0.85"]]
+    shape = [
+        *FORM[:3],
+        ["Test pressure", "15 barg", "Joint efficiency", "0.85"],
+        ["Hydrostatic test pressure", "", "Corrosion allowance", "3 mm"],
+    ]
     assert ("Hydrostatic test pressure", "") not in _pairs(shape)
-    assert ("Joint efficiency", "0.85") in _pairs(shape)
+    assert ("Corrosion allowance", "3 mm") in _pairs(shape)
 
 
 @pytest.mark.parametrize(
@@ -147,3 +151,74 @@ def test_two_pair_shaped_rows_among_many_others_are_not_enough():
     other = ["Material", "SA-516", "SA-516 Gr70", "OK"]
     assert table_pairs.two_pairs_per_row([pair, pair, other, other, other]) is None
     assert table_pairs.two_pairs_per_row([pair, pair, pair, other, other]) is not None
+
+
+# the probes of s3's and cloud-3's reviews of the first version: tables of WORDS read as two forms
+TEXT_TABLES = {
+    "a text matrix": [
+        ["Part", "Casing", "Impeller", "Shaft"],
+        ["Material", "Cast iron", "Bronze", "Steel"],
+        ["Finish", "Smooth", "Rough", "Polished"],
+        ["Coating", "Epoxy", "None", "Paint"],
+    ],
+    "a header with an unlisted word": [
+        ["Item", "Value", "Remarks", "Source"],
+        ["Fluid", "Water", "Per client", "Datasheet"],
+        ["Phase", "Liquid", "As stated", "Datasheet"],
+        ["Duty", "Continuous", "Client", "Datasheet"],
+    ],
+    "components and materials": [
+        ["Component", "Material", "Type", "Remarks"],
+        ["Casing", "Cast iron", "Welded", "Accepted"],
+        ["Impeller", "Bronze", "Cast", "Accepted"],
+        ["Shaft", "Steel", "Forged", "Accepted"],
+    ],
+    "a yes/no compliance table": [
+        ["Requirement", "Contractor", "Vendor", "Compliant"],
+        ["Painting per spec", "Yes", "Yes", "Yes"],
+        ["Coupling guard", "Yes", "No", "No"],
+    ],
+    "a value in one answer column only": [
+        ["Item", "Material", "Type", "Thickness"],
+        ["Casing", "Cast iron", "Welded", "10 mm"],
+        ["Impeller", "Bronze", "Cast", "5 mm"],
+        ["Shaft", "Steel", "Forged", "40 mm"],
+    ],
+}
+
+
+@pytest.mark.parametrize("name", sorted(TEXT_TABLES))
+def test_a_table_of_words_keeps_its_column_reading(name, monkeypatch):
+    """No value (a digit) in BOTH answers, so it is not two forms: the old reading stands, so
+    "Bronze = Steel" and "Welded = Accepted" are never invented."""
+    shape = TEXT_TABLES[name]
+    assert table_pairs.two_pairs_per_row(shape) is None
+    got = _pairs(shape)
+    monkeypatch.setattr(table_pairs, "two_pairs_per_row", lambda _shape: None)
+    assert got == _pairs(
+        shape
+    )  # identical to the reading with the new rule switched off
+    assert all(" - " in label for label, _ in got)  # every fact keeps its column name
+
+
+def test_a_header_naming_four_different_columns_is_never_two_forms_even_with_pair_shaped_rows():
+    """The repeated-header rule: the first row names Item/Required/Offered/Remarks, so the rows are
+    columns of one table, whatever they look like. The old reading stands."""
+    shape = [
+        ["Item", "Required", "Offered", "Remarks"],
+        ["Design pressure", "10 barg", "Design temperature", "120 C"],
+        ["Shell plate material", "SA-285 Grade C", "Radiography", "10 %"],
+        ["Hydrostatic test pressure", "15 barg", "Joint efficiency", "0.85"],
+    ]
+    assert table_pairs.two_pairs_per_row(shape) is None
+
+
+def test_a_label_that_carries_a_digit_is_not_read_as_two_forms_a_known_limit():
+    """Conservative on purpose: "H2S content" has a digit, so a table of such labels is left to the
+    old reading rather than guessed at (said in the PR)."""
+    shape = [
+        ["H2S content", "5 ppm", "CO2 content", "3 %"],
+        ["H2O content", "2 ppm", "O2 content", "1 %"],
+        ["N2 content", "9 %", "He content", "0.1 %"],
+    ]
+    assert table_pairs.two_pairs_per_row(shape) is None

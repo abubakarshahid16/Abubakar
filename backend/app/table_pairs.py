@@ -8,13 +8,16 @@ pairs per row when the shape proves it, and returns None (the old reading, uncha
 
 THE SHAPE, general (no label, sheet or layout is named):
   * exactly four columns, at least three rows;
-  * the first and third cells of the rows below are LABELS (letters, no digit, at most eight
-    words, not a unit) and the second or fourth holds an answer, in at least 60% of the rows
-    (with three rows or more, that is at least two). A table whose third column holds a unit, a number or a code is not this shape;
+  * in at least 60% of the rows below, the first and third cells are LABELS (letters, no digit, at
+    most eight words, not a unit) AND BOTH answers (the second and fourth cells) CARRY A VALUE: a
+    digit ("10 barg", "SA-285 Grade C", "0.85"). A table of words only (a matrix of materials, a
+    yes/no compliance table) or with words in one answer column is a table of columns, not two
+    forms: it is read as before (s3's and cloud-3's probes of the first version);
   * row 0 is a HEADER only when every word in it is a column-name word (`COLUMN_NAME_WORDS`, a closed
     list) AND it repeats ("Parameter | Value | Parameter | Value"): a four-column header that names
     four different columns ("Item | Required | Offered | Remarks") is an ordinary table and is left to
-    the old reading. Any other row 0 is an answer when it is pair-shaped, else a title.
+    the old reading. Any other row 0 is an answer when it is label-shaped with something beside the
+    labels ("Service | Air receiver | Vacuum service | No"), else a title.
 A pair with an empty answer is not emitted: an empty cell alone is not a blank (#1324).
 """
 
@@ -82,11 +85,22 @@ def _label_like(cell: str, is_unit: Callable[[str], bool]) -> bool:
     )
 
 
-def _pair_shaped(row: list[str], is_unit: Callable[[str], bool]) -> bool:
+def _label_shaped(row: list[str], is_unit: Callable[[str], bool]) -> bool:
+    """Labels in the first and third cells and something beside them (a loose test, for row 0)."""
     return (
         _label_like(row[0], is_unit)
         and _label_like(row[2], is_unit)
         and bool(row[1] or row[3])
+    )
+
+
+def _pair_shaped(row: list[str], is_unit: Callable[[str], bool]) -> bool:
+    """Labels in the first and third cells AND a value (a digit) in both answers."""
+    return (
+        _label_like(row[0], is_unit)
+        and _label_like(row[2], is_unit)
+        and bool(re.search(r"\d", row[1]))
+        and bool(re.search(r"\d", row[3]))
     )
 
 
@@ -110,7 +124,7 @@ def two_pairs_per_row(shape: list[list[str]]) -> list[tuple[str, str]] | None:
             return None  # a header naming four different columns: an ordinary table
         start = 1
     else:
-        start = 0 if _pair_shaped(first, is_unit) else 1  # an answer, else a title
+        start = 0 if _label_shaped(first, is_unit) else 1  # an answer, else a title
     body = rows[start:]
     paired = [row for row in body if _pair_shaped(row, is_unit)]
     if len(paired) < PAIRED_SHARE * len(body):

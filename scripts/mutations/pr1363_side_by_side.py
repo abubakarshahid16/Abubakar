@@ -50,4 +50,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_T,
         tags=_TAGS,
     ),
+    Mutation(
+        id="M1363-05",
+        phase=1363,
+        description="a value in only ONE answer column is enough to read a table of words as two forms",
+        path=_F,
+        anchor='        and bool(re.search(r"\\d", row[1]))\n        and bool(re.search(r"\\d", row[3]))\n',
+        replacement='        and bool(re.search(r"\\d", row[1]) or re.search(r"\\d", row[3]))\n',
+        target=_T,
+        tags=_TAGS,
+    ),
 )
