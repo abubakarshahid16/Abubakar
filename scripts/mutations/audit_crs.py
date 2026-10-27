@@ -116,8 +116,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="confirmed_then_rejected", tags=("honesty",)),
     Mutation(id="M1449", phase=_P, description="a confirmed comment is signed with the raw user id",
              path=APP / "main.py",
-             anchor="    confirmers = {f[\"confirmed_by\"] for f in findings if f.get(\"confirmed_by\")}\n",
-             replacement=("    confirmers = {f[\"confirmed_by\"] for f in findings if f.get(\"confirmed_by\")"
+             anchor="    confirmers = {d for f in findings if (d := crs_mapping_mod.crs_decider.decider(f))}\n",
+             replacement=("    confirmers = {d for f in findings if (d := crs_mapping_mod.crs_decider.decider(f))"
                           " and f.get(\"origin\")}\n"),
              target=_T, keyword="signed_with_the_engineers_name", tags=("honesty",)),
 )

@@ -72,6 +72,14 @@ MIN_PROBE = 25
 LOOK_BACK = 6
 #: The longest title a heading line carries.
 MAX_TITLE = 90
+#: A title with at least this many lowercase-initial words, one of them of
+#: `LOOSE_WORD` letters or more, reads as a sentence ("Welds shall be examined"),
+#: not as a Title Case or capitals title ("Wall thickness" has one).
+LOOSE_WORDS = 3
+LOOSE_WORD = 5
+#: When fewer than this share of a standard's own headings read that way, a
+#: heading that does is a list item or prose that only has the shape of one.
+MAX_LOOSE_SHARE = 0.2
 
 
 def _lines(text: str) -> list[tuple[int, str]]:
@@ -243,6 +251,46 @@ def _unplaced_heading(
     return False
 
 
+def _loose(title: str) -> bool:
+    """True when the title has the shape of a sentence: `LOOSE_WORDS` lowercase
+    words or more, one of them `LOOSE_WORD` letters or longer."""
+    low = [w for w in title.split() if w[0].islower()]
+    return len(low) >= LOOSE_WORDS and any(len(w) >= LOOSE_WORD for w in low)
+
+
+def _own_title(line: str, shape: str) -> str | None:
+    """The title of a heading LINE of its own in `shape` (an identifier, then a
+    capital-initial title), else None (a run-in heading has no title of its own)."""
+    m = SHAPES[shape].match(line)
+    if m and _heading(m.group("rest")) == "" and m.group("rest")[0].isupper():
+        return m.group("rest") if _is_title(m.group("rest")) else None
+    return None
+
+
+def loose_share(
+    texts: list[str], shape: str, skip: frozenset[str] = frozenset()
+) -> float:
+    """The share of the standard's own heading lines whose title is `_loose`; 1.0 when it has none
+    (nothing to calibrate on, so a sentence-like heading is never taken as the odd one out)."""
+    titles = [
+        t
+        for text in texts
+        for _, line in _lines(text)
+        if (t := _own_title(line, shape)) is not None
+        and SHAPES[shape].match(line).group("id") not in skip
+    ]
+    return sum(_loose(t) for t in titles) / len(titles) if titles else 1.0
+
+
+def _starts_with_identifier(line: str, skip: frozenset[str]) -> bool:
+    """True when `line` opens with an identifier of any numbering shape."""
+    for pattern in SHAPES.values():
+        m = pattern.match(line)
+        if m and m.group("id") not in skip:
+            return True
+    return False
+
+
 def _normal(text: str) -> str:
     return " ".join(str(text or "").split())
 
@@ -263,6 +311,7 @@ def paragraph_for(
     shape: str,
     skip: frozenset[str] = frozenset(),
     heads: list[list[tuple[int, str, str]]] | None = None,
+    loose: float | None = None,
 ) -> str | None:
     """The paragraph id the requirement's `source_text` sits under: the last
     heading of `shape` at or before it (a sentence that opens with its own
@@ -271,7 +320,15 @@ def paragraph_for(
     sentence is too short to place, is not in its chunk exactly once, or no
     heading precedes it, or when a line between that heading and the sentence
     opens like a heading the numbering did not recognise. `heads` is each
-    chunk's `headings`, when already known (the per-standard memo)."""
+    chunk's `headings`, when already known (the per-standard memo); `loose` is
+    the standard's `loose_share`, when already known.
+
+    Order 1267, the general fail-safe (unsure is None, never the paragraph
+    before): None also when the line the sentence starts on opens with an
+    identifier that is not a recognised heading of `shape` (the identifier may
+    be the paragraph's own number, which this reading cannot name), and when
+    the heading found is a line of the standard's own shape whose title reads
+    as a sentence in a standard whose headings do not."""
     probe = _normal(source_text)[:80]
     if len(probe) < MIN_PROBE:
         return None
@@ -293,6 +350,16 @@ def paragraph_for(
     before = "\n".join(chunks[first:index])
     window = (before + "\n" if before else "") + chunks[index]
     position = (len(before) + 1 if before else 0) + here
+    own = window[window.rfind("\n", 0, position) + 1 :].split("\n", 1)[0]
+    if _starts_with_identifier(own.strip(), skip) and not (
+        at <= position and window[at:position].count("\n") == 0
+    ):
+        return None
+    title = _own_title(window[at:].split("\n", 1)[0].strip(), shape)
+    if title is not None and _loose(title):
+        share = loose_share(chunks, shape, skip) if loose is None else loose
+        if share < MAX_LOOSE_SHARE:
+            return None
     if _unplaced_heading(window, at, position, skip):
         return None
     return ident + _sub_marks(window, at, position, inline)
@@ -333,7 +400,8 @@ def _load(standard: str):
     skip = running_headers(texts)
     shape = dominant_shape(texts, skip)
     heads = [headings(t, shape, skip) for t in texts] if shape else []
-    return (texts, {r["id"]: i for i, r in enumerate(rows)}, shape, skip, heads)
+    loose = loose_share(texts, shape, skip) if shape else 1.0
+    return (texts, {r["id"]: i for i, r in enumerate(rows)}, shape, skip, heads, loose)
 
 
 def _read(standard: str):
@@ -388,12 +456,12 @@ def attach(findings: list[dict]) -> None:
         standard = f["standard_document_id"]
         if standard not in reads:
             reads[standard] = _read(standard)
-        texts, position, shape, skip, heads = reads[standard]
+        texts, position, shape, skip, heads, loose = reads[standard]
         chunk_id, source_text = requirements.get(f["requirement_id"], (None, None))
         if shape is None or chunk_id not in position or not source_text:
             continue
         paragraph = paragraph_for(
-            texts, position[chunk_id], source_text, shape, skip, heads
+            texts, position[chunk_id], source_text, shape, skip, heads, loose
         )
         if paragraph:
             f["paragraph_id"] = paragraph

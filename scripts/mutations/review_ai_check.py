@@ -81,7 +81,7 @@ MUTATIONS: tuple[Mutation, ...] = (
                          "(re-anchored 2026-09-27: `confirmed_by_prefix` now "
                          "covers both kind C and kind D)",
              path=APP / "crs_mapping.py",
-             anchor="                    f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n",
+             anchor="                    f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or crs_decider.decider(f)}\"\n",
              replacement="                    \"AI Review\"\n",
              target=_T, keyword="under_the_engineers_name", tags=("honesty",)),
     Mutation(id="M1038", phase=86, description="a rejected AI item stays on the sheet",

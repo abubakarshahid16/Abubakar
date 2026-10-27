@@ -38,6 +38,12 @@ REFUSED = "\x00"
 #: before the bracket is another quantity. Nominal figures differ by a few per cent.
 TRAILING_TOLERANCE = 0.25
 
+#: A unit spelling read as another one ONLY by the trailing cross-check below, never by the unit
+#: table (so nothing else about "gpm" changes): a bare "gpm" beside a flow is the US gallon per
+#: minute, which the unit table converts under "usgpm". The US and imperial gallon differ by 20%,
+#: inside TRAILING_TOLERANCE, so only a gross mismatch is refused.
+_CHECKED_AS = {"gpm": "usgpm"}
+
 _NUM = r"[-+]?\d[\d.,]*"
 _UNIT = r"[^\s()\d][^()]*?"
 _INTERLEAVED = re.compile(
@@ -79,6 +85,8 @@ def first_system(
     if found is None:
         return None
     v1, u1, v2, u2 = (found[k] for k in ("v1", "u1", "v2", "u2"))
+    if not interleaved:
+        u2 = _CHECKED_AS.get(_fold(u2), u2)
     dim1, dim2 = _dimension(u1), _dimension(u2)
     if dim1 is None or dim1 != dim2 or _fold(u1) == _fold(u2):
         return None
