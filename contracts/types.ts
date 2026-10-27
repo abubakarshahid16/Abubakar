@@ -744,8 +744,12 @@ export interface EvidenceSide {
   page: number | null;
   box: string | null;
   reason: string | null;
-  /** #505: how well a SCANNED page was read; null for a page with a text layer. */
-  scan?: ScanQuality | null;
+}
+
+/** #505: an evidence side plus how well its SCANNED page was read; `scan` is
+ *  null for a page with a text layer. */
+export interface EvidenceSideScanned extends EvidenceSide {
+  scan: ScanQuality | null;
 }
 
 /** #505: the recogniser's own confidence for a scanned page, grouped (clear,
@@ -762,8 +766,8 @@ export interface ScanQuality {
 /** #785: `GET /api/reviews/findings/{id}/evidence`. */
 export interface FindingEvidence {
   finding_id: string;
-  submittal: EvidenceSide;
-  standard: EvidenceSide;
+  submittal: EvidenceSideScanned;
+  standard: EvidenceSideScanned;
 }
 
 /** Which pages of a submittal were read into fields, and why the rest were

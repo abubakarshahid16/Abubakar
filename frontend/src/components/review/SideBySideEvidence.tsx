@@ -25,7 +25,7 @@ import { useEffect, useState } from "react";
 
 import { reviews as reviewsApi } from "../../api/client";
 import type {
-  DocumentRecord, EvidenceSide, FindingEvidence, ReviewFinding, ReviewRunStandard, ScanQuality,
+  DocumentRecord, EvidenceSideScanned, FindingEvidence, ReviewFinding, ReviewRunStandard, ScanQuality,
 } from "../../types/api";
 import { EvidencePageImage } from "./EvidencePageImage";
 import { orNothing } from "./reviewFormat";
@@ -96,7 +96,7 @@ function Pane({ side, findingId, resolved, document, name, page, label, text, em
   findingId: string;
   /** #785: the server's answer for this side; undefined while asking, null
    *  when the route failed. */
-  resolved: EvidenceSide | null | undefined;
+  resolved: EvidenceSideScanned | null | undefined;
   document: DocumentRecord | null;
   name?: string;
   page: number | null;
