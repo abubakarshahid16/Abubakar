@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import datasheets, page_ledger, vision_reader
+from app import cover_page, datasheets, page_ledger, vision_reader
 from app.config import settings
 from tests.test_datasheet_ai import (  # noqa: F401 - the autouse temp_storage
     FakeModel,
@@ -32,11 +32,16 @@ PROSE = [
 ROWS = [("Design pressure", "23.5 barg"), ("Design temperature", "120 C")]
 
 
-def _pdf(path) -> str:
+def _pdf(path, picture_share: float = 0.0) -> str:
     import pymupdf
 
     doc = pymupdf.open()
     page = doc.new_page(width=600, height=500)
+    if picture_share:
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 40), False)
+        pix.set_rect(pix.irect, (200, 30, 30))
+        side = (picture_share * 600 * 500) ** 0.5
+        page.insert_image(pymupdf.Rect(300, 200, 300 + side, 200 + side), pixmap=pix)
     y = 60
     for line in PROSE:
         page.insert_text((44, y), line, fontsize=10)
@@ -72,12 +77,12 @@ def _record_text_pages(doc: str) -> None:
             )
 
 
-def _read(tmp_path, monkeypatch, **settings_over):
+def _read(tmp_path, monkeypatch, picture_share=0.0, **settings_over):
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
     for key, value in settings_over.items():
         monkeypatch.setattr(settings, key, value)
     _use(monkeypatch, FakeModel([]))
-    doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    doc = _ingest(_pdf(tmp_path / "d.pdf", picture_share))
     _record_text_pages(doc)
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     return doc, page_ledger.coverage(doc), page_ledger.rows(doc)[0]
@@ -171,7 +176,8 @@ def _row(native_status: str, reason: str) -> dict:
 
 def test_a_scanned_page_stays_unread_when_the_picture_reader_is_off(monkeypatch):
     monkeypatch.setattr(vision_reader, "switched_off", lambda: True)
-    reason = vision_reader.unasked_reason("routed", "REASONING_PROVIDER='ollama'")
+    monkeypatch.setattr(cover_page, "page_view", lambda _p: ("", False))
+    reason = vision_reader.unasked_reason("routed", "REASONING_PROVIDER='ollama'", 1)
     assert page_ledger._not_clean(_row("text", reason)) is None
     for scanned in ("needs_ocr", "not_extracted"):
         assert "not counted as read" in page_ledger._not_clean(_row(scanned, reason))
@@ -179,7 +185,8 @@ def test_a_scanned_page_stays_unread_when_the_picture_reader_is_off(monkeypatch)
 
 def test_the_ledger_decides_by_words_the_two_reasons_keep_apart(monkeypatch):
     monkeypatch.setattr(vision_reader, "switched_off", lambda: True)
-    off = vision_reader.unasked_reason("routed", "REASONING_PROVIDER='ollama'")
+    monkeypatch.setattr(cover_page, "page_view", lambda _p: ("", False))
+    off = vision_reader.unasked_reason("routed", "REASONING_PROVIDER='ollama'", 1)
     monkeypatch.setattr(vision_reader, "switched_off", lambda: False)
     closed = vision_reader.unasked_reason("routed", "egress off")
     for phrase in ("unavailable", "vision page budget is spent", "no text layer"):
@@ -187,3 +194,30 @@ def test_the_ledger_decides_by_words_the_two_reasons_keep_apart(monkeypatch):
     assert "unavailable" in closed
     assert vision_reader.SWITCHED_OFF_WORDS in off
     assert vision_reader.SWITCHED_OFF_WORDS not in closed
+
+
+def test_a_page_with_a_large_picture_stays_unread_when_the_picture_reader_is_off(
+    tmp_path, monkeypatch
+):
+    _doc, cov, row = _read(
+        tmp_path, monkeypatch, picture_share=0.3, reasoning_provider="ollama"
+    )
+    assert "unavailable" in row["vision_reason"]
+    assert cov["pages_not_read_into_fields"] == [1]
+
+
+def test_a_page_with_a_small_logo_still_reads_as_read_when_the_picture_reader_is_off(
+    tmp_path, monkeypatch
+):
+    _doc, cov, row = _read(
+        tmp_path, monkeypatch, picture_share=0.02, reasoning_provider="ollama"
+    )
+    assert vision_reader.SWITCHED_OFF_WORDS in row["vision_reason"]
+    assert cov["pages_not_read_into_fields"] == []
+
+
+def test_a_page_whose_pictures_cannot_be_measured_stays_unread(monkeypatch):
+    monkeypatch.setattr(vision_reader, "switched_off", lambda: True)
+    monkeypatch.setattr(cover_page, "page_view", lambda _p: None)
+    reason = vision_reader.unasked_reason("routed", "x", 1)
+    assert page_ledger._not_clean(_row("text", reason)) is not None

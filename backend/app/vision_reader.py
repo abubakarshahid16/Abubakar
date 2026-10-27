@@ -532,12 +532,23 @@ def switched_off() -> bool:
     return code in (UNAVAILABLE_PROVIDER_OFF, UNAVAILABLE_TASK_LOCAL)
 
 
-def unasked_reason(why: str, unavailable: str) -> str:
+def unasked_reason(why: str, unavailable: str, page_no: int | None = None) -> str:
     """The ledger's words for a page routed to the picture reader that could not be asked
     (order 254 F2). Switched off by the owner's settings it says so, and the page ledger does not
-    take that for "could not be asked"; a lane that was wanted but is closed says "unavailable"."""
+    take that for "could not be asked" - unless the page's pictures cover a tenth or more of it
+    (`cover_page.IMAGE_SHARE`), or that cannot be told: the values may sit only in the picture,
+    so those say "unavailable" and stay unread. A lane that was wanted but is closed says
+    "unavailable" too."""
     if switched_off():
-        return f"{why}, and the picture reader {SWITCHED_OFF_WORDS} ({unavailable})"
+        from . import cover_page
+
+        view = cover_page.page_view(page_no) if page_no else None
+        if view is not None and not view[1]:
+            return f"{why}, and the picture reader {SWITCHED_OFF_WORDS} ({unavailable})"
+        return (
+            f"{why}; the picture reader was switched off in the settings ({unavailable}), but "
+            "the page's pictures may hold values, so the picture reader is unavailable for it"
+        )
     return f"{why}, but the vision reader is unavailable ({unavailable})"
 
 
