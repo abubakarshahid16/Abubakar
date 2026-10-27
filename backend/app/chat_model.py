@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import re
 
-from . import claude_spend, model_transport
+from . import claude_spend, fallback_note, model_transport
 from . import reasoning_provider as rp
 from .ai import output_limits
 from .config import settings
@@ -97,13 +97,8 @@ def engine_name(preference: str | None = None) -> str:
 
 
 #: Plain words for each closed reason `reasoning_provider.claude_unavailable`
-#: gives. Written here, never taken from the exception or the settings text:
-#: the notice is shown to the reader and must not carry a setting value.
-_UNAVAILABLE_WORDS = {
-    rp.UNAVAILABLE_PROVIDER_OFF: "the system is not set up to use Claude",
-    rp.UNAVAILABLE_EGRESS_OFF: "Claude access is switched off in the settings",
-    rp.UNAVAILABLE_KEY_MISSING: "no Claude key is set",
-}
+#: gives: one list for every lane (`fallback_note.WORDS`, #555).
+_UNAVAILABLE_WORDS = fallback_note.WORDS
 
 
 def unavailable_words() -> str | None:

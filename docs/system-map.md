@@ -66,6 +66,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `chat_claude_first` | Answer a chat question from the documents |
 | `chat_comparison` | Chat-side comparisons: "compare X and Y" retrieves for EACH named side separately (plan requirement C3, docs/c |
 | `chat_model` | The chat's model lane: which engine answers, what it is told, what it costs |
+| `fallback_note` | #555: when Claude was asked for and the local model answered, the recorded engine says so, in plain words (one list of reasons for chat and every other lane) |
 | `chat_presentation` | What an answer says about itself, in the words the Chat screen shows |
 | `chat_stream` | A streamed chat turn: its events, its Stop, and the sentence gate |
 | `chat_tools` | Claude-first chat (2026-09-27): the tools Claude may call |
