@@ -85,7 +85,13 @@ def export_findings(conn: sqlite3.Connection, run_id: str, model: str | None = N
         f["citation_valid"] = rs.citation_valid(f, page_text(r["standard_document_id"], r["standard_page"]))
         findings.append(f)
     lists = review_steps.per_step_lists(conn, run_id)
-    return {"format": rs.FINDINGS_FORMAT, "model": model, "run_id": run_id, "findings": findings, **lists}
+    return {
+        "format": rs.FINDINGS_FORMAT,
+        "model": model,
+        "run_id": run_id,
+        "findings": findings,
+        **lists,
+    }
 
 
 # ---------------------------------------------------------------------- reporting
@@ -239,7 +245,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{len(doc['findings'])} finding(s) written to {args.out} (holds requirement text: keep it on this machine)")
             return 0
         if args.cmd == "steps":
-            return review_steps.run_steps(args.keys_dir, args.runs_dir, args.week, args.out)
+            return review_steps.run_steps(
+                args.keys_dir, args.runs_dir, args.week, args.out
+            )
         if args.cmd == "weekly":
             keys_dir = Path(args.keys_dir)
             if _hidden_exam_path(keys_dir):
