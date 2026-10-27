@@ -36,7 +36,7 @@ import re
 import statistics
 from typing import Any
 
-from . import blank_markers, claims, errors
+from . import blank_markers, claims, errors, geometry_blank_cells
 
 # --------------------------------------------------------------------------
 # Units
@@ -1136,6 +1136,7 @@ def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[s
                                if c.get("bbox") is None else "") for c in cells]
         filled = [i for i, t in enumerate(texts) if t]
         if len(filled) < 2:
+            out.extend(geometry_blank_cells.rows(table, index, cells, filled))
             continue
         answer = next((i for i in filled[1:] if cells[i]["text"] and (
             _STARTS_WITH_A_NUMBER.match(texts[i]) or blank_markers.names_a_marker(texts[i]))), None)
@@ -1191,9 +1192,7 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
     every other cell in that row under the wrong tag. This catches a
     different class of garbled text than the blank/cut-word checks: text that
     IS present and IS fully inside one cell, but is not what it appears to
-    be. An EMPTY table cell is not emitted: an empty cell is not evidence of
-    a blank field (addendum 3.7; `datasheets.extract_facts` makes the same
-    rule for its readers).
+    be. An EMPTY cell is a blank only when `geometry_blank_cells` proves it.
 
     DE-DUPLICATED (B4): a second row with the same page, label and answer as
     an earlier one is the same reading twice and is dropped - the first one,
@@ -1261,6 +1260,7 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
                     "position": None, "table_id": c["table_id"], "row": c["row"],
                     "column": c["column"], "column_label": c["label"],
                 })
+    rows = geometry_blank_cells.keep_bare(page, rows)
     out: list[dict[str, Any]] = []
     seen: set[tuple] = set()
     for row in rows:
