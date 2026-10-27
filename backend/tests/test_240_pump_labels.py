@@ -126,3 +126,61 @@ def test_each_spelling_belongs_to_one_role():
     for role, body in RULES["roles"].items():
         for spelling in body.get("printed_as", []):
             assert seen.setdefault(spelling.lower(), role) == role, spelling
+
+
+def _consistency(facts):
+    return {
+        r["rule_id"]: r
+        for r in dc.evaluate(facts, equipment_type=PUMP, page_texts=PAGES)
+        if r["rule_id"] in ("DS-C2", "DS-C4", "DS-C5")
+    }
+
+
+CONSISTENCY_FACTS = [
+    _fact("capacity / flow", "20", "m3/h"),
+    _fact("max flow", "25", "m3/h"),
+    _fact("min continuous flow", "8", "m3/h"),
+    _fact("pumping temperature", "76", "C"),
+    _fact("design temperature", "120", "C"),
+]
+
+
+def test_the_checks_that_now_see_those_rows_say_the_label_the_sheet_printed():
+    """Cloud's review of #1337: DS-C2 (design temperature vs operating), DS-C4 (rated vs minimum
+    flow) and DS-C5 (rated vs maximum flow) now see these rows. If the cell holds a NORMAL value,
+    a comparison can be wrong in either direction, so each sentence must name the sheet's own
+    label and page, so the engineer reads what was compared."""
+    found = _consistency(CONSISTENCY_FACTS)
+    assert set(found) == {"DS-C2", "DS-C4", "DS-C5"}
+    assert "pumping temperature 76 C (page 2)" in found["DS-C2"]["detail"]
+    assert "Capacity / flow 20 m3/h (page 2)" in found["DS-C4"]["detail"]
+    assert "Capacity / flow 20 m3/h (page 2)" in found["DS-C5"]["detail"]
+
+
+def test_a_value_out_of_range_is_still_a_violation_through_those_labels():
+    facts = [
+        _fact("capacity / flow", "30", "m3/h"),
+        _fact("max flow", "25", "m3/h"),
+    ] + CONSISTENCY_FACTS[2:]
+    found = _consistency(facts)
+    assert found["DS-C5"]["status"] != "COMPLIANT"
+    facts = [
+        _fact("capacity / flow", "6", "m3/h"),
+        _fact("min continuous flow", "8", "m3/h"),
+    ]
+    assert _consistency(facts)["DS-C4"]["status"] != "COMPLIANT"
+    facts = [
+        _fact("pumping temperature", "130", "C"),
+        _fact("design temperature", "120", "C"),
+    ]
+    assert _consistency(facts)["DS-C2"]["status"] != "COMPLIANT"
+
+
+def test_the_reader_is_asked_for_the_pump_with_the_labels_a_pump_sheet_prints():
+    from app import form_reader_fields as ff
+
+    fields = {f.key: f for f in ff.field_list_for(PUMP)}
+    assert "capacity / flow" in fields["rated_flow"].synonyms
+    assert "pumping temperature" in fields["operating_temperature"].synonyms
+    prompt = ff.build_prompt(list(fields.values()), "", 1)
+    assert "capacity / flow" in prompt and "pumping temperature" in prompt
