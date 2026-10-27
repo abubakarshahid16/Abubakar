@@ -76,9 +76,42 @@ _NEXT_WORD = re.compile(
 _FIELD_LINE = re.compile(r"^\s*([A-Za-z][\w ./()#-]{1,40}?)\s*[:=]\s*\S", re.MULTILINE)
 #: Words of a title block's labels (document number, revision, date, sheet...).
 TITLE_BLOCK_WORDS = frozenset(
-    "document doc drawing dwg no number rev revision date sheet page of project "
-    "title client company job order contract status issue issued approved checked "
-    "prepared by tag item unit area site purchase po".split()
+    {
+        "document",
+        "doc",
+        "drawing",
+        "dwg",
+        "no",
+        "number",
+        "rev",
+        "revision",
+        "date",
+        "sheet",
+        "page",
+        "of",
+        "project",
+        "title",
+        "client",
+        "company",
+        "job",
+        "order",
+        "contract",
+        "status",
+        "issue",
+        "issued",
+        "approved",
+        "checked",
+        "prepared",
+        "by",
+        "tag",
+        "item",
+        "unit",
+        "area",
+        "site",
+        "purchase",
+        "po",
+    }
+)
 )
 
 
