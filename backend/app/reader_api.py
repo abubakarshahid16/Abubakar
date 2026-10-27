@@ -59,7 +59,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from . import comparators, numparse
-from .ai.json_reply import unfenced
 from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
@@ -285,6 +284,21 @@ def looks_like_a_trigger(sentence: str) -> bool:
 
 # -------------------------------------------------------------------- parse
 
+#: A whole answer wrapped in one markdown code fence, optionally tagged
+#: ("```json"). Anchored at both ends: a fence that does not enclose the entire
+#: answer is not unwrapped, because then there is prose around the JSON and
+#: the model did not answer with JSON and nothing else.
+_FENCE = re.compile(r"\A\s*```[A-Za-z0-9_-]*[ \t]*\r?\n(?P<body>.*?)\r?\n?```\s*\Z", re.DOTALL)
+
+
+def _unfenced(raw) -> str:
+    """The answer with one enclosing code fence removed, else the answer."""
+    if not isinstance(raw, str):
+        return raw
+    match = _FENCE.match(raw)
+    return match.group("body") if match else raw
+
+
 def parse_response(raw: str) -> tuple[list[dict], str | None]:
     """Strict parse. Anything malformed yields no proposals AND A REASON.
 
@@ -302,7 +316,7 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
     braces, nothing truncated is completed.
     """
     try:
-        body = json.loads(unfenced(raw))
+        body = json.loads(_unfenced(raw))
     except (json.JSONDecodeError, TypeError):
         return [], Reason.MODEL_MALFORMED.value
     # A single proposal answered as a bare object is common enough to accept

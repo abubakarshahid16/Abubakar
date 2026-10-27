@@ -47,7 +47,7 @@ import re
 from enum import Enum
 
 from . import blank_markers, claims, datasheets, errors, numparse, submittal_review
-from .ai.json_reply import opened, unfenced
+from .ai.json_reply import opened_tagged, unfenced_whole
 from .claude_spend import StopRun
 from .db import connect
 from .stored_paths import local as local_path
@@ -437,9 +437,9 @@ def facts_before_the_cut(raw) -> list[dict] | None:
     if not isinstance(raw, str):
         return None
     body = raw.strip()
-    body = opened(body)
+    body = opened_tagged(body)
     try:
-        json.loads(unfenced(raw))
+        json.loads(unfenced_whole(raw))
         return None                                   # a whole answer: not this function's business
     except (json.JSONDecodeError, TypeError):
         pass
@@ -511,7 +511,7 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
     to be worth not losing.
     """
     try:
-        body = json.loads(unfenced(raw))
+        body = json.loads(unfenced_whole(raw))
     except (json.JSONDecodeError, TypeError):
         return [], Reason.MODEL_MALFORMED.value
     if isinstance(body, dict) and "facts" not in body and "field" in body:

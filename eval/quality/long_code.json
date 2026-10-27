@@ -4,7 +4,7 @@
   "function": 80
  },
  "files": {
-  "backend/app/ai_engineering_check.py": 1084,
+  "backend/app/ai_engineering_check.py": 1086,
   "backend/app/ai_requirements.py": 1006,
   "backend/app/analysis.py": 1548,
   "backend/app/answer.py": 2329,
@@ -30,7 +30,7 @@
   "backend/app/market_providers.py": 959,
   "backend/app/match_rules.py": 803,
   "backend/app/ocr.py": 826,
-  "backend/app/reader_api.py": 804,
+  "backend/app/reader_api.py": 818,
   "backend/app/reasoning_provider.py": 977,
   "backend/app/requirements_3b.py": 1507,
   "backend/app/review.py": 833,
