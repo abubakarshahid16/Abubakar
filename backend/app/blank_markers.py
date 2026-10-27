@@ -102,4 +102,7 @@ def fact_is_placeholder(fact: dict) -> bool:
     like a value, so the bare value is judged too."""
     if fact.get("is_blank"):
         return True
-    return any(v and classify(str(v))[0] for v in (fact.get("field_value"), fact.get("raw_value")))
+    return any(
+        v and classify(str(v))[0]
+        for v in (fact.get("field_value"), fact.get("raw_value"))
+    )

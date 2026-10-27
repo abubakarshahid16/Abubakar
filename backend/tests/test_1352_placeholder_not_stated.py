@@ -1,6 +1,7 @@
 """A placeholder value ("*", "TBA", "by vendor") is never "stated" (planner,
 28 Oct, audit of the live M-03 run): "MIN FLOW THERMAL * m3/h" passed "the
 minimum flow is stated". Invented values only."""
+
 from __future__ import annotations
 
 import pytest
@@ -11,7 +12,11 @@ SET = "set pressure"
 
 
 def _set_pressure_status(f):
-    rows = [r for r in results([f]).values() if "set pressure is stated" in r["text"].lower()]
+    rows = [
+        r
+        for r in results([f]).values()
+        if "set pressure is stated" in r["text"].lower()
+    ]
     assert rows
     return rows[0]["status"]
 
