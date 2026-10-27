@@ -29,7 +29,7 @@ def fact(label, value):
 
 
 BB = req("bb", "Bearing housings shall be oil lubricated for between-bearing pumps.")
-OH = req("oh", "The shaft shall be rigid for overhung pumps and shall not deflect.")
+OH = req("oh", "The shaft shall be rigid for overhung pumps.")
 BOTH = req(
     "both",
     "Seal chambers shall be vented, for overhung pumps and for between bearing pumps.",
@@ -126,3 +126,72 @@ def test_a_real_service_is_still_named():
     assert clause_support.named_conditions(
         req("x", "The pump shall be suitable for amine service.")
     ) == ["amine"]
+
+
+# ----- review of #1391: a list, a negation or an exception is never dropped ------------------
+LIST_OH = req("lst", "Shaft shall be rigid for overhung and between-bearing pumps.")
+NEGATED = req(
+    "neg", "Not applicable to overhung pumps; bearing housing shall be vented."
+)
+EXCEPT = req("exc", "Vent shall be fitted, except between-bearing pumps.")
+VERT = req("vert", "Shaft shall be rigid for overhung pumps and vertical pumps.")
+
+
+@pytest.mark.parametrize(
+    ("sentence", "pump_type"),
+    [
+        (LIST_OH, "API 610 OH2"),
+        (LIST_OH, "BB2"),
+        (NEGATED, "BB2"),
+        (EXCEPT, "OH2"),
+        (VERT, "VS1"),
+        (VERT, "BB1"),
+    ],
+)
+def test_a_list_a_negation_or_an_exception_is_held_never_dropped(sentence, pump_type):
+    kept, not_applied, held = run([sentence], [fact("Pump type", pump_type)])
+    assert not_applied == set()
+    assert sentence["id"] in set(kept) | held
+
+
+@pytest.mark.parametrize(
+    ("sentence", "pump_type"),
+    [(NEGATED, "BB2"), (EXCEPT, "OH2"), (VERT, "BB1")],
+)
+def test_such_a_sentence_is_held_for_the_engineer_not_compared(sentence, pump_type):
+    kept, _not_applied, held = run([sentence], [fact("Pump type", pump_type)])
+    assert kept == [] and held == {sentence["id"]}
+
+
+@pytest.mark.parametrize(
+    "value", ["Not overhung", "non-overhung", "not OH2", "No overhung"]
+)
+def test_a_negated_sheet_value_states_no_construction(value):
+    _kept, not_applied, held = run([BB], [fact("Pump type", value)])
+    assert not_applied == set()
+    assert held == {"bb"}
+
+
+def test_a_plain_sentence_is_still_dropped_when_the_sheet_names_another_construction():
+    kept, not_applied, _held = run([BB], [fact("Pump type", "API 610 OH2")])
+    assert not_applied == {"bb"} and kept == []
+
+
+def test_the_added_generic_words_do_not_hide_a_real_service():
+    from app import clause_support
+
+    for text, expected in [
+        ("The pump shall be suitable for sour service.", ["sour"]),
+        ("The pump shall be suitable for hydrocarbon service.", ["hydrocarbon"]),
+        ("Fluid pumps shall be tested.", []),
+    ]:
+        assert clause_support.named_conditions(req("x", text)) == expected
+
+
+def test_a_sentence_with_a_conjunction_next_to_the_marker_is_held_not_dropped():
+    """Conservative on purpose: "and"/"or" within a few words of the marker may start a list."""
+    sentence = req(
+        "conj", "Shafts shall be rigid for overhung pumps and shall not deflect."
+    )
+    kept, not_applied, held = run([sentence], [fact("Pump type", "BB2")])
+    assert not_applied == set() and held == {"conj"} and kept == []
