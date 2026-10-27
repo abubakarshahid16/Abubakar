@@ -249,7 +249,9 @@ def number_fits(
     if not hits:
         return False
     if modal and hits[-1].start() < modal.start():
-        return False  # gate 5, as above: a figure ahead of the main "shall" is a condition
+        return (
+            False  # gate 5, as above: a figure ahead of the main "shall" is a condition
+        )
     gap = before[hits[-1].end() :]
     unit_words = set(_WORD.findall((raw_unit or "").lower()))
     return all(w in unit_words or w in _NEUTRAL for w in _WORD.findall(gap))
