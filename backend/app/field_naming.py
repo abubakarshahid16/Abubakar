@@ -201,7 +201,10 @@ def stored_names(kind: str, keys: list[str], dictionary: list[str]) -> dict[str,
     return out
 
 
-def _store(kind: str, answers: dict[str, dict], dictionary: list[str], response, provider=None) -> None:
+def _store(
+    kind: str, answers: dict[str, dict], dictionary: list[str], response, provider=None
+) -> None:
+    tag = response.model_tag + fallback_note.note_of(provider)  # #555: names a downgrade
     sha = _dictionary_sha(dictionary)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn = connect()
@@ -212,8 +215,7 @@ def _store(kind: str, answers: dict[str, dict], dictionary: list[str], response,
             " dictionary_sha256, field_name, quote, provider, model_tag, prompt_sha256,"
             " created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             [(kind, key, sha, a["field_name"], a["quote"], response.provider,
-              response.model_tag + fallback_note.note_of(provider), response.prompt_sha256, now)
-             for key, a in answers.items()])
+              tag, response.prompt_sha256, now) for key, a in answers.items()])
 
 
 # ------------------------------------------------------------------ the model
