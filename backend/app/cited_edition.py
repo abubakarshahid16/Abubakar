@@ -79,20 +79,23 @@ def held_year(entry: dict) -> str | None:
 
 
 def differs(
-    text: str,
-    library: list[dict],
-    find_standard: Callable[[list[dict], str], dict | None],
+    text: str, library: list[dict], matching: Callable[[list[dict], str], list[dict]]
 ) -> list[dict]:
-    """One item per cited standard the library holds whose printed edition year differs from the
-    held entry's: {identifier, cited, held, relation, document_id, held_name}."""
+    """One item per cited standard the library holds whose printed edition year differs from EVERY
+    held copy's: {identifier, cited, held, relation, document_id, held_name}. A library that holds
+    two editions of a standard says nothing when one of them is the cited edition, and nothing
+    when a held copy prints no year (it could be the cited one)."""
     out: list[dict] = []
     for _key, (ident, cited) in cited_years(text).items():
-        if cited is None:
+        entries = matching(library, ident)
+        years = [held_year(entry) for entry in entries]
+        if cited is None or not entries or None in years or cited in years:
             continue
-        entry = find_standard(library, ident)
-        held = held_year(entry) if entry else None
-        if held is None or held == cited:
-            continue
+        # compare against the nearest held edition; the note names it
+        nearest = min(
+            range(len(entries)), key=lambda i: abs(int(years[i]) - int(cited))
+        )
+        entry, held = entries[nearest], years[nearest]
         out.append(
             {
                 "identifier": ident,
@@ -101,6 +104,7 @@ def differs(
                 "relation": "older" if cited < held else "newer",
                 "document_id": entry["id"],
                 "held_name": entry.get("filename") or entry.get("title") or "",
+                "held_all": [e.get("filename") or "" for e in entries],
             }
         )
     return out
@@ -115,9 +119,9 @@ def notes(items: list[dict]) -> list[dict]:
             "count": None,
             "detail": (
                 f"The datasheet cites {item['identifier']} ({item['cited']}); the library holds "
-                f"{item['held_name']} ({item['held']}), {_ARTICLE[item['relation']]} edition. This "
-                "review checked the requirements of the held edition. Confirm that the cited "
-                "edition does not change them, or upload the cited edition."
+                f"{item['held_name']} ({item['held']}). The cited edition is {item['relation']} "
+                "than the held one. This review checked the requirements of the held edition. "
+                "Confirm that the cited edition does not change them, or upload the cited edition."
             ),
         }
         for item in items
@@ -128,9 +132,30 @@ def for_submittal(
     submittal_id: str, allowed_document_ids: frozenset[str]
 ) -> list[dict]:
     """The Review notes of one submittal, read under the caller's grants: only library standards the
-    caller may read are compared, and only the submittal's own text is read."""
+    caller may read are compared, and only the submittal's own text is read. A check that cannot
+    run is said (the error's type only), never skipped silently and never fatal to the export."""
     from . import applicability  # late: applicability reads the library and the chunks
 
-    text = applicability._submittal_text(submittal_id, allowed_document_ids)
-    library = applicability._library(allowed_document_ids)
-    return notes(differs(text, library, applicability.find_standard))
+    def matching(library: list[dict], ident: str) -> list[dict]:
+        return [
+            entry
+            for entry in library
+            if any(
+                standard_ids.same_standard(ident, name)
+                for name in applicability._library_names(entry)
+            )
+        ]
+
+    try:
+        text = applicability._submittal_text(submittal_id, allowed_document_ids)
+        library = applicability._library(allowed_document_ids)
+        return notes(differs(text, library, matching))
+    except Exception as exc:  # noqa: BLE001 - a side note must not fail the CRS content
+        return [
+            {
+                "note": NOTE,
+                "standard": "",
+                "count": None,
+                "detail": f"The cited-edition check could not run ({type(exc).__name__}).",
+            }
+        ]

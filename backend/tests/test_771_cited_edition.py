@@ -16,10 +16,7 @@ from tests.test_review_screen import world  # noqa: F401
 
 
 def _find(library, identifier):
-    return next(
-        (e for e in library if standard_ids.same_standard(identifier, e["filename"])),
-        None,
-    )
+    return [e for e in library if standard_ids.same_standard(identifier, e["filename"])]
 
 
 def _years(text):
@@ -115,10 +112,11 @@ def test_the_note_is_for_the_engineer_and_says_what_was_checked():
     assert note["note"] == cited_edition.NOTE and note["standard"] == "API 650"
     detail = note["detail"]
     assert "cites API 650 (2013)" in detail and "API-650-2020.pdf (2020)" in detail
-    assert (
-        "an older edition" in detail
-        and "checked the requirements of the held edition" in detail
-    )
+    # the direction is said about the CITED edition, and it is the true one (s3's review)
+    assert "The cited edition is older than the held one" in detail
+    assert "checked the requirements of the held edition" in detail
+    [newer] = cited_edition.notes(_differs("Tank to API 650 (2024)."))
+    assert "The cited edition is newer than the held one" in newer["detail"]
 
 
 def test_for_submittal_reads_the_submittal_and_the_library_it_may_see(temp_storage):  # noqa: F811
@@ -167,3 +165,33 @@ def test_the_crs_review_notes_carry_the_edition_note(world, monkeypatch):  # noq
     notes = [n for n in meta["review_notes"] if n["note"] == cited_edition.NOTE]
     assert [n["standard"] for n in notes] == ["STD-X"]
     assert seen["args"][0] == sub and seen["args"][1] == scope
+
+
+def test_two_held_editions_say_nothing_when_one_of_them_is_the_cited_one():
+    """cloud-2's review: whichever copy a lookup returned used to decide."""
+    two = [
+        {"id": "a", "filename": "API-610-2013.pdf"},
+        {"id": "b", "filename": "API-610-2021.pdf"},
+    ]
+    assert cited_edition.differs("Pump to API 610 (2013).", two, _find) == []
+    assert cited_edition.differs("Pump to API 610 (2021).", two, _find) == []
+    [item] = cited_edition.differs("Pump to API 610 (2005).", two, _find)
+    assert (
+        item["held"] == "2013" and item["relation"] == "older"
+    )  # the nearest held edition
+    # a held copy that prints no year could be the cited one: nothing is claimed
+    mixed = [*two, {"id": "c", "filename": "API-610.pdf"}]
+    assert cited_edition.differs("Pump to API 610 (2005).", mixed, _find) == []
+
+
+def test_a_check_that_cannot_run_says_so_and_does_not_fail_the_export(monkeypatch):
+    from app import applicability
+
+    def boom(*_args):
+        raise RuntimeError("secret document text must not appear")
+
+    monkeypatch.setattr(applicability, "_submittal_text", boom)
+    [note] = cited_edition.for_submittal("sub", frozenset({"sub"}))
+    assert note["note"] == cited_edition.NOTE
+    assert note["detail"] == "The cited-edition check could not run (RuntimeError)."
+    assert "secret" not in note["detail"]
