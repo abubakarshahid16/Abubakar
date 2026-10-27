@@ -29,16 +29,12 @@ WHAT IT IS NOT, ENFORCED IN CODE:
 A refused item is DROPPED WITH A NAMED REASON (`Reason`), never repaired: the
 run reports "5 proposed, 3 kept: 1 value not on page, 1 pass/fail word".
 
-ON BY DEFAULT since R26 step 7 (#763, owner rule "AI-first", 11 Oct;
-`settings.review_ai_check_enabled`). It runs on the configured model: the
-Claude lane when it is on (`reasoning_provider.claude_available`:
-REASONING_PROVIDER=claude, both reader egress flags and a key) - through
-`ClaudeProvider`, so `claude_spend.reserve` refuses it BEFORE it leaves if it
-could cross the USD caps (and holds its worst case until it is settled); the
-spend is booked to the step `review_ai_check` - else the LOCAL model, which
-sends nothing off the machine, with its own timeout and a smaller output cap.
-A timeout or a failed call is recorded on the run (a warning), never a
-failed review. Every run records which engine and model ran it.
+ON BY DEFAULT since R26 step 7 (#763, owner rule "AI-first", 11 Oct; `settings.review_ai_check_enabled`).
+It runs on the configured model: the Claude lane when it is on (`reasoning_provider.claude_available`:
+REASONING_PROVIDER=claude, both egress flags and a key) through `ClaudeProvider`, so `claude_spend.reserve`
+refuses it BEFORE it leaves if it could cross the USD caps (booked to the step `review_ai_check`), else the
+LOCAL model, which sends nothing off the machine, with its own timeout and a smaller output cap. A timeout or
+a failed call is recorded on the run (a warning), never a failed review. Every run records its engine.
 
 WHAT IT LOOKS FOR (R26 step 7): the concerns no rule covers - unusual
 combinations, values that do not fit each other or the service - as drafts
@@ -225,9 +221,15 @@ def datasheet_fields(submittal_id: str) -> list[dict]:
              "page": r["page"], "is_blank": bool(r["is_blank"])} for r in rows]
 
 
-def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
-                 held: dict[str, list[str]], *, covered: list[str] | None = None,
-                 cap: bool = True) -> str:
+def build_prompt(
+    fields: list[dict],
+    pages: dict[int, str],
+    cited: list[str],
+    held: dict[str, list[str]],
+    *,
+    covered: list[str] | None = None,
+    cap: bool = True,
+) -> str:
     """The user prompt. `cited` = standard names the datasheet cites; `held` = held standard
     name -> clauses a requirement was read from; `cap=False` = before the whole-prompt cut.
 
@@ -291,12 +293,9 @@ def _local_page_calls(provider, fields: list[dict], pages: dict[int, str], cited
     import time
     deadline = time.monotonic() + float(settings.review_ai_check_local_max_seconds)
     with_text = [p for p, text in pages.items() if (text or "").strip()]
-    # #844: ONLY PAGES THE CODE READERS TOOK A VALUE FROM. A title page, a
-    # contents page and a sketch page carry no value; asking the local model
-    # about them cost 9 of 22 calls on three real sheets and gave 18 of 49
-    # drafts, 13 of them noise. AND ONLY PAGES WITH A BLANK FIELD (the local
-    # scope): a page with nothing blank has nothing to ask. The pages left
-    # out are named on the run, each under its reason.
+    # #844: ONLY PAGES THE CODE READERS TOOK A VALUE FROM (a title, contents or sketch page carries
+    # none: asking about them cost 9 of 22 calls and gave 13 noise drafts of 18 on three real
+    # sheets) AND ONLY PAGES WITH A BLANK FIELD (the local scope). Pages left out are named on the run.
     has_value = {f.get("page") for f in fields
                  if str(f.get("value") or "").strip() or f.get("is_blank")}
     blank: dict[int, list[dict]] = {}
@@ -867,7 +866,9 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         complete = reason is None
         local_instead = rp.CLOUD_CALL_FAILED
 
-    cut = ai_input_cuts.of_run(local_pages, pages, lambda: build_prompt(fields, pages, cited, held, cap=False))
+    cut = ai_input_cuts.of_run(
+        local_pages, pages, lambda: build_prompt(fields, pages, cited, held, cap=False)
+    )
     complete, reason = ai_input_cuts.settle(cut, local_pages, complete, reason)
     status = {
         "ran": True,
@@ -879,12 +880,10 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         "rejected": dict(rejected),
         "reason": reason,
         "cost_usd": round(cost_total, 6),
-        # R26 step 7 / AI-first rule 3: which engine and model ran it.
         "model": engine,
         # #838: None, or why the local model ran in the cloud model's place.
         "local_instead": local_instead,
-        # #844: None on the Claude lane; on the local model, pages asked and
-        # what became of each (page numbers only).
+        # #844: None on the Claude lane; on the local model, pages asked and what became of each.
         "local_pages": None if local_pages is None else {
             k: local_pages[k] for k in ("pages", "done", "timed_out", "failed", "not_tried",
                                         "no_value_read", "no_blank_field")},
