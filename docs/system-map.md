@@ -37,6 +37,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
 | `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
+| `scan_quality` | #505: how well a scanned page was read (the recogniser's own confidence grouped clear / mixed / poor, or a named state), shown beside the citation on `/evidence` |
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |

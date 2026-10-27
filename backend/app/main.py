@@ -15,6 +15,7 @@ from . import ai_engineering_check as ai_engineering_check_mod
 from . import ai_check_drafts as ai_check_drafts_mod
 from . import ai_numbers as ai_numbers_mod
 from . import evidence_boxes as evidence_boxes_mod
+from . import scan_quality
 from . import applicability as applicability_mod, cited_edition as cited_edition_mod
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
@@ -1838,7 +1839,7 @@ def _finding_for_evidence(finding_id: str, scope: access.AccessScope) -> dict:
 
 
 @app.get("/api/reviews/findings/{finding_id}/evidence",
-         response_model=schemas.FindingEvidence,
+         response_model=scan_quality.FindingEvidenceScanned,
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def review_finding_evidence(
     finding_id: str,
@@ -1850,14 +1851,7 @@ def review_finding_evidence(
     cannot be shown). Same resolution as the evidence image. Read only."""
     reject_unknown_params(request, set())
     current = _finding_for_evidence(finding_id, scope)
-    out = {"finding_id": finding_id}
-    for side in ("submittal", "standard"):
-        found = evidence_boxes_mod.side(current, side, scope)
-        doc = found["document"]
-        out[side] = {"document_id": doc["id"] if doc else None,
-                     "filename": doc.get("filename") if doc else None,
-                     "page": found["page"], "box": found["box"], "reason": found["reason"]}
-    return out
+    return scan_quality.evidence_response(finding_id, current, scope, evidence_boxes_mod.side)
 
 
 @app.get("/api/reviews/findings/{finding_id}/evidence-image",

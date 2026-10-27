@@ -746,11 +746,28 @@ export interface EvidenceSide {
   reason: string | null;
 }
 
+/** #505: an evidence side plus how well its SCANNED page was read; `scan` is
+ *  null for a page with a text layer. */
+export interface EvidenceSideScanned extends EvidenceSide {
+  scan: ScanQuality | null;
+}
+
+/** #505: the recogniser's own confidence for a scanned page, grouped (clear,
+ *  mixed, poor) or named (not_checked, not_yet_read, could_not_read). Never a
+ *  measured accuracy; `low_conf_boxes` is out of `box_count`. */
+export interface ScanQuality {
+  tier: string;
+  words: string;
+  mean_conf: number | null;
+  low_conf_boxes: number | null;
+  box_count: number | null;
+}
+
 /** #785: `GET /api/reviews/findings/{id}/evidence`. */
 export interface FindingEvidence {
   finding_id: string;
-  submittal: EvidenceSide;
-  standard: EvidenceSide;
+  submittal: EvidenceSideScanned;
+  standard: EvidenceSideScanned;
 }
 
 /** Which pages of a submittal were read into fields, and why the rest were
