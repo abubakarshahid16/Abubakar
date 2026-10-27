@@ -210,7 +210,12 @@ def _unit_families(unit: str | None) -> set[str]:
 
 
 def number_fits(
-    text: str, quote: str | None, name: str, raw_value: str | None, raw_unit: str | None
+    text: str,
+    quote: str | None,
+    name: str,
+    raw_value: str | None,
+    raw_unit: str | None,
+    families: dict[str, tuple[str, ...]] | None = None,
 ) -> bool:
     """Gate 4: the requirement's own number is the limit of the NAMED quantity. (1) its unit is of
     that quantity's kind (none for a ratio); (2) in the sentence it follows the quote with only limit
@@ -218,9 +223,10 @@ def number_fits(
     no other number, colon or semicolon between. Anything else - a duration, a size that only says
     when the clause applies, a formula - is refused."""
     value = (raw_value or "").strip().lower()
-    if not quote or not value or name not in _FIT:
+    table = _FIT if families is None else families
+    if not quote or not value or name not in table:
         return False
-    wanted, have = _FIT[name], _unit_families(raw_unit)
+    wanted, have = table[name], _unit_families(raw_unit)
     if (not wanted and have) or (wanted and not set(wanted) & have):
         return False
     t, q = " ".join(text.lower().split()), " ".join(quote.lower().split())
@@ -249,6 +255,7 @@ def verify(
     items: list[tuple[str, str]],
     dictionary: list[str],
     numbers: dict[str, tuple[str | None, str | None]],
+    families: dict[str, tuple[str, ...]] | None = None,
 ):
     """The four gates on ONE model answer, with this vocabulary's gate 3 (not
     `field_naming.verify`'s, which ignores min/max) and gate 4 (`number_fits`; `numbers` is
@@ -271,15 +278,23 @@ def verify(
     if not names_the_quantity(quote, dictionary[field]):
         return unmapped  # gate 3
     raw_value, raw_unit = numbers.get(items[i][0], (None, None))
-    if not number_fits(items[i][1], quote, dictionary[field], raw_value, raw_unit):
+    if not number_fits(
+        items[i][1], quote, dictionary[field], raw_value, raw_unit, families
+    ):
         return unmapped  # gate 4
     return i, {"field_name": dictionary[field], "quote": quote}
 
 
 def name_requirements(
-    requirements: list[dict], provider, stats: dict | None = None
+    requirements: list[dict],
+    provider,
+    stats: dict | None = None,
+    *,
+    dictionary: list[str] | None = None,
+    families: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, dict]:
-    """Name the numeric requirements against the closed vocabulary and store every answer. Returns
+    """Name the numeric requirements against the closed vocabulary (or, for order 262.1, against
+    the `dictionary` and unit `families` of one equipment type's form) and store every answer. Returns
     {requirement id: {field_name | None, quote | None}} for all of them (stored + new). `stats`, when
     given, gets `unreadable`: the items of batches whose reply could not be read (truncated or not
     matching the schema), which are NOT stored, so a re-run asks them again."""
@@ -296,10 +311,11 @@ def name_requirements(
     ]
     return _name_items(
         items,
-        vocabulary(),
+        dictionary if dictionary is not None else vocabulary(),
         provider,
         stats if stats is not None else {},
         _numbers(requirements),
+        families,
     )
 
 
@@ -317,6 +333,7 @@ def _name_items(
     provider,
     stats: dict,
     numbers: dict[str, tuple[str | None, str | None]],
+    families: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, dict]:
     """`field_naming.name_items` with this vocabulary's gate 3 (the same batches, prompt, schema and
     storage; only the verifier differs). Answers for ALL `items` (stored + new)."""
@@ -352,7 +369,7 @@ def _name_items(
             continue
         answers: dict[str, dict] = {}
         for raw in field_naming._parse(response.text):
-            checked = verify(raw, batch, dictionary, numbers)
+            checked = verify(raw, batch, dictionary, numbers, families)
             if checked is not None:
                 answers[batch[checked[0]][0]] = checked[1]
         for (
@@ -418,6 +435,10 @@ def names_for(requirements: list[dict], facts: list[dict]) -> dict:
             *numbers.get(k, (None, None)),
         )
     }
+    from . import rule_roles
+
+    reviewed = rule_roles.reviewed_names(requirements)  # order 262.1: draft mappings, re-checked
+    named = {**named, **reviewed}
     if not named:
         if settings.geometry_reader_enabled:
             return field_naming.ensure_names(requirements, facts)
@@ -440,7 +461,8 @@ def names_for(requirements: list[dict], facts: list[dict]) -> dict:
     return {
         "requirements": named,
         "facts": fact_names,
-        "source": "closed vocabulary (stored, model-named, unconfirmed)",
+        "source": "closed vocabulary (stored, model-named, unconfirmed)"
+        + (" + reviewed draft mappings" if reviewed else ""),
         "requirements_asked": len(wanted_ids),
         "requirements_named": len(named),
     }
