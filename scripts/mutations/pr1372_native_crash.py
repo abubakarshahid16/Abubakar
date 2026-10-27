@@ -72,7 +72,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the vector cache sweep removes a temporary file another process is writing",
         path=APP / "vectorcache.py",
         anchor='            if path.suffix == ".tmp" and young:\n',
-        replacement='            if False:\n',
+        replacement="            if False:\n",
         target=_VC,
         keyword="fresh_temporary_file",
         tags=_TAGS,
