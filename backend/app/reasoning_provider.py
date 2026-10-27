@@ -39,7 +39,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from . import model_transport, worker_review
+from . import model_metrics, model_transport, worker_review
 from .ai.json_reply import unfenced
 from .config import settings
 
@@ -299,12 +299,12 @@ class OllamaProvider:
                 else model_transport.post_json
             )
             raw = post("/api/generate", body, timeout=self.timeout)
-        # Broad on purpose, and it RE-RAISES: every transport failure becomes a
-        # named refusal rather than an empty answer. No `noqa` is needed -
-        # ruff's blind-except rule is about swallowing, which this does not do.
+        # Broad on purpose and it RE-RAISES: every transport failure becomes a named refusal.
         except Exception as exc:
+            model_metrics.note(self.requested_model, time.time() - started, type(exc).__name__)
             raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
         wall = worker_review.beat_now() - started
+        model_metrics.note(self.requested_model, wall)
 
         text = str(raw.get("response") or "").strip()
         # THE ENGINE'S OWN ANSWER about what ran. Falling back to the requested

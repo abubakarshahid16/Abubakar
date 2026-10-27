@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from contextvars import ContextVar
 
-from . import errors
+from . import errors, model_metrics
 
 #: A review that has reported nothing for this long (no step, page or scope
 #: answer) is no longer "busy" (cloud's ask on #1323): a review stuck forever in
@@ -71,9 +71,13 @@ class ReviewDrain:
             self._review_activity()
             token = _ACTIVITY.set(self._review_activity)
             try:
-                review_jobs.run(
-                    job_id, job_queue.worker_id(), heartbeat=self._review_activity
-                )
+                with model_metrics.collect() as bucket:
+                    try:
+                        review_jobs.run(
+                            job_id, job_queue.worker_id(), heartbeat=self._review_activity
+                        )
+                    finally:  # a failed review's calls are worth knowing too
+                        model_metrics.store_for_job(job_id, bucket)
             finally:
                 _ACTIVITY.reset(token)
                 self.reviewing = False
