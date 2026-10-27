@@ -14,7 +14,7 @@ import pymupdf
 import pytest
 
 from app import cover_page, datasheets, db, page_ledger, row_noise
-from tests.test_165e_read_no_field import _coverage, _pdf
+from tests.test_165e_read_no_field import _coverage
 from tests.test_datasheet_ai import FakeModel, _ingest, _use, temp_storage  # noqa: F401
 
 CLEAN_AI = {"pages": {1: {"accepted": [], "rejected": [], "counts": {}}}, "reasons": {}}
@@ -37,6 +37,33 @@ COVER = [
     "Document no 0001-XX Rev 00 Sheet 1 of 8",
     "Issued for final",
 ]
+#: Label and value pairs that every reader drops as page furniture (a title
+#: block and a date): a cover page the check may mark.
+FURNITURE_PAIRS = [("Document No", "0001-XX"), ("Date", "01/01/2024")]
+DATA_ROWS = [("Design pressure", "23.5 barg"), ("Design temperature", "120 C")]
+
+
+def _ruled_pdf(path, cover_pairs) -> str:
+    """A ruled two-column cover page, then a ruled data page."""
+    doc = pymupdf.open()
+    for pairs in (cover_pairs, DATA_ROWS):
+        page = doc.new_page(width=600, height=500)
+        y = 60
+        for label, value in pairs:
+            page.draw_rect(
+                pymupdf.Rect(40, y - 14, 300, y + 6), color=(0, 0, 0), width=0.7
+            )
+            page.draw_rect(
+                pymupdf.Rect(300, y - 14, 560, y + 6), color=(0, 0, 0), width=0.7
+            )
+            page.insert_text((44, y), label, fontsize=9)
+            page.insert_text((304, y), value, fontsize=9)
+            y += 26
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
 DATA = ["Notes", "Design pressure shall not exceed 23.5 barg at 120 C"]
 
 
@@ -56,17 +83,29 @@ def test_a_measured_value_is_a_number_with_a_unit_the_system_knows(text, expecte
     assert cover_page.has_measured_value(text) is expected
 
 
-def test_both_parts_of_the_check_must_hold():
+def test_every_part_of_the_check_must_hold():
     furniture = {row_noise.DOCUMENT_ID: 2, row_noise.REVISION: 1}
-    assert cover_page.is_cover_or_notes(furniture, "TITLE Rev 00")
-    assert cover_page.is_cover_or_notes({}, "TITLE Rev 00")  # no pairs, no quantity
-    assert not cover_page.is_cover_or_notes(furniture, "Design pressure 23.5 barg")
-    assert not cover_page.is_cover_or_notes({**furniture, "value gate": 1}, "TITLE")
+    ok = ("TITLE Rev 00", False)
+    assert cover_page.is_cover_or_notes(furniture, ok)
     assert not cover_page.is_cover_or_notes(
-        {"merged": 0, row_noise.MERGED_BLOCK: 1}, "TITLE"
+        furniture, ("Design pressure 23.5 barg", False)
     )
+    assert not cover_page.is_cover_or_notes({**furniture, "value gate": 1}, ok)
+    assert not cover_page.is_cover_or_notes({row_noise.MERGED_BLOCK: 1}, ok)
     assert not cover_page.is_cover_or_notes(furniture, None)
-    assert not cover_page.is_cover_or_notes(furniture, "   ")
+    assert not cover_page.is_cover_or_notes(furniture, ("   ", False))
+    assert not cover_page.is_cover_or_notes(
+        furniture, ("TITLE Rev 00", True)
+    )  # a large picture
+
+
+def test_a_page_where_no_pair_was_recovered_is_not_evidence_of_furniture():
+    """cloud's ask on #1325: a notes or data page whose values are words (a
+    material, "Class 300") has no number and unit; with no pair recovered at
+    all it must stay unread."""
+    words_only = ("Casing material: duplex stainless steel. Flange class 300.", False)
+    assert not cover_page.is_cover_or_notes({}, words_only)
+    assert not cover_page.is_cover_or_notes({"date": 0}, words_only)
 
 
 def _no_fact(path, dropped):
@@ -82,9 +121,35 @@ def test_a_page_read_clean_with_only_furniture_is_marked(tmp_path):
 def test_a_page_with_a_measured_value_or_value_like_drop_is_not_marked(tmp_path):
     data = _file(tmp_path, DATA, "data.pdf")
     cover = _file(tmp_path, COVER, "cover.pdf")
-    assert not cover_page.checked(_no_fact(data, {})[2])
+    assert not cover_page.checked(_no_fact(data, {row_noise.DOCUMENT_ID: 1})[2])
     assert not cover_page.checked(_no_fact(cover, {"value gate": 1})[2])
-    assert not cover_page.checked(_no_fact(None, {})[2])
+    assert not cover_page.checked(_no_fact(cover, {})[2])
+    assert not cover_page.checked(_no_fact(None, {row_noise.DOCUMENT_ID: 1})[2])
+
+
+def _with_picture(tmp_path, big: bool) -> str:
+    doc = pymupdf.open()
+    page = doc.new_page(width=600, height=500)
+    page.insert_text((50, 80), "Document no 0001-XX")
+    pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 40), False)
+    pixmap.clear_with(200)
+    size = 560 if big else 30
+    page.insert_image(
+        pymupdf.Rect(20, 100, 20 + size, 100 + min(size, 380)), pixmap=pixmap
+    )
+    path = tmp_path / ("big.pdf" if big else "logo.pdf")
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_a_page_with_a_large_picture_is_not_a_cover_page_but_a_logo_is(tmp_path):
+    """cloud's ask on #1325: a text layer (a title block) beside a picture that
+    may hold the values: the picture reader was needed, so the page stays
+    unread. A small logo does not count."""
+    furniture = {row_noise.DOCUMENT_ID: 1}
+    assert not cover_page.checked(_no_fact(_with_picture(tmp_path, True), furniture)[2])
+    assert cover_page.checked(_no_fact(_with_picture(tmp_path, False), furniture)[2])
 
 
 def _vision_down(doc):
@@ -100,7 +165,7 @@ def test_end_to_end_a_cover_page_is_read_when_the_picture_reader_is_down(
     tmp_path, monkeypatch
 ):
     _use(monkeypatch, FakeModel([]))
-    doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    doc = _ingest(_ruled_pdf(tmp_path / "d.pdf", FURNITURE_PAIRS))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     assert cover_page.checked(page_ledger.rows(doc)[0]["facts_reason"])
     _vision_down(doc)
@@ -113,7 +178,7 @@ def test_an_unmarked_page_stays_unread_when_the_picture_reader_is_down(
     tmp_path, monkeypatch
 ):
     _use(monkeypatch, FakeModel([]))
-    doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    doc = _ingest(_ruled_pdf(tmp_path / "d.pdf", FURNITURE_PAIRS))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     with db.connect() as conn:
         conn.execute(
@@ -129,7 +194,7 @@ def test_a_marked_page_whose_text_layer_was_not_usable_stays_unread(
     tmp_path, monkeypatch
 ):
     _use(monkeypatch, FakeModel([]))
-    doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    doc = _ingest(_ruled_pdf(tmp_path / "d.pdf", FURNITURE_PAIRS))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     _vision_down(doc)
     with db.connect() as conn:

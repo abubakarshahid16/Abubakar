@@ -148,7 +148,7 @@ def no_fact(
     failed = (datasheets._PAGE_FAILURES.get() or {}).get(page)
     if ai_run is not None and not failed and read_page_empty(ai_run, page):
         said = page_reason_words.no_field_found(dropped)
-        if cover_page.is_cover_or_notes(dropped, cover_page.page_text(page)):
+        if cover_page.is_cover_or_notes(dropped, cover_page.page_view(page)):
             said = f"{cover_page.MARK} {said}"
         return (READ_NO_FIELD, 0, said)
     return ("no_facts", 0, reason)

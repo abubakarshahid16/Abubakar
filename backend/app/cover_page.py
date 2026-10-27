@@ -7,7 +7,7 @@ page ledger then called it "not read" ("the picture reader could not be asked"),
 and every requirement the sheet did not state carried UNREAD_PAGES, which
 blocked the CRS for a page that holds no values.
 
-THE TEXT CHECK, general and code-only, two parts that must BOTH hold:
+THE TEXT CHECK, general and code-only; every part must hold:
 1. the readers record WHY each recovered label/value pair was dropped; every
    one was dropped as page furniture (a title block, a revision table, a ruler,
    column headings, a note or clause reference, a job or order number, a header
@@ -18,6 +18,10 @@ THE TEXT CHECK, general and code-only, two parts that must BOTH hold:
    the system knows (`claims.normalise`). A drawing, a table or a data page has
    one; a cover or a notes page does not. A page with no text layer is the OCR
    tier's, never a cover page here.
+3. no picture covers a tenth of the page (`IMAGE_SHARE`): values may sit in the
+   picture, which only the picture reader could read.
+At least one furniture pair is REQUIRED: a page where both readers recovered no
+pair at all proves nothing about what it holds, so it stays unread.
 Nothing here is stored but the verdict's wording: no page text.
 """
 
@@ -52,6 +56,7 @@ FURNITURE = frozenset(
         "tag row",
         "date",
         "furniture, tag, date or blank",
+        "geometry: furniture, tag or date",
     }
 )
 
@@ -84,9 +89,18 @@ def remember(stored_path: str | None) -> str | None:
     return stored_path
 
 
-def page_text(page_no: int) -> str | None:
-    """The page's own text layer in the file being read, or None when it cannot
-    be read (no file, an office input, an unopenable file, a page out of range)."""
+#: A page whose images cover at least this share of it may hold values only in
+#: the picture (a scanned insert, a nameplate photo): the picture reader was
+#: needed and could not be asked, so the page is never called a cover page.
+#: A logo is far below this.
+IMAGE_SHARE = 0.10
+
+
+def page_view(page_no: int) -> tuple[str, bool] | None:
+    """(the page's own text, whether pictures cover at least `IMAGE_SHARE` of
+    it) in the file being read; None when it cannot be read (no file, an
+    office input, an unopenable file, a page out of range). Opens the file per
+    call: asked only for pages both readers found no field on."""
     from . import datasheet_inputs
 
     stored_path = _STORED_PATH.get()
@@ -98,18 +112,32 @@ def page_text(page_no: int) -> str | None:
         with pymupdf.open(stored_path) as doc:
             if not 1 <= page_no <= doc.page_count:
                 return None
-            return doc[page_no - 1].get_text()
+            page = doc[page_no - 1]
+            covered = 0.0
+            for image in page.get_image_info():
+                x0, y0, x1, y1 = image["bbox"]
+                covered += max(0.0, x1 - x0) * max(0.0, y1 - y0)
+            area = page.rect.width * page.rect.height
+            return page.get_text(), bool(area) and covered / area >= IMAGE_SHARE
     except Exception as exc:  # noqa: BLE001 - the page then stays unread
-        log.info("cover_page: the page text could not be read (%s)", type(exc).__name__)
+        log.info("cover_page: the page could not be read (%s)", type(exc).__name__)
         return None
 
 
-def is_cover_or_notes(dropped: dict[str, int], text: str | None) -> bool:
-    """Both parts of the text check hold. `text` None (unreadable) is never."""
+def is_cover_or_notes(dropped: dict[str, int], view: tuple[str, bool] | None) -> bool:
+    """All parts of the text check hold: the page could be read, it has text
+    and no large picture, every dropped pair was page furniture AND at least
+    one pair was (an empty page of recovered pairs is not evidence of furniture:
+    a notes or data page whose values are words would pass), and the text holds
+    no measured value."""
+    if view is None:
+        return False
+    text, picture = view
     reasons = {reason for reason, n in dropped.items() if n}
     return (
-        text is not None
-        and bool(text.strip())
+        bool(text.strip())
+        and not picture
+        and bool(reasons)
         and reasons <= FURNITURE
         and not has_measured_value(text)
     )
