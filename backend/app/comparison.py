@@ -2968,17 +2968,17 @@ def _run_comparison(
     from . import clause_coverage
     clause_cov = clause_coverage.summarise(decisions)
 
-    # #645 CLAUSE TO CHECK: an undecided clause sentence is offered to the local
-    # model, which proposes a check; code verifies it and keeps a DRAFT for the
-    # engineer. After the findings are written: no verdict changes. The cap goes
-    # to sentences tied to a stated field first (`clause_budget`, 235.1).
+    # #645 CLAUSE TO CHECK: drafts only, no verdict changes. The cap goes to
+    # sentences tied to a stated field first (`clause_budget`, 235.1).
     clause_checks = None
     if settings.ai_clause_checks_enabled:
         from . import ai_requirements
         clause_checks = ai_requirements.propose_checks(
             ai_requirements.undecided_statements(requirements, status_of),
-            review_run_id=review_run_id, limit=settings.ai_clause_checks_max_per_run,
-            facts=facts)
+            review_run_id=review_run_id,
+            limit=settings.ai_clause_checks_max_per_run,
+            facts=facts,
+        )
 
     # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
     # itself, pure arithmetic, no standard needed. Written before the code is

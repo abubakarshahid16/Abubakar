@@ -5,7 +5,7 @@
  },
  "files": {
   "backend/app/ai_engineering_check.py": 1086,
-  "backend/app/ai_requirements.py": 1004,
+  "backend/app/ai_requirements.py": 1017,
   "backend/app/analysis.py": 1548,
   "backend/app/answer.py": 2329,
   "backend/app/applicability.py": 1829,

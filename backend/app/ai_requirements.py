@@ -533,8 +533,14 @@ def ensure_schema() -> None:
                      " WHERE id IS NULL")
 
 
-def propose_checks(requirements: list[dict], *, review_run_id: str | None = None,
-                   limit: int, provider=None, facts: list[dict] | None = None) -> dict:
+def propose_checks(
+    requirements: list[dict],
+    *,
+    review_run_id: str | None = None,
+    limit: int,
+    provider=None,
+    facts: list[dict] | None = None,
+) -> dict:
     """Ask the local model for a check per undecided clause sentence (at most
     `limit` per run), verify each in code, store what passes as a draft.
     Returns the run report's counts: {sentences, asked, proposed, refused
@@ -548,7 +554,8 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     drafts = []
     # The cap goes first to sentences naming a field the sheet states, then
     # to those that print a figure, then the rest in order (`clause_budget`).
-    ordered = clause_budget.order(requirements, _sentence, clause_budget.sheet_names(facts))
+    names = clause_budget.sheet_names(facts)
+    ordered = clause_budget.order(requirements, _sentence, names)
     for requirement in ordered[:max(limit, 0)]:
         sentence = _sentence(requirement)
         asked += 1
@@ -582,12 +589,18 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
                 [(uuid.uuid4().hex, rid, c["field"], c["operator"], c["value"], c["unit"] or "",
                   c["condition"], c["quote"], model, review_run_id)
                  for rid, c, model in drafts])
-    return {"sentences": len(requirements), "asked": asked, "proposed": proposed,
-            "no_limit": no_limit, "refused": refused, "could_not_read": unread,
-            "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
-            "by_standard": clause_budget.per_standard(ordered, asked),
-            # the local runner's model (`ai_task_runner`); None when none answered
-            "model": model}
+    return {
+        "sentences": len(requirements),
+        "asked": asked,
+        "proposed": proposed,
+        "no_limit": no_limit,
+        "refused": refused,
+        "could_not_read": unread,
+        "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
+        "by_standard": clause_budget.per_standard(ordered, asked),
+        # the local runner's model (`ai_task_runner`); None when none answered
+        "model": model,
+    }
 
 
 def _sentence(requirement: dict) -> str:
