@@ -721,7 +721,7 @@ def _pdf_page_text(stored_path: str, page_no: int) -> str:
     except ImportError:  # pragma: no cover
         return ""
     try:
-        with pymupdf.open(local_path(stored_path)) as doc:
+        with datasheets.pdf_guard.held(), pymupdf.open(local_path(stored_path)) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return ""
             return doc[page_no - 1].get_text("text") or ""
