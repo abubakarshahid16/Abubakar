@@ -43,9 +43,40 @@ ERROR_REASONS = frozenset(
         "field_not_answered",
     }
 )
+#: The roles a calculation reads IN CODE (not named in the item's JSON): `datasheet_checks`
+#: `api520_gas_area` / `api520_liquid_area` and the helpers they call. A test pins this table
+#: against those functions' source, so a new input cannot be added without it.
+FORMULA_INPUTS: dict[str, frozenset[str]] = {
+    "api520_gas_area": frozenset(
+        {
+            "required_capacity",
+            "set_pressure",
+            "overpressure",
+            "relieving_temperature",
+            "molecular_weight",
+            "compressibility",
+            "specific_heat_ratio",
+            "valve_type",
+            "superimposed_back_pressure",
+            "built_up_back_pressure",
+        }
+    ),
+    "api520_liquid_area": frozenset(
+        {
+            "required_capacity",
+            "density_relieving",
+            "viscosity_relieving",
+            "set_pressure",
+            "overpressure",
+            "valve_type",
+            "superimposed_back_pressure",
+            "built_up_back_pressure",
+        }
+    ),
+}
 HELD = (
-    "Engineer to check: the rule reader found this stated, but the AI reading it depends on "
-    "did not come back ({why}), so the pass is not trusted. AI reading missing."
+    "Engineer to check: the AI reading this result depends on did not come back ({why}), "
+    "so the pass is not trusted. AI reading missing."
 )
 
 
@@ -63,7 +94,7 @@ def assess(summary: dict | None) -> dict | None:
     """The record for a reader summary whose AI reading did not fully come back, or None when
     the AI reader was not asked or its read is complete. Counts and reasons only; it changes no
     verdict (`hold` does, from the same summary)."""
-    if not summary or summary.get("engine") in (None, "off"):
+    if not summary or summary.get("engine") == "off":
         return None
     partly = len(summary.get("partly_read") or {})
     cut_off = len(summary.get("cut_off") or [])
@@ -143,7 +174,17 @@ def item_roles() -> dict[str, frozenset[str]]:
             continue
         for item in [*entry.get("items", []), *dc._local_items(key)]:
             body = {k: v for k, v in item.items() if k not in ("text", "source")}
-            out[item["id"]] = frozenset(_roles_named_in(body, roles))
+            named = set(_roles_named_in(body, roles))
+            named |= FORMULA_INPUTS.get(
+                (item.get("rule") or {}).get("formula"), frozenset()
+            )
+            # a condition role whose phase is implied by another field reads that field too
+            named |= {
+                (roles[r].get("implied_by") or {}).get("role")
+                for r in list(named)
+                if (roles.get(r) or {}).get("implied_by")
+            }
+            out[item["id"]] = frozenset(named)
     return out
 
 

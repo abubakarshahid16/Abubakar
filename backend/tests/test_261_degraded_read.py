@@ -273,3 +273,57 @@ def test_a_whole_review_on_the_broken_read_holds_every_checklist_pass(monkeypatc
     assert "COMPLIANT" not in after and "NEEDS_ENGINEER_REVIEW" in after
     assert len(after) == len(clean)
     assert "partly_read_pages" in result["requirement_split"]["degraded_read"]["why"]
+
+
+def test_a_calculation_is_held_when_any_input_it_reads_in_code_failed(reader):
+    """PSV-C01 reads its formula's inputs in code, not in its JSON; cloud's repro."""
+    roles = degraded_read.item_roles()["PSV-C01"]
+    assert {
+        "fluid_phase",
+        "orifice_area",
+        "molecular_weight",
+        "required_capacity",
+    } <= roles
+    assert "fluid" in roles  # the field that implies the phase
+    results = passes("orifice_area", rule_ids={"orifice_area": "PSV-C01"})
+    for role in sorted(roles):
+        reader({**CLEAN, "rejected_fields": {f"{role}: model_failed": 1}})
+        assert (
+            degraded_read.hold(results, "doc")[0]["status"] == "NEEDS_ENGINEER_REVIEW"
+        ), role
+    reader({**CLEAN, "rejected_fields": {"bearing_type: model_failed": 1}})
+    assert degraded_read.hold(results, "doc") == results
+
+
+def test_the_formula_input_table_matches_what_the_formulas_read():
+    import inspect
+    import re
+
+    from app import datasheet_checks as dc
+
+    called = {
+        "api520_gas_area": [dc.api520_gas_area],
+        "api520_liquid_area": [dc.api520_liquid_area],
+    }
+    helpers = [dc._overpressure_kpa, dc._back_pressure_kpa_g, dc._conventional]
+    for formula, fns in called.items():
+        source = "".join(inspect.getsource(fn) for fn in [*fns, *helpers])
+        read = set(re.findall(r'(?:_input\(get, |get\()"([a-z_]+)"', source))
+        read |= set(
+            re.findall(
+                r'"([a-z_]+)"', "".join(re.findall(r"for role in \(([^)]*)\)", source))
+            )
+        )
+        read.discard("is_blank")
+        if formula == "api520_gas_area":
+            read -= {"density_relieving", "viscosity_relieving"}
+        assert read <= degraded_read.FORMULA_INPUTS[formula], (formula, read)
+
+
+def test_an_unavailable_reader_with_no_engine_name_still_flags_the_read():
+    summary = {
+        "engine": None,
+        "unavailable": "form reader: checklist refused (ValueError)",
+    }
+    assert degraded_read.assess(summary)["why"] == ["unavailable"]
+    assert degraded_read.assess({"engine": "off", "unavailable": "x"}) is None
