@@ -21,7 +21,7 @@ before) by default. Separate names so a measurement can tell which cut did what:
                    independent second reading, so a field the page states twice
                    with two values is caught by the form reader's own per-page
                    handling only.
-  presplit         a page that looks dense (`DENSE_LINES` or more lines holding a
+  presplit         a page that looks dense (`DENSE_LINES`, or N for `presplit=N`, lines holding a
                    digit) is read in two parts at once instead of whole, then
                    halved after being cut off: the whole-page attempt that hit
                    the output cap was two wasted runs.
@@ -57,18 +57,33 @@ SHORT_QUOTE_RULE = (
 
 
 def _named() -> list[str]:
+    """The setting's entries, lowercased: `name` or `name=number`."""
     raw = str(getattr(settings, "datasheet_reader_speed", "") or "")
     return [part.strip().lower() for part in raw.split(",") if part.strip()]
 
 
+def _name(entry: str) -> str:
+    return entry.split("=", 1)[0].strip()
+
+
 def on() -> frozenset[str]:
     """The cuts switched on."""
-    return frozenset(name for name in _named() if name in CUTS)
+    return frozenset(name for name in map(_name, _named()) if name in CUTS)
 
 
 def unknown() -> list[str]:
     """Names in the setting that are not a cut (ignored, but worth a warning)."""
-    return [name for name in _named() if name not in CUTS]
+    return [name for name in map(_name, _named()) if name not in CUTS]
+
+
+def dense_lines() -> int:
+    """The dense-page threshold: `presplit=60` in the setting, else `DENSE_LINES`.
+    A value that is not a positive whole number is ignored."""
+    for entry in _named():
+        name, _, number = entry.partition("=")
+        if name.strip() == PRESPLIT and number.strip().isdigit() and int(number) > 0:
+            return int(number)
+    return DENSE_LINES
 
 
 def shorten_schema(schema: dict) -> dict:
@@ -149,5 +164,5 @@ def dense(page_text: str) -> bool:
         return False
     return (
         sum(1 for line in (page_text or "").splitlines() if re.search(r"\d", line))
-        >= DENSE_LINES
+        >= dense_lines()
     )

@@ -199,3 +199,20 @@ def test_a_page_with_few_numbers_is_not_split(cuts):
     fake = _Counting()
     datasheet_ai.read_pages({1: PAGE}, fake)
     assert any(PAGE.strip() in p for p in fake.prompts) and len(fake.prompts) == 2
+
+
+def test_presplit_takes_its_threshold_from_the_setting(cuts):
+    page = _dense_page(reader_speed.DENSE_LINES + 10)
+    cuts("presplit")
+    assert (
+        reader_speed.dense(page) is True
+        and reader_speed.dense_lines() == reader_speed.DENSE_LINES
+    )
+    cuts("presplit=80")
+    assert reader_speed.on() == {"presplit"} and reader_speed.dense_lines() == 80
+    assert reader_speed.dense(page) is False
+    assert reader_speed.dense(_dense_page(80)) is True
+    cuts("presplit=abc")  # not a number: the default stands
+    assert reader_speed.dense_lines() == reader_speed.DENSE_LINES
+    cuts("short_quote,presplit=0")
+    assert reader_speed.dense_lines() == reader_speed.DENSE_LINES
