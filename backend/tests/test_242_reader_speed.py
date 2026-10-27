@@ -237,7 +237,7 @@ def test_wide_cap_raises_the_whole_page_readers_answer_budget(cuts, monkeypatch)
         cuts(value)
         call, why = datasheet_ai.model_call_for("ollama")
         assert call is not None, why
-        with pytest.raises(Exception):  # noqa: B017 - the stub raises at the first call
+        with pytest.raises(Exception):
             call("p")
         assert seen[-1] == expected
     cuts("wide_cap")
