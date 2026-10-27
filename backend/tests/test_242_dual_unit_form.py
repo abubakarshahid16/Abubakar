@@ -50,11 +50,23 @@ def test_the_first_system_is_the_value_and_its_unit_is_kept(text, value, unit):
         "24.8 (109) m3/h",
         "5 (note 3) kW (hp)",
         "6 (2) VEFV (pcs)",  # the word after the numbers is not a unit: a tag, not a quantity
+        # cloud's review: the second bracket is checked too, it must be a unit
+        "10 (20) kW (max)",  # a rate and its qualifier, not two systems
+        "10 (20) kW (min)",  # "min" is a unit (minutes) but not of kW's kind
+        "10 (20) m3/h (min)",  # a different dimension from a flow
+        "5 (7) bar (normal)",
     ],
 )
 def test_a_cell_that_is_not_one_quantity_twice_is_read_exactly_as_before(text):
     assert dual_unit_form.first_system(text, datasheets.same_quantity_twice) is None
     assert _measure(text)[1] is None
+
+
+def test_a_us_gallon_rate_is_a_recognised_unit_so_the_cell_can_be_read():
+    from app import claims
+
+    assert claims.is_unit("usgpm")
+    assert claims.unit_dimension("usgpm") is None  # recognised, not converted
 
 
 def test_the_number_is_converted_in_the_first_unit():

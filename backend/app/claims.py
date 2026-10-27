@@ -240,7 +240,7 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     "mv": "voltage", "ka": "current",
     "ppm": None, "ppb": None, "mg": None, "g": None, "kg": None, "t": None, "n": None,
     "kn": None, "knm": None, "lb": None, "lbs": None, "rpm": None, "hz": None, "khz": None,
-    "w": None, "kw": None, "mw": None, "ml": None, "l": None, "gpm": None, "mpy": None,
+    "w": None, "kw": None, "mw": None, "ml": None, "l": None, "gpm": None, "usgpm": None, "mpy": None,
     "ohm": None, "kohm": None, "db": None, "wt": None, "vol": None,
     # 2026-09-30, found by the datasheet benchmark: real datasheet units that
     # every reader refused - the AI gate (`claude_datasheet._unit_recognised`)
