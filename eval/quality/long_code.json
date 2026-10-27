@@ -24,7 +24,7 @@
   "backend/app/datasheets.py": 4349,
   "backend/app/db.py": 1469,
   "backend/app/fts_index.py": 1176,
-  "backend/app/geometry_reader.py": 1272,
+  "backend/app/geometry_reader.py": 1271,
   "backend/app/ingest.py": 1135,
   "backend/app/main.py": 3676,
   "backend/app/market_providers.py": 959,

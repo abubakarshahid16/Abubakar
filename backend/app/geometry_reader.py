@@ -36,7 +36,7 @@ import re
 import statistics
 from typing import Any
 
-from . import blank_markers, claims, errors
+from . import blank_markers, claims, errors, geometry_index_cells
 
 # --------------------------------------------------------------------------
 # Units
@@ -1137,8 +1137,7 @@ def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[s
         filled = [i for i, t in enumerate(texts) if t]
         if len(filled) < 2:
             continue
-        answer = next((i for i in filled[1:] if cells[i]["text"] and (
-            _STARTS_WITH_A_NUMBER.match(texts[i]) or blank_markers.names_a_marker(texts[i]))), None)
+        answer = geometry_index_cells.first_answer(cells, texts, filled, _STARTS_WITH_A_NUMBER)
         if answer is None:
             answer = filled[-1]
         if not cells[answer]["text"]:
@@ -1223,7 +1222,7 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
         })
     for table in tables["tables"]:
         if table.get("headerless"):
-            rows.extend(_label_value_rows(table, alphabet_violations))
+            rows.extend(_label_value_rows(geometry_index_cells.split(table), alphabet_violations))
             continue
         for data in table["rows"]:
             cells = sorted(data["cells"], key=lambda c: c["column"])

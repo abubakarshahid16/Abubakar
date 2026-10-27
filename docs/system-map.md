@@ -135,6 +135,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
+| `geometry_index_cells` | A side-by-side numbered form is read as two lists; a lone index number is never an answer (order 228.9b) |
 | `glossary` | Engineering synonyms: the words people type -> the words documents print |
 | `held_standards` | Marks and counts the standards a review held for the engineer (equipment type unsure), with the caller's boundary |
 | `heavy_lock` | One lock for the heavy jobs on a machine (#680) |
