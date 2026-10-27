@@ -35,6 +35,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
+| `clause_rank` | Which clause sentences the per-run clause-check budget is spent on (#1309 order 235.1): figures first, then fields this sheet states, then standards it cites; counts asked and skipped per standard. Chooses what is asked; decides no verdict |
 | `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |

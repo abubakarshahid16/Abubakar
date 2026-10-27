@@ -58,8 +58,8 @@ def test_a_standard_the_caller_may_not_read_yields_nothing(monkeypatch):
     report = air.compile_standard("spec", allowed_document_ids=frozenset({"other"}), limit=50)
 
     assert report == {"sentences": 0, "asked": 0, "proposed": 0, "no_limit": 0, "refused": {},
-                      "could_not_read": 0, "not_asked_budget": 0, "model": None,
-                      "standard_document_id": "spec"}
+                      "could_not_read": 0, "not_asked_budget": 0, "per_standard": {},
+                      "model": None, "standard_document_id": "spec"}
     assert air.list_drafts(allowed_document_ids=frozenset({"spec"})) == []
 
 

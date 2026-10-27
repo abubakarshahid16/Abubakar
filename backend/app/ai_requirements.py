@@ -55,7 +55,7 @@ from __future__ import annotations
 import re
 import uuid
 
-from . import ai_task_runner, numparse, standard_ids
+from . import ai_task_runner, clause_rank, numparse, standard_ids
 from .config import settings
 
 #: Words per task. Under the runner's 300-word limit, so a passage split at a
@@ -547,9 +547,11 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     refused: dict[str, int] = {}
     drafts = []
     # #645 live run (12 Oct): the cap goes first to the sentences that print
-    # a figure - a limit is a number - and only then to the rest, in order.
-    ordered = sorted(requirements, key=lambda r: not _FIGURE.search(_sentence(r)))
-    for requirement in ordered[:max(limit, 0)]:
+    # a figure - a limit is a number. #1309 order 235.1: then to the sentences
+    # tied to a field THIS sheet states, then to the standards the sheet cites,
+    # and only then to the rest, in order (a stable sort).
+    kept = clause_rank.order(requirements, review_run_id, _sentence)[:max(limit, 0)]
+    for requirement in kept:
         sentence = _sentence(requirement)
         asked += 1
         result = ai_task_runner.run_task(CLAUSE_TASK, sentence, provider=provider)
@@ -585,11 +587,9 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     return {"sentences": len(requirements), "asked": asked, "proposed": proposed,
             "no_limit": no_limit, "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
+            "per_standard": clause_rank.per_standard(requirements, kept),
             # the local runner's model (`ai_task_runner`); None when none answered
             "model": model}
-
-
-_FIGURE = re.compile(r"\d")
 
 
 def _sentence(requirement: dict) -> str:
