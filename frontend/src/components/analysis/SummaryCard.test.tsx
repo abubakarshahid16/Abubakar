@@ -6,7 +6,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { SummaryCard, summaryBoundary } from "./SummaryCard";
+import { SummaryCard } from "./SummaryCard";
+import { summaryBoundary } from "./summaryBoundary";
 import type { AnalysisResult, EvidenceItem } from "../../types/analysis";
 
 const IDS = ["ev_a1b2c3d4e5f60718", "ev_0f1e2d3c4b5a6978", "ev_9988776655443322"];
