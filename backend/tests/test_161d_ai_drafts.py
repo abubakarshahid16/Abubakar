@@ -51,7 +51,10 @@ def test_two_drafts_about_one_field_are_one_row_that_keeps_both():
     assert sorted(row["finding_ids"]) == ["a", "b"]
     text = row["ai_review_comment"]
     assert "required" in text and "is blank" in text
-    assert "differ" in text
+    # order 228.3: the difference is said on the screen's action line, never in the words a
+    # confirmed draft carries onto the contractor's copy
+    assert "differ" not in text and "all are kept" not in text
+    assert "differ" in row["crs_action"]
     assert (
         "STD-A 6.1" in row["standard_reference"]
         and "STD-B 1.4" in row["standard_reference"]
