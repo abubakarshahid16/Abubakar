@@ -53,7 +53,7 @@ import re
 from datetime import datetime, timezone
 from enum import Enum
 
-from . import claude_approved, claude_spend, errors, numparse
+from . import ai_input_cuts, claude_approved, claude_spend, errors, numparse
 from .ai import output_limits
 from .ai.json_reply import unfenced
 from .config import settings
@@ -226,13 +226,13 @@ def datasheet_fields(submittal_id: str) -> list[dict]:
 
 
 def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
-                 held: dict[str, list[str]], *, covered: list[str] | None = None) -> str:
-    """The user prompt. `cited` = standard names the datasheet cites; `held` =
-    held standard name -> clauses a requirement was read from.
+                 held: dict[str, list[str]], *, covered: list[str] | None = None,
+                 cap: bool = True) -> str:
+    """The user prompt. `cited` = standard names the datasheet cites; `held` = held standard
+    name -> clauses a requirement was read from; `cap=False` = before the whole-prompt cut.
 
-    `covered` (the retry call only) names what a first, truncated reply
-    already raised, one line per kept item, so the retry asks for what is
-    still missing instead of repeating work the first call already paid for.
+    `covered` (the retry call only) names what a first, truncated reply already raised, so the
+    retry asks only for what is still missing.
     """
     lines = ["STANDARDS THE DATASHEET CITES (names only):"]
     lines += [f"- {name}" for name in cited] or ["- (none)"]
@@ -249,7 +249,7 @@ def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
     lines.append("\nDATASHEET PAGES:")
     for page, text in pages.items():
         lines.append(f"--- page {page} ---\n{text[:MAX_PAGE_CHARS]}")
-    return "\n".join(lines)[:MAX_PROMPT_CHARS]
+    return "\n".join(lines)[:MAX_PROMPT_CHARS] if cap else "\n".join(lines)
 
 
 def build_local_prompt(page: int, text: str, fields: list[dict], cited: list[str],
@@ -855,11 +855,8 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
 
     if (own_provider and local_pages is None and isinstance(provider, rp.ClaudeProvider)
             and str(reason or "").startswith(CALL_FAILED)):
-        # #870: THE CLOUD MODEL'S CALL FAILED (an API error, a time-out; on a
-        # live review the account's credit was finished and every call came
-        # back refused). The check ran with nothing although the local model
-        # could do it. A budget cap is not this: it is the owner's limit and
-        # stays a stop. What the cloud model produced before failing is kept.
+        # #870: the cloud call FAILED (API error, time-out, credit finished): the local model can
+        # still do the check. A budget cap is not this (the owner's limit stays a stop).
         local_timeout = float(settings.review_ai_check_local_timeout_s)
         local_pages = _local_page_calls(rp.OllamaProvider(timeout=local_timeout), fields, pages,
                                         cited, held, local_timeout, all_kept, rejected)
@@ -870,6 +867,8 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         complete = reason is None
         local_instead = rp.CLOUD_CALL_FAILED
 
+    cut = ai_input_cuts.of_run(local_pages, pages, lambda: build_prompt(fields, pages, cited, held, cap=False))
+    complete, reason = ai_input_cuts.settle(cut, local_pages, complete, reason)
     status = {
         "ran": True,
         "complete": complete,
@@ -892,7 +891,8 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         # #844: None on the Claude lane (full scope); on the local model, what it was asked.
         "local_scope": None if local_pages is None else LOCAL_SCOPE,
     }
-    status["plain"] = _plain_status(status)
+    status["input_cut"] = cut
+    status["plain"] = _plain_status(status) + ai_input_cuts.sentence(cut)
     _store_status(review_run_id, status)
 
     conn = connect()
