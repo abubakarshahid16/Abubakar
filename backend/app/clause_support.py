@@ -85,6 +85,15 @@ _GENERIC = frozenset(
         "over",
         "their",
         "its",
+        # order 260.5: words the phrase finder took for a service on a real run (a standards body,
+        # a reference word, a comparative, a location): none names a service by itself.
+        "asme",
+        "following",
+        "larger",
+        "similar",
+        "proposed",
+        "onshore",
+        "fluid",
     }
 )
 

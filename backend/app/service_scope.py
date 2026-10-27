@@ -35,22 +35,38 @@ def _load(path: str, mtime: float) -> list[dict]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     out = []
     for c in data.get("conditions") or []:
-        out.append({
-            "name": c["name"],
-            "standards": tuple(c.get("standards") or ()),
-            "markers": tuple(m.casefold() for m in c.get("requirement_markers") or ()),
-            "labels": tuple(m.casefold() for m in c.get("field_labels") or ()),
-            "present": frozenset(m.casefold() for m in c.get("declared_present") or ()),
-            "absent": frozenset(m.casefold() for m in c.get("declared_absent") or ()),
-            # #725 F6: "value" conditions (turbine exhaust, pump discharge,
-            # thermal relief) are declared by WHAT the application fields say,
-            # not by a yes/no field.
-            "mode": c.get("mode") or "declared",
-            "satisfied_by": tuple(m.casefold() for m in c.get("satisfied_by") or ()),
-            # #754 F5b: standards a datasheet DECLARING the condition present
-            # is reviewed against (applicability.standards_check).
-            "required": tuple(c.get("required_standards") or ()),
-        })
+        out.append(
+            {
+                "name": c["name"],
+                "standards": tuple(c.get("standards") or ()),
+                "markers": tuple(
+                    m.casefold() for m in c.get("requirement_markers") or ()
+                ),
+                "labels": tuple(m.casefold() for m in c.get("field_labels") or ()),
+                "present": frozenset(
+                    m.casefold() for m in c.get("declared_present") or ()
+                ),
+                "absent": frozenset(
+                    m.casefold() for m in c.get("declared_absent") or ()
+                ),
+                # #725 F6: "value" conditions (turbine exhaust, pump discharge,
+                # thermal relief) are declared by WHAT the application fields say,
+                # not by a yes/no field.
+                "mode": c.get("mode") or "declared",
+                "satisfied_by": tuple(
+                    m.casefold() for m in c.get("satisfied_by") or ()
+                ),
+                # A "value" condition with `contradicted_by` is absent only when a stated field
+                # names one of THESE (another construction); a stated field naming neither is
+                # unknown, never "does not apply".
+                "contradicted_by": tuple(
+                    m.casefold() for m in c.get("contradicted_by") or ()
+                ),
+                # #754 F5b: standards a datasheet DECLARING the condition present
+                # is reviewed against (applicability.standards_check).
+                "required": tuple(c.get("required_standards") or ()),
+            }
+        )
     return out
 
 
@@ -61,6 +77,11 @@ def conditions(path: Path | str | None = None) -> list[dict]:
 
 def _words(text: object) -> str:
     return " " + re.sub(r"[^a-z0-9/]+", " ", str(text or "").casefold()).strip() + " "
+
+
+def _negated(raw: object) -> bool:
+    """Does a stated value carry a negation ("Not overhung", "non-overhung", "not OH2")?"""
+    return any(w in _NEGATIONS for w in _words(raw).split())
 
 
 def _value_declaration(condition: dict, facts: list[dict]) -> dict | None:
@@ -81,6 +102,8 @@ def _value_declaration(condition: dict, facts: list[dict]) -> dict | None:
         raw = fact.get("field_value") if fact.get("field_value") not in (None, "") else fact.get("raw_value")
         if conditions_mod._is_empty(raw) or not str(raw or "").strip():
             continue
+        if condition.get("contradicted_by") and _negated(raw):
+            continue  # "Not overhung" states no construction: unknown, never a construction
         stated.append((fact, raw))
     if not stated:
         return None
@@ -88,6 +111,17 @@ def _value_declaration(condition: dict, facts: list[dict]) -> dict | None:
         if any(f" {m} " in _words(raw) for m in condition["satisfied_by"]):
             return {"present": True, "label": fact.get("field_label") or fact.get("field_name"),
                     "value": raw, "page": fact.get("page"), "fact_id": fact.get("id")}
+    if condition.get("contradicted_by"):
+        for fact, raw in stated:
+            if any(f" {m} " in _words(raw) for m in condition["contradicted_by"]):
+                return {
+                    "present": False,
+                    "label": fact.get("field_label") or fact.get("field_name"),
+                    "value": raw,
+                    "page": fact.get("page"),
+                    "fact_id": fact.get("id"),
+                }
+        return None
     fact, raw = stated[0]
     return {"present": False, "label": fact.get("field_label") or fact.get("field_name"),
             "value": raw, "page": fact.get("page"), "fact_id": fact.get("id")}
@@ -144,6 +178,107 @@ def _heading_of(requirement: dict, headings_by_standard: dict[str, dict[str, str
     return " ".join(h for h in (headings.get(c) for c in [clause, *_ancestors(clause)] if c) if h)
 
 
+#: Words that make a sentence about a construction unsafe to drop: it is a list, a negation or an
+#: exception, so it may apply to the construction the sheet HAS.
+_CUE_WORDS = frozenset(
+    {
+        "not",
+        "non",
+        "no",
+        "except",
+        "excepting",
+        "excluding",
+        "unless",
+        "nor",
+        "neither",
+        "but",
+        "and",
+        "or",
+        "besides",
+        "other",
+        "apart",
+    }
+)
+_NEGATIONS = frozenset(
+    {
+        "not",
+        "non",
+        "no",
+        "without",
+        "neither",
+        "nor",
+        "other",
+        "excluding",
+        "except",
+        "unless",
+        "excepting",
+        "apart",
+        "besides",
+    }
+)
+_UNSURE_CONSTRUCTION = (
+    "the sentence names a pump construction in a list, a negation or an exception, or next to "
+    "another construction; an engineer decides whether it applies to this pump"
+)
+
+
+def _names_the_sheets_own(
+    conds: list[dict], declared: dict, requirement: dict, label: str, heading: str
+) -> bool:
+    """Does the sentence also name a condition the sheet DECLARES present? Then it applies. A
+    construction is named by its marker phrase or by one of its own words or codes, whichever
+    side of an "and" it stands."""
+    text = " ".join(
+        str(requirement.get(k) or "")
+        for k in ("requirement_text", "source_text", "condition")
+    )
+    words = _words(text)
+    return any(
+        declared[o["name"]] is not None
+        and declared[o["name"]]["present"]
+        and (
+            specific_to(o, requirement, label, heading)
+            or (
+                o["contradicted_by"]
+                and any(f" {m} " in words for m in o["satisfied_by"])
+            )
+        )
+        for o in conds
+    )
+
+
+def _plainly_about(c: dict, conds: list[dict], requirement: dict) -> bool:
+    """May a sentence be dropped for the construction condition `c`? Only when it names that ONE
+    construction, no other, no "vertical" (an unclassified construction word), and no negation,
+    exception or list word within a few words of the marker. Anything else stays held."""
+    text = " ".join(
+        str(requirement.get(k) or "")
+        for k in ("requirement_text", "source_text", "condition")
+    )
+    words = " " + re.sub(r"[^a-z0-9/]+", " ", text.casefold()).strip() + " "
+    if " vertical " in words or " vertically " in words:
+        return False
+    for o in conds:
+        if (
+            o is not c
+            and o["contradicted_by"]
+            and any(f" {m} " in words for m in (*o["markers"], *o["satisfied_by"]))
+        ):
+            return False
+    tokens = words.split()
+    for marker in c["markers"]:
+        pieces = marker.split()
+        for i in range(len(tokens) - len(pieces) + 1):
+            if tokens[i : i + len(pieces)] == pieces:
+                near = (
+                    tokens[max(0, i - 4) : i]
+                    + tokens[i + len(pieces) : i + len(pieces) + 3]
+                )
+                if any(t in _CUE_WORDS for t in near):
+                    return False
+    return True
+
+
 def gate(requirements: list[dict], *, facts: list[dict],
          standard_labels: dict[str, str] | None = None,
          path: Path | str | None = None,
@@ -166,13 +301,20 @@ def gate(requirements: list[dict], *, facts: list[dict],
     headings_by_standard = headings_by_standard or {}
     kept: list[dict] = []
     items: list[dict] = []
+    unsure: list[dict] = []
     for requirement in requirements:
         label = labels.get(requirement.get("standard_document_id") or "", "")
         out = None
         for c in conds:
             d = declared[c["name"]]
+            heading = _heading_of(requirement, headings_by_standard)
             if d is not None and d["present"] is False and specific_to(
-                    c, requirement, label, _heading_of(requirement, headings_by_standard)):
+                    c, requirement, label, heading):
+                if _names_the_sheets_own(conds, declared, requirement, label, heading):
+                    continue
+                if c["contradicted_by"] and not _plainly_about(c, conds, requirement):
+                    out = False
+                    break
                 page = f", page {d['page']}" if d.get("page") is not None else ""
                 out = {"requirement": requirement, "code": "service_condition_not_met",
                        "detail": (f"{scope_ledger.REASONS['service_condition_not_met'][1]}: "
@@ -180,15 +322,28 @@ def gate(requirements: list[dict], *, facts: list[dict],
                 break
         if out is None:
             kept.append(requirement)
+        elif out is False:
+            unsure.append(
+                {
+                    "requirement": requirement,
+                    "code": "service_unknown",
+                    "detail": _UNSURE_CONSTRUCTION,
+                }
+            )
         else:
             items.append(out)
+    # A construction condition the sheet does not decide stays HELD (unknown), so only the
+    # conditions it did decide, and the plain ones, are left to this gate by name.
+    decided = [
+        c for c in conds if not (c["contradicted_by"] and declared[c["name"]] is None)
+    ]
     known = clause_support.known_words(
-        [c["name"] for c in conds] + [m for c in conds for m in c["markers"]]
+        [c["name"] for c in decided] + [m for c in decided for m in c["markers"]]
     )
     unstated = clause_support.hold_unstated_services(kept, facts=facts, known=known)
     return {
         "kept": unstated["kept"],
         "items": items,
         "declarations": declared,
-        "held": support["held"] + unstated["held"],
+        "held": support["held"] + unstated["held"] + unsure,
     }
