@@ -47,6 +47,120 @@
         "capacity / flow"
       ]
     },
+    "rated_head": {
+      "kind": "length",
+      "names": [
+        "^(rated |differential |total )(dynamic )?head$"
+      ],
+      "printed_as": [
+        "differential head"
+      ]
+    },
+    "npsh_required": {
+      "kind": "length",
+      "names": [
+        "^npsh ?(r|3|required|\\(required\\))( at rated (flow|capacity))?$",
+        "^npshr$"
+      ],
+      "printed_as": [
+        "NPSH required"
+      ]
+    },
+    "npsh_available": {
+      "kind": "length",
+      "names": [
+        "^npsh ?(a|available|\\(available\\))$",
+        "^npsha$"
+      ],
+      "printed_as": [
+        "NPSH available"
+      ]
+    },
+    "rated_speed": {
+      "kind": "number",
+      "names": [
+        "^(rated|pump) speed$"
+      ],
+      "printed_as": [
+        "rated speed"
+      ]
+    },
+    "absorbed_power": {
+      "kind": "number",
+      "names": [
+        "^(absorbed|brake|shaft) (pump )?power( at rated (point|flow))?$",
+        "^power absorbed$",
+        "^bhp$"
+      ],
+      "printed_as": [
+        "absorbed power"
+      ]
+    },
+    "driver_rating": {
+      "kind": "number",
+      "names": [
+        "^(driver|motor) (rating|power|rated power|output)$"
+      ],
+      "printed_as": [
+        "driver rating"
+      ]
+    },
+    "casing_material": {
+      "kind": "text",
+      "names": [
+        "^(pump )?casing material$",
+        "^case material$"
+      ],
+      "printed_as": [
+        "casing material"
+      ]
+    },
+    "impeller_material": {
+      "kind": "text",
+      "names": [
+        "^impeller material$"
+      ],
+      "printed_as": [
+        "impeller material"
+      ]
+    },
+    "shaft_material": {
+      "kind": "text",
+      "names": [
+        "^shaft material$"
+      ],
+      "printed_as": [
+        "shaft material"
+      ]
+    },
+    "seal_type": {
+      "kind": "text",
+      "names": [
+        "^(mechanical )?seal type$",
+        "^sealing (type|arrangement)$"
+      ],
+      "printed_as": [
+        "seal type"
+      ]
+    },
+    "seal_plan": {
+      "kind": "text",
+      "names": [
+        "^(api |seal )(seal )?(flush |piping )?plan( no\\.?| number)?$"
+      ],
+      "printed_as": [
+        "seal flush plan"
+      ]
+    },
+    "bearing_type": {
+      "kind": "text",
+      "names": [
+        "^(radial |thrust )?bearings? type$"
+      ],
+      "printed_as": [
+        "bearing type"
+      ]
+    },
     "min_flow": {
       "kind": "flow",
       "names": [

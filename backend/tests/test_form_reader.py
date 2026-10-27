@@ -38,7 +38,9 @@ from app import (
 )
 from app.config import Settings, settings
 
-PUMP = "Centrifugal Pump"
+#: A four-field list with no review checklist: the reader tests below pin that list. (A pump has had a
+#: checklist since order 235.2, which asks for its fields too.)
+PUMP = "Compressor"
 
 LINES = """EQUIPMENT DATASHEET - CENTRIFUGAL PUMP
 Design pressure: 23.5 barg
