@@ -244,3 +244,43 @@ def test_a_path_left_from_an_earlier_sheet_is_never_read_outside_an_extraction(
     cover_page.remember(path)
     assert datasheets._PAGE_FAILURES.get() is None
     assert cover_page.page_view(1) is None
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "1. Casing material: Duplex SS",
+        "2) Flange rating: Class 300",
+        "(3) Size: DN 50",
+        "- Casing material: Duplex",
+        "* Flange rating: Class 300",
+        "\u2022 Size: DN 50",
+        "a) Casing material: Duplex",
+    ],
+)
+def test_a_numbered_or_bulleted_field_line_is_still_a_field_line(line):
+    """cloud-2's ask on #1325: notes pages are usually numbered or bulleted."""
+    assert cover_page.has_field_line(line) is True
+    # the same marker before a title-block label is not a field
+    assert (
+        cover_page.has_field_line(f"{line.split(' ')[0]} Document no: 0001-XX") is False
+    )
+
+
+def test_two_extractions_in_a_row_never_read_the_first_ones_file(tmp_path, monkeypatch):
+    """The path is read only while an extraction runs, and each extraction notes
+    its own file before any page is asked about."""
+    _use(monkeypatch, FakeModel([]))
+    first = _ingest(_ruled_pdf(tmp_path / "a.pdf", FURNITURE_PAIRS))
+    datasheets.extract_facts(first, allowed_document_ids=frozenset({first}))
+    assert datasheets._PAGE_FAILURES.get() is None and cover_page.page_view(1) is None
+    plain = [
+        ("Design pressure", "10 barg"),
+        ("Design temperature", "50 C"),
+        ("Tag", "P-1"),
+    ]
+    second = _ingest(_ruled_pdf(tmp_path / "b.pdf", plain), doc_id="DS-0002")
+    datasheets.extract_facts(second, allowed_document_ids=frozenset({second}))
+    assert not any(
+        cover_page.checked(r["facts_reason"]) for r in page_ledger.rows(second)
+    )

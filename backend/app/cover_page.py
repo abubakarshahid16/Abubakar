@@ -73,7 +73,11 @@ _NEXT_WORD = re.compile(
 #: labels may look like this; any other label with an answer beside it is a
 #: field the readers may have missed ("Casing material: Duplex", "Flange
 #: rating: Class 300", "Size: DN 50"), and the page stays unread.
-_FIELD_LINE = re.compile(r"^\s*([A-Za-z][\w ./()#-]{1,40}?)\s*[:=]\s*\S", re.MULTILINE)
+_FIELD_LINE = re.compile(
+    r"^\s*(?:[-*\u2022\u25aa\u2013]\s+|\(?\d{1,3}[.)]\s*|\(?[A-Za-z][.)]\s+)?"
+    r"([A-Za-z][\w ./()#-]{1,40}?)\s*[:=]\s*\S",
+    re.MULTILINE,
+)
 #: Words of a title block's labels (document number, revision, date, sheet...).
 TITLE_BLOCK_WORDS = frozenset(
     {
