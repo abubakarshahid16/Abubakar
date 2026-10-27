@@ -38,7 +38,7 @@ def run(
     out_file: Path | None = None,
     provider=None,
 ) -> dict:
-    from app import field_naming, rule_roles, standard_ids
+    from app import field_naming, rule_roles, standard_ids, statement_roles
     from app.config import settings
     from app.db import connect
 
@@ -65,48 +65,62 @@ def run(
                 "SELECT id, standard_document_id, clause, requirement_type, requirement_text,"
                 " raw_value, raw_unit, unit FROM standard_requirements"
                 " WHERE standard_document_id = ? AND superseded_at IS NULL"
-                " AND requirement_type IN ('numeric_limit','table_row','relative_limit') ORDER BY id",
+                " AND requirement_type IN ('numeric_limit','table_row','relative_limit','statement')"
+                " ORDER BY id",
                 (doc_id,),
             )
         ]
     if limit:
         rows = rows[:limit]
-    dictionary, _roles, _families = rule_roles.form(equipment_type)
-    stored = field_naming.stored_names(
-        field_naming.REQUIREMENT, [str(r["id"]) for r in rows], dictionary
-    )
-    todo = [r for r in rows if str(r["id"]) not in stored]
+    numeric = [r for r in rows if r["requirement_type"] != statement_roles.STATEMENT]
+    statements = [r for r in rows if r["requirement_type"] == statement_roles.STATEMENT]
+    num_dict, _roles, _families = rule_roles.form(equipment_type)
+    stmt_dict, _stmt_roles = statement_roles.form(equipment_type)
+
+    def pending(group, kind, dictionary):
+        stored = field_naming.stored_names(
+            kind, [str(r["id"]) for r in group], dictionary
+        )
+        return [r for r in group if str(r["id"]) not in stored]
+
+    todo_num = pending(numeric, field_naming.REQUIREMENT, num_dict)
+    todo_stmt = pending(statements, statement_roles.KIND, stmt_dict)
     out = {
         "database": str(settings.db_path),
         "equipment_type": equipment_type,
-        "form_fields": len(dictionary),
+        "form_fields": len(num_dict),
+        "text_fields": len(stmt_dict),
         "standards_found": len(chosen),
-        "numeric_rules": len(rows),
-        "already_stored": len(rows) - len(todo),
-        "to_ask": len(todo),
-        "mapped": 0,
-        "unmapped": 0,
+        "numeric_rules": len(numeric),
+        "statement_rules": len(statements),
+        "to_ask": len(todo_num) + len(todo_stmt),
+        "mapped_numeric": 0,
+        "mapped_statements": 0,
         "unreadable": 0,
         "refused": None,
         "file": None,
     }
     if dry_run or not rows:
         return out
-    if todo:
+    if todo_num or todo_stmt:
         if provider is None:
             from app.reasoning_provider import OllamaProvider
 
             provider = OllamaProvider()  # the LOCAL engine only
         stats: dict = {}
         try:
-            rule_roles.propose(todo, equipment_type, provider, stats)
+            if todo_num:
+                rule_roles.propose(todo_num, equipment_type, provider, stats)
+            if todo_stmt:
+                statement_roles.propose(todo_stmt, equipment_type, provider, stats)
         except Exception as exc:  # noqa: BLE001 - a refused or failed batch keeps what was stored so far
             out["refused"] = type(exc).__name__
         out["unreadable"] = stats.get("unreadable", 0)
-    kept = rule_roles.entries(rows, equipment_type, lambda doc_id: chosen.get(doc_id))
-    out["mapped"] = len(kept)
-    out["unmapped"] = len(rows) - len(kept)
-    out["file"] = str(rule_roles.export(equipment_type, kept, out_file))
+    label = lambda doc_id: chosen.get(doc_id)  # noqa: E731
+    kept_num = rule_roles.entries(numeric, equipment_type, label)
+    kept_stmt = statement_roles.entries(statements, equipment_type, label)
+    out["mapped_numeric"], out["mapped_statements"] = len(kept_num), len(kept_stmt)
+    out["file"] = str(rule_roles.export(equipment_type, kept_num + kept_stmt, out_file))
     return out
 
 

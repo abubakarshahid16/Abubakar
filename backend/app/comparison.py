@@ -3594,15 +3594,15 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     None (fall through) when the requirement is unnamed or no fact passes.
     """
     if not is_matchable(requirement) or requirement.get("raw_value") in (None, ""):
-        return None
+        from . import statement_roles
+        return statement_roles.match(requirement, facts, names, sheet_kind)  # 263.1
     field = (names.get("requirements") or {}).get(str(requirement.get("id")))
     if not field:
         return None
     fact_names = names.get("facts") or {}
     rejected = _rejected_keys_for(requirement)
     tag_scoped = facts_are_tag_scoped(facts)
-    # B4 item 2: a BLANK field pairs too - "the sheet leaves this to be
-    # provided" is an answer about the requirement's quantity.
+    # B4 item 2: a BLANK field pairs too ("left to be provided" answers the quantity).
     hits = [f for f in facts
             if (fact_has_number(f) or f.get("is_blank"))
             and fact_names.get(str(f.get("id"))) == field

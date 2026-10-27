@@ -178,7 +178,7 @@ def reviewed_names(
     the same and whose unit still fits the field. Anything else is dropped."""
     by_hash: dict[str, tuple[str, str]] = {}
     for file_type, entry in load(files):
-        if same_type(file_type, equipment_type):
+        if entry.get("kind") != "statement" and same_type(file_type, equipment_type):
             by_hash[entry["text_sha256"]] = (file_type, entry["field"])
     out: dict[str, str] = {}
     for r in requirements:

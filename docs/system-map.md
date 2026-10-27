@@ -151,6 +151,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `field_links` | Linking a datasheet field to a clause: synonyms, nozzle marks, and simple categorical values. CRS quick wins, |
 | `field_vocabulary` | Order 259.5: the closed vocabulary of quantities (synonym canonicals + numeric checklist roles); a numeric limit is named against it once, offline (`scripts/name_numeric_limits.py`), a sheet fact by rule; names pair through `match_by_field_name` |
 | `rule_roles` | Order 262.1: which field of an equipment type's own form each numeric rule of a held standard limits - proposed offline (`scripts/propose_rule_roles.py`), checked by `field_vocabulary`'s four gates, kept as a DRAFT file in `reference/rule_roles/` with no document text; a review reads it only while the rule text still hashes the same |
+| `statement_roles` | Order 263.1: a STATEMENT rule ("the pump shall have X") mapped to a TEXT field of the type's own form plus the value the clause requires - proposed offline (`scripts/propose_rule_roles.py`), kept in the same DRAFT file as hashes only, paired at run time through `match_by_field_name` (always NEEDS_ENGINEER_REVIEW, both sides shown) |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |

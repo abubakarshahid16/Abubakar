@@ -457,7 +457,13 @@ def names_for(
         requirements, (classification or {}).get("equipment_type")
     )
     named = {**named, **reviewed}
-    if not named:
+    # order 263.1: the reviewed STATEMENT mappings of this type (a field and a required value)
+    from . import statement_roles
+
+    statements = statement_roles.reviewed(
+        requirements, (classification or {}).get("equipment_type")
+    )
+    if not named and not statements:
         if settings.geometry_reader_enabled:
             return field_naming.ensure_names(requirements, facts)
         return {
@@ -479,8 +485,9 @@ def names_for(
     return {
         "requirements": named,
         "facts": fact_names,
+        "statements": statements,
         "source": "closed vocabulary (stored, model-named, unconfirmed)"
-        + (" + reviewed draft mappings" if reviewed else ""),
+        + (" + reviewed draft mappings" if reviewed or statements else ""),
         "requirements_asked": len(wanted_ids),
         "requirements_named": len(named),
     }

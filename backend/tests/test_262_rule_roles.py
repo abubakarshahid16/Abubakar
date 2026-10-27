@@ -267,7 +267,7 @@ def test_the_script_proposes_for_chosen_standards_and_reports_counts_only(tmp_pa
         out_file=out_file,
     )
     assert out["standards_found"] == 1 and out["numeric_rules"] == 2
-    assert out["mapped"] == 1 and out["unmapped"] == 1
+    assert out["mapped_numeric"] == 1 and out["mapped_statements"] == 0
     entries = json.loads(out_file.read_text(encoding="utf-8"))["entries"]
     assert [(e["standard"], e["clause"], e["field"]) for e in entries] == [
         ("SAES-X-001", "6.4.2", "design_pressure")
