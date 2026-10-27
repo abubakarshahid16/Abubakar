@@ -46,9 +46,23 @@ import json
 from pathlib import Path
 from contextvars import ContextVar
 
-from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan_guard, page_ledger,
-               page_reason_words, provenance, row_noise, standard_ids, stored_paths,
-               submittal_review, tables)
+from . import (
+    blank_markers,
+    claims,
+    datasheet_inputs,
+    errors,
+    numparse,
+    orphan_guard,
+    page_ledger,
+    page_reason_words,
+    pdf_guard,
+    provenance,
+    row_noise,
+    standard_ids,
+    stored_paths,
+    submittal_review,
+    tables,
+)
 from .config import settings
 from .db import connect
 from . import dual_unit_form, slot_options  # isort: skip
@@ -2400,7 +2414,7 @@ def pdf_condition(stored_path: str) -> tuple[str | None, str, bool]:
     except ImportError:  # pragma: no cover
         return None, "", False
     try:
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.open_pdf(stored_path) as doc:
             if doc.needs_pass:
                 return "pdf_encrypted", UNREADABLE["pdf_encrypted"], False
             return None, "", bool(getattr(doc, "is_repaired", False))
@@ -2431,7 +2445,7 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
     except ImportError:  # pragma: no cover
         return []
     try:
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.open_pdf(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             # R27: in the space the page reads left to right (a rotated page)
@@ -2654,8 +2668,7 @@ def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dic
         # DATASHEET_OFFICE_INPUT seam: no PDF geometry in an office file.
         return []
     try:
-        import pymupdf
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.open_pdf(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             from . import geometry_reader
@@ -2699,10 +2712,8 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int,
         # DATASHEET_OFFICE_INPUT seam: no PDF geometry in an office file.
         return []
     try:
-        import pymupdf
-
         from . import geometry_reader
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.open_pdf(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             rows = geometry_reader.read_page_rows(doc[page_no - 1])
@@ -2756,8 +2767,7 @@ def _text_layer_words(stored_path: str | None, page_no: int) -> int:
         # not a text layer a vision reading could be proved against.
         return 0
     try:
-        import pymupdf
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.open_pdf(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return 0
             return len(doc[page_no - 1].get_text("words"))
@@ -2774,10 +2784,8 @@ def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[d
             or datasheet_inputs.is_office_input(stored_path)):  # DATASHEET_OFFICE_INPUT seam
         return None
     try:
-        import pymupdf
-
         from . import vision_reader
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.open_pdf(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return None
             return vision_reader.read_page(doc[page_no - 1], page_no, provider,

@@ -54,7 +54,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import access, chat, stored_paths
+from . import access, chat, pdf_guard, stored_paths
 from .config import config_version, settings
 from .db import connect
 
@@ -512,7 +512,7 @@ def generate(message_id: str, scope: access.AccessScope) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(pdf)
 
-    with pymupdf.open("pdf", pdf) as doc:
+    with pdf_guard.open_pdf("pdf", pdf) as doc:
         page_count = doc.page_count
 
     report_id = f"rpt_{secrets.token_hex(6)}"

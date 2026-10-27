@@ -58,7 +58,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
-from . import errors, stored_paths
+from . import errors, pdf_guard, stored_paths
 from .config import settings
 from .db import connect
 from .quality import normalise_text
@@ -352,7 +352,7 @@ def _native_lines(stored_path: str, page_no: int, scale: float) -> list[tuple[fl
     import pymupdf
 
     out: list[tuple[float, float, str]] = []
-    with pymupdf.open(stored_paths.local(stored_path)) as doc:
+    with pdf_guard.open_pdf(stored_paths.local(stored_path)) as doc:
         page = doc.load_page(page_no - 1)
         m = page.rotation_matrix * pymupdf.Matrix(scale, scale)
         for block in page.get_text("dict").get("blocks", []):
@@ -785,7 +785,7 @@ def recognise_page_lines(stored_path: str, sha256: str, page_no: int) -> list[tu
     boxes = getattr(res, "boxes", None)
     boxes = list(boxes) if boxes is not None else []
     scale = settings.ocr_dpi / 72.0
-    with pymupdf.open(stored_paths.local(stored_path)) as doc:
+    with pdf_guard.open_pdf(stored_paths.local(stored_path)) as doc:
         derotate = doc.load_page(page_no - 1).derotation_matrix
     out: list[tuple] = []
     for text, box in zip(texts, boxes):

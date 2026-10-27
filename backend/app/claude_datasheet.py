@@ -46,7 +46,15 @@ import json
 import re
 from enum import Enum
 
-from . import blank_markers, claims, datasheets, errors, numparse, submittal_review
+from . import (
+    blank_markers,
+    claims,
+    datasheets,
+    errors,
+    numparse,
+    pdf_guard,
+    submittal_review,
+)
 from .ai.json_reply import opened_tagged, unfenced_whole
 from .claude_spend import StopRun
 from .db import connect
@@ -717,11 +725,7 @@ def _page_chunks(document_id: str, allowed_document_ids: frozenset[str]) -> dict
 def _pdf_page_text(stored_path: str, page_no: int) -> str:
     """The page's text from the PDF, read only when its chunks carry none."""
     try:
-        import pymupdf
-    except ImportError:  # pragma: no cover
-        return ""
-    try:
-        with pymupdf.open(local_path(stored_path)) as doc:
+        with pdf_guard.open_pdf(local_path(stored_path)) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return ""
             return doc[page_no - 1].get_text("text") or ""

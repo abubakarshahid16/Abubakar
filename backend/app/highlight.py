@@ -23,9 +23,7 @@ from __future__ import annotations
 import logging
 import re
 
-import pymupdf
-
-from . import stored_paths
+from . import pdf_guard, stored_paths
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +95,7 @@ def locate(
     if not fragments:
         return [], None
 
-    with pymupdf.open(stored_paths.local(pdf_path)) as doc:
+    with pdf_guard.open_pdf(stored_paths.local(pdf_path)) as doc:
         if not 1 <= page_no <= doc.page_count:
             return [], None
         page = doc.load_page(page_no - 1)
