@@ -402,11 +402,11 @@ class Settings(BaseSettings):
     #: alone still refuses everything. Checked with a real URL parser, never a
     #: string split - see `model_host_of`.
     answer_model_allowed_hosts: tuple[str, ...] = ()
-    answer_model: str = "qwen3.5:4b"
+    answer_model: str = "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL"
     answer_prompt_variant: str = "default"
-    #: Resident size of the answer model. Used to warn BEFORE someone presses
-    #: Explain: with 14.7 GB of 16 GB in use, Tier 2 swaps hard or fails.
-    answer_model_ram_bytes: int = 3_400_000_000
+    #: Resident size of the answer model (the 35B: a 22 GB file, about 24 GB). Warns BEFORE
+    #: Explain is pressed. Set it with ANSWER_MODEL when pinning a smaller model.
+    answer_model_ram_bytes: int = 24_000_000_000
 
     # ---------------------------------------------------------- AI task runner
     # (#644). Small strict model tasks run from a background queue by

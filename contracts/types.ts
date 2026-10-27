@@ -746,11 +746,28 @@ export interface EvidenceSide {
   reason: string | null;
 }
 
+/** #505: an evidence side plus how well its SCANNED page was read; `scan` is
+ *  null for a page with a text layer. */
+export interface EvidenceSideScanned extends EvidenceSide {
+  scan: ScanQuality | null;
+}
+
+/** #505: the recogniser's own confidence for a scanned page, grouped (clear,
+ *  mixed, poor) or named (not_checked, not_yet_read, could_not_read). Never a
+ *  measured accuracy; `low_conf_boxes` is out of `box_count`. */
+export interface ScanQuality {
+  tier: string;
+  words: string;
+  mean_conf: number | null;
+  low_conf_boxes: number | null;
+  box_count: number | null;
+}
+
 /** #785: `GET /api/reviews/findings/{id}/evidence`. */
 export interface FindingEvidence {
   finding_id: string;
-  submittal: EvidenceSide;
-  standard: EvidenceSide;
+  submittal: EvidenceSideScanned;
+  standard: EvidenceSideScanned;
 }
 
 /** Which pages of a submittal were read into fields, and why the rest were
@@ -2474,6 +2491,14 @@ export interface ClassificationVocabulary {
    *  scoped, because a discipline name is project structure, not evidence
    *  that a document exists. */
   needs_classification: number;
+  /** Documents this caller can read with no register type AND no role:
+   *  unknown, still awaiting a type (#1087). SCOPED, like the count above. */
+  awaiting_type: number;
+  /** Documents this caller can read with no register type and a role
+   *  (standard, contract document, submittal ...). The register types only the
+   *  deliverables it lists, so they are not waiting for a type. SCOPED.
+   *  awaiting_type + not_in_register = the documents in scope with no type. */
+  not_in_register: number;
 }
 
 export interface DocumentSubject {

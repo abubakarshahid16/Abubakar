@@ -70,6 +70,7 @@ def NOT_FOUND(**over):
             standard_clause="4.3",
             requirement_source_text="4.3 The sprocket count shall be stated.",
             ai_rationale="no_field_matched: none of the fields read",
+            crs_field_label="SET PRESSURE",  # order 245c: a field the system knows
         ),
         over,
     )

@@ -10,7 +10,7 @@ import pymupdf
 
 from .db import add_column_if_missing, connect, schema_once
 from .config import settings
-from . import notifications
+from . import notifications, pdf_guard
 
 
 def _now() -> str:
@@ -464,6 +464,7 @@ def acknowledge_reminder(reminder_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+@pdf_guard.guarded
 def render_management_report(*, allowed_document_ids: frozenset[str] | None = None) -> Path:
     """Export current WBS, overdue, and reminder controls as a PDF."""
     items = list_items(allowed_document_ids=allowed_document_ids)

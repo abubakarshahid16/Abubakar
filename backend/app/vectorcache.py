@@ -41,8 +41,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import threading
+import time
+import uuid
 from pathlib import Path
 from typing import NamedTuple
 
@@ -55,6 +58,8 @@ from .embedder import EMBEDDING_DIM, embedding_tag, searchable_tags
 log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
+#: A temporary file younger than this is left alone by the sweep: its writer may still be at it.
+_TMP_GRACE_S = 600
 
 
 class Matrix(NamedTuple):
@@ -139,12 +144,17 @@ def _sweep(keep: str) -> None:
     cannot be unlinked on Windows, and is retried at the next build instead
     of being closed underneath its reader."""
     for path in cache_dir().iterdir():
-        if path.is_file() and not path.name.startswith(keep):
-            try:
-                path.unlink()
-            except OSError as exc:  # #655: retried at the next build
-                log.info("vector cache sweep kept a superseded file (%s); "
-                         "retried at the next build", type(exc).__name__)
+        try:
+            if not path.is_file():
+                continue
+            temporary = path.suffix == ".tmp"
+            young = time.time() - path.stat().st_mtime < _TMP_GRACE_S
+            if (temporary and young) or (path.name.startswith(keep) and not temporary):
+                continue  # a writer may be at it right now / the live version (order 252)
+            path.unlink()
+        except OSError as exc:  # #655: retried at the next build
+            log.info("vector cache sweep kept a superseded file (%s); "
+                     "retried at the next build", type(exc).__name__)
 
 
 def _map(data_path: Path, rows: int) -> np.ndarray:
@@ -159,7 +169,9 @@ def _build(token: int | None) -> Matrix:
     cache_dir().mkdir(parents=True, exist_ok=True)
     # temporary name then move, so a crash mid-write cannot leave a truncated
     # matrix that would be mapped as though it were complete
-    tmp = data_path.with_suffix(".f32.tmp")
+    # a name no other process shares (order 252): a second process building the same token
+    # must never open, and so truncate, a file this one is writing or has mapped
+    tmp = data_path.with_suffix(f".f32.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")
     tmp.write_bytes(np.ascontiguousarray(m.matrix).tobytes())
     tmp.replace(data_path)
     meta_path.write_text(json.dumps({
@@ -173,7 +185,7 @@ def _build(token: int | None) -> Matrix:
         # map what was just written, so the process that just ingested - the
         # one under most memory pressure - also gets the mapping
         return m._replace(matrix=_map(data_path, len(m.ids)))
-    except OSError:
+    except (OSError, ValueError):  # ValueError: the file is shorter than the matrix
         return m  # the heap copy is correct; only the memory saving is lost
 
 

@@ -193,3 +193,72 @@ def test_a_truncated_cache_file_is_rebuilt_not_mapped(corpus):
     m = vectorcache.load()
     assert len(m.ids) == 4
     assert m.matrix.shape == (4, EMBEDDING_DIM)
+
+
+# ------------------------------------------------------- order 252: a mapped file is never rewritten
+
+
+def test_a_build_writes_to_a_private_temporary_name(corpus, monkeypatch):
+    import os
+
+    """A second process building the same token must not open (and so truncate) a file the first is
+    writing or has mapped: the temporary name carries the pid and a random part."""
+    names = []
+    real = type(vectorcache.cache_dir()).replace
+
+    def spy(self, target):
+        names.append(self.name)
+        return real(self, target)
+
+    monkeypatch.setattr(type(vectorcache.cache_dir()), "replace", spy)
+    vectorcache.load()
+    vectorcache.invalidate()
+    for old in vectorcache.cache_dir().iterdir():
+        old.unlink()
+    vectorcache.load()
+    tmp_names = [n for n in names if n.endswith(".tmp")]
+    assert len(tmp_names) == 2 and len(set(tmp_names)) == 2, tmp_names
+    assert all(f".{os.getpid()}-" in n for n in tmp_names), tmp_names
+
+
+def test_the_sweep_leaves_a_fresh_temporary_file_of_another_writer_alone(corpus):
+    import os
+    import time
+
+    directory = vectorcache.cache_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    fresh = directory / "corpus-ffffffffffffffff.f32.99999-abc.tmp"
+    stale = directory / "corpus-eeeeeeeeeeeeeeee.f32.99998-abc.tmp"
+    for path in (fresh, stale):
+        path.write_bytes(b"x")
+    old = time.time() - vectorcache._TMP_GRACE_S - 5
+    os.utime(stale, (old, old))
+    vectorcache._sweep("corpus-0000000000000001")
+    assert fresh.exists(), "a file another process may be writing was swept"
+    assert not stale.exists(), "a long-abandoned temporary file should go"
+
+
+def test_a_file_shorter_than_the_matrix_serves_the_heap_copy(corpus, monkeypatch):
+    def too_short(*_a, **_k):
+        raise ValueError("mmap length is greater than file size")
+
+    monkeypatch.setattr(vectorcache, "_map", too_short)
+    matrix = vectorcache.load()
+    assert matrix.ids and not isinstance(matrix.matrix, np.memmap)
+
+
+def test_an_abandoned_temporary_file_of_the_live_token_is_swept_too(corpus):
+    import os
+    import time
+
+    directory = vectorcache.cache_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    keep = "corpus-0000000000000001"
+    abandoned = directory / f"{keep}.f32.4242-abc.tmp"
+    live = directory / f"{keep}.f32"
+    for path in (abandoned, live):
+        path.write_bytes(b"x")
+    old = time.time() - vectorcache._TMP_GRACE_S - 5
+    os.utime(abandoned, (old, old))
+    vectorcache._sweep(keep)
+    assert not abandoned.exists() and live.exists()

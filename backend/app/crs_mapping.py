@@ -30,13 +30,14 @@ from . import (
     crs_ai_drafts,
     crs_blank_fields,
     crs_item_series,
+    crs_no_field,
     method_notes,
     severity_rule,
     standard_ids,
 )
 
 # isort: split
-from . import crs_page_words, crs_reference, equipment_subtype
+from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
 from . import paragraph_ids
@@ -412,6 +413,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "check each against the datasheet, or the document "
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
+    notes.extend(crs_no_field.notes(findings))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -1099,11 +1101,7 @@ def _bucket_of(f: dict) -> str | None:
     elif status == "NON_COMPLIANT":
         return BUCKET_BREACH
     elif status == _MISSING_INFORMATION:
-        return (
-            BUCKET_BLANK
-            if (f.get("fact_id") or f.get("contractor_page"))
-            else BUCKET_NOT_FOUND
-        )
+        return crs_no_field.bucket_of_missing(f, BUCKET_BLANK, BUCKET_NOT_FOUND)
     elif status == "NEEDS_ENGINEER_REVIEW":
         # B3 / 2f: unread-page and page-reader questions are Review notes.
         # #1177 (#139): so is a standard's question with no datasheet field and
@@ -1387,10 +1385,10 @@ def _row_order(group: list[dict]) -> tuple:
 def _by(group: list[dict]) -> str:
     f = group[0]
     if f.get("engineer_comment"):
-        who = f.get("confirmed_by_name") or f.get("confirmed_by") or "an engineer"
+        who = f.get("confirmed_by_name") or crs_decider.decider(f) or "an engineer"
         return f"AI Review, edited and confirmed by {who}"
-    if f.get("confirmed_by"):
-        return f"AI Review, confirmed by {f.get('confirmed_by_name') or f['confirmed_by']}"
+    if crs_decider.decider(f):
+        return f"AI Review, confirmed by {f.get('confirmed_by_name') or crs_decider.decider(f)}"
     return "AI Review"
 
 
@@ -1612,7 +1610,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         where = " - ".join(p for p in (
             f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
-        confirmed = bool(f.get("confirmed_by"))
+        confirmed = bool(crs_decider.decider(f))
         confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
         unconfirmed_by = _AI_UNCONFIRMED_BY if origin == _AI_ORIGIN else _WEB_UNCONFIRMED_BY
@@ -1629,7 +1627,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "page_section": where,
                 "comment": text if confirmed else unconfirmed_comment,
                 "comment_by": (
-                    f"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}"
+                    f"{confirmed_by_prefix}{f.get('confirmed_by_name') or crs_decider.decider(f)}"
                     if confirmed
                     else unconfirmed_by
                 ),
