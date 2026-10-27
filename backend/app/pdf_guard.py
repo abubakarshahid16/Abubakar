@@ -75,3 +75,17 @@ def guarded(fn: Callable) -> Callable:
             return fn(*args, **kwargs)
 
     return inside_the_lock
+
+
+def per_page(path, read: Callable) -> list:
+    """`read(page)` for every page of the PDF at `path`, with the lock taken PAGE BY PAGE (the file
+    is opened and closed under it): a page image is never held up for as long as a whole file takes.
+    `read` must return plain Python values (the page object is dropped under the lock)."""
+    out = []
+    with opened(path) as doc:
+        with _lock:
+            count = doc.page_count
+        for index in range(count):
+            with _lock:
+                out.append(read(doc.load_page(index)))
+    return out

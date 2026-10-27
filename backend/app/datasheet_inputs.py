@@ -521,6 +521,10 @@ def _ocr_page(document_id: str | None, path: str, page_no: int,
     return text, mean_conf
 
 
+def _page_text(page) -> str:
+    return page.get_text("text") or ""
+
+
 def read_pdf(path: str | os.PathLike, *, document_id: str | None = None,
              recognise: bool = False) -> Reading:
     """The native text layer per page; a page with none is read by OCR.
@@ -531,14 +535,7 @@ def read_pdf(path: str | os.PathLike, *, document_id: str | None = None,
     from .quality import normalise_text
 
     pages: list[PageText] = []
-    raw: list[str] = []
-    with pdf_guard.opened(str(path)) as doc:
-        with pdf_guard.held():
-            count = doc.page_count
-        for i in range(count):  # the lock per page: a page image is never held up for a whole file
-            with pdf_guard.held():
-                raw.append(doc.load_page(i).get_text("text") or "")
-    native = [normalise_text(text) for text in raw]
+    native = [normalise_text(t) for t in pdf_guard.per_page(str(path), _page_text)]
     for page_no, text in enumerate(native, start=1):
         if text.strip():
             pages.append(PageText(page_no, text, SOURCE_PDF_TEXT))

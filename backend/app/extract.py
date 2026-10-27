@@ -537,7 +537,8 @@ def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
     newly_pending = 0
     with opened(stored_paths.local(doc["stored_path"])) as pdf:
         for r in rows:
-            with held():  # the lock per page: a page image is never held up for a whole file
+            # the lock per page: a page image is never held up for a whole file
+            with held():
                 if not 1 <= r["page_no"] <= pdf.page_count:
                     continue
                 route = ocr.route_page(pdf.load_page(r["page_no"] - 1), r["text"] or "")
