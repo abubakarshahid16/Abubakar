@@ -8,7 +8,8 @@ output by something that is not the input (a set, a dict built from one, a tie
 decided by arrival), which is exactly what makes a client's second review of one
 sheet differ from the first.
 
-NOT covered, by design: the model. With a real engine two answers to one prompt
+NOT covered, by design: the model (this is the rule code with a scripted engine, not real-model
+run-to-run variation). With a real engine two answers to one prompt
 can differ (batching, floating point); the app already stores each answer and
 reuses it for the same question (`AI_ANSWER_REUSE_ENABLED`), and a run-to-run
 measurement with it off is s2's (counts only). No model is asked here.
@@ -28,7 +29,7 @@ PROBE = Path(__file__).resolve().parent / "stability_probe.py"
 def _dump(tmp_path: Path, name: str, hashseed: int, **env) -> str:
     out = tmp_path / f"{name}.json"
     run = subprocess.run(
-        [sys.executable, "-I", str(PROBE), str(out)],
+        [sys.executable, str(PROBE), str(out)],
         env={**os.environ, "PYTHONHASHSEED": str(hashseed), **env},
         capture_output=True,
         text=True,
@@ -55,11 +56,19 @@ def test_the_same_review_gives_the_same_facts_findings_and_verdicts(tmp_path):
         assert other == first
 
 
-def test_the_harness_itself_notices_a_difference(tmp_path):
-    """A set of strings is ordered by the hash seed: the dumps must then differ,
-    or the comparison above compares nothing."""
-    dumps = {
+def test_the_harness_really_applies_the_hash_seed(tmp_path):
+    """A set of strings is ordered by the hash seed: the same seed must give the same
+    order twice and different seeds different orders, or the comparison above compares
+    nothing (a `-I` on the command line ignores `PYTHONHASHSEED`, which is how this was
+    once not true)."""
+    first = _dump(tmp_path, "x0", 0, STABILITY_PROBE_BREAK="1")
+    again = _dump(tmp_path, "x0b", 0, STABILITY_PROBE_BREAK="1")
+    others = {
         _dump(tmp_path, f"x{seed}", seed, STABILITY_PROBE_BREAK="1")
-        for seed in (0, 1, 2, 3)
+        for seed in (1, 2, 3)
     }
-    assert len(dumps) > 1
+    assert first == again
+    assert others - {first}, (
+        "different seeds all gave the seed-0 order: the seed is not applied"
+    )
+    assert len(others | {first}) > 1
