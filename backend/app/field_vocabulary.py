@@ -10,8 +10,8 @@ TWO HALVES, BOTH CHECKED BY CODE:
   * a requirement's name comes from an OFFLINE pass (`name_requirements`, run by
     `scripts/name_numeric_limits.py` on a diagnostic copy) in which a local model answers one
     vocabulary NUMBER and a quote, under `field_naming`'s three gates (the number indexes the list,
-    the quote is in the sentence, the quote names the quantity: a word of the name or any spelling
-    the synonym table gives it). Stored model-named, unconfirmed, with provenance (provider, model,
+    the quote is in the sentence, the quote names EXACTLY the quantity: its canonical spelling is the
+    name and nothing that changes the quantity - min/max, drop, margin, tolerance ... - rides with it). Stored model-named, unconfirmed, with provenance (provider, model,
     prompt hash) in `canonical_field_names`, keyed by the vocabulary's own hash.
   * a sheet fact's name needs no model: the canonical phrase of its own label (`fact_name`).
 A pairing needs the SAME phrase on both sides. It rides `comparison.match_by_field_name`, so it never
@@ -21,6 +21,8 @@ Nothing here writes a value, reads a document, or calls a model by itself.
 """
 
 from __future__ import annotations
+
+import re
 
 from . import field_links, field_naming
 
@@ -40,36 +42,83 @@ def vocabulary() -> list[str]:
     return sorted(n for n in names if n and len(n) >= 4)
 
 
+#: Words that may sit around a quantity's name in a quote without changing the quantity.
+_NEUTRAL = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "of",
+        "for",
+        "at",
+        "in",
+        "to",
+        "is",
+        "be",
+        "shall",
+        "pump",
+        "pumps",
+        "vessel",
+        "equipment",
+        "unit",
+        "system",
+    ]
+)
+_WORD = re.compile(r"[a-z0-9]+(?:\.[0-9]+)?")
+
+
+def _tokens(text: str) -> list[str]:
+    return _WORD.findall(field_links.canonical(text))
+
+
 def names_the_quantity(quote: str | None, name: str) -> bool:
-    """Gate 3 for the closed vocabulary: the quote carries every word of the name, OR it carries a
-    spelling the synonym table rewrites to that name ("pump speed" names "rated speed")."""
-    if field_naming.names_the_field(quote, name):
-        return True
-    return bool(quote) and field_links.names_head(field_links.canonical(quote), name)
+    """Gate 3 for the closed vocabulary: the quote, in its canonical spelling (the synonym table),
+    contains the name's words as one run, and every OTHER word of the quote is neutral. So "max
+    allowable working pressure" names `mawp`; "min flow" never names `max flow`; "design pressure
+    drop" never names `design pressure`; "NPSH margin" never names `npsh required`; a bare "flow"
+    never names `max flow`. Stricter than `field_naming.names_the_field`, which ignores min/max."""
+    if not quote:
+        return False
+    q, n = _tokens(quote), name.split()
+    if not n or len(q) < len(n):
+        return False
+    for at in range(len(q) - len(n) + 1):
+        if q[at : at + len(n)] == n:
+            rest = q[:at] + q[at + len(n) :]
+            return all(w in _NEUTRAL for w in rest)
+    return False
 
 
 def verify(answer: dict, items: list[tuple[str, str]], dictionary: list[str]):
-    """`field_naming.verify` with this vocabulary's gate 3."""
-    checked = field_naming.verify(answer, items, dictionary)
-    if checked is not None and checked[1]["field_name"] is None:
-        # the strict gate refused it: give the synonym-aware gate its chance, gates 1 and 2 unchanged
-        i = answer.get("i") if isinstance(answer, dict) else None
-        field = answer.get("field") if isinstance(answer, dict) else None
-        quote = answer.get("quote") if isinstance(answer.get("quote"), str) else None
-        if (
-            isinstance(field, int)
-            and not isinstance(field, bool)
-            and 0 <= field < len(dictionary)
-            and field_naming.quote_verified(quote, items[i][1])
-            and names_the_quantity(quote, dictionary[field])
-        ):
-            return i, {"field_name": dictionary[field], "quote": quote}
-    return checked
+    """The three gates on ONE model answer, with this vocabulary's gate 3 (not
+    `field_naming.verify`'s, which ignores min/max). Returns (item index, {field_name, quote}) with
+    field_name None when it maps nothing, or None when the answer names no valid item."""
+    i = answer.get("i") if isinstance(answer, dict) else None
+    if not isinstance(i, int) or isinstance(i, bool) or not 0 <= i < len(items):
+        return None
+    field = answer.get("field")
+    quote = answer.get("quote") if isinstance(answer.get("quote"), str) else None
+    unmapped = (i, {"field_name": None, "quote": None})
+    if (
+        not isinstance(field, int)
+        or isinstance(field, bool)
+        or not 0 <= field < len(dictionary)
+    ):
+        return unmapped  # gate 1
+    if not field_naming.quote_verified(quote, items[i][1]):
+        return unmapped  # gate 2
+    if not names_the_quantity(quote, dictionary[field]):
+        return unmapped  # gate 3
+    return i, {"field_name": dictionary[field], "quote": quote}
 
 
-def name_requirements(requirements: list[dict], provider) -> dict[str, dict]:
+def name_requirements(
+    requirements: list[dict], provider, stats: dict | None = None
+) -> dict[str, dict]:
     """Name the numeric requirements against the closed vocabulary and store every answer. Returns
-    {requirement id: {field_name | None, quote | None}} for all of them (stored + new)."""
+    {requirement id: {field_name | None, quote | None}} for all of them (stored + new). `stats`, when
+    given, gets `unreadable`: the items of batches whose reply could not be read (truncated or not
+    matching the schema), which are NOT stored, so a re-run asks them again."""
     items = [
         (
             str(r["id"]),
@@ -81,11 +130,13 @@ def name_requirements(requirements: list[dict], provider) -> dict[str, dict]:
         if r.get("requirement_type") in field_naming.NUMERIC_TYPES
         and r.get("requirement_text")
     ]
-    return _name_items(items, vocabulary(), provider)
+    return _name_items(
+        items, vocabulary(), provider, stats if stats is not None else {}
+    )
 
 
 def _name_items(
-    items: list[tuple[str, str]], dictionary: list[str], provider
+    items: list[tuple[str, str]], dictionary: list[str], provider, stats: dict
 ) -> dict[str, dict]:
     """`field_naming.name_items` with this vocabulary's gate 3 (the same batches, prompt, schema and
     storage; only the verifier differs). Answers for ALL `items` (stored + new)."""
@@ -115,28 +166,31 @@ def _name_items(
             prompt_version=field_naming.PROMPT_VERSION,
         )
         response = provider.reason(packet)
+        if response.schema_errors or response.truncated:
+            # a reply we could not read says nothing about these items: store nothing, count it
+            stats["unreadable"] = stats.get("unreadable", 0) + len(batch)
+            continue
         answers: dict[str, dict] = {}
-        if not response.schema_errors and not response.truncated:
-            for raw in field_naming._parse(response.text):
-                checked = verify(raw, batch, dictionary)
-                if checked is not None:
-                    answers[batch[checked[0]][0]] = checked[1]
+        for raw in field_naming._parse(response.text):
+            checked = verify(raw, batch, dictionary)
+            if checked is not None:
+                answers[batch[checked[0]][0]] = checked[1]
         for (
             key,
             _text,
-        ) in batch:  # a skipped item is unmapped too: recorded, not asked again
+        ) in batch:  # an item the model skipped is unmapped: recorded, not re-asked
             answers.setdefault(key, {"field_name": None, "quote": None})
         field_naming._store(REQUIREMENT, answers, dictionary, response)
         known.update(answers)
     return known
 
 
-def fact_name(fact: dict) -> str | None:
+def fact_name(fact: dict, vocab: set[str] | None = None) -> str | None:
     """The vocabulary phrase a sheet fact's own label canonicalises to, or None."""
     from . import datasheet_checks
     from .datasheets import normalise_field_name
 
-    vocab = set(vocabulary())
+    vocab = vocab if vocab is not None else set(vocabulary())
     for own in field_naming.own_names(fact):
         canon = field_links.canonical(own)
         if canon in vocab:
@@ -155,29 +209,51 @@ def fact_name(fact: dict) -> str | None:
 
 def names_for(requirements: list[dict], facts: list[dict]) -> dict:
     """The names a run pairs by, in the shape `comparison.match_by_field_name` reads: the STORED
-    closed-vocabulary names of the requirements plus the rule names of the facts (no model call);
-    when no requirement has a stored name, the per-sheet naming (`field_naming.ensure_names`)."""
-    ids = [
-        str(r["id"])
+    closed-vocabulary names of the requirements, each RE-CHECKED now against the requirement's
+    current text and this vocabulary's gate 3 (an edited sentence or a changed rule loses its old
+    name), plus the rule names of the facts. No model call. With nothing stored: the legacy
+    per-sheet naming only when the geometry reader is on, else no names."""
+    from .config import settings
+
+    wanted_ids = {
+        str(r["id"]): " ".join((r.get("requirement_text") or "").split())[
+            : field_naming.REQUIREMENT_CHARS
+        ]
         for r in requirements
         if r.get("requirement_type") in field_naming.NUMERIC_TYPES
-    ]
-    stored = field_naming.stored_names(REQUIREMENT, ids, vocabulary())
-    named = {k: v["field_name"] for k, v in stored.items() if v.get("field_name")}
+    }
+    vocab = vocabulary()
+    stored = field_naming.stored_names(REQUIREMENT, list(wanted_ids), vocab)
+    named = {
+        k: v["field_name"]
+        for k, v in stored.items()
+        if v.get("field_name")
+        and field_naming.quote_verified(v.get("quote"), wanted_ids.get(k, ""))
+        and names_the_quantity(v.get("quote"), v["field_name"])
+    }
     if not named:
-        return field_naming.ensure_names(requirements, facts)
+        if settings.geometry_reader_enabled:
+            return field_naming.ensure_names(requirements, facts)
+        return {
+            "requirements": {},
+            "facts": {},
+            "source": "closed vocabulary (nothing stored)",
+            "requirements_asked": len(wanted_ids),
+            "requirements_named": 0,
+        }
     wanted = set(named.values())
+    vocab_set = set(vocab)
     fact_names = {}
     for fact in facts:
         if not field_naming._nameable(fact):
             continue
-        name = fact_name(fact)
+        name = fact_name(fact, vocab_set)
         if name in wanted:
             fact_names[str(fact["id"])] = name
     return {
         "requirements": named,
         "facts": fact_names,
         "source": "closed vocabulary (stored, model-named, unconfirmed)",
-        "requirements_asked": len(ids),
+        "requirements_asked": len(wanted_ids),
         "requirements_named": len(named),
     }

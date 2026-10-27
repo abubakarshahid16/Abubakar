@@ -18,6 +18,8 @@ from tests.test_field_naming import _world
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import name_numeric_limits
 
+REQUIREMENT_KIND = field_vocabulary.REQUIREMENT
+
 
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
@@ -132,7 +134,7 @@ def test_a_sheet_fact_is_named_by_rule_and_a_free_label_is_not():
     )
 
 
-def test_names_for_falls_back_to_the_per_sheet_naming_when_nothing_is_stored(
+def test_with_nothing_stored_a_review_makes_no_model_call_unless_the_geometry_reader_is_on(
     monkeypatch,
 ):
     seen = []
@@ -141,10 +143,13 @@ def test_names_for_falls_back_to_the_per_sheet_naming_when_nothing_is_stored(
         "ensure_names",
         lambda *a, **k: seen.append(1) or {"requirements": {}, "facts": {}},
     )
-    out = field_vocabulary.names_for(
-        [{"id": "r9", "requirement_type": "numeric_limit"}], []
-    )
-    assert seen == [1] and out["requirements"] == {}
+    reqs = [{"id": "r9", "requirement_type": "numeric_limit", "requirement_text": "x"}]
+    monkeypatch.setattr(settings, "geometry_reader_enabled", False)
+    out = field_vocabulary.names_for(reqs, [])
+    assert seen == [] and out["requirements"] == {} and out["requirements_named"] == 0
+    monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    field_vocabulary.names_for(reqs, [])
+    assert seen == [1]
 
 
 def test_a_stored_name_pairs_through_the_run_and_never_carries_a_verdict(monkeypatch):
@@ -201,3 +206,158 @@ def test_the_script_names_a_copys_numeric_limits_and_reports_counts_only(tmp_pat
     again = name_numeric_limits.run(tmp_path / "vocab.sqlite", provider=fake)
     assert again["already_stored"] == 1 and again["to_ask"] == 0
     assert "maximum allowable" not in json.dumps(out)
+
+
+# ----------------------------------------------- cloud's review of #1389: gate, staleness, bad replies
+
+
+@pytest.mark.parametrize(
+    ("quote", "name", "expected"),
+    [
+        ("min flow", "max flow", False),
+        ("max flow", "max flow", True),
+        ("NPSH margin", "npsh required", False),
+        ("design pressure drop", "design pressure", False),
+        ("flow", "max flow", False),
+        ("set pressure tolerance", "set pressure", False),
+        ("operating pressure at suction", "operating pressure", False),
+        ("max allowable working pressure", "mawp", True),
+        ("wind speed", "rated speed", False),
+        ("design pressure", "mawp", False),
+        ("temperature", "design temperature", False),
+        ("the design pressure", "design pressure", True),
+    ],
+)
+def test_the_gate_refuses_another_or_opposite_quantity(quote, name, expected):
+    assert field_vocabulary.names_the_quantity(quote, name) is expected
+
+
+def _store_a_name(req_id, text, name, quote):
+    reqs = [
+        {"id": req_id, "requirement_type": "numeric_limit", "requirement_text": text}
+    ]
+    field_vocabulary.name_requirements(reqs, Fake(lambda t: name, lambda t: quote))
+    return reqs
+
+
+def test_an_edited_sentence_loses_its_stored_name():
+    reqs = _store_a_name(
+        "r1",
+        "The max allowable working pressure shall not exceed 10 bar.",
+        "mawp",
+        "max allowable working pressure",
+    )
+    assert field_vocabulary.names_for(reqs, [])["requirements"] == {"r1": "mawp"}
+    edited = [
+        {**reqs[0], "requirement_text": "The design pressure shall not exceed 10 bar."}
+    ]
+    assert field_vocabulary.names_for(edited, [])["requirements"] == {}
+
+
+def test_a_changed_gate_drops_a_name_the_old_gate_let_through(monkeypatch):
+    reqs = _store_a_name(
+        "r1",
+        "The max allowable working pressure shall not exceed 10 bar.",
+        "mawp",
+        "max allowable working pressure",
+    )
+    monkeypatch.setattr(field_vocabulary, "names_the_quantity", lambda *_a: False)
+    assert field_vocabulary.names_for(reqs, [])["requirements"] == {}
+
+
+class Unreadable(Fake):
+    def reason(self, packet):
+        self.packets.append(packet)
+        return Response(
+            text="{",
+            provider="ollama",
+            model_tag="fake:1",
+            digest="d",
+            finish_reason="length",
+            prompt_sha256=packet.sha256,
+        )
+
+
+def test_a_reply_that_cannot_be_read_stores_nothing_and_is_asked_again():
+    reqs = [
+        {
+            "id": "r1",
+            "requirement_type": "numeric_limit",
+            "requirement_text": "The max allowable working pressure shall not exceed 10 bar.",
+        }
+    ]
+    stats = {}
+    got = field_vocabulary.name_requirements(
+        reqs, Unreadable(lambda t: None, lambda t: ""), stats
+    )
+    assert got == {} and stats["unreadable"] == 1
+    assert (
+        field_naming.stored_names(
+            REQUIREMENT_KIND, ["r1"], field_vocabulary.vocabulary()
+        )
+        == {}
+    )
+    good = Fake(lambda t: "mawp", lambda t: "max allowable working pressure")
+    again = field_vocabulary.name_requirements(reqs, good)
+    assert again["r1"]["field_name"] == "mawp" and len(good.packets) == 1
+
+
+def test_a_populated_copy_is_idempotent_and_an_interrupted_run_resumes(tmp_path):
+    for i in range(3):
+        _world_extra(i)
+    first = name_numeric_limits.run(
+        tmp_path / "vocab.sqlite",
+        provider=Fake(lambda t: "mawp", lambda t: "max allowable working pressure"),
+        limit=2,
+    )
+    assert first["asked"] == 2
+    rest = Fake(lambda t: "mawp", lambda t: "max allowable working pressure")
+    second = name_numeric_limits.run(tmp_path / "vocab.sqlite", provider=rest)
+    assert (
+        second["already_stored"] == 2
+        and second["to_ask"] == 1
+        and len(rest.packets) == 1
+    )
+    third = name_numeric_limits.run(tmp_path / "vocab.sqlite", provider=rest)
+    assert third["to_ask"] == 0 and len(rest.packets) == 1
+
+
+def test_the_script_exits_non_zero_when_the_model_was_refused(tmp_path, monkeypatch):
+    _world_extra(0)
+
+    class Refuses:
+        name = "ollama"
+
+        def reason(self, packet):
+            raise RuntimeError("engine down")
+
+    monkeypatch.setattr(
+        name_numeric_limits,
+        "run",
+        lambda *a, **k: {"refused": "RuntimeError", "unreadable": 0},
+    )
+    assert name_numeric_limits.main(["--db", str(tmp_path / "vocab.sqlite")]) == 2
+
+
+def _world_extra(i):
+    """The first call builds the invented world (one standard, one numeric limit); each later call adds
+    one more numeric limit to the same standard."""
+    if i == 0:
+        return _world("Max allowable working pressure", "12 bar")
+    from app import standards
+
+    return standards.create_requirement(
+        standard_document_id="std-1",
+        chunk_id="sc",
+        requirement_text=f"The max allowable working pressure of item {i} shall be 10 bar.",
+        source_text=f"The max allowable working pressure of item {i} shall be 10 bar.",
+        clause=f"6.4.{i + 1}",
+        page=1,
+        structured={
+            "subject": "the maximum allowable working pressure",
+            "operator": "<=",
+            "raw_value": "10",
+            "raw_unit": "bar",
+            "requirement_type": "numeric_limit",
+        },
+    )

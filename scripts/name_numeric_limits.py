@@ -79,6 +79,7 @@ def run(
         "unmapped": 0,
         "by_standard": {},
         "refused": None,
+        "unreadable": 0,
     }
     if dry_run or not todo:
         return out
@@ -86,10 +87,13 @@ def run(
         from app.reasoning_provider import OllamaProvider
 
         provider = OllamaProvider()  # the LOCAL engine only
+    stats: dict = {}
     try:
-        field_vocabulary.name_requirements(todo, provider)
+        field_vocabulary.name_requirements(todo, provider, stats)
+        out["unreadable"] = stats.get("unreadable", 0)
     except Exception as exc:  # noqa: BLE001 - a refused or failed batch keeps what was stored so far
         out["refused"] = type(exc).__name__
+        out["unreadable"] = stats.get("unreadable", 0)
     after = field_naming.stored_names(
         field_vocabulary.REQUIREMENT, [str(r["id"]) for r in rows], vocab
     )
@@ -99,7 +103,7 @@ def run(
         bucket["numeric"] += 1
         if (after.get(str(r["id"])) or {}).get("field_name"):
             bucket["named"] += 1
-    out["asked"] = sum(1 for r in todo if str(r["id"]) in after)
+    out["asked"] = sum(1 for r in todo if str(r["id"]) in after)  # answered and stored
     out["named"] = sum(b["named"] for b in out["by_standard"].values())
     out["unmapped"] = len(after) - out["named"]
     return out
@@ -118,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         args.json.write_text(text + "\n", encoding="utf-8")
     print(text)
-    return 0
+    return 2 if (result["refused"] or result["unreadable"]) else 0
 
 
 if __name__ == "__main__":
