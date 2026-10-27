@@ -76,7 +76,7 @@ WRITTEN_BY_ENGINE = re.compile(r"\bWritten by \w+:")
 #:      engineer to tick / this engine - the program's own account of how it read or decided
 #:      (K7/K8, order 224): the engineer's cell to read, not the contractor's
 #:  this engine can evaluate / drafts about this field differ / blanks, one answer / places,
-#:      one answer / model-assigned field name - the same, found on the I-06 run (order 228.3)
+#:      one answer / model-assigned field name - the same, found on a real relief-valve run (order 228.3)
 PHRASES = (
     "synonym table",
     "containment match",
