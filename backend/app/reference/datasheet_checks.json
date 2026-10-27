@@ -69,7 +69,7 @@
       "kind": "pressure",
       "names": [
         "^set press(ure|\\.)?$",
-        "^set press(ure|\\.)? (at inlet )?\\(?psig|barg\\)?$"
+        "^set press(ure|\\.)? (at inlet )?\\(?(psig|barg)\\)?$"
       ]
     },
     "mawp": {
