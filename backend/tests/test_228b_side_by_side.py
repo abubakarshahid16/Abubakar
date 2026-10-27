@@ -61,50 +61,100 @@ def test_an_empty_value_cell_never_takes_the_next_items_number():
         assert label not in got or got[label]["value_text"] in ("", None), got[label]
 
 
-def test_a_lone_number_before_a_label_is_an_index_not_an_answer():
-    assert gi.is_index_before_label(
-        ["Rated capacity", "", "8", "Orifice designation"], 2
+def _grid_read(rows, xs):
+    doc = pymupdf.open()
+    page = doc.new_page(width=842, height=595)
+    ys = [60 + 24 * i for i in range(len(rows) + 1)]
+    for y in ys:
+        page.draw_line((xs[0], y), (xs[-1], y), width=0.6)
+    for x in xs:
+        page.draw_line((x, ys[0]), (x, ys[-1]), width=0.6)
+    for i, cells in enumerate(rows):
+        for j, text in enumerate(cells):
+            if text:
+                page.insert_text((xs[j] + 3, ys[i] + 15), text, fontsize=9)
+    try:
+        return {r["label"]: r for r in g.read_page_rows(page) if r["source"] == "table"}
+    finally:
+        doc.close()
+
+
+def test_a_label_value_unit_table_reads_as_it_always_did():
+    """cloud-2's reproduction: a whole number before a unit word is a value."""
+    got = _grid_read(
+        [
+            ("Rated capacity", "125", "m3/h"),
+            ("Wall thickness", "8", "mm"),
+            ("Number of stages", "4", "pcs"),
+            ("Design pressure", "10", "barg"),
+            ("Design temperature", "120", "degC"),
+        ],
+        [50, 250, 350, 450],
     )
-    assert not gi.is_index_before_label(["Pressure", "10 barg", "Fluid"], 1)
-    assert not gi.is_index_before_label(["Pressure", "8"], 1)
+    assert got["Wall thickness"]["value_text"].startswith("8")
+    assert got["Number of stages"]["value_text"].startswith("4")
+    assert got["Design temperature"]["value_text"].startswith("120")
+    assert not any(label.endswith(" 8") or label.endswith(" 4") for label in got), (
+        sorted(got)
+    )
+
+
+def test_a_value_column_that_happens_to_grow_is_not_a_running_number():
+    got = _grid_read(
+        [
+            ("Stages", "2", "pcs"),
+            ("Wall thickness", "4", "mm"),
+            ("Design pressure", "8", "barg"),
+            ("Design temperature", "10", "degC"),
+        ],
+        [50, 250, 350, 450],
+    )
+    assert got["Design pressure"]["value_text"].startswith("8")
+    assert got["Wall thickness"]["value_text"].startswith("4")
+
+
+def _row(*texts):
+    return {"cells": [{"column": i, "text": t} for i, t in enumerate(texts)]}
 
 
 def test_two_rows_are_not_enough_to_call_a_column_a_running_number():
-    def row(n):
-        return {
-            "cells": [
-                {"column": 0, "text": "Number of stages"},
-                {"column": 1, "text": str(n)},
-                {"column": 2, "text": "Stage type"},
-            ]
-        }
-
-    table = {"rows": [row(2), row(4)]}
+    table = {"rows": [_row("A", "1", "B", "2", "C"), _row("A", "3", "B", "4", "C")]}
     assert gi.split(table) is table
 
 
-def test_the_answer_skips_an_index_number_before_a_label():
-    import re
-
-    cells = [{"text": t} for t in ("Rated capacity", "", "8", "Orifice designation")]
-    texts = [c["text"] for c in cells]
-    got = gi.first_answer(cells, texts, [0, 2, 3], re.compile(r"^\d"))
-    assert got is None
-    cells[2]["text"] = texts[2] = "125 m3/h"
-    assert gi.first_answer(cells, texts, [0, 2, 3], re.compile(r"^\d")) == 2
-
-
 def test_a_numbered_column_must_grow_down_the_table():
-    def row(n):
-        return {
-            "cells": [
-                {"column": 0, "text": "Label"},
-                {"column": 1, "text": str(n)},
-                {"column": 2, "text": "Other label"},
-            ]
-        }
-
-    same = {"rows": [row(4), row(4), row(4)]}
+    same = {"rows": [_row("1", "A", "2", "B")] * 3}
     assert gi.split(same) is same
-    growing = {"rows": [row(2), row(4), row(6)]}
+    growing = {
+        "rows": [
+            _row("1", "A", "2", "B"),
+            _row("3", "A", "4", "B"),
+            _row("5", "A", "6", "B"),
+        ]
+    }
     assert gi.split(growing) is not growing
+
+
+def test_a_column_beside_unrelated_numbers_is_not_a_running_number():
+    table = {
+        "rows": [
+            {"cells": [{"column": 1, "text": "2"}, {"column": 2, "text": "6"}]},
+            {"cells": [{"column": 1, "text": "4"}, {"column": 2, "text": "9"}]},
+            {"cells": [{"column": 1, "text": "8"}, {"column": 2, "text": "12"}]},
+        ]
+    }
+    assert gi.split(table) is table
+
+
+def test_the_row_number_gutter_proves_the_column_beside_it():
+    rows = [
+        {
+            "gutter": [str(n)],
+            "cells": [{"column": 1, "text": "L"}, {"column": 2, "text": str(n + 1)}],
+        }
+        for n in (1, 3, 5)
+    ]
+    table = {"rows": rows}
+    assert gi.split(table) is not table
+    bare = {"rows": [{**r, "gutter": []} for r in rows]}
+    assert gi.split(bare) is bare
