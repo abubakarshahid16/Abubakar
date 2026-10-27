@@ -158,3 +158,45 @@ def test_the_row_number_gutter_proves_the_column_beside_it():
     assert gi.split(table) is not table
     bare = {"rows": [{**r, "gutter": []} for r in rows]}
     assert gi.split(bare) is bare
+
+
+def test_a_two_row_form_never_reads_the_next_items_number_as_a_value():
+    """Numbering is not proven here (two rows), so the table is not cut; the
+    empty answer must still not take the next item's number."""
+    got = _grid_read(
+        [
+            ("Design pressure", "10 barg", "1", "Design temperature", "50 C"),
+            ("Rated relieving capacity", "", "4", "Orifice designation", ""),
+        ],
+        [50, 200, 300, 330, 480, 600],
+    )
+    assert "Rated relieving capacity" not in got or got["Rated relieving capacity"][
+        "value_text"
+    ] in ("", None)
+    assert not any(r["value_text"] == "4" for r in got.values()), got
+
+
+def test_a_number_right_after_its_label_is_still_that_labels_value():
+    got = _grid_read(
+        [
+            ("Number of stages", "4", "per the datasheet note"),
+            ("Design pressure", "10 barg", "gauge"),
+        ],
+        [50, 250, 350, 600],
+    )
+    assert got["Number of stages"]["value_text"] == "4"
+
+
+def test_text_in_the_numbered_column_is_not_dropped():
+    def row(n, text):
+        return {
+            "cells": [
+                {"column": 0, "text": "L"},
+                {"column": 1, "text": text if text else str(n)},
+                {"column": 2, "text": str(n + 1)},
+            ]
+        }
+
+    rows = [row(1, ""), row(3, ""), row(5, ""), row(7, "NOTES: set pressure 9 barg")]
+    out = gi.split({"rows": rows})["rows"]
+    assert any(c["text"].startswith("NOTES") for r in out for c in r["cells"])

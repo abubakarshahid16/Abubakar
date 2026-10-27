@@ -11,11 +11,16 @@ words only from a row the engineer confirmed, never from one confirmed by its nu
 
 from __future__ import annotations
 
+import re
+
 from . import crs_mapping
 
 
 def _fold(text) -> str:
     return " ".join(str(text or "").lower().split())
+
+
+_EDITION_MARK = re.compile(r" \((?:19|20)\d\d\)")
 
 
 def words_changed_since_issue(row: dict, snapshot: dict) -> bool:
@@ -33,6 +38,12 @@ def words_changed_since_issue(row: dict, snapshot: dict) -> bool:
     ):
         lines.pop()
     stored, now = _fold("\n".join(lines)), _fold(row.get("comment"))
+    # Order 227: a row issued before references named their edition gains "(2023)" or
+    # "(edition not recorded)" in its lead: that is not the words changing.
+    now = now.replace(" (edition not recorded)", "")
+    stored = stored.replace(" (edition not recorded)", "")
+    if not _EDITION_MARK.search(stored):
+        now = _EDITION_MARK.sub("", now)
     waiting = {_fold(w) for w in crs_mapping.WAITING_COMMENTS}
     return bool(
         stored

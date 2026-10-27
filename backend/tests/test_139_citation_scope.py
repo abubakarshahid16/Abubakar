@@ -780,7 +780,7 @@ def test_a_question_with_no_datasheet_field_is_a_review_note_not_a_crs_line():
     notes = crs_mapping.build_review_notes([unplaced, on_sheet], [])
     [note] = [n for n in notes if n["note"] == crs_mapping.NOTE_FIELD_NOT_IDENTIFIED]
     assert note["count"] == 1 and note["standard"] == "XYZ-100.pdf"
-    assert "XYZ-100 cl. ZT-40 (p.7)" in note["detail"]
+    assert "XYZ-100 (edition not recorded) cl. ZT-40 (p.7)" in note["detail"]
 
 
 def test_an_engineer_confirmed_question_stays_their_crs_line():

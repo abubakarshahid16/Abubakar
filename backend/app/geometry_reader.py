@@ -1137,11 +1137,8 @@ def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[s
         filled = [i for i, t in enumerate(texts) if t]
         if len(filled) < 2:
             continue
-        answer = next((i for i in filled[1:] if cells[i]["text"] and (
-            _STARTS_WITH_A_NUMBER.match(texts[i]) or blank_markers.names_a_marker(texts[i]))), None)
-        if answer is None:
-            answer = filled[-1]
-        if not cells[answer]["text"]:
+        answer = gic.first_answer(cells, texts, filled, _STARTS_WITH_A_NUMBER)
+        if answer < 0 or not cells[answer]["text"]:
             continue
         parts = [(i, texts[i]) for i in filled if i < answer]
         if not parts or any(not re.search(r"[^\W_]", t) or cells[i].get("cut_word", False)

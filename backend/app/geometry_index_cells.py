@@ -7,8 +7,8 @@ row whose first value cell was empty took the NEXT item's number as its value
 ("Rated relieving capacity = 8").
 
 A column counts as a running item number only on the structure the form really
-has: in at least `MIN_NUMBERED_ROWS` rows its whole number is exactly one more
-(or one less) than the whole number in ANOTHER column of the same row (the
+has: in at least `MIN_NUMBERED_ROWS` rows its whole number is exactly one away
+from the whole number in ANOTHER column of the same row (the
 row-number gutter included), and its
 numbers grow down the table. A `label | value | unit` table has no second
 numbered column, so a value such as "8" before a unit is never mistaken for an
@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import re
 from itertools import pairwise
+
+from . import blank_markers
 
 MIN_NUMBERED_ROWS = 3
 _WHOLE_NUMBER = re.compile(r"^\s*(\d{1,3})\s*[.)]?\s*$")
@@ -69,7 +71,11 @@ def split(table: dict) -> dict:
     rows: list[dict] = []
     for data in table["rows"]:
         cells = sorted(data["cells"], key=lambda c: c["column"])
-        cuts = [i for i, c in enumerate(cells) if c["column"] in columns and c["text"]]
+        cuts = [
+            i
+            for i, c in enumerate(cells)
+            if c["column"] in columns and _number(c) is not None
+        ]
         if not cuts:
             rows.append(data)
             continue
@@ -78,3 +84,30 @@ def split(table: dict) -> dict:
             if segment:
                 rows.append({**data, "cells": segment})
     return {**table, "rows": rows}
+
+
+REFUSED = -1
+
+
+def _is_next_items_number(texts: list[str], i: int) -> bool:
+    """Cell `i` is a lone whole number, the cell before it is EMPTY (the answer
+    cell of the label to its left) and words follow: the number is the next
+    item's index, not that label's value ("Capacity | | 8 | Orifice designation")."""
+    if _number({"text": texts[i]}) is None or i == 0 or texts[i - 1]:
+        return False
+    return any(re.search(r"[^\W\d_]{2,}", t) for t in texts[i + 1 :] if t)
+
+
+def first_answer(
+    cells: list[dict], texts: list[str], filled: list[int], starts_a_number
+) -> int:
+    """The answer cell of a headerless label/value row: the first filled cell
+    after the label that starts with a number or names a blank marker, else the
+    last filled cell. REFUSED when that first candidate is the next item's
+    index number (a blank must never be read as that number): no value."""
+    for i in filled[1:]:
+        if cells[i]["text"] and (
+            starts_a_number.match(texts[i]) or blank_markers.names_a_marker(texts[i])
+        ):
+            return REFUSED if _is_next_items_number(texts, i) else i
+    return filled[-1]
