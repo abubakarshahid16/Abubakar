@@ -84,7 +84,15 @@ def test_a_us_gallon_rate_converts_so_the_two_halves_are_checked_not_trusted():
             "20 barg (25 barg)",
             "barg",
         ),  # one unit twice: not two systems, read as before
+        (
+            "20 barg (40 barg)",
+            "barg",
+        ),  # far apart, but one unit twice is not two systems
         ("120 m3/h (approx)", "m3/h"),
+        # nominal conversions are roundings, not a second quantity (s3's review)
+        ("10 bar (150 psi)", "bar"),
+        ("12 mm (0.5 in)", "mm"),
+        ("150 C (302 F)", "C"),
     ],
 )
 def test_the_trailing_form_that_agrees_or_is_no_second_system_is_read_as_before(

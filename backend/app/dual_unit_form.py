@@ -14,9 +14,12 @@ accepted unchecked: "10 (20) kW (max)", "10 (12) bar (g)", "5 (7) m3/h (n)" and 
 placed). "340 (23.4) psig" (one unit after two numbers) stays unplaced too: which number the unit
 belongs to cannot be told.
 
-The trailing form "24.8 m3/h (109 USGPM)" is checked the same way when its two units differ and
-both convert: two numbers that do not convert to each other are two quantities, and choosing the
-first would be a guess, so the cell is REFUSED (no value), as the slash form already is. No label,
+The trailing form "24.8 m3/h (109 USGPM)" is read as before (the first number and unit) unless the
+bracket is plainly ANOTHER quantity: its two units differ and both convert, and the converted
+numbers are more than TRAILING_TOLERANCE apart. Printed conversions are often nominal ("10 bar
+(150 psi)", "12 mm (0.5 in)"), so a small gap is a rounding, not a second quantity; a far-off one
+("24.8 m3/h (30 USGPM)", "10 bar (14 psi)") is, and choosing the first would be a guess, so the
+cell is REFUSED (no value), as the slash form already is. No label,
 unit or sheet is named here.
 """
 
@@ -30,6 +33,10 @@ from . import claims
 #: Returned for a cell that must be refused: a text no value pattern matches, so the cell reader
 #: ends with "no value" (what it does for any text that is not a quantity).
 REFUSED = "\x00"
+
+#: How far apart (as a share of the larger) the two numbers of the trailing form may be, converted,
+#: before the bracket is another quantity. Nominal figures differ by a few per cent.
+TRAILING_TOLERANCE = 0.25
 
 _NUM = r"[-+]?\d[\d.,]*"
 _UNIT = r"[^\s()\d][^()]*?"
@@ -51,6 +58,16 @@ def _fold(unit: str) -> str:
     return " ".join(unit.lower().split())
 
 
+def _far_apart(v1: str, u1: str, v2: str, u2: str) -> bool | None:
+    """True when `v1 u1` and `v2 u2` convert to numbers more than TRAILING_TOLERANCE apart; None
+    when either cannot be converted (nothing can be said)."""
+    first, second = claims.normalise(v1, u1), claims.normalise(v2, u2)
+    n1, n2 = first.normalized_value, second.normalized_value
+    if n1 is None or n2 is None or first.normalized_unit != second.normalized_unit:
+        return None
+    return abs(n1 - n2) > TRAILING_TOLERANCE * max(abs(n1), abs(n2))
+
+
 def first_system(
     text: str, same_quantity: Callable[[str, str, str, str], bool]
 ) -> str | None:
@@ -65,6 +82,6 @@ def first_system(
     dim1, dim2 = _dimension(u1), _dimension(u2)
     if dim1 is None or dim1 != dim2 or _fold(u1) == _fold(u2):
         return None
-    if same_quantity(v1, u1, v2, u2):
-        return f"{v1} {u1.strip()}"
-    return None if interleaved else REFUSED
+    if interleaved:
+        return f"{v1} {u1.strip()}" if same_quantity(v1, u1, v2, u2) else None
+    return None if _far_apart(v1, u1, v2, u2) is not True else REFUSED
