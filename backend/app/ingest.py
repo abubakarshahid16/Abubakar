@@ -27,6 +27,7 @@ from . import fts_index
 from . import ocr
 from .extract import extract_document
 from .embedder import Embedder, EmbedderConfig, embedding_tag, searchable_tags
+from .worker_review import ReviewDrain
 
 import logging
 
@@ -130,7 +131,7 @@ def _route_document_kind(doc_id: str, result: dict) -> None:
         result["route_kind_error"] = type(exc).__name__
 
 
-class IngestionWorker:
+class IngestionWorker(ReviewDrain):
     """One worker thread draining the document queue, one document at a time."""
 
     def __init__(self, poll_seconds: float = 1.0) -> None:
@@ -209,7 +210,10 @@ class IngestionWorker:
 
         dead = not self.alive
         hung = beat_age > STALL_AFTER_SECONDS
-        ignoring_work = pending > 0 and progress_age > NO_PROGRESS_SECONDS
+        # Documents wait behind a review on this one thread: not ignored work.
+        ignoring_work = (
+            pending > 0 and progress_age > NO_PROGRESS_SECONDS and not self.in_review()
+        )
 
         reasons = []
         if dead:
@@ -222,6 +226,7 @@ class IngestionWorker:
         return {
             "alive": self.alive,
             "current_document": self.current_document,
+            "reviewing": self.in_review(),
             "seconds_since_heartbeat": round(beat_age, 1),
             "seconds_since_progress": round(progress_age, 1),
             "documents_completed": len(self._completed),
@@ -361,31 +366,6 @@ class IngestionWorker:
             return True
         except Exception as exc:  # noqa: BLE001
             self.last_error = errors.record_failure(exc, stage="standard_extraction")
-            return False
-
-    def _beat(self) -> None:
-        """Bump this worker's own heartbeat mid-job, not just between jobs.
-
-        Exists for one caller: a review job's scope-reasoning pass, which can
-        run for many minutes on this same thread (see `_drain_review_jobs`
-        below). Without it, `self.last_beat` only advances at the outer
-        `_run` loop boundary, so a long single job reads as a hung worker on
-        the Documents page even while it is actively working.
-        """
-        self.last_beat = time.time()
-
-    def _drain_review_jobs(self) -> bool:
-        """Run one queued review, if any. True when one was run."""
-        from . import job_queue, review_jobs
-        try:
-            review_jobs.recover_stale()
-            job_id = review_jobs.claim_next(job_queue.worker_id())
-            if job_id is None:
-                return False
-            review_jobs.run(job_id, job_queue.worker_id(), heartbeat=self._beat)
-            return True
-        except Exception as exc:  # noqa: BLE001
-            self.last_error = errors.record_failure(exc, stage="review_run")
             return False
 
     def _run(self) -> None:
