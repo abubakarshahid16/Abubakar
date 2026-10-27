@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import finding_query, severity_rule
+from . import finding_query, pdf_guard, severity_rule
 from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
@@ -758,6 +758,7 @@ def remove_report_files(document_id: str) -> int:
     return removed
 
 
+@pdf_guard.guarded
 def render_report(document_id: str, *,
                   allowed_document_ids: frozenset[str] | None = None) -> Path:
     """Freeze the current review findings into a readable PDF export.
@@ -778,12 +779,10 @@ def render_report(document_id: str, *,
                              allowed_document_ids=allowed_document_ids)
     report_dir = settings.data_dir / "review_reports"
     report_dir.mkdir(parents=True, exist_ok=True)
-    # #437: the file carries the document it quotes in its name, so a delete
-    # of the document can find and remove it (`remove_report_files`).
+    # #437: the name carries the document, so a delete can find the file (`remove_report_files`).
     path = report_dir / f"engineering-review-{_file_tag(document_id)}-{uuid.uuid4()}.pdf"
-    # #633 item 6: EVERY LINE IS WRAPPED AND MAY CONTINUE ON THE NEXT PAGE
-    # (`pdf_flow`), and the header says which run this is, whether it
-    # completed, and what it could not read or hold (`export_status`).
+    # #633 item 6: EVERY LINE IS WRAPPED AND MAY CONTINUE ON THE NEXT PAGE (`pdf_flow`); the header
+    # says which run this is, whether it completed, and what it could not read (`export_status`).
     from . import export_status, pdf_flow
 
     run, header = export_status.pdf_header_lines(document_id, allowed_document_ids)

@@ -89,14 +89,12 @@ def test_held_blocks_another_thread_until_it_leaves(pdf):
 
 #: Files that still call `pymupdf.open(` directly. This list may only SHRINK: each file moves to
 #: `pdf_guard.open_pdf` and leaves the list. A file not on it may never call `pymupdf.open(`.
-UNGUARDED = frozenset(
-    {
-        # these two BUILD a new document (`pymupdf.open()` with no file) in a long export function;
-        # still to be wrapped in `pdf_guard.held()` (a block of about 40 lines each)
-        "deliverables.py",
-        "review.py",
-    }
-)
+UNGUARDED: frozenset[str] = frozenset()
+
+
+#: These two files BUILD a document from nothing (`pymupdf.open()`, no file) inside a long export
+#: function that carries `@pdf_guard.guarded` instead.
+BUILDS_A_DOCUMENT = frozenset({"deliverables.py", "review.py"})
 
 
 def test_no_program_file_opens_a_pdf_outside_the_guard():
@@ -104,10 +102,85 @@ def test_no_program_file_opens_a_pdf_outside_the_guard():
     for path in sorted(APP.rglob("*.py")):
         if path.name == "pdf_guard.py":
             continue
-        n = len(
-            re.findall(r"\b(?:pymupdf|fitz)\.open\(", path.read_text(encoding="utf-8"))
-        )
+        text = path.read_text(encoding="utf-8")
+        n = len(re.findall(r"\b(?:pymupdf|fitz)\.open\(", text))
         if n:
-            offenders[path.relative_to(APP).as_posix()] = n
-    new = sorted(set(offenders) - UNGUARDED)
+            offenders[path.relative_to(APP).as_posix()] = text
+    new = sorted(set(offenders) - UNGUARDED - BUILDS_A_DOCUMENT)
     assert not new, f"opens a PDF outside pdf_guard.open_pdf: {new}"
+    for name in BUILDS_A_DOCUMENT:
+        assert "@pdf_guard.guarded" in offenders[name], (
+            f"{name} builds a document unguarded"
+        )
+
+
+def test_a_guarded_function_runs_under_the_lock(pdf):
+    """The two exports that build a document from nothing are wrapped whole by `guarded`."""
+    from app import deliverables, review
+
+    for fn in (review.render_report, deliverables.render_management_report):
+        assert getattr(fn, "__wrapped__", None) is not None, (
+            f"{fn.__name__} is not guarded"
+        )
+
+    seen = []
+
+    @pdf_guard.guarded
+    def build():
+        seen.append(threading.get_ident())
+        time.sleep(0.05)
+        return "built"
+
+    result = []
+    t = threading.Thread(target=lambda: result.append(build()))
+    with pdf_guard.held():
+        t.start()
+        time.sleep(0.05)
+        assert not seen, "the guarded function ran while another thread held the lock"
+    t.join()
+    assert result == ["built"]
+
+
+def test_threads_rendering_pages_while_a_reader_runs_on_the_same_pdf(
+    pdf, tmp_path, monkeypatch
+):
+    """The planner's test (order 252): page images from several threads while another thread runs
+    a reader function on the same file. Under the lock nothing crashes and every image served is
+    a complete PNG (the file is written to a temp name and moved into place)."""
+    from app import datasheet_inputs, pageimage
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    document = {"sha256": "ab" * 32, "stored_path": str(pdf)}
+    errors: list[BaseException] = []
+    served: list[Path] = []
+
+    def render() -> None:
+        try:
+            for _ in range(6):
+                for page in (1, 2, 3):
+                    for dpi in (72, 96):
+                        served.append(pageimage.render_page(document, page, dpi))
+        except BaseException as exc:  # noqa: BLE001 - reported below
+            errors.append(exc)
+
+    def read() -> None:
+        try:
+            for _ in range(10):
+                assert len(datasheet_inputs.page_texts(pdf)) == 3
+        except BaseException as exc:  # noqa: BLE001 - reported below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=render) for _ in range(6)] + [
+        threading.Thread(target=read)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, errors
+    assert served
+    for path in set(served):
+        pix = pymupdf.Pixmap(str(path))  # raises on a truncated or half-written PNG
+        assert pix.width > 0
+    assert not list((tmp_path / "data").rglob("*.tmp")), "a temp file was left behind"

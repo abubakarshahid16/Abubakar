@@ -19,8 +19,9 @@ module, other than the files listed there (which may only shrink).
 
 from __future__ import annotations
 
+import functools
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 _LOCK = threading.RLock()
@@ -40,3 +41,16 @@ def open_pdf(*args, **kwargs) -> Iterator:
 
     with _LOCK, pymupdf.open(*args, **kwargs) as doc:
         yield doc
+
+
+def guarded(fn: Callable) -> Callable:
+    """Run the whole function under the lock: for an export that builds a document from nothing
+    (`pymupdf.open()` with no file) in a long body that is not worth re-indenting. It must not call
+    a model or wait on another thread."""
+
+    @functools.wraps(fn)
+    def inside_the_lock(*args, **kwargs):
+        with _LOCK:
+            return fn(*args, **kwargs)
+
+    return inside_the_lock
