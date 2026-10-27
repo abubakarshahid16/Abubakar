@@ -199,3 +199,42 @@ def test_only_something_that_looks_like_a_clause_reference_is_offered(clause, ok
     spec.loader.exec_module(module)
     rows = [{"subject": "Rated differential head", "clause": clause}]
     assert module.clauses_for("rated_head", RULES, rows) == ([clause] if ok else [])
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "casing",
+        "impeller",
+        "shaft",
+        "bearing",
+        "bearings",
+        "speed",
+        "operating speed",
+        "rated power",
+        "power",
+    ],
+)
+def test_a_bare_label_that_may_hold_a_type_or_another_figure_is_not_read_as_stated(
+    label,
+):
+    """cloud-2's review of #1352: 'Casing' usually holds a construction, 'Speed' may be the driver's,
+    'Rated power' is often the driver's. 'Stated' must not be a false pass."""
+    assert dc.role_of(label, RULES) is None
+
+
+@pytest.mark.parametrize(
+    "label, role",
+    [
+        ("casing material", "casing_material"),
+        ("impeller material", "impeller_material"),
+        ("shaft material", "shaft_material"),
+        ("bearing type", "bearing_type"),
+        ("rated speed", "rated_speed"),
+        ("pump speed", "rated_speed"),
+        ("absorbed power", "absorbed_power"),
+        ("brake power", "absorbed_power"),
+    ],
+)
+def test_the_full_labels_still_read(label, role):
+    assert dc.role_of(label, RULES) == role

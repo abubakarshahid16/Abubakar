@@ -79,7 +79,7 @@
     "rated_speed": {
       "kind": "number",
       "names": [
-        "^(rated |pump |operating )?speed$"
+        "^(rated|pump) speed$"
       ],
       "printed_as": [
         "rated speed"
@@ -88,7 +88,7 @@
     "absorbed_power": {
       "kind": "number",
       "names": [
-        "^(rated |absorbed |brake |shaft )(pump )?power( at rated (point|flow))?$",
+        "^(absorbed|brake|shaft) (pump )?power( at rated (point|flow))?$",
         "^power absorbed$",
         "^bhp$"
       ],
@@ -108,7 +108,7 @@
     "casing_material": {
       "kind": "text",
       "names": [
-        "^(pump )?casing( material)?$",
+        "^(pump )?casing material$",
         "^case material$"
       ],
       "printed_as": [
@@ -118,7 +118,7 @@
     "impeller_material": {
       "kind": "text",
       "names": [
-        "^impeller( material)?$"
+        "^impeller material$"
       ],
       "printed_as": [
         "impeller material"
@@ -127,7 +127,7 @@
     "shaft_material": {
       "kind": "text",
       "names": [
-        "^shaft( material)?$"
+        "^shaft material$"
       ],
       "printed_as": [
         "shaft material"
@@ -155,7 +155,7 @@
     "bearing_type": {
       "kind": "text",
       "names": [
-        "^(radial |thrust )?bearings?( type)?$"
+        "^(radial |thrust )?bearings? type$"
       ],
       "printed_as": [
         "bearing type"
@@ -1499,7 +1499,7 @@
       },
       "clauses_verified": false,
       "governs": false,
-      "note": "DRAFT, needs the client engineer's approval. The fields an API 610 centrifugal pump datasheet carries, each written in our own words; every item asks only that the field is STATED. The clause numbers are NOT yet verified: the source clause names the datasheet annex and says the number is to be checked against the held copy (an engineer fills it through the local overlay, see scripts/pump_checklist_clauses.py). This checklist does NOT replace the standard's library requirements (governs: false): API 610 stays checked clause by clause beside it. Nothing here is binding until a client discipline engineer signs it off.",
+      "note": "DRAFT, needs the client engineer's approval. The fields an API 610 centrifugal pump datasheet carries, each written in our own words; every item asks only that the field is STATED. The clause numbers are NOT yet verified: the source clause names the datasheet annex and says the number is to be checked against the held copy (an engineer fills it through the local overlay, see scripts/pump_checklist_clauses.py). This checklist does NOT replace the standard's library requirements (governs: false): API 610 stays checked clause by clause beside it. \"Stated\" means a label of the field was found with a value, not that the value is the right kind: a bare \"Casing\", \"Impeller\", \"Shaft\", \"Bearing\" or \"Speed\" row (usually a type, not a material or the rated figure) and \"Rated power\" (often the driver's) are deliberately NOT read as these fields. Nothing here is binding until a client discipline engineer signs it off.",
       "items": [
         {
           "id": "PMP-01",
