@@ -588,7 +588,7 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
             # the local runner's model (`ai_task_runner`); None when none answered
             "model": model}
-    report["by_standard"] = clause_check_rank.by_standard(ordered, max(limit, 0))
+    report["by_standard"] = clause_check_rank.by_standard(ordered, asked)
     return report
 
 

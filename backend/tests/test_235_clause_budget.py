@@ -90,7 +90,13 @@ def test_the_cap_is_spent_on_the_top_sentences_and_each_standards_share_is_count
         reqs, review_run_id=run, limit=2, provider=Recording(proposal(), proposal())
     )
     assert out["asked"] == 2 and out["not_asked_budget"] == 1
-    # the field sentence first, then the cited standard's sentence; the other standard's is skipped
+    # the field sentence FIRST, then the cited standard's sentence; the
+    # other sentence of the first standard is skipped (the asked ORDER, not
+    # only the counts: a different order would still give these counts)
+    assert [("stamped" in p.prompt, "cast steel" in p.prompt) for p in asked] == [
+        (True, False),
+        (False, True),
+    ]
     assert out["by_standard"]["nace"]["asked"] == 1
     assert out["by_standard"][spec]["asked"] == 1
     assert out["by_standard"][spec]["sentences"] == 2
@@ -129,3 +135,65 @@ def test_a_long_list_of_standards_is_cut_with_a_count():
     assert line.count("of") == clause_check_rank.LINE_STANDARDS
     assert line.endswith("; and 3 more standard(s).")
     assert clause_check_rank.share_line(None) == "" == clause_check_rank.share_line({})
+
+
+def test_nothing_changes_when_the_budget_covers_every_sentence(review_run):
+    run, _ids, _scope = review_run
+    reqs = [
+        _s("one", "Seats shall be hardened.", standard="spec"),
+        _s("two", "The set pressure shall be stamped on the body.", standard="spec"),
+        _s("three", "Valve bodies shall be cast steel.", standard="nace"),
+    ]
+    out = air.propose_checks(
+        reqs, review_run_id=run, limit=20, provider=Fake(*[proposal()] * 3)
+    )
+    assert (out["asked"], out["not_asked_budget"]) == (3, 0)
+    assert {k: (v["sentences"], v["asked"]) for k, v in out["by_standard"].items()} == {
+        "spec": (2, 2),
+        "nace": (1, 1),
+    }
+
+
+def test_a_sentence_with_no_standard_is_counted_so_the_shares_add_up():
+    reqs = [
+        _s("a", "Seats shall be hardened.", standard="spec"),
+        {
+            "id": "b",
+            "requirement_type": "statement",
+            "source_text": "Bolts shall be zinc.",
+        },
+        {
+            "id": "c",
+            "requirement_type": "statement",
+            "source_text": "Nuts shall be zinc.",
+        },
+    ]
+    shares = clause_check_rank.by_standard(reqs, 2)
+    assert shares[clause_check_rank.UNKNOWN]["sentences"] == 2
+    assert sum(e["sentences"] for e in shares.values()) == len(reqs)
+    assert sum(e["asked"] for e in shares.values()) == 2
+
+
+def test_a_generic_or_short_one_word_field_does_not_tie_a_sentence_to_it(review_run):
+    from app import datasheets
+
+    run, _ids, _scope = review_run
+    sub = (
+        connect()
+        .execute("SELECT submittal_document_id FROM review_runs WHERE id = ?", (run,))
+        .fetchone()["submittal_document_id"]
+    )
+    for label in ("Type", "Size", "Capacity", "Rated flow"):
+        datasheets.create_fact(
+            submittal_document_id=sub,
+            chunk_id="fc",
+            field_label=label,
+            raw_value="1",
+            page=1,
+        )
+    fields, _cited = clause_check_rank.sheet_context(run)
+    assert frozenset({"type"}) not in fields and frozenset({"size"}) not in fields
+    assert frozenset({"capacity"}) in fields
+    assert frozenset({"rated", "flow"}) in fields
+    # field_label is read as well as field_name: "Set pressure" is both
+    assert frozenset({"set", "pressure"}) in fields

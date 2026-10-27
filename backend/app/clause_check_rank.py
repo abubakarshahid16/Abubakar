@@ -32,8 +32,41 @@ _STOP = frozenset(
 )
 
 
+#: A field of ONE word ties a sentence to it only when the word is this long
+#: and not a generic column word: "type", "size" or "rating" are in almost
+#: every clause and would tie it to everything.
+_MIN_ONE_WORD_FIELD = 6
+_GENERIC = frozenset(
+    {
+        "number",
+        "rating",
+        "service",
+        "design",
+        "remarks",
+        "comments",
+        "notes",
+        "description",
+        "general",
+        "model",
+        "type",
+        "size",
+        "class",
+        "item",
+    }
+)
+
+
 def words(text: str | None) -> frozenset[str]:
     return frozenset(w for w in _WORD.findall((text or "").lower()) if w not in _STOP)
+
+
+def _specific(field: frozenset[str]) -> bool:
+    """A field name that can tie a sentence to it: two or more words, or one
+    word that is long and not generic."""
+    if len(field) != 1:
+        return bool(field)
+    (word,) = field
+    return len(word) >= _MIN_ONE_WORD_FIELD and word not in _GENERIC
 
 
 def sheet_context(
@@ -53,12 +86,13 @@ def sheet_context(
     if run is None:
         return [], frozenset()
     names = {
-        r["field_name"]
+        name
         for r in conn.execute(
-            "SELECT DISTINCT field_name FROM submittal_facts"
+            "SELECT DISTINCT field_name, field_label FROM submittal_facts"
             " WHERE submittal_document_id = ? AND superseded_at IS NULL",
             (run["submittal_document_id"],),
         )
+        for name in (r["field_name"], r["field_label"])
     }
     cited = frozenset(
         r["standard_document_id"]
@@ -68,7 +102,7 @@ def sheet_context(
             (review_run_id, applicability.METHOD_REFERENCED),
         )
     )
-    return [w for w in (words(n) for n in names) if w], cited
+    return [w for w in (words(n) for n in names) if _specific(w)], cited
 
 
 def _tied(sentence_words: frozenset[str], fields: list[frozenset[str]]) -> bool:
@@ -105,22 +139,27 @@ def ordered(
 def by_standard(ordered_requirements: list[dict], asked: int) -> dict:
     """{standard id: {label, sentences, asked}} for the first `asked` of the
     ordered requirements; a standard with sentences and no check asked is
-    listed with 0. A sentence with no standard is not listed."""
+    listed with 0. A sentence with no standard id is counted under
+    `UNKNOWN`, so the shares always add up to the sentences and to `asked`."""
     from . import standard_labels
 
     out: dict[str, dict] = {}
     for index, requirement in enumerate(ordered_requirements):
-        sid = requirement.get("standard_document_id")
-        if not sid:
-            continue
+        sid = requirement.get("standard_document_id") or UNKNOWN
         entry = out.setdefault(sid, {"label": "", "sentences": 0, "asked": 0})
         entry["sentences"] += 1
         entry["asked"] += index < asked
-    for sid, name in standard_labels.filenames(sorted(out)).items():
+    for sid, name in standard_labels.filenames(
+        sorted(k for k in out if k != UNKNOWN)
+    ).items():
         out[sid]["label"] = name
+    if UNKNOWN in out:
+        out[UNKNOWN]["label"] = "sentences with no standard recorded"
     return out
 
 
+#: The bucket of sentences that carry no standard id.
+UNKNOWN = "unknown"
 #: Standards named in the report line before "and N more".
 LINE_STANDARDS = 6
 
