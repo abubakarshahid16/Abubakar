@@ -50,9 +50,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M565", phase=61,
         description="get_provider ignores REASONING_PROVIDER and always uses ollama",
         path=APP / "reasoning_provider.py",
-        # Re-anchored for #555: get_provider reads the unavailable code directly.
-        anchor="    code, why = claude_unavailable()\n    if code is None:\n        model = settings.claude_labelling",
-        replacement="    code, why = claude_unavailable()\n    if False:\n        model = settings.claude_labelling",
+        anchor="    ok, why = claude_available()\n    if ok:\n",
+        replacement="    ok, why = claude_available()\n    if False:\n",
         target="tests/test_claude_provider.py",
         keyword="claude_is_selected_only_when",
         tags=("model",),

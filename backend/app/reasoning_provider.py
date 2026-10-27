@@ -39,7 +39,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from . import fallback_note, model_transport, worker_review
+from . import model_transport, worker_review
 from .ai.json_reply import unfenced
 from .config import settings
 
@@ -244,8 +244,6 @@ class OllamaProvider:
     """
 
     name = OLLAMA
-    #: Plain words when Claude was asked for and this engine answered instead (#555).
-    fell_back: str | None = None
 
     def __init__(
         self,
@@ -970,8 +968,10 @@ def get_provider(role: str = "reasoning", *, step: str | None = None) -> Reasoni
     "labelling" (Haiku class). Claude only when `claude_available()`;
     otherwise the local engine, and the reason is logged - a fallback is never
     silent."""
-    code, why = claude_unavailable()
-    if code is None:
+    ok, why = claude_available()
+    if ok:
         model = settings.claude_labelling_model if role == "labelling" else settings.claude_reasoning_model
         return ClaudeProvider(model, step=step)
-    return fallback_note.mark(OllamaProvider(), _provider_setting() == CLAUDE, code, why)
+    if (settings.reasoning_provider or "").strip().lower() == CLAUDE:
+        log.warning("reasoning provider: claude requested but not available (%s); using ollama", why)
+    return OllamaProvider()

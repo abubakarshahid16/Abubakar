@@ -44,7 +44,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from . import claude_approved, fallback_note
+from . import claude_approved
 from . import claims, numparse, standard_ids
 from .ai import output_limits
 from .config import settings
@@ -259,7 +259,7 @@ def _ask(provider, row: dict) -> tuple[str | None, str | None, str]:
         num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CRS_WORDING),
         json_schema=SCHEMA, step=STEP, prompt_version=PROMPT_VERSION,
         timeout_s=float(settings.crs_ai_wording_timeout_s)))
-    model = fallback_note.engine_label(provider, response)
+    model = f"{response.provider}:{response.model_tag}"
     state = output_limits.state_of_response(response)
     if state != output_limits.COMPLETE:
         # Never parsed: the template row stands, the refusal is counted by name.
