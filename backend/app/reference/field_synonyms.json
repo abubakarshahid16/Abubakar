@@ -16,12 +16,18 @@
     "flange rating": ["flange rating", "flange class", "flange pressure rating", "pressure rating", "nozzle rating", "nozzle class", "nozzle flange rating"],
     "radiography": ["radiographic examination", "radiographic testing", "radiographic inspection", "extent of radiography", "radiography extent", "radiography"],
     "mechanical seal": ["mechanical seals", "mechanical seal", "seal type", "shaft seal", "shaft seal type", "shaft seals"],
-    "motor rating": ["motor rating", "motor rated power", "motor power", "driver rating", "driver rated power"],
+    "motor rating": ["motor rating", "motor rated power", "motor power", "driver rating", "driver rated power", "driver power", "driver power rating", "motor power rating"],
     "manway size": ["manway size", "manway diameter", "manway", "manways", "manhole size", "manhole"],
     "empty weight": ["empty weight", "tare weight"],
-    "rated speed": ["rated speed", "speed rated"],
+    "rated speed": ["rated speed", "speed rated", "pump speed", "rotational speed", "rotating speed"],
     "noise level": ["noise level", "sound pressure level", "sound level"],
-    "vibration": ["overall vibration", "vibration level", "vibration"]
+    "vibration": ["overall vibration", "vibration level", "vibration"],
+    "specific gravity": ["specific gravity", "relative density", "sp gr", "spgr"],
+    "absorbed power": ["absorbed power", "power absorbed", "brake horsepower", "brake power"],
+    "npsh margin": ["npsh margin", "npsha margin", "net positive suction head margin"],
+    "suction specific speed": ["suction specific speed", "nss"],
+    "differential head": ["differential head", "total differential head", "tdh"],
+    "rated flow": ["rated flow", "rated flow rate", "rated capacity"]
   },
   "_nozzle_marks": "A field named after a nozzle mark ('N1 SIZE', 'N3 RATING') is read as the NOZZLE's field ('nozzle size', 'nozzle rating') with the mark kept as the item it is about. Only 'N' + digits: other marks (M1, K2) mean different things on different sheets.",
   "nozzle_attributes": ["size", "rating", "class", "facing", "schedule", "service", "qty"]
