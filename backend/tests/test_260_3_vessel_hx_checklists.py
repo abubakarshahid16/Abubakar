@@ -176,6 +176,7 @@ def test_the_reader_is_asked_for_the_new_fields(key, sheet):
         "efficiency",
         "flow",
         "drop",
+        "duty",
     ],
 )
 def test_a_loose_label_is_not_read_as_one_of_the_new_fields(label):

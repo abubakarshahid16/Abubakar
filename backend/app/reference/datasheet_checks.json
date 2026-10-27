@@ -535,7 +535,7 @@
     "heat_duty": {
       "kind": "number",
       "names": [
-        "^(heat |thermal )?duty$"
+        "^(heat|thermal|exchanger) duty$"
       ],
       "printed_as": [
         "heat duty"
