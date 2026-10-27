@@ -28,7 +28,6 @@ from scripts import measure_health_under_load as tool
 
 DOCUMENTS = 30
 CHUNKS_EACH = 20
-RUN_SECONDS = 1.5
 HEALTH_LIMIT_S = 0.5
 
 
@@ -68,15 +67,17 @@ def _library() -> None:
                 )
 
 
-def _repeatedly(job):
-    """`job` again and again for RUN_SECONDS, so the jobs overlap many health calls."""
+def _slow(monkeypatch, module, name, seconds):
+    """The real step, made slower than the limit by a real wait: a job that ran INSIDE a health
+    call would then fail the limit. (On the small invented library one pass takes milliseconds,
+    which no regression could ever be seen through.)"""
+    real = getattr(module, name)
 
-    def run() -> None:
-        end = time.perf_counter() + RUN_SECONDS
-        while time.perf_counter() < end:
-            job()
+    def slowed(*args, **kwargs):
+        time.sleep(seconds)
+        return real(*args, **kwargs)
 
-    return run
+    monkeypatch.setattr(module, name, slowed)
 
 
 def _acronym_rebuild() -> None:
@@ -85,14 +86,23 @@ def _acronym_rebuild() -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "job"),
-    [("risk_detection", risks.run_detection), ("acronym_rebuild", _acronym_rebuild)],
+    ("name", "job", "module", "step", "seconds"),
+    [
+        ("risk_detection", risks.run_detection, risks, "detect_automatic_risks", 1.2),
+        ("acronym_rebuild", _acronym_rebuild, acronyms, "_build_document_map", 0.05),
+    ],
 )
-def test_health_stays_under_the_limit_while_the_job_runs(name, job):
+def test_health_stays_under_the_limit_while_the_job_runs(
+    monkeypatch, name, job, module, step, seconds
+):
     _library()
+    _slow(monkeypatch, module, step, seconds)
     with TestClient(app, base_url="http://127.0.0.1") as client:
-        out = tool.probe_while(client, _repeatedly(job), every=0.05)
+        out = tool.probe_while(client, job, every=0.05)
     assert out["job_error"] is None, out
+    assert out["job_seconds"] > HEALTH_LIMIT_S, (
+        f"the job was not slower than the limit: {out}"
+    )
     assert out["calls"] >= 5, f"health was not asked while the job ran: {out}"
     assert out["non_200"] == 0, out
     assert out["max_s"] < HEALTH_LIMIT_S, f"{name}: {out}"
