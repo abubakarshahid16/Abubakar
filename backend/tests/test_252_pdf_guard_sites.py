@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import threading
 import time
-from pathlib import Path
 
 import pymupdf
 import pytest
@@ -168,6 +167,36 @@ def test_the_pdf_guard_opened_gives_the_document_without_the_lock(pdf_path):
         assert doc.page_count == 1
 
 
-def test_vision_reader_takes_the_lock_for_its_page_reads():
-    src = Path(vision_reader.__file__).read_text(encoding="utf-8")
-    assert "pdf_guard.held()" in src
+def test_vision_reader_takes_the_lock_for_its_page_reads(pdf_path, monkeypatch):
+    """The render and the text read hold the lock; the model call between them does not."""
+    owned = {}
+    real_render = vision_reader.render
+    real_of = vision_reader.PageText.of
+
+    def render(page):
+        owned["render"] = pdf_guard._lock._is_owned()
+        return real_render(page)
+
+    def of(page):
+        owned["text"] = pdf_guard._lock._is_owned()
+        return real_of(page)
+
+    class Provider:
+        def reason(self, packet):
+            owned["model"] = pdf_guard._lock._is_owned()
+            return type(
+                "R",
+                (),
+                {
+                    "text": '{"page_kind": "form", "fields": []}',
+                    "model_tag": "t",
+                    "schema_errors": None,
+                    "truncated": False,
+                },
+            )()
+
+    monkeypatch.setattr(vision_reader, "render", render)
+    monkeypatch.setattr(vision_reader.PageText, "of", staticmethod(of))
+    with pymupdf.open(pdf_path) as doc:
+        vision_reader.read_page(doc[0], 1, Provider())
+    assert owned == {"render": True, "model": False, "text": True}, owned
