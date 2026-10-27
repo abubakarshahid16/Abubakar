@@ -72,9 +72,11 @@ def test_every_missing_value_is_its_own_row_one_per_field():
     assert all(r["row_kind"] == ROW_KIND_MISSING_INFORMATION for r in rows)
     noise = rows[0]
     assert noise["page_section"] == "p.1 - Noise level (P-101A, P-101B)"
-    assert noise["standard_reference"] == "SAES-G-905 cl. 4.1 (p.1)"
+    assert (
+        noise["standard_reference"] == "SAES-G-905 (edition not recorded) cl. 4.1 (p.1)"
+    )
     assert noise["comment"] == (
-        'SAES-G-905 cl. 4.1 (p.1): "The noise level shall not exceed 85 dB(A) at 1 m." '
+        'SAES-G-905 (edition not recorded) cl. 4.1 (p.1): "The noise level shall not exceed 85 dB(A) at 1 m." '
         "Datasheet p.1, Noise level (P-101A, P-101B) is left to be provided ('*'). "
         "Contractor to complete the field 'Noise level' (left blank).")
     # #725 F7: rows are ordered by page, then clause (4.1, 4.5, 4.7).
@@ -136,8 +138,13 @@ def test_the_same_rule_from_two_standards_is_one_comment_citing_both():
     rows = build_crs_rows([NC, other, dict(NC, contractor_evidence_text="9 g/L")], [], "s.pdf")
     assert len(rows) == 1
     assert "states 9 g/L" in rows[0]["comment"]
-    assert rows[0]["standard_reference"] == "SAES-X-001 cl. 5.1 (p.7); STD-OTHER cl. 9.9 (p.3)"
-    assert rows[0]["comment"].startswith("SAES-X-001 cl. 5.1 (p.7); STD-OTHER cl. 9.9 (p.3):")
+    assert (
+        rows[0]["standard_reference"]
+        == "SAES-X-001 (edition not recorded) cl. 5.1 (p.7); STD-OTHER (edition not recorded) cl. 9.9 (p.3)"
+    )
+    assert rows[0]["comment"].startswith(
+        "SAES-X-001 (edition not recorded) cl. 5.1 (p.7); STD-OTHER (edition not recorded) cl. 9.9 (p.3):"
+    )
 
 
 def test_page_section_is_the_datasheet_and_the_standard_has_its_own_column():
@@ -146,7 +153,10 @@ def test_page_section_is_the_datasheet_and_the_standard_has_its_own_column():
     standard's file name, which moved to `standard_reference`."""
     rows = build_crs_rows([dict(NC, crs_field_label="SULPHUR CONTENT")], [], "s.pdf")
     assert rows[0]["page_section"] == "p.4 - Sulphur content (V-001)"
-    assert rows[0]["standard_reference"] == "SAES-X-001 cl. 5.1 (p.7)"
+    assert (
+        rows[0]["standard_reference"]
+        == "SAES-X-001 (edition not recorded) cl. 5.1 (p.7)"
+    )
     assert ".pdf" not in rows[0]["page_section"] + rows[0]["standard_reference"]
 
 
@@ -160,7 +170,7 @@ def test_the_comment_is_an_engineers_with_a_contractor_action():
                                  "operator": ">=", "raw_value": "3", "raw_unit": "mm"})
     comment = build_crs_rows([nc], [], "s.pdf")[0]["comment"]
     assert comment == (
-        "SAES-X-001 cl. 5.1 (p.7): requires corrosion allowance for carbon steel "
+        "SAES-X-001 (edition not recorded) cl. 5.1 (p.7): requires corrosion allowance for carbon steel "
         "vessels not less than 3 mm. Datasheet p.4, Corrosion allowance (V-001) "
         "states 1.5 mm. Contractor to revise Corrosion allowance to meet the "
         "requirement, or submit a deviation request with justification for "
