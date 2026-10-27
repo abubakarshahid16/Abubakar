@@ -1,4 +1,6 @@
-"""Order 235 item 1: the clause-check budget goes to the sentences that matter.
+"""Order 235 item 1 (and 243.6): the clause-check budget goes to the sentences that matter.
+
+A safety tier sits just under the stated-field tier (243.6).
 
 `ai_clause_checks_max_per_run` caps the model calls a review spends proposing
 checks for clause sentences. The cap stays; the order changes: a sentence about
@@ -233,3 +235,42 @@ def test_a_bare_shall_not_and_a_limit_phrase_are_not_safety():
         "A silicone gasket is used."
     )  # whole words only
     assert not clause_check_rank.is_safety("")
+    # a heat treatment is not overpressure protection
+    assert not clause_check_rank.is_safety(
+        "Stress relief shall be applied after welding."
+    )
+    assert not clause_check_rank.is_safety("Post-weld stress-relieving is required.")
+    # a phrase split over a line break, and the other spelling of a disc
+    assert clause_check_rank.is_safety("ESD valves shall not be\nbypassed.")
+    assert clause_check_rank.is_safety("A rupture disk is fitted upstream.")
+    assert clause_check_rank.is_safety("Pressure relief valves are tested yearly.")
+
+
+def test_through_the_run_the_safety_sentence_is_really_asked_inside_the_budget(
+    review_run,
+):
+    """End to end through `propose_checks(limit=20)`: 25 figure sentences of a
+    cited standard and one safety sentence of an uncited one."""
+    run, _ids, _scope = review_run
+    with connect() as conn:
+        conn.execute(
+            "UPDATE review_applicable_standards SET selection_method = 'referenced'"
+            " WHERE review_run_id = ? AND standard_document_id = 'nace'",
+            (run,),
+        )
+    reqs = [
+        _s(f"n{i}", f"Gasket {i} shall be rated for {i + 10} bar.", standard="nace")
+        for i in range(25)
+    ] + [_s("safety", "Relief valves shall not be isolated.", standard="spec")]
+    asked = []
+
+    class Recording(Fake):
+        def reason(self, packet):
+            asked.append(packet.prompt)
+            return super().reason(packet)
+
+    out = air.propose_checks(
+        reqs, review_run_id=run, limit=20, provider=Recording(*[proposal()] * 20)
+    )
+    assert out["asked"] == 20 and out["not_asked_budget"] == 6
+    assert any("Relief valves shall not be isolated." in p for p in asked)
