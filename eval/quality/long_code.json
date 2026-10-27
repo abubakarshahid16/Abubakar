@@ -126,7 +126,7 @@
   "backend/app/reasoning_provider.py::_claude_stream": 121,
   "backend/app/reports.py::build_snapshot": 100,
   "backend/app/review.py::ensure_schema": 200,
-  "backend/app/review_jobs.py::run": 99,
+  "backend/app/review_jobs.py::run": 98,
   "backend/app/review_trace.py::build": 146,
   "backend/app/search.py::apply_identifier_boost": 110,
   "backend/app/search.py::search": 290,

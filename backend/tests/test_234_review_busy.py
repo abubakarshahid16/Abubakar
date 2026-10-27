@@ -17,10 +17,7 @@ from app import dashboard_pool, ingest, job_queue, review_jobs
 from app.ingest import NO_PROGRESS_SECONDS, STALL_AFTER_SECONDS, IngestionWorker
 from app.main import app
 from app.worker_review import REVIEW_SILENCE_SECONDS
-from tests.test_worker_health import (  # noqa: F401 - fixture + helper
-    temp_storage,
-    upload,
-)
+from tests.test_worker_health import temp_storage, upload  # noqa: F401
 
 
 def _alive_worker_with_a_backlog(monkeypatch):
@@ -154,3 +151,32 @@ class _StepConn:
 
     def fetchone(self):
         return None
+
+
+def test_a_model_call_is_a_beat_at_both_ends_while_a_review_runs(monkeypatch):
+    from app import model_transport, worker_review
+    from app.reasoning_provider import OllamaProvider, Packet
+
+    monkeypatch.setattr(
+        model_transport,
+        "post_json",
+        lambda path, body, timeout: {"response": "{}", "model": "m"},
+    )
+    beats = []
+    provider = OllamaProvider("m", timeout=5)
+    packet = Packet(prompt="p", num_ctx=1024, num_predict=16)
+    provider.reason(packet)
+    assert beats == []  # no review running on this thread: nothing beats
+    token = worker_review._ACTIVITY.set(lambda: beats.append(1))
+    try:
+        provider.reason(packet)
+    finally:
+        worker_review._ACTIVITY.reset(token)
+    assert len(beats) == 2
+
+
+def test_a_dead_worker_thread_is_not_busy():
+    w = IngestionWorker()  # no thread started: not alive
+    w.reviewing = True
+    w.last_beat = time.time()
+    assert w.in_review() is False

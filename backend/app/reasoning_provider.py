@@ -39,7 +39,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from . import model_transport
+from . import model_transport, worker_review
 from .ai.json_reply import unfenced
 from .config import settings
 
@@ -291,7 +291,7 @@ class OllamaProvider:
         }
         if packet.json_schema is not None:
             body["format"] = packet.json_schema
-        started = time.time()
+        started = worker_review.beat_now()
         try:
             post = (
                 model_transport.post_json_retrying
@@ -304,7 +304,7 @@ class OllamaProvider:
         # ruff's blind-except rule is about swallowing, which this does not do.
         except Exception as exc:
             raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
-        wall = time.time() - started
+        wall = worker_review.beat_now() - started
 
         text = str(raw.get("response") or "").strip()
         # THE ENGINE'S OWN ANSWER about what ran. Falling back to the requested
