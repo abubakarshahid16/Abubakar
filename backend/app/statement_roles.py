@@ -52,6 +52,16 @@ _CUES = frozenset(
         "while",
         "only",
         "without",
+        "neither",
+        "nor",
+        "other",
+        "otherwise",
+        "or",
+        "either",
+        "alternative",
+        "alternatively",
+        "optional",
+        "may",
     ]
 )
 MAX_PHRASE_WORDS = 6
