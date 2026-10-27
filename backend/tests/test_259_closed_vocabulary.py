@@ -191,7 +191,7 @@ def test_the_script_refuses_the_live_database_and_counts_a_copy(monkeypatch, tmp
 
 
 def test_the_script_names_a_copys_numeric_limits_and_reports_counts_only(tmp_path):
-    req, _fact, _run, _scope = _world("Max allowable working pressure", "12 bar")
+    _req, _fact, _run, _scope = _world("Max allowable working pressure", "12 bar")
     fake = Fake(lambda t: "mawp", lambda t: "maximum allowable working pressure")
     out = name_numeric_limits.run(tmp_path / "vocab.sqlite", provider=fake)
     assert (
