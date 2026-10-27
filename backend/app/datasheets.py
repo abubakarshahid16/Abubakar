@@ -3485,7 +3485,7 @@ def _extract_facts(
         page_ledger.refresh(document_id, as_submittal=True)
         return empty
 
-    stored_path = stored_paths.local(chunks[0]["stored_path"])
+    stored_path = page_ledger.reading_file(stored_paths.local(chunks[0]["stored_path"]))
     # #177 PROVENANCE: the code that reads this sheet (this module and the
     # table parser it leans on) and exactly what it read - the stored file's
     # hash plus every chunk's text, in order. See `provenance.py`. NOT
