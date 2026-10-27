@@ -34,13 +34,17 @@ _FIGURE = re.compile(r"\d")
 #: it: "shall not exceed N" is the commonest limit phrase and would put most
 #: sentences in the tier; only a prohibition of a safeguarding ACTION counts.
 _SAFETY = re.compile(
-    r"\b(?:hazardous|explosive|flammable|toxic|h2s|hydrogen sulphide"
-    r"|hydrogen sulfide|fire|sil|safety instrumented|safety integrity"
-    r"|relief|overpressure|over-pressure|rupture disc|blowdown|emergency shutdown"
-    r"|shall not be (?:isolated|bypassed|disabled|removed|blocked|closed|plugged"
-    r"|locked|throttled|inhibited))\b",
+    r"\b(?:hazardous|explosive|flammable|toxic|h2s|hydrogen\s+sulphide"
+    r"|hydrogen\s+sulfide|fire|sil|safety\s+instrumented|safety\s+integrity"
+    r"|relief|overpressure|over-pressure|rupture\s+dis[ck]|blowdown"
+    r"|emergency\s+shutdown"
+    r"|shall\s+not\s+be\s+(?:isolated|bypassed|disabled|removed|blocked|closed"
+    r"|plugged|locked|throttled|inhibited))\b",
     re.IGNORECASE,
 )
+#: "Stress relief" is a heat treatment of welds, not overpressure protection:
+#: taken out before the vocabulary is searched.
+_STRESS_RELIEF = re.compile(r"\bstress[\s-]+relie(?:f|ve|ving|ved)\b", re.IGNORECASE)
 #: Words that carry no field meaning ("rated" is not a stop word: it is part of
 #: field names like "rated flow").
 _STOP = frozenset(
@@ -127,7 +131,7 @@ def _tied(sentence_words: frozenset[str], fields: list[frozenset[str]]) -> bool:
 
 def is_safety(text: str) -> bool:
     """True when the sentence uses the closed safety vocabulary."""
-    return _SAFETY.search(text or "") is not None
+    return _SAFETY.search(_STRESS_RELIEF.sub(" ", text or "")) is not None
 
 
 def rank(
