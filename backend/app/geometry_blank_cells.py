@@ -10,9 +10,11 @@ evidence of the geometry:
 
   * the cell right of the label is a real cell of the table (it has a box) with
     no text;
-  * the same column holds text in at least `MIN_FILLED_ABOVE` other rows, so it
-    is demonstrably the answer column (a table with a single answer is not
-    enough);
+  * at least `MIN_FILLED_ABOVE` other rows hold text in BOTH the label column
+    and the answer column, so the pair is demonstrably label and answer
+    (a table with a single answer is not enough), and the cell left of the
+    label is filled or empty as it is in most of those rows (a wrapped value
+    line or a note under an empty label cell is no label);
   * the page is upright, and no image, no drawn shape and no word lies inside
     the cell (`INSET` inside its rules).
 
@@ -36,6 +38,28 @@ INSET = 1.5
 MARKER = "empty cell"
 
 
+def _holds(row_cells: list[dict], column: int) -> bool:
+    return any(c["column"] == column and c["text"] for c in row_cells)
+
+
+def _label_sits_where_labels_sit(
+    cells: list[dict], at: int, paired: list[list[dict]], column: int
+) -> bool:
+    """The cell to the left of the lone text is filled exactly as it is in the
+    table's own label/value rows. A wrapped value line or a note in a row whose
+    label cell is empty has an empty left neighbour where real labels have a
+    filled one, and is then no label."""
+    if at == 0:
+        return True
+    left = cells[at - 1]["column"]
+    same = sum(
+        1
+        for row_cells in paired
+        if _holds(row_cells, left) == bool(cells[at - 1]["text"])
+    )
+    return same * 2 > len(paired)
+
+
 def rows(
     table: dict[str, Any], index: int, cells: list[dict], filled: list[int]
 ) -> list[dict]:
@@ -51,13 +75,16 @@ def rows(
     if value.get("bbox") is None or value["text"]:
         return []
     column = value["column"]
-    filled_above = sum(
-        1
+    paired = [
+        data["cells"]
         for i, data in enumerate(table["rows"])
         if i != index
-        and any(c["column"] == column and c["text"] for c in data["cells"])
-    )
-    if filled_above < MIN_FILLED_ABOVE:
+        and _holds(data["cells"], label["column"])
+        and _holds(data["cells"], column)
+    ]
+    if len(paired) < MIN_FILLED_ABOVE or not _label_sits_where_labels_sit(
+        cells, filled[0], paired, label["column"]
+    ):
         return []
     return [
         {

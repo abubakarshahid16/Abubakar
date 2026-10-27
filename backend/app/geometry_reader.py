@@ -418,7 +418,7 @@ def _table_cell_value(text: str) -> dict[str, Any]:
     a run, "*", "By <party>" or "TBA" in a cell is a blank with its marker,
     the same evidence rule `_parse_form_value` applies to forms. An EMPTY
     cell keeps `is_blank=True` with NO marker - it is not evidence of a
-    blank field, and `read_page_rows` does not emit it. A cell that is only
+    blank field; `geometry_blank_cells` decides. A cell that is only
     a printed unit keeps the plain unit split it always had.
     """
     if not text:

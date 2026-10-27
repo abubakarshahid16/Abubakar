@@ -75,4 +75,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="image_or_a_drawn_shape",
         tags=("honesty", "critical"),
     ),
+    Mutation(
+        id="M1324-07",
+        phase=1324,
+        description="a value line under an empty label cell is taken for a label (a false blank)",
+        path=_F,
+        anchor="    return same * 2 > len(paired)\n",
+        replacement="    return True\n",
+        target=_T,
+        keyword="is_not_a_blank",
+        tags=("honesty", "critical"),
+    ),
 )

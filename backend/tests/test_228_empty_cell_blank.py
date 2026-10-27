@@ -169,3 +169,56 @@ def test_end_to_end_the_blank_is_a_stored_fact_with_its_marker(tmp_path, monkeyp
     blanks = {f["field_name"]: f for f in facts if f["is_blank"]}
     assert any("rated relieving capacity" in name for name in blanks), sorted(blanks)
     assert all(f["blank_marker"] == gb.MARKER for f in blanks.values()), blanks
+
+
+def _grid(rows, xs):
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    ys = [60 + 24 * i for i in range(len(rows) + 1)]
+    for y in ys:
+        page.draw_line((xs[0], y), (xs[-1], y), width=0.6)
+    for x in xs:
+        page.draw_line((x, ys[0]), (x, ys[-1]), width=0.6)
+    for i, cells in enumerate(rows):
+        for j, text in enumerate(cells):
+            if text:
+                page.insert_text((xs[j] + 4, ys[i] + 15), text, fontsize=9)
+    return doc, page
+
+
+def _grid_rows(rows, xs):
+    doc, page = _grid(rows, xs)
+    try:
+        return {r["label"]: r for r in g.read_page_rows(page) if r["source"] == "table"}
+    finally:
+        doc.close()
+
+
+def test_a_value_line_under_an_empty_label_cell_is_not_a_blank():
+    got = _grid_rows(
+        [
+            ("Rated capacity", "125", "m3/h"),
+            ("Differential head", "85", "m"),
+            ("Design pressure", "10", "barg"),
+            ("Material", "Carbon steel", ""),
+            ("", "Class 300", ""),
+            ("", "Forged", ""),
+        ],
+        [50, 200, 330, 450],
+    )
+    assert "Class 300" not in got and "Forged" not in got, sorted(got)
+
+
+def test_a_note_in_the_value_column_with_no_label_is_not_a_blank():
+    got = _grid_rows(
+        [
+            ("Rated capacity", "125 m3/h", "per API 520"),
+            ("Differential head", "85 m", "at rated flow"),
+            ("Design pressure", "10 barg", "gauge"),
+            ("", "or equivalent", ""),
+            ("Orifice designation", "", ""),
+        ],
+        [50, 200, 330, 450],
+    )
+    assert "or equivalent" not in got, sorted(got)
+    assert got["Orifice designation"]["is_blank"] is True, "a real label still is"
