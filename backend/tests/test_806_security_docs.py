@@ -66,3 +66,17 @@ def test_the_pack_carries_no_secret_shaped_text():
     for path in check.DOCS.glob("*.md"):
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"sk-ant-[A-Za-z0-9]|ghp_[A-Za-z0-9]{20}|github_pat_", text), path.name
+
+
+def test_the_owner_signoff_page_exists_names_each_owner_issue_and_its_links_resolve():
+    import re
+
+    page = check.DOCS / "owner-signoff.md"
+    text = page.read_text(encoding="utf-8")
+    for issue in ("#817", "#820", "#821", "#825", "#826"):
+        assert issue in text, issue
+    links = re.findall(r"\]\(([^)#]+\.md)\)", text)
+    assert links, "the page links no control file"
+    for link in links:
+        assert (check.DOCS / link).is_file(), link
+    assert "owner-signoff.md" in (check.DOCS / "README.md").read_text(encoding="utf-8")
