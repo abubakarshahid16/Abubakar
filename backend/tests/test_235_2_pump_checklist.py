@@ -163,3 +163,13 @@ def test_the_clause_finder_lists_references_only_never_text():
     assert module.clauses_for("rated_head", RULES, rows) == ["6.1.1", "6.1.2"]
     assert module.clauses_for("npsh_required", RULES, rows) == ["6.1.5"]
     assert module.clauses_for("seal_plan", RULES, rows) == []
+    # a clause whose SENTENCE names the field is offered after the subject matches, marked ?
+    more = [
+        *rows,
+        {
+            "subject": "Hydrostatic test",
+            "clause": "8.3.2",
+            "source_text": "The NPSH required shall be shown.",
+        },
+    ]
+    assert module.clauses_for("npsh_required", RULES, more) == ["6.1.5", "8.3.2?"]

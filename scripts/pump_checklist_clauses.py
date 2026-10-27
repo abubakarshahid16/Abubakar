@@ -8,7 +8,8 @@ database. For each checklist item it lists the clause references of the
 standard's requirements whose subject names the item's field, so the engineer
 can confirm one clause per item and put it in the local overlay
 (`<data_dir>/checklists/centrifugal_pump.json`, same shape as an item). It prints
-item ids, clause references and counts. NEVER a requirement's text.
+item ids, clause references and counts. NEVER a requirement's text. A clause
+found only by its sentence (not its subject) carries a trailing ?.
 
     python scripts/pump_checklist_clauses.py [--db PATH] [--standard NAME_PART]
 
@@ -37,17 +38,30 @@ def field_words(role: str, rules: dict) -> list[str]:
     return [" ".join(re.findall(r"[a-z0-9]+", s.lower())) for s in spellings if s]
 
 
+def _words(text) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+
+
 def clauses_for(role: str, rules: dict, rows: list[dict]) -> list[str]:
-    """Clause references (distinct, in order) of the rows whose subject names the role."""
-    wanted = field_words(role, rules)
-    found: list[str] = []
+    """Clause references (distinct, in order) of the rows about the role: first the rows whose
+    SUBJECT names the field, then (marked with a trailing ?) rows whose sentence names it. The
+    sentence is only searched, never printed or returned."""
+    wanted = [w for w in field_words(role, rules) if w]
+    strong: list[str] = []
+    weak: list[str] = []
     for row in rows:
-        subject = " ".join(
-            re.findall(r"[a-z0-9]+", str(row.get("subject") or "").lower())
-        )
-        if subject and any(w and w in subject for w in wanted) and row.get("clause"):
-            found.append(str(row["clause"]))
-    return list(dict.fromkeys(found))
+        clause = str(row.get("clause") or "")
+        if not clause:
+            continue
+        subject = _words(row.get("subject"))
+        text = _words(row.get("source_text") or row.get("requirement_text"))
+        if subject and any(w in subject for w in wanted):
+            strong.append(clause)
+        elif any(f" {w} " in f" {text} " for w in wanted):
+            weak.append(clause + "?")
+    return list(dict.fromkeys(strong)) + [
+        c for c in dict.fromkeys(weak) if c[:-1] not in strong
+    ]
 
 
 def main() -> int:
@@ -74,7 +88,8 @@ def main() -> int:
         [
             dict(r)
             for r in conn.execute(
-                "SELECT subject, clause FROM standard_requirements WHERE superseded_at IS NULL"
+                "SELECT subject, clause, source_text, requirement_text FROM standard_requirements"
+                " WHERE superseded_at IS NULL"
                 f" AND standard_document_id IN ({','.join('?' for _ in ids)})",
                 ids,
             )
