@@ -99,7 +99,7 @@ def test_a_checklist_clause_is_found_in_the_held_standard_and_boxed(world, tmp_p
                      (world["std"],))
     body = _evidence(finding["id"], world["admin"]).json()
     assert body["standard"] == {"document_id": world["std"], "filename": body["standard"]["filename"],
-                                "page": 1, "box": "clause_text", "reason": None}
+                                "page": 1, "box": "clause_text", "reason": None, "scan": None}
     r = _get(finding["id"], world["admin"], side="standard")
     assert (r.status_code, r.headers["x-answer-located"], r.headers["x-evidence-page"]) == (200, "1", "1")
 
