@@ -6,8 +6,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { SummaryCard } from "./SummaryCard";
-import type { AnalysisResult } from "../../types/analysis";
+import { SummaryCard, summaryBoundary } from "./SummaryCard";
+import type { AnalysisResult, EvidenceItem } from "../../types/analysis";
 
 const IDS = ["ev_a1b2c3d4e5f60718", "ev_0f1e2d3c4b5a6978", "ev_9988776655443322"];
 
@@ -141,5 +141,64 @@ describe("SummaryCard: truncation and findings", () => {
     expect(result.documented_findings[0].source_kind).toBe("user_stated");
     render(<SummaryCard result={result} onCite={vi.fn()} />);
     expect(screen.getByText(/stated by the user/i)).toBeInTheDocument();
+  });
+});
+
+function ledgerFor(ids: string[], documents: string[]): EvidenceItem[] {
+  return ids.map((id, i) => ({
+    evidence_id: id,
+    document_id: documents[i],
+    filename: `${documents[i]}.pdf`,
+    page_start: 1,
+    page_end: 1,
+    section: null,
+    exact_span: "invented passage",
+    text_source: "extracted" as const,
+    ocr_min_conf: null,
+    ocr_alphabet_violations: 0,
+    relevance_score: null,
+    relevance_score_type: null,
+  }));
+}
+
+describe("SummaryCard: the summary states its boundary (#1026)", () => {
+  it("says how many of the selected documents the cited passages come from", () => {
+    const result = makeResult({ evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_b"]) });
+    render(<SummaryCard result={result} onCite={vi.fn()} />);
+    expect(screen.getByTestId("summary-boundary")).toHaveTextContent(
+      "Passages from 2 of 2 selected documents you can read",
+    );
+    // The header still counts passages only, as before.
+    expect(screen.getByText(/^Summary of \d+ passages?$/)).toHaveTextContent("Summary of 3 passages");
+  });
+
+  it("uses the coverage count of selected documents, not the cited ones", () => {
+    const result = makeResult({
+      evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_a"]),
+      coverage: { ...makeResult().coverage, authorized_documents_selected: 5 },
+    });
+    expect(summaryBoundary(result)).toBe("Passages from 1 of 5 selected documents you can read");
+  });
+
+  it("singular: one selected document", () => {
+    const result = makeResult({
+      evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_a"]),
+      coverage: { ...makeResult().coverage, authorized_documents_selected: 1 },
+    });
+    expect(summaryBoundary(result)).toBe("Passages from 1 of 1 selected document you can read");
+  });
+
+  it("states nothing when a cited passage is not in the ledger (never a guessed or zero count)", () => {
+    const result = makeResult({ evidence_ledger: ledgerFor(IDS.slice(0, 2), ["doc_a", "doc_b"]) });
+    expect(summaryBoundary(result)).toBeNull();
+    render(<SummaryCard result={result} onCite={vi.fn()} />);
+    expect(screen.queryByTestId("summary-boundary")).toBeNull();
+  });
+
+  it("states nothing when no passage is cited or the selected count is absent", () => {
+    expect(summaryBoundary(makeResult({ summary_cited_evidence_ids: [] }))).toBeNull();
+    const noCoverage = makeResult({ evidence_ledger: ledgerFor(IDS, ["a", "b", "c"]) });
+    (noCoverage.coverage as unknown as Record<string, unknown>).authorized_documents_selected = null;
+    expect(summaryBoundary(noCoverage)).toBeNull();
   });
 });

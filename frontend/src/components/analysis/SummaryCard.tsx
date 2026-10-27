@@ -158,6 +158,28 @@ function Finding({
   );
 }
 
+/**
+ * Whose documents the summary's passages come from (honesty invariant 4: every
+ * count states its boundary, #1026). "Passages from M of S selected documents you
+ * can read": M = the distinct documents of the cited passages, S = the documents
+ * the analysis was allowed to read among those selected (`coverage`). Null when
+ * any cited passage is missing from the ledger or the coverage count is absent:
+ * a boundary the card cannot prove is not stated, and is never shown as 0.
+ */
+export function summaryBoundary(result: AnalysisResult): string | null {
+  const ids = result.summary_cited_evidence_ids;
+  const selected = result.coverage?.authorized_documents_selected;
+  if (ids.length === 0 || typeof selected !== "number") return null;
+  const documentOf = new Map(result.evidence_ledger.map((e) => [e.evidence_id, e.document_id]));
+  const cited = new Set<string>();
+  for (const id of ids) {
+    const document = documentOf.get(id);
+    if (document === undefined) return null;
+    cited.add(document);
+  }
+  return `Passages from ${cited.size} of ${selected} selected document${selected === 1 ? "" : "s"} you can read`;
+}
+
 export function SummaryCard({
   result,
   onCite,
@@ -169,6 +191,7 @@ export function SummaryCard({
 }) {
   const ids = result.summary_cited_evidence_ids;
   const n = ids.length;
+  const boundary = summaryBoundary(result);
   const hasFindings = result.documented_findings.length > 0;
 
   // Nothing at all to say: no prose and no findings. Renders as NOTHING - the
@@ -200,6 +223,12 @@ export function SummaryCard({
               Summary of {n} passage{n === 1 ? "" : "s"}
             </span>
           </div>
+
+          {boundary !== null && (
+            <p data-testid="summary-boundary" className="mt-1 text-xs text-slateish-500">
+              {boundary}
+            </p>
+          )}
 
           <p className="model-prose mt-2 text-[15px] text-slateish-200">
             <CitedText text={result.summary} evidenceIds={ids} onCite={onCite} />
