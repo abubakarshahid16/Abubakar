@@ -55,7 +55,7 @@ from __future__ import annotations
 import re
 import uuid
 
-from . import ai_task_runner, numparse, standard_ids
+from . import ai_task_runner, clause_check_rank, numparse, standard_ids
 from .config import settings
 
 #: Words per task. Under the runner's 300-word limit, so a passage split at a
@@ -548,7 +548,8 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     drafts = []
     # #645 live run (12 Oct): the cap goes first to the sentences that print
     # a figure - a limit is a number - and only then to the rest, in order.
-    ordered = sorted(requirements, key=lambda r: not _FIGURE.search(_sentence(r)))
+    # Order 235: first a field the sheet states, a standard it cites, then a figure.
+    ordered = clause_check_rank.ordered(requirements, review_run_id, _sentence)
     for requirement in ordered[:max(limit, 0)]:
         sentence = _sentence(requirement)
         asked += 1
@@ -582,14 +583,13 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
                 [(uuid.uuid4().hex, rid, c["field"], c["operator"], c["value"], c["unit"] or "",
                   c["condition"], c["quote"], model, review_run_id)
                  for rid, c, model in drafts])
-    return {"sentences": len(requirements), "asked": asked, "proposed": proposed,
+    report = {"sentences": len(requirements), "asked": asked, "proposed": proposed,
             "no_limit": no_limit, "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
             # the local runner's model (`ai_task_runner`); None when none answered
             "model": model}
-
-
-_FIGURE = re.compile(r"\d")
+    report["by_standard"] = clause_check_rank.by_standard(ordered, asked)
+    return report
 
 
 def _sentence(requirement: dict) -> str:
@@ -623,7 +623,7 @@ def report_line(counts: dict | None) -> str | None:
             f"{counts['could_not_read']} not read by the model")
     if counts.get("not_asked_budget"):
         line += f", {counts['not_asked_budget']} not asked (the per-run cap)"
-    return line + "."
+    return line + "." + clause_check_rank.share_line(counts.get("by_standard"))
 
 
 # ------------------------------- #882 technique 2: one small exact question

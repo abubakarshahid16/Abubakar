@@ -40,6 +40,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
+| `answer_model_notice` | Order 238.2: the dashboard warning when the default 35B answer model is not installed, naming the earlier model |
 | `answerability` | B8: the answer-level safety gate - does the evidence ANSWER the question? |
 | `api.documents` | Routes: upload, list, read and delete documents, the ingest steps and the bulk role change (moved out of main.py, order 73) |
 | `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
@@ -101,9 +102,12 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
 | `run_finishing` | Order 236: a run whose job is still writing the AI comments, numbers and wording reads as running, not completed |
+| `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
+| `clause_check_rank` | Order 235 item 1: which clause sentences get the per-run clause-check budget (fields the sheet states, then a safety clause, then standards it cites, then figures) and each standard's share |
 | `crs_carry` | K1 (code audit 26 Oct): an issued CRS number carries the engineer's confirmation only for the words they confirmed; other words under the same number need a fresh tick (the number stays) |
 | `crs_reference` | Order 227: what a CRS Standard Reference says after the standard's name: its edition (stored on the finding or printed in the standard's own name; "edition not recorded" when unknown, never guessed), the clause words and the page |
 | `crs_mapping` | Write the CRS comment text |
+| `crs_no_field` | A library requirement no field on the sheet answers is one grouped engineer note per standard, never a contractor row (order 245) |
 | `crs_page_words` | What the CRS Page/Section cell says: the datasheet page and field, or "Not found on pages 1-N" with at most three tags (order 228.4) |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
@@ -141,6 +145,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
 | `geometry_blank_cells` | An empty ruled cell beside a label is a blank only when the geometry proves it (order 228.9) |
+| `geometry_index_cells` | A side-by-side numbered form is read as two lists; a lone index number is never an answer (order 228.9b) |
 | `glossary` | Engineering synonyms: the words people type -> the words documents print |
 | `held_standards` | Marks and counts the standards a review held for the engineer (equipment type unsure), with the caller's boundary |
 | `heavy_lock` | One lock for the heavy jobs on a machine (#680) |
@@ -209,6 +214,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rule_eval` | Table and formula rules, evaluated in code (owner order 2026-09-26, 2a + 2b) |
 | `schemas` | Typed response models |
 | `scope_ledger` | Every requirement in a review's scope ends in exactly ONE state, with a reason (#677) |
+| `scope_quote` | A division's scope reading counts only when its quote is one real sentence (order 242.2) |
 | `scores` | Scores that know which scale they are on |
 | `search` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |
 | `clause_support` | Orders 180: a sentence that states no requirement is never a supporting clause; one naming a service the sheet does not state is held |
