@@ -1,8 +1,8 @@
 """Order 263.1: a STATEMENT rule ("the pump shall have X") limits a TEXT field of the form to a value.
 
 `rule_roles` maps numeric rules to the numeric fields of an equipment type's form. Numeric rules are
-13% of M-03; 75% are statements. A statement is a check only when it names a field the form already
-asks for (casing material, seal type, bearing type ...) AND the value the clause requires for it:
+13% of the pump review standards' rules; 75% are statements. A statement is a check only
+when it names a field the form already asks for (casing material, seal type, bearing type ...) AND the value the clause requires for it:
   * the local model (offline, on a copy) answers one TEXT field of the type's form, the words that
     name the field, and the words that state the required value, all copied from the sentence;
   * code keeps the answer only if (gate 1) the field number indexes the list, (gate 2) both
@@ -36,8 +36,23 @@ KIND = "statement_rule"
 STATEMENT = "statement"
 #: Words that make a statement conditional, negative, exceptional or a choice: not a plain "shall be X".
 _CUES = frozenset(
-    "not no never non except excepting excluding unless if when whenever where while only without "
-    "neither nor other otherwise or either alternative alternatively optional may".split()
+    [
+        "not",
+        "no",
+        "never",
+        "non",
+        "except",
+        "excepting",
+        "excluding",
+        "unless",
+        "if",
+        "when",
+        "whenever",
+        "where",
+        "while",
+        "only",
+        "without",
+    ]
 )
 MAX_PHRASE_WORDS = 6
 _SCHEMA = {
@@ -316,10 +331,12 @@ def _role_of_fact(fact: dict, rules: dict) -> str | None:
     from .datasheets import normalise_field_name
 
     label = fact.get("field_label") or fact.get("field_name") or ""
-    return datasheet_checks.role_of(normalise_field_name(label), rules) if label else None
+    return (
+        datasheet_checks.role_of(normalise_field_name(label), rules) if label else None
+    )
 
 
-def match(requirement: dict, facts: list[dict], names: dict, sheet_kind: str | None = None):
+def match(requirement: dict, facts: list[dict], names: dict):
     """The sheet fact a reviewed STATEMENT mapping pairs a statement rule with, in the shape of
     `comparison.match_by_field_name` (method `field_name`, so `compare`'s verdict is held for an
     engineer), or None. The phrase says both sides: what the clause requires and what the sheet
@@ -348,10 +365,15 @@ def match(requirement: dict, facts: list[dict], names: dict, sheet_kind: str | N
             "matched_phrase": info["name"],
             "method": None,
             "reason": comparison.AMBIGUOUS_MATCH,
-            "candidates": sorted(f"{f.get('field_label') or info['name']} (page {f.get('page')})" for f in hits),
+            "candidates": sorted(
+                f"{f.get('field_label') or info['name']} (page {f.get('page')})"
+                for f in hits
+            ),
             "refused": [],
         }
-    fact = sorted(hits, key=lambda f: (f.get("page") or 0, f.get("field_label") or ""))[0]
+    fact = sorted(hits, key=lambda f: (f.get("page") or 0, f.get("field_label") or ""))[
+        0
+    ]
     stated = " ".join(str(fact.get("field_value") or "").split())
     if fact.get("is_blank") or not stated:
         said = "the sheet leaves it to be provided"

@@ -3595,7 +3595,8 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     """
     if not is_matchable(requirement) or requirement.get("raw_value") in (None, ""):
         from . import statement_roles
-        return statement_roles.match(requirement, facts, names, sheet_kind)  # 263.1
+
+        return statement_roles.match(requirement, facts, names)  # 263.1
     field = (names.get("requirements") or {}).get(str(requirement.get("id")))
     if not field:
         return None
@@ -3624,9 +3625,8 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     if len(allowed) > 1:
         filled = [f for f in allowed if fact_has_number(f) and not f.get("is_blank")]
         if not filled:
-            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the
-            # same - the sheet leaves this quantity to be provided. The one
-            # whose OWN label is the name comes first, then by page and label;
+            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the same (left to be
+            # provided). The one whose OWN label is the name comes first, then by page and label;
             # the others are NAMED; no value was chosen between.
             from .field_naming import own_names
             ordered = sorted(allowed, key=lambda f: (field not in own_names(f),

@@ -12,7 +12,6 @@ import pytest
 from app import (
     db,
     field_naming,
-    field_vocabulary,
     rule_roles,
     statement_roles,
     submittal_review,
@@ -267,9 +266,8 @@ import propose_rule_roles  # noqa: E402
 def test_the_script_maps_numeric_and_statement_rules_in_one_file_and_counts_only(
     tmp_path,
 ):
-    from tests.test_field_naming import _world
-
     from app import standards
+    from tests.test_field_naming import _world
 
     _world("Casing material", "Duplex stainless steel")
     with db.connect() as conn:
@@ -375,9 +373,8 @@ def test_the_script_maps_numeric_and_statement_rules_in_one_file_and_counts_only
 
 def _statement_world(sheet_value):
     """One standard with a statement rule, one pump submittal with a casing-material fact, one run."""
-    from tests.test_field_naming import _world
-
     from app import standards
+    from tests.test_field_naming import _world
 
     text = "The casing material shall be duplex stainless steel."
     _req, fact, run, scope = _world("Casing material", sheet_value)
