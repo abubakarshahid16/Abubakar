@@ -26,6 +26,7 @@ WORDS = {
     "KEY_MISSING": "no Claude key is set",
 }
 OTHER = "Claude could not be used"
+NOT_APPROVED = "a document in this review is not approved for the cloud model"
 
 
 def mark(engine, requested_claude: bool, code: str | None, why: str):
@@ -47,3 +48,34 @@ def engine_label(provider, response) -> str:
     label = f"{response.provider}:{response.model_tag}"
     words = getattr(provider, "fell_back", None)
     return f"{label} (Claude not used: {words})" if words else label
+
+
+def carry(old, **timeout):
+    """A fresh local provider (built with `timeout`) that keeps `old`'s `fell_back` note: a
+    replacement must not drop the fact that Claude was asked for."""
+    from . import reasoning_provider as rp
+
+    new = rp.OllamaProvider(**timeout)
+    new.fell_back = getattr(old, "fell_back", None)
+    return new
+
+
+def or_local(
+    provider, engine_setting: str | None, role: str = "reasoning", *, step=None
+):
+    """The Claude provider for a step whose OWN engine setting says claude when the lane and the
+    review's documents allow it (`rp.claude_for_task`), else `provider` (local), marked when the
+    step asked for Claude and did not get it (per_task: `get_provider` could not know)."""
+    from . import reasoning_provider as rp
+
+    claude = rp.claude_for_task(engine_setting, role, step=step)
+    if claude is not None:
+        return claude
+    if (
+        getattr(provider, "fell_back", None)
+        or str(engine_setting or "").strip().lower() != rp.CLAUDE
+    ):
+        return provider
+    code, _why = rp.claude_unavailable_for_task(engine_setting)
+    provider.fell_back = WORDS.get(code or "", NOT_APPROVED) if code else NOT_APPROVED
+    return provider

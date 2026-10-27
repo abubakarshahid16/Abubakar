@@ -213,7 +213,7 @@ def _provider():
     from . import reasoning_provider as rp
     provider = rp.get_provider("labelling", step=STEP)
     if isinstance(provider, rp.OllamaProvider):
-        provider = rp.OllamaProvider(timeout=float(settings.crs_ai_wording_timeout_s))
+        provider = fallback_note.carry(provider, timeout=float(settings.crs_ai_wording_timeout_s))
     return provider
 
 
@@ -227,7 +227,9 @@ def _provider_for_this_review():
     if not isinstance(provider, rp.ClaudeProvider):
         # #819: the wording's own engine says claude and every document of
         # the review is approved for the cloud model; else it stays local.
-        provider = rp.claude_for_task(settings.crs_ai_wording_engine, "labelling", step=STEP) or provider
+        provider = fallback_note.or_local(
+            provider, settings.crs_ai_wording_engine, "labelling", step=STEP
+        )
     if isinstance(provider, rp.ClaudeProvider):
         note = claude_approved.local_instead()
         if note:
