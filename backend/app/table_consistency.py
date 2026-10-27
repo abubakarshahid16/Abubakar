@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 
 from pydantic import BaseModel, Field
 
@@ -50,11 +51,11 @@ _SUBTOTAL_WORD = re.compile(r"^subtotal\b", re.IGNORECASE)
 #: project reads numbers one way); this only gates what counts as a plain cell.
 _PLAIN_CELL = re.compile(r"^[-+]?\d[\d.,]*$")
 _RANGE = re.compile(
-    r"^\s*(?P<lo>[-+]?\d+(?:\.\d+)?)\s*(?:–|—|to|-)\s*(?P<hi>[-+]?\d+(?:\.\d+)?)"
+    r"^\s*(?P<lo>[-+]?\d+(?:\.\d+)?)\s*(?:\u2013|—|to|-)\s*(?P<hi>[-+]?\d+(?:\.\d+)?)"
     r"\s*[A-Za-z%°/]*\s*$"
 )
 _FORMULA = re.compile(
-    r"^(?P<name>[^=]+?)\s*=\s*(?P<a>.+?)\s*(?P<op>\s[x×*/÷+\-]\s|[×*/÷+])\s*(?P<b>.+)$"
+    r"^(?P<name>[^=]+?)\s*=\s*(?P<a>.+?)\s*(?P<op>\s[x\u00d7*/÷+\-]\s|[\u00d7*/÷+])\s*(?P<b>.+)$"
 )
 
 
@@ -179,7 +180,7 @@ def check_bands(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
         ordered = sorted(
             (b for b in bands if b[1].value <= b[2].value), key=lambda b: b[1].value
         )
-        for (r1, lo1, hi1), (r2, lo2, hi2) in zip(ordered, ordered[1:], strict=False):
+        for (r1, lo1, hi1), (r2, lo2, hi2) in pairwise(ordered):
             if lo2.value < hi1.value:
                 findings.append(
                     _finding(
@@ -291,7 +292,7 @@ _OPS = {
     "+": lambda a, b: a + b,
     "-": lambda a, b: a - b,
     "x": lambda a, b: a * b,
-    "×": lambda a, b: a * b,
+    "\u00d7": lambda a, b: a * b,
     "*": lambda a, b: a * b,
     "/": lambda a, b: a / b if b else None,
     "÷": lambda a, b: a / b if b else None,

@@ -10,7 +10,13 @@ from fastapi.testclient import TestClient
 
 from app import table_consistency as tc
 from app.main import app
-from tests.test_standards_3b import _chunk, _doc, _ruled_table_pdf, _scope, temp_storage  # noqa: F401
+from tests.test_standards_3b import (  # noqa: F401
+    _chunk,
+    _doc,
+    _ruled_table_pdf,
+    _scope,
+    temp_storage,
+)
 
 
 def kinds(rows):
