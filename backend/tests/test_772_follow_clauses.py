@@ -24,13 +24,13 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _standard(doc_id, number, pages, requirements=()):
+def _standard(doc_id, number, pages, requirements=(), filename=None):
     """A held standard: its classification, page text and stored requirements (clause, text)."""
     with connect() as conn:
         conn.execute(
             "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,uploaded_at)"
             " VALUES (?, ?, ?, 1, '/nowhere', 'ready', '2026-01-01')",
-            (doc_id, f"{number}.pdf", f"sha-{doc_id}"),
+            (doc_id, filename or f"{number}.pdf", f"sha-{doc_id}"),
         )
         conn.execute(
             "INSERT INTO document_classification (document_id, document_role, document_number,"
@@ -182,3 +182,109 @@ def test_a_clause_inside_a_printed_range_is_counted_not_dropped():
     assert "inside a printed range" in note["detail"]
     total = len(result["checked"])
     assert f"{total} clause reference(s)" in note["detail"]
+
+
+# ----------------------------------------------- cloud's review of #1376: grants, editions, wiring
+
+
+def test_a_source_the_caller_may_not_read_is_never_followed_nor_named():
+    _standard("tgt", "XYZ-100", [TARGET_PAGE], TARGET_REQS)
+    _standard("src", "SPEC-7", ["Size per XYZ-100 clause 9.9."])
+    result = reference_follow.follow(["src"], frozenset(["tgt"]))
+    assert result["checked"] == [] and result["unread"] == 1
+    assert reference_follow.notes(result) == []
+
+
+def test_a_standard_held_in_two_editions_is_counted_not_dropped():
+    _standard("t19", "XYZ-100", [TARGET_PAGE], TARGET_REQS, filename="XYZ-100-2019.pdf")
+    _standard("t23", "XYZ-100", [TARGET_PAGE], TARGET_REQS, filename="XYZ-100-2023.pdf")
+    _standard("src", "SPEC-7", ["Size per XYZ-100 clause 5.2."])
+    result = reference_follow.follow(["src"], _allowed())
+    assert [i["state"] for i in result["checked"]] == ["several_editions"]
+    [note] = reference_follow.notes(result)
+    assert "1 name a standard held in several editions" in note["detail"]
+
+
+def test_a_cited_edition_the_held_copy_is_not_is_not_followed_into_it():
+    _standard("tgt", "XYZ-100", [TARGET_PAGE], TARGET_REQS, filename="XYZ-100-2023.pdf")
+    _standard("src", "SPEC-7", ["Size per XYZ-100-2019 clause 5.2."])
+    result = reference_follow.follow(["src"], _allowed())
+    assert [i["state"] for i in result["checked"]] == ["other_edition"]
+
+
+def test_a_clause_list_that_cannot_be_read_for_certain_is_not_checked_never_whole():
+    _standard("tgt", "XYZ-100", [TARGET_PAGE], TARGET_REQS)
+    _standard("src", "SPEC-7", ["Size per XYZ-100 clauses 5.1 to 6.2."])
+    result = reference_follow.follow(["src"], _allowed())
+    assert result["whole"] == 0
+    assert [i["state"] for i in result["checked"]] == ["not_checked"]
+
+
+def test_five_mentions_of_one_standard_alone_count_once():
+    _standard("tgt", "XYZ-100", [TARGET_PAGE], TARGET_REQS)
+    _standard(
+        "src",
+        "SPEC-7",
+        ["Use XYZ-100. Again XYZ-100. And XYZ-100. XYZ-100 too. XYZ-100."],
+    )
+    assert reference_follow.follow(["src"], _allowed())["whole"] == 1
+
+
+def test_the_followed_clause_names_its_page_and_the_listing_sorts_numerically():
+    _standard("tgt", "XYZ-100", [TARGET_PAGE], TARGET_REQS)
+    _standard(
+        "src", "SPEC-7", ["Size per XYZ-100 clause 5.2 and per XYZ-100 clause 5.3."]
+    )
+    [note] = reference_follow.notes(reference_follow.follow(["src"], _allowed()))
+    assert "XYZ-100 clause 5.2 p.1 (cited by SPEC-7)" in note["detail"]
+    from app.reference_follow import _natural
+
+    assert sorted(["8.10", "8.2", "8.1"], key=_natural) == ["8.1", "8.2", "8.10"]
+
+
+def test_the_text_of_a_target_is_built_once_per_run(monkeypatch):
+    from app import subject_scope
+
+    built = []
+    real = subject_scope.StandardText
+
+    def counting(pages):
+        built.append(1)
+        return real(pages)
+
+    monkeypatch.setattr(subject_scope, "StandardText", counting)
+    _standard("tgt", "XYZ-100", [TARGET_PAGE], TARGET_REQS)
+    _standard(
+        "src",
+        "SPEC-7",
+        ["Per XYZ-100 clause 5.2. Per XYZ-100 clause 5.3. Per XYZ-100 clause 9.9."],
+    )
+    reference_follow.follow(["src"], _allowed())
+    assert len(built) == 1
+
+
+def test_the_run_note_reaches_the_review_notes_through_standard_references():
+    from app import submittal_review
+
+    submittal_review.ensure_schema()
+    _standard("tgt", "XYZ-100", [TARGET_PAGE], TARGET_REQS)
+    _standard("src", "SPEC-7", ["Size per XYZ-100 clause 9.9."])
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at)"
+            " VALUES ('r1', 'src', 'completed', '2026-01-01', '2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id,"
+            " included, created_at) VALUES ('x1', 'r1', 'src', 1, '2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO chunks (id, document_id, filename, ordinal, page_start, page_end, text,"
+            " token_count, content_hash) VALUES ('c1', 'src', 'SPEC-7.pdf', 0, 1, 1,"
+            " 'Size per XYZ-100 clause 9.9.', 6, 'h1')"
+        )
+    notes = standard_references.for_run("r1", _allowed())
+    assert any(
+        n["note"] == reference_follow.NOTE and "clause 9.9" in n["detail"]
+        for n in notes
+    )
