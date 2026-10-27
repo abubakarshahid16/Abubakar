@@ -51,7 +51,7 @@ from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan
                submittal_review, tables)
 from .config import settings
 from .db import connect
-from . import slot_options  # isort: skip
+from . import dual_unit_form, slot_options  # isort: skip
 
 #: Where a datasheet says a value is not filled in yet.
 #:
@@ -2002,14 +2002,14 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     `340 psig` and `9970 Kg/hr` are both recorded exactly as written whether or
     not this system can convert them.
     """
-    # `121OC` IS A TEMPERATURE, and the sheet writes the degree sign as a
-    # letter. Rewritten here so every caller sees the same cell.
-    # U+2212 is a minus sign (audit N1): without this "\u221229 C" was not read
-    # at all. En/em dashes are NOT rewritten here - on a datasheet a lone dash
-    # is the "not filled" marker and a dash between numbers is a range.
+    # `121OC` IS A TEMPERATURE (the sheet writes the degree sign as a letter): rewritten here so
+    # every caller sees the same cell. U+2212 is a minus sign (audit N1): without this "\u221229 C"
+    # was not read at all. En/em dashes are NOT rewritten: a lone dash is "not filled", between
+    # numbers a range. "24.8 (109) m3/h (USGPM)" is read as its first system, "24.8 m3/h".
     text = normalise_degree_glyph((raw or "").strip().replace("\u2212", "-"))
     if not text:
         return None, None, None
+    text = dual_unit_form.first_system(text, same_quantity_twice) or text
     fraction = inch_fraction(text)
     if fraction is not None:
         return fraction, "in", claims.normalise(fraction, "in")
