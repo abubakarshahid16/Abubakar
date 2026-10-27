@@ -636,13 +636,13 @@ class Settings(BaseSettings):
     #:             contradict the form (a conflict for the engineer). Code
     #:             only verifies; the rule readers' facts are the cross-check
     #:             in the same merge. Any layout, no layout code. Measured
-    #:             (PF1 invented group, 19 Oct): the same counts as "merge",
-    #:             0 false Meets, about 12% more minutes (A-1004).
+    #:             (PF1 invented group, 19 Oct): the same counts as "merge", 0 false Meets, ~12% more minutes (A-1004).
     #:   "merge" - the old default: `datasheet_ai` reads every row it can see
     #:             and the reading is merged with the rule readers'.
     #:   "rules" - no AI reading at all (the rule readers only).
     #: Any other value is refused at startup. Env: DATASHEET_READER_MODE.
     datasheet_reader_mode: str = "form"
+    datasheet_reader_speed: str = ""  # 242.1, see reader_speed.py
     #: B8: after the structural answerability checks, a reasoning model
     #: (local Ollama, or Claude through reader_transport under the USD caps)
     #: judges whether the passages ANSWER the question. It may only downgrade

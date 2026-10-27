@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import datasheet_checks
+from . import datasheet_checks, reader_speed
 from .datasheets import normalise_field_name
 
 #: The most fields one model call is asked to fill. A long list is cut into
@@ -221,9 +221,26 @@ def _field_line(f: Field) -> str:
     return f"  - {f.key}: {f.name}{extra}{kind}\n"
 
 
+_QUOTE_RULE = """  quote     - the EXACT words from the page (at most 240 characters, one
+              span, copied character for character) that contain BOTH the
+              field's label (or one of its other names) AND the value
+"""
+_SHORT_QUOTE_RULE = """  quote     - the shortest EXACT span of the page (usually under 80
+              characters, copied character for character) that holds the
+              field's label cell (or one of its other names) AND its value cell
+"""
+
+
+def _prompt() -> str:
+    """`PROMPT`, with the short-quote rule when that cut is on (`reader_speed`)."""
+    if reader_speed.SHORT_QUOTE in reader_speed.on() and _QUOTE_RULE in PROMPT:
+        return PROMPT.replace(_QUOTE_RULE, _SHORT_QUOTE_RULE, 1)
+    return PROMPT
+
+
 def build_prompt(fields: list[Field], page_text: str, page_no: int) -> str:
     """The prompt for one batch of fields on one page."""
-    parts = [PROMPT, *(_field_line(f) for f in fields), f"\nPAGE {page_no}:\n",
+    parts = [_prompt(), *(_field_line(f) for f in fields), f"\nPAGE {page_no}:\n",
              re.sub(r"[ \t]+\n", "\n", page_text or "").strip()]
     return "".join(parts)
 

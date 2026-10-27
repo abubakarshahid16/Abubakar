@@ -16,7 +16,7 @@ from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from . import claims, datasheet_ai
+from . import claims, datasheet_ai, reader_speed
 from .config import settings
 from .db import connect
 from .form_reader import NUM_PREDICT, FormReading, read_form
@@ -287,6 +287,7 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
     the form's one value. `replaced_by_form` counts the repeats dropped."""
     added = 0
     replaced = 0
+    by_page: dict[int, dict] = {}
     _carry_merge_gaps(form_run, merge_run)
     for page, extra in (merge_run.get("pages") or {}).items():
         if extra.get("error"):
@@ -298,6 +299,11 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
             if extra.get("partial"):
                 form_run["partly_read"][page] = MERGE_GAP.format(why=extra["partial"])
             added += len(extra.get("accepted") or [])
+            by_page[page] = {
+                "form": 0,
+                "merge_new": len(extra.get("accepted") or []),
+                "merge_same": 0,
+            }
             continue
         read: dict[str, list[dict]] = {}
         for f in mine["accepted"]:
@@ -314,6 +320,11 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
                 replaced += 1
             else:
                 more.append(f)
+        by_page[page] = {
+            "form": len(mine["accepted"]),
+            "merge_new": len(more),
+            "merge_same": len(extra.get("accepted") or []) - len(more),
+        }
         mine["accepted"] = [*mine["accepted"], *more]
         # What the whole-page reader put forward and the code refused is kept
         # apart: a page is "read, no field found" only when NOTHING was
@@ -324,6 +335,11 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
         mine.update({k: extra[k] for k in ("cut_off", "parts") if extra.get(k)})
         added += len(more)
     form_run["added_from_merge"] = added
+    # Per page, counts only (order 246.3): how many readings the form made, how many
+    # the whole-page pass ADDED, and how many it merely repeated. A page where the
+    # pass adds nothing is a candidate for skipping its call; the counts show which.
+    if isinstance(form_run.get("form"), dict):
+        form_run["form"]["merge_by_page"] = dict(sorted(by_page.items()))
     form_run["replaced_by_form"] = replaced
     form_run["stopped"] = form_run.get("stopped") or merge_run.get("stopped")
     form_run["seconds"] = round(
@@ -361,8 +377,8 @@ def read_document(
         model_call, why = datasheet_ai.model_call_for(
             None,
             packet_shape={
-                "json_schema": schema_for(fields),
-                "prompt_version": PROMPT_VERSION,
+                "json_schema": reader_speed.shorten_schema(schema_for(fields)),
+                "prompt_version": reader_speed.version(PROMPT_VERSION),
                 "num_predict": NUM_PREDICT,
             },
         )
@@ -398,14 +414,49 @@ def read_document(
     return run
 
 
+def read_both(texts: dict[int, str], equipment_type: str | None, standard_ids) -> dict:
+    """The form reading, then the whole-page reading added to it
+    (`add_merge_reading`). The form is read FIRST, so the whole-page pass can be
+    told which fields the form read on each page (`reader_speed`'s
+    `skip_form_read` cut; a no-op unless it is on)."""
+    form = read_document(
+        texts, equipment_type, extra_subjects=requirement_subjects(standard_ids)
+    )
+    agreed = reader_speed.agreed_pages(texts, form)
+    asked = reader_speed.pages_to_ask(texts, agreed)
+    with reader_speed.skipping(reader_speed.form_read_labels(form)):
+        merge = datasheet_ai.read_pages(asked)
+    run = add_merge_reading(form, merge)
+    # counts only (order 246.3): the pages the form read fully, and those the whole-page call skipped
+    run["form"]["pages_fully_agreed"] = agreed
+    run["form"]["pages_merge_skipped"] = skipped = [p for p in texts if p not in asked]
+    run["form"]["merge_skipped_unexplained"] = reader_speed.skipped_unexplained(
+        texts, form, skipped
+    )
+    return run
+
+
 def refusal_summary(ai_run: dict, ai_stats: dict) -> dict:
     """Order 224.9, for `datasheets.reader_summary`: the readings the code gate
     refused BY REASON (`dropped` reasons are prefixed), and the form reader's
     refusals by field. Counts only, never a page's words."""
     dropped = {f"dropped: {k}": n for k, n in (ai_stats.get("dropped") or {}).items()}
+    form = ai_run.get("form") or {}
     return {
         "refused_by_reason": {**(ai_stats.get("proposals_rejected") or {}), **dropped},
         "rejected_fields": ai_run.get("rejected_fields") or {},
+        # order 246: per page, what the whole-page pass added and which pages the form
+        # read fully (page numbers and counts only), so a run shows where minutes go
+        "speed_counts": {
+            key: form[key]
+            for key in (
+                "merge_by_page",
+                "pages_fully_agreed",
+                "pages_merge_skipped",
+                "merge_skipped_unexplained",
+            )
+            if key in form
+        },
     }
 
 
@@ -417,6 +468,7 @@ __all__ = [
     "add_merge_reading",
     "as_ai_run",
     "equipment_type_of",
+    "read_both",
     "read_document",
     "reader_mode",
     "reading_for",

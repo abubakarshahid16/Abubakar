@@ -100,6 +100,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
+| `reader_speed` | Order 242.1: switchable cuts to the AI reader's reply length (short quotes, skip fields the form read, read a dense page in parts, a wider answer budget, skip the whole-page call for fully read pages); all off by default |
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
 | `run_finishing` | Order 236: a run whose job is still writing the AI comments, numbers and wording reads as running, not completed |
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
