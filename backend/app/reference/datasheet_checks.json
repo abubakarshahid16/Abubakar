@@ -420,6 +420,227 @@
         "^sour service$",
         "^nace( mr0175)?( required)?$"
       ]
+    },
+    "mdmt": {
+      "kind": "temperature",
+      "names": [
+        "^(minimum design metal temperature|mdmt)( \\(mdmt\\))?$",
+        "^min(imum|\\.)? design metal temp(erature|\\.)?$"
+      ],
+      "printed_as": [
+        "minimum design metal temperature"
+      ]
+    },
+    "shell_material": {
+      "kind": "text",
+      "names": [
+        "^shell (plate )?material( of construction)?$"
+      ],
+      "printed_as": [
+        "shell material"
+      ]
+    },
+    "head_material": {
+      "kind": "text",
+      "names": [
+        "^(head|dished end|end cover) material$"
+      ],
+      "printed_as": [
+        "head material"
+      ]
+    },
+    "inside_diameter": {
+      "kind": "length",
+      "names": [
+        "^(shell |vessel )?inside diameter( \\(id\\))?$"
+      ],
+      "printed_as": [
+        "inside diameter"
+      ]
+    },
+    "tangent_length": {
+      "kind": "length",
+      "names": [
+        "^(tangent[- ]to[- ]tangent|tan[- ]tan)( length)?$",
+        "^t ?/ ?t length$"
+      ],
+      "printed_as": [
+        "tangent to tangent length"
+      ]
+    },
+    "vessel_volume": {
+      "kind": "number",
+      "names": [
+        "^(vessel |total |internal |design )volume$"
+      ],
+      "printed_as": [
+        "vessel volume"
+      ]
+    },
+    "joint_efficiency": {
+      "kind": "number",
+      "names": [
+        "^(weld )?joint efficiency( \\(e\\))?$"
+      ],
+      "printed_as": [
+        "joint efficiency"
+      ]
+    },
+    "radiography": {
+      "kind": "text",
+      "names": [
+        "^(extent of )?radiography$",
+        "^radiographic examination$"
+      ],
+      "printed_as": [
+        "radiography"
+      ]
+    },
+    "pwht": {
+      "kind": "text",
+      "names": [
+        "^(pwht|post[- ]weld heat treatment)( required)?$"
+      ],
+      "printed_as": [
+        "post weld heat treatment"
+      ]
+    },
+    "empty_weight": {
+      "kind": "number",
+      "names": [
+        "^(empty|dry) weight$"
+      ],
+      "printed_as": [
+        "empty weight"
+      ]
+    },
+    "operating_weight": {
+      "kind": "number",
+      "names": [
+        "^operating weight$"
+      ],
+      "printed_as": [
+        "operating weight"
+      ]
+    },
+    "design_code": {
+      "kind": "text",
+      "names": [
+        "^design code( and edition)?$"
+      ],
+      "printed_as": [
+        "design code"
+      ]
+    },
+    "heat_duty": {
+      "kind": "number",
+      "names": [
+        "^(heat|thermal|exchanger) duty$"
+      ],
+      "printed_as": [
+        "heat duty"
+      ]
+    },
+    "heat_transfer_area": {
+      "kind": "area",
+      "names": [
+        "^(effective |total )?(heat )?(transfer|surface) area$"
+      ],
+      "printed_as": [
+        "heat transfer area"
+      ]
+    },
+    "tube_material": {
+      "kind": "text",
+      "names": [
+        "^tube (bundle )?material$"
+      ],
+      "printed_as": [
+        "tube material"
+      ]
+    },
+    "tube_outside_diameter": {
+      "kind": "length",
+      "names": [
+        "^tube (outside diameter|o\\.?d\\.?)( \\(od\\))?$"
+      ],
+      "printed_as": [
+        "tube outside diameter"
+      ]
+    },
+    "tube_wall_thickness": {
+      "kind": "length",
+      "names": [
+        "^tube (wall )?thickness$",
+        "^tube bwg$"
+      ],
+      "printed_as": [
+        "tube wall thickness"
+      ]
+    },
+    "tube_length": {
+      "kind": "length",
+      "names": [
+        "^(straight |effective )?tube length$"
+      ],
+      "printed_as": [
+        "tube length"
+      ]
+    },
+    "tube_count": {
+      "kind": "number",
+      "names": [
+        "^(number of tubes|no\\.? of tubes|tube count)$"
+      ],
+      "printed_as": [
+        "number of tubes"
+      ]
+    },
+    "tube_passes": {
+      "kind": "number",
+      "names": [
+        "^(number of|no\\.? of) tube([- ]side)? passes$",
+        "^tube[- ]side passes$"
+      ],
+      "printed_as": [
+        "number of tube passes"
+      ]
+    },
+    "fouling_resistance": {
+      "kind": "number",
+      "names": [
+        "^fouling (resistance|factor)( (shell|tube)[- ]side)?$"
+      ],
+      "printed_as": [
+        "fouling resistance"
+      ]
+    },
+    "tema_type": {
+      "kind": "text",
+      "names": [
+        "^tema (type|class|designation)$"
+      ],
+      "printed_as": [
+        "TEMA type"
+      ]
+    },
+    "exchanger_flow": {
+      "kind": "flow",
+      "names": [
+        "^(shell|tube)[- ]side (fluid )?(mass )?flow( rate)?$"
+      ],
+      "printed_as": [
+        "shell side flow"
+      ]
+    },
+    "allowable_pressure_drop": {
+      "kind": "pressure",
+      "names": [
+        "^allowable (pressure drop|dp)( (shell|tube)[- ]side)?$"
+      ],
+      "printed_as": [
+        "allowable pressure drop"
+      ]
     }
   },
   "units": {
@@ -1719,6 +1940,511 @@
           "rule": {
             "kind": "required",
             "field": "bearing_type"
+          },
+          "severity": "minor"
+        }
+      ]
+    },
+    "Pressure Vessel": {
+      "sign_off": {
+        "status": "draft",
+        "by": null,
+        "date": null
+      },
+      "clauses_verified": false,
+      "governs": false,
+      "note": "DRAFT, needs the client engineer's approval. The fields an ASME VIII-1 pressure vessel datasheet carries, each written in our own words; every item asks only that the field is STATED. No clause number is claimed (the source clause says \"datasheet fields\") and clauses_verified is false: an engineer fills real clause numbers through the local overlay if wanted. This checklist does NOT replace the standard's library requirements (governs: false): the standards stay checked clause by clause beside it. \"Stated\" means the label of the field was found with a value; bare labels (\"Material\", \"Diameter\", \"Weight\") are deliberately NOT read as these fields. Nothing here is binding until a client discipline engineer signs it off.",
+      "items": [
+        {
+          "id": "VSL-01",
+          "text": "The design pressure is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "design_pressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-02",
+          "text": "The design temperature is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "design_temperature"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-03",
+          "text": "The minimum design metal temperature is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "mdmt"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-04",
+          "text": "The operating pressure is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "operating_pressure"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "VSL-05",
+          "text": "The operating temperature is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "operating_temperature"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "VSL-06",
+          "text": "The test pressure is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "test_pressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-07",
+          "text": "The corrosion allowance is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "corrosion_allowance"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-08",
+          "text": "The shell material is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "shell_material"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-09",
+          "text": "The head material is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "head_material"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-10",
+          "text": "The inside diameter is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "inside_diameter"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "VSL-11",
+          "text": "The tangent-to-tangent length is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "tangent_length"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "VSL-12",
+          "text": "The vessel volume is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "vessel_volume"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "VSL-13",
+          "text": "The weld joint efficiency is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "joint_efficiency"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-14",
+          "text": "The extent of radiography is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "radiography"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-15",
+          "text": "Whether post weld heat treatment is required is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "pwht"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-16",
+          "text": "The design code and edition are stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "design_code"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "VSL-17",
+          "text": "The empty weight is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "empty_weight"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "VSL-18",
+          "text": "The operating weight is stated.",
+          "source": {
+            "standard": "ASME BPVC VIII-1",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "operating_weight"
+          },
+          "severity": "minor"
+        }
+      ]
+    },
+    "Heat Exchanger": {
+      "sign_off": {
+        "status": "draft",
+        "by": null,
+        "date": null
+      },
+      "clauses_verified": false,
+      "governs": false,
+      "note": "DRAFT, needs the client engineer's approval. The fields a TEMA / API 660 shell-and-tube heat exchanger datasheet carries, each written in our own words; every item asks only that the field is STATED. No clause number is claimed (the source clause says \"datasheet fields\") and clauses_verified is false: an engineer fills real clause numbers through the local overlay if wanted. This checklist does NOT replace the standard's library requirements (governs: false): the standards stay checked clause by clause beside it. \"Stated\" means the label of the field was found with a value; bare labels (\"Material\", \"Passes\", \"Length\") are deliberately NOT read as these fields. Nothing here is binding until a client discipline engineer signs it off.",
+      "items": [
+        {
+          "id": "HEX-01",
+          "text": "The heat duty is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "heat_duty"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-02",
+          "text": "The heat transfer area is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "heat_transfer_area"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-03",
+          "text": "The design pressure is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "design_pressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-04",
+          "text": "The design temperature is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "design_temperature"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-05",
+          "text": "The operating pressure is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "operating_pressure"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "HEX-06",
+          "text": "The operating temperature is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "operating_temperature"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "HEX-07",
+          "text": "The test pressure is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "test_pressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-08",
+          "text": "The corrosion allowance is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "corrosion_allowance"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-09",
+          "text": "The shell material is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "shell_material"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-10",
+          "text": "The tube material is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "tube_material"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-11",
+          "text": "The tube outside diameter is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "tube_outside_diameter"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-12",
+          "text": "The tube wall thickness is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "tube_wall_thickness"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-13",
+          "text": "The tube length is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "tube_length"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "HEX-14",
+          "text": "The number of tubes is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "tube_count"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "HEX-15",
+          "text": "The number of tube passes is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "tube_passes"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "HEX-16",
+          "text": "The fouling resistance is stated (on the shell side, the tube side or both; one side is enough to pass).",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "fouling_resistance"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-17",
+          "text": "The TEMA type is stated.",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "tema_type"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "HEX-18",
+          "text": "The flow is stated for the shell side or the tube side (one side is enough to pass).",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "exchanger_flow"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "HEX-19",
+          "text": "The allowable pressure drop is stated (for the shell side, the tube side or both; one side is enough to pass).",
+          "source": {
+            "standard": "API 660 / TEMA",
+            "clause": "datasheet fields"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "allowable_pressure_drop"
           },
           "severity": "minor"
         }
