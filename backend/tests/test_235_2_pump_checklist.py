@@ -97,8 +97,9 @@ def test_a_field_the_sheet_does_not_state_is_missing_and_a_blank_names_its_page(
     assert r["PMP-04"]["status"] == "MISSING_INFORMATION"
     assert r["PMP-16"]["status"] == "MISSING_INFORMATION"
     assert r["PMP-01"]["status"] == "COMPLIANT"
-    blank = _facts(skip=("rated_head",)) + [
-        fact("differential head", "", blank="By Vendor", page=3)
+    blank = [
+        *_facts(skip=("rated_head",)),
+        fact("differential head", "", blank="By Vendor", page=3),
     ]
     got = _results(blank)["PMP-02"]
     assert got["status"] == "MISSING_INFORMATION" and "page 3" in got["detail"]
