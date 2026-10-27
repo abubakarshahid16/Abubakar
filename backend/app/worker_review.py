@@ -29,7 +29,7 @@ class ReviewDrain:
 
     reviewing: bool = False
 
-    def review_running(self) -> bool:
+    def in_review(self) -> bool:
         """A review is running AND has reported within `REVIEW_SILENCE_SECONDS`."""
         return self.reviewing and time.time() - self.last_beat <= REVIEW_SILENCE_SECONDS
 
