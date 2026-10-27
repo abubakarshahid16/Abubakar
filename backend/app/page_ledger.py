@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from . import errors
+from . import cover_page, errors
 from .config import settings
 from .db import connect
 
@@ -81,6 +81,11 @@ def _not_clean(row: dict) -> str | None:
             "not usable (OCR not done or failed, or no text), so it is not counted as read"
         )
     reason = str(row["vision_reason"] or "")
+    if cover_page.checked(row["facts_reason"]):
+        # Order 235 item 3: every pair on the page was furniture (a title
+        # block, a revision table, notes), so what the picture reader would add
+        # is not a value. The text layer was usable (checked above).
+        return None
     if (
         "unavailable" in reason
         or "vision page budget is spent" in reason
@@ -125,7 +130,11 @@ def read_page_empty(ai_run: dict, page: int) -> bool:
 
 
 def no_fact(
-    ai_run: dict | None, page: int, reason: str, dropped: dict[str, int]
+    ai_run: dict | None,
+    page: int,
+    reason: str,
+    dropped: dict[str, int],
+    stored_path: str | None = None,
 ) -> tuple[str, int, str]:
     """The ledger outcome of a page the code readers gave no fact: READ_NO_FIELD
     when the AI reader read it and put nothing forward (two readers looked), else
@@ -136,7 +145,10 @@ def no_fact(
 
     failed = (datasheets._PAGE_FAILURES.get() or {}).get(page)
     if ai_run is not None and not failed and read_page_empty(ai_run, page):
-        return (READ_NO_FIELD, 0, page_reason_words.no_field_found(dropped))
+        said = page_reason_words.no_field_found(dropped)
+        if cover_page.is_cover_or_notes(dropped, cover_page.page_text(stored_path, page)):
+            said = f"{cover_page.MARK} {said}"
+        return (READ_NO_FIELD, 0, said)
     return ("no_facts", 0, reason)
 
 
