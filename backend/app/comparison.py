@@ -3037,9 +3037,9 @@ def _run_comparison(
     # Owner order 2026-10-11: the run says which reader read the sheet - the
     # AI engine and model, or "code readers only", and the pages the AI did
     # not read (timed out, unavailable) with the reason.
-    reader = datasheets.latest_reader_summary(submittal_id)
-    if reader:
-        split = {**split, "reader": reader}
+    from . import degraded_read
+
+    split = degraded_read.with_reader(split, submittal_id)
     ai_matcher = matcher_summary(matcher_counts, model_matches=model_matches,
                                  model_held=model_held, questions=ask_counts)
     unchecked_counts = {

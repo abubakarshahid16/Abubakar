@@ -133,6 +133,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheets` | Read a contractor datasheet into facts |
 | `dual_unit_form` | Reads "24.8 (109) m3/h (USGPM)" as its first system, "24.8 m3/h", when both halves are one quantity |
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
+| `degraded_read` | A degraded AI reading of a datasheet (mostly refused, timed out, stopped, unavailable) is recorded in counts and holds every checklist pass for the engineer (order 261.2) |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
