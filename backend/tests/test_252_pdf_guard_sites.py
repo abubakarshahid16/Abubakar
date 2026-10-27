@@ -200,3 +200,18 @@ def test_vision_reader_takes_the_lock_for_its_page_reads(pdf_path, monkeypatch):
     with pymupdf.open(pdf_path) as doc:
         vision_reader.read_page(doc[0], 1, Provider())
     assert owned == {"render": True, "model": False, "text": True}, owned
+
+
+def test_read_page_of_gives_none_for_a_missing_page_and_leaves_the_lock_free(pdf_path):
+    with pdf_guard.opened(pdf_path) as doc:
+        assert vision_reader.read_page_of(doc, 9, object(), None) is None
+    got = []
+
+    def other():
+        with pdf_guard.held():
+            got.append(True)
+
+    t = threading.Thread(target=other)
+    t.start()
+    t.join(timeout=5)
+    assert got == [True]
