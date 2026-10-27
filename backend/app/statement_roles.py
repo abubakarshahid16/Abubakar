@@ -22,7 +22,6 @@ Nothing here calls a model by itself, reads a document, or writes a value.
 from __future__ import annotations
 
 import json
-import re
 
 from . import (
     field_links,
@@ -63,6 +62,9 @@ _CUES = frozenset(
         "optional",
         "may",
     ]
+)
+_NEGATIONS = frozenset(
+    ["not", "no", "non", "never", "without", "except", "excluding", "excepting"]
 )
 MAX_PHRASE_WORDS = 6
 _SCHEMA = {
@@ -114,15 +116,6 @@ def _tokens(text: str) -> list[str]:
     return field_vocabulary._tokens(text)
 
 
-def _sentence_of(text: str, phrase_tokens: list[str]) -> list[str]:
-    """Tokens of the sentence (split on . ; :) that holds the phrase; [] when none does."""
-    for part in re.split(r"(?<=[.;:])\s+", text):
-        toks = _tokens(part)
-        if _find(toks, phrase_tokens) is not None:
-            return toks
-    return []
-
-
 def _find(tokens: list[str], phrase: list[str]) -> int | None:
     n = len(phrase)
     for at in range(len(tokens) - n + 1):
@@ -132,16 +125,18 @@ def _find(tokens: list[str], phrase: list[str]) -> int | None:
 
 
 def value_fits(text: str, field_quote: str, value: str, name: str) -> bool:
-    """Gates (a) and (c) on the sentence: the value is whole words of the sentence, 1 to
+    """Gates (a) and (c) on the rule text: the value is whole words of the text, 1 to
     `MAX_PHRASE_WORDS` of them, not made only of neutral words, not the field's own name; and the
-    sentence holds no negation, exception, condition or alternative word."""
+    text holds no negation, exception, condition or alternative word anywhere."""
     phrase = _tokens(value)
     if not phrase or len(phrase) > MAX_PHRASE_WORDS:
         return False
     if all(w in field_vocabulary._NEUTRAL for w in phrase) or phrase == name.split():
         return False
-    sentence = _sentence_of(text, phrase)
-    if not sentence or _find(sentence, _tokens(field_quote)) is None:
+    # The WHOLE rule text, never a part of it: a "when ..." or "unless ..." written before a colon or
+    # a semicolon is still the rule's condition (cloud on #1397).
+    sentence = _tokens(text)
+    if _find(sentence, phrase) is None or _find(sentence, _tokens(field_quote)) is None:
         return False
     return not any(w in _CUES for w in sentence)
 
@@ -333,6 +328,8 @@ def value_agrees(sheet_value: str | None, expected: str) -> bool:
     """Does the sheet's value hold the expected phrase as whole words (canonical spelling)? A blank
     value agrees with nothing."""
     toks = _tokens(sheet_value or "")
+    if any(w in _NEGATIONS for w in toks):
+        return False  # "not duplex stainless steel" does not hold those words
     return bool(toks) and _find(toks, _tokens(expected)) is not None
 
 

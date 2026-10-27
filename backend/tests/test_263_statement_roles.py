@@ -119,6 +119,10 @@ def test_a_plain_shall_be_sentence_maps_to_its_field_and_value(text):
         "The casing material shall be duplex stainless steel or carbon steel.",
         "The casing material may be duplex stainless steel.",
         "Only the casing material shall be duplex stainless steel.",
+        # a condition written BEFORE a colon or a semicolon is still the rule's condition (cloud)
+        "When used in sour service: the casing material shall be duplex stainless steel.",
+        "Unless the purchaser approves otherwise; the casing material shall be duplex stainless steel.",
+        "If the fluid is sour, the casing material shall be duplex stainless steel.",
     ],
 )
 def test_a_negative_conditional_or_alternative_sentence_is_never_mapped(text):
@@ -221,6 +225,8 @@ def test_a_numeric_review_ignores_statement_entries(tmp_path):
         ("DUPLEX STAINLESS STEEL", True),
         ("Carbon steel", False),
         ("stainless steel", False),
+        ("not duplex stainless steel", False),
+        ("Non duplex stainless steel", False),
         ("", False),
         (None, False),
     ],
