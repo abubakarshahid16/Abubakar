@@ -96,8 +96,20 @@ def not_held(
 
 def notes(missing: list[dict], unread: int, used: int) -> list[dict]:
     """The Review notes (internal, never a contractor comment)."""
-    if not missing:
+    if not missing and not unread:
         return []
+    if not missing:  # nothing listed, but some standards were not read: say so, never "cites nothing"
+        return [
+            {
+                "note": NOTE,
+                "standard": "",
+                "count": 0,
+                "detail": (
+                    f"{unread} of the {used} standards used in this review had no readable text, so "
+                    "the standards they cite were not checked against the library."
+                ),
+            }
+        ]
     shown = ", ".join(
         f"{m['identifier']} (cited by {m['cited_by']})" for m in missing[:LISTED]
     )

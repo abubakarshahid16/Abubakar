@@ -171,3 +171,15 @@ def test_the_crs_content_carries_the_note(world):  # noqa: F811
     )
     mine = [n for n in meta["review_notes"] if n["note"] == standard_references.NOTE]
     assert len(mine) == 1 and "ISO 15156" in mine[0]["detail"]
+
+
+def test_standards_that_could_not_be_read_are_said_even_when_nothing_else_is_missing():
+    _standard("a", "Spec A.pdf", None)
+    notes = standard_references.notes(*standard_references.not_held(["a"], _allowed()))
+    assert len(notes) == 1 and "1 of the 1 standards used" in notes[0]["detail"]
+    assert "not checked against the library" in notes[0]["detail"]
+    _standard("b", "Spec B.pdf", "Plain text with no citation.")
+    assert (
+        standard_references.notes(*standard_references.not_held(["b"], _allowed()))
+        == []
+    )
