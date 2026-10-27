@@ -126,3 +126,53 @@ def test_a_jpeg_cut_inside_its_frame_header_is_refused_by_name(cut):
         ingest(io.BytesIO(cut), "cut.jpg")
     assert err.value.code == "bad_image"
     assert list(settings.upload_dir.glob("*")) == []
+
+
+def _with_orientation(jpeg: bytes, orientation: int) -> bytes:
+    tiff = b"MM\x00\x2a\x00\x00\x00\x08\x00\x01" + struct.pack(
+        ">HHIHH", 0x0112, 3, 1, orientation, 0
+    )
+    body = b"Exif\x00\x00" + tiff + b"\x00\x00\x00\x00"
+    return jpeg[:2] + b"\xff\xe1" + struct.pack(">H", len(body) + 2) + body + jpeg[2:]
+
+
+@pytest.mark.parametrize("share", [0.5, 0.99])
+def test_a_jpeg_cut_off_short_of_its_end_is_refused_not_wrapped(share):
+    data = _picture("jpeg", 400, 300)
+    cut = data[: int(len(data) * share)]
+    with pytest.raises(UploadError) as err:
+        ingest(io.BytesIO(cut), "cut.jpg")
+    assert err.value.code == "bad_image" and "cut off" in err.value.detail
+    assert list(settings.upload_dir.glob("*")) == []
+
+
+def test_a_png_cut_off_is_refused_too():
+    data = _picture("png", 400, 300)
+    with pytest.raises(UploadError) as err:
+        ingest(io.BytesIO(data[: int(len(data) * 0.99)]), "cut.png")
+    assert err.value.code == "bad_image"
+
+
+def test_a_jpeg_with_zero_padding_after_its_end_is_taken():
+    pdf = pymupdf.open("pdf", image_intake.to_pdf_bytes(_picture("jpeg") + b"\x00" * 8))
+    assert len(pdf) == 1
+
+
+@pytest.mark.parametrize(("orientation", "turn"), [(1, 0), (3, 180), (6, 90), (8, 270)])
+def test_a_phone_photo_is_shown_upright_by_its_exif_turn(orientation, turn):
+    photo = _with_orientation(_picture("jpeg", 300, 200), orientation)
+    pdf = pymupdf.open("pdf", image_intake.to_pdf_bytes(photo))
+    assert pdf[0].rotation == turn
+
+
+def test_a_mirrored_photo_is_refused_by_name():
+    photo = _with_orientation(_picture("jpeg"), 2)
+    with pytest.raises(image_intake.ImageRefused, match="mirrored"):
+        image_intake.to_pdf_bytes(photo)
+
+
+def test_an_unreadable_exif_block_states_nothing():
+    jpeg = _picture("jpeg")
+    junk = b"Exif\x00\x00MM\x00\x2a\xff\xff\xff\xff"
+    data = jpeg[:2] + b"\xff\xe1" + struct.pack(">H", len(junk) + 2) + junk + jpeg[2:]
+    assert len(pymupdf.open("pdf", image_intake.to_pdf_bytes(data))) == 1
