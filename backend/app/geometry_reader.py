@@ -36,7 +36,8 @@ import re
 import statistics
 from typing import Any
 
-from . import blank_markers, claims, errors, geometry_index_cells as gic
+from . import blank_markers, claims, errors
+from . import geometry_index_cells as gic
 
 # --------------------------------------------------------------------------
 # Units
