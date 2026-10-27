@@ -226,7 +226,9 @@ def scope_question_lines(questions: list[dict] | None) -> list[str]:
     ]
     more = len(questions or []) - len(shown)
     if more > 0:
-        lines.append(f"{more} more Part question(s) of the same kind are in the review's scope record.")
+        lines.append(
+            f"{more} more Part question(s) of the same kind are in the review's scope record."
+        )
     return lines
 
 
@@ -249,8 +251,10 @@ def split_lines(split: dict | None) -> list[str]:
     cov = split.get("checklist_coverage")
     if cov:
         pages = ", ".join(str(p) for p in cov.get("gap_pages") or [])
-        lines.append(f"Checklist fields read {cov['read']} of {cov['fields']}; wording on the sheet, not read "
-                     f"{cov['on_sheet_not_read']}" + (f" (pages {pages})" if pages else "") + ".")
+        lines.append(
+            f"Checklist fields read {cov['read']} of {cov['fields']}; wording on the sheet, not read "
+            f"{cov['on_sheet_not_read']}" + (f" (pages {pages})" if pages else "") + "."
+        )
     lines += scope_question_lines((split.get("division_scope") or {}).get("questions"))
     for title, key, count_key in (
             ("Apply but not checked", "applies_not_checked_reasons", "applies_not_checked"),

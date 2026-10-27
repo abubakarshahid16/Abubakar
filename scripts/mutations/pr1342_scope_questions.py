@@ -58,7 +58,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1342,
         description="the question line is no longer printed",
         path=APP / "absence.py",
-        anchor="    lines += scope_question_lines((split.get(\"division_scope\") or {}).get(\"questions\"))\n",
+        anchor='    lines += scope_question_lines((split.get("division_scope") or {}).get("questions"))\n',
         replacement="",
         target=_T,
         keyword="one_line_in_the_review_notes",
