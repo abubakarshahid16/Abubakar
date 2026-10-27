@@ -98,7 +98,8 @@ def test_a_checklist_clause_is_found_in_the_held_standard_and_boxed(world, tmp_p
         conn.execute("UPDATE standard_requirements SET clause = '6.1.14' WHERE standard_document_id = ?",
                      (world["std"],))
     body = _evidence(finding["id"], world["admin"]).json()
-    assert body["standard"].pop("scan") is None  # #505: a text-layer page has no scan record
+    # #505: a text-layer page has no scan record
+    assert body["standard"].pop("scan") is None
     assert body["standard"] == {"document_id": world["std"], "filename": body["standard"]["filename"],
                                 "page": 1, "box": "clause_text", "reason": None}
     r = _get(finding["id"], world["admin"], side="standard")
