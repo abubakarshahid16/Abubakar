@@ -36,7 +36,12 @@ def _run() -> list[dict]:
                 "contractor_page": 4,
             }
         ]
-        + [_f(200 + i, "MISSING_INFORMATION") for i in range(3)]
+        # order 245: a requirement that names a datasheet field the sheet lacks is
+        # still a row; one with no field behind it is a review note
+        + [
+            {**_f(200 + i, "MISSING_INFORMATION"), "crs_field_label": f"FIELD {i}"}
+            for i in range(3)
+        ]
     )
 
 

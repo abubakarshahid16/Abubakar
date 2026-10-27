@@ -18,6 +18,7 @@ import pytest
 from app import (
     comparison,
     crs_mapping,
+    crs_no_field,
     datasheets,
     db,
     scope_ledger,
@@ -796,13 +797,24 @@ def test_an_engineer_confirmed_question_stays_their_crs_line():
 
 def test_a_missing_value_is_still_a_crs_line_never_dropped():
     # "not mentioned" is a comment to the contractor, never compliant and never hidden
+    # order 245: ... when it names a datasheet field the sheet lacks; a requirement
+    # with no field behind it at all is a counted review note (never hidden)
     missing = {
         **_finding("m1"),
         "compliance_status": "MISSING_INFORMATION",
         "ai_rationale": "",
+        "crs_field_label": "NOISE LEVEL",
     }
     rows = crs_mapping.build_crs_rows([missing], [], "sheet.pdf")
     assert [r["row_kind"] for r in rows] == [crs_mapping.ROW_KIND_MISSING_INFORMATION]
+    unlabelled = {k: v for k, v in missing.items() if k != "crs_field_label"}
+    assert crs_mapping.build_crs_rows([unlabelled], [], "sheet.pdf") == []
+    [note] = [
+        n
+        for n in crs_mapping.build_review_notes([unlabelled], [])
+        if n["note"] == crs_no_field.NOTE_NO_FIELD_ANSWERS
+    ]
+    assert note["count"] == 1
 
 
 CITED_LINE = "Spot examination to XYZ-100, ZT-32 (for spot examination)"
