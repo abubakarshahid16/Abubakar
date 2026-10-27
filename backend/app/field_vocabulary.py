@@ -14,6 +14,10 @@ TWO HALVES, BOTH CHECKED BY CODE:
     name and nothing that changes the quantity - min/max, drop, margin, tolerance ... - rides with it). Stored model-named, unconfirmed, with provenance (provider, model,
     prompt hash) in `canonical_field_names`, keyed by the vocabulary's own hash.
   * a sheet fact's name needs no model: the canonical phrase of its own label (`fact_name`).
+  * a FOURTH gate (`number_fits`, s2's 259.5 measure: 11 of 30 names were right, the rest named a
+    noun the sentence mentions, not the quantity the number limits): the sentence's own number must
+    follow the name with only limit words between them (or stand directly before it), and its unit
+    must be of the kind the name is (a pressure is not in minutes, a size is not a count).
 A pairing needs the SAME phrase on both sides. It rides `comparison.match_by_field_name`, so it never
 carries a verdict (NEEDS_ENGINEER_REVIEW) until a family of names has passed `rule_trust`.
 
@@ -89,9 +93,116 @@ def names_the_quantity(quote: str | None, name: str) -> bool:
     return False
 
 
-def verify(answer: dict, items: list[tuple[str, str]], dictionary: list[str]):
-    """The three gates on ONE model answer, with this vocabulary's gate 3 (not
-    `field_naming.verify`'s, which ignores min/max). Returns (item index, {field_name, quote}) with
+#: Gate 4. The unit families a number may have for each name; `()` = no unit at all (a ratio). A name
+#: not listed here cannot be checked, so it is never kept (refusing is the safe side).
+_PRESSURE, _TEMPERATURE, _FLOW = ("pressure",), ("temperature",), ("volumetric_flow", "mass_flow")
+_FIT = {
+    **dict.fromkeys(
+        [
+            "built up back pressure",
+            "cdtp",
+            "design pressure",
+            "flange rating",
+            "hydrotest",
+            "mawp",
+            "operating pressure",
+            "set pressure",
+            "superimposed back pressure",
+            "test pressure",
+        ],
+        _PRESSURE,
+    ),
+    "overpressure": ("pressure", "percent"),
+    **dict.fromkeys(
+        ["design temperature", "operating temperature", "relieving temperature"], _TEMPERATURE
+    ),
+    **dict.fromkeys(
+        ["max flow", "min flow", "minimum continuous flow", "rated flow", "rated capacity", "required capacity"],
+        _FLOW,
+    ),
+    **dict.fromkeys(["npsh", "npsh available", "npsh required", "manway size"], ("length",)),
+    "density relieving": ("density",),
+    "viscosity relieving": ("viscosity",),
+    "motor rating": ("power",),
+    "rated speed": ("rotation",),
+    "noise level": ("sound",),
+    "vibration": ("velocity", "length"),
+    "empty weight": ("mass",),
+    **dict.fromkeys(["orifice area", "required area"], ("area",)),
+    **dict.fromkeys(["compressibility", "specific heat ratio"], ()),
+}
+#: Units `claims` has no dimension for, by family.
+_LITERAL_UNITS = {
+    "power": {"w", "kw", "mw", "hp", "bhp"},
+    "rotation": {"rpm", "r/min"},
+    "sound": {"db", "dba", "db(a)"},
+    "mass": {"kg", "g", "t", "lb", "lbs"},
+    "area": {"mm2", "cm2", "m2", "in2", "ft2", "sq in", "sq mm"},
+    "viscosity": {"cst", "cp", "mpa.s", "mm2/s"},
+}
+#: Words that may stand between a name and its number without changing what the number limits.
+_LIMIT_WORDS = frozenset(
+    "shall should must will be not exceed exceeding exceeds less greater more than at least most "
+    "minimum maximum min max of is are to the a an equal equals above below under over up limited "
+    "rated approximately".split()
+)
+
+
+def _unit_families(unit: str | None) -> set[str]:
+    from . import claims
+
+    unit = " ".join((unit or "").lower().split())
+    if not unit:
+        return set()
+    out = {d for d in (claims.unit_dimension(unit),) if d}
+    out.update(f for f, spellings in _LITERAL_UNITS.items() if unit in spellings)
+    return out
+
+
+def number_fits(
+    text: str, quote: str | None, name: str, raw_value: str | None, raw_unit: str | None
+) -> bool:
+    """Gate 4: the requirement's own number is the limit of the NAMED quantity. (1) its unit is of
+    that quantity's kind (none for a ratio); (2) in the sentence it follows the quote with only limit
+    words between ("shall not exceed"), or stands directly before it ("30 bar design pressure"), with
+    no other number, colon or semicolon between. Anything else - a duration, a size that only says
+    when the clause applies, a formula - is refused."""
+    value = (raw_value or "").strip().lower()
+    if not quote or not value or name not in _FIT:
+        return False
+    wanted, have = _FIT[name], _unit_families(raw_unit)
+    if (not wanted and have) or (wanted and not set(wanted) & have):
+        return False
+    t, q = " ".join(text.lower().split()), " ".join(quote.lower().split())
+    at = t.find(q)
+    if at < 0:
+        return False
+    number = re.compile(r"(?<![\w.])" + re.escape(value) + r"(?![\w])")
+    after = t[at + len(q) :]
+    m = number.search(after)
+    if m:
+        between = re.sub(r"\([^)]*\)", " ", after[: m.start()])
+        return not re.search(r"[;:]", between) and all(
+            w in _LIMIT_WORDS for w in _WORD.findall(between)
+        )
+    before = t[:at]
+    hits = list(number.finditer(before))
+    if not hits:
+        return False
+    gap = before[hits[-1].end() :]
+    unit_words = set(_WORD.findall((raw_unit or "").lower()))
+    return all(w in unit_words or w in _NEUTRAL for w in _WORD.findall(gap))
+
+
+def verify(
+    answer: dict,
+    items: list[tuple[str, str]],
+    dictionary: list[str],
+    numbers: dict[str, tuple[str | None, str | None]],
+):
+    """The four gates on ONE model answer, with this vocabulary's gate 3 (not
+    `field_naming.verify`'s, which ignores min/max) and gate 4 (`number_fits`; `numbers` is
+    {requirement id: (raw_value, raw_unit)}, an id missing from it fits nothing). Returns (item index, {field_name, quote}) with
     field_name None when it maps nothing, or None when the answer names no valid item."""
     i = answer.get("i") if isinstance(answer, dict) else None
     if not isinstance(i, int) or isinstance(i, bool) or not 0 <= i < len(items):
@@ -109,6 +220,9 @@ def verify(answer: dict, items: list[tuple[str, str]], dictionary: list[str]):
         return unmapped  # gate 2
     if not names_the_quantity(quote, dictionary[field]):
         return unmapped  # gate 3
+    raw_value, raw_unit = numbers.get(items[i][0], (None, None))
+    if not number_fits(items[i][1], quote, dictionary[field], raw_value, raw_unit):
+        return unmapped  # gate 4
     return i, {"field_name": dictionary[field], "quote": quote}
 
 
@@ -131,12 +245,28 @@ def name_requirements(
         and r.get("requirement_text")
     ]
     return _name_items(
-        items, vocabulary(), provider, stats if stats is not None else {}
+        items,
+        vocabulary(),
+        provider,
+        stats if stats is not None else {},
+        _numbers(requirements),
     )
 
 
+def _numbers(requirements: list[dict]) -> dict[str, tuple[str | None, str | None]]:
+    """{requirement id: (raw_value, raw_unit)}, as the document wrote them (gate 4)."""
+    return {
+        str(r["id"]): (r.get("raw_value"), r.get("raw_unit") or r.get("unit"))
+        for r in requirements
+    }
+
+
 def _name_items(
-    items: list[tuple[str, str]], dictionary: list[str], provider, stats: dict
+    items: list[tuple[str, str]],
+    dictionary: list[str],
+    provider,
+    stats: dict,
+    numbers: dict[str, tuple[str | None, str | None]],
 ) -> dict[str, dict]:
     """`field_naming.name_items` with this vocabulary's gate 3 (the same batches, prompt, schema and
     storage; only the verifier differs). Answers for ALL `items` (stored + new)."""
@@ -172,7 +302,7 @@ def _name_items(
             continue
         answers: dict[str, dict] = {}
         for raw in field_naming._parse(response.text):
-            checked = verify(raw, batch, dictionary)
+            checked = verify(raw, batch, dictionary, numbers)
             if checked is not None:
                 answers[batch[checked[0]][0]] = checked[1]
         for (
@@ -223,6 +353,7 @@ def names_for(requirements: list[dict], facts: list[dict]) -> dict:
         if r.get("requirement_type") in field_naming.NUMERIC_TYPES
     }
     vocab = vocabulary()
+    numbers = _numbers(requirements)
     stored = field_naming.stored_names(REQUIREMENT, list(wanted_ids), vocab)
     named = {
         k: v["field_name"]
@@ -230,6 +361,12 @@ def names_for(requirements: list[dict], facts: list[dict]) -> dict:
         if v.get("field_name")
         and field_naming.quote_verified(v.get("quote"), wanted_ids.get(k, ""))
         and names_the_quantity(v.get("quote"), v["field_name"])
+        and number_fits(
+            wanted_ids.get(k, ""),
+            v.get("quote"),
+            v["field_name"],
+            *numbers.get(k, (None, None)),
+        )
     }
     if not named:
         if settings.geometry_reader_enabled:

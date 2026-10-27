@@ -83,16 +83,25 @@ def test_a_quote_with_another_spelling_names_the_quantity_but_another_quantity_d
     items = [("k", "The max allowable working pressure shall not exceed 10 bar.")]
     mawp = vocab.index("mawp")
     ok = field_vocabulary.verify(
-        {"i": 0, "field": mawp, "quote": "max allowable working pressure"}, items, vocab
+        {"i": 0, "field": mawp, "quote": "max allowable working pressure"},
+        items,
+        vocab,
+        {"k": ("10", "bar")},
     )
     assert ok == (0, {"field_name": "mawp", "quote": "max allowable working pressure"})
     other = [("k", "The design pressure shall not exceed 10 bar.")]
     no = field_vocabulary.verify(
-        {"i": 0, "field": mawp, "quote": "design pressure"}, other, vocab
+        {"i": 0, "field": mawp, "quote": "design pressure"},
+        other,
+        vocab,
+        {"k": ("10", "bar")},
     )
     assert no[1]["field_name"] is None
     absent = field_vocabulary.verify(
-        {"i": 0, "field": mawp, "quote": "maximum permitted load"}, items, vocab
+        {"i": 0, "field": mawp, "quote": "maximum permitted load"},
+        items,
+        vocab,
+        {"k": ("10", "bar")},
     )
     assert absent[1]["field_name"] is None
 
@@ -102,6 +111,8 @@ def test_the_answer_is_stored_once_and_not_asked_again():
         {
             "id": "r1",
             "requirement_type": "numeric_limit",
+            "raw_value": "10",
+            "raw_unit": "bar",
             "requirement_text": "The max allowable working pressure shall not exceed 10 bar.",
         }
     ]
@@ -163,6 +174,8 @@ def test_a_stored_name_pairs_through_the_run_and_never_carries_a_verdict(monkeyp
             {
                 "id": req["id"],
                 "requirement_type": "numeric_limit",
+                "raw_value": "10",
+                "raw_unit": "bar",
                 "requirement_text": "The maximum allowable working pressure shall be 10 bar.",
             }
         ],
@@ -234,7 +247,13 @@ def test_the_gate_refuses_another_or_opposite_quantity(quote, name, expected):
 
 def _store_a_name(req_id, text, name, quote):
     reqs = [
-        {"id": req_id, "requirement_type": "numeric_limit", "requirement_text": text}
+        {
+            "id": req_id,
+            "requirement_type": "numeric_limit",
+            "raw_value": "10",
+            "raw_unit": "bar",
+            "requirement_text": text,
+        }
     ]
     field_vocabulary.name_requirements(reqs, Fake(lambda t: name, lambda t: quote))
     return reqs
@@ -283,6 +302,8 @@ def test_a_reply_that_cannot_be_read_stores_nothing_and_is_asked_again():
         {
             "id": "r1",
             "requirement_type": "numeric_limit",
+            "raw_value": "10",
+            "raw_unit": "bar",
             "requirement_text": "The max allowable working pressure shall not exceed 10 bar.",
         }
     ]
@@ -349,8 +370,8 @@ def _world_extra(i):
     return standards.create_requirement(
         standard_document_id="std-1",
         chunk_id="sc",
-        requirement_text=f"The max allowable working pressure of item {i} shall be 10 bar.",
-        source_text=f"The max allowable working pressure of item {i} shall be 10 bar.",
+        requirement_text=f"The max allowable working pressure shall be 10 bar (item {i}).",
+        source_text=f"The max allowable working pressure shall be 10 bar (item {i}).",
         clause=f"6.4.{i + 1}",
         page=1,
         structured={
@@ -361,3 +382,163 @@ def _world_extra(i):
             "requirement_type": "numeric_limit",
         },
     )
+
+
+# ---------------------------------------- gate 4 (s2's 259.5 measure: 11 of 30 names were right)
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "name", "value", "unit", "expected"),
+    [
+        # right: the number follows the name with limit words, in the name's kind of unit
+        (
+            "The design temperature shall not exceed 120 degC.",
+            "design temperature",
+            "design temperature",
+            "120",
+            "degC",
+            True,
+        ),
+        (
+            "The max allowable working pressure shall be at least 10 bar.",
+            "max allowable working pressure",
+            "mawp",
+            "10",
+            "bar",
+            True,
+        ),
+        (
+            "A 30 bar design pressure is required.",
+            "design pressure",
+            "design pressure",
+            "30",
+            "bar",
+            True,
+        ),
+        (
+            "The compressibility shall be at least 0.8.",
+            "compressibility",
+            "compressibility",
+            "0.8",
+            None,
+            True,
+        ),
+        # a DURATION is not a pressure
+        (
+            "The test pressure shall be held for at least 30 minutes.",
+            "test pressure",
+            "test pressure",
+            "30",
+            "minutes",
+            False,
+        ),
+        # a number that only says WHEN the clause applies, in a unit of the right kind
+        (
+            "Tanks larger than 30 m shall have a manway size of 600 mm.",
+            "manway size",
+            "manway size",
+            "30",
+            "m",
+            False,
+        ),
+        (
+            "Tanks larger than 30 m shall have a manway size of 600 mm.",
+            "manway size",
+            "manway size",
+            "600",
+            "mm",
+            True,
+        ),
+        # a number with no unit for a quantity that has one (a formula, a multiplier)
+        (
+            "The test pressure shall be 1.5 times the design pressure.",
+            "test pressure",
+            "test pressure",
+            "1.5",
+            None,
+            False,
+        ),
+        # another number sits between the name and the figure
+        (
+            "The design pressure at 20 degC shall be 10 bar.",
+            "design pressure",
+            "design pressure",
+            "10",
+            "bar",
+            False,
+        ),
+        # a ratio with a unit, a name the table cannot check, no value, a number not in the sentence
+        (
+            "The compressibility shall be at least 0.8 bar.",
+            "compressibility",
+            "compressibility",
+            "0.8",
+            "bar",
+            False,
+        ),
+        (
+            "The molecular weight shall be 28 kg.",
+            "molecular weight",
+            "molecular weight",
+            "28",
+            "kg",
+            False,
+        ),
+        (
+            "The design pressure shall be 10 bar.",
+            "design pressure",
+            "design pressure",
+            None,
+            "bar",
+            False,
+        ),
+        (
+            "The design pressure shall be 10 bar.",
+            "design pressure",
+            "design pressure",
+            "12",
+            "bar",
+            False,
+        ),
+        # the sentence names the quantity AFTER the figure with other words between
+        (
+            "Design for 30 bar and keep the design pressure noted.",
+            "design pressure",
+            "design pressure",
+            "30",
+            "bar",
+            False,
+        ),
+    ],
+)
+def test_the_number_must_be_the_limit_of_the_named_quantity(
+    text, quote, name, value, unit, expected
+):
+    assert field_vocabulary.number_fits(text, quote, name, value, unit) is expected
+
+
+def test_a_name_whose_number_is_a_duration_is_not_stored_as_a_name():
+    reqs = [
+        {
+            "id": "r1",
+            "requirement_type": "numeric_limit",
+            "raw_value": "30",
+            "raw_unit": "minutes",
+            "requirement_text": "The test pressure shall be held for at least 30 minutes.",
+        }
+    ]
+    fake = Fake(lambda t: "test pressure", lambda t: "test pressure")
+    got = field_vocabulary.name_requirements(reqs, fake)
+    assert got["r1"]["field_name"] is None
+
+
+def test_a_stored_name_is_dropped_when_the_number_no_longer_fits():
+    reqs = _store_a_name(
+        "r1",
+        "The max allowable working pressure shall not exceed 10 bar.",
+        "mawp",
+        "max allowable working pressure",
+    )
+    assert field_vocabulary.names_for(reqs, [])["requirements"] == {"r1": "mawp"}
+    other_unit = [{**reqs[0], "raw_unit": "minutes"}]
+    assert field_vocabulary.names_for(other_unit, [])["requirements"] == {}

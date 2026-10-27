@@ -53,7 +53,8 @@ def run(
     rows = [
         dict(r)
         for r in conn.execute(
-            "SELECT r.id, r.standard_document_id, r.requirement_type, r.requirement_text FROM"
+            "SELECT r.id, r.standard_document_id, r.requirement_type, r.requirement_text,"
+            " r.raw_value, r.raw_unit, r.unit FROM"
             " standard_requirements r JOIN documents d ON d.id = r.standard_document_id"
             " JOIN document_classification c ON c.document_id = d.id"
             f" WHERE c.document_role = 'COMPANY_STANDARD' AND r.superseded_at IS NULL AND {where}"
