@@ -82,4 +82,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         "",
         "duration_is_not_stored",
     ),
+    _m(
+        "10",
+        "a figure ahead of the sentence's main 'shall' (the rule's condition) is taken as its limit",
+        "        if modal and at + len(q) + m.start() < modal.start():\n            return False\n",
+        "",
+        "ahead_of_the_main_shall",
+    ),
 )

@@ -198,6 +198,10 @@ _LIMIT_WORDS = frozenset(
 )
 
 
+#: The main verb of a requirement sentence; a figure ahead of it limits WHEN the rule applies.
+_MODAL = re.compile(r"\b(?:shall|should|must|will)\b")
+
+
 def _unit_families(unit: str | None) -> set[str]:
     from . import claims
 
@@ -229,8 +233,13 @@ def number_fits(
         return False
     number = re.compile(r"(?<![\w.])" + re.escape(value) + r"(?![\w])")
     after = t[at + len(q) :]
+    modal = _MODAL.search(t)
     m = number.search(after)
     if m:
+        # Gate 5: a number that comes BEFORE the sentence's main "shall" is the condition of the
+        # rule ("vessels with design temperature below N shall ..."), never its limit.
+        if modal and at + len(q) + m.start() < modal.start():
+            return False
         between = re.sub(r"\([^)]*\)", " ", after[: m.start()])
         return not re.search(r"[;:]", between) and all(
             w in _LIMIT_WORDS for w in _WORD.findall(between)
@@ -239,6 +248,8 @@ def number_fits(
     hits = list(number.finditer(before))
     if not hits:
         return False
+    if modal and hits[-1].start() < modal.start():
+        return False  # gate 5, as above: a figure ahead of the main "shall" is a condition
     gap = before[hits[-1].end() :]
     unit_words = set(_WORD.findall((raw_unit or "").lower()))
     return all(w in unit_words or w in _NEUTRAL for w in _WORD.findall(gap))

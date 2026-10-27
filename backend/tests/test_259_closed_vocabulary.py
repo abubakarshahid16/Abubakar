@@ -542,3 +542,68 @@ def test_a_stored_name_is_dropped_when_the_number_no_longer_fits():
     assert field_vocabulary.names_for(reqs, [])["requirements"] == {"r1": "mawp"}
     other_unit = [{**reqs[0], "raw_unit": "minutes"}]
     assert field_vocabulary.names_for(other_unit, [])["requirements"] == {}
+
+
+# ---------------------------------------- gate 5 (s2's 13-name hand check: all 5 wrong ones were conditions)
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "name", "value", "unit", "expected"),
+    [
+        # the figure is the condition of the rule, ahead of its main "shall"
+        (
+            "Vessels with design temperature below 100 degC shall meet the other standard.",
+            "design temperature",
+            "design temperature",
+            "100",
+            "degC",
+            False,
+        ),
+        (
+            "For test pressure above 40 bar, raise the pressure in increments of 5 bar and shall record it.",
+            "test pressure",
+            "test pressure",
+            "40",
+            "bar",
+            False,
+        ),
+        (
+            "At 120 degC design temperature the casing shall be alloy steel.",
+            "design temperature",
+            "design temperature",
+            "120",
+            "degC",
+            False,
+        ),
+        # the figure follows the main verb: still the limit
+        (
+            "The design temperature shall not exceed 100 degC.",
+            "design temperature",
+            "design temperature",
+            "100",
+            "degC",
+            True,
+        ),
+        (
+            "The casing shall be rated for a design pressure of 25 bar.",
+            "design pressure",
+            "design pressure",
+            "25",
+            "bar",
+            True,
+        ),
+        # no main verb in the sentence (a table row, a bare statement): gate 5 does not apply
+        (
+            "Design pressure not to exceed 25 bar",
+            "design pressure",
+            "design pressure",
+            "25",
+            "bar",
+            True,
+        ),
+    ],
+)
+def test_a_figure_ahead_of_the_main_shall_is_a_condition_not_the_limit(
+    text, quote, name, value, unit, expected
+):
+    assert field_vocabulary.number_fits(text, quote, name, value, unit) is expected
