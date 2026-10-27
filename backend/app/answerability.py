@@ -43,6 +43,7 @@ import json
 import logging
 
 from . import condition_choice as cc
+from .ai.json_reply import unfenced
 from . import lexical, standard_ids
 from . import understanding as understanding_mod
 from .config import settings
@@ -288,9 +289,7 @@ def judge(question: str, result: dict, current: dict, provider) -> dict:
     errors = schema_errors(response.text, JUDGE_SCHEMA)
     if errors:
         return {**current, "judge": {"accepted": False, "why": "output rejected: " + "; ".join(errors)}}
-    body = response.text.strip().strip("`")
-    body = body[body.find("{"):]
-    out = json.loads(body)
+    out = json.loads(unfenced(response.text.strip()))
     if not out["answers"]:
         return {"verdict": INSUFFICIENT,
                 "reason": "the passages are on the topic but none states the answer (model judgement, "

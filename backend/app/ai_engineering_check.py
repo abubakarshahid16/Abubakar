@@ -55,7 +55,7 @@ from enum import Enum
 
 from . import claude_approved, claude_spend, errors, numparse
 from .ai import output_limits
-from .ai.json_reply import unfenced
+from .ai.json_reply import opened, unfenced
 from .config import settings
 from .db import connect
 from .reader_api import _contains, _fold
@@ -520,9 +520,7 @@ def parse_partial(text: str) -> list[dict]:
     simply not returned, exactly as if it had never been proposed.
     """
     body = (text or "").strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = opened(body)
     key = body.find('"items"')
     if key == -1:
         return []
