@@ -22,7 +22,9 @@ no lock.
 
 from __future__ import annotations
 
+import functools
 import threading
+from collections.abc import Callable
 from contextlib import contextmanager
 
 _lock = threading.RLock()
@@ -49,3 +51,27 @@ def opened(path):
     finally:
         with _lock:
             doc.close()
+
+
+@contextmanager
+def open_pdf(*args, **kwargs):
+    """`pymupdf.open(*args, **kwargs)` as a context manager that holds the lock exactly while the
+    document is open: the short form of `held()` + `pymupdf.open` for a block that reads pages and
+    nothing slow. For slow work in between use `opened()`."""
+    import pymupdf
+
+    with _lock, pymupdf.open(*args, **kwargs) as doc:
+        yield doc
+
+
+def guarded(fn: Callable) -> Callable:
+    """Run the whole function under the lock: for an export that builds a document from nothing
+    (`pymupdf.open()` with no file) in a long body that is not worth re-indenting. It must not call
+    a model or wait on another thread."""
+
+    @functools.wraps(fn)
+    def inside_the_lock(*args, **kwargs):
+        with _lock:
+            return fn(*args, **kwargs)
+
+    return inside_the_lock
