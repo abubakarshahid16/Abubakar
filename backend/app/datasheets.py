@@ -3416,10 +3416,9 @@ def _read_with_ai(document_id: str, stored_path: str | None, by_page: dict, chun
                      for page in sorted(by_page)}
             if mode == FORM:
                 from . import form_reader_run
-                ai_run = form_reader_run.add_merge_reading(form_reader_run.read_document(
+                ai_run = form_reader_run.read_both(
                     texts, form_reader_run.equipment_type_of(document_id, chunks),
-                    extra_subjects=form_reader_run.requirement_subjects(
-                        form_reader_run.standards_of(document_id))), datasheet_ai.read_pages(texts))
+                    form_reader_run.standards_of(document_id))
             else:
                 ai_run = datasheet_ai.read_pages(texts)
         ai_stats = {"engine": ai_run["engine"], "unavailable": ai_run["unavailable"],

@@ -46,7 +46,7 @@ import json
 import re
 from enum import Enum
 
-from . import blank_markers, claims, datasheets, errors, numparse, submittal_review
+from . import blank_markers, claims, datasheets, errors, numparse, reader_speed, submittal_review
 from .claude_spend import StopRun
 from .db import connect
 from .stored_paths import local as local_path
@@ -158,7 +158,7 @@ def build_prompt(page_text: str, page_no: int, known_fields: list[str]) -> str:
     them anyway (`already_extracted`) - the prompt is the request, the gate is
     the enforcement.
     """
-    parts = [PROMPT]
+    parts = [reader_speed.shorten_quote_rule(PROMPT)]
     if known_fields:
         parts.append(_KNOWN_FIELDS_PREFIX)
         parts.extend(f"  - {f}\n" for f in known_fields)

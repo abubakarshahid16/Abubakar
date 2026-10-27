@@ -56,6 +56,7 @@ from . import (
     datasheets,
     errors,
     job_progress,
+    reader_speed,
 )
 from .ai import output_limits
 from .claude_spend import StopRun
@@ -217,7 +218,7 @@ def _ollama_call(packet_shape: dict | None = None):
     provider = OllamaProvider(
         model, timeout=float(settings.datasheet_ai_timeout_seconds), retry_timeouts=True
     )
-    shape = {"json_schema": _SCHEMA, "prompt_version": PROMPT_VERSION,
+    shape = {"json_schema": _SCHEMA, "prompt_version": reader_speed.version(PROMPT_VERSION),
              "num_predict": OLLAMA_NUM_PREDICT, **(packet_shape or {})}
 
     asked: dict[str, int] = {}
@@ -601,9 +602,8 @@ def _read(
     engine: str | None,
     deadline: float | None = None,
 ) -> dict:
-    """`claude_datasheet.read_page` for one page, WITHOUT the rule readers'
-    fields as `known_fields`: this is a second, independent reading, and a
-    field the rules also read is exactly what agreement is measured on.
+    """`claude_datasheet.read_page` for one page, WITHOUT the rule readers' fields as `known_fields`: a second,
+    independent reading, the one agreement is measured on (`reader_speed`'s cuts, off by default, change that).
 
     Returns the read_page shape plus `engine`; `error` when the page could
     not be read (engine failure, malformed answer) and `stopped` (the limit's
@@ -612,7 +612,7 @@ def _read(
     `deadline` (`time.monotonic()`). Only the exception's TYPE is kept: a
     message could carry a URL; the type is all a reader needs."""
     try:
-        out = claude_datasheet.read_page(page_text, page_no, None, model_call)
+        out = reader_speed.read_page(claude_datasheet.read_page, page_text, page_no, model_call, AnswerCutOff)
     except AnswerCutOff:
         return _read_in_parts(page_text, page_no, model_call, engine, deadline)
     except StopRun as exc:

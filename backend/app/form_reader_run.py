@@ -16,7 +16,7 @@ from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from . import claims, datasheet_ai
+from . import claims, datasheet_ai, reader_speed
 from .config import settings
 from .db import connect
 from .form_reader import NUM_PREDICT, FormReading, read_form
@@ -362,7 +362,7 @@ def read_document(
             None,
             packet_shape={
                 "json_schema": schema_for(fields),
-                "prompt_version": PROMPT_VERSION,
+                "prompt_version": reader_speed.version(PROMPT_VERSION),
                 "num_predict": NUM_PREDICT,
             },
         )
@@ -398,6 +398,19 @@ def read_document(
     return run
 
 
+def read_both(texts: dict[int, str], equipment_type: str | None, standard_ids) -> dict:
+    """The form reading, then the whole-page reading added to it
+    (`add_merge_reading`). The form is read FIRST, so the whole-page pass can be
+    told which fields the form read on each page (`reader_speed`'s
+    `skip_form_read` cut; a no-op unless it is on)."""
+    form = read_document(
+        texts, equipment_type, extra_subjects=requirement_subjects(standard_ids)
+    )
+    with reader_speed.skipping(reader_speed.form_read_labels(form)):
+        merge = datasheet_ai.read_pages(texts)
+    return add_merge_reading(form, merge)
+
+
 def refusal_summary(ai_run: dict, ai_stats: dict) -> dict:
     """Order 224.9, for `datasheets.reader_summary`: the readings the code gate
     refused BY REASON (`dropped` reasons are prefixed), and the form reader's
@@ -417,6 +430,7 @@ __all__ = [
     "add_merge_reading",
     "as_ai_run",
     "equipment_type_of",
+    "read_both",
     "read_document",
     "reader_mode",
     "reading_for",
