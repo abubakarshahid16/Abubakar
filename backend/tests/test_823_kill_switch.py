@@ -12,8 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
-from app import datasheet_ai, reader_api, reasoning_provider
+from app import claude_api, datasheet_ai, reader_api, reasoning_provider
 from app.config import settings
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "security" / "kill-switch.md"
@@ -33,7 +34,9 @@ def _every_route_is_closed():
     assert reasoning_provider.claude_unavailable()[0] is not None
     assert reasoning_provider.claude_unavailable_for_task("claude")[0] is not None
     assert reasoning_provider.claude_for_task("claude") is None
-    assert isinstance(reasoning_provider.get_provider(), reasoning_provider.OllamaProvider)
+    assert isinstance(
+        reasoning_provider.get_provider(), reasoning_provider.OllamaProvider
+    )
     call, why = datasheet_ai._claude_call()
     assert call is None and "unavailable" in why
 
@@ -48,7 +51,10 @@ def test_the_fixture_really_leaves_the_lane_open():
 def test_setting_the_provider_to_ollama_closes_every_route(monkeypatch, provider):
     monkeypatch.setattr(settings, "reasoning_provider", provider)
     _every_route_is_closed()
-    assert reasoning_provider.claude_unavailable()[0] == reasoning_provider.UNAVAILABLE_PROVIDER_OFF
+    assert (
+        reasoning_provider.claude_unavailable()[0]
+        == reasoning_provider.UNAVAILABLE_PROVIDER_OFF
+    )
     code = reasoning_provider.claude_unavailable_for_task("claude")[0]
     assert code == reasoning_provider.UNAVAILABLE_PROVIDER_OFF
 
@@ -56,7 +62,10 @@ def test_setting_the_provider_to_ollama_closes_every_route(monkeypatch, provider
 def test_removing_the_api_key_closes_every_route(monkeypatch):
     monkeypatch.delenv(reader_api.API_KEY_ENV)
     _every_route_is_closed()
-    assert reasoning_provider.claude_unavailable()[0] == reasoning_provider.UNAVAILABLE_KEY_MISSING
+    assert (
+        reasoning_provider.claude_unavailable()[0]
+        == reasoning_provider.UNAVAILABLE_KEY_MISSING
+    )
     assert reasoning_provider.claude_lane_open() is False
 
 
@@ -70,6 +79,24 @@ def test_the_provider_switch_beats_a_step_that_says_claude(monkeypatch):
 def test_the_document_names_switches_that_exist():
     text = DOC.read_text(encoding="utf-8")
     assert "REASONING_PROVIDER=ollama" in text
-    assert hasattr(settings, "reasoning_provider") and hasattr(settings, "anthropic_api_key")
+    assert hasattr(settings, "reasoning_provider") and hasattr(
+        settings, "anthropic_api_key"
+    )
     assert reader_api.API_KEY_ENV == "ANTHROPIC_API_KEY"
     assert "Claude API key" in text and "backend/.env" in text
+
+
+@pytest.mark.parametrize("step", sorted(claude_api.STEPS))
+def test_every_claude_review_route_is_refused_by_either_kill_switch_action(
+    monkeypatch, step
+):
+    """`_model_call_or_409` is the one gate of the three `claude_api` routes."""
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    with pytest.raises(HTTPException) as provider_off:
+        claude_api._model_call_or_409(step)
+    assert provider_off.value.status_code == 409
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
+    monkeypatch.delenv(reader_api.API_KEY_ENV)
+    with pytest.raises(HTTPException) as no_key:
+        claude_api._model_call_or_409(step)
+    assert no_key.value.status_code == 409
