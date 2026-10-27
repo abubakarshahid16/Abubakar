@@ -199,6 +199,10 @@ jobs:
           MATCH_ENGINE: ollama
           DATASHEET_AI_OLLAMA_MODEL: ${{ inputs.model }}
           AI_TASK_MODEL: ${{ inputs.model }}
+          # CPU is slow: the defaults (180 s per call, 900 s per pass) cut every page
+          # call and the reader read 0 of 2 pages (25 Oct runs). Order 224.7.
+          DATASHEET_AI_TIMEOUT_SECONDS: "1500"
+          DATASHEET_AI_MAX_SECONDS: "14400"
           STANDARDS_READER_ENABLED: "false"
           STANDARDS_READER_ALLOW_PUBLIC_EGRESS: "false"
           REVIEW_WEB_STANDARDS_ENABLED: "false"
@@ -220,7 +224,8 @@ jobs:
         run: |
           python scripts/pf1_run.py --set backend/tests/fixtures/synthetic/pf1 --out "$WORK/runs" \
             --server http://127.0.0.1:18080 --test-server --no-login \
-            --db-copy "$WORK/pf1.sqlite" --only "$SHEET" --timeout 16000
+            --db-copy "$WORK/pf1.sqlite" --only "$SHEET" --timeout 16000 \
+            --request-timeout 1800
 
       # `pf1_collect.py` (#1233) reads the run from a COPY, read-only, writes the
       # findings and completes the run record with the DECLARED mode (main = the
@@ -239,11 +244,32 @@ jobs:
           python scripts/pf1_collect.py --db "$WORK/pf1-copy.sqlite" \
             --runs "$WORK/runs" --mode main --model "$MODEL"
 
-      - name: Show the server logs (invented sheets only, safe to print)
-        if: failure()
+      # ALWAYS (order 224.7): the 25 Oct runs "succeeded" and read 0 pages, and
+      # nobody saw why because the logs were printed only on failure.
+      - name: Show the server logs and the page ledger (invented sheets only, safe to print)
+        if: always()
         run: |
-          echo "--- ollama.log"; tail -n 40 "$RUNNER_TEMP/ollama.log" || true
-          echo "--- backend.log"; tail -n 40 "$RUNNER_TEMP/backend.log" || true
+          echo "--- ollama.log (last 80)"; tail -n 80 "$RUNNER_TEMP/ollama.log" || true
+          echo "--- backend.log (last 80)"; tail -n 80 "$RUNNER_TEMP/backend.log" || true
+          echo "--- run record (status, error)"
+          python - <<'PY' || true
+          import glob, json, os
+          for f in sorted(glob.glob(os.environ["WORK"] + "/runs/*.run.json")):
+              r = json.load(open(f))
+              print(r.get("status"), r.get("error"))
+          PY
+          echo "--- page ledger (page, facts_status, facts_reason)"
+          python - <<'PY' || true
+          import os, sqlite3
+          path = os.environ["WORK"] + "/pf1.sqlite"
+          con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+          rows = con.execute(
+              "SELECT page_no, facts_status, substr(coalesce(facts_reason, ''), 1, 160)"
+              " FROM page_ledger ORDER BY document_id, page_no"
+          )
+          for row in rows:
+              print(row)
+          PY
 
       - name: Say what it cost
         if: always()

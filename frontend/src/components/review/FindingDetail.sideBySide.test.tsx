@@ -144,7 +144,7 @@ describe("side by side", () => {
 
   it("opening one cited page closes the side-by-side view", async () => {
     await openSideBySide();
-    await userEvent.click(screen.getAllByRole("button", { name: /Open at page/ })[0]);
+    await userEvent.click(screen.getAllByRole("button", { name: /Open (standard|datasheet) at page/ })[0]);
     expect(screen.queryByRole("group", { name: "Standard" })).toBeNull();
     expect(screen.getByTestId("single-page")).toHaveTextContent("std-noise.pdf p12");
   });
