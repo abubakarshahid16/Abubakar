@@ -152,8 +152,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M2026", phase=_P,
         description="the change table's exclusion is recorded with the generic reason",
         path=_CH,
-        anchor="HISTORY_REASON if kind == HISTORY_KIND else f\"page classified as {kind}\"",
-        replacement="f\"page classified as {kind}\"",
+        anchor="HISTORY_REASON if kind == HISTORY_KIND else script.page_reason(kind, ptext)",
+        replacement="script.page_reason(kind, ptext)",
         target=_T, keyword="excluded_with_a_recorded_reason",
     ),
     Mutation(

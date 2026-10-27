@@ -194,6 +194,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `progress` | What the machine is doing right now, recorded when it actually happens |
 | `provenance` | Which code read which input: provenance for extracted rows (issue #177) |
 | `quality` | Content-quality gate |
+| `unsupported_script` | A page written mostly in Arabic script is not searched and says so: "language not supported, engineer review" (#564) |
 | `rates` | Throughput reporting |
 | `reader_api` | Layer 1 for STANDARDS: the model READS one sentence, Python VERIFIES it |
 | `reader_transport` | The one place in this codebase that may open a socket to the standards reader |
