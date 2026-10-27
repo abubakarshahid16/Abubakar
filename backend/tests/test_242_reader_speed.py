@@ -304,6 +304,7 @@ def test_the_fully_read_pages_are_counted_for_every_run_switch_or_not(
     run = _two_page_run(monkeypatch, fake)
     assert run["form"]["pages_fully_agreed"] == [1]
     assert run["form"]["pages_merge_skipped"] == []
+    assert run["form"]["merge_skipped_unexplained"] == {}
     assert (
         len(fake.merge_prompts) == 2 * 2
     )  # both pages, two runs each: nothing skipped
@@ -316,6 +317,10 @@ def test_skip_agreed_pages_makes_no_whole_page_call_for_a_fully_read_page(
     fake = _Both()
     run = _two_page_run(monkeypatch, fake)
     assert run["form"]["pages_merge_skipped"] == [1]
+    # the numbers nobody reads on a skipped page are counted, per page (never their words)
+    unexplained = run["form"]["merge_skipped_unexplained"]
+    assert set(unexplained) == {1} and isinstance(unexplained[1], int)
+    assert unexplained[1] <= reader_speed.UNEXPLAINED_NUMBERS
     assert all("PAGE 1:" not in p for p in fake.merge_prompts)
     assert any("PAGE 2:" in p for p in fake.merge_prompts)
     labels = {f["field"] for f in run["pages"][1]["accepted"]}
@@ -367,4 +372,17 @@ def test_the_per_page_counts_reach_the_stored_reader_summary(cuts, monkeypatch):
     counts = summary["speed_counts"]
     assert counts["pages_fully_agreed"] == [1] and counts["pages_merge_skipped"] == []
     assert set(counts["merge_by_page"]) == {1, 2}
+    assert counts["merge_skipped_unexplained"] == {}
     assert json.dumps(summary)  # it is storable
+
+
+def test_the_numbers_nobody_reads_on_a_skipped_page_are_counted_not_shown():
+    form = {
+        "pages": {
+            1: {"accepted": [{"value": "10", "quote": "Design pressure 10 barg"}]},
+        }
+    }
+    texts = {1: "Design pressure 10 barg\nNote 55 and 66\n", 2: "x 1"}
+    got = reader_speed.skipped_unexplained(texts, form, [1])
+    assert got == {1: 2}
+    assert reader_speed.skipped_unexplained(texts, form, []) == {}

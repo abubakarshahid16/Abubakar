@@ -429,7 +429,10 @@ def read_both(texts: dict[int, str], equipment_type: str | None, standard_ids) -
     run = add_merge_reading(form, merge)
     # counts only (order 246.3): the pages the form read fully, and those the whole-page call skipped
     run["form"]["pages_fully_agreed"] = agreed
-    run["form"]["pages_merge_skipped"] = [p for p in texts if p not in asked]
+    run["form"]["pages_merge_skipped"] = skipped = [p for p in texts if p not in asked]
+    run["form"]["merge_skipped_unexplained"] = reader_speed.skipped_unexplained(
+        texts, form, skipped
+    )
     return run
 
 
@@ -446,7 +449,12 @@ def refusal_summary(ai_run: dict, ai_stats: dict) -> dict:
         # read fully (page numbers and counts only), so a run shows where minutes go
         "speed_counts": {
             key: form[key]
-            for key in ("merge_by_page", "pages_fully_agreed", "pages_merge_skipped")
+            for key in (
+                "merge_by_page",
+                "pages_fully_agreed",
+                "pages_merge_skipped",
+                "merge_skipped_unexplained",
+            )
             if key in form
         },
     }

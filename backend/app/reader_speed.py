@@ -119,6 +119,21 @@ def unexplained_numbers(page_text: str, accepted: list[dict]) -> int:
     return len(numparse.number_keys(page_text or "") - carried)
 
 
+def skipped_unexplained(
+    texts: dict[int, str], form_run: dict | None, skipped: list[int]
+) -> dict[int, int]:
+    """For each page whose whole-page call was skipped: how many numbers on it no reading
+    carries (counts only). Those numbers are read by nobody, so the run says how many."""
+    pages = (form_run or {}).get("pages") or {}
+    return {
+        page: unexplained_numbers(
+            texts[page], (pages.get(page) or {}).get("accepted") or []
+        )
+        for page in skipped
+        if page in texts
+    }
+
+
 def agreed_pages(texts: dict[int, str], form_run: dict | None) -> list[int]:
     """The pages the form reader read FULLY: read without error, no refused
     reading, at least one accepted reading, and few numbers it did not carry.
