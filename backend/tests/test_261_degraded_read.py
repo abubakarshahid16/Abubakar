@@ -1,12 +1,18 @@
-"""Order 261.2: a degraded AI reading never makes a verdict more confident. s2's clean vs broken
-I-06 counts (facts 68 vs 39, conflicts 16 vs 4, checklist meets 81 vs 88, the
-run summary saying nothing) as invented fixtures. No model, no network."""
+"""Order 261.2: a failed AI reading never makes a verdict more confident. s2's real clean vs broken
+I-06 reader summaries (counts only) as invented fixtures. No model, no network."""
 
 from __future__ import annotations
 
 import pytest
 
-from app import absence, datasheets, db, degraded_read, submittal_review
+from app import (
+    absence,
+    datasheets,
+    db,
+    degraded_read,
+    form_reader_fields,
+    submittal_review,
+)
 from app.config import settings
 
 
@@ -22,8 +28,8 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-# s2's REAL clean I-06 read (35B): the AI proposes far more than it can prove, so "refused > agreed"
-# (117 > 58) is normal and says nothing about a broken engine.
+# s2's REAL clean I-06 read (35B): the AI proposes far more than it can prove, so many gate
+# refusals (117 > agreed 58) are normal; they are quote and value checks, not engine failures.
 CLEAN = {
     "engine": "local",
     "pages": 5,
@@ -34,36 +40,39 @@ CLEAN = {
     "agreed": 58,
     "facts_written": 68,
     "conflicts": 16,
+    "rejected_fields": {
+        "set_pressure: quote_not_on_page": 4,
+        "design_temperature: value_not_in_quote": 9,
+        "bearing_type: label_not_in_quote": 2,
+    },
 }
-# the same sheet when the engine failed under it: pages left to the code readers with an
-# unusable answer, fewer facts, fewer conflicts
+# the same sheet when the engine failed under it: replies cut off / malformed / not answered for
+# some fields, fewer facts, fewer agreements, fewer conflicts
 BROKEN = {
     **CLEAN,
-    "code_only": {
-        "2": "engine answer unusable (compute error)",
-        "4": "engine answer unusable (x)",
-    },
     "refused_by_gate": 46,
     "agreed": 24,
     "facts_written": 39,
     "conflicts": 4,
+    "rejected_fields": {
+        "set_pressure: model_malformed": 2,
+        "design_temperature: field_not_answered": 2,
+        "bearing_type: label_not_in_quote": 2,
+    },
 }
 
 
-def passes(n):
+def passes(*roles):
     return [
         {
             "rule_id": f"P{i}",
+            "role": role,
             "status": "COMPLIANT",
             "checklist": True,
             "detail": "stated",
         }
-        for i in range(n)
+        for i, role in enumerate(roles)
     ]
-
-
-def meets(results):
-    return sum(r["status"] == "COMPLIANT" for r in results)
 
 
 @pytest.fixture
@@ -74,151 +83,164 @@ def reader(monkeypatch):
     return set_summary
 
 
-def test_a_clean_read_is_not_degraded():
-    assert degraded_read.assess(CLEAN) is None
-
-
-def test_a_page_with_an_unusable_engine_answer_is_degraded_and_says_the_counts():
-    record = degraded_read.assess(BROKEN)
-    assert record["why"] == ["failed_pages"] and record["failed_pages"] == 2
-    assert "2 page(s) had an unusable or missing AI answer" in degraded_read.line(
-        record
-    )
-
-
-def test_many_refusals_alone_are_not_a_broken_read():
-    """s2's real clean reads refuse 117 and agree 58: that must not hold a single pass."""
+def test_a_clean_read_with_many_gate_refusals_holds_and_flags_nothing(reader):
     assert CLEAN["refused_by_gate"] > CLEAN["agreed"]
+    assert degraded_read.missing_roles(CLEAN) == {}
     assert degraded_read.assess(CLEAN) is None
+    reader(CLEAN)
+    results = passes("set_pressure", "design_temperature", "bearing_type")
+    assert degraded_read.hold(results, "doc") == results
 
 
-def test_a_page_with_no_text_is_a_fact_about_the_page_not_a_failure():
-    assert (
-        degraded_read.assess({**CLEAN, "code_only": {"1": "no text on this page"}})
-        is None
-    )
-
-
-@pytest.mark.parametrize(
-    ("change", "why"),
-    [
-        ({"timed_out": [2, 3]}, "timed_out"),
-        ({"stopped": "time budget"}, "stopped"),
-        ({"unavailable": "model not installed"}, "unavailable"),
-    ],
-)
-def test_a_timeout_a_stop_or_an_unavailable_reader_is_degraded(change, why):
-    assert degraded_read.assess({**CLEAN, **change})["why"] == [why]
-
-
-def test_an_ai_reader_that_was_not_asked_is_not_degraded():
-    assert degraded_read.assess({"engine": "off", "pages": 3}) is None
-    assert degraded_read.assess(None) is None
+def test_only_the_fields_whose_ai_reading_did_not_come_back_are_held(reader):
+    assert degraded_read.missing_roles(BROKEN) == {
+        "set_pressure": ["model_malformed"],
+        "design_temperature": ["field_not_answered"],
+    }
+    reader(BROKEN)
+    held = {
+        r["role"]: r["status"]
+        for r in degraded_read.hold(
+            passes("set_pressure", "design_temperature", "bearing_type", "flow"), "doc"
+        )
+    }
+    assert held == {
+        "set_pressure": "NEEDS_ENGINEER_REVIEW",
+        "design_temperature": "NEEDS_ENGINEER_REVIEW",
+        "bearing_type": "COMPLIANT",  # refused by a quote check: a gate doing its job
+        "flow": "COMPLIANT",
+    }
 
 
 def test_the_broken_read_gives_no_more_meets_than_the_clean_one(reader):
+    roles = ["set_pressure", "design_temperature", "bearing_type", "flow", "orifice"]
     reader(CLEAN)
-    clean = degraded_read.hold(passes(81), "doc")
+    clean = degraded_read.hold(passes(*roles), "doc")
     reader(BROKEN)
-    broken = degraded_read.hold(passes(88), "doc")
-    assert meets(clean) == 81
-    assert meets(broken) == 0 <= meets(clean)
-    assert {r["status"] for r in broken} == {"NEEDS_ENGINEER_REVIEW"}
+    broken = degraded_read.hold(passes(*roles), "doc")
+    meets = lambda rs: sum(r["status"] == "COMPLIANT" for r in rs)  # noqa: E731
+    assert meets(broken) < meets(clean) == 5
+    held = next(r for r in broken if r["role"] == "set_pressure")
     assert (
-        "degraded" in broken[0]["detail"]
-        and "2 page(s) had an unusable or missing AI answer" in broken[0]["detail"]
+        "AI reading missing" in held["detail"] and "model_malformed" in held["detail"]
     )
 
 
-def test_only_checklist_passes_are_held_and_failures_stay_failures(reader):
+def test_a_failure_a_missing_value_and_a_non_checklist_pass_keep_their_status(reader):
     reader(BROKEN)
     results = [
-        {"rule_id": "A", "status": "NON_COMPLIANT", "checklist": True, "detail": "x"},
         {
-            "rule_id": "B",
+            "role": "set_pressure",
+            "status": "NON_COMPLIANT",
+            "checklist": True,
+            "detail": "x",
+        },
+        {
+            "role": "set_pressure",
             "status": "MISSING_INFORMATION",
             "checklist": True,
             "detail": "x",
         },
-        {"rule_id": "C", "status": "COMPLIANT", "detail": "a consistency pair"},
-        {"rule_id": "D", "status": "COMPLIANT", "checklist": True, "detail": "x"},
+        {"role": "set_pressure", "status": "COMPLIANT", "detail": "a consistency pair"},
+        {"role": None, "status": "COMPLIANT", "checklist": True, "detail": "x"},
     ]
-    held = {r["rule_id"]: r["status"] for r in degraded_read.hold(results, "doc")}
-    assert held == {
-        "A": "NON_COMPLIANT",
-        "B": "MISSING_INFORMATION",
-        "C": "COMPLIANT",
-        "D": "NEEDS_ENGINEER_REVIEW",
+    kept = [r["status"] for r in degraded_read.hold(results, "doc")]
+    assert kept == ["NON_COMPLIANT", "MISSING_INFORMATION", "COMPLIANT", "COMPLIANT"]
+
+
+def test_every_form_reader_error_reason_is_a_missing_reading():
+    from app.form_reader import Reason
+
+    errors = {
+        Reason.MODEL_FAILED,
+        Reason.MODEL_CUT_OFF,
+        Reason.MODEL_TIMED_OUT,
+        Reason.MODEL_MALFORMED,
+        Reason.MODEL_STOPPED,
+        Reason.MODEL_UNSTABLE,
+        Reason.FIELD_NOT_ANSWERED,
     }
+    assert {r.value for r in errors} == set(degraded_read.ERROR_REASONS)
+    # a failed quote or value check is not one of them
+    assert Reason.QUOTE_NOT_ON_PAGE.value not in degraded_read.ERROR_REASONS
 
 
-def test_a_clean_read_changes_nothing(reader):
-    reader(CLEAN)
-    results = passes(3)
-    assert degraded_read.hold(results, "doc") == results
+def test_the_banner_names_a_page_the_engine_could_not_read_and_a_low_agreed_share():
+    assert degraded_read.assess(BROKEN)["why"] == ["low_agreement", "fields_missing"]
+    failed = {
+        **CLEAN,
+        "code_only": {"2": "engine answer unusable (x)", "3": "no text on this page"},
+    }
+    record = degraded_read.assess(failed)
+    assert record["why"] == ["failed_pages"] and record["failed_pages"] == 1
+    assert degraded_read.is_part(record)
+    assert not degraded_read.is_part(degraded_read.assess(BROKEN))  # internal note only
+    assert degraded_read.assess({**CLEAN, "timed_out": [4]})["why"] == ["timed_out"]
+    assert degraded_read.assess({**CLEAN, "stopped": "time budget"})["why"] == [
+        "stopped"
+    ]
+    assert degraded_read.assess({**CLEAN, "unavailable": "no model"})["why"] == [
+        "unavailable"
+    ]
+
+
+def test_an_ai_reader_that_was_not_asked_is_not_flagged():
+    assert degraded_read.assess({"engine": "off", "pages": 3}) is None
+    assert degraded_read.assess(None) is None
 
 
 def test_the_split_carries_the_record_and_the_reader_summary(reader):
     reader(BROKEN)
     split = degraded_read.with_reader({"checked": 3}, "doc")
-    assert split["reader"] == BROKEN and split["degraded_read"]["why"] == [
-        "failed_pages"
-    ]
+    assert (
+        split["reader"] == BROKEN and "fields_missing" in split["degraded_read"]["why"]
+    )
     reader(CLEAN)
     clean = degraded_read.with_reader({"checked": 3}, "doc")
     assert "degraded_read" not in clean and clean["reader"] == CLEAN
 
 
-def test_the_crs_banner_lists_a_degraded_read_as_a_part_that_could_not_be_trusted():
-    record = degraded_read.assess(BROKEN)
-    outcome = {
-        "requirement_split": {"degraded_read": record},
-        "unchecked_counts": {"not_compared": 0, "not_applied": 0, "checked": 5},
-    }
-    parts = absence.unchecked_parts(run_status="completed", outcome=outcome)
-    assert [p["part"] for p in parts] == ["degraded_read"]
-    assert "REVIEW INCOMPLETE" in absence.notice_for(parts)
+def test_the_crs_banner_lists_a_failed_page_but_a_low_share_is_not_in_the_banner():
+    counts = {"not_compared": 0, "not_applied": 0, "checked": 5}
+
+    def parts(record):
+        outcome = {
+            "requirement_split": {"degraded_read": record},
+            "unchecked_counts": counts,
+        }
+        return absence.unchecked_parts(run_status="completed", outcome=outcome)
+
+    failed = degraded_read.assess(
+        {**CLEAN, "code_only": {"2": "engine answer unusable (x)"}}
+    )
+    shown = parts(failed)
+    assert [p["part"] for p in shown] == ["degraded_read"] and "detail" not in shown[0]
+    assert "REVIEW INCOMPLETE" in absence.notice_for(shown)
+    # a low agreed share or missing fields alone stay in the stored record, never in the banner
+    assert parts(degraded_read.assess(BROKEN)) == []
     assert absence.unchecked_parts(run_status="completed", outcome={}) == []
 
 
-def _checklist_findings(run_id):
-    from app import db
-
+def _checklist_findings():
     rows = db.connect().execute(
-        "SELECT compliance_status FROM review_findings WHERE review_run_id = ?"
-        " AND origin = 'datasheet_check'",
-        (run_id,),
+        "SELECT compliance_status FROM review_findings WHERE origin = 'datasheet_check'"
     )
     return [r["compliance_status"] for r in rows]
 
 
-def _review_with(summary, monkeypatch):
-    from tests.test_746_checklist_governs import (
-        _review,
-    )
+def test_a_whole_review_holds_the_passes_of_fields_the_ai_did_not_read(monkeypatch):
+    from tests.test_746_checklist_governs import _review, _review_again
 
-    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda _doc: summary)
-    result, _stored, _ids = _review("Pressure Safety Valve")
-    from app import db
+    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda _doc: CLEAN)
+    _review("Pressure Safety Valve")
+    clean = _checklist_findings()
+    assert "COMPLIANT" in clean
 
-    run = db.connect().execute("SELECT id FROM review_runs").fetchone()["id"]
-    return result, _checklist_findings(run)
-
-
-def test_a_whole_review_on_a_degraded_read_holds_every_checklist_pass(monkeypatch):
-    clean_result, clean = _review_with(CLEAN, monkeypatch)
-    assert (
-        "COMPLIANT" in clean
-        and "degraded_read" not in clean_result["requirement_split"]
-    )
-    from tests.test_746_checklist_governs import _review_again
-
-    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda _doc: BROKEN)
-    result, _s, _i = _review_again("Pressure Safety Valve")
-    from app import db
-
-    run = db.connect().execute("SELECT id FROM review_runs").fetchone()["id"]
-    broken = _checklist_findings(run)
-    assert "COMPLIANT" not in broken and "NEEDS_ENGINEER_REVIEW" in broken
-    assert len(broken) == len(clean)
-    assert result["requirement_split"]["degraded_read"]["why"] == ["failed_pages"]
+    roles = [f.key for f in form_reader_fields.field_list_for("Pressure Safety Valve")]
+    broken = {**BROKEN, "rejected_fields": {f"{r}: model_malformed": 1 for r in roles}}
+    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda _doc: broken)
+    result, _stored, _ids = _review_again("Pressure Safety Valve")
+    after = _checklist_findings()
+    assert "COMPLIANT" not in after and "NEEDS_ENGINEER_REVIEW" in after
+    assert len(after) == len(clean)
+    assert "fields_missing" in result["requirement_split"]["degraded_read"]["why"]

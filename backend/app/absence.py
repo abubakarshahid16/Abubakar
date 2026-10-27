@@ -334,9 +334,9 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         add("unread_pages", f"{len(unread)} page(s) of this submittal were not read into fields; "
                             "values on them could not be checked.")
     degraded = (outcome.get("requirement_split") or {}).get("degraded_read")
-    if degraded:  # order 261.2: a degraded AI read is a part that could not be trusted
-        from . import degraded_read
+    from . import degraded_read
 
+    if degraded and degraded_read.is_part(degraded):  # order 261.2: a page the AI could not read
         add("degraded_read", degraded_read.line(degraded))
     for key, status in (("ai_check", ai_status), ("web_check", web_status)):
         if status and status.get("complete") is False:
