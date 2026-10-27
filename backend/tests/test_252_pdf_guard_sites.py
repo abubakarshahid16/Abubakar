@@ -16,6 +16,7 @@ import pytest
 
 from app import (
     claude_datasheet,
+    cover_page,
     datasheet_inputs,
     datasheets,
     pdf_guard,
@@ -92,6 +93,13 @@ def _run_together(call):
     assert not errors, errors
 
 
+def _cover_page_view(path):
+    """`cover_page.page_view` reads context variables, which are per thread: set them here."""
+    datasheets._PAGE_FAILURES.set({})
+    cover_page.remember(path)
+    return cover_page.page_view(1)
+
+
 SITES = {
     "pdf_condition": lambda p: datasheets.pdf_condition(p),
     "pairs": lambda p: datasheets._pairs_from_pdf_page(p, 1),
@@ -101,6 +109,7 @@ SITES = {
     "tables": lambda p: tables.parse_page_tables(p, 1),
     "claude_page_text": lambda p: claude_datasheet._pdf_page_text(p, 1),
     "inputs_read_pdf": lambda p: datasheet_inputs.read_pdf(p),
+    "cover_page": lambda p: _cover_page_view(p),
 }
 
 
