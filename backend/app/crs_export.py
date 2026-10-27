@@ -444,7 +444,11 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # without their sign-off is what the project's own audits warned
             # against. Same shape as the Requirement/Submitted/Equipment lines
             # `crs_mapping._comment_text` already writes.
-            "comment": (comment if crs_ref else
+            # Order 236: the INTERNAL copy never opens a comment with the digest
+            # reference (an internal id has no place in COMPANY Comments for
+            # an engineer); it rides beside the row as `row_ref`. The issue
+            # copy keeps it as the contractor's handle for an unnumbered row.
+            "comment": (comment if crs_ref or copy == COPY_INTERNAL else
                         f"{ROW_REF_LABEL}: {ref}" + (f"\n{comment}" if comment else "")),
             "comment_by": finding.get("comment_by", ""),
             # The contractor's reply, as imported or recorded

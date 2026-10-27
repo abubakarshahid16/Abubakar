@@ -192,7 +192,7 @@ def test_a_text_item_number_is_written_on_the_rows_own_line():
     assert sheet.cell(first, 1).value == "CRS-X-007"
     assert sheet.cell(first, 7).value == "Open"
     assert sheet.cell(first + 1, 1).value == 2
-    assert str(sheet.cell(first + 1, 4).value).startswith("Ref: RF-")
+    assert sheet.cell(first + 1, 4).value == "two"  # order 236: no reference in the text
 
 
 # ================================================= after issue: the reply loop
