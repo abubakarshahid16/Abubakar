@@ -52,7 +52,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, closing_noun, conditions, datasheets, degraded_read, errors, field_copies, field_links, match_rules, method_notes, numparse,
+from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
@@ -2989,8 +2989,8 @@ def _run_comparison(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    check_results = degraded_read.hold(datasheet_checks.evaluate(
-        facts, equipment_type=stored.get("equipment_type"), page_texts=page_texts), submittal_id)
+    check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
+                                              page_texts=page_texts)
     # rule_trust (#947): every rule labelled, the checks too - a signed-off
     # checklist item is an engineer's rule; every other check is held when it
     # would decide (planner answer on #985). Nothing with the switch off.
@@ -3037,6 +3037,8 @@ def _run_comparison(
     # Owner order 2026-10-11: the run says which reader read the sheet - the
     # AI engine and model, or "code readers only", and the pages the AI did
     # not read (timed out, unavailable) with the reason.
+    from . import degraded_read
+
     split = degraded_read.with_reader(split, submittal_id)
     ai_matcher = matcher_summary(matcher_counts, model_matches=model_matches,
                                  model_held=model_held, questions=ask_counts)

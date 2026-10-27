@@ -7,7 +7,6 @@ from __future__ import annotations
 import pytest
 
 from app import absence, datasheets, degraded_read
-from tests.test_746_checklist_governs import temp_storage  # noqa: F401 - autouse
 
 CLEAN = {
     "engine": "local",
@@ -155,7 +154,9 @@ def _checklist_findings(run_id):
 
 
 def _review_with(summary, monkeypatch):
-    from tests.test_746_checklist_governs import _review  # noqa: F401 - autouse temp_storage
+    from tests.test_746_checklist_governs import (
+        _review,
+    )
 
     monkeypatch.setattr(datasheets, "latest_reader_summary", lambda _doc: summary)
     result, _stored, _ids = _review("Pressure Safety Valve")

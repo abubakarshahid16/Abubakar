@@ -1151,7 +1151,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     `label` (rule_trust, #947; None with the switch off): applied to each
     result AFTER the choice of which results become rows, so a held pass
     does not turn into a row a plain pass never was."""
-    from . import comparison, standard_clause_page
+    from . import comparison, degraded_read, standard_clause_page
     from . import review as review_mod
     written = []
     # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete and
@@ -1169,7 +1169,8 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     # result either (#746): the condition's reason is in the result, never a
     # row. NOT CALCULATED is not a row either (R13): the inputs it lacked are
     # asked for by their own `required` items.
-    for r in (x for x in results if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
+    for r in (x for x in degraded_read.hold(results, submittal_id)
+              if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
         if label is not None:
             r = label(r)
