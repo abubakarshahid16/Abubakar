@@ -15,7 +15,7 @@ from . import ai_engineering_check as ai_engineering_check_mod
 from . import ai_check_drafts as ai_check_drafts_mod
 from . import ai_numbers as ai_numbers_mod
 from . import evidence_boxes as evidence_boxes_mod
-from . import applicability as applicability_mod
+from . import applicability as applicability_mod, cited_edition as cited_edition_mod
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
 from . import crs_export as crs_export_mod
@@ -2953,8 +2953,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "recommended_code_reason": (
             run.get("override_reason") if run.get("engineer_final_code")
             else comparison_mod.plain_outcome(outcome)[0]) or "",
-        # B10: WHO DECIDED IT. The AI recommends; only an engineer decides. A
-        # CRS carrying the AI's code must say it is not yet a decision.
+        # B10: the AI recommends, an engineer decides; the CRS says the code is not yet a decision.
         "recommended_code_status": (
             crs_export_mod.CODE_DECIDED_BY_ENGINEER if run.get("engineer_final_code")
             else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
@@ -2974,6 +2973,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
+    meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)  # R7 (#771)
     return rows, meta, submittal_name, stamp
 
 
