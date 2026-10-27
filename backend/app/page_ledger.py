@@ -129,12 +129,14 @@ def read_page_empty(ai_run: dict, page: int) -> bool:
     )
 
 
+def reading_file(stored_path: str | None) -> str | None:
+    """Note the file fact extraction is reading (for the cover/notes text
+    check, `cover_page`); returns it unchanged."""
+    return cover_page.remember(stored_path)
+
+
 def no_fact(
-    ai_run: dict | None,
-    page: int,
-    reason: str,
-    dropped: dict[str, int],
-    stored_path: str | None = None,
+    ai_run: dict | None, page: int, reason: str, dropped: dict[str, int]
 ) -> tuple[str, int, str]:
     """The ledger outcome of a page the code readers gave no fact: READ_NO_FIELD
     when the AI reader read it and put nothing forward (two readers looked), else
@@ -146,7 +148,7 @@ def no_fact(
     failed = (datasheets._PAGE_FAILURES.get() or {}).get(page)
     if ai_run is not None and not failed and read_page_empty(ai_run, page):
         said = page_reason_words.no_field_found(dropped)
-        if cover_page.is_cover_or_notes(dropped, cover_page.page_text(stored_path, page)):
+        if cover_page.is_cover_or_notes(dropped, cover_page.page_text(page)):
             said = f"{cover_page.MARK} {said}"
         return (READ_NO_FIELD, 0, said)
     return ("no_facts", 0, reason)

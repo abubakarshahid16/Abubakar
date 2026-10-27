@@ -21,12 +21,12 @@ CLEAN_AI = {"pages": {1: {"accepted": [], "rejected": [], "counts": {}}}, "reaso
 VISION_DOWN = "routed: no text-based reader found a field on this page, but the vision reader is unavailable (down)"
 
 
-def _file(tmp_path, lines) -> str:
+def _file(tmp_path, lines, name="p.pdf") -> str:
     doc = pymupdf.open()
     page = doc.new_page()
     for i, line in enumerate(lines):
         page.insert_text((50, 80 + i * 20), line)
-    path = tmp_path / "p.pdf"
+    path = tmp_path / name
     doc.save(str(path))
     doc.close()
     return str(path)
@@ -69,22 +69,22 @@ def test_both_parts_of_the_check_must_hold():
     assert not cover_page.is_cover_or_notes(furniture, "   ")
 
 
+def _no_fact(path, dropped):
+    cover_page.remember(path)
+    return page_ledger.no_fact(CLEAN_AI, 1, "x", dropped)
+
+
 def test_a_page_read_clean_with_only_furniture_is_marked(tmp_path):
-    path = _file(tmp_path, COVER)
-    status, _n, why = page_ledger.no_fact(
-        CLEAN_AI, 1, "x", {row_noise.DOCUMENT_ID: 2}, path
-    )
+    status, _n, why = _no_fact(_file(tmp_path, COVER), {row_noise.DOCUMENT_ID: 2})
     assert status == page_ledger.READ_NO_FIELD and cover_page.checked(why)
 
 
 def test_a_page_with_a_measured_value_or_value_like_drop_is_not_marked(tmp_path):
-    data = _file(tmp_path, DATA)
-    assert not cover_page.checked(page_ledger.no_fact(CLEAN_AI, 1, "x", {}, data)[2])
-    cover = _file(tmp_path, COVER)
-    assert not cover_page.checked(
-        page_ledger.no_fact(CLEAN_AI, 1, "x", {"value gate": 1}, cover)[2]
-    )
-    assert not cover_page.checked(page_ledger.no_fact(CLEAN_AI, 1, "x", {}, None)[2])
+    data = _file(tmp_path, DATA, "data.pdf")
+    cover = _file(tmp_path, COVER, "cover.pdf")
+    assert not cover_page.checked(_no_fact(data, {})[2])
+    assert not cover_page.checked(_no_fact(cover, {"value gate": 1})[2])
+    assert not cover_page.checked(_no_fact(None, {})[2])
 
 
 def _vision_down(doc):

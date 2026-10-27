@@ -23,9 +23,18 @@ Nothing here is stored but the verdict's wording: no page text.
 
 from __future__ import annotations
 
+import logging
 import re
+from contextvars import ContextVar
 
 from . import claims, numparse, row_noise
+
+log = logging.getLogger(__name__)
+
+#: The stored file of the sheet being read, set by `remember` where extraction
+#: opens it. A ContextVar, like `datasheets._PAGE_FAILURES`: a concurrent
+#: extraction in another thread must not see this one's file.
+_STORED_PATH: ContextVar[str | None] = ContextVar("cover_page_path", default=None)
 
 #: The page's own words in the ledger, so the coverage can tell the check ran.
 MARK = "No fields, cover/notes page (text checked)."
@@ -68,11 +77,19 @@ def has_measured_value(text: str) -> bool:
     return False
 
 
-def page_text(stored_path: str | None, page_no: int) -> str | None:
-    """The page's own text layer, or None when it cannot be read (no file, an
-    office input, an unopenable file, a page out of range)."""
+def remember(stored_path: str | None) -> str | None:
+    """Note the file being read (returns it unchanged, so it wraps the line
+    that resolves it)."""
+    _STORED_PATH.set(stored_path)
+    return stored_path
+
+
+def page_text(page_no: int) -> str | None:
+    """The page's own text layer in the file being read, or None when it cannot
+    be read (no file, an office input, an unopenable file, a page out of range)."""
     from . import datasheet_inputs
 
+    stored_path = _STORED_PATH.get()
     if not stored_path or datasheet_inputs.is_office_input(stored_path):
         return None
     try:
@@ -82,7 +99,8 @@ def page_text(stored_path: str | None, page_no: int) -> str | None:
             if not 1 <= page_no <= doc.page_count:
                 return None
             return doc[page_no - 1].get_text()
-    except Exception:  # noqa: BLE001 - the page then stays unread
+    except Exception as exc:  # noqa: BLE001 - the page then stays unread
+        log.info("cover_page: the page text could not be read (%s)", type(exc).__name__)
         return None
 
 

@@ -3485,7 +3485,7 @@ def _extract_facts(
         page_ledger.refresh(document_id, as_submittal=True)
         return empty
 
-    stored_path = stored_paths.local(chunks[0]["stored_path"])
+    stored_path = page_ledger.reading_file(stored_paths.local(chunks[0]["stored_path"]))
     # #177 PROVENANCE: the code that reads this sheet (this module and the
     # table parser it leans on) and exactly what it read - the stored file's
     # hash plus every chunk's text, in order. See `provenance.py`. NOT
@@ -4135,7 +4135,7 @@ def _extract_facts(
                               f"{reason} {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
                 unparsed.append({"page": page, "reason": reason,
                                  "detail": page_reason_words.unparsed_detail(len(pairs), dropped, page)})
-                outcomes[page] = page_ledger.no_fact(ai_run, page, reason, dropped, stored_path)
+                outcomes[page] = page_ledger.no_fact(ai_run, page, reason, dropped)
             elif page_written == 0:
                 # Read, but only by the page reader: say so, and what the
                 # vision reader did - an absence here is an engineer's to
