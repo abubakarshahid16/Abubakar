@@ -174,7 +174,10 @@ def test_the_review_job_runs_the_local_check_and_then_the_opinion(world, lane, m
     review_jobs._ai_check(run, scope, ["API 610"])
     written = sorted(r["ai_rationale"].split("Written by ")[1].split(",")[0].rstrip(".") for r in _ai_rows(run))
     # the local draft names why it is local (#555: Claude was asked for, a document is not approved)
-    assert written == ["claude:fake", f"ollama:fake (Claude not used: {fallback_note.NOT_APPROVED})"]
+    assert written == [
+        "claude:fake",
+        f"ollama:fake (Claude not used: {fallback_note.NOT_APPROVED})",
+    ]
     status = aic.ai_check_status(run, allowed_document_ids=scope)
     assert status["local_scope"] and status["claude_datasheet"]["stored"] == 1
     assert "Scope on this run - local model" in status["plain"]
