@@ -47,7 +47,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import errors
+from . import errors, pdf_guard
 from .ai.json_reply import unfenced
 from .model_evidence import _collapse, quote_verified
 
@@ -457,7 +457,9 @@ def read_page(page: Any, page_no: int, provider, *,
 
     reading = PageReading(page=page_no)
     try:
-        response = provider.reason(packet_for(render(page), page_no))
+        with pdf_guard.held():
+            packet = packet_for(render(page), page_no)
+        response = provider.reason(packet)  # the model call is NEVER inside the lock
     except (ProviderRefused, RuntimeError) as exc:
         # BudgetExceeded is a RuntimeError; the type and message only.
         reading.refused = f"{type(exc).__name__}: {exc}"
@@ -470,10 +472,12 @@ def read_page(page: Any, page_no: int, provider, *,
         return reading
     reading.page_kind, proposals = parse(response.text)
     reading.proposed = len(proposals)
-    text = PageText.of(page)
+    with pdf_guard.held():
+        text = PageText.of(page)
+        page_width = float(page.rect.width)
     seen: set[tuple[str, str]] = set()
     for proposal in proposals:
-        kept, reason = verify(proposal, text, float(page.rect.width), geometry_rows)
+        kept, reason = verify(proposal, text, page_width, geometry_rows)
         if kept is None:
             reading.drop(reason or "unverified")
             continue
@@ -485,6 +489,21 @@ def read_page(page: Any, page_no: int, provider, *,
         kept["model_tag"] = response.model_tag
         reading.kept.append(kept)
     return reading
+
+
+def read_page_of(doc, page_no: int, provider, geometry_rows: list[dict] | None):
+    """`read_page` for page `page_no` of an open document, or None when it has no such page.
+    The page is fetched and (after the model call) dropped under the PyMuPDF lock; the model call
+    itself runs outside it (order 252)."""
+    with pdf_guard.held():
+        if not (1 <= page_no <= doc.page_count):
+            return None
+        page = doc[page_no - 1]
+    try:
+        return read_page(page, page_no, provider, geometry_rows=geometry_rows)
+    finally:
+        with pdf_guard.held():
+            del page  # MuPDF frees the page here, inside the lock
 
 
 def engine_setting() -> str:

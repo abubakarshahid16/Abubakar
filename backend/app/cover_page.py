@@ -34,7 +34,7 @@ import logging
 import re
 from contextvars import ContextVar
 
-from . import claims, numparse, row_noise
+from . import claims, numparse, pdf_guard, row_noise
 
 log = logging.getLogger(__name__)
 
@@ -176,7 +176,7 @@ def page_view(page_no: int) -> tuple[str, bool] | None:
     try:
         import pymupdf
 
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.held(), pymupdf.open(stored_path) as doc:
             if not 1 <= page_no <= doc.page_count:
                 return None
             page = doc[page_no - 1]

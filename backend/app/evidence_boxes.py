@@ -44,6 +44,7 @@ import re
 
 from . import access, highlight, stored_paths
 from .api_utils import require_document
+from .pdf_guard import open_pdf
 
 #: What kind of box was drawn - shown to the engineer in words.
 QUOTE = "quote"                 # the finding's own stored text
@@ -93,12 +94,11 @@ def _once(pdf_path: str, page_no: int, text: str) -> list[tuple[float, float, fl
     """The text's box when it occurs exactly once on the page, else none: a
     short value found twice could be either, and a guessed box is worse than
     no box."""
-    import pymupdf
 
     text = " ".join(str(text or "").split())
     if len(text) < 3:
         return []
-    with pymupdf.open(pdf_path) as doc:
+    with open_pdf(pdf_path) as doc:
         if not 1 <= page_no <= doc.page_count:
             return []
         found = doc.load_page(page_no - 1).search_for(text, quads=False)
@@ -223,7 +223,6 @@ def where_to_look(field: str | None, pdf_path: str) -> dict:
     one box only when the field's label is printed exactly once in the whole
     datasheet; otherwise no page, and `reason` says in words where to look.
     Reads the PDF only; writes nothing."""
-    import pymupdf
 
     field = " ".join(str(field or "").split())
     if not field:
@@ -231,7 +230,7 @@ def where_to_look(field: str | None, pdf_path: str) -> dict:
                 "reason": "no value was found, and the finding does not name the field"}
     hits: list[tuple[int, tuple]] = []
     blank: list[int] = []
-    with pymupdf.open(pdf_path) as doc:
+    with open_pdf(pdf_path) as doc:
         count = doc.page_count
         for index in range(count):
             page = doc.load_page(index)
@@ -273,9 +272,8 @@ def _pages(numbers: list[int]) -> str:
 def has_text_layer(pdf_path: str, page_no: int) -> bool:
     """Does the page carry any text a search can find? A page out of range
     counts as having one: nothing here is the place to report it."""
-    import pymupdf
 
-    with pymupdf.open(pdf_path) as doc:
+    with open_pdf(pdf_path) as doc:
         if not 1 <= page_no <= doc.page_count:
             return True
         return bool((doc.load_page(page_no - 1).get_text("text") or "").strip())

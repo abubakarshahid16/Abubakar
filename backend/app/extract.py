@@ -22,6 +22,7 @@ import pymupdf  # PyMuPDF
 from . import ocr, states
 from . import stored_paths
 from .config import settings
+from .pdf_guard import open_pdf
 from .quality import normalise_text
 from . import tables as tables_mod
 from .db import connect
@@ -69,7 +70,7 @@ def _now() -> str:
 
 
 def page_count(pdf_path: str) -> int:
-    with pymupdf.open(pdf_path) as doc:
+    with open_pdf(pdf_path) as doc:
         return doc.page_count
 
 
@@ -252,7 +253,7 @@ def extract_batch(pdf_path: str, first_page: int, last_page: int
     tables_json).
     """
     out: list[tuple[int, str, bool, bool, str | None, str | None]] = []
-    with pymupdf.open(pdf_path) as doc:
+    with open_pdf(pdf_path) as doc:
         for pno in range(first_page - 1, min(last_page, doc.page_count)):
             page = doc.load_page(pno)
             raw = page.get_text("text") or ""
@@ -534,7 +535,7 @@ def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
         "SELECT page_no FROM page_ocr WHERE document_id = ?", (doc_id,))}
     updates = []
     newly_pending = 0
-    with pymupdf.open(stored_paths.local(doc["stored_path"])) as pdf:
+    with open_pdf(stored_paths.local(doc["stored_path"])) as pdf:
         for r in rows:
             if not 1 <= r["page_no"] <= pdf.page_count:
                 continue
