@@ -180,6 +180,66 @@ def test_the_servers_run_with_the_macs_model_settings():
     assert "inputs.model" in backend["AI_TASK_MODEL"]
 
 
-def test_a_failed_run_prints_the_server_logs():
-    failing = [s for s in _steps() if s.get("if") == "failure()"]
-    assert failing and "backend.log" in failing[0]["run"]
+def test_every_run_prints_the_server_logs_and_the_page_ledger():
+    """Order 224.7: the 25 Oct runs "succeeded" and read 0 pages; the logs were
+    printed only on failure, so nobody saw why."""
+    shown = [s for s in _steps() if "page ledger" in s.get("name", "")]
+    assert shown and shown[0].get("if") == "always()"
+    run = shown[0]["run"]
+    assert "ollama.log" in run and "page_ledger" in run and "facts_status" in run
+    # the ledger column is page_no (a wrong name ended the 26 Oct ledger with a traceback)
+    assert "SELECT page_no," in run and "run record" in run and ".run.json" in run
+
+
+def test_the_reader_is_given_the_time_a_cpu_page_call_needs():
+    """The defaults (180 s per call, 900 s per pass) cut every page call on a
+    2-core runner: 0 of 2 pages read."""
+    steps = {s.get("name", ""): s for s in _steps()}
+    backend = steps["Start the backend on a fresh test database"]["env"]
+    assert float(backend["DATASHEET_AI_TIMEOUT_SECONDS"]) >= 1500
+    assert float(backend["DATASHEET_AI_MAX_SECONDS"]) >= 14400
+
+
+def test_a_cpu_page_call_may_take_longer_than_the_two_minute_default_request_limit():
+    """Run 6 (26 Oct) ended with `the server could not be reached (TimeoutError)`
+    after 2 minutes: one HTTP call of the runner had the default 120 s."""
+    run = next(s["run"] for s in _steps() if s.get("name") == "Review the sheet")
+    assert "--request-timeout" in run
+    assert int(run.split("--request-timeout")[1].split()[0]) >= 900
+
+
+def test_every_workflow_step_that_names_a_set_folder_names_the_invented_one():
+    """Logs now print on success too (order 224.7): a runner may only ever be pointed at the
+    invented tuning folder, the one `guard.plan` accepts."""
+    import re
+
+    workflow = _workflow()
+    runs = [
+        step.get("run", "")
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+    ]
+    named = [m for run in runs for m in re.findall(r"--set\s+(\S+)", run)]
+    assert named, "no step names a set folder"
+    assert set(named) == {guard.SET_DIR.as_posix()}
+
+
+def test_the_review_job_may_run_longer_than_the_readers_own_pass_and_the_step_limit():
+    """A job timeout shorter than the 4 h reader pass (or the runner's step limit) would cut a
+    run mid-sheet and leave a half record."""
+    import re
+
+    workflow = _workflow()
+    job = workflow["jobs"]["review"]
+    backend = {s.get("name", ""): s for s in job["steps"]}[
+        "Start the backend on a fresh test database"
+    ]["env"]
+    step_limit = int(
+        re.search(
+            r"--timeout\s+(\d+)",
+            next(s["run"] for s in job["steps"] if s.get("name") == "Review the sheet"),
+        ).group(1)
+    )
+    job_seconds = int(job["timeout-minutes"]) * 60
+    assert job_seconds > float(backend["DATASHEET_AI_MAX_SECONDS"])
+    assert job_seconds > step_limit

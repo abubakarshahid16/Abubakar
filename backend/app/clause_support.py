@@ -88,6 +88,83 @@ _GENERIC = frozenset(
     }
 )
 
+#: Order 228.5: linking words (prepositions, conjunctions, auxiliaries, participles). Only the
+#: words AFTER the last one in the phrase before "service" / "application" can name a service:
+#: "put into service", "inspected before service", "suitable for service", "maintained during
+#: service" name none; "used before lethal service" names "lethal". Without this a sentence was
+#: held as "applies only to 'into'" (owner's walk-through: 17 requirements) [found-on].
+_BREAK = frozenset(
+    {
+        "into",
+        "onto",
+        "upon",
+        "before",
+        "after",
+        "prior",
+        "during",
+        "throughout",
+        "within",
+        "without",
+        "until",
+        "while",
+        "whilst",
+        "since",
+        "once",
+        "then",
+        "through",
+        "across",
+        "around",
+        "between",
+        "among",
+        "against",
+        "about",
+        "above",
+        "below",
+        "from",
+        "following",
+        "preceding",
+        "using",
+        "being",
+        "been",
+        "have",
+        "has",
+        "will",
+        "shall",
+        "should",
+        "must",
+        "may",
+        "than",
+        "also",
+        "only",
+        "per",
+        "via",
+        "for",
+        "of",
+        "in",
+        "on",
+        "at",
+        "to",
+        "by",
+        "as",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "it",
+    }
+)
+
+
+def _after_last_break(phrase: str) -> str:
+    """The words of `phrase` after its last linking word ("" when it ends in one)."""
+    words = phrase.split()
+    for i in range(len(words) - 1, -1, -1):
+        if words[i].casefold() in _BREAK:
+            return " ".join(words[i + 1 :])
+    return phrase
+
+
 _PLAN = re.compile(r"\bplan\s+(\d{1,2}[a-z]?)\b", re.IGNORECASE)
 _NAMED = re.compile(
     r"\b((?:[a-z][a-z\-]+\s+){1,2})(?:service|application|applications)\b",
@@ -132,7 +209,8 @@ def named_conditions(requirement: dict) -> list[str]:
     found = [f"plan {m.group(1)}".casefold() for m in _PLAN.finditer(text)]
     for pattern in (_NAMED, _DUTY):
         for m in pattern.finditer(text):
-            words = _significant(m.group(1))
+            phrase = _after_last_break(m.group(1)) if pattern is _NAMED else m.group(1)
+            words = _significant(phrase)
             if words:
                 found.append(" ".join(words))
     return list(dict.fromkeys(found))

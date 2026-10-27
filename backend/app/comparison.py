@@ -3391,13 +3391,13 @@ def _containment_hits(requirement: dict, subject: str, facts: list[dict],
         if len(name) < 4 or len(canonical_name) < 4:
             # A one- or two-word fragment is contained in half of everything.
             continue
-        if _contains_words(subject, name):
+        if field_links.names_head(subject, name):
             hits.append({"fact": fact, "name": name, "key": canonical_name,
                          "item": item, "synonym": None})
-        elif _contains_words(canonical_subject, canonical_name):
+        elif field_links.names_head(canonical_subject, canonical_name):
             hits.append({"fact": fact, "name": name, "key": canonical_name,
                          "item": item, "synonym": canonical_name})
-        elif (_contains_words(subject_form, _match_form(name))
+        elif (field_links.names_head(subject_form, _match_form(name))
               and len(_match_form(name)) >= 4
               and claims.same_quantity(requirement.get("raw_unit"), fact.get("raw_unit"))):
             # ABBREVIATION / GENERIC-WORD TOLERANCE (audit N5): "Noise" meets
