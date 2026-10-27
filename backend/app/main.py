@@ -19,6 +19,7 @@ from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
 from . import crs_export as crs_export_mod
+from . import crs_ai_cell as crs_ai_cell_mod
 from . import crs_issue as crs_issue_mod
 from . import crs_carry as crs_carry_mod
 from . import crs_mapping as crs_mapping_mod
@@ -2925,12 +2926,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # engineer makes the comment theirs. Never over an AI/web item's own
     # draft, and never on a row an engineer confirmed (the words are theirs).
     if copy == "internal":
-        worded = crs_wording_mod.stored(review_run_id)
-        for row in rows:
-            text = worded.get(row.get("crs_row_key") or "")
-            if (text and not row.get("engineer_confirmed")
-                    and not str(row.get("ai_review_comment") or "").strip()):
-                row["ai_review_comment"] = text
+        crs_ai_cell_mod.apply(rows, review_run_id)
     # #633: THE PARTS THIS REVIEW COULD NOT CHECK, one list for every export. A
     # sheet for a run that failed, stopped, or left large parts unchecked must
     # never look like a complete review.

@@ -295,7 +295,8 @@ def _ai_column(finding: dict, copy: str) -> str:
     ai_wording = str(finding.get("ai_comment") or "").strip()
     if not text and finding.get("edited") is True and ai_wording:
         return f"{AI_WORDING_LABEL}: {ai_wording}"
-    return text
+    # Order 233: never blank. `crs_ai_cell` says why there is no AI wording.
+    return text or str(finding.get("ai_cell_note") or "")
 
 
 def _priority_of(finding: dict) -> int | None:
