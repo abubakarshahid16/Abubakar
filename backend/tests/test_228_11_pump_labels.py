@@ -50,7 +50,9 @@ def test_the_spellings_a_pump_sheet_prints_name_the_field(label, role):
     assert dc.role_of(normalise_field_name(label), dc.load_rules()) == role
 
 
-@pytest.mark.parametrize("label", ["Capacity", "Pumping temperature (max)", "Flow", "Pumping"])
+@pytest.mark.parametrize(
+    "label", ["Capacity", "Pumping temperature (max)", "Flow", "Pumping"]
+)
 def test_a_looser_label_is_still_not_the_field(label):
     assert dc.role_of(normalise_field_name(label), dc.load_rules()) is None
 
