@@ -704,6 +704,39 @@ describe("documents grouped by classification type", () => {
     expect(await screen.findByTestId("type-chip")).toHaveTextContent(/Awaiting a type/i);
   });
 
+  it("a document with a role but no register type is 'Not in the register', counted apart from 'Awaiting a type' (#1087)", async () => {
+    mockApi(
+      [
+        makeDoc({ id: "d1", filename: "company-standard.pdf" }),
+        makeDoc({ id: "d2", filename: "no-role-yet.pdf" }),
+      ],
+      {
+        vocabulary: threeTypeVocabulary,
+        coverage: threeTypeCoverage(),
+        classificationById: {
+          d1: classificationFor({ document_id: "d1", doc_type: null, confirmed: false, suggested_by: "none", document_role: "COMPANY_STANDARD" }),
+          d2: classificationFor({ document_id: "d2", doc_type: null, confirmed: false, suggested_by: "none", document_role: null }),
+        },
+      },
+    );
+    renderDocuments();
+
+    await screen.findByText("company-standard.pdf");
+    // Two groups, each with its own count; the boundary says "of the N listed here".
+    const notIn = screen.getByRole("heading", { name: /Not in the register/i });
+    expect(notIn).toHaveTextContent("1 of 2 listed");
+    const awaiting = screen.getByRole("heading", { name: /Awaiting a type/i });
+    expect(within(awaiting).getByText("1")).toBeInTheDocument();
+    // The cards' own chips: the role-bearing one is not promised a type; the unknown one still waits.
+    const chips = screen.getAllByTestId("type-chip").map((c) => c.textContent);
+    expect(chips).toContain("Not in the register");
+    expect(chips).toContain("Awaiting a type");
+    expect(screen.getByText("Not in the register", { selector: "[data-testid=type-chip]" })).toHaveAttribute(
+      "title",
+      expect.stringMatching(/not waiting for one/i),
+    );
+  });
+
   it("renders an unconfirmed guess in amber, distinct from a confirmed type", async () => {
     mockApi(
       [

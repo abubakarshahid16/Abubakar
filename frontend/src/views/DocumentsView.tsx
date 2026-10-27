@@ -19,6 +19,7 @@ import { useDocumentClassifications } from "../components/classification/useDocu
 import { useTypeVocabularyLoad } from "../components/classification/TypeFilter";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import type { ApiError, DocumentClassification, DocumentKindOption, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
+import { NOT_IN_REGISTER_LABEL } from "../components/classification/registerLabels";
 
 type Load =
   | { state: "loading" }
@@ -133,10 +134,11 @@ export function groupByType(
   documents: DocumentRecord[],
   types: string[],
   byId: Record<string, DocumentClassification>,
-): { groups: TypeGroup[]; awaiting: TypeGroup } {
+): { groups: TypeGroup[]; awaiting: TypeGroup; notInRegister: TypeGroup } {
   const groups: TypeGroup[] = types.map((t) => ({ name: t, documents: [] }));
   const byName = new Map(groups.map((g) => [g.name, g]));
   const awaiting: DocumentRecord[] = [];
+  const notInRegister: DocumentRecord[] = [];
   for (const doc of documents) {
     const t = typeOf(doc, byId);
     const bucket = t !== null ? byName.get(t) : undefined;
@@ -145,9 +147,14 @@ export function groupByType(
     // has to appear somewhere, so it falls back to "awaiting a type" rather
     // than being silently dropped.
     if (bucket) bucket.documents.push(doc);
+    else if (t === null && byId[doc.id]?.document_role) notInRegister.push(doc);
     else awaiting.push(doc);
   }
-  return { groups, awaiting: { name: AWAITING_TYPE_LABEL, documents: awaiting } };
+  return {
+    groups,
+    awaiting: { name: AWAITING_TYPE_LABEL, documents: awaiting },
+    notInRegister: { name: NOT_IN_REGISTER_LABEL, documents: notInRegister },
+  };
 }
 
 export function DocumentsView({
@@ -688,7 +695,7 @@ export function DocumentsView({
             {(() => {
               const filtered = load.documents.filter(passesFilter);
               const types = vocabulary?.types ?? [];
-              const { groups, awaiting } = groupByType(filtered, types, classifications);
+              const { groups, awaiting, notInRegister } = groupByType(filtered, types, classifications);
               const showType = (name: string) =>
                 selectedTypes.length === 0 || selectedTypes.includes(name);
               const showAwaiting = selectedTypes.length === 0 || selectedTypes.includes(AWAITING_TYPE);
@@ -754,6 +761,36 @@ export function DocumentsView({
                       </h3>
                       <ul className="virtual-list space-y-3">
                         {awaiting.documents.map((doc) => (
+                          <DocumentCard
+                            key={doc.id}
+                            doc={doc}
+                            actions={actions}
+                            classification={classifications[doc.id]}
+                            types={types}
+                            isAdmin={isAdmin}
+                            onConfirmType={confirmType}
+                            kinds={kinds}
+                            onConfirmKind={confirmKind}
+                            selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
+                            onToggleSelected={isAdmin ? toggleSelected : undefined}
+                          />
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {showAwaiting && notInRegister.documents.length > 0 && (
+                    <div key={notInRegister.name}>
+                      <h3
+                        className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-slateish-400"
+                        aria-label={`${notInRegister.name}, ${notInRegister.documents.length} of the ${filtered.length} document(s) listed here`}
+                      >
+                        {notInRegister.name}
+                        <span className="font-mono text-slateish-500">
+                          {notInRegister.documents.length} of {filtered.length} listed
+                        </span>
+                      </h3>
+                      <ul className="virtual-list space-y-3">
+                        {notInRegister.documents.map((doc) => (
                           <DocumentCard
                             key={doc.id}
                             doc={doc}
