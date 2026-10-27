@@ -336,7 +336,8 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     degraded = (outcome.get("requirement_split") or {}).get("degraded_read")
     from . import degraded_read
 
-    if degraded and degraded_read.is_part(degraded):  # order 261.2: a page the AI could not read
+    # order 261.2: a page the AI could not read is a part that could not be trusted
+    if degraded and degraded_read.is_part(degraded):
         add("degraded_read", degraded_read.line(degraded))
     for key, status in (("ai_check", ai_status), ("web_check", web_status)):
         if status and status.get("complete") is False:

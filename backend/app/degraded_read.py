@@ -17,7 +17,7 @@ Two separate things, kept apart on purpose (planner, 22:22):
     could not be read (unusable answer, timed out, stopped, unavailable) or, as an internal note
     only, when the agreed share of the AI's facts is low.
 
-NOT a trigger: "more answers refused by the code gates than agreed". A CLEAN I-06 read refuses 117
+NOT a trigger: "more answers refused by the code gates than agreed". A CLEAN relief-valve datasheet read refuses 117
 and agrees 58 (the AI always proposes more than it can prove). A refusal for a failed QUOTE is a
 gate doing its job; only the reasons in `ERROR_REASONS` say the reading did not come back.
 """
@@ -28,7 +28,7 @@ from . import datasheets
 
 NO_TEXT = "no text on this page"
 #: The agreed share of the AI's facts under which the banner says so, as an internal note only
-#: (planner first setting; clean I-06 reads 0.85, the broken run 0.62, but a clean M-03 reads
+#: (planner first setting; a clean relief-valve sheet reads 0.85, the broken run 0.62, but a clean pump sheet reads
 #: 0.53, so this alone never makes a sheet "incomplete").
 AGREED_SHARE_FLOOR = 0.75
 #: The `form_reader.Reason` values that say the AI's reading of a field did NOT come back (the
