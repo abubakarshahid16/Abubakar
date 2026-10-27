@@ -112,7 +112,6 @@ TITLE_BLOCK_WORDS = frozenset(
         "po",
     }
 )
-)
 
 
 def has_field_line(text: str) -> bool:
