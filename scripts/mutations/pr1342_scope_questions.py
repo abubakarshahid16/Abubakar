@@ -7,6 +7,8 @@ from ._base import APP, Mutation
 
 _T = "tests/test_242_scope_questions.py"
 _Q = APP / "scope_quote.py"
+_N = APP / "crs_no_field.py"
+_T2 = "tests/test_245_no_field_answers.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
@@ -63,5 +65,60 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_T,
         keyword="one_line_in_the_review_notes",
         tags=("honesty",),
+    ),
+    Mutation(
+        id="M1342-06",
+        phase=1342,
+        description="a requirement that names a datasheet field the sheet lacks loses its contractor row",
+        path=_N,
+        anchor="    return not_found_bucket if field_label(finding) else None\n",
+        replacement="    return None\n",
+        target=_T2,
+        keyword="names_a_field_the_sheet_lacks",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M1342-07",
+        phase=1342,
+        description="a blank the sheet marks loses its contractor row",
+        path=_N,
+        anchor="    if has_field(finding):\n        return blank_bucket\n",
+        replacement="    if False:\n        return blank_bucket\n",
+        target=_T2,
+        keyword="blank_the_sheet_marks",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M1342-08",
+        phase=1342,
+        description="a datasheet check, AI item or chat comment is counted as no-field",
+        path=_N,
+        anchor='        and finding.get("origin") not in OTHER_ORIGINS\n',
+        replacement="",
+        target=_T2,
+        keyword="other_kinds_of_finding",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M1342-09",
+        phase=1342,
+        description="a rejected finding is counted in the grouped note",
+        path=_N,
+        anchor="        if rejected(f) or not answered_by_no_field(f, field_label):\n",
+        replacement="        if not answered_by_no_field(f, field_label):\n",
+        target=_T2,
+        keyword="other_kinds_of_finding",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M1342-10",
+        phase=1342,
+        description="the requirements no field answers are in no row and in no note (hidden)",
+        path=APP / "crs_mapping.py",
+        anchor="    notes.extend(crs_no_field.notes(findings, _standard_reference, _rejected, _field_label))\n",
+        replacement="",
+        target=_T2,
+        keyword="counted_note",
+        tags=("honesty", "critical"),
     ),
 )
