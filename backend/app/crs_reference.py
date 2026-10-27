@@ -79,10 +79,11 @@ def check_reference(finding: dict) -> str:
     """A kind B (datasheet check) row's Standard Reference (order 228.1): the source its
     checklist item cites, "API 520-I 3.20 (p.12)" with the page once located. A check with no
     source prints "Datasheet check" and nothing else; its program id is internal."""
-    cited, page = finding.get("standard_clause"), finding.get("standard_page")
+    cited = " ".join(str(finding.get("standard_clause") or "").split())
+    page = finding.get("standard_page")
     if not cited:
         return "Datasheet check"
-    return f"{cited} (p.{page})" if page else str(cited)
+    return f"{cited} (p.{page})" if page else cited
 
 
 def check_id(finding: dict) -> str:
@@ -95,11 +96,14 @@ def check_id(finding: dict) -> str:
 
 
 def engine_of(finding: dict) -> str:
-    """The engine an AI draft says wrote it ("... Written by <engine>[,.] ..."): internal only."""
+    """The engine an AI draft says wrote it: the words after "Written by" up to the end of
+    that sentence (", from the datasheet" or a full stop that ends a word). "an unnamed engine"
+    and "a local model" are kept whole. Internal copy only."""
     found = re.search(
-        r"Written by (\S+?)\.?(?:,|\s|$)", finding.get("ai_rationale") or ""
+        r"Written by (.+?)(?:, from the datasheet|\.(?:\s|$)|$)",
+        str(finding.get("ai_rationale") or ""),
     )
-    return found.group(1).rstrip(",") if found else ""
+    return found.group(1).strip() if found else ""
 
 
 def relates_to(rationale: str) -> str:

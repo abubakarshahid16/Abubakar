@@ -107,3 +107,38 @@ def test_the_programs_bookkeeping_sentences_are_machine_words(sentence):
 def test_a_plain_engineering_sentence_is_not_flagged():
     text = "The contractor can evaluate the answer once per place."
     assert crs_machine_words.find_machine_words(text) == []
+
+
+@pytest.mark.parametrize("clause", ["", "   ", "\t\n", None])
+def test_a_blank_or_whitespace_clause_is_no_source(clause):
+    row = _check(standard_clause=clause, standard_page=3)
+    assert crs_mapping._standard_reference(row) == "Datasheet check"
+
+
+def test_a_clause_with_stray_spaces_prints_once_tidy():
+    row = _check(standard_clause="  API 520-I   3.20 ", standard_page=3)
+    assert crs_mapping._standard_reference(row) == "API 520-I 3.20 (p.3)"
+
+
+@pytest.mark.parametrize(
+    "rationale, engine",
+    [
+        (
+            "AI engineering check. Relates to: X. Written by an unnamed engine.",
+            "an unnamed engine",
+        ),
+        (
+            "AI engineering check. Relates to: X. Written by a local model.",
+            "a local model",
+        ),
+        ("AI engineering check. Relates to: X. Written by claude:fake.", "claude:fake"),
+        (
+            "AI engineering check. Relates to: X. Written by ollama:hf.co/a/Qwen3.6-35B:Q4, "
+            "from the datasheet alone - no standard's text was sent.",
+            "ollama:hf.co/a/Qwen3.6-35B:Q4",
+        ),
+        ("AI engineering check. Relates to: X.", ""),
+    ],
+)
+def test_the_engine_is_the_whole_name_in_the_engine_sentence(rationale, engine):
+    assert crs_reference.engine_of({"ai_rationale": rationale}) == engine
