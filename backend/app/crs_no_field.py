@@ -1,7 +1,7 @@
 """A library requirement no field on the sheet answers is ONE engineer line per
 standard, never a contractor row (order 245).
 
-With the 35B model reading every page and API 610 in the library, M-03's comment
+With the 35B model reading every page and API 610 in the library, a pump datasheet's comment
 sheet grew from 50 to 226 rows: 184 were API 610 clauses with no value read for
 them ("no field read from the submittal answers this requirement"), each a
 "missing information" row the contractor would be asked to answer. A requirement
@@ -38,16 +38,18 @@ def has_field(finding: dict) -> bool:
 
 
 def bucket_of_missing(
-    finding: dict, blank_bucket: str, not_found_bucket: str, field_label
+    finding: dict, blank_bucket: str, not_found_bucket: str
 ) -> str | None:
     """The bucket of a library requirement the review found MISSING_INFORMATION:
     `blank_bucket` when a field is paired; `not_found_bucket` when the requirement
-    names a datasheet field the sheet does not carry (`field_label` says so: the
+    names a datasheet field the sheet does not carry (`_field_label` says so: the
     contractor is asked for that field); otherwise None - no field behind it, no
     row, counted by `notes`."""
+    from .crs_mapping import _field_label  # lazy: crs_mapping imports this module
+
     if has_field(finding):
         return blank_bucket
-    return not_found_bucket if field_label(finding) else None
+    return not_found_bucket if _field_label(finding) else None
 
 
 def answered_by_no_field(finding: dict, field_label) -> bool:
@@ -62,15 +64,17 @@ def answered_by_no_field(finding: dict, field_label) -> bool:
     )
 
 
-def notes(findings: list[dict], reference_of, rejected, field_label) -> list[dict]:
+def notes(findings: list[dict]) -> list[dict]:
     """One note per standard: how many of this run's requirements have no field on
     the sheet, and every reference (the internal copy lists them all)."""
+    from .crs_mapping import _field_label, _rejected, _standard_reference
+
     by_standard: dict[str, list[str]] = {}
     for f in findings:
-        if rejected(f) or not answered_by_no_field(f, field_label):
+        if _rejected(f) or not answered_by_no_field(f, _field_label):
             continue
         name = str(f.get("standard_name") or f.get("standard_document_id") or "")
-        by_standard.setdefault(name, []).append(reference_of(f))
+        by_standard.setdefault(name, []).append(_standard_reference(f))
     out = []
     for name in sorted(by_standard):
         refs = list(dict.fromkeys(r for r in by_standard[name] if r))

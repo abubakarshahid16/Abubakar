@@ -413,7 +413,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "check each against the datasheet, or the document "
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
-    notes.extend(crs_no_field.notes(findings, _standard_reference, _rejected, _field_label))
+    notes.extend(crs_no_field.notes(findings))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -1101,7 +1101,7 @@ def _bucket_of(f: dict) -> str | None:
     elif status == "NON_COMPLIANT":
         return BUCKET_BREACH
     elif status == _MISSING_INFORMATION:
-        return crs_no_field.bucket_of_missing(f, BUCKET_BLANK, BUCKET_NOT_FOUND, _field_label)  # order 245
+        return crs_no_field.bucket_of_missing(f, BUCKET_BLANK, BUCKET_NOT_FOUND)
     elif status == "NEEDS_ENGINEER_REVIEW":
         # B3 / 2f: unread-page and page-reader questions are Review notes.
         # #1177 (#139): so is a standard's question with no datasheet field and

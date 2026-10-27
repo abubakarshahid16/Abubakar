@@ -3,7 +3,7 @@
 The standard-scope step asks a model for the sentence of a Part that limits it
 to one construction, and code checks the sentence is in the standard's text.
 That check passes a garbled table fragment just as well ("UHA SA-480 Pipe
-SA-333", "Subpart 2 do not contain these properties ..."): on 216400C 804
+SA-333", "Subpart 2 do not contain these properties ..."): on a vessel datasheet 804
 requirements were moved out of the listed findings on conditions like these.
 A scope condition must be one real sentence, so a reading whose quote is not
 one is REFUSED: the Part is kept, compared as before, with the "scope not
