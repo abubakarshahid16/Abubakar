@@ -750,8 +750,11 @@ def _refs(ws) -> list[str]:
     """The reference line of every comment cell in the sheet, as rendered.
     Order 236: the INTERNAL copy carries none (it sits beside the row, as the
     preview's `row_ref`), so this is empty for it."""
-    return [str(v).split("\n")[0] for v in _cells(ws, 4)
-            if v and str(v).startswith("Ref: RF-")]
+    return [
+        str(v).split("\n")[0]
+        for v in _cells(ws, 4)
+        if v and str(v).startswith("Ref: RF-")
+    ]
 
 
 def _preview_refs(client, run_id) -> list[str]:
