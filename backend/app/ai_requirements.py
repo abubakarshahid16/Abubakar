@@ -55,7 +55,7 @@ from __future__ import annotations
 import re
 import uuid
 
-from . import ai_task_runner, numparse, standard_ids
+from . import ai_task_runner, clause_budget, numparse, standard_ids
 from .config import settings
 
 #: Words per task. Under the runner's 300-word limit, so a passage split at a
@@ -534,7 +534,7 @@ def ensure_schema() -> None:
 
 
 def propose_checks(requirements: list[dict], *, review_run_id: str | None = None,
-                   limit: int, provider=None) -> dict:
+                   limit: int, provider=None, facts: list[dict] | None = None) -> dict:
     """Ask the local model for a check per undecided clause sentence (at most
     `limit` per run), verify each in code, store what passes as a draft.
     Returns the run report's counts: {sentences, asked, proposed, refused
@@ -546,9 +546,9 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     model = None
     refused: dict[str, int] = {}
     drafts = []
-    # #645 live run (12 Oct): the cap goes first to the sentences that print
-    # a figure - a limit is a number - and only then to the rest, in order.
-    ordered = sorted(requirements, key=lambda r: not _FIGURE.search(_sentence(r)))
+    # The cap goes first to sentences naming a field the sheet states, then
+    # to those that print a figure, then the rest in order (`clause_budget`).
+    ordered = clause_budget.order(requirements, _sentence, clause_budget.sheet_names(facts))
     for requirement in ordered[:max(limit, 0)]:
         sentence = _sentence(requirement)
         asked += 1
@@ -585,11 +585,9 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     return {"sentences": len(requirements), "asked": asked, "proposed": proposed,
             "no_limit": no_limit, "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
+            "by_standard": clause_budget.per_standard(ordered, asked),
             # the local runner's model (`ai_task_runner`); None when none answered
             "model": model}
-
-
-_FIGURE = re.compile(r"\d")
 
 
 def _sentence(requirement: dict) -> str:

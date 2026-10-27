@@ -109,7 +109,8 @@ def test_proposals_are_stored_as_drafts_and_counted_out_of_the_sentences():
                                            "not json", "not json either"))
     # "no limit" is the model's answer, not code refusing a proposal
     assert out == {"sentences": 4, "asked": 3, "proposed": 1, "no_limit": 1, "refused": {},
-                   "could_not_read": 1, "not_asked_budget": 1, "model": "test-model"}
+                   "could_not_read": 1, "not_asked_budget": 1, "model": "test-model",
+                   "by_standard": {"": {"asked": 3, "not_asked": 1}}}  # 235.1: where the cap went
     rows = [dict(r) for r in connect().execute("SELECT * FROM clause_check_drafts")]
     assert len(rows) == 1
     assert (rows[0]["requirement_id"], rows[0]["status"], rows[0]["value"], rows[0]["unit"]) == (
@@ -231,3 +232,47 @@ def test_the_model_is_recorded_when_it_answered_but_nothing_passed():
                                            "value": None, "unit": None, "condition": None,
                                            "quote": None}, model="local-2b"))
     assert (out["no_limit"], out["proposed"], out["model"]) == (1, 0, "local-2b")
+
+
+def test_the_cap_goes_first_to_a_sentence_tied_to_a_field_the_sheet_states():
+    """Order 235.1: a sentence naming a stated field outranks one that merely
+    prints a figure; no sheet names = the old order."""
+    figure_only = _statement("figure-only", "The test shall last 30 minutes.")
+    tied = _statement("tied", "The set pressure shall be marked on the nameplate.")
+    other = _statement("other", "Valve bodies shall be cast steel.")
+    asked = []
+
+    class Recording(Fake):
+        def reason(self, packet):
+            asked.append(packet)
+            return super().reason(packet)
+
+    facts = [{"field_name": "set_pressure", "field_label": "Set pressure",
+              "raw_value": "10", "is_blank": 0}]
+    out = air.propose_checks([figure_only, other, tied], limit=1, facts=facts,
+                             provider=Recording(proposal(has_limit=False)))
+    assert out["asked"] == 1 and "nameplate" in asked[0].prompt
+    assert out["by_standard"] == {"": {"asked": 1, "not_asked": 2}}
+    asked.clear()
+    air.propose_checks([figure_only, other, tied], limit=1, facts=[],
+                       provider=Recording(proposal(has_limit=False)))
+    assert "30 minutes" in asked[0].prompt
+
+
+def test_a_field_name_inside_another_word_does_not_tie_a_sentence():
+    from app import clause_budget
+
+    reqs = [{"id": "a", "source_text": "Compressed air shall be dry."},
+            {"id": "b", "source_text": "The air pressure shall be checked."}]
+    got = clause_budget.order(reqs, lambda r: r["source_text"], ["air pressure"])
+    assert [r["id"] for r in got] == ["b", "a"]
+    got = clause_budget.order(reqs, lambda r: r["source_text"], ["pressur"])
+    assert [r["id"] for r in got] == ["a", "b"]
+
+
+def test_the_budget_is_counted_per_standard():
+    from app import clause_budget
+
+    reqs = [{"id": i, "standard_name": n} for i, n in enumerate(["A", "A", "B", "B", "B"])]
+    assert clause_budget.per_standard(reqs, 3) == {"A": {"asked": 2, "not_asked": 0},
+                                                   "B": {"asked": 1, "not_asked": 2}}
