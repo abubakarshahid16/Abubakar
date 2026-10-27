@@ -356,7 +356,7 @@ def _document_uses_decimal_comma(document_id: str | None) -> bool:
     try:
         rows = connect().execute(
             "SELECT text FROM chunks WHERE document_id = ?", (document_id,)).fetchall()
-    except (sqlite3.Error, OSError, RuntimeError):  # no database (a unit test, a dry run)
+    except (sqlite3.Error, OSError, RuntimeError):   # no database (a unit test, a dry run)
         return False
     return numparse.uses_decimal_comma(" ".join(str(r["text"] or "") for r in rows))
 
