@@ -49,6 +49,10 @@ def bucket_of_missing(
 
     if has_field(finding):
         return blank_bucket
+    if (
+        finding.get("origin") in OTHER_ORIGINS
+    ):  # defence in depth: they never reach here
+        return not_found_bucket
     return not_found_bucket if _field_label(finding) else None
 
 
@@ -74,7 +78,9 @@ def notes(findings: list[dict]) -> list[dict]:
         if _rejected(f) or not answered_by_no_field(f, _field_label):
             continue
         name = str(f.get("standard_name") or f.get("standard_document_id") or "")
-        by_standard.setdefault(name, []).append(_standard_reference(f))
+        by_standard.setdefault(name, []).append(
+            _standard_reference(f) or f"finding {f.get('id')}"
+        )
     out = []
     for name in sorted(by_standard):
         refs = list(dict.fromkeys(r for r in by_standard[name] if r))

@@ -93,3 +93,37 @@ def test_the_origins_this_module_leaves_alone_are_the_ones_crs_mapping_names():
         crs_mapping._WEB_ORIGIN,
         "chat",
     }
+
+
+def test_findings_of_other_kinds_keep_their_own_rows():
+    """The planner's case: they must not vanish with no row and no note."""
+    for origin in (
+        "datasheet_check",
+        "ai_engineering_check",
+        "web_standard_check",
+        "chat",
+    ):
+        finding = _missing(1, origin=origin)
+        assert crs_mapping._bucket_of(finding) is not None, origin
+        assert crs_no_field.bucket_of_missing(finding, "blank", "not_found") is not None
+    assert (
+        len(
+            crs_mapping.build_crs_rows(
+                [_missing(1, origin="datasheet_check")], [], "s.pdf"
+            )
+        )
+        == 1
+    )
+    assert (
+        len(crs_mapping.build_crs_rows([_missing(1, origin="chat")], [], "s.pdf")) == 1
+    )
+
+
+def test_a_requirement_with_no_clause_or_page_is_still_listed():
+    bare = {
+        "id": "zz1",
+        "compliance_status": "MISSING_INFORMATION",
+        "ai_rationale": "",
+    }
+    [note] = _notes([bare])
+    assert note["count"] == 1 and "finding zz1" in note["detail"]
