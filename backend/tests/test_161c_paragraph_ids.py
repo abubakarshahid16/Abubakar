@@ -541,15 +541,14 @@ def test_the_title_case_guard_leaves_a_sentence_under_its_own_recognised_heading
     assert paragraph_ids.paragraph_for([text], 0, sentence, shape) == "3.4"
 
 
-def test_documented_limit_a_title_case_heading_with_its_sentence_on_the_same_line():
-    # NOT the wanted behaviour, pinned so a later change is deliberate: a Title
-    # Case run followed by a lowercase word cannot be told from prose without a
-    # word list, so the paragraph before is returned.
-    # The general fail-safe (return None, never the paragraph before) is #1267.
+def test_a_title_case_heading_with_its_sentence_on_the_same_line_gives_no_paragraph():
+    # #1267: a Title Case run followed by a lowercase word cannot be told from
+    # prose, and the line opens with an identifier that is no recognised heading:
+    # unsure is "not identified", never the paragraph before (3.4).
     sentence = "The weld shall be inspected by a qualified engineer yearly."
     text = TITLE_CASE_DOTTED + "A.1 General Requirements " + sentence + "\n"
     shape = paragraph_ids.dominant_shape([text])
-    assert paragraph_ids.paragraph_for([text], 0, sentence, shape) == "3.4"
+    assert paragraph_ids.paragraph_for([text], 0, sentence, shape) is None
 
 
 @pytest.mark.parametrize(
@@ -571,12 +570,39 @@ def test_the_guard_fails_safe_on_a_capital_initial_line_that_starts_with_an_iden
     assert paragraph_ids.paragraph_for([text], 0, sentence, shape) is None
 
 
-def test_documented_limit_a_list_item_of_the_standards_own_shape_reads_as_a_heading():
-    # NOT the wanted behaviour, pinned so a later change is deliberate: in a
-    # dotted standard "2 Welds shall be examined" has the shape of a heading, so
-    # it is one; shape alone cannot tell a list item from a heading.
-    # The general fail-safe (return None, never the paragraph before) is #1267.
+def test_a_list_item_of_the_standards_own_shape_gives_no_paragraph():
+    # #1267: in a standard whose headings are Title Case, "2 Welds shall be
+    # examined" has the shape of a heading but reads as a sentence: it is not
+    # taken for the paragraph in force.
     sentence = "The weld shall be inspected by a qualified engineer yearly."
     text = TITLE_CASE_DOTTED + "2 Welds shall be examined\n" + sentence + "\n"
     shape = paragraph_ids.dominant_shape([text])
+    assert paragraph_ids.paragraph_for([text], 0, sentence, shape) is None
+
+
+def test_a_sentence_case_heading_stays_a_heading_in_a_standard_that_uses_them():
+    # the same shape of line is a real heading when the standard's own headings
+    # read that way (the share is measured on the standard, no word list)
+    sentence = "The weld shall be inspected by a qualified engineer yearly."
+    body = "\n".join(
+        f"{i}.{i} Design of the vessel wall\nText {i}." for i in range(1, 10)
+    )
+    text = body + "\n2 Welds shall be examined\n" + sentence + "\n"
+    shape = paragraph_ids.dominant_shape([text])
     assert paragraph_ids.paragraph_for([text], 0, sentence, shape) == "2"
+
+
+def test_a_sentence_that_opens_with_its_own_number_is_not_given_the_heading_before():
+    # #1267: "4.3.2 The weld shall ..." is paragraph 4.3.2's own text; the reading
+    # cannot name it (it is no heading), so it must not return the one before.
+    sentence = "The weld shall be inspected by a qualified engineer yearly."
+    text = TITLE_CASE_DOTTED + "7.3.2 " + sentence + "\n"
+    shape = paragraph_ids.dominant_shape([text])
+    assert paragraph_ids.paragraph_for([text], 0, sentence, shape) is None
+
+
+def test_the_loose_share_is_measured_on_the_standards_own_headings():
+    shape = "dotted"
+    assert paragraph_ids.loose_share([TITLE_CASE_DOTTED], shape) == 0.0
+    assert paragraph_ids.loose_share(["no headings here"], shape) == 1.0
+    assert paragraph_ids.loose_share(["2 Welds shall be examined\n"], shape) == 1.0
