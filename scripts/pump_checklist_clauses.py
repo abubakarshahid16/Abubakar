@@ -28,6 +28,9 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
 MAX_CLAUSES_SHOWN = 12
+#: What a clause reference looks like: "6.1", "8.3.3.5", "L.2.4", "K.1", "9". A bare decimal such as
+#: "0.005" (a value the clause column picked up) is not one.
+_CLAUSE = re.compile(r"^(?:[A-Z]\.\d+|\d{1,2})(?:\.\d{1,3}){0,5}[a-z]?$")
 
 
 def field_words(role: str, rules: dict) -> list[str]:
@@ -50,8 +53,8 @@ def clauses_for(role: str, rules: dict, rows: list[dict]) -> list[str]:
     strong: list[str] = []
     weak: list[str] = []
     for row in rows:
-        clause = str(row.get("clause") or "")
-        if not clause:
+        clause = str(row.get("clause") or "").strip()
+        if not _CLAUSE.match(clause) or clause.startswith("0."):
             continue
         subject = _words(row.get("subject"))
         text = _words(row.get("source_text") or row.get("requirement_text"))

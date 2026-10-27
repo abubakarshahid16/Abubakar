@@ -173,3 +173,29 @@ def test_the_clause_finder_lists_references_only_never_text():
         },
     ]
     assert module.clauses_for("npsh_required", RULES, more) == ["6.1.5", "8.3.2?"]
+
+
+@pytest.mark.parametrize(
+    "clause, ok",
+    [
+        ("6.1", True),
+        ("8.3.3.5", True),
+        ("L.2.4", True),
+        ("K.1", True),
+        ("9", True),
+        ("0.005", False),
+        ("", False),
+        ("see 6.1", False),
+        ("12345", False),
+    ],
+)
+def test_only_something_that_looks_like_a_clause_reference_is_offered(clause, ok):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "pump_checklist_clauses.py"
+    spec = importlib.util.spec_from_file_location("pump_checklist_clauses_2", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    rows = [{"subject": "Rated differential head", "clause": clause}]
+    assert module.clauses_for("rated_head", RULES, rows) == ([clause] if ok else [])
