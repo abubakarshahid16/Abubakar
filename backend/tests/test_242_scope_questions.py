@@ -67,6 +67,10 @@ REAL = "The rules in Part ZZ are applicable to vessels constructed of graphite a
         ("see Table 3 below", "Table 3 below"),
         ("1.5 2.0 3.0 4.5 6.0 7.5 9.0 10.5", "1.5 2.0 3.0"),
         ("applies to welded vessels", ""),
+        (
+            "Parts UW-11 UW-12 UW-13 and UW-14 apply to welded vessels again.",
+            "welded vessels",
+        ),
     ],
 )
 def test_a_fragment_is_not_a_scope_sentence(quote, construction):
