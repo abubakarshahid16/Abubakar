@@ -109,8 +109,14 @@ def test_a_page_where_no_pair_was_recovered_is_not_evidence_of_furniture():
 
 
 def _no_fact(path, dropped):
-    cover_page.remember(path)
-    return page_ledger.no_fact(CLEAN_AI, 1, "x", dropped)
+    """`no_fact` as extraction calls it: inside an extraction (its page-failure
+    record is set) that has noted the file."""
+    token = datasheets._PAGE_FAILURES.set({})
+    try:
+        cover_page.remember(path)
+        return page_ledger.no_fact(CLEAN_AI, 1, "x", dropped)
+    finally:
+        datasheets._PAGE_FAILURES.reset(token)
 
 
 def test_a_page_read_clean_with_only_furniture_is_marked(tmp_path):
@@ -204,3 +210,37 @@ def test_a_marked_page_whose_text_layer_was_not_usable_stays_unread(
         )
     cov = _coverage(doc)
     assert 1 in cov["pages_not_read_into_fields"] and cov["pages_read_no_field"] == []
+
+
+def test_a_cover_page_that_also_carries_a_missed_field_stays_unread(tmp_path):
+    """planner's ask on #1325: 'Casing material: Duplex SS', 'Flange rating:
+    Class 300', 'Size: DN 50' beside a title block are fields the readers may
+    have missed; title-block labels (document no, revision, date, sheet) are not."""
+    furniture = {row_noise.DOCUMENT_ID: 1}
+    title_block = [
+        "Document No: 0001-XX",
+        "Revision: 00",
+        "Date: 01/01/2024",
+        "Sheet: 1 of 8",
+    ]
+    assert cover_page.checked(
+        _no_fact(_file(tmp_path, title_block, "tb.pdf"), furniture)[2]
+    )
+    for line in (
+        "Casing material: Duplex SS",
+        "Flange rating: Class 300",
+        "Size: DN 50",
+    ):
+        path = _file(tmp_path, [*title_block, line], "f.pdf")
+        assert not cover_page.checked(_no_fact(path, furniture)[2]), line
+    assert cover_page.has_field_line("Material = Duplex") is True
+    assert cover_page.has_field_line("Document no: 5") is False
+
+
+def test_a_path_left_from_an_earlier_sheet_is_never_read_outside_an_extraction(
+    tmp_path,
+):
+    path = _file(tmp_path, COVER)
+    cover_page.remember(path)
+    assert datasheets._PAGE_FAILURES.get() is None
+    assert cover_page.page_view(1) is None

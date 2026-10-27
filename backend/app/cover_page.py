@@ -20,6 +20,9 @@ THE TEXT CHECK, general and code-only; every part must hold:
    tier's, never a cover page here.
 3. no picture covers a tenth of the page (`IMAGE_SHARE`): values may sit in the
    picture, which only the picture reader could read.
+4. no line of the text reads "label: value" unless its label is a title-block
+   word (document no, revision, date, sheet...): a cover page that also carries
+   a missed field ("Casing material: Duplex") stays unread.
 At least one furniture pair is REQUIRED: a page where both readers recovered no
 pair at all proves nothing about what it holds, so it stays unread.
 Nothing here is stored but the verdict's wording: no page text.
@@ -66,6 +69,29 @@ _NEXT_WORD = re.compile(
 )
 
 
+#: A printed "label: value" line. On a cover page only the title block's own
+#: labels may look like this; any other label with an answer beside it is a
+#: field the readers may have missed ("Casing material: Duplex", "Flange
+#: rating: Class 300", "Size: DN 50"), and the page stays unread.
+_FIELD_LINE = re.compile(r"^\s*([A-Za-z][\w ./()#-]{1,40}?)\s*[:=]\s*\S", re.MULTILINE)
+#: Words of a title block's labels (document number, revision, date, sheet...).
+TITLE_BLOCK_WORDS = frozenset(
+    "document doc drawing dwg no number rev revision date sheet page of project "
+    "title client company job order contract status issue issued approved checked "
+    "prepared by tag item unit area site purchase po".split()
+)
+
+
+def has_field_line(text: str) -> bool:
+    """True when some line reads as a "label: value" whose label is not made
+    only of title-block words."""
+    for found in _FIELD_LINE.finditer(text):
+        words = re.findall(r"[a-z]+", found.group(1).lower())
+        if words and not set(words) <= TITLE_BLOCK_WORDS:
+            return True
+    return False
+
+
 def has_measured_value(text: str) -> bool:
     """True when `text` holds a number followed by a unit the system knows.
     A unit word that happens to be a known unit ("3 in the notes") counts: the
@@ -101,9 +127,14 @@ def page_view(page_no: int) -> tuple[str, bool] | None:
     it) in the file being read; None when it cannot be read (no file, an
     office input, an unopenable file, a page out of range). Opens the file per
     call: asked only for pages both readers found no field on."""
-    from . import datasheet_inputs
+    from . import datasheet_inputs, datasheets
 
     stored_path = _STORED_PATH.get()
+    # Only while an extraction is running (its page-failure record is set and
+    # is reset in its `finally`): a path left over from an earlier sheet is
+    # never read for a later one.
+    if datasheets._PAGE_FAILURES.get() is None:
+        return None
     if not stored_path or datasheet_inputs.is_office_input(stored_path):
         return None
     try:
@@ -140,6 +171,7 @@ def is_cover_or_notes(dropped: dict[str, int], view: tuple[str, bool] | None) ->
         and bool(reasons)
         and reasons <= FURNITURE
         and not has_measured_value(text)
+        and not has_field_line(text)
     )
 
 
