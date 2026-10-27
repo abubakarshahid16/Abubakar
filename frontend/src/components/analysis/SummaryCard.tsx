@@ -16,6 +16,7 @@
  * never an empty card that reads as "the model had nothing to add".
  */
 import type { AnalysisResult, DocumentedFinding } from "../../types/analysis";
+import { summaryBoundary } from "./summaryBoundary";
 
 /**
  * WHY THE MARKER READS "S4" AND NOT "4".
@@ -169,6 +170,7 @@ export function SummaryCard({
 }) {
   const ids = result.summary_cited_evidence_ids;
   const n = ids.length;
+  const boundary = summaryBoundary(result);
   const hasFindings = result.documented_findings.length > 0;
 
   // Nothing at all to say: no prose and no findings. Renders as NOTHING - the
@@ -200,6 +202,12 @@ export function SummaryCard({
               Summary of {n} passage{n === 1 ? "" : "s"}
             </span>
           </div>
+
+          {boundary !== null && (
+            <p data-testid="summary-boundary" className="mt-1 text-xs text-slateish-500">
+              {boundary}
+            </p>
+          )}
 
           <p className="model-prose mt-2 text-[15px] text-slateish-200">
             <CitedText text={result.summary} evidenceIds={ids} onCite={onCite} />

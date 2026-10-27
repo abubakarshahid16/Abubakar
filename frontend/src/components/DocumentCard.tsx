@@ -13,6 +13,7 @@ import { useState } from "react";
 import type { ClassificationSource, DocumentClassification, DocumentKindOption, DocumentRecord } from "../types/api";
 import { DocumentKindChip } from "./DocumentKindChip";
 import { ROLE_OPTIONS } from "./classification/MetadataEditor";
+import { NOT_IN_REGISTER_HINT, NOT_IN_REGISTER_LABEL } from "./classification/registerLabels";
 import {
   LOW_RETRIEVABLE_THRESHOLD,
   embedProgress,
@@ -134,8 +135,9 @@ export function DocumentCard({
                 <span
                   data-testid="type-chip"
                   className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"
+                  title={classification.document_role ? NOT_IN_REGISTER_HINT : undefined}
                 >
-                  Awaiting a type
+                  {classification.document_role ? NOT_IN_REGISTER_LABEL : "Awaiting a type"}
                 </span>
               ) : classification.confirmed ? (
                 <span

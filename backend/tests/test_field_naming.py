@@ -286,7 +286,9 @@ def test_field_naming_has_its_own_switch_apart_from_the_geometry_reader(monkeypa
         "requirements": {str(req["id"]): "working pressure"},
         "facts": {str(fact["id"]): "working pressure"},
     }
-    monkeypatch.setattr(field_naming, "ensure_names", lambda *_a, **_k: names)
+    from app import field_vocabulary
+
+    monkeypatch.setattr(field_vocabulary, "names_for", lambda *_a, **_k: names)
     result = comparison.run_comparison(run, allowed_document_ids=scope)
     assert result["findings"][0]["match_method"] == comparison.METHOD_FIELD_NAME
     assert result["field_name_matches"] == 1
