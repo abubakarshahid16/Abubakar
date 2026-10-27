@@ -28,10 +28,14 @@ def is_index_before_label(texts: list[str], i: int) -> bool:
     if not _ONLY_AN_INTEGER.match(texts[i]):
         return False
     following = next((t for t in texts[i + 1 :] if t), "")
-    return bool(_HAS_WORDS.search(following)) and not any(ch.isdigit() for ch in following[:1])
+    return bool(_HAS_WORDS.search(following)) and not any(
+        ch.isdigit() for ch in following[:1]
+    )
 
 
-def first_answer(cells: list[dict], texts: list[str], filled: list[int], starts_a_number) -> int | None:
+def first_answer(
+    cells: list[dict], texts: list[str], filled: list[int], starts_a_number
+) -> int | None:
     """The first filled cell after the label that states a value (starts with a
     number, or names a blank marker), skipping an index number before a label."""
     return next(
@@ -39,7 +43,10 @@ def first_answer(cells: list[dict], texts: list[str], filled: list[int], starts_
             i
             for i in filled[1:]
             if cells[i]["text"]
-            and (starts_a_number.match(texts[i]) or blank_markers.names_a_marker(texts[i]))
+            and (
+                starts_a_number.match(texts[i])
+                or blank_markers.names_a_marker(texts[i])
+            )
             and not is_index_before_label(texts, i)
         ),
         None,
@@ -58,7 +65,9 @@ def _numbered_columns(table: dict) -> set[int]:
         texts = [c["text"] or "" for c in cells]
         for i in range(1, len(cells)):
             if texts[i] and is_index_before_label(texts, i) and any(texts[:i]):
-                seen.setdefault(cells[i]["column"], []).append(int(re.sub(r"\D", "", texts[i])))
+                seen.setdefault(cells[i]["column"], []).append(
+                    int(re.sub(r"\D", "", texts[i]))
+                )
     return {
         col
         for col, numbers in seen.items()
