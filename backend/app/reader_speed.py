@@ -33,6 +33,15 @@ before) by default. Separate names so a measurement can tell which cut did what:
                    marked `kind_unconfirmed` (for an engineer) and a quote that spans the cut
                    is refused (`datasheet_ai._part_fact`); that is where `presplit` lost facts.
 
+  skip_agreed_pages[=N]
+                   the whole-page call is NOT made for a page the form reader read fully
+                   (`agreed_pages`): no error, no refused reading, at least one reading, and
+                   at most N (default `UNEXPLAINED_NUMBERS`) numbers on the page that no
+                   reading's quote or value carries. The form's readings stand for those
+                   pages. This is where the minutes are (the reader is 12.1 of 13.6 minutes
+                   on the measured sheet). The count of such pages is reported for every run
+                   (`pages_fully_agreed`), switch or not.
+
 Unknown names are ignored (and listed by `unknown`). Pure functions; no model.
 """
 
@@ -47,7 +56,10 @@ from .config import settings
 
 SHORT_QUOTE, SKIP_FORM_READ, PRESPLIT = "short_quote", "skip_form_read", "presplit"
 WIDE_CAP = "wide_cap"
-CUTS = (SHORT_QUOTE, SKIP_FORM_READ, PRESPLIT, WIDE_CAP)
+SKIP_AGREED = "skip_agreed_pages"
+CUTS = (SHORT_QUOTE, SKIP_FORM_READ, PRESPLIT, WIDE_CAP, SKIP_AGREED)
+#: A page counts as fully agreed with at most this many numbers its readings do not carry.
+UNEXPLAINED_NUMBERS = 2
 #: The whole-page reader's answer budget with `wide_cap` (the form reader already has this).
 WIDE_CAP_TOKENS = 4096
 #: The longest quote the form's answer schema allows when `short_quote` is on.
@@ -84,6 +96,55 @@ def on() -> frozenset[str]:
 def unknown() -> list[str]:
     """Names in the setting that are not a cut (ignored, but worth a warning)."""
     return [name for name in map(_name, _named()) if name not in CUTS]
+
+
+def _number_after(name: str, default: int) -> int:
+    for entry in _named():
+        key, _, number = entry.partition("=")
+        if key.strip() == name and number.strip().isdigit():
+            return int(number)
+    return default
+
+
+def unexplained_numbers(page_text: str, accepted: list[dict]) -> int:
+    """How many distinct numbers the page prints that no accepted reading carries
+    (in its value or its quote)."""
+    from . import numparse
+
+    carried: set = set()
+    for fact in accepted:
+        carried |= numparse.number_keys(
+            f"{fact.get('value') or ''} {fact.get('quote') or ''}"
+        )
+    return len(numparse.number_keys(page_text or "") - carried)
+
+
+def agreed_pages(texts: dict[int, str], form_run: dict | None) -> list[int]:
+    """The pages the form reader read FULLY: read without error, no refused
+    reading, at least one accepted reading, and few numbers it did not carry.
+    Computed for every run (a measurement); `skip_agreed_pages` acts on it."""
+    allowed = _number_after(SKIP_AGREED, UNEXPLAINED_NUMBERS)
+    out = []
+    for page, read in sorted(((form_run or {}).get("pages") or {}).items()):
+        accepted = read.get("accepted") or []
+        if (
+            read.get("error")
+            or read.get("rejected")
+            or not accepted
+            or page not in texts
+        ):
+            continue
+        if unexplained_numbers(texts[page], accepted) <= allowed:
+            out.append(page)
+    return out
+
+
+def pages_to_ask(texts: dict[int, str], agreed: list[int]) -> dict[int, str]:
+    """The pages the whole-page call is made for: all of them, less the fully
+    agreed ones when `skip_agreed_pages` is on."""
+    if SKIP_AGREED not in on():
+        return texts
+    return {page: text for page, text in texts.items() if page not in agreed}
 
 
 def predict_cap(default: int) -> int:

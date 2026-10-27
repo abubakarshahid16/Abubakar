@@ -280,3 +280,74 @@ def test_the_merge_pass_counts_what_it_added_and_repeated_per_page():
         2: {"form": 1, "merge_new": 0, "merge_same": 1},
         3: {"form": 0, "merge_new": 1, "merge_same": 0},
     }
+
+
+PAGE_ONE = "Design pressure  10 barg\n"
+PAGE_TWO = "Design pressure  10 barg\nOther note 77 and 88 and 99\n"
+
+
+def _two_page_run(monkeypatch, fake):
+    monkeypatch.setattr(settings, "datasheet_ai_reader", "ollama")
+    monkeypatch.setattr(
+        datasheet_ai,
+        "model_call_for",
+        lambda engine=None, packet_shape=None: (fake, None),
+    )
+    return form_reader_run.read_both({1: PAGE_ONE, 2: PAGE_TWO}, None, [])
+
+
+def test_the_fully_read_pages_are_counted_for_every_run_switch_or_not(
+    cuts, monkeypatch
+):
+    cuts("")
+    fake = _Both()
+    run = _two_page_run(monkeypatch, fake)
+    assert run["form"]["pages_fully_agreed"] == [1]
+    assert run["form"]["pages_merge_skipped"] == []
+    assert (
+        len(fake.merge_prompts) == 2 * 2
+    )  # both pages, two runs each: nothing skipped
+
+
+def test_skip_agreed_pages_makes_no_whole_page_call_for_a_fully_read_page(
+    cuts, monkeypatch
+):
+    cuts("skip_agreed_pages")
+    fake = _Both()
+    run = _two_page_run(monkeypatch, fake)
+    assert run["form"]["pages_merge_skipped"] == [1]
+    assert all("PAGE 1:" not in p for p in fake.merge_prompts)
+    assert any("PAGE 2:" in p for p in fake.merge_prompts)
+    labels = {f["field"] for f in run["pages"][1]["accepted"]}
+    assert "Design pressure" in labels  # the form's reading stands for the skipped page
+
+
+def test_a_page_with_refused_or_no_readings_or_errors_is_never_agreed():
+    texts = {1: "Design pressure 10 barg", 2: "x", 3: "y", 4: "z"}
+    ok = {"field": "Design pressure", "value": "10", "quote": "Design pressure 10 barg"}
+    form = {
+        "pages": {
+            1: {"accepted": [ok]},
+            2: {"accepted": [ok], "rejected": [{"reason": "quote_not_on_page"}]},
+            3: {"accepted": []},
+            4: {"accepted": [ok], "error": "timed out"},
+        }
+    }
+    assert reader_speed.agreed_pages(texts, form) == [1]
+
+
+def test_the_allowed_unexplained_numbers_come_from_the_setting(cuts):
+    texts = {1: "Design pressure 10 barg 11 12 13"}
+    form = {
+        "pages": {
+            1: {"accepted": [{"value": "10", "quote": "Design pressure 10 barg"}]}
+        }
+    }
+    cuts("skip_agreed_pages")
+    assert (
+        reader_speed.agreed_pages(texts, form) == []
+        and reader_speed.unexplained_numbers(texts[1], form["pages"][1]["accepted"])
+        == 3
+    )
+    cuts("skip_agreed_pages=3")
+    assert reader_speed.agreed_pages(texts, form) == [1]

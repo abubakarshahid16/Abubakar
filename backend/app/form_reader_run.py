@@ -422,9 +422,15 @@ def read_both(texts: dict[int, str], equipment_type: str | None, standard_ids) -
     form = read_document(
         texts, equipment_type, extra_subjects=requirement_subjects(standard_ids)
     )
+    agreed = reader_speed.agreed_pages(texts, form)
+    asked = reader_speed.pages_to_ask(texts, agreed)
     with reader_speed.skipping(reader_speed.form_read_labels(form)):
-        merge = datasheet_ai.read_pages(texts)
-    return add_merge_reading(form, merge)
+        merge = datasheet_ai.read_pages(asked)
+    run = add_merge_reading(form, merge)
+    # counts only (order 246.3): the pages the form read fully, and those the whole-page call skipped
+    run["form"]["pages_fully_agreed"] = agreed
+    run["form"]["pages_merge_skipped"] = [p for p in texts if p not in asked]
+    return run
 
 
 def refusal_summary(ai_run: dict, ai_stats: dict) -> dict:
