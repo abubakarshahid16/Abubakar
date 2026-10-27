@@ -56,10 +56,15 @@ def latest_run(document_id: str) -> dict | None:
     from . import run_finishing, submittal_review  # lazy: it reaches back into review
 
     submittal_review.ensure_schema()
-    row = connect().execute(
-        f"SELECT r.id, {run_finishing.STATUS} AS status, r.outcome_json FROM review_runs r"
-        " WHERE r.submittal_document_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
-        (document_id,)).fetchone()
+    row = (
+        connect()
+        .execute(
+            f"SELECT r.id, {run_finishing.STATUS} AS status, r.outcome_json FROM review_runs r"
+            " WHERE r.submittal_document_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
+            (document_id,),
+        )
+        .fetchone()
+    )
     if row is None:
         return None
     try:
