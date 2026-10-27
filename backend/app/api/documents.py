@@ -436,9 +436,11 @@ def index_keyword(document_id: str,
     return keyword_mod.index_document(document_id)
 
 
-@router.get("/api/documents/{document_id}/table-consistency",
-            response_model=table_consistency_mod.TableConsistency,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/documents/{document_id}/table-consistency",
+    response_model=table_consistency_mod.TableConsistency,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def document_table_consistency(
     document_id: str,
     request: Request,
@@ -453,7 +455,8 @@ def document_table_consistency(
     reject_unknown_params(request, set())
     require_document(document_id, scope)
     return table_consistency_mod.check_document(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
+        document_id, allowed_document_ids=scope.allowed_document_ids
+    )
 
 
 @router.post("/api/documents/bulk/role", response_model=schemas.BulkRoleResult,
