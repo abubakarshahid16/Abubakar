@@ -233,9 +233,15 @@ def table(results: list[dict]) -> str:
                 continue
             rec = _sum([s.get("recall") for s in scored])
             pre = _sum([s.get("precision") for s in scored])
+            judged = sum(1 for s in scored if s.get("precision"))
+            of_keys = (
+                f" ({judged} of {len(scored)} keys)"
+                if pre and judged < len(scored)
+                else ""
+            )
             score = f1(_ratio(*pre) if pre else None, _ratio(*rec) if rec else None)
             lines.append(
-                f"| {dtype} | {step} | {_pct(rec)} | {_pct(pre) if pre else 'not judged'} | "
+                f"| {dtype} | {step} | {_pct(rec)} | {_pct(pre) + of_keys if pre else 'not judged'} | "
                 f"{'-' if score is None else f'{score:.2f}'} | {len(scored)} of {len(rs_)} |"
             )
     return "\n".join(lines) + "\n"
@@ -255,6 +261,8 @@ def _per_step_lists(conn: sqlite3.Connection, run_id: str) -> dict:
     run = conn.execute(
         "SELECT submittal_document_id FROM review_runs WHERE id = ?", (run_id,)
     ).fetchone()
+    if run is None:
+        return {}  # an unknown run is "not scored", never a list that reads as "none"
     chosen = [
         r[0]
         for r in conn.execute(
@@ -265,18 +273,15 @@ def _per_step_lists(conn: sqlite3.Connection, run_id: str) -> dict:
             (run_id,),
         )
     ]
-    read = (
-        [
-            r[0]
-            for r in conn.execute(
-                "SELECT DISTINCT field_name FROM submittal_facts"
-                " WHERE submittal_document_id = ? AND superseded_at IS NULL ORDER BY 1",
-                (run[0],),
-            )
-        ]
-        if run
-        else []
-    )
+    # the sheet's CURRENT facts, not the run's own: a later re-read changes an old run's score
+    read = [
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT field_name FROM submittal_facts"
+            " WHERE submittal_document_id = ? AND superseded_at IS NULL ORDER BY 1",
+            (run[0],),
+        )
+    ]
     return {"standards_selected": chosen, "fields_read": read}
 
 

@@ -266,3 +266,30 @@ def test_a_superseded_fact_is_not_a_field_read():
         """
     )
     assert st.per_step_lists(conn, "r1")["fields_read"] == ["Flow"]
+
+
+def test_a_precision_from_only_some_keys_says_how_many():
+    complete = KEY
+    open_list = {**KEY, "name": "open", "standards_complete": False}
+    results = [
+        st.step_scores(k, GOOD, rs.score(k, GOOD), rs.match_item)
+        for k in (complete, open_list)
+    ]
+    text = st.table(results)
+    standards_row = next(r for r in text.splitlines() if "| standards |" in r)
+    assert "(1 of 2 keys)" in standards_row
+    both = st.table(results[:1])
+    assert "keys)" not in next(r for r in both.splitlines() if "| standards |" in r)
+
+
+def test_an_unknown_run_gives_no_lists_not_empty_ones():
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        """
+        CREATE TABLE review_runs (id TEXT, submittal_document_id TEXT);
+        CREATE TABLE documents (id TEXT, filename TEXT);
+        CREATE TABLE review_applicable_standards (review_run_id TEXT, standard_document_id TEXT, included INTEGER);
+        CREATE TABLE submittal_facts (submittal_document_id TEXT, field_name TEXT, superseded_at TEXT);
+        """
+    )
+    assert st.per_step_lists(conn, "no-such-run") == {}
