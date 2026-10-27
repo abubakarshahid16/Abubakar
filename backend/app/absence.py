@@ -228,7 +228,7 @@ def split_lines(split: dict | None) -> list[str]:
     cov = split.get("checklist_coverage")
     if cov:
         pages = ", ".join(str(p) for p in cov.get("gap_pages") or [])
-        lines.append(f"Checklist fields read {cov['read']} of {cov['fields']}; on the sheet but not read "
+        lines.append(f"Checklist fields read {cov['read']} of {cov['fields']}; wording on the sheet, not read "
                      f"{cov['on_sheet_not_read']}" + (f" (pages {pages})" if pages else "") + ".")
     for title, key, count_key in (
             ("Apply but not checked", "applies_not_checked_reasons", "applies_not_checked"),
