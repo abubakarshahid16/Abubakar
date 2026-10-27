@@ -95,22 +95,33 @@ def source_label(r: dict) -> str:
     return str(r.get("source"))
 
 
-def text_report(r: dict, bar: dict | None = None) -> str:
-    status = rs.bar_status(r, bar)
+def bar_words() -> str:
+    """The owner's Stage E bar in words, read from its one home."""
+    bar = rs.STAGE_E_BAR
+    return (f"the owner's Stage E bar (order 170.1): recall >= {bar['recall']:.0%}, precision >= "
+            f"{bar['precision']:.0%}, false compliant = {bar['false_meets']}, citations valid = "
+            f"{bar['citations_valid']:.0%}")
+
+
+def text_report(r: dict) -> str:
+    status = rs.bar_status(r)
     mark = {True: "meets", False: "BELOW", None: "cannot tell"}
     lines = [
         f"Key: {r['key']} ({source_label(r)})   Model: {r['model'] or 'not stated'}",
         f"  findings in the run: {r['findings']}",
-        f"  recall:            {pct(r['defects_found'], r['defects'])}   [{mark[status['recall']]} the proposed bar]",
+        f"  recall:            {pct(r['defects_found'], r['defects'])}   [{mark[status['recall']]} the Stage E bar]",
         *([f"                     ({r['defects_found_without_page']} of the found: the finding names no datasheet page)"]
           if r.get("defects_found_without_page") else []),
-        f"  precision:         {pct(r['correct_findings'], r['judged_findings'])}"
+        f"  precision:         {pct(r['correct_findings'], r['judged_findings'])}   "
+        f"[{mark[status['precision']]} the Stage E bar]"
         + ("" if r["complete_for_flags"] else f"   ({r['findings_not_judged_by_key']} flagged finding(s) are not judged by this key)"),
         f"  false compliant:   {r['false_compliant']}   [{mark[status['false_compliant']]}; the limit is 0]",
         f"  false not-applic.: {r['false_not_applicable']}",
-        f"  trap false flags:  {pct(r['traps_flagged'], r['traps'])}   [{mark[status['trap_false_flag_rate']]} the proposed bar]",
+        f"  trap false flags:  {pct(r['traps_flagged'], r['traps'])}   [no bar: not in the owner's Stage E bar]",
         "  citation validity: " + (pct(r["citations_valid"], r["citations_checked"]) if r["citations_checked"]
-                                   else "NOT CHECKED (" + (r["citations_checked_note"] or "") + ")"),
+                                   else "NOT CHECKED (" + (r["citations_checked_note"] or "") + ")")
+        + f"   [{mark[status['citations_valid']]} the Stage E bar]",
+        f"  Bar: {bar_words()}.",
     ]
     if r["missed_ids"]:
         lines.append(f"  missed defects: {', '.join(r['missed_ids'])}")
@@ -121,7 +132,6 @@ def text_report(r: dict, bar: dict | None = None) -> str:
 
 def weekly_report(keys_dir: Path, runs_dir: Path, baseline: dict, week: str) -> tuple[str, int]:
     """(markdown, exit code). Counts only: key names, item ids, numbers."""
-    bar = baseline.get("bar") or rs.PROPOSED_BAR
     keys, skipped_hidden, unreadable = [], [], []
     for path in sorted(keys_dir.glob("*.json")):
         try:
@@ -143,9 +153,7 @@ def weekly_report(keys_dir: Path, runs_dir: Path, baseline: dict, week: str) -> 
     for _, key in keys:
         by_source[key["source"]] = by_source.get(key["source"], 0) + 1
     out = [f"## Review score, week {week}", "",
-           f"Proposed bar (owner to confirm, not measured): recall >= {bar['recall']:.0%}, trap false flags <= "
-           f"{bar['trap_false_flag_rate']:.0%}, false compliant = {bar['false_compliant']}, citations valid = "
-           f"{bar['citations_valid']:.0%}.", ""]
+           f"Pass mark: {bar_words()}. Trap false flags are reported with no bar.", ""]
     if rows:
         out += ["| key (source) | model | recall | precision | false compliant | false n/a | trap false flags | citations valid |",
                 "|---|---|---|---|---|---|---|---|"]
@@ -252,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.baseline).write_text(json.dumps(baseline, indent=1, sort_keys=True) + "\n", encoding="utf-8")
             print(f"baseline recorded for {rs.baseline_key(result)} in {args.baseline}")
             return 0
-        print(json.dumps(result, indent=1) if args.json else text_report(result, baseline.get("bar")))
+        print(json.dumps(result, indent=1) if args.json else text_report(result))
         if args.cmd == "check":
             reasons = rs.check(result, baseline)
             if reasons:
