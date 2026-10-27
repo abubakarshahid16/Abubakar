@@ -9,6 +9,8 @@ findings only."""
 from __future__ import annotations
 
 from app import crs_mapping
+from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
+from tests.test_review_screen import world  # noqa: F401 - fixture
 
 NC = {
     "id": "nc1",
@@ -90,3 +92,31 @@ def test_an_ai_item_nobody_decided_stays_an_unconfirmed_draft():
     row = _row(AI)
     assert row["engineer_confirmed"] is False
     assert row["comment"] != AI["finding"] and row["ai_review_comment"] == AI["finding"]
+
+
+# ------------------------------------------- the real path: names come from the users table
+
+
+def test_the_real_crs_content_resolves_the_accepters_display_name(world):  # noqa: F811
+    from app import db, main
+    from app.access import AccessScope
+
+    _sub, run, scope = world
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO users (id,email,display_name,password_hash,is_active,created_at)"
+            " VALUES ('u-acc','acc@example.test','Amina Accepter','x',1,'2026-01-01')"
+        )
+        conn.execute(
+            "UPDATE review_findings SET approval_status='accepted', approved_by='u-acc',"
+            " confirmed_by=NULL WHERE id = (SELECT id FROM review_findings"
+            " WHERE review_run_id = ? LIMIT 1)",
+            (run,),
+        )
+    rows, *_ = main._crs_content(
+        run, AccessScope(user_id="u-acc", allowed_document_ids=scope)
+    )
+    assert any("Amina Accepter" in (r.get("comment_by") or "") for r in rows), [
+        r.get("comment_by") for r in rows
+    ]

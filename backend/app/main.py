@@ -2788,15 +2788,15 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # Section 3: an edited comment names its editor the same way; 2d-2: so does a confirmed web standards check item.
     # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
     # edits - a plain confirmed requirement comment printed the raw user id.
-    confirmers = {crs_mapping_mod.decider(f) for f in findings if crs_mapping_mod.decider(f)}
+    confirmers = {d for f in findings if (d := crs_mapping_mod.crs_decider.decider(f))}
     if confirmers:
         marks = ",".join("?" for _ in confirmers)
         people = {r["id"]: r["display_name"] for r in connect().execute(
             f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
         for finding in findings:
             # A name only when one is on record - never invented; the id stays the fallback in `crs_mapping`.
-            if people.get(crs_mapping_mod.decider(finding)):
-                finding["confirmed_by_name"] = people[crs_mapping_mod.decider(finding)]
+            if people.get(who := crs_mapping_mod.crs_decider.decider(finding)):
+                finding["confirmed_by_name"] = people[who]
 
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}
