@@ -317,8 +317,11 @@ def stream_to_temp(src: BinaryIO, temp_path: Path) -> tuple[str, int]:
                         "Old Office files (.doc, .xls, .ppt) are not supported. "
                         + UNSUPPORTED_OFFICE_HINT,
                         "legacy Office container")
-                if not (block.startswith(PDF_MAGIC) or block.startswith(ZIP_MAGIC)
-                        or image_intake.is_image(block)):
+                if not (
+                    block.startswith(PDF_MAGIC)
+                    or block.startswith(ZIP_MAGIC)
+                    or image_intake.is_image(block)
+                ):
                     raise UploadError(
                         "not_pdf",
                         "That file is not a PDF",
@@ -343,7 +346,7 @@ def _receive(src: BinaryIO, temp_path: Path, name: str) -> tuple[str, int, str]:
     """`stream_to_temp`, then a PNG or JPEG becomes a one-page PDF in place (#525). Returns
     (sha256, size) of what is stored and the display name without its picture suffix."""
     sha256, size = stream_to_temp(src, temp_path)
-    with open(temp_path, "rb") as fh:
+    with temp_path.open("rb") as fh:
         if not image_intake.is_image(fh.read(8)):
             return sha256, size, name
     try:
