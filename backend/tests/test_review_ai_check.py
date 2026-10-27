@@ -445,7 +445,8 @@ def test_confirmation_moves_the_text_to_company_comments_under_the_engineers_nam
 
     [row] = [r for r in _preview(run)["rows"] if TEXT in r["comment"]]
     assert row["comment_by"] == "AI engineering check, confirmed by Engineer"
-    assert row["ai_review_comment"] == ""
+    # order 233: the cell says the AI wrote the comment; the draft itself is not repeated
+    assert row["ai_review_comment"] == "Written by the AI (see the comment)"
     assert TEXT in json.dumps(_preview(run, "issue")), "a confirmed comment is issued"
 
 
