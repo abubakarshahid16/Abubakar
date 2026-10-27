@@ -713,8 +713,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             if searched:
                 pages = ", ".join(str(n) for n in searched)
                 r = res(NEEDS_ENGINEER_REVIEW,
-                        f"{_pretty(field)} is on the sheet but was not read: engineer to check "
-                        f"page{'s' if len(searched) > 1 else ''} {pages}.")
+                        f"{_pretty(field)} was not read as a value; wording for it appears on "
+                        f"page{'s' if len(searched) > 1 else ''} {pages}: engineer to check.")
                 return {**r, "reader_gap": True, "pages": searched}
             r = res(MISSING_INFORMATION,
                     f"{_pretty(field)} was not found in the fields read or in the text of "
@@ -1151,12 +1151,11 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     `label` (rule_trust, #947; None with the switch off): applied to each
     result AFTER the choice of which results become rows, so a held pass
     does not turn into a row a plain pass never was."""
-    from . import comparison
+    from . import comparison, standard_clause_page
     from . import review as review_mod
     written = []
-    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete
-    # (`review.UNDECIDED_SQL`) and not written again beside it (audit
-    # 2026-09-30): same rule, same field, same tag, same value.
+    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete and
+    # not written again beside it (audit 2026-09-30): same rule, field, tag, value.
     fold = lambda v: " ".join(str(v or "").lower().split())  # noqa: E731
     rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
                  fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
@@ -1215,4 +1214,5 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
         }, created_by=None)
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})
+    standard_clause_page.attach(review_run_id, written)
     return written
