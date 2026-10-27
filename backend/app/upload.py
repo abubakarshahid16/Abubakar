@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from . import access, classification, job_queue, states, stored_paths
+from . import access, classification, image_intake, job_queue, states, stored_paths
 from .config import settings
 from .db import connect
 from .errors import redact
@@ -317,7 +317,11 @@ def stream_to_temp(src: BinaryIO, temp_path: Path) -> tuple[str, int]:
                         "Old Office files (.doc, .xls, .ppt) are not supported. "
                         + UNSUPPORTED_OFFICE_HINT,
                         "legacy Office container")
-                if not (block.startswith(PDF_MAGIC) or block.startswith(ZIP_MAGIC)):
+                if not (
+                    block.startswith(PDF_MAGIC)
+                    or block.startswith(ZIP_MAGIC)
+                    or image_intake.is_image(block)
+                ):
                     raise UploadError(
                         "not_pdf",
                         "That file is not a PDF",
@@ -336,6 +340,24 @@ def stream_to_temp(src: BinaryIO, temp_path: Path) -> tuple[str, int]:
     if total == 0:
         raise UploadError("not_pdf", "The file was empty")
     return digest.hexdigest(), total
+
+
+def _receive(src: BinaryIO, temp_path: Path, name: str) -> tuple[str, int, str]:
+    """`stream_to_temp`, then a PNG or JPEG becomes a one-page PDF in place (#525). Returns
+    (sha256, size) of what is stored and the display name without its picture suffix."""
+    sha256, size = stream_to_temp(src, temp_path)
+    with temp_path.open("rb") as fh:
+        if not image_intake.is_image(fh.read(8)):
+            return sha256, size, name
+    try:
+        image_intake.convert_file(temp_path)
+    except image_intake.ImageRefused as exc:
+        raise UploadError(
+            "bad_image", "That picture could not be accepted", str(exc)
+        ) from exc
+    data = temp_path.read_bytes()
+    name = re.sub(r"\.(png|jpe?g)$", "", name, flags=re.IGNORECASE)
+    return hashlib.sha256(data).hexdigest(), len(data), name
 
 
 def find_by_hash(sha256: str) -> sqlite3.Row | None:
@@ -365,7 +387,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     temp_path = settings.upload_dir / f".incoming-{uuid.uuid4().hex}.part"
 
     try:
-        sha256, size = stream_to_temp(src, temp_path)
+        sha256, size, raw_filename = _receive(src, temp_path, raw_filename)
         kind = detect_kind(temp_path)
         # DATASHEET_OFFICE_INPUT seam (off by default): a zip that is a Word
         # document is a datasheet input. Flag off: it stays `xlsx` here and

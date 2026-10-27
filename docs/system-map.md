@@ -247,6 +247,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `telemetry` | Measured rates and latencies, persisted |
 | `understanding` | B6C: question understanding - structured, deterministic, retrieval-only |
 | `upload` | Step 1 - streaming PDF upload |
+| `image_intake` | #525: a standalone PNG or JPEG becomes a one-page PDF with no text layer at upload (pixel limit read from the header), so it takes the scanned-page path |
 | `vector_store` | The dense-search vector store: ONE interface, two EXACT backends |
 | `vectorcache` | The exact numpy backend of the vector store: one memory-mapped matrix |
 | `vision_reader` | Read a contractor datasheet into facts |

@@ -27,6 +27,13 @@ describe("Uploader file types", () => {
     expect(input.getAttribute("accept")).toContain(".pdf");
   });
 
+  it("offers pictures, which the server wraps as a one-page PDF (#525)", async () => {
+    render(<Uploader onUploaded={() => {}} />);
+    const input = await screen.findByLabelText("Choose PDF or Word files to upload");
+    for (const ext of [".png", ".jpg", ".jpeg"]) expect(input.getAttribute("accept")).toContain(ext);
+    expect(await screen.findByText(/picture \(\.png, \.jpg\)/)).toBeTruthy();
+  });
+
   it("says Word files are accepted", async () => {
     render(<Uploader onUploaded={() => {}} />);
     expect(await screen.findByText(/Word \(\.docx\)/)).toBeTruthy();

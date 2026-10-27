@@ -231,7 +231,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
         ].join(" ")}
       >
         <p className="text-sm text-slateish-300">
-          Drag PDF or Word (.docx) files here, or{" "}
+          Drag PDF, Word (.docx) or picture (.png, .jpg) files here, or{" "}
           <button
             type="button"
             disabled={blocked}
@@ -247,7 +247,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
+          accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,image/png,.png,image/jpeg,.jpg,.jpeg"
           multiple
           aria-label="Choose PDF or Word files to upload"
           className="sr-only"
