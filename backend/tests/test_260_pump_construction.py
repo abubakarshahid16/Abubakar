@@ -195,3 +195,24 @@ def test_a_sentence_with_a_conjunction_next_to_the_marker_is_held_not_dropped():
     )
     kept, not_applied, held = run([sentence], [fact("Pump type", "BB2")])
     assert not_applied == set() and held == {"conj"} and kept == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["other than overhung", "excluding overhung", "except overhung", "unless overhung"],
+)
+def test_a_sheet_value_that_excludes_a_construction_states_none(value):
+    _kept, not_applied, held = run([BB], [fact("Pump type", value)])
+    assert not_applied == set() and held == {"bb"}
+
+
+@pytest.mark.parametrize("pump_type", ["API 610 OH2", "BB2"])
+def test_a_list_gives_one_answer_whichever_construction_is_named_first(pump_type):
+    forward = req("fwd", "Shaft shall be rigid for overhung and between-bearing pumps.")
+    backward = req(
+        "bwd", "Shaft shall be rigid for between-bearing and overhung pumps."
+    )
+    kept_f, na_f, held_f = run([forward], [fact("Pump type", pump_type)])
+    kept_b, na_b, held_b = run([backward], [fact("Pump type", pump_type)])
+    assert na_f == set() and na_b == set()
+    assert (kept_f == []) == (kept_b == []) and (held_f == set()) == (held_b == set())

@@ -199,7 +199,23 @@ _CUE_WORDS = frozenset(
         "apart",
     }
 )
-_NEGATIONS = frozenset({"not", "non", "no", "without", "neither", "nor"})
+_NEGATIONS = frozenset(
+    {
+        "not",
+        "non",
+        "no",
+        "without",
+        "neither",
+        "nor",
+        "other",
+        "excluding",
+        "except",
+        "unless",
+        "excepting",
+        "apart",
+        "besides",
+    }
+)
 _UNSURE_CONSTRUCTION = (
     "the sentence names a pump construction in a list, a negation or an exception, or next to "
     "another construction; an engineer decides whether it applies to this pump"
@@ -209,11 +225,24 @@ _UNSURE_CONSTRUCTION = (
 def _names_the_sheets_own(
     conds: list[dict], declared: dict, requirement: dict, label: str, heading: str
 ) -> bool:
-    """Does the sentence also name a condition the sheet DECLARES present? Then it applies."""
+    """Does the sentence also name a condition the sheet DECLARES present? Then it applies. A
+    construction is named by its marker phrase or by one of its own words or codes, whichever
+    side of an "and" it stands."""
+    text = " ".join(
+        str(requirement.get(k) or "")
+        for k in ("requirement_text", "source_text", "condition")
+    )
+    words = _words(text)
     return any(
         declared[o["name"]] is not None
         and declared[o["name"]]["present"]
-        and specific_to(o, requirement, label, heading)
+        and (
+            specific_to(o, requirement, label, heading)
+            or (
+                o["contradicted_by"]
+                and any(f" {m} " in words for m in o["satisfied_by"])
+            )
+        )
         for o in conds
     )
 
