@@ -15,7 +15,7 @@ standard numbers and counts, never a sentence of a document. Read only; no netwo
 
 from __future__ import annotations
 
-from . import applicability, standard_ids
+from . import applicability, reference_follow, standard_ids
 from .db import connect
 from .standards import COMPANY_STANDARD, _scope_clause
 
@@ -145,7 +145,7 @@ def for_run(review_run_id: str, allowed: frozenset[str]) -> list[dict]:
                 (review_run_id,),
             )
         ]
-        return notes(*not_held(used, allowed))
+        return notes(*not_held(used, allowed)) + reference_follow.for_run(used, allowed)
     except Exception as exc:  # noqa: BLE001 - a side note must not fail the CRS content
         return [
             {
