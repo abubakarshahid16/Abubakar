@@ -287,6 +287,7 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
     the form's one value. `replaced_by_form` counts the repeats dropped."""
     added = 0
     replaced = 0
+    by_page: dict[int, dict] = {}
     _carry_merge_gaps(form_run, merge_run)
     for page, extra in (merge_run.get("pages") or {}).items():
         if extra.get("error"):
@@ -298,6 +299,11 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
             if extra.get("partial"):
                 form_run["partly_read"][page] = MERGE_GAP.format(why=extra["partial"])
             added += len(extra.get("accepted") or [])
+            by_page[page] = {
+                "form": 0,
+                "merge_new": len(extra.get("accepted") or []),
+                "merge_same": 0,
+            }
             continue
         read: dict[str, list[dict]] = {}
         for f in mine["accepted"]:
@@ -314,6 +320,11 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
                 replaced += 1
             else:
                 more.append(f)
+        by_page[page] = {
+            "form": len(mine["accepted"]),
+            "merge_new": len(more),
+            "merge_same": len(extra.get("accepted") or []) - len(more),
+        }
         mine["accepted"] = [*mine["accepted"], *more]
         # What the whole-page reader put forward and the code refused is kept
         # apart: a page is "read, no field found" only when NOTHING was
@@ -324,6 +335,11 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
         mine.update({k: extra[k] for k in ("cut_off", "parts") if extra.get(k)})
         added += len(more)
     form_run["added_from_merge"] = added
+    # Per page, counts only (order 246.3): how many readings the form made, how many
+    # the whole-page pass ADDED, and how many it merely repeated. A page where the
+    # pass adds nothing is a candidate for skipping its call; the counts show which.
+    if isinstance(form_run.get("form"), dict):
+        form_run["form"]["merge_by_page"] = dict(sorted(by_page.items()))
     form_run["replaced_by_form"] = replaced
     form_run["stopped"] = form_run.get("stopped") or merge_run.get("stopped")
     form_run["seconds"] = round(

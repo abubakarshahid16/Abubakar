@@ -26,6 +26,13 @@ before) by default. Separate names so a measurement can tell which cut did what:
                    halved after being cut off: the whole-page attempt that hit
                    the output cap was two wasted runs.
 
+  wide_cap         the whole-page reader's answer budget is `WIDE_CAP_TOKENS` (4,096) instead
+                   of 2,048, so a dense page's reply is not cut off and thrown away. THE
+                   ALTERNATIVE TO `presplit`, which has a fidelity cost: a page read in
+                   parts is read without the column names above the cut, so its readings are
+                   marked `kind_unconfirmed` (for an engineer) and a quote that spans the cut
+                   is refused (`datasheet_ai._part_fact`); that is where `presplit` lost facts.
+
 Unknown names are ignored (and listed by `unknown`). Pure functions; no model.
 """
 
@@ -39,7 +46,10 @@ from contextvars import ContextVar
 from .config import settings
 
 SHORT_QUOTE, SKIP_FORM_READ, PRESPLIT = "short_quote", "skip_form_read", "presplit"
-CUTS = (SHORT_QUOTE, SKIP_FORM_READ, PRESPLIT)
+WIDE_CAP = "wide_cap"
+CUTS = (SHORT_QUOTE, SKIP_FORM_READ, PRESPLIT, WIDE_CAP)
+#: The whole-page reader's answer budget with `wide_cap` (the form reader already has this).
+WIDE_CAP_TOKENS = 4096
 #: The longest quote the form's answer schema allows when `short_quote` is on.
 SHORT_QUOTE_CHARS = 120
 #: A page with at least this many lines holding a digit is read in parts at once.
@@ -74,6 +84,11 @@ def on() -> frozenset[str]:
 def unknown() -> list[str]:
     """Names in the setting that are not a cut (ignored, but worth a warning)."""
     return [name for name in map(_name, _named()) if name not in CUTS]
+
+
+def predict_cap(default: int) -> int:
+    """The whole-page reader's answer budget: `WIDE_CAP_TOKENS` with `wide_cap`."""
+    return WIDE_CAP_TOKENS if WIDE_CAP in on() else default
 
 
 def dense_lines() -> int:

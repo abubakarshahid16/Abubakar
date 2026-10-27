@@ -219,7 +219,7 @@ def _ollama_call(packet_shape: dict | None = None):
         model, timeout=float(settings.datasheet_ai_timeout_seconds), retry_timeouts=True
     )
     shape = {"json_schema": _SCHEMA, "prompt_version": reader_speed.version(PROMPT_VERSION),
-             "num_predict": OLLAMA_NUM_PREDICT, **(packet_shape or {})}
+             "num_predict": reader_speed.predict_cap(OLLAMA_NUM_PREDICT), **(packet_shape or {})}
 
     asked: dict[str, int] = {}
 

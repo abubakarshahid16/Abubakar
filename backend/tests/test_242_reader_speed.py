@@ -216,3 +216,67 @@ def test_presplit_takes_its_threshold_from_the_setting(cuts):
     assert reader_speed.dense_lines() == reader_speed.DENSE_LINES
     cuts("short_quote,presplit=0")
     assert reader_speed.dense_lines() == reader_speed.DENSE_LINES
+
+
+def test_wide_cap_raises_the_whole_page_readers_answer_budget(cuts, monkeypatch):
+    seen = []
+
+    class Recorder:
+        def __init__(self, model, timeout, retry_timeouts=False):
+            pass
+
+        def reason(self, packet):
+            seen.append(packet.num_predict)
+            raise RuntimeError("stop after the first call")
+
+    from app import reasoning_provider
+
+    monkeypatch.setattr(reasoning_provider, "OllamaProvider", Recorder)
+    monkeypatch.setattr(datasheet_ai.settings, "datasheet_ai_reader", "ollama")
+    for value, expected in (("", datasheet_ai.OLLAMA_NUM_PREDICT), ("wide_cap", 4096)):
+        cuts(value)
+        call, why = datasheet_ai.model_call_for("ollama")
+        assert call is not None, why
+        with pytest.raises(Exception):  # noqa: B017 - the stub raises at the first call
+            call("p")
+        assert seen[-1] == expected
+    cuts("wide_cap")
+    assert reader_speed.predict_cap(2048) == 4096 and reader_speed.on() == {"wide_cap"}
+
+
+def test_the_merge_pass_counts_what_it_added_and_repeated_per_page():
+    """order 246.3: the per-page counts that show where the whole-page call adds nothing."""
+    fact = {
+        "field": "Design pressure",
+        "value": "10",
+        "unit": "barg",
+        "kind": "offered",
+    }
+    other = {
+        "field": "Design temperature",
+        "value": "50",
+        "unit": "C",
+        "kind": "offered",
+    }
+    form = {
+        "pages": {
+            1: {"accepted": [dict(fact)]},
+            2: {"accepted": [dict(fact)]},
+            3: {"error": "x"},
+        },
+        "reasons": {},
+        "form": {"fields": 2},
+    }
+    merge = {
+        "pages": {
+            1: {"accepted": [dict(fact), dict(other)]},
+            2: {"accepted": [dict(fact)]},
+            3: {"accepted": [dict(other)]},
+        }
+    }
+    out = form_reader_run.add_merge_reading(form, merge)
+    assert out["form"]["merge_by_page"] == {
+        1: {"form": 1, "merge_new": 1, "merge_same": 1},
+        2: {"form": 1, "merge_new": 0, "merge_same": 1},
+        3: {"form": 0, "merge_new": 1, "merge_same": 0},
+    }
