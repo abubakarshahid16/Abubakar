@@ -55,7 +55,7 @@ from __future__ import annotations
 import re
 import uuid
 
-from . import ai_task_runner, clause_check_rank, numparse, standard_ids, standard_labels
+from . import ai_task_runner, clause_check_rank, numparse, standard_ids
 from .config import settings
 
 #: Words per task. Under the runner's 300-word limit, so a passage split at a
@@ -548,10 +548,8 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     drafts = []
     # #645 live run (12 Oct): the cap goes first to the sentences that print
     # a figure - a limit is a number - and only then to the rest, in order.
-    # Order 235 item 1: then to a sentence about a field the sheet states, then
-    # to a standard the sheet cites (`clause_check_rank`).
-    fields, cited = clause_check_rank.sheet_context(review_run_id)
-    ordered = clause_check_rank.rank(requirements, fields, cited, _sentence)
+    # Order 235: first a field the sheet states, a standard it cites, then a figure.
+    ordered = clause_check_rank.ordered(requirements, review_run_id, _sentence)
     for requirement in ordered[:max(limit, 0)]:
         sentence = _sentence(requirement)
         asked += 1
@@ -585,14 +583,13 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
                 [(uuid.uuid4().hex, rid, c["field"], c["operator"], c["value"], c["unit"] or "",
                   c["condition"], c["quote"], model, review_run_id)
                  for rid, c, model in drafts])
-    return {"sentences": len(requirements), "asked": asked, "proposed": proposed,
+    report = {"sentences": len(requirements), "asked": asked, "proposed": proposed,
             "no_limit": no_limit, "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
-            "by_standard": clause_check_rank.by_standard(
-                ordered, max(limit, 0), standard_labels.filenames(
-                    sorted({r.get("standard_document_id") or "" for r in ordered} - {""}))),
             # the local runner's model (`ai_task_runner`); None when none answered
             "model": model}
+    report["by_standard"] = clause_check_rank.by_standard(ordered, max(limit, 0))
+    return report
 
 
 def _sentence(requirement: dict) -> str:

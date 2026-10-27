@@ -12,11 +12,11 @@ from __future__ import annotations
 from app import ai_numbers, clause_check_rank
 from app import ai_requirements as air
 from app.db import connect
+from tests import test_w5_677_scope_ledger as scope_ledger_tests
 from tests.test_645_clause_checks import Fake, proposal
-from tests.test_w5_677_scope_ledger import (  # noqa: F401 - fixtures
-    review_run,
-    temp_storage,
-)
+
+review_run = scope_ledger_tests.review_run  # fixtures of the scope-ledger tests
+temp_storage = scope_ledger_tests.temp_storage
 
 
 def _s(rid, text, standard="spec"):

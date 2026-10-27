@@ -94,17 +94,30 @@ def rank(
     return sorted(requirements, key=key)
 
 
-def by_standard(ordered: list[dict], asked: int, names: dict[str, str]) -> dict:
-    """{standard id: {label, sentences, asked}} for the first `asked` of
-    `ordered`; a standard with sentences and no check asked is listed with 0."""
+def ordered(
+    requirements: list[dict], review_run_id: str | None, sentence_of
+) -> list[dict]:
+    """`rank` with the run's own context (the sheet's fields and cited standards)."""
+    fields, cited = sheet_context(review_run_id)
+    return rank(requirements, fields, cited, sentence_of)
+
+
+def by_standard(ordered_requirements: list[dict], asked: int) -> dict:
+    """{standard id: {label, sentences, asked}} for the first `asked` of the
+    ordered requirements; a standard with sentences and no check asked is
+    listed with 0. A sentence with no standard is not listed."""
+    from . import standard_labels
+
     out: dict[str, dict] = {}
-    for index, requirement in enumerate(ordered):
-        sid = requirement.get("standard_document_id") or ""
-        entry = out.setdefault(
-            sid, {"label": names.get(sid, ""), "sentences": 0, "asked": 0}
-        )
+    for index, requirement in enumerate(ordered_requirements):
+        sid = requirement.get("standard_document_id")
+        if not sid:
+            continue
+        entry = out.setdefault(sid, {"label": "", "sentences": 0, "asked": 0})
         entry["sentences"] += 1
         entry["asked"] += index < asked
+    for sid, name in standard_labels.filenames(sorted(out)).items():
+        out[sid]["label"] = name
     return out
 
 

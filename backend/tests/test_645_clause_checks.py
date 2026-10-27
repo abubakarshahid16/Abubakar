@@ -108,9 +108,9 @@ def test_proposals_are_stored_as_drafts_and_counted_out_of_the_sentences():
                                                         "condition": None, "quote": None},
                                            "not json", "not json either"))
     # "no limit" is the model's answer, not code refusing a proposal
+    assert out.pop("by_standard") == {}
     assert out == {"sentences": 4, "asked": 3, "proposed": 1, "no_limit": 1, "refused": {},
-                   "could_not_read": 1, "not_asked_budget": 1, "model": "test-model",
-                   "by_standard": {"": {"label": "", "sentences": 4, "asked": 3}}}
+                   "could_not_read": 1, "not_asked_budget": 1, "model": "test-model"}
     rows = [dict(r) for r in connect().execute("SELECT * FROM clause_check_drafts")]
     assert len(rows) == 1
     assert (rows[0]["requirement_id"], rows[0]["status"], rows[0]["value"], rows[0]["unit"]) == (
