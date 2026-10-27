@@ -204,7 +204,9 @@ def test_a_real_run_counts_unreadable_text_as_applies_but_not_checked(monkeypatc
     # order 260.1: the general sentence reached the comparison but only ended as "another
     # document gives it", so it is not checked either
     assert (split["checked"], split["applies_not_checked"]) == (0, 2)
-    assert {"reason": rs.REASON_TEXT["text_quality"], "count": 1} in split["applies_not_checked_reasons"]
+    assert {"reason": rs.REASON_TEXT["text_quality"], "count": 1} in split[
+        "applies_not_checked_reasons"
+    ]
 
 def test_a_real_run_stores_the_three_groups_with_their_reasons():
     ids, cited, result = table_setup([("Material", "UNS S31600")], {"std-a": [
@@ -213,8 +215,12 @@ def test_a_real_run_stores_the_three_groups_with_their_reasons():
     import json
     stored = json.loads(split["outcome_json"])["requirement_split"]
     # the one requirement that reached the comparison ended without a value compared (order 260.1)
-    assert stored["checked"] == 0 and stored["applies_not_checked"] == 3 and stored["does_not_apply"] == 0
-    assert {"reason": rs.REASON_TEXT["other_row_matched"], "count": 2} in stored["applies_not_checked_reasons"]
+    assert stored["checked"] == 0
+    assert stored["applies_not_checked"] == 3
+    assert stored["does_not_apply"] == 0
+    assert {"reason": rs.REASON_TEXT["other_row_matched"], "count": 2} in stored[
+        "applies_not_checked_reasons"
+    ]
     assert stored["total"] == 3
     assert result["table_values_not_compared"][0]["reasons"] == {"other_row_matched": 2}
 
@@ -234,14 +240,16 @@ def test_a_real_run_puts_other_equipment_in_does_not_apply_and_keeps_it_out_of_t
         "checked": 0,
         "unsure_citation": 0,
     }
-    assert split["unchecked_share"] == 1.0   # of the ONE that applies; the turbine clause is outside
+    # of the ONE that applies; the turbine clause is outside
+    assert split["unchecked_share"] == 1.0
 
 
 def test_a_real_run_counts_stored_repeats_once():
     ids, cited, result = _review([("a", GENERAL, "4.1"), ("b", GENERAL, "4.2"), ("c", GENERAL, "4.3")])
     import json
     split = json.loads(db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()[0])["requirement_split"]
-    assert split["checked"] + split["applies_not_checked"] == 1 and split["repeats_ignored"] == 2
+    assert split["checked"] + split["applies_not_checked"] == 1
+    assert split["repeats_ignored"] == 2
 
 
 def _summary_of_the_only_run():

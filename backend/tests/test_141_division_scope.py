@@ -694,7 +694,10 @@ def test_a_review_with_the_division_reader_off_changes_nothing(
 ):
     model = FakeModel(construction=NOT_GRAPHITE)
     result, stored, ids = _review(monkeypatch, model, enabled=False)
-    assert all(stored[i]["reason_code"] in scope_ledger.STATUS_REASON.values() for i in ids.values())
+    assert all(
+        stored[i]["reason_code"] in scope_ledger.STATUS_REASON.values()
+        for i in ids.values()
+    )
     assert model.calls == [] and "division_scope" not in result["requirement_split"]
 
 

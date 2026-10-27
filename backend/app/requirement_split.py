@@ -72,8 +72,14 @@ def reason_words(code: str | None, detail: str | None = None) -> str:
     return REASON_TEXT.get(code or "", NO_REASON)
 
 
-def build(checked: list[dict], not_checked: list[dict], not_applied: list[dict],
-          not_used: list[dict] | None = None, *, status_of: dict) -> dict:
+def build(
+    checked: list[dict],
+    not_checked: list[dict],
+    not_applied: list[dict],
+    not_used: list[dict] | None = None,
+    *,
+    status_of: dict,
+) -> dict:
     """`checked`: the requirement dicts that reached the comparison; `status_of`: their finding's
     status by requirement id (one with none is an engineer's question), which decides the group.
     `not_checked` / `not_applied`: items {"requirement": dict, "code": str|None, "detail": str|None}.

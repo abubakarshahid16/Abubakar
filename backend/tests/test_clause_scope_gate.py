@@ -505,7 +505,10 @@ def test_a_review_holds_an_unsure_part_and_stores_the_counts(stub, monkeypatch):
 def test_a_review_with_the_reader_off_stores_no_counts(stub, monkeypatch):
     model = FakeModel(scope=UNSURE)
     result, stored, ids = _review(monkeypatch, model, enabled=False)
-    assert all(stored[i]["reason_code"] in scope_ledger.STATUS_REASON.values() for i in ids.values())
+    assert all(
+        stored[i]["reason_code"] in scope_ledger.STATUS_REASON.values()
+        for i in ids.values()
+    )
     assert model.calls == [] and "division_scope" not in result["requirement_split"]
     assert settings.ai_division_scope_enabled is False
 

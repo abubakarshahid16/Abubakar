@@ -44,7 +44,10 @@ REASONS: dict[str, tuple[str, str]] = {
     # reached the comparison, but nothing was compared with a value
     "missing_information": (APPLIES_NOT_CHECKED, "no value for it on this datasheet"),
     "needs_engineer": (APPLIES_NOT_CHECKED, "an engineer has to decide it"),
-    "needs_other_document": (APPLIES_NOT_CHECKED, "it asks for evidence another document gives"),
+    "needs_other_document": (
+        APPLIES_NOT_CHECKED,
+        "it asks for evidence another document gives",
+    ),
     "not_applicable": (DOES_NOT_APPLY, "the comparison found it does not apply here"),
     # applies, not checked (never reached the comparison)
     "row_label_not_on_sheet": (APPLIES_NOT_CHECKED,
