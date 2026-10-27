@@ -54,9 +54,18 @@ FLAG_STATUSES = frozenset({"NON_COMPLIANT", "MISSING_INFORMATION", "CONDITIONAL"
 OK_STATUS = "COMPLIANT"
 NA_STATUS = "NOT_APPLICABLE"
 
-#: The proposed world-class bar (owner to confirm; Claude's recommendation, not
-#: a measurement). Read from `eval/review/baseline.json` when present.
-PROPOSED_BAR = {"recall": 0.8, "trap_false_flag_rate": 0.1, "false_compliant": 0, "citations_valid": 1.0}
+#: The Stage E pass mark (owner decision, order 170.1, final): on the R1 KJO
+#: answer key and the R2 blind set. Its ONE home: `tools.pf1_report.STAGE_E_BAR`
+#: is this object, and a baseline file may not carry a different one
+#: (`load_baseline`). "false_meets" is this scorer's false compliant. The trap
+#: false-flag rate is NOT in the owner's bar: it is reported, never passed or
+#: failed.
+STAGE_E_BAR = {
+    "recall": 0.85,
+    "precision": 0.80,
+    "false_meets": 0,
+    "citations_valid": 1.0,
+}
 
 
 class KeyError_(ValueError):
@@ -419,15 +428,23 @@ def baseline_key(result: dict) -> str:
 
 
 def load_baseline(path: str | Path) -> dict:
+    """The stored baselines. The pass mark is NOT read from here: it is
+    `STAGE_E_BAR`. A file that still carries a "bar" other than that one is
+    refused, so the file and the code can never show two different bars."""
     p = Path(path)
     if not p.exists():
-        return {"format": BASELINE_FORMAT, "margin": 0.05, "baselines": {}, "bar": dict(PROPOSED_BAR)}
+        return {"format": BASELINE_FORMAT, "margin": 0.05, "baselines": {}}
     data = json.loads(p.read_text(encoding="utf-8"))
     if data.get("format") != BASELINE_FORMAT:
         raise KeyError_(f"the baseline must have format {BASELINE_FORMAT!r}")
+    if "bar" in data and data["bar"] != STAGE_E_BAR:
+        raise KeyError_(
+            f"the baseline {p.name} carries its own bar {data['bar']!r}, which is not the owner's Stage E bar "
+            f"(order 170.1) {STAGE_E_BAR!r}; delete its \"bar\" entry - the bar lives only in the code")
+    data.pop("bar", None)
+    data.pop("bar_status", None)
     data.setdefault("margin", 0.05)
     data.setdefault("baselines", {})
-    data.setdefault("bar", dict(PROPOSED_BAR))
     return data
 
 
@@ -456,18 +473,17 @@ def check(result: dict, baseline: dict) -> list[str]:
     return reasons
 
 
-def bar_status(result: dict, bar: dict | None = None) -> dict[str, bool | None]:
-    """Each metric against the PROPOSED bar (owner to confirm). None = cannot tell."""
-    bar = bar or PROPOSED_BAR
+def bar_status(result: dict) -> dict[str, bool | None]:
+    """Each of the four numbers against the owner's Stage E bar (`STAGE_E_BAR`,
+    order 170.1). None = cannot tell (no denominator), never a pass. The trap
+    false-flag rate has no bar and is not judged here."""
+    bar = STAGE_E_BAR
 
     def at_least(v, t):
         return None if v is None else v >= t
-
-    def at_most(v, t):
-        return None if v is None else v <= t
     return {
         "recall": at_least(result["recall"], bar["recall"]),
-        "trap_false_flag_rate": at_most(result["trap_false_flag_rate"], bar["trap_false_flag_rate"]),
-        "false_compliant": result["false_compliant"] <= bar["false_compliant"],
+        "precision": at_least(result["precision"], bar["precision"]),
+        "false_compliant": result["false_compliant"] <= bar["false_meets"],
         "citations_valid": at_least(result["citation_validity"], bar["citations_valid"]),
     }

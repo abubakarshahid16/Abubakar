@@ -210,14 +210,58 @@ def test_the_baseline_is_kept_per_model_and_key():
     assert rs.check(b, base) == []                                                    # the other model has no baseline
 
 
-def test_each_number_is_shown_against_the_proposed_bar_and_unknowns_are_unknown():
+def test_each_number_is_shown_against_the_stage_e_bar_and_unknowns_are_unknown():
     s = rs.bar_status(rs.score(KEY, BASE))
-    assert s == {"recall": False, "trap_false_flag_rate": False, "false_compliant": True, "citations_valid": None}
+    assert s == {"recall": False, "precision": False, "false_compliant": True, "citations_valid": None}
     good = rs.score(key(items=[i for i in KEY["items"] if i["id"] in ("D1", "T1")]),
-                    doc(f("4.2", "NON_COMPLIANT", "design pressure"), f("7.1", "COMPLIANT", "head"),
-                        f("4.2", "NON_COMPLIANT", citation_valid=True)))
-    assert rs.bar_status(good) == {"recall": True, "trap_false_flag_rate": True, "false_compliant": True,
+                    doc(f("4.2", "NON_COMPLIANT", "design pressure", citation_valid=True),
+                        f("7.1", "COMPLIANT", "head")))
+    assert rs.bar_status(good) == {"recall": True, "precision": True, "false_compliant": True,
                                    "citations_valid": True}
+
+
+def _numbers(**kw):
+    return {"recall": 1.0, "precision": 1.0, "false_compliant": 0, "citation_validity": 1.0,
+            "trap_false_flag_rate": 0.0} | kw
+
+
+def test_precision_is_judged_against_the_stage_e_bar_of_80_percent():
+    assert rs.bar_status(_numbers(precision=0.79))["precision"] is False
+    assert rs.bar_status(_numbers(precision=0.80))["precision"] is True
+    assert rs.bar_status(_numbers(precision=None))["precision"] is None          # no denominator: cannot tell
+
+
+def test_recall_of_82_percent_is_below_the_stage_e_bar_of_85():
+    assert rs.bar_status(_numbers(recall=0.82))["recall"] is False                # the old 0.8 bar passed it
+    assert rs.bar_status(_numbers(recall=0.85))["recall"] is True
+    assert rs.bar_status(_numbers(recall=None))["recall"] is None
+
+
+def test_the_trap_false_flag_rate_has_no_bar_and_is_said_to_have_none():
+    assert "trap_false_flag_rate" not in rs.bar_status(_numbers(trap_false_flag_rate=1.0))
+    text = cli.text_report(rs.score(KEY, BASE))
+    assert "trap false flags:  1 of 1 (100%)   [no bar: not in the owner's Stage E bar]" in text
+    assert "precision:         3 of 5 (60%)   [BELOW the Stage E bar]" in text
+    assert "recall >= 85%, precision >= 80%, false compliant = 0, citations valid = 100%" in text
+    assert "proposed" not in text.lower()
+
+
+def test_a_baseline_file_with_its_own_different_bar_is_refused(tmp_path):
+    p = tmp_path / "baseline.json"
+    old = {"recall": 0.8, "trap_false_flag_rate": 0.1, "false_compliant": 0, "citations_valid": 1.0}
+    p.write_text(json.dumps({"format": rs.BASELINE_FORMAT, "bar": old, "baselines": {}}), encoding="utf-8")
+    with pytest.raises(rs.KeyError_, match="Stage E bar"):
+        rs.load_baseline(p)
+    # the same bar as the code is not a second opinion: accepted, and the code's bar is the only one used
+    p.write_text(json.dumps({"format": rs.BASELINE_FORMAT, "bar": dict(rs.STAGE_E_BAR)}), encoding="utf-8")
+    assert "bar" not in rs.load_baseline(p)
+    assert "bar" not in rs.load_baseline(tmp_path / "missing.json")                # never invented either
+
+
+def test_review_score_and_pf1_report_share_one_stage_e_bar():
+    from tools import pf1_report
+    assert pf1_report.STAGE_E_BAR is rs.STAGE_E_BAR
+    assert rs.STAGE_E_BAR == {"recall": 0.85, "precision": 0.80, "false_meets": 0, "citations_valid": 1.0}
 
 
 # ------------------------------------------------------------- the key itself
@@ -257,7 +301,9 @@ def test_the_findings_file_must_have_its_format(tmp_path):
 def test_the_shipped_files_are_valid():
     rs.validate_key(KEY)
     base = rs.load_baseline(REPO / "eval" / "review" / "baseline.json")
-    assert base["baselines"] == {} and base["bar"]["false_compliant"] == 0
+    assert base["baselines"] == {} and "bar" not in base
+    shipped = (REPO / "eval" / "review" / "baseline.json").read_text(encoding="utf-8")
+    assert '"bar"' not in shipped and "PROPOSED" not in shipped                        # no second home of the bar
     assert json.loads((REPO / "eval" / "review" / "answer_key.schema.json").read_text())["required"]
     assert "hidden" not in json.dumps(KEY).lower()
 
@@ -355,7 +401,9 @@ def test_the_weekly_report_is_counts_only_lists_what_it_could_not_score_and_skip
     assert "| exam" not in text and "(hidden_exam)" not in text                          # never in the table
     assert "Key not usable: broken.json" in text
     assert "invented keys prove the scorer, not the system" in text
-    assert "Proposed bar (owner to confirm, not measured)" in text
+    assert ("Pass mark: the owner's Stage E bar (order 170.1): recall >= 85%, precision >= 80%, "
+            "false compliant = 0, citations valid = 100%. Trap false flags are reported with no bar.") in text
+    assert "Proposed bar" not in text
     assert SECRET not in text and STD not in text and "design pressure" not in text      # counts, never document text
 
 

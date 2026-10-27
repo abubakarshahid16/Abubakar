@@ -245,16 +245,11 @@ def build_report(
     return report
 
 
-#: The Stage E pass mark (owner decision, order 170.1, final): on the R1 KJO
-#: answer key and the R2 blind set. A PF1 set has NO pass mark until the owner
-#: sets one after its baseline; `--bar stage-e` shows these four numbers against
-#: this bar for a set that is scored for it.
-STAGE_E_BAR = {
-    "recall": 0.85,
-    "precision": 0.80,
-    "false_meets": 0,
-    "citations_valid": 1.0,
-}
+#: The Stage E pass mark (owner decision, order 170.1, final). Its one home is
+#: `review_score.STAGE_E_BAR`; this name is the same object. A PF1 set has NO
+#: pass mark until the owner sets one after its baseline; `--bar stage-e` shows
+#: these four numbers against this bar for a set that is scored for it.
+STAGE_E_BAR = rs.STAGE_E_BAR
 
 
 def bar_status(totals: dict, bar: dict) -> dict:

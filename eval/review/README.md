@@ -88,13 +88,19 @@ python scripts\review_score.py weekly --runs-dir runs --out runs\week.md
   how many are from a named engineer, because invented keys prove the scorer,
   not the system.
 * The baseline lives in `baseline.json` (empty until the first real run is
-  recorded). It also holds the **proposed** bar below.
+  recorded). It holds no bar: a baseline file that carries a bar other than the
+  one below is refused.
 
-## The proposed world-class bar (owner to confirm)
+## The pass mark: the owner's Stage E bar (order 170.1)
 
-recall >= 80%, trap false flags <= 10%, false compliant = 0, citations valid =
-100%. This is Claude's recommendation (issue #676), not a measurement. The
-report shows each number against it as "meets", "BELOW" or "cannot tell".
+recall >= 85%, precision >= 80%, false compliant (false Meets) = 0, citations
+valid = 100%. This is the owner's final decision (order 170.1). It lives in ONE
+place in the code, `review_score.STAGE_E_BAR`, which `pf1_report` uses too. The
+report shows each of the four numbers against it as "meets", "BELOW" or "cannot
+tell" (a number with no denominator is "cannot tell", never a pass). The trap
+false-flag rate is reported with **no bar**: it is not part of the owner's bar.
+(Until this was fixed the scorer showed an older proposed bar of recall >= 80%
+and trap false flags <= 10%, which the owner never set.)
 
 ## What this does not do
 
