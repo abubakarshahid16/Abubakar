@@ -170,15 +170,15 @@ def test_a_reviewed_mapping_is_used_only_while_the_rule_text_and_unit_still_fit(
     tmp_path,
 ):
     rules, files = _reviewed(tmp_path)
-    assert rule_roles.reviewed_names(rules, files) == {"r1": "design pressure"}
+    assert rule_roles.reviewed_names(rules, PUMP, files) == {"r1": "design pressure"}
     edited = [
         {**rules[0], "requirement_text": "The design pressure shall not exceed 30 bar."}
     ]
-    assert rule_roles.reviewed_names(edited, files) == {}
+    assert rule_roles.reviewed_names(edited, PUMP, files) == {}
     other_unit = [{**rules[0], "raw_unit": "minutes"}]
-    assert rule_roles.reviewed_names(other_unit, files) == {}
+    assert rule_roles.reviewed_names(other_unit, PUMP, files) == {}
     not_numeric = [{**rules[0], "requirement_type": "statement"}]
-    assert rule_roles.reviewed_names(not_numeric, files) == {}
+    assert rule_roles.reviewed_names(not_numeric, PUMP, files) == {}
 
 
 def test_a_review_reads_the_reviewed_file_without_a_model_call(tmp_path, monkeypatch):
@@ -189,7 +189,7 @@ def test_a_review_reads_the_reviewed_file_without_a_model_call(tmp_path, monkeyp
     monkeypatch.setattr(
         field_naming, "ensure_names", lambda *_a, **_k: pytest.fail("a model was asked")
     )
-    out = field_vocabulary.names_for(rules, [])
+    out = field_vocabulary.names_for(rules, [], PUMP)
     assert out["requirements"] == {"r1": "design pressure"}
     assert "reviewed draft" in out["source"]
 
@@ -208,6 +208,18 @@ def test_a_reviewed_name_pairs_through_the_run_and_never_carries_a_verdict(monke
     monkeypatch.setattr(
         field_naming, "ensure_names", lambda *_a, **_k: pytest.fail("a model was asked")
     )
+
+    def classify(equipment_type):
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE document_classification SET equipment_type = ? WHERE document_id = 'sub-1'",
+                (equipment_type,),
+            )
+
+    classify("Pressure Vessel")  # a pump file is not applied to a vessel review
+    other = comparison.run_comparison(run, allowed_document_ids=scope)["findings"][0]
+    assert other.get("match_method") != comparison.METHOD_FIELD_NAME
+    classify(PUMP)
     result = comparison.run_comparison(run, allowed_document_ids=scope)
     found = result["findings"][0]
     assert found["match_method"] == comparison.METHOD_FIELD_NAME
@@ -269,3 +281,30 @@ def test_the_script_proposes_for_chosen_standards_and_reports_counts_only(tmp_pa
     )
     assert none["standards_found"] == 0 and none["numeric_rules"] == 0
     assert "design pressure" not in json.dumps(out)
+
+
+def test_a_pump_mapping_never_applies_on_another_type_or_an_unknown_one(tmp_path):
+    # cloud-3 on #1397 / order 263.2: entries are keyed by (equipment type, text hash)
+    rules, files = _reviewed(tmp_path)
+    assert rule_roles.reviewed_names(rules, PUMP, files) == {"r1": "design pressure"}
+    assert rule_roles.reviewed_names(rules, "Pressure Vessel", files) == {}
+    assert rule_roles.reviewed_names(rules, "Heat Exchanger", files) == {}
+    assert rule_roles.reviewed_names(rules, None, files) == {}
+    assert rule_roles.reviewed_names(rules, "", files) == {}
+    assert rule_roles.reviewed_names(rules, "Some Unlisted Machine", files) == {}
+    # the engine's own spelling of the same type still matches
+    assert rule_roles.reviewed_names(rules, "centrifugal pump", files) == {
+        "r1": "design pressure"
+    }
+
+
+def test_a_review_of_another_type_reads_no_pump_file(tmp_path, monkeypatch):
+    rules, _files = _reviewed(tmp_path)
+    rule_roles.export(PUMP, rule_roles.entries(rules, PUMP, lambda d: "SAES-X-001"))
+    monkeypatch.setattr(settings, "geometry_reader_enabled", False)
+    assert (
+        field_vocabulary.names_for(rules, [], "Pressure Vessel")["requirements"] == {}
+    )
+    assert field_vocabulary.names_for(rules, [], PUMP)["requirements"] == {
+        "r1": "design pressure"
+    }

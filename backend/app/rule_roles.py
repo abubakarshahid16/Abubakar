@@ -156,14 +156,30 @@ def load(files: list[Path] | None = None) -> list[tuple[str, dict]]:
     return out
 
 
+def same_type(a: str | None, b: str | None) -> bool:
+    """Do two equipment types name the same checklist table (the engine's own key)? Neither
+    known = no: a mapping never applies to a review whose type is unknown."""
+    from . import datasheet_checks
+
+    if not a or not b:
+        return False
+    table = datasheet_checks.load_rules().get("checklists") or {}
+    ka, kb = datasheet_checks.table_key(a, table), datasheet_checks.table_key(b, table)
+    return ka == kb and ka != datasheet_checks.GENERIC
+
+
 def reviewed_names(
-    requirements: list[dict], files: list[Path] | None = None
+    requirements: list[dict],
+    equipment_type: str | None,
+    files: list[Path] | None = None,
 ) -> dict[str, str]:
-    """{requirement id: canonical field name} for the numeric rules a reviewed file maps and whose
-    text still hashes the same and whose unit still fits the field. Anything else is dropped."""
+    """{requirement id: canonical field name} for the numeric rules a reviewed file maps FOR THIS
+    EQUIPMENT TYPE (a pump mapping never applies to a vessel review) and whose text still hashes
+    the same and whose unit still fits the field. Anything else is dropped."""
     by_hash: dict[str, tuple[str, str]] = {}
-    for equipment_type, entry in load(files):
-        by_hash[entry["text_sha256"]] = (equipment_type, entry["field"])
+    for file_type, entry in load(files):
+        if same_type(file_type, equipment_type):
+            by_hash[entry["text_sha256"]] = (file_type, entry["field"])
     out: dict[str, str] = {}
     for r in requirements:
         if r.get("requirement_type") not in field_naming.NUMERIC_TYPES:
@@ -171,8 +187,8 @@ def reviewed_names(
         hit = by_hash.get(text_hash(r.get("requirement_text")))
         if not hit:
             continue
-        equipment_type, role = hit
-        _dictionary, roles, families = form(equipment_type)
+        file_type, role = hit
+        _dictionary, roles, families = form(file_type)
         name = next((n for n, k in roles.items() if k == role), None)
         if name is None:
             continue

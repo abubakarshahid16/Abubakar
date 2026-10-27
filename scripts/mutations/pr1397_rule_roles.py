@@ -74,4 +74,20 @@ MUTATIONS: tuple[Mutation, ...] = (
         "        hit = next(iter(by_hash.values()), None)\n",
         "text_and_unit_still_fit",
     ),
+    _m(
+        "07",
+        "a mapping of one equipment type is applied to a review of any type",
+        _R,
+        "        if same_type(file_type, equipment_type):\n",
+        "        if True:\n",
+        "never_applies_on_another_type",
+    ),
+    _m(
+        "08",
+        "an unknown equipment type is treated as a match",
+        _R,
+        "    if not a or not b:\n        return False\n",
+        "    if not a or not b:\n        return True\n",
+        "never_applies_on_another_type",
+    ),
 )
