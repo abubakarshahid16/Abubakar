@@ -4,7 +4,7 @@ API sheets print "24.8 (109) m3/h (USGPM)": the first number and the first unit 
 the bracketed number and the bracketed unit the other. The cell reader (`datasheets.measure_value`)
 read the number and then met a bracket where it expected the unit, so it kept the value "24.8" with
 NO unit, and the mandatory-unit check said "stated ... without a unit" about a sheet that prints
-one (the 35B run on the M-03 pump sheet).
+one (the 35B run on a real pump sheet).
 
 The FIRST system is the value. A bracket is read as the other system only when it can be CHECKED:
 both units are ones the unit table converts, they are of one dimension, and the two numbers state
