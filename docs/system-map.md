@@ -204,6 +204,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rule_eval` | Table and formula rules, evaluated in code (owner order 2026-09-26, 2a + 2b) |
 | `schemas` | Typed response models |
 | `scope_ledger` | Every requirement in a review's scope ends in exactly ONE state, with a reason (#677) |
+| `scope_quote` | A division's scope reading counts only when its quote is one real sentence (order 242.2) |
 | `scores` | Scores that know which scale they are on |
 | `search` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |
 | `clause_support` | Orders 180: a sentence that states no requirement is never a supporting clause; one naming a service the sheet does not state is held |

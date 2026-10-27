@@ -209,6 +209,27 @@ def reader_summary_line(reader: dict | None) -> str | None:
     return line + "."
 
 
+#: How many Part questions a sheet prints before saying how many more there are.
+MAX_SCOPE_QUESTIONS = 5
+
+
+def scope_question_lines(questions: list[dict] | None) -> list[str]:
+    """One line per construction Part whose scope limits it to a construction the
+    datasheet does not settle (order 242.2), most requirements first: the
+    engineer answers once per Part instead of meeting every requirement."""
+    shown = (questions or [])[:MAX_SCOPE_QUESTIONS]
+    lines = [
+        f"Question for the engineer: {q['part']} of {q['standard']} applies only to "
+        f"{q['construction']}; the datasheet does not state how the equipment is built. "
+        f"{q['requirements']} requirement(s) wait on the answer."
+        for q in shown
+    ]
+    more = len(questions or []) - len(shown)
+    if more > 0:
+        lines.append(f"{more} more Part question(s) of the same kind are in the review's scope record.")
+    return lines
+
+
 def split_lines(split: dict | None) -> list[str]:
     """The reasons behind the two groups that have one, as plain lines, most
     common first (the CRS prints the top three of each)."""
@@ -230,6 +251,7 @@ def split_lines(split: dict | None) -> list[str]:
         pages = ", ".join(str(p) for p in cov.get("gap_pages") or [])
         lines.append(f"Checklist fields read {cov['read']} of {cov['fields']}; wording on the sheet, not read "
                      f"{cov['on_sheet_not_read']}" + (f" (pages {pages})" if pages else "") + ".")
+    lines += scope_question_lines((split.get("division_scope") or {}).get("questions"))
     for title, key, count_key in (
             ("Apply but not checked", "applies_not_checked_reasons", "applies_not_checked"),
             ("Do not apply", "does_not_apply_reasons", "does_not_apply")):
