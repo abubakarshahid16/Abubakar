@@ -194,11 +194,12 @@ def test_export_carries_the_standards_and_fields_as_names_only():
         INSERT INTO review_runs VALUES ('r1', 'sub');
         CREATE TABLE review_applicable_standards (
             review_run_id TEXT, standard_document_id TEXT, included INTEGER);
-        CREATE TABLE submittal_facts (submittal_document_id TEXT, field_name TEXT, field_value TEXT);
+        CREATE TABLE submittal_facts (submittal_document_id TEXT, field_name TEXT, field_value TEXT, superseded_at TEXT);
         INSERT INTO documents VALUES ('s1', 'STD-PUMP-001.pdf'), ('s2', 'STD-OFF.pdf');
         INSERT INTO review_applicable_standards VALUES ('r1', 's1', 1), ('r1', 's2', 0);
-        INSERT INTO submittal_facts VALUES ('sub', 'Design pressure', 'SECRET-VALUE-832'),
-                                           ('sub', 'Design pressure', 'again'), ('sub', 'Flow', 'x');
+        INSERT INTO submittal_facts VALUES ('sub', 'Design pressure', 'SECRET-VALUE-832', NULL),
+                                           ('sub', 'Design pressure', 'again', NULL), ('sub', 'Flow', 'x', NULL),
+                                           ('sub', 'Old field', 'gone', '2026-01-01');
         """
     )
     got = st.per_step_lists(conn, "r1")
@@ -240,3 +241,28 @@ def test_a_database_without_the_tables_gives_no_list_not_an_empty_one():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     assert st.per_step_lists(conn, "r1") == {}
+
+
+def test_a_standard_number_is_never_matched_by_a_longer_one_that_starts_with_it():
+    assert not st._same_standard("STD-10", "STD-100.pdf")
+    assert not st._same_standard("STD-100", "STD-10.pdf")
+    assert not st._same_standard("API 6", "API 610")
+    assert st._same_standard("STD-100", "STD-100.pdf")
+    assert st._same_standard("API RP 520 Part I", "API-520-I.pdf")
+
+
+def test_a_superseded_fact_is_not_a_field_read():
+    # the export test above holds a superseded 'Old field': it must not be listed
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE review_runs (id TEXT, submittal_document_id TEXT);
+        CREATE TABLE documents (id TEXT, filename TEXT);
+        CREATE TABLE review_applicable_standards (review_run_id TEXT, standard_document_id TEXT, included INTEGER);
+        CREATE TABLE submittal_facts (submittal_document_id TEXT, field_name TEXT, superseded_at TEXT);
+        INSERT INTO review_runs VALUES ('r1', 'sub');
+        INSERT INTO submittal_facts VALUES ('sub', 'Flow', NULL), ('sub', 'Old field', '2026-01-01');
+        """
+    )
+    assert st.per_step_lists(conn, "r1")["fields_read"] == ["Flow"]

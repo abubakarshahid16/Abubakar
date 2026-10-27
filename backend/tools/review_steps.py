@@ -71,9 +71,15 @@ def check_key_fields(key: dict) -> None:
         raise ValueError("document_type must be a string")
 
 
+def _runs_in(small: list[str], big: list[str]) -> bool:
+    """`small` is a run of whole words inside `big`: "std 100" is in "std 100 pdf", never "std 10"."""
+    n = len(small)
+    return any(big[i : i + n] == small for i in range(len(big) - n + 1))
+
+
 def _same_standard(wanted: str, other: str) -> bool:
-    a, b = _fold(wanted), _fold(other)
-    if a and (a in b or b in a):
+    a, b = _fold(wanted).split(), _fold(other).split()
+    if a and b and (_runs_in(a, b) or _runs_in(b, a)):
         return True
     from app import standard_ids
 
@@ -264,7 +270,7 @@ def _per_step_lists(conn: sqlite3.Connection, run_id: str) -> dict:
             r[0]
             for r in conn.execute(
                 "SELECT DISTINCT field_name FROM submittal_facts"
-                " WHERE submittal_document_id = ? ORDER BY 1",
+                " WHERE submittal_document_id = ? AND superseded_at IS NULL ORDER BY 1",
                 (run[0],),
             )
         ]
