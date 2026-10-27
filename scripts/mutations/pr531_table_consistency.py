@@ -62,15 +62,15 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         6,
         "rounding is an error: no allowance for the printed precision (total column)",
-        '            allowed = sum(t.half_unit for t in terms) + total.half_unit\n            if abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12:\n                findings.append(\n                    _finding(\n                        "total_column_mismatch",',
-        '            allowed = 0\n            if abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12:\n                findings.append(\n                    _finding(\n                        "total_column_mismatch",',
+        "            allowed = sum(t.half_unit for t in terms) + total.half_unit\n            bad = abs(",
+        "            bad = abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12\n",
         "within_rounding",
     ),
     _m(
         7,
         "a total column mismatch is not reported",
-        '            if abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12:\n                findings.append(\n                    _finding(\n                        "total_column_mismatch",',
-        '            if False:\n                findings.append(\n                    _finding(\n                        "total_column_mismatch",',
+        "            bad = abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12\n",
+        "            bad = False\n",
         "total_column",
     ),
     _m(
@@ -107,5 +107,19 @@ MUTATIONS: tuple[Mutation, ...] = (
         "        if not parse.parsed:\n            unparsed += 1\n            continue",
         "        if not parse.parsed:\n            unparsed += 1\n            checked += 1\n            continue",
         "unparsed",
+    ),
+    _m(
+        13,
+        "a Total column that is a product (quantity x price) is reported as a wrong sum",
+        "        if agree < MIN_SUMMING_ROWS or agree * 2 < len(checked):\n            continue\n",
+        "        if not checked:\n            continue\n",
+        "product",
+    ),
+    _m(
+        14,
+        "one row that adds up by chance makes a column a sum",
+        "MIN_SUMMING_ROWS = 2\n",
+        "MIN_SUMMING_ROWS = 1\n",
+        "happens_to_add_up",
     ),
 )

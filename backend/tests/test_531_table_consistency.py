@@ -105,10 +105,11 @@ def test_a_total_column_that_is_not_the_sum_is_reported():
     rows = [
         ["Item", "Q1", "Q2", "Total"],
         ["x", "10.0", "5.0", "15.0"],
+        ["z", "1.0", "2.0", "3.0"],
         ["y", "10.0", "5.0", "19.0"],
     ]
     [f] = tc.check_table(rows)["findings"]
-    assert f["kind"] == "total_column_mismatch" and f["rows"] == [2]
+    assert f["kind"] == "total_column_mismatch" and f["rows"] == [3]
 
 
 def test_a_printed_total_within_rounding_of_its_terms_is_not_an_error():
@@ -131,6 +132,35 @@ def test_a_printed_total_within_rounding_of_its_terms_is_not_an_error():
     )
 
 
+def test_a_total_that_is_a_product_is_not_reported_as_a_wrong_sum():
+    # quantity x price, count x weight each: a correct table whose "Total" is not an addition
+    for rows in (
+        [
+            ["Item", "Quantity", "Unit price", "Total"],
+            ["Bolt", "2", "5", "10"],
+            ["Nut", "3", "4", "12"],
+        ],
+        [
+            ["Item", "Count", "Weight each", "Total weight"],
+            ["Bolt", "2", "5", "10"],
+            ["Nut", "3", "4", "12"],
+            ["Pin", "4", "5", "20"],
+        ],
+    ):
+        result = tc.check_table(rows)
+        assert result["findings"] == [] and result["checks_run"]["totals"] == 0
+
+
+def test_one_row_that_happens_to_add_up_does_not_make_a_product_column_a_sum():
+    rows = [
+        ["Item", "Quantity", "Unit price", "Total"],
+        ["Bolt", "2", "2", "4"],  # 2 + 2 = 4 = 2 x 2: adds up by chance
+        ["Nut", "3", "4", "12"],
+    ]
+    result = tc.check_table(rows)
+    assert result["findings"] == [] and result["checks_run"]["totals"] == 0
+
+
 def test_a_total_row_that_is_not_the_column_sum_is_reported():
     rows = [["Item", "Cost"], ["a", "100.0"], ["b", "250.0"], ["Total", "400.0"]]
     [f] = tc.check_table(rows)["findings"]
@@ -144,9 +174,12 @@ def test_a_total_row_that_is_not_the_column_sum_is_reported():
 def test_a_total_over_cells_that_are_not_all_numbers_is_not_checked():
     rows = [
         ["Item", "Grade", "Q1", "Q2", "Total"],
-        ["x", "B", "5.0", "6.0", "9.0"],
-        ["y", "B", "6.0", "6.0", "9.0"],
+        ["x", "B", "5.0", "6.0", "11.0"],
+        ["y", "B", "6.0", "6.0", "12.0"],
+        ["z", "B", "6.0", "6.0", "9.0"],
     ]
+    # the Grade column is text, so the cells between the label and the total are not all
+    # numbers: no row is a sum to test, even though the numbers alone would add up twice
     result = tc.check_table(rows)
     assert result["findings"] == [] and result["checks_run"]["totals"] == 0
 

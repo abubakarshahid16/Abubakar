@@ -45,6 +45,8 @@ _BAND_PAIRS = (
     ("over", "up to"),
     ("above", "not over"),
 )
+#: A Total column is read as a sum only when this many rows add up (see `check_totals`).
+MIN_SUMMING_ROWS = 2
 _TOTAL_WORD = re.compile(r"^(?:grand\s+)?(?:total|sum|subtotal)\b", re.IGNORECASE)
 _SUBTOTAL_WORD = re.compile(r"^subtotal\b", re.IGNORECASE)
 #: A cell made only of digits and separators. The VALUE is numparse's (#616: the
@@ -197,7 +199,8 @@ def check_bands(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
                 findings.append(
                     _finding(
                         "band_shared_boundary",
-                        f"In '{label}', rows {r1} and {r2} both include {hi1.raw}: the boundary belongs to two bands.",
+                        f"In '{label}', rows {r1} and {r2} both state {hi1.raw} as a limit: is it in both bands? "
+                        '(Fine if one reads "up to and including" and the other "above".)',
                         rows=[r1, r2],
                         columns=[label],
                         cells=[hi1.raw, lo2.raw],
@@ -230,26 +233,37 @@ def check_totals(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
     for col, name in enumerate(header):
         if col < 2 or not _TOTAL_WORD.match(name.strip()):
             continue
+        checked = []
         for r, row in enumerate(data, start=1):
             total = read_number(row[col] if col < len(row) else "")
             terms = [read_number(row[c] if c < len(row) else "") for c in range(1, col)]
             if total is None or len(terms) < 2 or any(t is None for t in terms):
                 continue
-            ran += 1
             allowed = sum(t.half_unit for t in terms) + total.half_unit
-            if abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12:
-                findings.append(
-                    _finding(
-                        "total_column_mismatch",
-                        f"Row {r}: '{name}' is {total.raw}, but the numbers to its left add up to "
-                        f"{sum(t.value for t in terms):g}.",
-                        rows=[r],
-                        columns=[name],
-                        cells=[t.raw for t in terms] + [total.raw],
-                        page=page,
-                        chunk_id=chunk_id,
-                    )
+            bad = abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12
+            checked.append((r, terms, total, bad))
+        agree = sum(1 for c in checked if not c[3])
+        # the numbers to its left are terms only by assumption (a quantity times a price
+        # is also called "Total"): the column counts as a sum only when at least two rows
+        # add up and they are at least half of the rows that can be tested
+        if agree < MIN_SUMMING_ROWS or agree * 2 < len(checked):
+            continue
+        ran += 1
+        for r, terms, total, bad in checked:
+            if not bad:
+                continue
+            findings.append(
+                _finding(
+                    "total_column_mismatch",
+                    f"Row {r}: '{name}' is {total.raw}, but the numbers to its left add up to "
+                    f"{sum(t.value for t in terms):g}.",
+                    rows=[r],
+                    columns=[name],
+                    cells=[t.raw for t in terms] + [total.raw],
+                    page=page,
+                    chunk_id=chunk_id,
                 )
+            )
     # A Total ROW: each numeric column equals the numbers above it.
     start = 0
     for r, row in enumerate(data):
