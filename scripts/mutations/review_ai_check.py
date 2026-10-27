@@ -156,8 +156,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1122", phase=94,
              description="an incomplete AI check is never recorded on the run - silent again",
              path=APP / "ai_engineering_check.py",
-             anchor="    status[\"plain\"] = _plain_status(status)\n    _store_status(review_run_id, status)\n",
-             replacement="    status[\"plain\"] = _plain_status(status)\n",
+             anchor="    status[\"plain\"] = _plain_status(status) + ai_input_cuts.sentence(cut)\n    _store_status(review_run_id, status)\n",
+             replacement="    status[\"plain\"] = _plain_status(status) + ai_input_cuts.sentence(cut)\n",
              target=_T, keyword="retry_is_capped or truncated_reply_is_completed",
              tags=("honesty", "critical")),
 )
