@@ -35,7 +35,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from . import review, rule_trust
+from . import review, rule_trust, run_finishing
 from .db import add_column_if_missing, connect, schema_once
 
 
@@ -814,7 +814,7 @@ def fail_orphaned_review_runs() -> int:
 #: `_scope_clause` writes it, since that helper serves other tables too.
 _RUN_SELECT = (
     "SELECT r.*, u.display_name AS decided_by_name"
-    " FROM review_runs r LEFT JOIN users u ON u.id = r.decided_by"
+    f"{run_finishing.COLUMN} FROM review_runs r LEFT JOIN users u ON u.id = r.decided_by"
 )
 
 
@@ -838,7 +838,7 @@ def list_review_runs(
     # must agree or "the latest run" means two different things in one
     # module.
     sql += " ORDER BY r.created_at DESC, r.id DESC"
-    return [dict(row) for row in connect().execute(sql, args).fetchall()]
+    return [run_finishing.shown(r) for r in connect().execute(sql, args).fetchall()]
 
 
 def get_review_run(run_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:
@@ -851,7 +851,7 @@ def get_review_run(run_id: str, *, allowed_document_ids: frozenset[str]) -> dict
     row = connect().execute(
         _RUN_SELECT + where + " AND r.id = ?", [*args, run_id]
     ).fetchone()
-    return dict(row) if row is not None else None
+    return run_finishing.shown(row) if row is not None else None
 
 
 def list_submittal_facts(
@@ -1111,8 +1111,8 @@ def review_status_for(
     # and then id so the choice is deterministic when two runs share a second -
     # the timestamps are second-resolution, so ties are real.
     rows = connect().execute(
-        f"""SELECT submittal_document_id AS doc, status FROM review_runs
-            WHERE submittal_document_id IN ({marks})
+        f"""SELECT r.submittal_document_id AS doc, {run_finishing.STATUS} AS status
+            FROM review_runs r WHERE r.submittal_document_id IN ({marks})
             ORDER BY created_at DESC, id DESC""",
         visible,
     ).fetchall()
