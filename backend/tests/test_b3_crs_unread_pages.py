@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from app import crs_mapping
 
+KNOWN_LABELS = ("SET PRESSURE", "DESIGN PRESSURE", "DESIGN TEMPERATURE")
 UNREAD = ("UNREAD_PAGES: no value for this requirement was found in the fields "
           "read from pages 4-5 of 11; pages 1-3, 6-11 were not read into fields")
 
@@ -36,11 +37,11 @@ def _run() -> list[dict]:
                 "contractor_page": 4,
             }
         ]
-        # order 245: a requirement that names a datasheet field the sheet lacks is
-        # still a row; one with no field behind it is a review note
+        # order 245c: a requirement that names a field the system knows and the
+        # sheet lacks is still a row; any other is a review note
         + [
-            {**_f(200 + i, "MISSING_INFORMATION"), "crs_field_label": f"FIELD {i}"}
-            for i in range(3)
+            {**_f(200 + i, "MISSING_INFORMATION"), "crs_field_label": label}
+            for i, label in enumerate(KNOWN_LABELS)
         ]
     )
 

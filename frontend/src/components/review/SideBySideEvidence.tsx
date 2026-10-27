@@ -25,7 +25,7 @@ import { useEffect, useState } from "react";
 
 import { reviews as reviewsApi } from "../../api/client";
 import type {
-  DocumentRecord, EvidenceSide, FindingEvidence, ReviewFinding, ReviewRunStandard,
+  DocumentRecord, EvidenceSideScanned, FindingEvidence, ReviewFinding, ReviewRunStandard, ScanQuality,
 } from "../../types/api";
 import { EvidencePageImage } from "./EvidencePageImage";
 import { orNothing } from "./reviewFormat";
@@ -96,7 +96,7 @@ function Pane({ side, findingId, resolved, document, name, page, label, text, em
   findingId: string;
   /** #785: the server's answer for this side; undefined while asking, null
    *  when the route failed. */
-  resolved: EvidenceSide | null | undefined;
+  resolved: EvidenceSideScanned | null | undefined;
   document: DocumentRecord | null;
   name?: string;
   page: number | null;
@@ -114,6 +114,7 @@ function Pane({ side, findingId, resolved, document, name, page, label, text, em
           {shownName ?? ""}{shownPage ? ` — page ${shownPage}` : ""}
         </p>
         <p className="mt-1 text-xs text-slateish-400">{label}</p>
+        {resolved?.scan ? <ScanLine scan={resolved.scan} /> : null}
         <p className="whitespace-pre-wrap text-sm text-slateish-100">{text ?? emptyText}</p>
       </div>
       {resolved === undefined ? (
@@ -207,6 +208,19 @@ function RequirementScope({ finding }: { finding: ReviewFinding }) {
     <p data-testid="requirement-scope" className="text-xs text-slateish-300">
       This requirement: {decision.reason}
       <span className="ml-1 text-slateish-500">(decided by {decision.decided_by})</span>
+    </p>
+  );
+}
+
+/** #505: how well a scanned page was read, with what it is out of. The
+ *  recogniser's own score, grouped: never a claim that the words are right. */
+function ScanLine({ scan }: { scan: ScanQuality }) {
+  const counted = scan.box_count
+    ? ` (${scan.low_conf_boxes ?? 0} of ${scan.box_count} words read with low confidence)`
+    : "";
+  return (
+    <p className="mt-1 text-xs text-slateish-300" data-scan-tier={scan.tier}>
+      {scan.words}{counted}
     </p>
   );
 }

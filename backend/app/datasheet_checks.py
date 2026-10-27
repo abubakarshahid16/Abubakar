@@ -35,7 +35,6 @@ import re
 from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, severity_rule
-from .checklist_scope import governs, standards
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
@@ -411,8 +410,10 @@ def _local_items(key: str) -> list[dict]:
 
 
 def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
-    """The equipment type's review checklist: the committed items plus the local overlay's,
-    each validated (no source clause or an unknown rule kind is refused loudly). None if none."""
+    """The equipment type's review checklist: the committed items plus the
+    local overlay's, each validated (an item without a source clause or with
+    an unknown rule kind is refused loudly, never run). None when the type
+    has none."""
     table = rules.get("checklists") or {}
     if not table:
         return None
@@ -428,7 +429,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
         if (item.get("rule") or {}).get("kind") not in _RULE_KINDS:
             raise ValueError(f"checklist item {item['id']!r}: unknown rule kind")
     draft = (entry.get("sign_off") or {}).get("status") != "signed"
-    return {"key": key, "items": items, "draft": draft, **governs(entry)}
+    return {"key": key, "items": items, "draft": draft}
 
 
 def checklist_sources(equipment_type: str | None, rules: dict | None = None) -> dict | None:
@@ -439,7 +440,7 @@ def checklist_sources(equipment_type: str | None, rules: dict | None = None) -> 
     if not checklist:
         return None
     return {"key": checklist["key"], "items": len(checklist["items"]),
-            "standards": standards(checklist)}
+            "standards": sorted({i["source"]["standard"] for i in checklist["items"]})}
 
 
 def _measure(fact: dict):
