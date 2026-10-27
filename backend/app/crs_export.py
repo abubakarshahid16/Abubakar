@@ -241,6 +241,9 @@ def crs_numbers_open() -> str:
 #: back - where a bare code in the comment would read as part of the comment.
 ROW_REF_PREFIX = "RF-"
 ROW_REF_LABEL = "Ref"
+#: Order 236: the "Ref:" line opens a comment only on the ISSUE copy (the
+#: contractor's handle for an unnumbered row). The engineer's copy keeps the
+#: reference beside the row (`row_ref`), never inside COMPANY Comments.
 
 #: Order 95 piece 6b: the label of the machine's original wording, printed
 #: beside an engineer's edit in the internal copy's AI Review Comments cell.
@@ -295,7 +298,8 @@ def _ai_column(finding: dict, copy: str) -> str:
     ai_wording = str(finding.get("ai_comment") or "").strip()
     if not text and finding.get("edited") is True and ai_wording:
         return f"{AI_WORDING_LABEL}: {ai_wording}"
-    return text
+    # Order 233: never blank. `crs_ai_cell` says why there is no AI wording.
+    return text or str(finding.get("ai_cell_note") or "")
 
 
 def _priority_of(finding: dict) -> int | None:
@@ -443,7 +447,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # without their sign-off is what the project's own audits warned
             # against. Same shape as the Requirement/Submitted/Equipment lines
             # `crs_mapping._comment_text` already writes.
-            "comment": (comment if crs_ref else
+            "comment": (comment if crs_ref or copy == COPY_INTERNAL else
                         f"{ROW_REF_LABEL}: {ref}" + (f"\n{comment}" if comment else "")),
             "comment_by": finding.get("comment_by", ""),
             # The contractor's reply, as imported or recorded
