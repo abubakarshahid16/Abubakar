@@ -9,6 +9,11 @@ guessed, and a year that is not an edition is not read as one:
     a four-digit number that is the first number in the name);
   * an addendum, amendment, errata, supplement or corrigendum year is not the edition
     ("API 650 2020 Addendum 1 2021" is the 2020 edition);
+  * a date in a file name ("rev 2024-05-01") and a pressure class or rating ("Class 2000",
+    "2500 psi", "# 1500") are numbers, not editions;
+  * two different years left after those skips ("ISO 9001:2015 (reaffirmed 2020)", "rev 2019
+    approved 2023", "2019-2023") cannot be told apart by any list of words, so the edition is not
+    recorded rather than the last year guessed;
   * no edition known says so ("edition not recorded"); a name that already carries its edition
     year is not given it twice.
 """
@@ -28,6 +33,9 @@ _SIDE_YEAR = re.compile(
     r"|(?:\+|\b)A\d{1,2}[\s.\-_,:]*$",
     re.IGNORECASE,
 )
+_DATE_TAIL = re.compile(r"[\-/]\d{1,2}[\-/]\d{1,2}(?!\d)")
+_RATING_BEFORE = re.compile(r"(?:\bclass|\bcl\.?|#)[\s.\-_]*$", re.IGNORECASE)
+_RATING_AFTER = re.compile(r"[\s\-_]*(?:psi|lbs?\b|#)", re.IGNORECASE)
 
 
 def edition_of(name: str) -> str | None:
@@ -35,14 +43,20 @@ def edition_of(name: str) -> str | None:
     what is NOT an edition."""
     text = str(name or "").replace("_", " ")
     first_number = _NUMBERISH.search(text)
-    best = None
+    left: list[str] = []
     for found in standard_ids._EDITION_YEAR.finditer(text):
         if first_number and found.start() == first_number.start():
             continue  # the standard's own number ("ISO 2014")
         if _SIDE_YEAR.search(text[: found.start()]):
             continue  # an addendum or amendment year
-        best = found.group(1)
-    return best
+        if _DATE_TAIL.match(text, found.end()):
+            continue  # a date ("2024-05-01")
+        if _RATING_BEFORE.search(text[: found.start()]) or _RATING_AFTER.match(
+            text, found.end()
+        ):
+            continue  # a pressure class or rating ("Class 2000", "2500 psi")
+        left.append(found.group(1))
+    return left[0] if len(set(left)) == 1 else None
 
 
 def tail(finding: dict, name: str, clause: str, page) -> str:

@@ -119,6 +119,26 @@ def test_an_addendum_or_amendment_year_is_not_the_edition(name, edition):
     assert crs_reference.edition_of(name) == edition
 
 
+@pytest.mark.parametrize(
+    "name, edition",
+    [
+        ("SAES-J-600 rev 2024-05-01.pdf", None),
+        ("SAES-J-600 2019 rev 2024-05-01.pdf", "2019"),
+        ("SAES-J-600 rev 2024/05/01.pdf", None),
+        ("ASME B16.11 Class 2000.pdf", None),
+        ("ASME B16.11 cl. 2000.pdf", None),
+        ("ASME B16.5 2020 Class 1500.pdf", "2020"),
+        ("ASME B16.34 2500 psi.pdf", None),
+        ("ASME B16.34 2013 2500 lb.pdf", "2013"),
+        ("MSS SP-95 # 2000.pdf", None),
+        ("API 650 2020.pdf", "2020"),
+        ("SAES-G-005 2023-Rev.pdf", "2023"),
+    ],
+)
+def test_a_date_or_a_pressure_rating_is_not_the_edition(name, edition):
+    assert crs_reference.edition_of(name) == edition
+
+
 def test_an_addendum_alone_gives_no_edition():
     assert crs_reference.edition_of("API 650 Addendum 1 2021.pdf") is None
 
@@ -152,3 +172,24 @@ def test_the_ai_wording_lock_keeps_the_edition_and_refuses_a_changed_one():
         crs_wording.lock(good.replace("(2023)", "(2019)"), row)
         == crs_wording.NUMBER_CHANGED
     )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ISO 9001:2015 (reaffirmed 2020).pdf",
+        "ANSI B16.5 2017 Reaff 2021.pdf",
+        "API 650 2020 Addendum 2 (2021).pdf",
+        "SAES-G-005 rev 2019 approved 2023.pdf",
+        "SAES-G-005 2019-2023.pdf",
+    ],
+)
+def test_two_different_years_left_means_no_edition_not_the_last_guess(name):
+    """No list of side-words is complete (reaffirmed, reconfirmed, approved, withdrawn ...):
+    when two different years remain the edition is not recorded rather than guessed."""
+    assert crs_reference.edition_of(name) is None
+    assert "(edition not recorded)" in _ref(name)
+
+
+def test_the_same_year_twice_is_still_that_year():
+    assert crs_reference.edition_of("SAES-G-005 2023 (rev 2023).pdf") == "2023"

@@ -713,8 +713,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             if searched:
                 pages = ", ".join(str(n) for n in searched)
                 r = res(NEEDS_ENGINEER_REVIEW,
-                        f"{_pretty(field)} is on the sheet but was not read: engineer to check "
-                        f"page{'s' if len(searched) > 1 else ''} {pages}.")
+                        f"{_pretty(field)} was not read as a value; wording for it appears on "
+                        f"page{'s' if len(searched) > 1 else ''} {pages}: engineer to check.")
                 return {**r, "reader_gap": True, "pages": searched}
             r = res(MISSING_INFORMATION,
                     f"{_pretty(field)} was not found in the fields read or in the text of "
