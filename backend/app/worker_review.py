@@ -15,7 +15,6 @@ import time
 
 from . import errors
 
-
 #: A review that has reported nothing for this long (no step, page or scope
 #: answer) is no longer "busy" (cloud's ask on #1323): a review stuck forever in
 #: a model call must turn the badge red again. Generous: the 35B model takes
