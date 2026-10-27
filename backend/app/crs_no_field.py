@@ -15,6 +15,8 @@ contractor's copy. The same rule decides the file and the screen
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 NOTE_NO_FIELD_ANSWERS = (
     "No field on the sheet answers these requirements - engineer to check"
 )
@@ -37,6 +39,52 @@ def has_field(finding: dict) -> bool:
     return bool(finding.get("fact_id") or finding.get("contractor_page"))
 
 
+@lru_cache(maxsize=1)
+def _rules() -> dict:
+    from . import datasheet_checks
+
+    return datasheet_checks.load_rules()
+
+
+@lru_cache(maxsize=1)
+def _known_spellings() -> frozenset[str]:
+    """Every spelling of a field the system knows, folded: the printed names of the checklist
+    data's roles and the spellings of `field_synonyms.json`."""
+    from . import datasheet_checks
+    from .datasheets import normalise_field_name
+
+    rules = _rules()
+    out: set[str] = set()
+    for role, body in rules["roles"].items():
+        out.add(normalise_field_name(role.replace("_", " ")))
+        out.update(normalise_field_name(s) for s in body.get("printed_as", []))
+    for group, spellings in datasheet_checks._synonyms().items():
+        out.add(normalise_field_name(group))
+        out.update(normalise_field_name(s) for s in spellings)
+    return frozenset(out)
+
+
+def is_known_field(label: str) -> bool:
+    """True when `label` is a field the system knows: it reads as a role of the checklist data
+    (`datasheet_checks.role_of`) or is one of the known spellings. Any other clean noun phrase
+    is a sentence's subject, not a field a contractor can be asked for."""
+    from . import datasheet_checks
+    from .datasheets import normalise_field_name
+
+    name = normalise_field_name(label)
+    if not name:
+        return False
+    if name in _known_spellings():
+        return True
+    return datasheet_checks.role_of(name, _rules()) is not None
+
+
+def names_a_field(finding: dict, field_label) -> bool:
+    """The requirement names a KNOWN field (order 245c): the contractor is asked for it."""
+    label = field_label(finding)
+    return bool(label) and is_known_field(label)
+
+
 def bucket_of_missing(
     finding: dict, blank_bucket: str, not_found_bucket: str
 ) -> str | None:
@@ -53,7 +101,7 @@ def bucket_of_missing(
         finding.get("origin") in OTHER_ORIGINS
     ):  # defence in depth: they never reach here
         return not_found_bucket
-    return not_found_bucket if _field_label(finding) else None
+    return not_found_bucket if names_a_field(finding, _field_label) else None
 
 
 def answered_by_no_field(finding: dict, field_label) -> bool:
@@ -64,7 +112,7 @@ def answered_by_no_field(finding: dict, field_label) -> bool:
         and finding.get("origin") not in OTHER_ORIGINS
         and not finding.get("crs_skip")
         and not has_field(finding)
-        and not field_label(finding)
+        and not names_a_field(finding, field_label)
     )
 
 
