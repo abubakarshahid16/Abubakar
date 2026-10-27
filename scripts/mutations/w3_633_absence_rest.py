@@ -67,8 +67,7 @@ MUTATIONS: tuple[Mutation, ...] = (
        '                                else "None." if status == NEEDS_ENGINEER_REVIEW', "revision_block_is_not"),
     _m(3418, "the PDF cuts a long finding off again",
        # re-anchored 2026-10-18 (#633 items 6-7): the box is drawn by `pdf_flow`
-       # and continues on the next page; the mutation truncates the text instead. Moved to
-       # review_report_pdf.py in order 252 (the report is built under the PyMuPDF lock).
+       # and continues on the next page; the mutation truncates the text instead.
        "review_report_pdf.py", "        flow.box(block, border=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98))\n",
        "        flow.box(block[:600], border=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98))\n", "pdf"),
     _m(3419, "an empty PDF report no longer says it is not a pass",

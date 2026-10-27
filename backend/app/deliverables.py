@@ -476,7 +476,9 @@ def render_management_report(*, allowed_document_ids: frozenset[str] | None = No
 
 
 @pdf_guard.guarded
-def _write_management_report(path: Path, items: list, alerts_now: list, reminders: list) -> Path:
+def _write_management_report(
+    path: Path, items: list, alerts_now: list, reminders: list
+) -> Path:
     """The PDF itself, under the lock: no database call inside (the data was read before)."""
     pdf = pymupdf.open()
     page = pdf.new_page()
