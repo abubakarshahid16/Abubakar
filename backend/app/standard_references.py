@@ -103,7 +103,7 @@ def notes(missing: list[dict], unread: int, used: int) -> list[dict]:
             {
                 "note": NOTE,
                 "standard": "",
-                "count": 0,
+                "count": None,
                 "detail": (
                     f"{unread} of the {used} standards used in this review had no readable text, so "
                     "the standards they cite were not checked against the library."

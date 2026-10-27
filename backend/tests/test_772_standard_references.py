@@ -177,6 +177,9 @@ def test_standards_that_could_not_be_read_are_said_even_when_nothing_else_is_mis
     _standard("a", "Spec A.pdf", None)
     notes = standard_references.notes(*standard_references.not_held(["a"], _allowed()))
     assert len(notes) == 1 and "1 of the 1 standards used" in notes[0]["detail"]
+    assert notes[0]["count"] is None, (
+        "no standard was listed: the count is null, never 0"
+    )
     assert "not checked against the library" in notes[0]["detail"]
     _standard("b", "Spec B.pdf", "Plain text with no citation.")
     assert (
