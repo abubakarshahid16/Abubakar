@@ -95,7 +95,11 @@ def names_the_quantity(quote: str | None, name: str) -> bool:
 
 #: Gate 4. The unit families a number may have for each name; `()` = no unit at all (a ratio). A name
 #: not listed here cannot be checked, so it is never kept (refusing is the safe side).
-_PRESSURE, _TEMPERATURE, _FLOW = ("pressure",), ("temperature",), ("volumetric_flow", "mass_flow")
+_PRESSURE, _TEMPERATURE, _FLOW = (
+    ("pressure",),
+    ("temperature",),
+    ("volumetric_flow", "mass_flow"),
+)
 _FIT = {
     **dict.fromkeys(
         [
@@ -114,13 +118,23 @@ _FIT = {
     ),
     "overpressure": ("pressure", "percent"),
     **dict.fromkeys(
-        ["design temperature", "operating temperature", "relieving temperature"], _TEMPERATURE
+        ["design temperature", "operating temperature", "relieving temperature"],
+        _TEMPERATURE,
     ),
     **dict.fromkeys(
-        ["max flow", "min flow", "minimum continuous flow", "rated flow", "rated capacity", "required capacity"],
+        [
+            "max flow",
+            "min flow",
+            "minimum continuous flow",
+            "rated flow",
+            "rated capacity",
+            "required capacity",
+        ],
         _FLOW,
     ),
-    **dict.fromkeys(["npsh", "npsh available", "npsh required", "manway size"], ("length",)),
+    **dict.fromkeys(
+        ["npsh", "npsh available", "npsh required", "manway size"], ("length",)
+    ),
     "density relieving": ("density",),
     "viscosity relieving": ("viscosity",),
     "motor rating": ("power",),
@@ -142,9 +156,45 @@ _LITERAL_UNITS = {
 }
 #: Words that may stand between a name and its number without changing what the number limits.
 _LIMIT_WORDS = frozenset(
-    "shall should must will be not exceed exceeding exceeds less greater more than at least most "
-    "minimum maximum min max of is are to the a an equal equals above below under over up limited "
-    "rated approximately".split()
+    [
+        "shall",
+        "should",
+        "must",
+        "will",
+        "be",
+        "not",
+        "exceed",
+        "exceeding",
+        "exceeds",
+        "less",
+        "greater",
+        "more",
+        "than",
+        "at",
+        "least",
+        "most",
+        "minimum",
+        "maximum",
+        "min",
+        "max",
+        "of",
+        "is",
+        "are",
+        "to",
+        "the",
+        "a",
+        "an",
+        "equal",
+        "equals",
+        "above",
+        "below",
+        "under",
+        "over",
+        "up",
+        "limited",
+        "rated",
+        "approximately",
+    ]
 )
 
 
