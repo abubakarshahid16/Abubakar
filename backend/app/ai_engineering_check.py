@@ -53,7 +53,7 @@ import re
 from datetime import datetime, timezone
 from enum import Enum
 
-from . import claude_approved, claude_spend, errors, numparse
+from . import claude_approved, claude_spend, errors, fallback_note, numparse
 from .ai import output_limits
 from .ai.json_reply import unfenced
 from .config import settings
@@ -318,7 +318,7 @@ def _local_page_calls(provider, fields: list[dict], pages: dict[int, str], cited
         if call_failed is not None:
             out["timed_out" if _timed_out(call_failed) else "failed"].append(page)
             continue
-        out["engine"] = f"{response.provider}:{response.model_tag}"
+        out["engine"] = fallback_note.engine_label(provider, response)
         items = None if response.schema_errors else parse(response.text)
         if items is None and response.truncated:
             # cut off by the small output cap: the complete items before the cut stand
@@ -782,7 +782,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
             # the review (its standards too) is approved: the full check, with
             # the clause list, runs on the cloud model. One unapproved
             # standard keeps it local, and the datasheet-only opinion follows.
-            provider = rp.claude_for_task(opinion_engine(), step=STEP) or provider
+            provider = fallback_note.or_local(provider, opinion_engine(), step=STEP)
         if isinstance(provider, rp.ClaudeProvider):
             # #838: documents not approved for the cloud model -> the local
             # model, said on the run. A budget refusal is NOT replaced.
@@ -796,7 +796,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         # output cap and its own timeout, so a review is never held for long.
         max_output_tokens = min(max_output_tokens, LOCAL_MAX_OUTPUT_TOKENS)
         timeout_s = float(settings.review_ai_check_local_timeout_s)
-        provider = rp.OllamaProvider(timeout=timeout_s)
+        provider = fallback_note.carry(provider, timeout=timeout_s)
     engine: str | None = None
 
     all_kept: list[dict] = []
@@ -829,7 +829,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         if call_failed is not None:
             reason = call_failed
             break
-        engine = f"{response.provider}:{response.model_tag}"
+        engine = fallback_note.engine_label(provider, response)
         cost_total += response.cost_usd or 0.0
         items = None if response.schema_errors else parse(response.text)
         if items is None and response.truncated:
@@ -1011,7 +1011,7 @@ def run_datasheet_opinion(review_run_id: str, *, allowed_document_ids: frozenset
     outcome["calls_made"] = 1
     if call_failed is not None:
         return _store_opinion(review_run_id, allowed_document_ids, {**outcome, "reason": call_failed})
-    outcome["engine"] = f"{response.provider}:{response.model_tag}"
+    outcome["engine"] = fallback_note.engine_label(provider, response)
     outcome["cost_usd"] = round(response.cost_usd or 0.0, 6)
     items = None if response.schema_errors else parse(response.text)
     if items is None and response.truncated:

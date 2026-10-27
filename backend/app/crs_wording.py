@@ -44,7 +44,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from . import claude_approved
+from . import claude_approved, fallback_note
 from . import claims, numparse, standard_ids
 from .ai import output_limits
 from .config import settings
@@ -213,7 +213,7 @@ def _provider():
     from . import reasoning_provider as rp
     provider = rp.get_provider("labelling", step=STEP)
     if isinstance(provider, rp.OllamaProvider):
-        provider = rp.OllamaProvider(timeout=float(settings.crs_ai_wording_timeout_s))
+        provider = fallback_note.carry(provider, timeout=float(settings.crs_ai_wording_timeout_s))
     return provider
 
 
@@ -227,7 +227,9 @@ def _provider_for_this_review():
     if not isinstance(provider, rp.ClaudeProvider):
         # #819: the wording's own engine says claude and every document of
         # the review is approved for the cloud model; else it stays local.
-        provider = rp.claude_for_task(settings.crs_ai_wording_engine, "labelling", step=STEP) or provider
+        provider = fallback_note.or_local(
+            provider, settings.crs_ai_wording_engine, "labelling", step=STEP
+        )
     if isinstance(provider, rp.ClaudeProvider):
         note = claude_approved.local_instead()
         if note:
@@ -259,7 +261,7 @@ def _ask(provider, row: dict) -> tuple[str | None, str | None, str]:
         num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CRS_WORDING),
         json_schema=SCHEMA, step=STEP, prompt_version=PROMPT_VERSION,
         timeout_s=float(settings.crs_ai_wording_timeout_s)))
-    model = f"{response.provider}:{response.model_tag}"
+    model = fallback_note.engine_label(provider, response)
     state = output_limits.state_of_response(response)
     if state != output_limits.COMPLETE:
         # Never parsed: the template row stands, the refusal is counted by name.
