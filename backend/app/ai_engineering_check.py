@@ -88,7 +88,7 @@ CONFIDENCES = ("low", "medium")
 
 #: Caps on what is sent: a datasheet page is rarely longer, and the prompt's
 #: worst case is what the spend check prices.
-MAX_PAGE_CHARS = 6000
+MAX_PAGE_CHARS = 16000
 MAX_PROMPT_CHARS = 60000
 #: 2026-09-27: lowered from 25. Fewer items requested per call means a
 #: complete answer fits inside the output cap far more often; the retry below

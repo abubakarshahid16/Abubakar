@@ -32,6 +32,7 @@ def report(
     return {
         "page_chars": page_chars,
         "pages_cut": sorted(cut),
+        "page_lengths": {str(p): len(pages[p]) for p in sorted(cut)},
         "pages_shown": len(seen),
         "characters_not_shown": sum(len(pages[p]) - page_chars for p in cut),
         "prompt_chars_not_shown": over,
@@ -83,9 +84,24 @@ def of_run(
 def settle(
     cut: dict | None, local_pages: dict | None, complete: bool, reason: str | None
 ):
-    """(complete, reason) after the cut: the cloud model was given the whole sheet in one prompt, so
-    a sheet it saw only part of is not "complete". The local lane keeps its own completeness (it is
-    asked about blank fields page by page, and says so in its scope); its cut is recorded."""
-    if cut and local_pages is None:
+    """(complete, reason) after the cut. The cloud model was given the whole sheet in one prompt: a
+    prompt cut dropped whole pages off its end, so the sheet is not "complete". A page cut short on
+    its own does not make the whole review incomplete (the planner's call, 19:26): it is named per
+    page in the review notes (`page_lines`). The local lane keeps its own completeness (it is asked
+    about blank fields page by page, and says so in its scope); its cut is recorded."""
+    if cut and cut.get("prompt_chars_not_shown") and local_pages is None:
         return False, reason or "part of the sheet was cut before the model saw it"
     return complete, reason
+
+
+def page_lines(cut: dict | None) -> list[str]:
+    """One plain line per page the per-page cut shortened, for the internal review notes."""
+    if not cut:
+        return []
+    return [
+        f"Page {page}: the AI check read the first {cut['page_chars']:,} of {length:,} characters; "
+        "the rest of the page was not read by the model."
+        for page, length in sorted(
+            (cut.get("page_lengths") or {}).items(), key=lambda kv: int(kv[0])
+        )
+    ]

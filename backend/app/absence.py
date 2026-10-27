@@ -336,6 +336,10 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     for key, status in (("ai_check", ai_status), ("web_check", web_status)):
         if status and status.get("complete") is False:
             add(key, str(status.get("plain") or f"{key} did not complete").strip())
+    from . import ai_input_cuts
+
+    for line in ai_input_cuts.page_lines((ai_status or {}).get("input_cut")):
+        add("ai_check_page_cut", line, detail=True)
     # THE SHARE, WITH ITS DENOMINATOR, on every incomplete export.
     counts = outcome.get("unchecked_counts") or {}
     sentence = share_sentence(counts.get("not_compared", 0), counts.get("not_applied", 0),
@@ -356,9 +360,9 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
 
 def notice_for(parts: list[dict]) -> str:
     """The one line a sheet prints when something could not be checked."""
+    parts = [p for p in parts if not p.get("detail")]
     if not parts:
         return ""
-    parts = [p for p in parts if not p.get("detail")]
     notice = (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
               "- this sheet is not a complete review.")
     # The unchecked share, with its denominator, is part of the notice on every
