@@ -293,7 +293,7 @@ def test_the_run_hands_its_unchecked_counts_to_the_review_code(world, monkeypatc
     run_id, job_id = _enqueue(world)
     review_jobs.claim_next(W)
     assert review_jobs.run(job_id, W) == "done"
-    assert set(seen) == {"not_compared", "not_applied", "checked", "unsure_citation"}
+    assert set(seen) == {"not_compared", "not_applied", "checked", "unsure_citation", "reasons"}
     assert seen["checked"] >= 1                         # the noise requirement was checked
 
 

@@ -239,6 +239,7 @@ def test_a_real_run_puts_other_equipment_in_does_not_apply_and_keeps_it_out_of_t
         "not_applied": 1,
         "checked": 0,
         "unsure_citation": 0,
+        "reasons": split["applies_not_checked_reasons"],
     }
     # of the ONE that applies; the turbine clause is outside
     assert split["unchecked_share"] == 1.0

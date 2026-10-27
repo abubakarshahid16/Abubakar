@@ -127,7 +127,7 @@ def test_the_manual_review_banner_names_the_real_reasons():
     ]
     counts = {"not_compared": 314, "checked": 3, "unsure_citation": 0}
     result = comparison.recommend_code(
-        met, sufficient, unchecked_counts=counts, unchecked_reasons=reasons
+        met, sufficient, unchecked_counts={**counts, "reasons": reasons}
     )
     assert result["code"] == comparison.CODE_MANUAL
     text = result["reason"]

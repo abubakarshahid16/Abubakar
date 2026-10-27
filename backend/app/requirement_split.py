@@ -136,11 +136,12 @@ def build(
     }
 
 
-def causes(counts: dict, reasons: list | None = None) -> str:
-    """Why the requirements that apply were not checked, each real reason with its count. `reasons`
+def causes(counts: dict) -> str:
+    """Why the requirements that apply were not checked, each real reason with its count. `counts["reasons"]`
     is the split's `applies_not_checked_reasons`: they add up to the unchecked count, so nothing
     is named that did not happen. Without them (a run stored before they were kept) only the
     cited-clause cause (#139) is certain; the rest is said in general words."""
+    reasons = counts.get("reasons")
     if reasons:
         top = [f"{r['count']} {r['reason']}" for r in reasons[:4]]
         more = sum(r["count"] for r in reasons[4:])

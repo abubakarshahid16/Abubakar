@@ -1853,11 +1853,11 @@ def completeness_for_run(
     }
 
 
-def _unchecked_causes(counts: dict, reasons: list | None = None) -> str:
+def _unchecked_causes(counts: dict) -> str:
     """Why the requirements that apply were not checked, with counts (#139)."""
     from . import requirement_split
 
-    return requirement_split.causes(counts, reasons)
+    return requirement_split.causes(counts)
 
 
 def recommend_code(findings: list[dict], completeness: dict, *,
@@ -1865,8 +1865,7 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                    missing_references: list[str] | tuple[str, ...] = (),
                    page_coverage: dict | None = None,
                    unchecked_standards: list[str] | tuple[str, ...] = (),
-                   unchecked_counts: dict | None = None,
-                   unchecked_reasons: list | None = None) -> dict:
+                   unchecked_counts: dict | None = None) -> dict:
     """The recommendation, with `reason` in PLAIN WORDS for the engineer and
     the technical sentence kept as `details` (owner order 2g, 2026-09-26).
 
@@ -1892,9 +1891,10 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             and result["code"] in (codes[0], codes[1])):
         unchecked_n = counts.get("not_compared", 0)
         applies_n = unchecked_n + counts.get("checked", 0)
+        why = _unchecked_causes(counts)
         result = {**result, "code": codes[3],
                   "reason": (f"Manual review: {unchecked_n} of {applies_n} requirements that apply "
-                             f"to this submittal were not checked ({_unchecked_causes(counts, unchecked_reasons)}), "
+                             f"to this submittal were not checked ({why}), "
                              "so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
     # PF3 (#883): AN INCOMPLETE READING CANNOT BE APPROVED. A page the AI reader
@@ -3037,13 +3037,13 @@ def _run_comparison(
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
         "checked": split["checked"],
-        "unsure_citation": len(cited_scope["unsure"])}
+        "unsure_citation": len(cited_scope["unsure"]),
+        "reasons": split["applies_not_checked_reasons"]}
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
                                     unchecked_standards=unchecked_standards,
-                                    unchecked_counts=unchecked_counts,
-                                    unchecked_reasons=split["applies_not_checked_reasons"])
+                                    unchecked_counts=unchecked_counts)
     _store_run_outcome(review_run_id, recommendation, coverage,
                        page_coverage=pages_read,
                        missing_references=missing_references or [],
