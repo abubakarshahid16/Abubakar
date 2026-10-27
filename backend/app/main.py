@@ -16,6 +16,7 @@ from . import ai_check_drafts as ai_check_drafts_mod
 from . import ai_numbers as ai_numbers_mod
 from . import evidence_boxes as evidence_boxes_mod
 from . import applicability as applicability_mod
+from . import standard_references as standard_references_mod
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
 from . import crs_export as crs_export_mod
@@ -2961,19 +2962,18 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             else ""),
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
-        "copy": copy,
-        # 2f: the engineer's internal notes, on their own sheet.
+        "copy": copy,  # 2f: the engineer's internal notes go on their own sheet
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
             {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
-        # #633 item 7: row 1 of a sheet whose run did not complete - status, reason,
-        # unread pages, missing standards. "" for a completed run (sheet unchanged).
+        # #633 item 7: row 1 of a run that did not complete; "" for a completed run.
         "run_status_note": export_status_mod.crs_header_note(run.get("status"), outcome.get("error"), unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
+    meta["review_notes"] += standard_references_mod.for_run(review_run_id, allowed)
     return rows, meta, submittal_name, stamp
 
 

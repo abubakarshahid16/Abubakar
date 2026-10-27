@@ -227,6 +227,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `standard_labels` | How a review names its standards: library file name, recorded number and title |
 | `slot_options` | #882: a heading over options that each have a drawn slot is filed as "<heading> - <option>", not as the heading's value and a fragment |
 | `standard_ids` | ONE matcher for standard identifiers (W3, #452; audit A02, A03) |
+| `standard_references` | R8 (#772): standards cited by the standards a review used that the library does not hold, listed in the Review notes, never silently ignored |
 | `standards` | The Standards Library: clause hierarchy, atomic requirements, revisions |
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |
 | `standards_inventory` | Standards inventory (B5 part 2): family, edition/revision, licence status, cover-page backfill, and which stan |

@@ -110,7 +110,7 @@
   "backend/app/geometry_reader.py::read_page_rows": 96,
   "backend/app/ingest.py::IngestionWorker.process": 222,
   "backend/app/lexical.py::assess": 229,
-  "backend/app/main.py::_crs_content": 267,
+  "backend/app/main.py::_crs_content": 266,
   "backend/app/main.py::_run_summary": 88,
   "backend/app/main.py::lifespan": 107,
   "backend/app/main.py::review_dashboard": 87,
