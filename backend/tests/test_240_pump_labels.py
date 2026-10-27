@@ -161,7 +161,8 @@ def test_a_value_out_of_range_is_still_a_violation_through_those_labels():
     facts = [
         _fact("capacity / flow", "30", "m3/h"),
         _fact("max flow", "25", "m3/h"),
-    ] + CONSISTENCY_FACTS[2:]
+        *CONSISTENCY_FACTS[2:],
+    ]
     found = _consistency(facts)
     assert found["DS-C5"]["status"] != "COMPLIANT"
     facts = [
