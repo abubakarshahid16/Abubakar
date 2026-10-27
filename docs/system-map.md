@@ -244,6 +244,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rate_units` | The flow-rate rows of the one unit table: kg/s, t/h, l/min, m3/s and their kin, exact factors only (#1290) |
 | `table_gate` | Which requirements a review may check (#598) |
 | `tables` | Structured rows and columns for chunks already identified as tables |
+| `table_consistency` | #531: a numeric table checked against itself (overlapping or gapped bands, a Total that is not the sum, a column that is not its own declared formula); findings are cited questions for the engineer, never "consistent" |
 | `telemetry` | Measured rates and latencies, persisted |
 | `understanding` | B6C: question understanding - structured, deterministic, retrieval-only |
 | `upload` | Step 1 - streaming PDF upload |
