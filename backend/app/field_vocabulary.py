@@ -437,7 +437,9 @@ def names_for(requirements: list[dict], facts: list[dict]) -> dict:
     }
     from . import rule_roles
 
-    reviewed = rule_roles.reviewed_names(requirements)  # order 262.1: draft mappings, re-checked
+    reviewed = rule_roles.reviewed_names(
+        requirements
+    )  # order 262.1: draft mappings, re-checked
     named = {**named, **reviewed}
     if not named:
         if settings.geometry_reader_enabled:

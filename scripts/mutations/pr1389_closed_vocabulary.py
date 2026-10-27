@@ -78,7 +78,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "09",
         "the offline pass does not apply the number gate to a model's answer",
-        "    if not number_fits(items[i][1], quote, dictionary[field], raw_value, raw_unit):\n        return unmapped  # gate 4\n",
+        "    if not number_fits(\n        items[i][1], quote, dictionary[field], raw_value, raw_unit, families\n    ):\n        return unmapped  # gate 4\n",
         "",
         "duration_is_not_stored",
     ),

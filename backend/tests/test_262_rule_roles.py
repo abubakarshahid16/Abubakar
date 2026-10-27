@@ -195,7 +195,7 @@ def test_a_review_reads_the_reviewed_file_without_a_model_call(tmp_path, monkeyp
 
 
 def test_a_reviewed_name_pairs_through_the_run_and_never_carries_a_verdict(monkeypatch):
-    req, fact, run, scope = _world("Design pressure", "12 bar")
+    _req, fact, run, scope = _world("Design pressure", "12 bar")
     text = "The maximum allowable working pressure shall be 10 bar."
     entry = {
         "standard": "std-1",
