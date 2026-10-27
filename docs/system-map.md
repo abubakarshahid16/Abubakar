@@ -141,6 +141,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `highlight` | Locating a quoted answer on the rendered page |
 | `hooks_check` | Say at boot when this checkout's git hooks are not switched on |
 | `ingest` | Background ingestion worker |
+| `worker_review` | Order 234: the worker's review-job drain; a running review is busy, and its progress counts as worker activity (no false "Queue not moving") |
 | `intent` | What the reader actually typed |
 | `job_progress` | "Page x of y" while a review job reads its datasheet; display only (order 95 piece 3b) |
 | `job_queue` | Claim, retry, poison and priority on the EXISTING tables (issue #177) |

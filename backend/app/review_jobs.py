@@ -20,6 +20,7 @@ review needs that an extraction does not:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
 from pathlib import Path
@@ -206,6 +207,16 @@ def _reporting_pages(conn, job_id: str, heartbeat=None):
     )
 
 
+@contextlib.contextmanager
+def _phase(conn, job_id: str, index: int, heartbeat, timings: dict, name: str):
+    """A timed step whose reader page reports are also the worker's heartbeat."""
+    from . import review_trace
+
+    _step(conn, job_id, index, heartbeat)
+    with review_trace.timed(timings, name), _reporting_pages(conn, job_id, heartbeat):
+        yield
+
+
 def _record_check_failure(run_id: str, column: str, name: str, exc: BaseException) -> None:
     """Store "<check> could not be checked: <ErrorName>" on the run. The error's
     TYPE only: no text from the failure, which could carry document text."""
@@ -312,12 +323,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     try:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
+
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
-        _step(conn, job_id, 0, heartbeat)
-        with review_trace.timed(timings, "read"), _reporting_pages(conn, job_id, heartbeat):
+        with _phase(conn, job_id, 0, heartbeat, timings, "read"):
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
-        _step(conn, job_id, 1, heartbeat)
-        with review_trace.timed(timings, "standards"), _reporting_pages(conn, job_id, heartbeat):
+        with _phase(conn, job_id, 1, heartbeat, timings, "standards"):
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
