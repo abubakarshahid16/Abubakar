@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from app import applicability, comparison, db
+from app import applicability, comparison, db, standards, submittal_review
 from tests.test_applicability import _doc, _scope, temp_storage  # noqa: F401
-from tests.test_b3_page_ledger import _review
 
 PROCEDURE = (
     "Operating procedure OP-12. Before start-up the operator shall follow STD-100 and record the "
@@ -66,18 +65,51 @@ def test_the_standard_the_procedure_names_is_selected_without_an_equipment_type(
     assert chosen["scope_decision_not_run"]
 
 
-def test_the_review_of_that_procedure_produces_findings_with_a_named_status(procedure):
-    sub, _std = procedure
-    run, scope = _review(sub)
+def test_the_review_of_that_procedure_produces_findings_from_the_standard_it_named(
+    procedure,
+):
+    """The REAL path (s3's review): the run's applicable standards come from `applicability.select`
+    for this procedure, STD-100's own requirement is the one compared, and a finding carries its
+    standard. With the selection broken (M1365-01) no finding of STD-100 appears."""
+    sub, std = procedure
+    scope = _scope(sub, std)
+    run = submittal_review.create_review_run(
+        submittal_document_id=sub, allowed_document_ids=scope
+    )
+    applicability.select(
+        sub, allowed_document_ids=scope, review_run_id=run, persist=True
+    )
+    standards.create_requirement(
+        standard_document_id=std,
+        chunk_id="stdlib-c1",
+        clause="4.1",
+        page=1,
+        requirement_text="The noise level shall not exceed 90 dB(A).",
+        source_text="The noise level shall not exceed 90 dB(A).",
+        structured={
+            "requirement_type": "numeric_limit",
+            "operator": "<=",
+            "value": 90,
+            "unit": "dB(A)",
+            "raw_value": "90",
+            "raw_unit": "dB(A)",
+            "field": "noise level",
+            "subject": "the noise level",
+        },
+    )
     comparison.run_comparison(run, allowed_document_ids=scope)
     findings = [
         dict(r)
         for r in db.connect().execute(
-            "SELECT compliance_status, requirement FROM review_findings WHERE review_run_id = ?",
+            "SELECT compliance_status, standard_document_id FROM review_findings"
+            " WHERE review_run_id = ?",
             (run,),
         )
     ]
-    assert findings, "a review with no equipment type produced no finding at all"
-    assert all(f["compliance_status"] for f in findings)
-    # nothing the procedure does not state is passed
-    assert not [f for f in findings if f["compliance_status"] == "COMPLIANT"]
+    from_the_named_standard = [f for f in findings if f["standard_document_id"] == std]
+    assert from_the_named_standard, "no finding from the standard the procedure names"
+    assert all(f["compliance_status"] for f in from_the_named_standard)
+    # a procedure that states no noise level is never passed on it
+    assert not [
+        f for f in from_the_named_standard if f["compliance_status"] == "COMPLIANT"
+    ]
