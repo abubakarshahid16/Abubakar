@@ -38,7 +38,8 @@ INSET = 1.5
 MARKER = "empty cell"
 
 
-#: A fill darker than this (mean of its colour channels) is a mark on a cell, not a background.
+#: A fill whose EVERY colour channel is below this is dark (near black): a mark on a cell, not a
+#: background. The brightest channel decides, so a saturated red, green or blue shaded cell is not dark.
 DARK_FILL = 0.35
 #: A rectangle at most this many times the cell's own area belongs to ONE cell; a background or a
 #: band behind a row or the whole table is larger.
@@ -67,6 +68,25 @@ def _label_sits_where_labels_sit(
     return same * 2 > len(paired)
 
 
+#: Last words that are units in the table but name WHAT a field counts ("Design life years",
+#: "Service hours") or are ordinary words ("in"): not a value lost into the label.
+_COUNTED_THINGS = frozenset(
+    {
+        "in",
+        "year",
+        "years",
+        "yr",
+        "yrs",
+        "week",
+        "weeks",
+        "wk",
+        "wks",
+        "month",
+        "months",
+    }
+)
+
+
 def _ends_in_a_bare_unit(text: str) -> bool:
     """A label of two or more words whose last word is a unit the table knows (two letters or more), NOT in brackets
     ("Design pressure barg"): the number may have been lost from a value pushed into the label cell,
@@ -77,6 +97,9 @@ def _ends_in_a_bare_unit(text: str) -> bool:
     words = text.split()
     last = words[-1].strip(",.;:") if words else ""
     if len(words) < 2 or last[:1] in "([" or last[-1:] in ")]":
+        return False
+    word = last.lower()
+    if word in _COUNTED_THINGS or claims.unit_dimension(word) == "time":
         return False
     return len(last) >= 2 and claims.is_unit(last)
 
@@ -173,7 +196,8 @@ def _dark_over_one_cell(
     reads "not applicable"), not the background behind a table. A light or mid fill stays a
     background: a shaded input cell is a cell to be filled."""
     fill = drawing.get("fill")
-    if not fill or sum(fill) / len(fill) >= DARK_FILL:
+    # no fill, an unknown colour model (CMYK) or not dark: a background
+    if not fill or len(fill) not in (1, 3) or max(fill) >= DARK_FILL:
         return False
     return _area(box) <= ONE_CELL * _area(inner)
 

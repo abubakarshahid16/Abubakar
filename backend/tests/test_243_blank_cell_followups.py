@@ -100,3 +100,58 @@ def test_a_light_fill_or_a_fill_behind_the_table_is_still_a_background(fill, big
         assert _got(page)["Orifice designation"]["is_blank"] is True
     finally:
         doc.close()
+
+
+# cloud's and cloud-2's reviews of #1359 -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Operating temperature min",
+        "Service hours",
+        "Design life years",
+        "Capacity per hr",
+        "Inlet size in",
+    ],
+)
+def test_a_label_ending_in_a_time_unit_or_a_preposition_word_is_an_ordinary_label(
+    label,
+):
+    """A time unit at the end of a label names what the field COUNTS; "in" is also a word. Not a
+    value lost into the label, so the empty cell is still a blank."""
+    assert gb._ends_in_a_bare_unit(label) is False
+
+
+INNER = (0.0, 0.0, 10.0, 10.0)  # area 100
+
+
+@pytest.mark.parametrize(
+    "fill, dark",
+    [
+        ((0.0, 0.0, 0.0), True),  # black
+        ((0.34, 0.2, 0.1), True),  # every channel below 0.35
+        ((0.35, 0.0, 0.0), False),  # the boundary: a channel AT 0.35 is not dark
+        ((1.0, 0.0, 0.0), False),  # saturated red: a shaded input cell, not blacked out
+        ((0.0, 1.0, 0.0), False),  # saturated green
+        ((0.0, 0.0, 1.0), False),  # saturated blue
+        ((0.1,), True),  # grey, one channel
+        ((0.9,), False),
+        (
+            (0.0, 0.0, 0.0, 0.0),
+            False,
+        ),  # CMYK white (0,0,0,0) is NOT black: unknown model = background
+        (None, False),
+    ],
+)
+def test_the_fill_colour_rule(fill, dark):
+    assert gb._dark_over_one_cell(INNER, (0.0, 0.0, 10.0, 10.0), {"fill": fill}) is dark
+
+
+@pytest.mark.parametrize("width, one_cell", [(25.0, True), (25.1, False)])
+def test_the_one_cell_size_limit_is_2_5_times_the_cell(width, one_cell):
+    """A dark rectangle of 2.5 times the cell counts as this cell's mark; a hair more is a band."""
+    assert (
+        gb._dark_over_one_cell(INNER, (0.0, 0.0, width, 10.0), {"fill": (0, 0, 0)})
+        is one_cell
+    )
