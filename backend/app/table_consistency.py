@@ -232,44 +232,8 @@ def _sums_to(terms, total) -> bool:
     return abs(sum(t.value for t in terms) - total.value) <= allowed + 1e-12
 
 
-def check_totals(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
+def _total_rows(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
     findings, ran = [], 0
-    # A Total COLUMN: equals the numbers to its left in the same row, when every
-    # cell between the label and the total is a plain number.
-    for col, name in enumerate(header):
-        if col < 2 or not _TOTAL_WORD.match(name.strip()):
-            continue
-        checked = []
-        for r, row in enumerate(data, start=1):
-            total = read_number(row[col] if col < len(row) else "")
-            terms = [read_number(row[c] if c < len(row) else "") for c in range(1, col)]
-            if total is None or len(terms) < 2 or any(t is None for t in terms):
-                continue
-            allowed = sum(t.half_unit for t in terms) + total.half_unit
-            bad = abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12
-            checked.append((r, terms, total, bad))
-        agree = sum(1 for c in checked if not c[3])
-        # the numbers to its left are terms only by assumption (a quantity times a price
-        # is also called "Total"): the column counts as a sum only when at least two rows
-        # add up and they are at least half of the rows that can be tested
-        if agree < MIN_SUMMING_ROWS or agree * 2 < len(checked):
-            continue
-        ran += 1
-        for r, terms, total, bad in checked:
-            if not bad:
-                continue
-            findings.append(
-                _finding(
-                    "total_column_mismatch",
-                    f"Row {r}: '{name}' is {total.raw}, but the numbers to its left add up to "
-                    f"{sum(t.value for t in terms):g}.",
-                    rows=[r],
-                    columns=[name],
-                    cells=[t.raw for t in terms] + [total.raw],
-                    page=page,
-                    chunk_id=chunk_id,
-                )
-            )
     # A Total ROW: each numeric column equals the numbers above it. A Subtotal row is the sum
     # of the rows since the last subtotal. A Total / Grand total row is right when it equals ANY
     # of: every plain row above, the subtotals plus the plain rows after the last subtotal, or
@@ -331,6 +295,48 @@ def check_totals(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
         if is_subtotal:
             start = r + 1
     return findings, ran
+
+
+def check_totals(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
+    findings, ran = [], 0
+    # A Total COLUMN: equals the numbers to its left in the same row, when every
+    # cell between the label and the total is a plain number.
+    for col, name in enumerate(header):
+        if col < 2 or not _TOTAL_WORD.match(name.strip()):
+            continue
+        checked = []
+        for r, row in enumerate(data, start=1):
+            total = read_number(row[col] if col < len(row) else "")
+            terms = [read_number(row[c] if c < len(row) else "") for c in range(1, col)]
+            if total is None or len(terms) < 2 or any(t is None for t in terms):
+                continue
+            allowed = sum(t.half_unit for t in terms) + total.half_unit
+            bad = abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12
+            checked.append((r, terms, total, bad))
+        agree = sum(1 for c in checked if not c[3])
+        # the numbers to its left are terms only by assumption (a quantity times a price
+        # is also called "Total"): the column counts as a sum only when at least two rows
+        # add up and they are at least half of the rows that can be tested
+        if agree < MIN_SUMMING_ROWS or agree * 2 < len(checked):
+            continue
+        ran += 1
+        for r, terms, total, bad in checked:
+            if not bad:
+                continue
+            findings.append(
+                _finding(
+                    "total_column_mismatch",
+                    f"Row {r}: '{name}' is {total.raw}, but the numbers to its left add up to "
+                    f"{sum(t.value for t in terms):g}.",
+                    rows=[r],
+                    columns=[name],
+                    cells=[t.raw for t in terms] + [total.raw],
+                    page=page,
+                    chunk_id=chunk_id,
+                )
+            )
+    more, more_ran = _total_rows(header, data, page=page, chunk_id=chunk_id)
+    return findings + more, ran + more_ran
 
 
 # ---------------------------------------------------------------- formulas
