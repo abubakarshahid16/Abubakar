@@ -198,6 +198,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `requirement_split` | Every requirement in a run's scope is in ONE of three honest groups (#678) |
 | `requirements_3b` | Phase 3B: structured requirements - limits, units, conditions, exceptions |
 | `reranker` | Cross-encoder reranking, local and CPU-only |
+| `review_report_pdf` | The engineering review report PDF, built under the PyMuPDF lock with its data read before (order 252) |
 | `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; rules from reference/review_tiers.json, the data the screen reads too (order 133); display only |
 | `review_counts` | Order 152.2: the CRS sheet's counts in ROWS (comments, needs you, met), the findings behind the comment rows, Review notes and removed, from the run's findings and the file's grouping, each with its unit; the run summary sends it as `sheet`; display only |
 | `held_findings` | A requirement the review held (service not stated, scope unsure) also becomes an engineer-review finding with its reason (order 210) |

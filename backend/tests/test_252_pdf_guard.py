@@ -177,7 +177,12 @@ def test_no_program_file_calls_pymupdf_outside_the_guard():
     """An AST scan, not a text search: `pymupdf.open`, `Document`, `Story`, `get_text_length`, any
     alias (`import pymupdf as pm`) and `from pymupdf import ...` are all found. Every such call must
     sit under `with pdf_guard.held()` / `open_pdf(...)` or in a `@pdf_guard.guarded` function (the
-    exemption is per function, not per file)."""
+    exemption is per function, not per file).
+
+    What this does NOT check (said, not hidden): the order of the items of ONE `with` (`with
+    pymupdf.open(p), pdf_guard.held():` would pass), and methods called on a page or pixmap OBJECT
+    (`page.get_text()`) after the block that made it: `test_the_page_and_pixmap_are_dropped_while_
+    the_lock_is_held` and the site tests cover the objects the web renders make."""
     offenders = {}
     for path in sorted(APP.rglob("*.py")):
         if path.name == "pdf_guard.py":
@@ -211,10 +216,11 @@ def test_the_scan_finds_what_a_text_search_would_miss():
 
 
 def test_a_guarded_function_runs_under_the_lock(pdf):
-    """The two exports that build a document from nothing are wrapped whole by `guarded`."""
-    from app import deliverables, review
+    """The two exports that build a document from nothing do the building in a guarded function
+    (the data is read before, outside the lock)."""
+    from app import deliverables, review_report_pdf
 
-    for fn in (review.render_report, deliverables.render_management_report):
+    for fn in (review_report_pdf.write, deliverables._write_management_report):
         assert getattr(fn, "__wrapped__", None) is not None, (
             f"{fn.__name__} is not guarded"
         )
@@ -318,3 +324,119 @@ def test_a_whole_file_read_lets_other_threads_in_between_pages(tmp_path, monkeyp
     taker.join()
     reader.join()
     assert done.is_set()
+
+
+def _spy(owned: dict, name: str, result=None):
+    """A stand-in that records whether the lock was held when it was called."""
+
+    def spy(*_args, **_kwargs):
+        owned[name] = pdf_guard._lock._is_owned()
+        return result
+
+    return spy
+
+
+def _watch_open(module, owned: dict, monkeypatch) -> None:
+    real_open = pymupdf.open
+
+    def watching(*args, **kwargs):
+        owned["build"] = pdf_guard._lock._is_owned()
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(module.pymupdf, "open", watching)
+
+
+def test_the_management_report_reads_its_data_before_the_lock(tmp_path, monkeypatch):
+    """The lock must never wait on SQLite: every data read happens with the lock NOT held, and the
+    document is built with it held."""
+    from app import deliverables
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    owned: dict = {}
+    for name in ("list_items", "alerts", "reminder_events"):
+        monkeypatch.setattr(deliverables, name, _spy(owned, name, []))
+    _watch_open(deliverables, owned, monkeypatch)
+    assert deliverables.render_management_report().exists()
+    assert owned == {
+        "list_items": False,
+        "alerts": False,
+        "reminder_events": False,
+        "build": True,
+    }
+
+
+def test_the_review_report_reads_its_data_before_the_lock(tmp_path, monkeypatch):
+    from app import export_status, review
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    owned: dict = {}
+
+    class Conn:
+        def execute(self, *_args, **_kwargs):
+            owned["connect"] = pdf_guard._lock._is_owned()
+            return self
+
+        def fetchone(self):
+            return {"filename": "invented.pdf"}
+
+    header = ({"status": "completed", "reason": None}, [])
+    monkeypatch.setattr(review, "ensure_schema", _spy(owned, "schema"))
+    monkeypatch.setattr(review, "connect", lambda: Conn())
+    monkeypatch.setattr(review, "list_findings", _spy(owned, "findings", []))
+    monkeypatch.setattr(
+        export_status, "pdf_header_lines", _spy(owned, "header", header)
+    )
+    from app import review_report_pdf
+
+    _watch_open(review_report_pdf, owned, monkeypatch)
+    assert review.render_report("doc1").exists()
+    assert owned == {
+        "schema": False,
+        "connect": False,
+        "findings": False,
+        "header": False,
+        "build": True,
+    }
+
+
+def test_the_page_and_pixmap_are_dropped_while_the_lock_is_held(
+    pdf, tmp_path, monkeypatch
+):
+    """`del pix, page` runs INSIDE the lock: when the open block is left, nothing the page and the
+    pixmap held is still alive (freed after the lock they would be freed unguarded)."""
+    import contextlib
+    import weakref
+
+    from app import pageimage
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    refs: list[weakref.ref] = []
+    seen: dict = {}
+    real_open = pageimage.open_pdf
+
+    @contextlib.contextmanager
+    def watching(path):
+        with real_open(path) as doc:
+            real_load = doc.load_page
+
+            def load(index):
+                page = real_load(index)
+                refs.append(weakref.ref(page))
+                return page
+
+            doc.load_page = load
+            try:
+                yield doc
+            finally:  # still inside the lock
+                seen["owned"] = pdf_guard._lock._is_owned()
+                seen["alive"] = [r() is not None for r in refs]
+
+    monkeypatch.setattr(pageimage, "open_pdf", watching)
+    pageimage.render_page({"sha256": "cd" * 32, "stored_path": str(pdf)}, 1, 72)
+    assert seen["owned"] is True
+    assert refs and seen["alive"] == [False] * len(refs), (
+        "the page was still alive after the block"
+    )
