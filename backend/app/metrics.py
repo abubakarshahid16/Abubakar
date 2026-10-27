@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import psutil
 
-from . import ai_task_runner, model_transport, states, telemetry
+from . import ai_task_runner, answer_model_notice, model_transport, states, telemetry
 from .config import settings
 from .db import connect
 
@@ -579,5 +579,9 @@ def snapshot(worker_status: dict, allowed: Allowed = None,
         "vector_store": _vector_store_status(host),
         "worker": _scoped_worker(worker_status, allowed, corpus_wide),
         # Order 173.2: plus a note when the AI review steps run on a fallback model.
-        "warnings": [*warnings(allowed, host), *ai_task_runner.warnings()],
+        "warnings": [
+            *warnings(allowed, host),
+            *answer_model_notice.warnings(models(), host),
+            *ai_task_runner.warnings(),
+        ],
     }

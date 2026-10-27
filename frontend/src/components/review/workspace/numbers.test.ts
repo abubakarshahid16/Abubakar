@@ -158,11 +158,15 @@ describe("computeReviewNumbers", () => {
     expect(computeReviewNumbers(input({ summary: s, readiness: readiness({ unread_pages: [7] }) })).unreadPages).toEqual([2, 5]);
   });
 
-  it("missing standards: input and readiness merged, unique, in first-seen order", () => {
+  it("missing standards: the live list alone once it has answered (order 243.1), the stored one only until then", () => {
     const n = computeReviewNumbers(input({
-      missingStandards: ["API 610", "ASME B16.5"], readiness: readiness({ standards_missing: ["ASME B16.5", "ISO 5199"] }),
+      missingStandards: ["API 610", "ASME B16.5"], readiness: readiness({ standards_missing: ["ASME B16.5", "ISO 5199", "ISO 5199"] }),
     }));
-    expect(n.missingStandards).toEqual(["API 610", "ASME B16.5", "ISO 5199"]);
+    // unique, first-seen order, and the stored "API 610" (as of the run) is not unioned in
+    expect(n.missingStandards).toEqual(["ASME B16.5", "ISO 5199"]);
+    // a standard uploaded since the run: the stored list still names it, the live list does not
+    expect(computeReviewNumbers(input({ missingStandards: ["API 610"], readiness: readiness({ standards_missing: [] }) })).missingStandards).toEqual([]);
+    // readiness not answered yet: the stored list stands in
     expect(computeReviewNumbers(input({ missingStandards: ["API 610"], readiness: null })).missingStandards).toEqual(["API 610"]);
   });
 
@@ -218,7 +222,8 @@ describe("computeReviewNumbers", () => {
 
 describe("actionSteps", () => {
   const busy = computeReviewNumbers(input({
-    rows: ROWS, missingStandards: ["API 610", "ISO 5199"], readiness: readiness({ unread_pages: [4, 9, 12] }),
+    rows: ROWS, missingStandards: ["API 610", "ISO 5199"],
+    readiness: readiness({ unread_pages: [4, 9, 12], standards_missing: ["API 610", "ISO 5199"] }),
   }));
   const step = (steps: ReturnType<typeof actionSteps>, id: string) => steps.find((s) => s.id === id)!;
 
