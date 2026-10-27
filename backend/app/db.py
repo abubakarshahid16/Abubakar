@@ -849,12 +849,12 @@ CREATE INDEX IF NOT EXISTS idx_subjects_revision
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
-
 CREATE INDEX IF NOT EXISTS idx_exclusions_document ON exclusions(document_id, scope);
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_pages_ocr ON pages(document_id, needs_ocr);
 CREATE INDEX IF NOT EXISTS idx_jobs_document ON jobs(document_id);
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
+CREATE INDEX IF NOT EXISTS idx_report_documents_document ON report_documents(document_id);
 """
 
 
