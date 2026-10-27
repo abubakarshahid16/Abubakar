@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from . import applicability, datasheets, standards, stored_paths
 from . import search as search_mod
 from .db import connect
+from .pdf_guard import open_pdf
 
 log = logging.getLogger(__name__)
 
@@ -378,8 +379,7 @@ def run_look_at_page(input: dict, *, allowed_document_ids: frozenset[str],
                        note=f"page limit reached ({settings.chat_vision_max_pages_per_answer} "
                             "per answer)"), None
     try:
-        import pymupdf
-        with pymupdf.open(stored_paths.local(doc["stored_path"])) as pdf:
+        with open_pdf(stored_paths.local(doc["stored_path"])) as pdf:
             if not (1 <= page_no <= pdf.page_count):
                 return ToolRun("look_at_page", input, "Looked at a page", False,
                                note="page out of range"), None

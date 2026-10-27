@@ -109,6 +109,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
 | `clause_check_rank` | Order 235 item 1: which clause sentences get the per-run clause-check budget (fields the sheet states, then a safety clause, then standards it cites, then figures) and each standard's share |
+| `crash_log` | Order 252: a native crash (bus error, segfault) leaves the stack of every thread in `<data>/logs/native-crash.log` |
+| `pdf_guard` | Order 252: one process-wide re-entrant lock around short PyMuPDF blocks (MuPDF is not thread-safe) |
 | `crs_carry` | K1 (code audit 26 Oct): an issued CRS number carries the engineer's confirmation only for the words they confirmed; other words under the same number need a fresh tick (the number stays) |
 | `crs_reference` | Order 227: what a CRS Standard Reference says after the standard's name: its edition (stored on the finding or printed in the standard's own name; "edition not recorded" when unknown, never guessed), the clause words and the page |
 | `crs_mapping` | Write the CRS comment text |
