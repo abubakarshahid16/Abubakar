@@ -493,6 +493,11 @@ def engine_setting() -> str:
     return str(settings.vision_reader_engine or "").strip().lower()
 
 
+#: The words `page_ledger._not_clean` looks for: a page whose reader was switched off
+#: by the owner counts as read only when its own text layer is real.
+SWITCHED_OFF_WORDS = "is switched off in the settings"
+
+
 def switched_off() -> bool:
     """True when the picture reader is off because the OWNER'S SETTINGS keep every page on the
     local engine: REASONING_PROVIDER is not claude, or it is per_task and this step's own engine
@@ -513,7 +518,7 @@ def unasked_reason(why: str, unavailable: str) -> str:
     (order 254 F2). Switched off by the owner's settings it says so, and the page ledger does not
     take that for "could not be asked"; a lane that was wanted but is closed says "unavailable"."""
     if switched_off():
-        return f"{why}, and the picture reader is switched off in the settings ({unavailable})"
+        return f"{why}, and the picture reader {SWITCHED_OFF_WORDS} ({unavailable})"
     return f"{why}, but the vision reader is unavailable ({unavailable})"
 
 

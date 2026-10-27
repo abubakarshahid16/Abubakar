@@ -57,12 +57,28 @@ def _pdf(path) -> str:
     return str(path)
 
 
+def _record_text_pages(doc: str) -> None:
+    """Ingestion's own `pages` rows: real text layers, no OCR needed."""
+    from app import db
+
+    with db.connect() as conn:
+        for page_no, text in enumerate(
+            [*PROSE[:1], " ".join(a for r in ROWS for a in r)], 1
+        ):
+            conn.execute(
+                "INSERT INTO pages (document_id, page_no, text, char_count, needs_ocr, batch_no)"
+                " VALUES (?,?,?,?,0,1)",
+                (doc, page_no, text, len(text)),
+            )
+
+
 def _read(tmp_path, monkeypatch, **settings_over):
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
     for key, value in settings_over.items():
         monkeypatch.setattr(settings, key, value)
     _use(monkeypatch, FakeModel([]))
     doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    _record_text_pages(doc)
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     return doc, page_ledger.coverage(doc), page_ledger.rows(doc)[0]
 
@@ -142,3 +158,32 @@ def test_switched_off_names_only_the_owners_own_settings(
     monkeypatch.setattr(settings, "reasoning_provider", provider)
     monkeypatch.setattr(settings, "vision_reader_engine", engine)
     assert vision_reader.switched_off() is off
+
+
+def _row(native_status: str, reason: str) -> dict:
+    return {
+        "ocr_status": "done",
+        "native_status": native_status,
+        "vision_reason": reason,
+        "facts_reason": "",
+    }
+
+
+def test_a_scanned_page_stays_unread_when_the_picture_reader_is_off(monkeypatch):
+    monkeypatch.setattr(vision_reader, "switched_off", lambda: True)
+    reason = vision_reader.unasked_reason("routed", "REASONING_PROVIDER='ollama'")
+    assert page_ledger._not_clean(_row("text", reason)) is None
+    for scanned in ("needs_ocr", "not_extracted"):
+        assert "not counted as read" in page_ledger._not_clean(_row(scanned, reason))
+
+
+def test_the_ledger_decides_by_words_the_two_reasons_keep_apart(monkeypatch):
+    monkeypatch.setattr(vision_reader, "switched_off", lambda: True)
+    off = vision_reader.unasked_reason("routed", "REASONING_PROVIDER='ollama'")
+    monkeypatch.setattr(vision_reader, "switched_off", lambda: False)
+    closed = vision_reader.unasked_reason("routed", "egress off")
+    for phrase in ("unavailable", "vision page budget is spent", "no text layer"):
+        assert phrase not in off
+    assert "unavailable" in closed
+    assert vision_reader.SWITCHED_OFF_WORDS in off
+    assert vision_reader.SWITCHED_OFF_WORDS not in closed
