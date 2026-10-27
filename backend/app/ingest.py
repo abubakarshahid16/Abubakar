@@ -212,7 +212,9 @@ class IngestionWorker(ReviewDrain):
         hung = beat_age > STALL_AFTER_SECONDS
         # Documents wait behind a review on this one thread: not ignored work.
         ignoring_work = (
-            pending > 0 and progress_age > NO_PROGRESS_SECONDS and not self.reviewing
+            pending > 0
+            and progress_age > NO_PROGRESS_SECONDS
+            and not self.review_running()
         )
 
         reasons = []
@@ -226,7 +228,7 @@ class IngestionWorker(ReviewDrain):
         return {
             "alive": self.alive,
             "current_document": self.current_document,
-            "reviewing": self.reviewing,
+            "reviewing": self.review_running(),
             "seconds_since_heartbeat": round(beat_age, 1),
             "seconds_since_progress": round(progress_age, 1),
             "documents_completed": len(self._completed),

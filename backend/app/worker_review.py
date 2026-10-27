@@ -16,11 +16,23 @@ import time
 from . import errors
 
 
+#: A review that has reported nothing for this long (no step, page or scope
+#: answer) is no longer "busy" (cloud's ask on #1323): a review stuck forever in
+#: a model call must turn the badge red again. Generous: the 35B model takes
+#: about 90 s a page and one uncached scope answer can run 15-20 minutes
+#: (each answer is a beat).
+REVIEW_SILENCE_SECONDS = 30 * 60
+
+
 class ReviewDrain:
     """Mixin for `ingest.IngestionWorker`: it owns `last_beat`, `last_progress`,
     `last_error`, and calls `_drain_review_jobs` from its loop."""
 
     reviewing: bool = False
+
+    def review_running(self) -> bool:
+        """A review is running AND has reported within `REVIEW_SILENCE_SECONDS`."""
+        return self.reviewing and time.time() - self.last_beat <= REVIEW_SILENCE_SECONDS
 
     def _review_activity(self) -> None:
         """A running review job reported progress: the worker is moving."""

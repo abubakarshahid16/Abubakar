@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from app import dashboard_pool, ingest, job_queue, review_jobs
 from app.ingest import NO_PROGRESS_SECONDS, STALL_AFTER_SECONDS, IngestionWorker
 from app.main import app
+from app.worker_review import REVIEW_SILENCE_SECONDS
 from tests.test_worker_health import (  # noqa: F401 - fixture + helper
     temp_storage,
     upload,
@@ -73,6 +74,28 @@ def test_a_slow_review_step_is_busy_not_stuck(monkeypatch):
         "pending_but_no_progress" in r for r in seen["status"]["stalled_reasons"]
     )
     assert seen["status"]["reviewing"] is True
+
+
+def test_a_review_that_reports_nothing_for_a_long_time_turns_red_again(monkeypatch):
+    """cloud's ask on #1323: `busy` for a review is bounded by the silence, so a
+    review stuck forever in a model call is not hidden behind "busy"."""
+    w = _alive_worker_with_a_backlog(monkeypatch)
+    seen = {}
+
+    def stuck(job_id, worker_id, heartbeat=None):
+        w.last_beat = time.time() - (REVIEW_SILENCE_SECONDS + 60)
+        seen["health"] = _health()
+        w.last_beat = time.time() - (REVIEW_SILENCE_SECONDS - 120)
+        seen["quiet_but_alive"] = _health()
+        return "done"
+
+    monkeypatch.setattr(review_jobs, "recover_stale", lambda: None)
+    monkeypatch.setattr(review_jobs, "claim_next", lambda worker: "job-1")
+    monkeypatch.setattr(review_jobs, "run", stuck)
+    monkeypatch.setattr(job_queue, "worker_id", lambda: "w1")
+    assert w._drain_review_jobs() is True
+    assert _badge_is_red(seen["health"])
+    assert not _badge_is_red(seen["quiet_but_alive"])
 
 
 def test_the_queue_is_not_called_stuck_the_moment_a_review_ends(monkeypatch):
