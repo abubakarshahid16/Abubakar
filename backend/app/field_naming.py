@@ -42,6 +42,7 @@ import logging
 import re
 from datetime import datetime, timezone
 
+from . import fallback_note
 from .ai.json_reply import unfenced
 from .db import connect
 from .model_evidence import quote_verified
@@ -200,7 +201,7 @@ def stored_names(kind: str, keys: list[str], dictionary: list[str]) -> dict[str,
     return out
 
 
-def _store(kind: str, answers: dict[str, dict], dictionary: list[str], response) -> None:
+def _store(kind: str, answers: dict[str, dict], dictionary: list[str], response, provider=None) -> None:
     sha = _dictionary_sha(dictionary)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn = connect()
@@ -211,7 +212,8 @@ def _store(kind: str, answers: dict[str, dict], dictionary: list[str], response)
             " dictionary_sha256, field_name, quote, provider, model_tag, prompt_sha256,"
             " created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             [(kind, key, sha, a["field_name"], a["quote"], response.provider,
-              response.model_tag, response.prompt_sha256, now) for key, a in answers.items()])
+              response.model_tag + fallback_note.note_of(provider), response.prompt_sha256, now)
+             for key, a in answers.items()])
 
 
 # ------------------------------------------------------------------ the model
@@ -315,7 +317,7 @@ def name_items(kind: str, items: list[tuple[str, str]], dictionary: list[str], p
         # asked again under the same dictionary.
         for key, _text in batch:
             answers.setdefault(key, {"field_name": None, "quote": None})
-        _store(kind, answers, dictionary, response)
+        _store(kind, answers, dictionary, response, provider)
         known.update(answers)
     return known
 

@@ -45,9 +45,14 @@ def engine_label(provider, response) -> str:
     """ "ollama:<model>" as recorded before, plus "(Claude not used: <words>)"
     when `provider` fell back from Claude. A provider without the attribute
     (a test double, the Claude provider) adds nothing."""
-    label = f"{response.provider}:{response.model_tag}"
+    return f"{response.provider}:{response.model_tag}{note_of(provider)}"
+
+
+def note_of(provider) -> str:
+    """ " (Claude not used: <words>)" when `provider` fell back from Claude, else "" (a test double
+    or the Claude provider carries no `fell_back`)."""
     words = getattr(provider, "fell_back", None)
-    return f"{label} (Claude not used: {words})" if words else label
+    return f" (Claude not used: {words})" if words else ""
 
 
 def carry(old, **timeout):

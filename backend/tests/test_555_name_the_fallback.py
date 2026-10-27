@@ -210,3 +210,62 @@ def test_a_global_claude_request_survives_a_step_that_did_not_ask_itself(
     monkeypatch.setattr(settings, "crs_ai_wording_engine", "ollama")
     provider, _ = crs_wording._provider_for_this_review()
     assert provider.fell_back == fallback_note.WORDS["KEY_MISSING"]
+
+
+def _naming_provider(provider):
+    """The real provider `field_naming` gets, answering from a fake reply (no model, no network)."""
+    from tests.test_field_naming import FakeProvider
+
+    fake = FakeProvider(
+        lambda items: [{"i": 0, "field": 0, "quote": "SOUND PRESS. LEVEL"}]
+    )
+    provider.reason = (
+        fake.reason
+    )  # the packet and the answer are the fake's; the provider is real
+    return provider
+
+
+def _stored_model_tag():
+    from app import db
+
+    return (
+        db.connect()
+        .execute("SELECT model_tag FROM canonical_field_names")
+        .fetchone()[0]
+    )
+
+
+def test_the_stored_field_names_say_claude_was_not_used(claude_asked_for):
+    """field_naming is the one remaining step that stores which engine answered (#555)."""
+    from app import field_naming
+    from tests.test_field_naming import (  # noqa: F401 - autouse
+        DICTIONARY,
+        LABEL,
+        temp_db,
+    )
+
+    claude_asked_for("KEY_MISSING")
+    provider = _naming_provider(
+        rp.get_provider("labelling", step=field_naming.NAMING_STEP)
+    )
+    field_naming.name_items(
+        field_naming.LABEL, [("sound", LABEL)], DICTIONARY, provider
+    )
+    assert (
+        _stored_model_tag()
+        == f"fake:1 (Claude not used: {fallback_note.WORDS['KEY_MISSING']})"
+    )
+
+
+def test_a_chosen_local_run_stores_the_plain_model_tag(claude_asked_for):
+    from app import field_naming
+    from tests.test_field_naming import DICTIONARY, LABEL
+
+    claude_asked_for(setting="ollama")
+    provider = _naming_provider(
+        rp.get_provider("labelling", step=field_naming.NAMING_STEP)
+    )
+    field_naming.name_items(
+        field_naming.LABEL, [("sound", LABEL)], DICTIONARY, provider
+    )
+    assert _stored_model_tag() == "fake:1"
