@@ -170,3 +170,15 @@ def test_a_check_that_cannot_run_is_said_with_the_error_type_only(monkeypatch):
     [note] = reference_follow.for_run(["x"], frozenset())
     assert note["count"] is None and "RuntimeError" in note["detail"]
     assert "secret" not in note["detail"]
+
+
+def test_a_clause_inside_a_printed_range_is_counted_not_dropped():
+    _standard("tgt", "XYZ-100", [TARGET_PAGE], TARGET_REQS)
+    _standard("src", "SPEC-7", ["Size per XYZ-100 clauses 5.1 to 5.4."])
+    result = reference_follow.follow(["src"], _allowed())
+    states = [i["state"] for i in result["checked"]]
+    assert states.count("in_range") >= 1, states
+    [note] = reference_follow.notes(result)
+    assert "inside a printed range" in note["detail"]
+    total = len(result["checked"])
+    assert f"{total} clause reference(s)" in note["detail"]

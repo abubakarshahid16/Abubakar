@@ -10,6 +10,7 @@ requirements). Each such citation ends in one of four named states, never silenc
   followed        the clause is in the held copy (page numbers are in `subject_scope`, not here)
   clause_missing  the held copy of the cited standard has stored requirements but none in that clause
   not_checked     the held copy has no stored requirements to search, or the clause reading is unsure
+  in_range        a clause inside a printed range ("5.1 to 5.4"): the numbering may skip it, so it is counted, not followed
   whole           the citation names the standard alone: nothing to follow (counted)
 
 Identifiers and counts only; no sentence of a document leaves this module. Read only, no model.
@@ -83,8 +84,10 @@ def follow(used: list[str], allowed: frozenset[str]) -> dict:
                 found = subject_scope._found_clauses(text, rows, clauses)
             for clause in clauses:
                 if getattr(clause, "in_range", False):
-                    continue  # inside a printed range: the numbering may skip it
-                if not rows or not getattr(clause, "sure", True):
+                    state = (
+                        "in_range"  # inside a printed range: the numbering may skip it
+                    )
+                elif not rows or not getattr(clause, "sure", True):
                     state = "not_checked"
                 else:
                     state = "followed" if clause in found else "clause_missing"
@@ -134,7 +137,8 @@ def notes(result: dict) -> list[dict]:
         f"{len(checked)} clause reference(s) in the standards used name a standard the library holds: "
         f"{states['followed']} found in the held copy, {states['clause_missing']} not found, "
         f"{states['not_checked']} not checked (the held copy has no stored requirements to search, "
-        "or the clause could not be read for certain)."
+        f"or the clause could not be read for certain), {states['in_range']} inside a printed range "
+        "(counted, not followed)."
     ]
     if missing:
         parts.append(f"Not found in the held copy: {shown}{tail}.")
