@@ -30,13 +30,22 @@
     "operating_temperature": {
       "kind": "temperature",
       "names": [
-        "^(max(imum|\\.)? )?(normal )?operating temp(erature|\\.)?$"
+        "^(max(imum|\\.)? )?(normal )?operating temp(erature|\\.)?$",
+        "^(max(imum|\\.)? )?(normal )?pumping temp(erature|\\.)?$"
+      ],
+      "printed_as": [
+        "pumping temperature"
       ]
     },
     "rated_flow": {
       "kind": "flow",
       "names": [
+        "^(rated )?(capacity ?/ ?flow|flow ?/ ?capacity)$",
         "^rated (flow|capacity)$"
+      ],
+      "printed_as": [
+        "capacity / flow",
+        "flow / capacity"
       ]
     },
     "min_flow": {
