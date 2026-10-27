@@ -65,12 +65,28 @@ MUTATIONS: tuple[Mutation, ...] = (
 )
 
 MUTATIONS = MUTATIONS + (
-    Mutation(id="M4520", phase=4520, description="#678's counts leave out the service gate, AI and definitions (two sources)",
-             path=APP / "comparison.py",
-             # re-anchored 2026-10-10 (#746 part 2): the call also passes covered_items;
-             # again 2026-10-27 (order 260.1): and the findings' statuses
-             anchor="        scoped[\"not_applied_items\"] + extra_not_applied,\n        covered_items,\n        status_of=status_of,\n    )\n",
-             replacement="        scoped[\"not_applied_items\"],\n        covered_items,\n        status_of=status_of,\n    )\n",
-             target=_T, keyword="exactly_one_stored", tags=("honesty", "critical")),
+    Mutation(
+        id="M4520",
+        phase=4520,
+        description="#678's counts leave out the service gate, AI and definitions (two sources)",
+        path=APP / "comparison.py",
+        # re-anchored 2026-10-10 (#746 part 2): the call also passes covered_items;
+        # again 2026-10-27 (order 260.1): and the findings' statuses
+        anchor=(
+            '        scoped["not_applied_items"] + extra_not_applied,\n'
+            "        covered_items,\n"
+            "        status_of=status_of,\n"
+            "    )\n"
+        ),
+        replacement=(
+            '        scoped["not_applied_items"],\n'
+            "        covered_items,\n"
+            "        status_of=status_of,\n"
+            "    )\n"
+        ),
+        target=_T,
+        keyword="exactly_one_stored",
+        tags=("honesty", "critical"),
+    ),
 )
 
