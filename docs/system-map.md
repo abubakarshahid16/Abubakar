@@ -117,6 +117,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
+| `dual_unit_form` | Reads "24.8 (109) m3/h (USGPM)" as its first system, "24.8 m3/h", when both halves are one quantity |
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
