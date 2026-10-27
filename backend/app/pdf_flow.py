@@ -8,9 +8,12 @@ widths, and a block that does not fit the page continues on the next page
 under a "(continued)" line. Layout only: nothing here decides what a report
 says.
 """
+
 from __future__ import annotations
 
 import pymupdf
+
+from . import pdf_guard
 
 LEFT, RIGHT, TOP, BOTTOM = 48.0, 548.0, 48.0, 790.0
 #: Inside a box the text is inset from the border on both sides.
@@ -24,8 +27,13 @@ def wrap(text: str, width: float, fontsize: float, fontname: str = "helv") -> li
     Greedy word wrap on measured widths; a single word wider than the line
     (a long id, a URL) is split between characters rather than dropped.
     """
+
     def fits(s: str) -> bool:
-        return pymupdf.get_text_length(s, fontname=fontname, fontsize=fontsize) <= width
+        with pdf_guard.held():
+            return (
+                pymupdf.get_text_length(s, fontname=fontname, fontsize=fontsize)
+                <= width
+            )
 
     out: list[str] = []
     for paragraph in (text or "").replace("\r", "").split("\n"):
@@ -38,7 +46,9 @@ def wrap(text: str, width: float, fontsize: float, fontname: str = "helv") -> li
             if line:
                 out.append(line)
             while not fits(word):
-                cut = next((i for i in range(len(word) - 1, 0, -1) if fits(word[:i])), 1)
+                cut = next(
+                    (i for i in range(len(word) - 1, 0, -1) if fits(word[:i])), 1
+                )
                 out.append(word[:cut])
                 word = word[cut:]
             line = word
@@ -63,22 +73,43 @@ class Flow:
     def gap(self, points: float) -> None:
         self.y += points
 
-    def text(self, text: str, *, fontsize: float, fontname: str = "helv",
-             color: tuple | None = None, lineheight: float = 1.25,
-             x: float = LEFT, width: float | None = None) -> None:
+    def text(
+        self,
+        text: str,
+        *,
+        fontsize: float,
+        fontname: str = "helv",
+        color: tuple | None = None,
+        lineheight: float = 1.25,
+        x: float = LEFT,
+        width: float | None = None,
+    ) -> None:
         """One paragraph, wrapped to the printable width, page breaks allowed
         between its lines."""
         step = fontsize * lineheight
         for line in wrap(text, width or (RIGHT - x), fontsize, fontname):
             self._room(step)
             self.y += fontsize
-            self.page.insert_text((x, self.y), line, fontsize=fontsize, fontname=fontname,
-                                  **({"color": color} if color else {}))
+            self.page.insert_text(
+                (x, self.y),
+                line,
+                fontsize=fontsize,
+                fontname=fontname,
+                **({"color": color} if color else {}),
+            )
             self.y += step - fontsize
 
-    def box(self, text: str, *, fontsize: float = 8.5, fontname: str = "helv",
-            color: tuple | None = None, border: tuple | None = None,
-            fill: tuple | None = None, lineheight: float = 1.25) -> int:
+    def box(
+        self,
+        text: str,
+        *,
+        fontsize: float = 8.5,
+        fontname: str = "helv",
+        color: tuple | None = None,
+        border: tuple | None = None,
+        fill: tuple | None = None,
+        lineheight: float = 1.25,
+    ) -> int:
         """A bordered block of wrapped text that CONTINUES on the next page
         when it does not fit, never cut. Returns the number of pages it spans."""
         step = fontsize * lineheight
@@ -89,13 +120,22 @@ class Flow:
             if pages:
                 lines = [CONTINUED, *lines]
             room = int((BOTTOM - self.y - 2 * BOX_PAD) // step)
-            chunk, lines = lines[:max(1, room)], lines[max(1, room):]
+            chunk, lines = lines[: max(1, room)], lines[max(1, room) :]
             height = len(chunk) * step + 2 * BOX_PAD
-            self.page.draw_rect(pymupdf.Rect(LEFT, self.y, RIGHT, self.y + height),
-                                color=border, fill=fill, width=0.5)
-            self.page.insert_text((LEFT + BOX_PAD, self.y + BOX_PAD + fontsize * 0.9), chunk,
-                                  fontsize=fontsize, fontname=fontname, lineheight=lineheight,
-                                  **({"color": color} if color else {}))
+            self.page.draw_rect(
+                pymupdf.Rect(LEFT, self.y, RIGHT, self.y + height),
+                color=border,
+                fill=fill,
+                width=0.5,
+            )
+            self.page.insert_text(
+                (LEFT + BOX_PAD, self.y + BOX_PAD + fontsize * 0.9),
+                chunk,
+                fontsize=fontsize,
+                fontname=fontname,
+                lineheight=lineheight,
+                **({"color": color} if color else {}),
+            )
             self.y += height
             pages += 1
             if lines:
