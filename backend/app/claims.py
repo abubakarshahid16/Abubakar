@@ -271,7 +271,7 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     # converts to nothing.
     "cp": "viscosity", "scfh": None,
 }
-_RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS) | {"usgpm"}
+_RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
 
 #: THE TEMPERATURE SCALES (order 141 B): a folded spelling ->
 #: (kelvin per degree, kelvin at the scale's zero). AFFINE, which is why they

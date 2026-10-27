@@ -23,11 +23,6 @@ def _measure(text):
     "text, value, unit",
     [
         ("24.8 (109) m3/h (USGPM)", "24.8", "m3/h"),
-        (
-            "24.8 (30) m3/h (USGPM)",
-            "24.8",
-            "m3/h",
-        ),  # the second unit cannot be converted
         ("76.7 (170) C (F)", "76.7", "C"),
         ("76.7 (170) °C (°F)", "76.7", "°C"),
         ("10 (145) bar (psi)", "10", "bar"),
@@ -49,6 +44,11 @@ def test_the_first_system_is_the_value_and_its_unit_is_kept(text, value, unit):
         "340 (23.4) psig",  # one unit after two numbers: which number it belongs to is unknown
         "24.8 (109) m3/h",
         "5 (note 3) kW (hp)",
+        "24.8 (30) m3/h (USGPM)",  # 30 USGPM is not 24.8 m3/h: two quantities (planner's review)
+        # a bracket that is a NOTE (gauge, normal, kg, rpm), never a second system
+        "10 (12) bar (g)",
+        "5 (7) m3/h (n)",
+        "10 (-2) bar (kg)",
         "6 (2) VEFV (pcs)",  # the word after the numbers is not a unit: a tag, not a quantity
         # cloud's review: the second bracket is checked too, it must be a unit
         "10 (20) kW (max)",  # a rate and its qualifier, not two systems
@@ -62,11 +62,48 @@ def test_a_cell_that_is_not_one_quantity_twice_is_read_exactly_as_before(text):
     assert _measure(text)[1] is None
 
 
-def test_a_us_gallon_rate_is_a_recognised_unit_so_the_cell_can_be_read():
+def test_a_us_gallon_rate_converts_so_the_two_halves_are_checked_not_trusted():
     from app import claims
 
-    assert claims.is_unit("usgpm")
-    assert claims.unit_dimension("usgpm") is None  # recognised, not converted
+    assert claims.unit_dimension("usgpm") == "volumetric_flow"
+    assert claims.normalise("109", "USGPM").normalized_value == pytest.approx(
+        24.757, rel=1e-3
+    )
+    assert (
+        claims.normalise("1", "usgpm").normalized_value
+        == claims.normalise("1", "usgal/min").normalized_value
+    )
+
+
+@pytest.mark.parametrize(
+    "text, unit",
+    [
+        ("24.8 m3/h (109 USGPM)", "m3/h"),
+        ("10 barg (145 psig)", "barg"),
+        (
+            "20 barg (25 barg)",
+            "barg",
+        ),  # one unit twice: not two systems, read as before
+        (
+            "20 barg (40 barg)",
+            "barg",
+        ),  # far apart, but one unit twice is not two systems
+        ("120 m3/h (approx)", "m3/h"),
+        # nominal conversions are roundings, not a second quantity (s3's review)
+        ("10 bar (150 psi)", "bar"),
+        ("12 mm (0.5 in)", "mm"),
+        ("150 C (302 F)", "C"),
+    ],
+)
+def test_the_trailing_form_that_agrees_or_is_no_second_system_is_read_as_before(
+    text, unit
+):
+    assert _measure(text)[1] == unit
+
+
+@pytest.mark.parametrize("text", ["24.8 m3/h (30 USGPM)", "10 bar (14 psi)"])
+def test_the_trailing_form_with_two_different_quantities_is_refused_not_guessed(text):
+    assert _measure(text) == (None, None, None)
 
 
 def test_the_number_is_converted_in_the_first_unit():
