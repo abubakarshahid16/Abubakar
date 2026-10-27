@@ -86,6 +86,15 @@ def _not_clean(row: dict) -> str | None:
         # block, a revision table, notes), so what the picture reader would add
         # is not a value. The text layer was usable (checked above).
         return None
+    from .vision_reader import SWITCHED_OFF_WORDS
+
+    if SWITCHED_OFF_WORDS in reason and row["native_status"] != "text":
+        # Scanned page (OCR text, or one stray native word): the picture reader
+        # was the only one that could see it, and the owner switched it off.
+        return (
+            "Both readers found no field on this page, but its text came from OCR "
+            "and the picture reader is switched off, so it is not counted as read"
+        )
     if (
         "unavailable" in reason
         or "vision page budget is spent" in reason
