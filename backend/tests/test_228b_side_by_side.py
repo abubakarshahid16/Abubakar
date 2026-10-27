@@ -62,32 +62,47 @@ def test_an_empty_value_cell_never_takes_the_next_items_number():
 
 
 def test_a_lone_number_before_a_label_is_an_index_not_an_answer():
-    assert gi.is_index_before_label(["Rated capacity", "", "8", "Orifice designation"], 2)
+    assert gi.is_index_before_label(
+        ["Rated capacity", "", "8", "Orifice designation"], 2
+    )
     assert not gi.is_index_before_label(["Pressure", "10 barg", "Fluid"], 1)
     assert not gi.is_index_before_label(["Pressure", "8"], 1)
 
 
-def test_a_single_row_is_not_enough_to_call_a_column_a_running_number():
-    table = {
-        "rows": [
-            {"cells": [
+def test_two_rows_are_not_enough_to_call_a_column_a_running_number():
+    def row(n):
+        return {
+            "cells": [
                 {"column": 0, "text": "Number of stages"},
-                {"column": 1, "text": "4"},
+                {"column": 1, "text": str(n)},
                 {"column": 2, "text": "Stage type"},
-            ]}
-        ]
-        * 2
-    }
+            ]
+        }
+
+    table = {"rows": [row(2), row(4)]}
     assert gi.split(table) is table
+
+
+def test_the_answer_skips_an_index_number_before_a_label():
+    import re
+
+    cells = [{"text": t} for t in ("Rated capacity", "", "8", "Orifice designation")]
+    texts = [c["text"] for c in cells]
+    got = gi.first_answer(cells, texts, [0, 2, 3], re.compile(r"^\d"))
+    assert got is None
+    cells[2]["text"] = texts[2] = "125 m3/h"
+    assert gi.first_answer(cells, texts, [0, 2, 3], re.compile(r"^\d")) == 2
 
 
 def test_a_numbered_column_must_grow_down_the_table():
     def row(n):
-        return {"cells": [
-            {"column": 0, "text": "Label"},
-            {"column": 1, "text": str(n)},
-            {"column": 2, "text": "Other label"},
-        ]}
+        return {
+            "cells": [
+                {"column": 0, "text": "Label"},
+                {"column": 1, "text": str(n)},
+                {"column": 2, "text": "Other label"},
+            ]
+        }
 
     same = {"rows": [row(4), row(4), row(4)]}
     assert gi.split(same) is same
