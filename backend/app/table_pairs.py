@@ -9,8 +9,8 @@ pairs per row when the shape proves it, and returns None (the old reading, uncha
 THE SHAPE, general (no label, sheet or layout is named):
   * exactly four columns, at least three rows;
   * the first and third cells of the rows below are LABELS (letters, no digit, at most eight
-    words, not a unit) and the second or fourth holds an answer, in at least two rows and at least
-    60% of them. A table whose third column holds a unit, a number or a code is not this shape;
+    words, not a unit) and the second or fourth holds an answer, in at least 60% of the rows
+    (with three rows or more, that is at least two). A table whose third column holds a unit, a number or a code is not this shape;
   * row 0 is a HEADER only when every word in it is a column-name word (`COLUMN_NAME_WORDS`, a closed
     list) AND it repeats ("Parameter | Value | Parameter | Value"): a four-column header that names
     four different columns ("Item | Required | Offered | Remarks") is an ordinary table and is left to
@@ -57,7 +57,6 @@ COLUMN_NAME_WORDS = frozenset(
     }
 )
 
-MIN_PAIRED_ROWS = 2
 PAIRED_SHARE = 0.6
 MAX_LABEL_WORDS = 8
 
@@ -114,7 +113,7 @@ def two_pairs_per_row(shape: list[list[str]]) -> list[tuple[str, str]] | None:
         start = 0 if _pair_shaped(first, is_unit) else 1  # an answer, else a title
     body = rows[start:]
     paired = [row for row in body if _pair_shaped(row, is_unit)]
-    if len(paired) < MIN_PAIRED_ROWS or len(paired) < PAIRED_SHARE * len(body):
+    if len(paired) < PAIRED_SHARE * len(body):
         return None
     out: list[tuple[str, str]] = []
     for row in body:

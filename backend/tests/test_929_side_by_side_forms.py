@@ -129,3 +129,21 @@ def test_the_column_name_words_are_a_closed_list_not_a_guess():
         ["Service", "Air receiver", "Vacuum service", "No"]
     )
     assert not table_pairs.is_column_names(["Design pressure", "Value"])
+
+
+def test_one_pair_shaped_row_among_others_is_not_enough():
+    """A table of which only one row looks like two forms is not that shape."""
+    shape = [
+        ["Service", "Air receiver", "Vacuum service", "No"],
+        ["Material", "SA-516", "SA-516 Gr70", "OK"],
+        ["Flange", "ASME B16.5", "ASME B16.5", "OK"],
+        ["Bolting", "B7", "B7M", "OK"],
+    ]
+    assert table_pairs.two_pairs_per_row(shape) is None
+
+
+def test_two_pair_shaped_rows_among_many_others_are_not_enough():
+    pair = ["Design pressure", "10 barg", "Design temperature", "120 C"]
+    other = ["Material", "SA-516", "SA-516 Gr70", "OK"]
+    assert table_pairs.two_pairs_per_row([pair, pair, other, other, other]) is None
+    assert table_pairs.two_pairs_per_row([pair, pair, pair, other, other]) is not None
