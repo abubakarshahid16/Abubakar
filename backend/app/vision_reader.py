@@ -491,6 +491,21 @@ def read_page(page: Any, page_no: int, provider, *,
     return reading
 
 
+def read_page_of(doc, page_no: int, provider, geometry_rows: list[dict] | None):
+    """`read_page` for page `page_no` of an open document, or None when it has no such page.
+    The page is fetched and (after the model call) dropped under the PyMuPDF lock; the model call
+    itself runs outside it (order 252)."""
+    with pdf_guard.held():
+        if not (1 <= page_no <= doc.page_count):
+            return None
+        page = doc[page_no - 1]
+    try:
+        return read_page(page, page_no, provider, geometry_rows=geometry_rows)
+    finally:
+        with pdf_guard.held():
+            del page  # MuPDF frees the page here, inside the lock
+
+
 def engine_setting() -> str:
     """`settings.vision_reader_engine`, folded."""
     from .config import settings

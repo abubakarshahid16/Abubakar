@@ -245,3 +245,20 @@ def test_a_file_shorter_than_the_matrix_serves_the_heap_copy(corpus, monkeypatch
     monkeypatch.setattr(vectorcache, "_map", too_short)
     matrix = vectorcache.load()
     assert matrix.ids and not isinstance(matrix.matrix, np.memmap)
+
+
+def test_an_abandoned_temporary_file_of_the_live_token_is_swept_too(corpus):
+    import os
+    import time
+
+    directory = vectorcache.cache_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    keep = "corpus-0000000000000001"
+    abandoned = directory / f"{keep}.f32.4242-abc.tmp"
+    live = directory / f"{keep}.f32"
+    for path in (abandoned, live):
+        path.write_bytes(b"x")
+    old = time.time() - vectorcache._TMP_GRACE_S - 5
+    os.utime(abandoned, (old, old))
+    vectorcache._sweep(keep)
+    assert not abandoned.exists() and live.exists()

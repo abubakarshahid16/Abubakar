@@ -144,15 +144,17 @@ def _sweep(keep: str) -> None:
     cannot be unlinked on Windows, and is retried at the next build instead
     of being closed underneath its reader."""
     for path in cache_dir().iterdir():
-        if path.is_file() and not path.name.startswith(keep):
+        try:
+            if not path.is_file():
+                continue
+            temporary = path.suffix == ".tmp"
             young = time.time() - path.stat().st_mtime < _TMP_GRACE_S
-            if path.suffix == ".tmp" and young:
-                continue  # another process may be writing it right now (order 252)
-            try:
-                path.unlink()
-            except OSError as exc:  # #655: retried at the next build
-                log.info("vector cache sweep kept a superseded file (%s); "
-                         "retried at the next build", type(exc).__name__)
+            if (temporary and young) or (path.name.startswith(keep) and not temporary):
+                continue  # a writer may be at it right now / the live version (order 252)
+            path.unlink()
+        except OSError as exc:  # #655: retried at the next build
+            log.info("vector cache sweep kept a superseded file (%s); "
+                     "retried at the next build", type(exc).__name__)
 
 
 def _map(data_path: Path, rows: int) -> np.ndarray:
