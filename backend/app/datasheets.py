@@ -51,7 +51,7 @@ from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan
                submittal_review, tables)
 from .config import settings
 from .db import connect
-from . import dual_unit_form, slot_options  # isort: skip
+from . import dual_unit_form, pdf_guard, slot_options  # isort: skip
 
 #: Where a datasheet says a value is not filled in yet.
 #:
@@ -2400,7 +2400,7 @@ def pdf_condition(stored_path: str) -> tuple[str | None, str, bool]:
     except ImportError:  # pragma: no cover
         return None, "", False
     try:
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.held(), pymupdf.open(stored_path) as doc:
             if doc.needs_pass:
                 return "pdf_encrypted", UNREADABLE["pdf_encrypted"], False
             return None, "", bool(getattr(doc, "is_repaired", False))
@@ -2431,7 +2431,7 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
     except ImportError:  # pragma: no cover
         return []
     try:
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.held(), pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             # R27: in the space the page reads left to right (a rotated page)
@@ -2655,7 +2655,7 @@ def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dic
         return []
     try:
         import pymupdf
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.held(), pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             from . import geometry_reader
@@ -2702,7 +2702,7 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int,
         import pymupdf
 
         from . import geometry_reader
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.held(), pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             rows = geometry_reader.read_page_rows(doc[page_no - 1])
@@ -2757,7 +2757,7 @@ def _text_layer_words(stored_path: str | None, page_no: int) -> int:
         return 0
     try:
         import pymupdf
-        with pymupdf.open(stored_path) as doc:
+        with pdf_guard.held(), pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return 0
             return len(doc[page_no - 1].get_text("words"))
@@ -2774,13 +2774,13 @@ def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[d
             or datasheet_inputs.is_office_input(stored_path)):  # DATASHEET_OFFICE_INPUT seam
         return None
     try:
-        import pymupdf
-
         from . import vision_reader
-        with pymupdf.open(stored_path) as doc:
-            if not (1 <= page_no <= doc.page_count):
-                return None
-            return vision_reader.read_page(doc[page_no - 1], page_no, provider,
+        with pdf_guard.opened(stored_path) as doc:  # the model call below is outside the lock
+            with pdf_guard.held():
+                if not (1 <= page_no <= doc.page_count):
+                    return None
+                page = doc[page_no - 1]
+            return vision_reader.read_page(page, page_no, provider,
                                            geometry_rows=geometry_rows)
     except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
         _page_failed(page_no, "vision_open", exc)

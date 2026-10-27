@@ -33,3 +33,19 @@ def held():
     """The lock for one short block of PyMuPDF calls."""
     with _lock:
         yield
+
+
+@contextmanager
+def opened(path):
+    """A PyMuPDF document opened under the lock and closed under it, handed over WITHOUT the lock:
+    for a caller that must do slow work (a model call) between page reads. Every page read in
+    that caller takes `held()` itself."""
+    import pymupdf
+
+    with _lock:
+        doc = pymupdf.open(path)
+    try:
+        yield doc
+    finally:
+        with _lock:
+            doc.close()

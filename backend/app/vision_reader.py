@@ -47,7 +47,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import errors
+from . import errors, pdf_guard
 from .ai.json_reply import unfenced
 from .model_evidence import _collapse, quote_verified
 
@@ -457,7 +457,9 @@ def read_page(page: Any, page_no: int, provider, *,
 
     reading = PageReading(page=page_no)
     try:
-        response = provider.reason(packet_for(render(page), page_no))
+        with pdf_guard.held():
+            packet = packet_for(render(page), page_no)
+        response = provider.reason(packet)  # the model call is NEVER inside the lock
     except (ProviderRefused, RuntimeError) as exc:
         # BudgetExceeded is a RuntimeError; the type and message only.
         reading.refused = f"{type(exc).__name__}: {exc}"
@@ -470,10 +472,12 @@ def read_page(page: Any, page_no: int, provider, *,
         return reading
     reading.page_kind, proposals = parse(response.text)
     reading.proposed = len(proposals)
-    text = PageText.of(page)
+    with pdf_guard.held():
+        text = PageText.of(page)
+        page_width = float(page.rect.width)
     seen: set[tuple[str, str]] = set()
     for proposal in proposals:
-        kept, reason = verify(proposal, text, float(page.rect.width), geometry_rows)
+        kept, reason = verify(proposal, text, page_width, geometry_rows)
         if kept is None:
             reading.drop(reason or "unverified")
             continue
