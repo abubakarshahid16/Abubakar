@@ -20,6 +20,7 @@ review needs that an extraction does not:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
 from pathlib import Path
@@ -167,8 +168,10 @@ def _scope_of(user_id: str | None) -> frozenset[str]:
     return access.scope_for_user(user_id).allowed_document_ids
 
 
-def _step(conn, job_id: str, index: int) -> None:
+def _step(conn, job_id: str, index: int, heartbeat=None) -> None:
     """Record progress and honour a cancellation - between steps, never inside one."""
+    if heartbeat is not None:
+        heartbeat()
     with conn:
         row = conn.execute("SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if row and row["cancel_requested"]:
@@ -178,14 +181,17 @@ def _step(conn, job_id: str, index: int) -> None:
                      (index, STEPS[index], _now(), _now(), job_id))
 
 
-def _page(conn, job_id: str, done: int, total: int) -> None:
+def _page(conn, job_id: str, done: int, total: int, heartbeat=None) -> None:
     """Order 95 piece 3b: the page the reader is on, inside step 1's label -
     "reading the datasheet, page 3 of 11". Progress only: the step index and
     the job's claim are left as they are.
 
     SKIPPED INSIDE AN OPEN TRANSACTION. The reader shares this thread's
     connection; committing a progress line there would commit the reader's
-    unfinished writes with it. A skipped line costs one stale label."""
+    unfinished writes with it. A skipped line costs one stale label. The worker
+    heartbeat is NOT skipped: the page was read, so the worker is moving."""
+    if heartbeat is not None:
+        heartbeat()
     if conn.in_transaction:
         return
     label = f"{STEPS[0]}, page {done} of {total}"
@@ -194,9 +200,42 @@ def _page(conn, job_id: str, done: int, total: int) -> None:
         conn.execute(sql, (label, _now(), job_id))
 
 
-def _reporting_pages(conn, job_id: str):
+def _reporting_pages(conn, job_id: str, heartbeat=None):
     """The reader's page reports go to this job's label for the block (3b)."""
-    return job_progress.reporting(lambda done, total: _page(conn, job_id, done, total))
+    return job_progress.reporting(
+        lambda done, total: _page(conn, job_id, done, total, heartbeat)
+    )
+
+
+@contextlib.contextmanager
+def _phase(
+    conn, job_id: str, index: int | None, heartbeat, timings: dict, name: str | None
+):
+    """A phase of the run: a beat of the worker's heartbeat at its start, the
+    step recorded when it has an `index`, timed in the trace when it has a
+    `name`, and its reader page reports are also heartbeats."""
+    from . import review_trace
+
+    if index is not None:
+        _step(conn, job_id, index, heartbeat)
+    elif heartbeat is not None:
+        heartbeat()
+    timed = review_trace.timed(timings, name) if name else contextlib.nullcontext()
+    with timed, _reporting_pages(conn, job_id, heartbeat):
+        yield
+
+
+#: The run's outcome is stored before the AI comments, numbers and wording are
+#: written (order 236): the run reads as running, and says so, until the end.
+FINISHING = "finishing: AI comments and wording"
+
+
+def _label(conn, job_id: str, label: str) -> None:
+    with conn:
+        conn.execute(
+            "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?",
+            (label, _now(), job_id),
+        )
 
 
 def _record_check_failure(run_id: str, column: str, name: str, exc: BaseException) -> None:
@@ -305,12 +344,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     try:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
+
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
-        _step(conn, job_id, 0)
-        with review_trace.timed(timings, "read"), _reporting_pages(conn, job_id):
+        with _phase(conn, job_id, 0, heartbeat, timings, "read"):
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
-        _step(conn, job_id, 1)
-        with review_trace.timed(timings, "standards"), _reporting_pages(conn, job_id):
+        with _phase(conn, job_id, 1, heartbeat, timings, "standards"):
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
@@ -319,24 +357,24 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
 
             held = company_standard_confirm.held_readable(scope)
             reread_for_standards.for_review(submittal, scope, run_id, timings)
-        _step(conn, job_id, 2)
-        with review_trace.timed(timings, "compare"):
+        with _phase(conn, job_id, 2, heartbeat, timings, "compare"):
             comparison.run_comparison(
                 run_id, allowed_document_ids=scope,
                 reference_coverage=selection.get("reference_coverage"),
                 missing_references=[m["identifier"] for m in selection["missing_references"]])
             company_standard_confirm.record_on_run(run_id, held)
-        with review_trace.timed(timings, "checks"):
+        _label(conn, job_id, FINISHING)
+        with _phase(conn, job_id, None, heartbeat, timings, "checks"):
             _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
             _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
-        # R15 (#779): every CRS row of the finished run gets its permanent
-        # number (drafts not issued). Never fails the run (see the helper).
-        from .main import number_crs_rows
-        number_crs_rows(run_id, requester)
-        # R26 step 8 (#763): the model words each CRS comment; never fails the run.
-        from .main import word_crs_rows
-        word_crs_rows(run_id, requester)
+        # R15 (#779): every CRS row of the finished run gets its permanent number
+        # (drafts not issued), then R26 step 8 (#763): the model words each CRS
+        # comment. Neither fails the run (see the helpers).
+        from .main import number_crs_rows, word_crs_rows
+        with _phase(conn, job_id, None, heartbeat, timings, None):
+            number_crs_rows(run_id, requester)
+            word_crs_rows(run_id, requester)
         # #791 part 1: the run's step-by-step trace, stored behind the run's
         # access rules (reads only, never fails the run) ...
         review_trace.store(run_id, requester, timings)

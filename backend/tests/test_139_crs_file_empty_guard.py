@@ -141,7 +141,7 @@ def test_internal_copy_names_a_row_with_no_text():
     view = ce.build_crs_view(rows, {"copy": ce.COPY_INTERNAL})
     assert view["rows_withheld_no_text"] == 0
     assert [r["comment_missing"] for r in view["rows"]] == [False, True]
-    assert view["rows"][1]["comment"].split("\n")[1] == ce.EMPTY_COMMENT_TEXT
+    assert view["rows"][1]["comment"] == ce.EMPTY_COMMENT_TEXT  # order 236: no Ref line
     cell = (
         _sheet(rows, ce.COPY_INTERNAL).cell(row=ce.FIRST_DATA_ROW + 1, column=4).value
     )

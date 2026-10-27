@@ -181,6 +181,23 @@ def test_a_submittal_with_no_number_prints_nothing_not_none():
     assert ws.cell(row=_header_row("submittal_number"), column=3).value in (None, "")
 
 
+ISSUE = {**SUB, "copy": "issue"}
+ISSUED = dict(FINDING, engineer_confirmed=True)
+
+
+def test_the_internal_copy_never_opens_a_comment_with_the_reference():
+    """Order 236 (owner report on the M-03 export): "Ref: RF-..." sat inside
+    COMPANY Comments on the engineer's copy. The reference stays on the row
+    (`row_ref`, for the preview) and on the contractor's copy."""
+    from app.crs_export import build_crs_view
+
+    ws = load([FINDING], SUB)
+    assert "RF-" not in _comment(ws) and _comment(ws).startswith("Requirement:")
+    view = build_crs_view([FINDING], SUB)["rows"][0]
+    assert view["row_ref"].startswith("RF-") and "RF-" not in view["comment"]
+    assert _comment(load([ISSUED], ISSUE)).startswith("Ref: RF-")
+
+
 def test_the_row_reference_is_the_first_line_of_the_comment_cell():
     """ITEM 3, AND NO EIGHTH COLUMN. The client's template has seven columns;
     the reference rides in the COMPANY Comments text, above the comment
@@ -244,29 +261,29 @@ def test_confirming_a_finding_does_not_renumber_it():
 def test_the_same_finding_in_a_different_run_gets_a_different_reference():
     """The run is half the key: two reviews of one submittal are two sheets,
     and one number meaning both would make a reply ambiguous."""
-    one = _comment(load([FINDING], SUB)).split("\n")[0]
-    two = _comment(load([FINDING], dict(SUB, review_run_id="run_2"))).split("\n")[0]
+    one = _comment(load([ISSUED], ISSUE)).split("\n")[0]
+    two = _comment(load([ISSUED], dict(ISSUE, review_run_id="run_2"))).split("\n")[0]
     assert one != two
 
 
 def test_two_identical_rows_still_get_two_distinct_references():
     """A reference a contractor cannot answer unambiguously is worse than no
     reference. Identical text is re-minted rather than repeated."""
-    twin = dict(FINDING, finding_id="")
-    ws = load([twin, dict(twin)], SUB)
+    twin = dict(ISSUED, finding_id="")
+    ws = load([twin, dict(twin)], ISSUE)
     assert _comment(ws, 1).split("\n")[0] != _comment(ws, 2).split("\n")[0]
 
 
-def test_a_row_with_no_comment_still_carries_its_reference():
-    """A gap row with empty text must still be answerable by number, and must
-    not open with a stray blank line. Order 139 part 2 (spec e): its COMPANY
-    Comments says no text was produced - never an empty cell."""
-    ws = load([{"document_name": "d", "page_section": "References",
-                "comment": "", "finding_id": "missing-reference:X"}], SUB)
-    value = _comment(ws)
-    first, _, rest = value.partition("\n")  # order 139 part 2
-    assert first.startswith("Ref: RF-") and "\n" not in first
-    assert rest == EMPTY_COMMENT_TEXT  # order 139 part 2
+def test_a_row_with_no_comment_says_so_without_a_stray_reference():
+    """Order 139 part 2 (spec e): a gap row with empty text says no text was
+    produced - never an empty cell. Order 236: and the engineer's copy does not
+    open it with the digest reference; the reference stays on the row."""
+    from app.crs_export import build_crs_view
+
+    gap = {"document_name": "d", "page_section": "References",
+           "comment": "", "finding_id": "missing-reference:X"}
+    assert _comment(load([gap], SUB)) == EMPTY_COMMENT_TEXT
+    assert build_crs_view([gap], SUB)["rows"][0]["row_ref"].startswith("RF-")
 
 
 # ------------------------------------------------ the company name is config
