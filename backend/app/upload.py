@@ -17,10 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from . import access, classification, job_queue, pdf_guard, states, stored_paths
+from . import access, classification, job_queue, states, stored_paths
 from .config import settings
 from .db import connect
 from .errors import redact
+from .pdf_guard import open_pdf
 
 log = logging.getLogger(__name__)
 
@@ -580,7 +581,7 @@ def _first_page_text(pdf_path: Path) -> str:
                 pages = datasheet_inputs.page_texts(pdf_path)
                 return pages[0].text if pages else ""
 
-        with pdf_guard.open_pdf(pdf_path) as document:
+        with open_pdf(pdf_path) as document:
             if document.page_count == 0:
                 return ""
             return document.load_page(0).get_text() or ""

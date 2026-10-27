@@ -23,7 +23,8 @@ from __future__ import annotations
 import logging
 import re
 
-from . import pdf_guard, stored_paths
+from . import stored_paths
+from .pdf_guard import open_pdf
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ def locate(
     if not fragments:
         return [], None
 
-    with pdf_guard.open_pdf(stored_paths.local(pdf_path)) as doc:
+    with open_pdf(stored_paths.local(pdf_path)) as doc:
         if not 1 <= page_no <= doc.page_count:
             return [], None
         page = doc.load_page(page_no - 1)

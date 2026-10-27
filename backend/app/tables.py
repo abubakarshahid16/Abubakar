@@ -39,8 +39,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from . import pdf_guard, stored_paths
+from . import stored_paths
 from .db import connect
+from .pdf_guard import open_pdf
 
 log = logging.getLogger(__name__)
 
@@ -231,7 +232,7 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
     except ImportError:  # pragma: no cover - pymupdf is a hard dependency elsewhere
         return []
     try:
-        with pdf_guard.open_pdf(stored_path) as doc:
+        with open_pdf(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             page = doc[page_no - 1]

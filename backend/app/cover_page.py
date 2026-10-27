@@ -34,7 +34,8 @@ import logging
 import re
 from contextvars import ContextVar
 
-from . import claims, numparse, pdf_guard, row_noise
+from . import claims, numparse, row_noise
+from .pdf_guard import open_pdf
 
 log = logging.getLogger(__name__)
 
@@ -174,7 +175,7 @@ def page_view(page_no: int) -> tuple[str, bool] | None:
     if not stored_path or datasheet_inputs.is_office_input(stored_path):
         return None
     try:
-        with pdf_guard.open_pdf(stored_path) as doc:
+        with open_pdf(stored_path) as doc:
             if not 1 <= page_no <= doc.page_count:
                 return None
             page = doc[page_no - 1]

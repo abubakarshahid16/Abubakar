@@ -528,11 +528,11 @@ def read_pdf(path: str | os.PathLike, *, document_id: str | None = None,
     A page with no text layer and no OCR text available stays an EMPTY
     `pdf_text` page: nothing is invented for it.
     """
-    from . import pdf_guard
+    from .pdf_guard import open_pdf
     from .quality import normalise_text
 
     pages: list[PageText] = []
-    with pdf_guard.open_pdf(str(path)) as doc:
+    with open_pdf(str(path)) as doc:
         count = doc.page_count
         native = [normalise_text(doc.load_page(i).get_text("text") or "") for i in range(count)]
     for page_no, text in enumerate(native, start=1):

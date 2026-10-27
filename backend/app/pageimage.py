@@ -17,8 +17,9 @@ from pathlib import Path
 
 import pymupdf
 
-from . import pdf_guard, stored_paths
+from . import stored_paths
 from .config import settings
+from .pdf_guard import open_pdf
 
 
 class PageOutOfRange(ValueError):
@@ -53,7 +54,7 @@ def render_page(document: dict, page_no: int, dpi: int = 150) -> Path:
         return out
 
     pdf_path = stored_paths.local(document["stored_path"])
-    with pdf_guard.open_pdf(pdf_path) as doc:
+    with open_pdf(pdf_path) as doc:
         if page_no > doc.page_count:
             raise PageOutOfRange(
                 f"page {page_no} is out of range (document has {doc.page_count})"
@@ -100,7 +101,7 @@ def render_page_with_highlight(
     if out.exists() and out.stat().st_size > 0:
         return out
 
-    with pdf_guard.open_pdf(stored_paths.local(document["stored_path"])) as doc:
+    with open_pdf(stored_paths.local(document["stored_path"])) as doc:
         if not 1 <= page_no <= doc.page_count:
             raise PageOutOfRange(
                 f"page {page_no} is out of range (document has {doc.page_count})"
@@ -165,7 +166,7 @@ def render_page_with_marks(
     out = cache_path(document["sha256"], page_no, dpi, mark=f"m{mark}")
     if out.exists() and out.stat().st_size > 0:
         return out
-    with pdf_guard.open_pdf(stored_paths.local(document["stored_path"])) as doc:
+    with open_pdf(stored_paths.local(document["stored_path"])) as doc:
         if not 1 <= page_no <= doc.page_count:
             raise PageOutOfRange(
                 f"page {page_no} is out of range (document has {doc.page_count})"
