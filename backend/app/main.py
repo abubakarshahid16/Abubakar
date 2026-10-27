@@ -1753,9 +1753,7 @@ def update_review_finding(
                 "a confirmation must name the engineer who made it"))
         changes["confirmed_by"] = scope.user_id
         changes["confirmed_at"] = review_mod.now_iso()
-    # B10: AN APPROVAL OR DISPOSITION IS THE CALLER'S OWN, for the same reason.
-    # The name is never read from the body (the schema has no field for it),
-    # and an anonymous caller cannot decide a finding.
+    # B10: AN APPROVAL OR DISPOSITION IS THE CALLER'S OWN, never read from the body.
     if changes.get("approval_status") in ("accepted", "rejected") or changes.get("disposition"):
         if scope.user_id is None:
             raise HTTPException(status_code=401, detail=errors.safe_error(
@@ -1763,17 +1761,18 @@ def update_review_finding(
                 "an approval must name the engineer who made it"))
         changes["approved_by"] = scope.user_id
         changes["approved_at"] = review_mod.now_iso()
-    try:  # #962: a rejection of a finding of a run keeps its reason, like the gate's Reject
+    try:  # #962: a rejection of a finding of a run keeps a reason
         crs_issue_mod.reject_with_reason(current, changes, scope.user_id)
     except crs_issue_mod.IssueError as exc:
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, str(exc))) from exc
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc)),
+        ) from exc
     updated = review_mod.update(finding_id, changes, actor_user_id=scope.user_id)
     if updated is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
-    # A confirmed, accepted or re-worded comment is the engineer's: it gets
-    # its permanent CRS number now, not at export (which writes nothing).
+    # A confirmed, accepted or re-worded comment gets its permanent CRS number now, not at export.
     _mint_crs_numbers(current.get("review_run_id"), scope)
     # r2 S2: the reply is a read of the finding too.
     review_mod.withhold_unreadable_standards([updated], scope.allowed_document_ids)

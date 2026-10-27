@@ -216,6 +216,9 @@ def test_an_edited_comment_survives_a_re_run(world, monkeypatch):
     assert row["comment"].endswith(EDITED)
 
 
+REJECT = {"approval_status": "rejected", "reason": "wrong clause here"}
+
+
 def test_a_rejected_comment_is_left_off_the_sheet(world, monkeypatch):
     """M1090."""
     _sub, run, scope = world
@@ -223,7 +226,7 @@ def test_a_rejected_comment_is_left_off_the_sheet(world, monkeypatch):
     assert len(_noise_rows(run)) == 1
     _signed_in(monkeypatch, scope)
     assert TestClient(app).patch(f"/api/reviews/findings/{finding_id}",
-                                 json={"approval_status": "rejected", "reason": "wrong clause for this equipment"}).status_code == 200
+                                 json=REJECT).status_code == 200
     assert _noise_rows(run) == []
 
 

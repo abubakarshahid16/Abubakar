@@ -441,7 +441,14 @@ def reject_with_reason(finding: dict, changes: dict, actor: str | None) -> None:
         return
     if finding.get("approval_status") == "rejected":
         return
-    decide_finding(run, finding["id"], REJECT, reason=reason or "", actor=actor or "", reason_code=code)
+    decide_finding(
+        run,
+        finding["id"],
+        REJECT,
+        reason=reason or "",
+        actor=actor or "",
+        reason_code=code,
+    )
 
 
 def decide_finding(

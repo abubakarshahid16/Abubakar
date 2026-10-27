@@ -271,6 +271,9 @@ def test_a_file_that_is_not_a_crs_is_refused(world, monkeypatch):
     assert response.status_code == 422
 
 
+REJECT = {"approval_status": "rejected", "reason": "wrong clause here"}
+
+
 def test_an_open_comment_is_carried_forward_until_a_reviewer_closes_it(world, monkeypatch):
     """A run that no longer raises an issued comment must not drop it.
 
@@ -289,7 +292,7 @@ def test_an_open_comment_is_carried_forward_until_a_reviewer_closes_it(world, mo
                        json={"code": "Rejected", "text": "we disagree"}).status_code == 200
     # The finding stops being raised (here: rejected, so the mapping drops it).
     assert client.patch(f"/api/reviews/findings/{finding_id}",
-                        json={"approval_status": "rejected", "reason": "wrong clause for this equipment"}).status_code == 200
+                        json=REJECT).status_code == 200
     rows = client.get(f"/api/reviews/runs/{run}/crs/preview").json()["rows"]
     carried = [r for r in rows if r["crs_ref"] == ref]
     assert len(carried) == 1 and carried[0]["row_kind"] == "carried_forward"
