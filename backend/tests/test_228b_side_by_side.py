@@ -8,6 +8,7 @@ took the next item's number as its value. Invented tables, drawn with PyMuPDF.
 from __future__ import annotations
 
 import pymupdf
+import pytest
 
 from app import geometry_index_cells as gi
 from app import geometry_reader as g
@@ -200,3 +201,20 @@ def test_text_in_the_numbered_column_is_not_dropped():
     rows = [row(1, ""), row(3, ""), row(5, ""), row(7, "NOTES: set pressure 9 barg")]
     out = gi.split({"rows": rows})["rows"]
     assert any(c["text"].startswith("NOTES") for r in out for c in r["cells"])
+
+
+def test_with_the_empty_cell_rule_both_lists_give_values_and_blanks():
+    """Runs only once #1324 (`geometry_blank_cells`) is also in the tree: the
+    side-by-side form then yields every value pair and a blank for every empty
+    answer, each on its own segment."""
+    pytest.importorskip("app.geometry_blank_cells")
+    got = _read()
+    assert got["Design temperature"]["value_text"] == "50 C"
+    for label in (
+        "Rated relieving capacity",
+        "Orifice designation",
+        "Effective area",
+        "Calculated area",
+    ):
+        assert got[label]["is_blank"] is True, label
+        assert got[label]["value_text"] in ("", None)
