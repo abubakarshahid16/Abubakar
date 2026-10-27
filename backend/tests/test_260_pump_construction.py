@@ -102,3 +102,27 @@ def test_the_not_applied_item_cites_the_sheets_own_field_and_value():
     [item] = out["items"]
     assert "Pump type: API 610 OH2" in item["detail"]
     assert "page 3" in item["detail"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The seal shall be as described in the following service notes.",
+        "The design shall be per ASME application rules.",
+        "A similar service duty shall be documented.",
+        "For onshore service the coating shall be applied.",
+        "The proposed service life shall be stated.",
+    ],
+)
+def test_a_reference_word_or_standards_body_is_not_a_named_service(text):
+    from app import clause_support
+
+    assert clause_support.named_conditions(req("x", text)) == []
+
+
+def test_a_real_service_is_still_named():
+    from app import clause_support
+
+    assert clause_support.named_conditions(
+        req("x", "The pump shall be suitable for amine service.")
+    ) == ["amine"]
