@@ -37,7 +37,7 @@ from . import (
 )
 
 # isort: split
-from . import crs_page_words, crs_reference, equipment_subtype
+from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
 from . import paragraph_ids
@@ -1385,10 +1385,10 @@ def _row_order(group: list[dict]) -> tuple:
 def _by(group: list[dict]) -> str:
     f = group[0]
     if f.get("engineer_comment"):
-        who = f.get("confirmed_by_name") or f.get("confirmed_by") or "an engineer"
+        who = f.get("confirmed_by_name") or crs_decider.decider(f) or "an engineer"
         return f"AI Review, edited and confirmed by {who}"
-    if f.get("confirmed_by"):
-        return f"AI Review, confirmed by {f.get('confirmed_by_name') or f['confirmed_by']}"
+    if crs_decider.decider(f):
+        return f"AI Review, confirmed by {f.get('confirmed_by_name') or crs_decider.decider(f)}"
     return "AI Review"
 
 
@@ -1610,7 +1610,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         where = " - ".join(p for p in (
             f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
-        confirmed = bool(f.get("confirmed_by"))
+        confirmed = bool(crs_decider.decider(f))
         confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
         unconfirmed_by = _AI_UNCONFIRMED_BY if origin == _AI_ORIGIN else _WEB_UNCONFIRMED_BY
@@ -1627,7 +1627,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "page_section": where,
                 "comment": text if confirmed else unconfirmed_comment,
                 "comment_by": (
-                    f"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}"
+                    f"{confirmed_by_prefix}{f.get('confirmed_by_name') or crs_decider.decider(f)}"
                     if confirmed
                     else unconfirmed_by
                 ),

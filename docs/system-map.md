@@ -113,6 +113,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `pdf_guard` | Order 252: one process-wide re-entrant lock around short PyMuPDF blocks (MuPDF is not thread-safe) |
 | `crs_carry` | K1 (code audit 26 Oct): an issued CRS number carries the engineer's confirmation only for the words they confirmed; other words under the same number need a fresh tick (the number stays) |
 | `crs_reference` | Order 227: what a CRS Standard Reference says after the standard's name: its edition (stored on the finding or printed in the standard's own name; "edition not recorded" when unknown, never guessed), the clause words and the page |
+| `crs_decider` | #892: who decided a finding (the confirmer, else the engineer who accepted it) for the CRS byline |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_no_field` | A library requirement no field on the sheet answers is one grouped engineer note per standard, never a contractor row (order 245) |
 | `crs_page_words` | What the CRS Page/Section cell says: the datasheet page and field, or "Not found on pages 1-N" with at most three tags (order 228.4) |
