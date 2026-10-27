@@ -179,7 +179,7 @@ def check_bands(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
         ordered = sorted(
             (b for b in bands if b[1].value <= b[2].value), key=lambda b: b[1].value
         )
-        for (r1, lo1, hi1), (r2, lo2, hi2) in zip(ordered, ordered[1:]):
+        for (r1, lo1, hi1), (r2, lo2, hi2) in zip(ordered, ordered[1:], strict=False):
             if lo2.value < hi1.value:
                 findings.append(
                     _finding(
