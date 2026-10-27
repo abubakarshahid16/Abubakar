@@ -231,7 +231,9 @@ def _one_path_grid(rows, xs, *, background=False):
     page = doc.new_page(width=595, height=842)
     ys = [60 + 24 * i for i in range(len(rows) + 1)]
     if background:
-        page.draw_rect(pymupdf.Rect(xs[0], ys[0], xs[-1], ys[-1]), fill=(1, 1, 1), color=None)
+        page.draw_rect(
+            pymupdf.Rect(xs[0], ys[0], xs[-1], ys[-1]), fill=(1, 1, 1), color=None
+        )
     shape = page.new_shape()
     for y in ys:
         shape.draw_line((xs[0], y), (xs[-1], y))
@@ -275,7 +277,9 @@ def test_a_mark_drawn_inside_the_cell_of_a_one_path_grid_still_blocks_the_blank(
         ],
         [50, 250, 400],
     )
-    page.draw_rect(pymupdf.Rect(260, 60 + 24 * 3 + 8, 310, 60 + 24 * 3 + 16), fill=(0, 0, 0))
+    page.draw_rect(
+        pymupdf.Rect(260, 60 + 24 * 3 + 8, 310, 60 + 24 * 3 + 16), fill=(0, 0, 0)
+    )
     try:
         got = {r["label"]: r for r in g.read_page_rows(page) if r["source"] == "table"}
     finally:
