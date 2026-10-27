@@ -321,6 +321,14 @@ export function toRecommendation(
   };
 }
 
+/** `applied_scope.documents_in_scope` of a summary response, or 0 when the server sent none (the
+ *  contract does not declare the field on this interface, so it is read defensively). */
+function documentsInScope(r: AnalysisSummaryResult): number {
+  const n = (r as { applied_scope?: { documents_in_scope?: unknown } | null }).applied_scope
+    ?.documents_in_scope;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : 0;
+}
+
 /**
  * SummaryCard takes the whole `AnalysisResult`. The three routes return a
  * fraction of it, so the rest is filled with what is true: nothing measured.
@@ -338,7 +346,8 @@ export function toAnalysisResult(
     run_status: "complete",
     status: summary === null && findings.length === 0 ? "insufficient_evidence" : "answered",
     coverage: {
-      authorized_documents_selected: 0,
+      // The server's count of documents this search could reach (`applied_scope`); 0 = not sent.
+      authorized_documents_selected: documentsInScope(r),
       documents_attempted: null,
       documents_search_completed: null,
       relevant_documents: null,
@@ -348,7 +357,7 @@ export function toAnalysisResult(
       complete: completeness(undefined),
     },
     documents: [],
-    evidence_ledger: [],
+    evidence_ledger: Array.isArray(r.evidence_ledger) ? r.evidence_ledger : [],
     documented_findings: findings,
     summary,
     summary_truncated: r.summary_truncated === true,

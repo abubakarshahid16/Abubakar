@@ -15,7 +15,8 @@ from . import ai_engineering_check as ai_engineering_check_mod
 from . import ai_check_drafts as ai_check_drafts_mod
 from . import ai_numbers as ai_numbers_mod
 from . import evidence_boxes as evidence_boxes_mod
-from . import applicability as applicability_mod
+from . import scan_quality
+from . import applicability as applicability_mod, cited_edition as cited_edition_mod
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
 from . import crs_export as crs_export_mod
@@ -1838,7 +1839,7 @@ def _finding_for_evidence(finding_id: str, scope: access.AccessScope) -> dict:
 
 
 @app.get("/api/reviews/findings/{finding_id}/evidence",
-         response_model=schemas.FindingEvidence,
+         response_model=scan_quality.FindingEvidenceScanned,
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def review_finding_evidence(
     finding_id: str,
@@ -1850,14 +1851,7 @@ def review_finding_evidence(
     cannot be shown). Same resolution as the evidence image. Read only."""
     reject_unknown_params(request, set())
     current = _finding_for_evidence(finding_id, scope)
-    out = {"finding_id": finding_id}
-    for side in ("submittal", "standard"):
-        found = evidence_boxes_mod.side(current, side, scope)
-        doc = found["document"]
-        out[side] = {"document_id": doc["id"] if doc else None,
-                     "filename": doc.get("filename") if doc else None,
-                     "page": found["page"], "box": found["box"], "reason": found["reason"]}
-    return out
+    return scan_quality.evidence_response(finding_id, current, scope, evidence_boxes_mod.side)
 
 
 @app.get("/api/reviews/findings/{finding_id}/evidence-image",
@@ -2788,15 +2782,15 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # Section 3: an edited comment names its editor the same way; 2d-2: so does a confirmed web standards check item.
     # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
     # edits - a plain confirmed requirement comment printed the raw user id.
-    confirmers = {f["confirmed_by"] for f in findings if f.get("confirmed_by")}
+    confirmers = {d for f in findings if (d := crs_mapping_mod.crs_decider.decider(f))}
     if confirmers:
         marks = ",".join("?" for _ in confirmers)
         people = {r["id"]: r["display_name"] for r in connect().execute(
             f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
         for finding in findings:
             # A name only when one is on record - never invented; the id stays the fallback in `crs_mapping`.
-            if people.get(finding.get("confirmed_by")):
-                finding["confirmed_by_name"] = people[finding["confirmed_by"]]
+            if people.get(who := crs_mapping_mod.crs_decider.decider(finding)):
+                finding["confirmed_by_name"] = people[who]
 
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}
@@ -2953,8 +2947,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "recommended_code_reason": (
             run.get("override_reason") if run.get("engineer_final_code")
             else comparison_mod.plain_outcome(outcome)[0]) or "",
-        # B10: WHO DECIDED IT. The AI recommends; only an engineer decides. A
-        # CRS carrying the AI's code must say it is not yet a decision.
+        # B10: the AI recommends, an engineer decides; the CRS says the code is not yet a decision.
         "recommended_code_status": (
             crs_export_mod.CODE_DECIDED_BY_ENGINEER if run.get("engineer_final_code")
             else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
@@ -2974,6 +2967,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
+    meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     return rows, meta, submittal_name, stamp
 
 
