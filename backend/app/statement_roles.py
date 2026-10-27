@@ -124,21 +124,80 @@ def _find(tokens: list[str], phrase: list[str]) -> int | None:
     return None
 
 
+#: Words that may stand before the field phrase or between it and the modal: nothing that adds a case.
+_LEAD_OK = field_vocabulary._NEUTRAL | frozenset(
+    ["each", "all", "every", "its", "their", "this", "these", "that", "those"]
+)
+#: Words that may stand between the modal and the value ("shall be", "shall have a ...").
+_VERB_OK = frozenset(
+    [
+        "be",
+        "have",
+        "a",
+        "an",
+        "the",
+        "of",
+        "made",
+        "constructed",
+        "fabricated",
+        "supplied",
+        "provided",
+        "type",
+        "with",
+        "in",
+        "as",
+        "from",
+    ]
+)
+#: A value that only defers the choice is not a value ("selected by the vendor").
+_DEFERRALS = frozenset(
+    [
+        "selected",
+        "determined",
+        "specified",
+        "approved",
+        "agreed",
+        "chosen",
+        "proposed",
+        "decided",
+        "defined",
+        "indicated",
+        "stated",
+        "given",
+        "nominated",
+        "confirmed",
+    ]
+)
+_MODALS = frozenset(["shall", "should", "must", "will"])
+
+
 def value_fits(text: str, field_quote: str, value: str, name: str) -> bool:
-    """Gates (a) and (c) on the rule text: the value is whole words of the text, 1 to
-    `MAX_PHRASE_WORDS` of them, not made only of neutral words, not the field's own name; and the
-    text holds no negation, exception, condition or alternative word anywhere."""
+    """Gates (a) and (c) on the whole rule text. The VALUE is 1 to `MAX_PHRASE_WORDS` whole words,
+    not neutral words only, not the field's own name, not a deferral ("selected by the vendor").
+    The SHAPE is structural (cloud-3 on #1397): the field phrase is the subject, before the first
+    shall/should/must/will, with only neutral words ahead of it; the value follows the modal after
+    only "be / have / a / of ..." and ENDS the rule; and the text holds no negation, exception,
+    condition or alternative word anywhere. Anything else is the engineer's."""
     phrase = _tokens(value)
     if not phrase or len(phrase) > MAX_PHRASE_WORDS:
         return False
     if all(w in field_vocabulary._NEUTRAL for w in phrase) or phrase == name.split():
         return False
-    # The WHOLE rule text, never a part of it: a "when ..." or "unless ..." written before a colon or
-    # a semicolon is still the rule's condition (cloud on #1397).
-    sentence = _tokens(text)
-    if _find(sentence, phrase) is None or _find(sentence, _tokens(field_quote)) is None:
+    if phrase[0] in _DEFERRALS:
         return False
-    return not any(w in _CUES for w in sentence)
+    toks, fq = _tokens(text), _tokens(field_quote)
+    if not fq or any(w in _CUES for w in toks):
+        return False
+    at_f = _find(toks, fq)
+    modal = next((i for i, w in enumerate(toks) if w in _MODALS), None)
+    if at_f is None or modal is None or at_f + len(fq) > modal:
+        return False
+    if any(w not in _LEAD_OK for w in [*toks[:at_f], *toks[at_f + len(fq) : modal]]):
+        return False
+    at_v = len(toks) - len(phrase)
+    if at_v <= modal or toks[at_v:] != phrase:
+        return False
+    return all(w in _VERB_OK for w in toks[modal + 1 : at_v])
 
 
 def verify(answer: dict, items: list[tuple[str, str]], dictionary: list[str]):

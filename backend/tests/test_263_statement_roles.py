@@ -97,7 +97,8 @@ def test_the_dictionary_is_the_forms_text_fields():
     "text",
     [
         "The casing material shall be duplex stainless steel.",
-        "The casing material shall be duplex stainless steel for all services.",
+        "Each pump casing material shall be duplex stainless steel.",
+        "The casing material of the pump shall be duplex stainless steel.",
     ],
 )
 def test_a_plain_shall_be_sentence_maps_to_its_field_and_value(text):
@@ -123,6 +124,15 @@ def test_a_plain_shall_be_sentence_maps_to_its_field_and_value(text):
         "When used in sour service: the casing material shall be duplex stainless steel.",
         "Unless the purchaser approves otherwise; the casing material shall be duplex stainless steel.",
         "If the fluid is sour, the casing material shall be duplex stainless steel.",
+        # conditions with no cue word at all (cloud-3): refused by the SHAPE, not by a longer list
+        "For sour service the casing material shall be duplex stainless steel.",
+        "In pumps above 100 kW the casing material shall be duplex stainless steel.",
+        "For vertical pumps the casing material shall be duplex stainless steel.",
+        "The casing material shall be duplex stainless steel for pumps handling amine.",
+        "The casing material shall be duplex stainless steel for all services.",
+        "At the purchaser's option the casing material shall be duplex stainless steel.",
+        "The casing material shall be selected by the vendor.",
+        "Duplex stainless steel is what the casing material shall be.",
     ],
 )
 def test_a_negative_conditional_or_alternative_sentence_is_never_mapped(text):
@@ -483,3 +493,101 @@ def test_a_statement_pairs_with_the_field_of_its_own_role_and_not_with_another_f
         and found["fact_id"] == fact["id"]
     )
     assert "Ball bearing" not in (found["ai_rationale"] or "")
+
+
+@pytest.mark.parametrize(
+    ("text", "field_quote", "value", "expected"),
+    [
+        (
+            "The casing material shall be duplex stainless steel.",
+            "casing material",
+            "duplex stainless steel",
+            True,
+        ),
+        (
+            "For sour service the casing material shall be duplex stainless steel.",
+            "casing material",
+            "duplex stainless steel",
+            False,
+        ),
+        (
+            "In pumps above 100 kW the bearing type shall be sleeve.",
+            "bearing type",
+            "sleeve",
+            False,
+        ),
+        (
+            "For vertical pumps the bearing type shall be sleeve.",
+            "bearing type",
+            "sleeve",
+            False,
+        ),
+        (
+            "The casing material shall be duplex stainless steel for pumps handling amine.",
+            "casing material",
+            "duplex stainless steel",
+            False,
+        ),
+        (
+            "At the purchaser's option the seal plan shall be plan 53B.",
+            "seal plan",
+            "plan 53B",
+            False,
+        ),
+        (
+            "The casing material shall be selected by the vendor.",
+            "casing material",
+            "selected by the vendor",
+            False,
+        ),
+        (
+            "The casing material shall be approved.",
+            "casing material",
+            "approved",
+            False,
+        ),
+        (
+            "The casing material shall be duplex stainless steel and shall be tested.",
+            "casing material",
+            "duplex stainless steel",
+            False,
+        ),
+        (
+            "Duplex stainless steel shall be the casing material.",
+            "casing material",
+            "duplex stainless steel",
+            False,
+        ),
+        (
+            "The casing material is duplex stainless steel.",
+            "casing material",
+            "duplex stainless steel",
+            False,
+        ),
+        # the value itself holds a cue word / is the field's own name / only neutral words
+        (
+            "The casing material shall be duplex stainless steel or carbon steel.",
+            "casing material",
+            "duplex stainless steel or carbon steel",
+            False,
+        ),
+        (
+            "The casing material shall not be bronze.",
+            "casing material",
+            "bronze",
+            False,
+        ),
+        (
+            "The casing material shall be casing material.",
+            "casing material",
+            "casing material",
+            False,
+        ),
+        ("The casing material shall be the.", "casing material", "the", False),
+    ],
+)
+def test_the_shape_is_the_field_as_subject_a_modal_then_the_value_ending_the_rule(
+    text, field_quote, value, expected
+):
+    name = field_quote
+    assert statement_roles.value_fits(text, field_quote, value, name) is expected
