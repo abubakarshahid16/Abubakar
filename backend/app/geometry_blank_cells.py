@@ -43,7 +43,7 @@ def _holds(row_cells: list[dict], column: int) -> bool:
 
 
 def _label_sits_where_labels_sit(
-    cells: list[dict], at: int, paired: list[list[dict]], column: int
+    cells: list[dict], at: int, paired: list[list[dict]]
 ) -> bool:
     """The cell to the left of the lone text is filled exactly as it is in the
     table's own label/value rows. A wrapped value line or a note in a row whose
@@ -83,7 +83,7 @@ def rows(
         and _holds(data["cells"], column)
     ]
     if len(paired) < MIN_FILLED_ABOVE or not _label_sits_where_labels_sit(
-        cells, filled[0], paired, label["column"]
+        cells, filled[0], paired
     ):
         return []
     return [
