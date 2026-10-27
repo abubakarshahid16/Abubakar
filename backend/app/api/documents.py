@@ -29,6 +29,7 @@ from .. import ingest as ingest_mod
 from .. import reports as reports_mod
 from .. import review as review_mod
 from .. import submittal_review as submittal_review_mod
+from .. import table_consistency as table_consistency_mod
 from .. import upload as upload_mod
 from ..api_utils import (
     DEFAULT_LIMIT,
@@ -433,6 +434,29 @@ def index_keyword(document_id: str,
     """Build the keyword index for one document. Needs no vectors."""
     require_document(document_id, scope)
     return keyword_mod.index_document(document_id)
+
+
+@router.get(
+    "/api/documents/{document_id}/table-consistency",
+    response_model=table_consistency_mod.TableConsistency,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def document_table_consistency(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Internal consistency of the document's numeric tables (#531): bands that
+    overlap or leave a gap, a Total that is not the sum, a column that is not
+    its own stated formula. Each finding names the page, chunk, rows and cells.
+    It never says a table is consistent: `checks_run` says what was checked and
+    a table with nothing to check is counted as such. Scope: the caller's
+    grants (404 for a document they may not read)."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return table_consistency_mod.check_document(
+        document_id, allowed_document_ids=scope.allowed_document_ids
+    )
 
 
 @router.post("/api/documents/bulk/role", response_model=schemas.BulkRoleResult,

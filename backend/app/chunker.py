@@ -25,9 +25,8 @@ from tokenizers import Tokenizer
 from .config import settings
 from .db import connect
 from .rates import Timer, rate
-from . import states
-from . import fts_index
-from . import orphan_guard
+from . import fts_index, orphan_guard, states
+from . import unsupported_script as script
 from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
 from . import tables as tables_mod
@@ -684,7 +683,7 @@ def classify_document_pages(pages: list[tuple[int, str]], total_pages: int) -> d
       title block, becomes `title_page` - one searchable chunk, so a
       document's own title and number can be found inside the document.
     """
-    kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
+    kinds = {p: script.kind(t) or classify_page(t, p, total_pages) for p, t in pages}
     previous_history = False
     previous_no: int | None = None
     for pno, text in pages:
@@ -3102,7 +3101,7 @@ def chunk_document(doc_id: str, force: bool = False,
             rule = f"page_classified_{kind}"
             exclusion_rows.append(
                 (doc_id, "page", pno, pno, None, rule,
-                 HISTORY_REASON if kind == HISTORY_KIND else f"page classified as {kind}",
+                 HISTORY_REASON if kind == HISTORY_KIND else script.page_reason(kind, ptext),
                  ptext[:2000], length, now,
                  dropped_real_content(ptext, rule))
             )

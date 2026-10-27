@@ -4161,7 +4161,7 @@ def _extract_facts(
                         "vision routing was not decided for this page (no plan-pass result)")
                 elif why == VISION_ROUTED and vision_unavailable:
                     vision_outcomes[page] = (
-                        "not_attempted", f"{why}, but the vision reader is unavailable ({vision_unavailable})")
+                        "not_attempted", vision_reader.unasked_reason(why, vision_unavailable, page))
                 elif why == VISION_ROUTED:
                     vision_outcomes[page] = ("attempted", why)
                 else:

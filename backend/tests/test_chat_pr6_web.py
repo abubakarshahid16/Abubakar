@@ -161,6 +161,29 @@ def test_a_consent_runs_one_search_only(lane_on, sent):
     assert len(sent) == count
 
 
+def test_two_quick_clicks_send_only_once_even_when_the_second_read_the_row_too_early(
+    lane_on, sent, monkeypatch
+):
+    """The race loser: its read of the consent turn happened BEFORE the winner
+    marked it searched, so the early "already run" check cannot see the mark.
+    Only the one conditional UPDATE that claims the search stops it (#556)."""
+    client = TestClient(app)
+    convo = client.post("/api/conversations").json()["id"]
+    consent = _ask(client, convo, QUESTION, web=True)
+    url = f"/api/conversations/{convo}/messages/{consent['assistant_message']['id']}/web-search"
+    assert client.post(url).status_code == 200
+    count = len(sent)
+    real = chat_web._consent_turn
+
+    def stale(conversation_id, message_id):
+        payload, question = real(conversation_id, message_id)
+        return {**payload, "web_searched": False}, question
+
+    monkeypatch.setattr(chat_web, "_consent_turn", stale)
+    assert client.post(url).status_code == 409
+    assert len(sent) == count
+
+
 def test_only_a_consent_turn_can_be_searched(lane_on, sent):
     client = TestClient(app)
     convo = client.post("/api/conversations").json()["id"]

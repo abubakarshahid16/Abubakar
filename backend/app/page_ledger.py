@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from . import cover_page, errors
+from . import cover_page, errors, unsupported_script
 from .config import settings
 from .db import connect
 
@@ -86,6 +86,15 @@ def _not_clean(row: dict) -> str | None:
         # block, a revision table, notes), so what the picture reader would add
         # is not a value. The text layer was usable (checked above).
         return None
+    from .vision_reader import SWITCHED_OFF_WORDS
+
+    if SWITCHED_OFF_WORDS in reason and row["native_status"] != "text":
+        # Scanned page (OCR text, or one stray native word): the picture reader
+        # was the only one that could see it, and the owner switched it off.
+        return (
+            "Both readers found no field on this page, but its text came from OCR "
+            "and the picture reader is switched off, so it is not counted as read"
+        )
     if (
         "unavailable" in reason
         or "vision page budget is spent" in reason
@@ -208,7 +217,7 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
     page_rules: dict[int, list[str]] = {}
     chunk_rules: dict[int, list[str]] = {}
     for e in conn.execute(
-            "SELECT scope, page_start, page_end, chunk_id, rule FROM exclusions"
+            "SELECT scope, page_start, page_end, chunk_id, rule, reason FROM exclusions"
             " WHERE document_id = ?", (document_id,)):
         if e["scope"] == "page" and e["page_start"] is not None:
             for p in range(e["page_start"], (e["page_end"] or e["page_start"]) + 1):
@@ -218,7 +227,7 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
                 range(e["page_start"], (e["page_end"] or e["page_start"]) + 1)
                 if e["page_start"] is not None else range(0))
             for p in span:
-                chunk_rules.setdefault(p, []).append(e["rule"])
+                chunk_rules.setdefault(p, []).append(unsupported_script.rule_of(e))
     any_chunks = bool(chunk_pages)
 
     is_submittal = (as_submittal if as_submittal is not None
@@ -304,9 +313,8 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
             facts = ("facts", fact_counts[p], None, "derived", None)
         elif index_status != "retrievable":
             facts = ("not_reached", 0,
-                     f"no retrievable chunk covers this page ({index_status}"
-                     f"{': ' + index_reason if index_reason else ''}), so fact "
-                     "extraction never saw it", "derived", None)
+                     unsupported_script.not_reached(index_status, index_reason),
+                     "derived", None)
         elif not fact_counts:
             facts = ("not_run", 0, "fact extraction has recorded no result for "
                      "this document", "derived", None)
