@@ -148,7 +148,7 @@ def render_page_with_highlight(
         shape.commit()
         pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
         _save_png(pix, out)
-        del pix, page  # freed while the lock is still held
+        del pix, shape, page  # freed while the lock is still held
     return out
 
 
@@ -218,5 +218,5 @@ def render_page_with_marks(
             shape.commit()
         pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
         _save_png(pix, out)
-        del pix, page  # freed while the lock is still held
+        del pix, shape, page  # freed while the lock is still held
     return out

@@ -68,10 +68,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(3418, "the PDF cuts a long finding off again",
        # re-anchored 2026-10-18 (#633 items 6-7): the box is drawn by `pdf_flow`
        # and continues on the next page; the mutation truncates the text instead.
-       "review.py", "        flow.box(block, border=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98))\n",
+       "review_report_pdf.py", "        flow.box(block, border=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98))\n",
        "        flow.box(block[:600], border=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98))\n", "pdf"),
     _m(3419, "an empty PDF report no longer says it is not a pass",
-       "review.py", '"This is NOT a statement that the document was reviewed and found acceptable."',
+       "review_report_pdf.py", '"This is NOT a statement that the document was reviewed and found acceptable."',
        '""', "pdf"),
     _m(3420, "a named document that cannot be read is no longer listed",
        "analysis.py", "        if not named_document_ids(scope, [name]):\n", "        if False:\n", "named_document"),

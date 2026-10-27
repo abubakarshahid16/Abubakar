@@ -33,7 +33,6 @@
   "backend/app/reader_api.py": 818,
   "backend/app/reasoning_provider.py": 977,
   "backend/app/requirements_3b.py": 1507,
-  "backend/app/review.py": 832,
   "backend/app/schemas.py": 4198,
   "backend/app/search.py": 1229,
   "backend/app/standards.py": 1924,

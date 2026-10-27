@@ -92,6 +92,9 @@ def _run_together(call):
     assert not errors, errors
 
 
+#: Sites that take the lock page by page (`pdf_guard.per_page`).
+PER_PAGE = frozenset({"inputs_read_pdf"})
+
 SITES = {
     "pdf_condition": lambda p: datasheets.pdf_condition(p),
     "pairs": lambda p: datasheets._pairs_from_pdf_page(p, 1),
@@ -107,7 +110,13 @@ SITES = {
 @pytest.mark.parametrize("name", sorted(SITES))
 def test_the_site_never_has_two_documents_open_at_once(name, pdf_path, overlap):
     _run_together(lambda: SITES[name](pdf_path))
-    assert overlap["worst"] == 1, f"{name}: {overlap['worst']} documents open at once"
+    # `read_pdf` opens its document with `pdf_guard.opened` (lock per page, not for the file), which
+    # does not enter the wrapped `with`: it is counted 0 here and its lock is tested page by page in
+    # `test_252_pdf_guard.py`.
+    expected = (0, 1) if name in PER_PAGE else (1,)
+    assert overlap["worst"] in expected, (
+        f"{name}: {overlap['worst']} documents open at once"
+    )
 
 
 def test_different_sites_together_never_overlap_either(pdf_path, overlap):

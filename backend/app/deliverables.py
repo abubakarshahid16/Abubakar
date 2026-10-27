@@ -464,7 +464,6 @@ def acknowledge_reminder(reminder_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-@pdf_guard.guarded
 def render_management_report(*, allowed_document_ids: frozenset[str] | None = None) -> Path:
     """Export current WBS, overdue, and reminder controls as a PDF."""
     items = list_items(allowed_document_ids=allowed_document_ids)
@@ -473,6 +472,14 @@ def render_management_report(*, allowed_document_ids: frozenset[str] | None = No
     report_dir = settings.data_dir / "management_reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / f"management-report-{uuid.uuid4()}.pdf"
+    return _write_management_report(path, items, alerts_now, reminders)
+
+
+@pdf_guard.guarded
+def _write_management_report(
+    path: Path, items: list, alerts_now: list, reminders: list
+) -> Path:
+    """The PDF itself, under the lock: no database call inside (the data was read before)."""
     pdf = pymupdf.open()
     page = pdf.new_page()
     page.insert_text((48, 52), "EPC MANAGEMENT REPORT", fontsize=18, fontname="hebo", color=(0.07, 0.23, 0.32))

@@ -521,21 +521,21 @@ def _ocr_page(document_id: str | None, path: str, page_no: int,
     return text, mean_conf
 
 
+def _page_text(page) -> str:
+    return page.get_text("text") or ""
+
+
 def read_pdf(path: str | os.PathLike, *, document_id: str | None = None,
              recognise: bool = False) -> Reading:
     """The native text layer per page; a page with none is read by OCR.
 
     A page with no text layer and no OCR text stays an EMPTY `pdf_text` page: nothing is invented.
     """
-    import pymupdf
-
     from . import pdf_guard
     from .quality import normalise_text
 
     pages: list[PageText] = []
-    with pdf_guard.held(), pymupdf.open(str(path)) as doc:
-        count = doc.page_count
-        native = [normalise_text(doc.load_page(i).get_text("text") or "") for i in range(count)]
+    native = [normalise_text(t) for t in pdf_guard.per_page(str(path), _page_text)]
     for page_no, text in enumerate(native, start=1):
         if text.strip():
             pages.append(PageText(page_no, text, SOURCE_PDF_TEXT))
