@@ -32,11 +32,12 @@ def classification_vocabulary(
     """
     reject_unknown_params(request, set())
     awaiting_type, not_in_register = register_type_split.untyped_split(scope)
-    return {**classification_mod.vocabulary(),
-            "needs_classification":
-                classification_mod.needs_classification(scope),
-            "awaiting_type": awaiting_type,
-            "not_in_register": not_in_register}
+    return {
+        **classification_mod.vocabulary(),
+        "needs_classification": classification_mod.needs_classification(scope),
+        "awaiting_type": awaiting_type,
+        "not_in_register": not_in_register,
+    }
 
 
 @router.get("/api/classification/coverage",
