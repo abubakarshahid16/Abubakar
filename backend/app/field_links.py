@@ -38,6 +38,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from .pairing_head import names_head as names_head  # audit C5, used by comparison
+
 SYNONYMS_PATH = Path(__file__).parent / "reference" / "field_synonyms.json"
 
 

@@ -316,7 +316,7 @@ def test_the_crs_lists_not_applicable_with_condition_and_value_not_as_a_breach()
 
     [note] = [n for n in crs_mapping.build_review_notes([finding], [])
               if n["note"] == crs_mapping.NOTE_CONDITION_NOT_MET]
-    assert note["standard"] == "XYZ-STD-001 cl. 4.2 (p.7)"
+    assert note["standard"] == "XYZ-STD-001 (edition not recorded) cl. 4.2 (p.7)"
     assert "larger than 2 inch" in note["detail"]
     assert "'1'" in note["detail"] and "page 9" in note["detail"]
     assert "condition_not_met" not in note["detail"], "no machine code on the sheet"

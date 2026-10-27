@@ -181,7 +181,7 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
       )}
       {codeOpen && !numbers.signed && numbers.finalCodeRecorded !== true && (
         <div data-testid="ws-final-code">
-          <FinalCode run={run} onChanged={() => { setCodeOpen(false); onCodeRecorded?.(); }} />
+          <FinalCode key={run.review_run_id} run={run} onChanged={() => { setCodeOpen(false); onCodeRecorded?.(); }} />
         </div>
       )}
       {previewOpen && (
