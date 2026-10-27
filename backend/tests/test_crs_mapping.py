@@ -14,7 +14,11 @@ NER = {"compliance_status": "NEEDS_ENGINEER_REVIEW",
        "standard_page": 14, "contractor_page": 4,
        "requirement_source_text": "per the following table",
        "ai_rationale": "table_row: no comparison made."}
-MI = {"compliance_status": "MISSING_INFORMATION"}
+# order 245: it names a field, so it is a row
+MI = {
+    "compliance_status": "MISSING_INFORMATION",
+    "crs_field_label": "SOUND LEVEL",
+}
 OK = {"compliance_status": "COMPLIANT"}
 ROD = {"compliance_status": "NOT_IN_DOCUMENT_SCOPE",
        "ai_rationale": ("requires_other_document: this requirement names its "

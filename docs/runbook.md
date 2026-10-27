@@ -18,7 +18,8 @@ environment (for example, `..\\.venv\\Scripts\\python.exe run.py`).
 |---|---|
 | Backend API, both ONNX arenas ON | 3,247 MB |
 | Backend API, both arenas OFF | 503 MB |
-| `qwen3.5:4b` in Ollama, when loaded | ~3,400 MB |
+| `qwen3.5:4b` in Ollama, when loaded (the default until 27 Oct 2026) | ~3,400 MB |
+| the 35B answer model (`answer_model` default since 27 Oct 2026), when loaded | ~24,000 MB |
 | Measured free RAM at demo time | **1.15 GiB** |
 
 ## OCR must not run while questions are being answered
