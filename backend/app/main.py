@@ -2965,8 +2965,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "copy": copy,  # 2f: the engineer's internal notes go on their own sheet
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
             {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
-            for part in unchecked] + standard_references_mod.for_run(
-                review_run_id, allowed),
+            for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
         # #633 item 7: row 1 of a run that did not complete; "" for a completed run.
@@ -2974,6 +2973,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
+    meta["review_notes"] += standard_references_mod.for_run(review_run_id, allowed)
     return rows, meta, submittal_name, stamp
 
 
