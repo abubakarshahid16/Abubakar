@@ -493,6 +493,30 @@ def engine_setting() -> str:
     return str(settings.vision_reader_engine or "").strip().lower()
 
 
+def switched_off() -> bool:
+    """True when the picture reader is off because the OWNER'S SETTINGS keep every page on the
+    local engine: REASONING_PROVIDER is not claude, or it is per_task and this step's own engine
+    is local. A lane that is wanted but closed (the two egress flags, a missing key) is NOT this:
+    the owner meant the picture reader to run and it could not."""
+    from .reasoning_provider import (
+        UNAVAILABLE_PROVIDER_OFF,
+        UNAVAILABLE_TASK_LOCAL,
+        claude_unavailable_for_task,
+    )
+
+    code, _why = claude_unavailable_for_task(engine_setting())
+    return code in (UNAVAILABLE_PROVIDER_OFF, UNAVAILABLE_TASK_LOCAL)
+
+
+def unasked_reason(why: str, unavailable: str) -> str:
+    """The ledger's words for a page routed to the picture reader that could not be asked
+    (order 254 F2). Switched off by the owner's settings it says so, and the page ledger does not
+    take that for "could not be asked"; a lane that was wanted but is closed says "unavailable"."""
+    if switched_off():
+        return f"{why}, and the picture reader is switched off in the settings ({unavailable})"
+    return f"{why}, but the vision reader is unavailable ({unavailable})"
+
+
 def provider():
     """The reasoning provider for page images - Claude only. None (and the
     reason) when Claude is not available: the local engine reads no images,
