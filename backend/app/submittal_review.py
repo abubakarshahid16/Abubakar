@@ -1111,8 +1111,8 @@ def review_status_for(
     # and then id so the choice is deterministic when two runs share a second -
     # the timestamps are second-resolution, so ties are real.
     rows = connect().execute(
-        f"""SELECT submittal_document_id AS doc, status FROM review_runs
-            WHERE submittal_document_id IN ({marks})
+        f"""SELECT r.submittal_document_id AS doc, {run_finishing.STATUS} AS status
+            FROM review_runs r WHERE r.submittal_document_id IN ({marks})
             ORDER BY created_at DESC, id DESC""",
         visible,
     ).fetchall()

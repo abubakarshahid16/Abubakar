@@ -98,3 +98,44 @@ def test_an_export_taken_meanwhile_says_the_review_is_not_finished(world, monkey
     )
     _rows, meta, _n, _s = main._crs_content(run_id, scope, "internal")
     assert not main.crs_export_mod.build_crs_view(_rows, meta).get("run_status_note")
+
+
+def test_the_document_card_and_the_pdf_header_wait_for_the_job_too(temp_storage):
+    """cloud's ask on #1332: two readers selected the raw status column."""
+    from app import export_status
+
+    doc = "doc-card"
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,"
+            "uploaded_at) VALUES (?,?,?,1,?,'ready',1,'2026-10-27')",
+            (doc, "c.pdf", "sha-c", "c.pdf"),
+        )
+        conn.execute(
+            "INSERT INTO review_runs (id,submittal_document_id,status,created_at,updated_at)"
+            " VALUES ('run-card',?,'completed','2026-10-27','2026-10-27')",
+            (doc,),
+        )
+    scope = frozenset({doc})
+
+    def card():
+        return submittal_review.review_status_for([doc], allowed_document_ids=scope)[
+            doc
+        ]
+
+    assert (card(), export_status.latest_run(doc)["status"]) == (
+        "completed",
+        "completed",
+    )
+    assert not export_status.incomplete(export_status.latest_run(doc))
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id,document_id,stage,state,review_run_id,started_at,updated_at)"
+            " VALUES ('job-card',?,'review_run','running','run-card','2026-10-27','2026-10-27')",
+            (doc,),
+        )
+    assert (card(), export_status.latest_run(doc)["status"]) == ("running", "running")
+    assert export_status.incomplete(export_status.latest_run(doc))
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET state = 'done' WHERE id = 'job-card'")
+    assert card() == "completed"
