@@ -216,3 +216,20 @@ def test_a_list_gives_one_answer_whichever_construction_is_named_first(pump_type
     kept_b, na_b, held_b = run([backward], [fact("Pump type", pump_type)])
     assert na_f == set() and na_b == set()
     assert (kept_f == []) == (kept_b == []) and (held_f == set()) == (held_b == set())
+
+
+def test_only_the_sentences_own_words_can_drop_it_never_the_heading():
+    """A clause under a "Vertically suspended pumps" heading whose own sentence names no
+    construction ("An alternative pump type is acceptable") is held, not dropped."""
+    sentence = {
+        **req("alt", "An alternative pump type may be proposed for approval."),
+        "standard_document_id": "STD",
+        "clause": "9.1",
+    }
+    out = service_scope.gate(
+        [sentence],
+        facts=[fact("Pump type", "API 610 OH2")],
+        headings_by_standard={"STD": {"9.1": "Vertically suspended pumps"}},
+    )
+    assert out["items"] == [] and out["kept"] == []
+    assert [h["requirement"]["id"] for h in out["held"]] == ["alt"]

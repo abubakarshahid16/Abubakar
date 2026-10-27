@@ -258,6 +258,8 @@ def _plainly_about(c: dict, conds: list[dict], requirement: dict) -> bool:
     words = " " + re.sub(r"[^a-z0-9/]+", " ", text.casefold()).strip() + " "
     if " vertical " in words or " vertically " in words:
         return False
+    if not any(f" {m} " in words for m in c["markers"]):
+        return False  # only the sentence's OWN words may drop it, never a heading
     for o in conds:
         if (
             o is not c
