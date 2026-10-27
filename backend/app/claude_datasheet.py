@@ -49,6 +49,7 @@ from enum import Enum
 from . import blank_markers, claims, datasheets, errors, numparse, submittal_review
 from .claude_spend import StopRun
 from .db import connect
+from .reader_speed import shorten_quote_rule
 from .stored_paths import local as local_path
 
 # --------------------------------------------------------------- vocabulary
@@ -148,9 +149,8 @@ _KNOWN_FIELDS_PREFIX = """SKIP THESE FIELDS - they have already been read from t
 
 
 def build_prompt(page_text: str, page_no: int, known_fields: list[str]) -> str:
-    """The prompt for one page. A function, not a format string at the call
-    site, so the page text and the skip-list are appended in exactly one
-    place.
+    """The prompt for one page. A function, not a format string at the call site,
+    so the page text and the skip-list are appended in exactly one place.
 
     `known_fields` are the labels the deterministic extractor already paired
     on this page. The model is told to skip them because a second reading of
@@ -158,10 +158,7 @@ def build_prompt(page_text: str, page_no: int, known_fields: list[str]) -> str:
     them anyway (`already_extracted`) - the prompt is the request, the gate is
     the enforcement.
     """
-    # at call time: `reader_speed` reads settings and this module is imported early
-    from . import reader_speed
-
-    parts = [reader_speed.shorten_quote_rule(PROMPT)]
+    parts = [shorten_quote_rule(PROMPT)]
     if known_fields:
         parts.append(_KNOWN_FIELDS_PREFIX)
         parts.extend(f"  - {f}\n" for f in known_fields)
