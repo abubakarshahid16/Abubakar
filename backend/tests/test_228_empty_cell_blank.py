@@ -114,6 +114,8 @@ def test_a_rotated_page_proves_nothing():
     doc, page = _page(rotation=90)
     try:
         assert gb.cell_is_bare(page, [XS[1], 132, XS[2], 156]) is False
+        candidate = {"empty_cell": True, "bbox": [XS[1], 132, XS[2], 156]}
+        assert gb.keep_bare(page, [candidate]) == []
     finally:
         doc.close()
 
@@ -222,3 +224,73 @@ def test_a_note_in_the_value_column_with_no_label_is_not_a_blank():
     )
     assert "or equivalent" not in got, sorted(got)
     assert got["Orifice designation"]["is_blank"] is True, "a real label still is"
+
+
+def _one_path_grid(rows, xs, *, background=False):
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    ys = [60 + 24 * i for i in range(len(rows) + 1)]
+    if background:
+        page.draw_rect(pymupdf.Rect(xs[0], ys[0], xs[-1], ys[-1]), fill=(1, 1, 1), color=None)
+    shape = page.new_shape()
+    for y in ys:
+        shape.draw_line((xs[0], y), (xs[-1], y))
+    for x in xs:
+        shape.draw_line((x, ys[0]), (x, ys[-1]))
+    shape.finish(width=0.6)
+    shape.commit()
+    for i, cells in enumerate(rows):
+        for j, text in enumerate(cells):
+            if text:
+                page.insert_text((xs[j] + 4, ys[i] + 15), text, fontsize=9)
+    return doc, page
+
+
+@pytest.mark.parametrize("background", [False, True])
+def test_a_grid_drawn_as_one_path_or_on_a_fill_still_gives_blanks(background):
+    doc, page = _one_path_grid(
+        [
+            ("Rated capacity", "125 m3/h"),
+            ("Differential head", "85 m"),
+            ("Design pressure", "10 barg"),
+            ("Orifice designation", ""),
+        ],
+        [50, 250, 400],
+        background=background,
+    )
+    try:
+        got = {r["label"]: r for r in g.read_page_rows(page) if r["source"] == "table"}
+    finally:
+        doc.close()
+    assert got["Orifice designation"]["is_blank"] is True
+
+
+def test_a_mark_drawn_inside_the_cell_of_a_one_path_grid_still_blocks_the_blank():
+    doc, page = _one_path_grid(
+        [
+            ("Rated capacity", "125 m3/h"),
+            ("Differential head", "85 m"),
+            ("Design pressure", "10 barg"),
+            ("Orifice designation", ""),
+        ],
+        [50, 250, 400],
+    )
+    page.draw_rect(pymupdf.Rect(260, 60 + 24 * 3 + 8, 310, 60 + 24 * 3 + 16), fill=(0, 0, 0))
+    try:
+        got = {r["label"]: r for r in g.read_page_rows(page) if r["source"] == "table"}
+    finally:
+        doc.close()
+    assert "Orifice designation" not in got
+
+
+def test_a_value_pushed_into_the_label_cell_is_not_a_label_with_an_empty_answer():
+    got = _grid_rows(
+        [
+            ("Rated capacity", "125", "m3/h"),
+            ("Differential head", "85", "m"),
+            ("Design pressure", "10", "barg"),
+            ("Design temperature 120 degC", "", ""),
+        ],
+        [50, 200, 330, 450],
+    )
+    assert "Design temperature 120 degC" not in got, sorted(got)

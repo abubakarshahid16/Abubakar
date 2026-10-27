@@ -72,6 +72,10 @@ def rows(
     text = label["text"]
     if not text or not re.search(r"[^\W_\d]", text) or label.get("cut_word", False):
         return []
+    # A value pushed into the label cell ("Design pressure 10 barg") is not a
+    # label with an empty answer: a number in its last two words says so.
+    if any(ch.isdigit() for word in text.split()[-2:] for ch in word):
+        return []
     if value.get("bbox") is None or value["text"]:
         return []
     column = value["column"]
@@ -119,29 +123,93 @@ def _meets(a: tuple[float, float, float, float], b: Any) -> bool:
     return not (b[2] <= a[0] or b[0] >= a[2] or b[3] <= a[1] or b[1] >= a[3])
 
 
-def cell_is_bare(page: Any, box: list[float] | None) -> bool:
-    """True when the cell holds no word, image or drawn shape, on an upright page."""
-    from .geometry_reader import text_rotation
+def _bounds(item: tuple) -> tuple[float, float, float, float] | None:
+    """The box of one segment of a drawn path ("l" line, "re" rectangle, "qu"
+    quad, "c" curve), or None for a kind this does not know."""
+    kind, *points = item
+    if kind == "re" or kind == "qu":
+        r = points[0]
+        r = r.rect if kind == "qu" else r
+        return r.x0, r.y0, r.x1, r.y1
+    if kind in ("l", "c"):
+        xs, ys = [p.x for p in points], [p.y for p in points]
+        return min(xs), min(ys), max(xs), max(ys)
+    return None
 
-    if not box or int(page.rotation) != 0 or text_rotation(page) != 0:
-        return False
-    inner = _inside(box)
-    if inner[2] <= inner[0] or inner[3] <= inner[1]:
-        return False
+
+def _marks_the_cell(inner: tuple[float, float, float, float], drawing: dict) -> bool:
+    """A drawn path puts something IN the cell only through a SEGMENT that meets
+    it. The bounding box of a whole path would not do: a table grid drawn as one
+    path, or a fill behind the table, has a box that meets every cell. A segment
+    that covers the whole cell and more is a background, not a mark; a segment
+    of an unknown kind counts as a mark (the safe side)."""
+    for item in drawing.get("items") or []:
+        box = _bounds(item)
+        if box is None:
+            return True
+        if not _meets(inner, box):
+            continue
+        covers = (
+            box[0] <= inner[0]
+            and box[1] <= inner[1]
+            and box[2] >= inner[2]
+            and box[3] >= inner[3]
+        )
+        if item[0] == "re" and covers:
+            continue
+        return True
+    return not drawing.get("items") and _meets(inner, drawing["rect"])
+
+
+def _page_marks(page: Any) -> tuple[list, list, list] | None:
+    """The page's words, images and drawings, read once; None when it cannot be
+    inspected (a page that cannot be inspected proves nothing)."""
     try:
-        if any(_meets(inner, w[:4]) for w in page.get_text("words")):
-            return False
-        if any(_meets(inner, i["bbox"]) for i in page.get_image_info()):
-            return False
-        return not any(_meets(inner, d["rect"]) for d in page.get_drawings())
+        return page.get_text("words"), page.get_image_info(), page.get_drawings()
     except Exception as exc:  # noqa: BLE001 - a page that cannot be inspected proves nothing
         log.info(
             "geometry_blank_cells: page not inspected (%s); no blank",
             type(exc).__name__,
         )
+        return None
+
+
+def _bare(marks: tuple[list, list, list], box: list[float] | None) -> bool:
+    words, images, drawings = marks
+    if not box:
         return False
+    inner = _inside(box)
+    if inner[2] <= inner[0] or inner[3] <= inner[1]:
+        return False
+    return not (
+        any(_meets(inner, w[:4]) for w in words)
+        or any(_meets(inner, i["bbox"]) for i in images)
+        or any(_marks_the_cell(inner, d) for d in drawings)
+    )
+
+
+def cell_is_bare(page: Any, box: list[float] | None) -> bool:
+    """True when the cell holds no word, image or drawn mark, on an upright page."""
+    from .geometry_reader import text_rotation
+
+    if int(page.rotation) != 0 or text_rotation(page) != 0:
+        return False
+    marks = _page_marks(page)
+    return marks is not None and _bare(marks, box)
 
 
 def keep_bare(page: Any, rows: list[dict]) -> list[dict]:
-    """`rows` without the empty-cell candidates the page does not confirm."""
-    return [r for r in rows if not r.get("empty_cell") or cell_is_bare(page, r["bbox"])]
+    """`rows` without the empty-cell candidates the page does not confirm. The
+    page is inspected once, and only when there is a candidate."""
+    from .geometry_reader import text_rotation
+
+    if not any(r.get("empty_cell") for r in rows):
+        return rows
+    marks = None
+    if int(page.rotation) == 0 and text_rotation(page) == 0:
+        marks = _page_marks(page)
+    return [
+        r
+        for r in rows
+        if not r.get("empty_cell") or (marks is not None and _bare(marks, r["bbox"]))
+    ]
