@@ -30,13 +30,17 @@ from . import (
     crs_ai_drafts,
     crs_blank_fields,
     crs_item_series,
+    crs_no_field,
     method_notes,
     severity_rule,
     standard_ids,
 )
 
 # isort: split
-from . import equipment_subtype, paragraph_ids
+from . import crs_page_words, crs_reference, equipment_subtype
+
+# isort: split
+from . import paragraph_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -182,7 +186,7 @@ def _ai_relates_to(finding: dict) -> str:
     """The standard NAME an AI item relates to, as `ai_engineering_check`
     stored it on the rationale ("... Relates to: <name>.")."""
     text = finding.get("ai_rationale") or ""
-    name = text.split("Relates to: ", 1)[1].rstrip(".") if "Relates to: " in text else ""
+    name = crs_reference.relates_to(text)
     return "" if name == "no standard named" else name
 
 
@@ -409,6 +413,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "check each against the datasheet, or the document "
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
+    notes.extend(crs_no_field.notes(findings))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -465,19 +470,15 @@ def _std_short(name) -> str:
 
 
 def _standard_reference(finding: dict) -> str:
-    """The Standard Reference column: "SAES-D-901 cl. 4.3 (p.1)", or "Datasheet
-    check DS-M1" for a kind B check (+ its clause and page when located, order 225)."""
+    """The Standard Reference column: "SAES-D-901 cl. 4.3 (p.1)"; a kind B check cites
+    its checklist source the same way (order 228.1)."""
     if finding.get("origin") == _DATASHEET_ORIGIN:
-        m = re.match(r"(Datasheet check [A-Z]+-[A-Z0-9]+)",
-                     finding.get("requirement_source_text") or finding.get("ai_rationale") or "")
-        check = m.group(1) if m else "Datasheet check"
-        cited, page = finding.get("standard_clause"), finding.get("standard_page")
-        return f"{check}: {cited} (p.{page})" if cited and page else check
+        return crs_reference.check_reference(finding)
     std = _std_short(finding.get("standard_name") or finding.get("standard_document_id"))
     if not std:
         return ""
     page = finding.get("standard_page")
-    return std + paragraph_ids.cited(finding) + (f" (p.{page})" if page else "")
+    return std + crs_reference.tail(finding, std, paragraph_ids.cited(finding), page)
 
 
 def _field_label(finding: dict) -> str:
@@ -537,6 +538,7 @@ def reasoning_text(group: list[dict]) -> str:
         reference = _standard_reference(f)
         if reference:
             bits.append(f"Clause: {reference}")
+        bits.extend(crs_reference.internal_bits(f))
         status = f.get("compliance_status")
         if status:
             bits.append(f"Result: {_RESULT_WORDS.get(status, status)}")
@@ -547,21 +549,21 @@ def reasoning_text(group: list[dict]) -> str:
 
 
 def _page_section(group: list[dict]) -> str:
-    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)".
-    Never the standard's file name - that is the Standard Reference column."""
+    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)"; a value looked
+    for and not found: "Not found on pages 1-5 - <field>" (order 228.4). Never the standard's
+    file name or the chunk's section heading (on a ruled form, another cell's text)."""
     f = group[0]
-    pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
-    field = _field_label(f) + crs_item_series.items_suffix(group)
-    tags = _items(group)
-    where = (f"p.{_page_list(pages)}" if pages else "")
-    if field:
-        where = f"{where} - {field}" if where else field
-    if tags:
-        where += f" ({', '.join(tags)})"
-    # The chunk's section heading is NOT printed here: on a ruled form it is
-    # routinely another cell's text ("3.5 RATED POWER" on the audit's pump
-    # sheet), and the page + field + tag already say where the value is.
-    return where
+    pages = sorted(
+        {g.get("contractor_page") for g in group if g.get("contractor_page")}
+    )
+    return crs_page_words.where(
+        pages,
+        f"p.{_page_list(pages)}" if pages else "",
+        _field_label(f) + crs_item_series.items_suffix(group),
+        _items(group),
+        {g.get("document_id") for g in group},
+        any(g.get("fact_id") for g in group),
+    )
 
 
 _OP_WORDS = {">=": "not less than", "<=": "not more than", ">": "more than",
@@ -1099,11 +1101,7 @@ def _bucket_of(f: dict) -> str | None:
     elif status == "NON_COMPLIANT":
         return BUCKET_BREACH
     elif status == _MISSING_INFORMATION:
-        return (
-            BUCKET_BLANK
-            if (f.get("fact_id") or f.get("contractor_page"))
-            else BUCKET_NOT_FOUND
-        )
+        return crs_no_field.bucket_of_missing(f, BUCKET_BLANK, BUCKET_NOT_FOUND)
     elif status == "NEEDS_ENGINEER_REVIEW":
         # B3 / 2f: unread-page and page-reader questions are Review notes.
         # #1177 (#139): so is a standard's question with no datasheet field and

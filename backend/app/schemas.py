@@ -780,9 +780,9 @@ class HealthWorker(BaseModel):
         description="up but not making progress - distinct from down"
     )
     busy: bool = Field(
-        description="a document is being processed. WHETHER, never WHICH: the "
-        "badge needs this so a healthy long ingest does not read as a fault, "
-        "and a boolean says work is under way where an id would say whose."
+        description="a document or a review is being processed. WHETHER, never "
+        "WHICH: the badge needs this so a healthy long job does not read as a "
+        "fault; a boolean says work is under way where an id would say whose."
     )
 
 
@@ -2519,7 +2519,7 @@ class CrsPreviewRow(BaseModel):
     #: four kinds of row apart without parsing the comment text.
     row_kind: str = ""
     #: CRS quick wins (2026-09-27): the standard and clause the comment rests
-    #: on ("SAES-D-901 cl. 4.3 (p.1)", "Datasheet check DS-M1"), printed in
+    #: on ("SAES-D-901 cl. 4.3 (p.1)", "API 520-I 3.20 (p.12)"), printed in
     #: its own "Standard Reference" column after the client's seven. Empty
     #: for an engineer's own chat comment.
     standard_reference: str = ""

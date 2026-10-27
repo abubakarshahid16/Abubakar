@@ -30,13 +30,21 @@
     "operating_temperature": {
       "kind": "temperature",
       "names": [
-        "^(max(imum|\\.)? )?(normal )?operating temp(erature|\\.)?$"
+        "^(max(imum|\\.)? )?(normal )?operating temp(erature|\\.)?$",
+        "^(max(imum|\\.)? |normal )?pumping temp(erature|\\.)?$"
+      ],
+      "printed_as": [
+        "pumping temperature"
       ]
     },
     "rated_flow": {
       "kind": "flow",
       "names": [
-        "^rated (flow|capacity)$"
+        "^rated (flow|capacity)$",
+        "^(capacity ?/ ?flow|flow ?/ ?capacity)$"
+      ],
+      "printed_as": [
+        "capacity / flow"
       ]
     },
     "min_flow": {
@@ -116,6 +124,12 @@
       "kind": "flow",
       "names": [
         "^(rated|certified) (relieving )?capacity$"
+      ],
+      "printed_as": [
+        "rated relieving capacity",
+        "certified capacity",
+        "actual relieving capacity",
+        "rated discharge capacity"
       ]
     },
     "orifice_area": {
@@ -126,7 +140,8 @@
       "printed_as": [
         "effective area",
         "orifice area",
-        "selected area"
+        "selected area",
+        "actual discharge area"
       ]
     },
     "required_area": {

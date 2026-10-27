@@ -282,6 +282,7 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
                "accepted": 0, "refused": {}, "not_tried": 0, "stopped": None,
                # #838: None, or why the local model ran in the cloud model's place.
                "local_instead": None}
+    summary["refused_rows"] = {}  # {row_key: reason}: `crs_ai_cell` says why per row
     if not summary["enabled"]:
         summary["stopped"] = "off (CRS_AI_WORDING_ENABLED=false)"
         return _store_summary(review_run_id, summary)
@@ -320,6 +321,8 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
         summary["model"] = model
         if refused:
             summary["refused"][refused] = summary["refused"].get(refused, 0) + 1
+            # Which row, so the internal cell can say why (`crs_ai_cell`).
+            summary["refused_rows"][row["crs_row_key"]] = refused
         else:
             kept.append((row["crs_row_key"], text.strip()))
     summary["accepted"] = len(kept)

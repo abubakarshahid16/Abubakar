@@ -37,7 +37,10 @@ function Mark({ done }: { done: boolean }) {
 
 export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged: () => void }) {
   const codes: readonly string[] = run.review_codes?.length ? run.review_codes : REVIEW_CODES;
-  const [code, setCode] = useState(run.recommended_code ?? "");
+  // A deliberate pick (order 228.7): nothing is chosen until the engineer chooses, the
+  // proposal included. It used to start on the proposal, so one click recorded a code
+  // nobody had picked while hundreds of comments were still undecided.
+  const [code, setCode] = useState("");
   const [why, setWhy] = useState("");
   const [state, setState] = useState<{ busy: boolean; error: PlainError | null }>({ busy: false, error: null });
   const differs = Boolean(run.recommended_code && code && code !== run.recommended_code);
@@ -78,6 +81,7 @@ export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged
       <button type="button" onClick={() => void record()} disabled={!code || state.busy} className={button}>
         {state.busy ? "Recording…" : "Record the final code"}
       </button>
+      {!code && !state.busy && <p className="text-xs text-slateish-400">Choose a code above before recording it.</p>}
       {state.error && <PlainErrorLine error={state.error} className="text-sm text-danger-500" testId="sign-code-error" />}
     </fieldset>
   );

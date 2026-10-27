@@ -743,18 +743,26 @@ def test_the_page_section_column_carries_the_datasheet_page_and_field():
     assert where == "p.4 - Design pressure (2003-47-V-0001A/B)"
     assert "SAES-D-001" not in where
     assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
-    assert ws.cell(row=FIRST_DATA_ROW, column=8).value == "SAES-D-001 cl. 6.2.2 (p.14)"
+    assert (
+        ws.cell(row=FIRST_DATA_ROW, column=8).value
+        == "SAES-D-001 (edition not recorded) cl. 6.2.2 (p.14)"
+    )
 
 
 def _refs(ws) -> list[str]:
-    """The reference line of every comment cell in the sheet, as rendered."""
-    out = []
-    for value in _cells(ws, 4):
-        if value:
-            first = str(value).split("\n")[0]
-            assert first.startswith("Ref: RF-"), f"no reference on {first!r}"
-            out.append(first)
-    return out
+    """The reference line of every comment cell in the sheet, as rendered.
+    Order 236: the INTERNAL copy carries none (it sits beside the row, as the
+    preview's `row_ref`), so this is empty for it."""
+    return [
+        str(v).split("\n")[0]
+        for v in _cells(ws, 4)
+        if v and str(v).startswith("Ref: RF-")
+    ]
+
+
+def _preview_refs(client, run_id) -> list[str]:
+    body = client.get(f"/api/reviews/runs/{run_id}/crs/preview").json()
+    return [row["row_ref"] for row in body["rows"]]
 
 
 def test_re_exporting_a_run_quotes_the_same_references():
@@ -769,8 +777,8 @@ def test_re_exporting_a_run_quotes_the_same_references():
     _finding(doc, run_id, "NEEDS_ENGINEER_REVIEW")
     client = _client(doc, "doc_std")
 
-    first = _refs(_sheet(client.get(f"/api/reviews/runs/{run_id}/crs")))
-    again = _refs(_sheet(client.get(f"/api/reviews/runs/{run_id}/crs")))
+    first = _preview_refs(client, run_id)
+    again = _preview_refs(client, run_id)
 
     assert len(first) == 2, first
     assert len(set(first)) == 2, "two rows shared one reference"
@@ -785,11 +793,11 @@ def test_editing_a_finding_changes_the_reference_it_exports_under():
     _finding(doc, run_id, "NON_COMPLIANT", id="f-known")
     client = _client(doc)
 
-    before = _refs(_sheet(client.get(f"/api/reviews/runs/{run_id}/crs")))
+    before = _preview_refs(client, run_id)
     with db.connect() as conn:
         conn.execute("UPDATE review_findings SET contractor_evidence_text ="
                      " '690 kPa' WHERE id = 'f-known'")
-    after = _refs(_sheet(client.get(f"/api/reviews/runs/{run_id}/crs")))
+    after = _preview_refs(client, run_id)
 
     assert before and before != after
 
@@ -809,7 +817,8 @@ def test_the_reference_the_preview_shows_is_the_one_in_the_file():
     for row in body["rows"]:
         cell = ws.cell(row=COLUMN_HEADER_ROW + row["item_no"], column=4).value
         assert row["row_ref"].startswith("RF-")
-        assert str(cell).split("\n")[0] == f"Ref: {row['row_ref']}"
+        # Order 236: never inside the engineer's COMPANY Comments text.
+        assert "RF-" not in str(cell) and cell == row["comment"]
 
 
 def test_the_additions_left_the_seven_template_columns_in_place():
