@@ -2579,9 +2579,7 @@ def _run_comparison(
     field_name_matches = 0
     if settings.geometry_reader_enabled or settings.field_naming_enabled:
         from . import field_vocabulary
-        field_names = field_vocabulary.names_for(
-            requirements, facts, stored.get("equipment_type")
-        )
+        field_names = field_vocabulary.names_for(requirements, facts, stored)
     for requirement in requirements:
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption

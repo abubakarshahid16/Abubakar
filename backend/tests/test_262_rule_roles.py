@@ -189,7 +189,7 @@ def test_a_review_reads_the_reviewed_file_without_a_model_call(tmp_path, monkeyp
     monkeypatch.setattr(
         field_naming, "ensure_names", lambda *_a, **_k: pytest.fail("a model was asked")
     )
-    out = field_vocabulary.names_for(rules, [], PUMP)
+    out = field_vocabulary.names_for(rules, [], {"equipment_type": PUMP})
     assert out["requirements"] == {"r1": "design pressure"}
     assert "reviewed draft" in out["source"]
 
@@ -303,8 +303,11 @@ def test_a_review_of_another_type_reads_no_pump_file(tmp_path, monkeypatch):
     rule_roles.export(PUMP, rule_roles.entries(rules, PUMP, lambda d: "SAES-X-001"))
     monkeypatch.setattr(settings, "geometry_reader_enabled", False)
     assert (
-        field_vocabulary.names_for(rules, [], "Pressure Vessel")["requirements"] == {}
+        field_vocabulary.names_for(rules, [], {"equipment_type": "Pressure Vessel"})[
+            "requirements"
+        ]
+        == {}
     )
-    assert field_vocabulary.names_for(rules, [], PUMP)["requirements"] == {
-        "r1": "design pressure"
-    }
+    assert field_vocabulary.names_for(rules, [], {"equipment_type": PUMP})[
+        "requirements"
+    ] == {"r1": "design pressure"}

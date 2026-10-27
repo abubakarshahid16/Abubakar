@@ -418,7 +418,7 @@ def fact_name(fact: dict, vocab: set[str] | None = None) -> str | None:
 
 
 def names_for(
-    requirements: list[dict], facts: list[dict], equipment_type: str | None = None
+    requirements: list[dict], facts: list[dict], classification: dict | None = None
 ) -> dict:
     """The names a run pairs by, in the shape `comparison.match_by_field_name` reads: the STORED
     closed-vocabulary names of the requirements, each RE-CHECKED now against the requirement's
@@ -453,7 +453,9 @@ def names_for(
     from . import rule_roles
 
     # order 262.1: the draft mappings of THIS equipment type, re-checked now
-    reviewed = rule_roles.reviewed_names(requirements, equipment_type)
+    reviewed = rule_roles.reviewed_names(
+        requirements, (classification or {}).get("equipment_type")
+    )
     named = {**named, **reviewed}
     if not named:
         if settings.geometry_reader_enabled:
