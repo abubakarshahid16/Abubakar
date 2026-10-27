@@ -538,18 +538,18 @@ class Settings(BaseSettings):
     #: #193 plan B4 (order 5.5): the geometry reader (`geometry_reader.py`)
     #: adds its form and table readings to `submittal_facts` during
     #: `datasheets.extract_facts`, as `extraction_method='geometry'` rows with
-    #: their boxes. OFF by default - OFF is the pre-B4 extraction, byte for
-    #: byte. When ON, a rule-reader fact for the same page and label always
-    #: wins; a geometry reading that DISAGREES with it is kept with
+    #: their boxes. OFF by default - OFF is the pre-B4 extraction, byte for byte. When ON, a rule-reader fact
+    #: for the same page and label always wins; a geometry reading that DISAGREES with it is kept with
     #: `validation_state='conflict'`, never used to overwrite it.
     #: B4 items 1-3 (same flag): the VISION READER (`vision_reader.py`, Claude
     #: only - it also needs REASONING_PROVIDER=claude and both standards-reader
     #: egress flags) adds page-image readings kept only where code proves them
     #: against the text layer (`extraction_method='vision'`); a code-only noise
-    #: filter (`row_noise.py`) drops page furniture from every reader; and
-    #: field naming covers blank fields too.
-    #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
+    #: filter (`row_noise.py`) drops page furniture from every reader. Env:
+    #: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
+    #: Order 259.5: field naming (`field_naming.py`) on its OWN switch. Env: FIELD_NAMING_ENABLED.
+    field_naming_enabled: bool = False
     #: #830 / #501: WHICH ENGINE the page-image (vision) reader uses under
     #: REASONING_PROVIDER=per_task. "ollama" (default): none - the local model
     #: reads no images, so under per_task no page image leaves. "claude":

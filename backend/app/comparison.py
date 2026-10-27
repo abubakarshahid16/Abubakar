@@ -2577,7 +2577,7 @@ def _run_comparison(
     # pre-B4 matching, untouched.
     field_names = None
     field_name_matches = 0
-    if settings.geometry_reader_enabled:
+    if settings.geometry_reader_enabled or settings.field_naming_enabled:
         from . import field_naming
         field_names = field_naming.ensure_names(requirements, facts)
     for requirement in requirements:
