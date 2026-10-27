@@ -9,9 +9,13 @@ and the same for every sheet:
 1. a sentence about a field THE SHEET STATES (every word of one of the sheet's
    current field names appears in the sentence): a check on it can be compared
    with a value the sheet gives;
-2. a sentence of a standard THE SHEET CITES (selection method "referenced");
-3. a sentence that prints a figure (a limit is a number);
-4. the rest, in their stored order.
+2. a SAFETY sentence (order 243.6): it names hazardous service, a safety
+   instrumented function, relief / overpressure protection, or forbids
+   isolating a safeguard. A safety clause under a standard the sheet does not
+   cite must not lose the budget to twenty cited or figure sentences;
+3. a sentence of a standard THE SHEET CITES (selection method "referenced");
+4. a sentence that prints a figure (a limit is a number);
+5. the rest, in their stored order.
 
 The order is only an order: a proposal is still a DRAFT the engineer decides,
 and code still verifies every part against the sentence. Each standard's share
@@ -25,6 +29,18 @@ import re
 
 _WORD = re.compile(r"[a-z][a-z0-9]{2,}")
 _FIGURE = re.compile(r"\d")
+#: The closed safety vocabulary (order 243.6). Whole words or phrases of the
+#: engineering domain, never a layout or a sheet. A bare "shall not" is NOT in
+#: it: "shall not exceed N" is the commonest limit phrase and would put most
+#: sentences in the tier; only a prohibition of a safeguarding ACTION counts.
+_SAFETY = re.compile(
+    r"\b(?:hazardous|explosive|flammable|toxic|h2s|hydrogen sulphide"
+    r"|hydrogen sulfide|fire|sil|safety instrumented|safety integrity"
+    r"|relief|overpressure|over-pressure|rupture disc|blowdown|emergency shutdown"
+    r"|shall not be (?:isolated|bypassed|disabled|removed|blocked|closed|plugged"
+    r"|locked|throttled|inhibited))\b",
+    re.IGNORECASE,
+)
 #: Words that carry no field meaning ("rated" is not a stop word: it is part of
 #: field names like "rated flow").
 _STOP = frozenset(
@@ -109,6 +125,11 @@ def _tied(sentence_words: frozenset[str], fields: list[frozenset[str]]) -> bool:
     return any(f <= sentence_words for f in fields)
 
 
+def is_safety(text: str) -> bool:
+    """True when the sentence uses the closed safety vocabulary."""
+    return _SAFETY.search(text or "") is not None
+
+
 def rank(
     requirements: list[dict],
     fields: list[frozenset[str]],
@@ -117,10 +138,11 @@ def rank(
 ) -> list[dict]:
     """The requirements, best first; ties keep their stored order."""
 
-    def key(requirement: dict) -> tuple[bool, bool, bool]:
+    def key(requirement: dict) -> tuple[bool, bool, bool, bool]:
         text = sentence_of(requirement)
         return (
             not _tied(words(text), fields),
+            not is_safety(text),
             requirement.get("standard_document_id") not in cited,
             not _FIGURE.search(text),
         )

@@ -64,10 +64,10 @@ def test_then_a_standard_the_sheet_cites_then_a_figure_then_stored_order():
 
 
 def test_the_cap_is_spent_on_the_top_sentences_and_each_standards_share_is_counted(
-    review_run, monkeypatch
+    review_run,
 ):
-    run, _ids, scope = review_run
-    spec = next(i for i in scope if i == "spec")
+    run, _ids, _scope = review_run
+    spec = "spec"
     with connect() as conn:
         conn.execute(
             "UPDATE review_applicable_standards SET selection_method = 'referenced'"
@@ -197,3 +197,39 @@ def test_a_generic_or_short_one_word_field_does_not_tie_a_sentence_to_it(review_
     assert frozenset({"rated", "flow"}) in fields
     # field_label is read as well as field_name: "Set pressure" is both
     assert frozenset({"set", "pressure"}) in fields
+
+
+# ------------------------------------------------ order 243.6: the safety tier
+
+SAFETY = _s("safety", "Relief valves shall not be isolated.", standard="other")
+
+
+def test_a_safety_sentence_under_an_uncited_standard_beats_cited_and_figure_sentences():
+    """The planner's exact case: 25 cited sentences that print a figure, one
+    safety sentence of an uncited standard, and a budget of 20."""
+    crowd = [
+        _s(f"c{i}", f"Gasket {i} shall be rated for {i + 10} bar.", standard="nace")
+        for i in range(25)
+    ]
+    ranked = _order([*crowd, SAFETY], cited=["nace"])
+    assert ranked.index("safety") < 20
+    assert ranked[0] == "safety"
+
+
+def test_a_field_the_sheet_states_still_comes_before_a_safety_sentence():
+    ranked = _order([SAFETY, FIELD, CITED], fields=["Set pressure"], cited=["nace"])
+    assert ranked == ["field", "safety", "cited"]
+
+
+def test_a_bare_shall_not_and_a_limit_phrase_are_not_safety():
+    assert clause_check_rank.is_safety("Relief valves shall not be isolated.")
+    assert clause_check_rank.is_safety("The area is hazardous (Zone 1).")
+    assert clause_check_rank.is_safety("SIL 2 applies to the shutdown loop.")
+    assert not clause_check_rank.is_safety(
+        "The test pressure shall not exceed 12 barg."
+    )
+    assert not clause_check_rank.is_safety("Bolts shall not be reused.")
+    assert not clause_check_rank.is_safety(
+        "A silicone gasket is used."
+    )  # whole words only
+    assert not clause_check_rank.is_safety("")
