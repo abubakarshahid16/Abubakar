@@ -2947,9 +2947,7 @@ def _run_comparison(
     # must not be deleted by it.
     _write_run_findings(review_run_id, prepared_rows, replace=replace)
 
-    # #677 EVERY REQUIREMENT THAT REACHED THE COMPARISON: its finding's status
-    # decides its state; one with no finding (an engineer rejected the
-    # pairing) is an engineer's question, never silent.
+    # #677: a requirement's finding status decides its state; none is an engineer's question.
     status_of: dict = {}
     for row in prepared_rows:
         status_of.setdefault(row.get("requirement_id"), row.get("compliance_status"))
@@ -3023,7 +3021,9 @@ def _run_comparison(
         # (confirmed by code) and the definitions - the same items the
         # per-requirement ledger above is built from
         scoped["not_applied_items"] + extra_not_applied,
-        covered_items)
+        covered_items,
+        status_of=status_of,
+    )
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
     if checklist_note:

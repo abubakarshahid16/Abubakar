@@ -24,6 +24,18 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
+class _AllCompared(dict):
+    """A status for every requirement: these tests are about the grouping, not the statuses
+    (`tests/test_260_one_meaning_of_checked.py` holds those)."""
+
+    def get(self, key, default=None):
+        return "COMPLIANT"
+
+
+def _build(*args, **kwargs):
+    return rs.build(*args, status_of=_AllCompared(), **kwargs)
+
+
 def req(text, std="s1", rid=None):
     return {"id": rid or text, "standard_document_id": std, "requirement_text": text}
 
@@ -40,7 +52,7 @@ def item(text, code=None, detail=None, std="s1"):
 # --------------------------------------------------------------- pure split
 
 def test_a_run_with_known_counts_shows_the_right_three_numbers():
-    split = rs.build(
+    split = _build(
         [req(f"checked {i}") for i in range(3)],
         [item(f"cell {i}", "column_not_on_sheet") for i in range(4)],
         [item(f"other {i}", "other_equipment", "about a turbine, this submittal is a pump") for i in range(2)])
@@ -50,14 +62,14 @@ def test_a_run_with_known_counts_shows_the_right_three_numbers():
 
 
 def test_requirements_that_do_not_apply_never_enter_the_share():
-    split = rs.build([req("a")], [item("b", "no_label")], [item(f"x{i}", "other_equipment") for i in range(500)])
+    split = _build([req("a")], [item("b", "no_label")], [item(f"x{i}", "other_equipment") for i in range(500)])
     assert split["unchecked_share"] == pytest.approx(0.5)
-    none_apply = rs.build([], [], [item("x", "other_equipment")])
+    none_apply = _build([], [], [item("x", "other_equipment")])
     assert none_apply["unchecked_share"] is None                    # never 0%
 
 
 def test_each_group_names_its_reasons_most_common_first():
-    split = rs.build([], [item("a", "no_label"), item("b", "column_not_on_sheet"), item("c", "column_not_on_sheet")],
+    split = _build([], [item("a", "no_label"), item("b", "column_not_on_sheet"), item("c", "column_not_on_sheet")],
                      [item("d", "other_equipment", "about a turbine, this submittal is a pump")])
     assert split["applies_not_checked_reasons"][0] == {
         "reason": rs.REASON_TEXT["column_not_on_sheet"], "count": 2}
@@ -65,33 +77,33 @@ def test_each_group_names_its_reasons_most_common_first():
 
 
 def test_a_requirement_with_no_stored_reason_says_no_reason_recorded_never_a_guess():
-    split = rs.build([], [item("a", None), item("b", "a_code_nobody_defined")], [item("c", None)])
+    split = _build([], [item("a", None), item("b", "a_code_nobody_defined")], [item("c", None)])
     assert split["applies_not_checked_reasons"] == [{"reason": "no reason recorded", "count": 2}]
     assert split["does_not_apply_reasons"] == [{"reason": "no reason recorded", "count": 1}]
 
 
 def test_a_repeated_requirement_counts_once_and_the_repeats_are_reported():
     rows = [item("The same table value", "no_label") for _ in range(5)]
-    split = rs.build([req("The   SAME table value", std="s2", rid="row-x")], rows + [item("THE SAME TABLE VALUE.", "no_label")], [])
+    split = _build([req("The   SAME table value", std="s2", rid="row-x")], rows + [item("THE SAME TABLE VALUE.", "no_label")], [])
     # 6 stored rows of one requirement in standard s1, plus one checked row in s2
     assert split["applies_not_checked"] == 1 and split["checked"] == 1
     assert split["repeats_ignored"] == 5
 
 
 def test_the_same_text_in_two_standards_is_two_requirements():
-    split = rs.build([], [item("shall be 9", "no_label", std="a"), item("shall be 9", "no_label", std="b")], [])
+    split = _build([], [item("shall be 9", "no_label", std="a"), item("shall be 9", "no_label", std="b")], [])
     assert split["applies_not_checked"] == 2
 
 
 def test_a_requirement_in_two_groups_counts_in_the_strongest_one():
-    split = rs.build([req("x")], [item("x", "no_label")], [item("x", "other_equipment")])
+    split = _build([req("x")], [item("x", "no_label")], [item("x", "other_equipment")])
     assert (split["checked"], split["applies_not_checked"], split["does_not_apply"]) == (1, 0, 0)
-    weaker = rs.build([], [item("y", "no_label")], [item("y", "other_equipment")])
+    weaker = _build([], [item("y", "no_label")], [item("y", "other_equipment")])
     assert (weaker["applies_not_checked"], weaker["does_not_apply"]) == (1, 0)
 
 
 def test_two_unreadable_rows_with_no_text_never_merge():
-    split = rs.build([], [{"requirement": {"id": "1", "standard_document_id": "s"}, "code": "text_quality"},
+    split = _build([], [{"requirement": {"id": "1", "standard_document_id": "s"}, "code": "text_quality"},
                           {"requirement": {"id": "2", "standard_document_id": "s"}, "code": "text_quality"}], [])
     assert split["applies_not_checked"] == 2
 
@@ -157,7 +169,7 @@ def test_the_approval_rule_uses_only_applies_but_not_checked():
 
 
 def test_the_notice_gives_three_counts_and_the_top_reasons_but_only_unchecked_makes_it_incomplete():
-    split = rs.build([req("a")], [item("b", "column_not_on_sheet")], [item("c", "other_equipment", "about X, this is Y")])
+    split = _build([req("a")], [item("b", "column_not_on_sheet")], [item("c", "other_equipment", "about X, this is Y")])
     outcome = {"unchecked_counts": {"checked": 1, "not_compared": 1, "not_applied": 1}, "requirement_split": split}
     parts = absence.unchecked_parts(run_status="completed", outcome=outcome)
     notice = absence.notice_for(parts)
@@ -189,8 +201,12 @@ def test_a_real_run_counts_unreadable_text_as_applies_but_not_checked(monkeypatc
     _review([("g", GENERAL, "4.1"), ("h", "The relief valve shall be stamped.", "4.2")])
     split = json.loads(db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()[0])[
         "requirement_split"]
-    assert (split["checked"], split["applies_not_checked"]) == (1, 1)
-    assert split["applies_not_checked_reasons"] == [{"reason": rs.REASON_TEXT["text_quality"], "count": 1}]
+    # order 260.1: the general sentence reached the comparison but only ended as "another
+    # document gives it", so it is not checked either
+    assert (split["checked"], split["applies_not_checked"]) == (0, 2)
+    assert {"reason": rs.REASON_TEXT["text_quality"], "count": 1} in split[
+        "applies_not_checked_reasons"
+    ]
 
 def test_a_real_run_stores_the_three_groups_with_their_reasons():
     ids, cited, result = table_setup([("Material", "UNS S31600")], {"std-a": [
@@ -198,9 +214,13 @@ def test_a_real_run_stores_the_three_groups_with_their_reasons():
     split = db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()
     import json
     stored = json.loads(split["outcome_json"])["requirement_split"]
-    assert stored["checked"] == 1 and stored["applies_not_checked"] == 2 and stored["does_not_apply"] == 0
-    assert stored["applies_not_checked_reasons"] == [
-        {"reason": rs.REASON_TEXT["other_row_matched"], "count": 2}]
+    # the one requirement that reached the comparison ended without a value compared (order 260.1)
+    assert stored["checked"] == 0
+    assert stored["applies_not_checked"] == 3
+    assert stored["does_not_apply"] == 0
+    assert {"reason": rs.REASON_TEXT["other_row_matched"], "count": 2} in stored[
+        "applies_not_checked_reasons"
+    ]
     assert stored["total"] == 3
     assert result["table_values_not_compared"][0]["reasons"] == {"other_row_matched": 2}
 
@@ -210,22 +230,26 @@ def test_a_real_run_puts_other_equipment_in_does_not_apply_and_keeps_it_out_of_t
     import json
     stored = json.loads(db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()[0])
     split = stored["requirement_split"]
-    assert (split["checked"], split["applies_not_checked"], split["does_not_apply"]) == (1, 0, 1)
+    # the turbine clause does not apply; the general one applies but ended as "another document
+    # gives it", which is not a comparison (order 260.1)
+    assert (split["checked"], split["applies_not_checked"], split["does_not_apply"]) == (0, 1, 1)
     assert "turbine" in split["does_not_apply_reasons"][0]["reason"]
     assert stored["unchecked_counts"] == {
-        "not_compared": 0,
+        "not_compared": 1,
         "not_applied": 1,
-        "checked": 1,
+        "checked": 0,
         "unsure_citation": 0,
     }
-    assert split["unchecked_share"] == 0.0
+    # of the ONE that applies; the turbine clause is outside
+    assert split["unchecked_share"] == 1.0
 
 
 def test_a_real_run_counts_stored_repeats_once():
     ids, cited, result = _review([("a", GENERAL, "4.1"), ("b", GENERAL, "4.2"), ("c", GENERAL, "4.3")])
     import json
     split = json.loads(db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()[0])["requirement_split"]
-    assert split["checked"] == 1 and split["repeats_ignored"] == 2
+    assert split["checked"] + split["applies_not_checked"] == 1
+    assert split["repeats_ignored"] == 2
 
 
 def _summary_of_the_only_run():
@@ -237,7 +261,7 @@ def _summary_of_the_only_run():
 def test_the_run_api_returns_the_split():
     _review([("t", TURBINE, "8.7"), ("g", GENERAL, "4.1")])
     got = _summary_of_the_only_run()["requirement_split"]
-    assert (got["checked"], got["applies_not_checked"], got["does_not_apply"]) == (1, 0, 1)
+    assert (got["checked"], got["applies_not_checked"], got["does_not_apply"]) == (0, 1, 1)
 
 
 def test_an_old_run_with_only_counts_gets_them_with_no_reason_recorded():

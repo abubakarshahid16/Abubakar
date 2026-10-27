@@ -1,6 +1,10 @@
 """Every requirement in a run's scope is in ONE of three honest groups (#678).
 
-  * CHECKED: the review compared it (met, not met, or needs an engineer).
+  * CHECKED: the review COMPARED it with a datasheet value (met, not met,
+    conditional). One that reached the comparison and ended as missing
+    information, an engineer's question or "another document gives it" is
+    applies-but-not-checked (order 260.1); one the comparison found does not
+    apply is does-not-apply. `scope_ledger.group_of` is the one rule.
   * APPLIES BUT NOT CHECKED: it applies to this submittal, and the review could
     not check it (a standards-table value with no field to answer it, text that
     could not be read reliably). Each has its reason.
@@ -26,7 +30,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from . import table_gate
+from . import scope_ledger, table_gate
 
 CHECKED = "checked"
 APPLIES_NOT_CHECKED = "applies_not_checked"
@@ -68,10 +72,17 @@ def reason_words(code: str | None, detail: str | None = None) -> str:
     return REASON_TEXT.get(code or "", NO_REASON)
 
 
-def build(checked: list[dict], not_checked: list[dict], not_applied: list[dict],
-          not_used: list[dict] | None = None) -> dict:
-    """`checked`: requirement dicts. `not_checked` / `not_applied`: items
-    {"requirement": dict, "code": str|None, "detail": str|None}.
+def build(
+    checked: list[dict],
+    not_checked: list[dict],
+    not_applied: list[dict],
+    not_used: list[dict] | None = None,
+    *,
+    status_of: dict,
+) -> dict:
+    """`checked`: the requirement dicts that reached the comparison; `status_of`: their finding's
+    status by requirement id (one with none is an engineer's question), which decides the group.
+    `not_checked` / `not_applied`: items {"requirement": dict, "code": str|None, "detail": str|None}.
 
     Returns the counts, the reasons behind each of the two groups that have
     one, how many stored repeats were ignored, and the share of the
@@ -87,7 +98,8 @@ def build(checked: list[dict], not_checked: list[dict], not_applied: list[dict],
             placed[key] = (group, reason)
 
     for r in checked:
-        put(CHECKED, requirement_key(r), "")
+        group, words = scope_ledger.group_of(status_of.get(r.get("id")))
+        put(group, requirement_key(r), "" if group == CHECKED else words)
     for item in not_checked:
         put(APPLIES_NOT_CHECKED, requirement_key(item["requirement"]),
             reason_words(item.get("code"), item.get("detail")))
