@@ -59,6 +59,10 @@ _EDGE_R = r"(?![A-Za-z0-9_])"
 
 #: The stored id of a document (`upload.py`: f"doc_{sha256[:12]}").
 DOC_ID = re.compile(r"\bdoc_[0-9a-f]{12}\b")
+#: The program's id for a kind B check ("Datasheet check PSV-14") and the engine sentence of an
+#: AI draft ("Written by ollama:hf.co/..."): internal names, whatever the check or the model.
+DATASHEET_CHECK_ID = re.compile(r"\bDatasheet check [A-Z]+-[A-Z0-9]+\b")
+WRITTEN_BY_ENGINE = re.compile(r"\bWritten by \w+:")
 
 #: Internal wording, each true of any document:
 #:  synonym table / containment match / matched by containment - how the
@@ -71,6 +75,8 @@ DOC_ID = re.compile(r"\bdoc_[0-9a-f]{12}\b")
 #:  no field read from / validation state / page reader / automatic result /
 #:      engineer to tick / this engine - the program's own account of how it read or decided
 #:      (K7/K8, order 224): the engineer's cell to read, not the contractor's
+#:  this engine can evaluate / drafts about this field differ / blanks, one answer / places,
+#:      one answer / model-assigned field name - the same, found on the I-06 run (order 228.3)
 PHRASES = (
     "synonym table",
     "containment match",
@@ -86,6 +92,11 @@ PHRASES = (
     "engineer to tick",
     "this engine reads",
     "this engine cannot",
+    "this engine can evaluate",
+    "drafts about this field differ",
+    "blanks, one answer",
+    "places, one answer",
+    "model-assigned field name",
 )
 
 
@@ -138,7 +149,13 @@ def find_machine_words(text: str | None, names: Names | None = None) -> list[str
         return []
     names = names or Names()
     found: list[tuple[int, str]] = []
-    for pattern in (names.cased, names.phrases, DOC_ID):
+    for pattern in (
+        names.cased,
+        names.phrases,
+        DOC_ID,
+        DATASHEET_CHECK_ID,
+        WRITTEN_BY_ENGINE,
+    ):
         found.extend((m.start(), m.group(0)) for m in pattern.finditer(text))
     found.sort()
     return list(dict.fromkeys(word for _at, word in found))
