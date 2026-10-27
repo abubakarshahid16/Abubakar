@@ -53,7 +53,7 @@ HX_SHEET = [
     ("Tube wall thickness", "tube_wall_thickness", "2.11", "mm"),
     ("Tube length", "tube_length", "6000", "mm"),
     ("Number of tubes", "tube_count", "412", None),
-    ("Number of passes", "tube_passes", "2", None),
+    ("Number of tube passes", "tube_passes", "2", None),
     ("Fouling resistance", "fouling_resistance", "0.00035", None),
     ("TEMA type", "tema_type", "BEM", None),
     ("Shell side flow", "exchanger_flow", "45", "m3/h"),
@@ -167,6 +167,11 @@ def test_the_reader_is_asked_for_the_new_fields(key, sheet):
         "weight",
         "length",
         "passes",
+        "number of passes",
+        "no. of passes",
+        "shell passes",
+        "volume",
+        "mdmt exemption",
         "shell",
         "tube",
         "area",
@@ -196,3 +201,38 @@ def test_each_new_spelling_belongs_to_one_role():
     for role, body in RULES["roles"].items():
         for spelling in body.get("printed_as", []):
             assert seen.setdefault(spelling.lower(), role) == role, spelling
+
+
+@pytest.mark.parametrize("label", ["Number of passes", "No. of passes", "Passes"])
+def test_a_bare_passes_label_does_not_state_the_tube_passes(label):
+    # cloud on #1390: on a sheet where that cell is the shell-side count it would be a false "stated".
+    assert dc.role_of(label.lower(), RULES) != "tube_passes"
+    facts = [
+        *_facts(HX_SHEET, skip=("tube_passes",)),
+        fact(label.lower(), "1", None, label=label),
+    ]
+    assert _results(facts, HX)["HEX-15"]["status"] == "MISSING_INFORMATION"
+
+
+@pytest.mark.parametrize(
+    "label", ["Number of tube side passes", "No. of tube passes", "Tube side passes"]
+)
+def test_a_label_naming_the_tube_side_states_the_tube_passes(label):
+    assert dc.role_of(label.lower(), RULES) == "tube_passes"
+
+
+def test_a_two_sided_item_says_one_side_is_enough_to_pass():
+    items = {i["id"]: i["text"] for i in dc.checklist_for(HX, RULES)["items"]}
+    for item_id in ("HEX-16", "HEX-18", "HEX-19"):
+        assert "one side is enough" in items[item_id]
+    one_side = [
+        *_facts(HX_SHEET, skip=("exchanger_flow",)),
+        fact("tube side flow", "30", "m3/h", label="Tube side flow"),
+    ]
+    assert _results(one_side, HX)["HEX-18"]["status"] == "COMPLIANT"
+
+
+def test_a_plate_heat_exchanger_takes_the_shell_and_tube_list():
+    # Scope, stated in the PR: the list is a draft for shell-and-tube; a plate unit is judged by it too
+    # and so reads "not found" for tube passes, tube count and TEMA type until a plate list exists.
+    assert dc.checklist_for("Plate Heat Exchanger", RULES)["key"] == HX

@@ -57,9 +57,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "04",
         "a bare 'passes' is read as the number of tube passes",
-        '"^(number of|no\\\\.? of) (tube[- ]side )?passes$"',
-        '"^((number of|no\\\\.? of) (tube[- ]side )?)?passes$"',
-        "loose_label",
+        '"^(number of|no\\\\.? of) tube([- ]side)? passes$"',
+        '"^(number of|no\\\\.? of) (tube([- ]side)? )?passes$"',
+        "passes_label",
     ),
     _m(
         "05",
@@ -67,5 +67,46 @@ MUTATIONS: tuple[Mutation, ...] = (
         '"^tube (bundle )?material$"',
         '"^tube (bundle )?material$x"',
         "every_field_a_sheet_prints",
+    ),
+    _m(
+        "06",
+        "the vessel checklist claims its clauses are verified",
+        _HEAD.format(key="Pressure Vessel"),
+        _HEAD.format(key="Pressure Vessel").replace(
+            '"clauses_verified": false', '"clauses_verified": true'
+        ),
+        "does_not_govern",
+    ),
+    _m(
+        "07",
+        "the exchanger flow item no longer says one side is enough",
+        "The flow is stated for the shell side or the tube side (one side is enough to pass).",
+        "The flow is stated for the shell side or the tube side.",
+        "one_side_is_enough",
+    ),
+    _m(
+        "08",
+        "a bare 'volume' is read as the vessel volume",
+        '"^(vessel |total |internal |design )volume$"',
+        '"^(vessel |total |internal |design )?volume$"',
+        "loose_label",
+    ),
+    _m(
+        "09",
+        "'MDMT exemption' is read as the minimum design metal temperature",
+        '"^(minimum design metal temperature|mdmt)( \\\\(mdmt\\\\))?$"',
+        '"^(minimum design metal temperature|mdmt)( .*)?$"',
+        "loose_label",
+    ),
+    Mutation(
+        id="M1390-10",
+        phase=1390,
+        description="a placeholder word such as 'fields' is looked up as a clause and linked to a standard page",
+        path=APP / "standard_clause_page.py",
+        anchor='    if not label or not (re.search(r"\\d", clause) or re.fullmatch(r"[A-Za-z]", clause)):',
+        replacement="    if not label or not clause:",
+        target="tests/test_225_standard_clause_page.py",
+        keyword="placeholder_word",
+        tags=_TAGS,
     ),
 )

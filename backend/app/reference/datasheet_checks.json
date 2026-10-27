@@ -599,11 +599,11 @@
     "tube_passes": {
       "kind": "number",
       "names": [
-        "^(number of|no\\.? of) (tube[- ]side )?passes$",
+        "^(number of|no\\.? of) tube([- ]side)? passes$",
         "^tube[- ]side passes$"
       ],
       "printed_as": [
-        "number of passes"
+        "number of tube passes"
       ]
     },
     "fouling_resistance": {
@@ -2398,7 +2398,7 @@
         },
         {
           "id": "HEX-16",
-          "text": "The fouling resistance is stated.",
+          "text": "The fouling resistance is stated (on the shell side, the tube side or both; one side is enough to pass).",
           "source": {
             "standard": "API 660 / TEMA",
             "clause": "datasheet fields"
@@ -2424,7 +2424,7 @@
         },
         {
           "id": "HEX-18",
-          "text": "The shell or tube side flow is stated.",
+          "text": "The flow is stated for the shell side or the tube side (one side is enough to pass).",
           "source": {
             "standard": "API 660 / TEMA",
             "clause": "datasheet fields"
@@ -2437,7 +2437,7 @@
         },
         {
           "id": "HEX-19",
-          "text": "The allowable pressure drop is stated.",
+          "text": "The allowable pressure drop is stated (for the shell side, the tube side or both; one side is enough to pass).",
           "source": {
             "standard": "API 660 / TEMA",
             "clause": "datasheet fields"
