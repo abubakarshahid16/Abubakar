@@ -52,9 +52,7 @@ def full_vessel(**over):
 
 def test_a_consistent_full_vessel_sheet_raises_nothing():
     results = run(full_vessel())
-    # the sheet checks (kind B); the draft checklist's own rows are tested apart
-    statuses = {r["status"] for r in results.values() if not r.get("checklist")}
-    assert statuses == {"COMPLIANT"}, results
+    assert {r["status"] for r in results.values()} == {"COMPLIANT"}, results
 
 
 def test_design_pressure_below_operating_is_a_comment_with_the_calculation():
@@ -288,13 +286,7 @@ def test_with_no_standard_held_the_review_still_gives_datasheet_check_comments(v
     assert len(comments) >= 2
     # Every field check cites its page and field; the revision-block check is
     # about the whole sheet and cites no single page.
-    # (the draft checklist's "not found" rows name no page: tested with the checklist)
-    field_rows = [
-        r
-        for r in comments
-        if "revision block" not in r["comment"]
-        and "was not found in the fields read" not in r["comment"]
-    ]
+    field_rows = [r for r in comments if "revision block" not in r["comment"]]
     # CRS quick wins: Page/Section is "p.<page> - <field>", the datasheet's.
     assert field_rows and all(r["page_section"].startswith("p.1 - ") for r in field_rows)
     assert all(r["comment_by"] == "AI Review" for r in comments)
