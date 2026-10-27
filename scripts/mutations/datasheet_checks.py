@@ -27,9 +27,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1060", phase=89, description="a 'TBA' mandatory field passes as a value",
              path=_M,
              # Re-anchored 2026-09-27 (CRS quick wins): the one marker list,
-             # `blank_markers`, decides.
-             anchor=("                if fact.get(\"is_blank\") or (printed.strip()\n"
-                     "                                            and blank_markers.classify(printed)[0]):\n"),
+             # `blank_markers`, decides. Re-anchored again in PR 1401: through
+             # `fact_is_placeholder`.
+             anchor="                if blank_markers.fact_is_placeholder(fact):\n",
              replacement="                if False:\n",
              target=_T, keyword="absent_or_tba", tags=("honesty",)),
     Mutation(id="M1061", phase=89, description="a value without its unit passes",

@@ -292,9 +292,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                 # ONE LIST (rule 8): `blank_markers`, the list the datasheet
                 # reader itself used to mark the fact blank - a lone "*" or
                 # "VENDOR TO ADVISE" is a placeholder here exactly as there.
-                printed = fact.get("field_value") or fact.get("blank_marker") or ""
-                if fact.get("is_blank") or (printed.strip()
-                                            and blank_markers.classify(printed)[0]):
+                if blank_markers.fact_is_placeholder(fact):
                     out.append(_result("DS-M2", MISSING_INFORMATION,
                                        f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
                                        f"{_label(fact, role)} is marked '{_said(fact) or fact.get('blank_marker')}' "
