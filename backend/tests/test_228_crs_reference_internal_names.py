@@ -142,3 +142,46 @@ def test_a_clause_with_stray_spaces_prints_once_tidy():
 )
 def test_the_engine_is_the_whole_name_in_the_engine_sentence(rationale, engine):
     assert crs_reference.engine_of({"ai_rationale": rationale}) == engine
+
+
+def test_the_programs_check_id_is_a_machine_word_in_any_cell():
+    words = crs_machine_words.find_machine_words(
+        "Per Datasheet check PSV-14 the value is low."
+    )
+    assert words == ["Datasheet check PSV-14"]
+    # the plain label with no id, and ordinary words, are not
+    assert (
+        crs_machine_words.find_machine_words("Datasheet check: capacity is low.") == []
+    )
+
+
+def test_the_engine_sentence_is_a_machine_word_in_any_cell():
+    assert "Written by ollama:" in crs_machine_words.find_machine_words(WRITTEN)
+    assert (
+        crs_machine_words.find_machine_words("Written by the contractor's engineer.")
+        == []
+    )
+
+
+def _issued_row(comment):
+    return {
+        "finding_id": "f1",
+        "document_name": "inv.pdf",
+        "page_section": "p.1 - Rated capacity",
+        "comment": comment,
+        "comment_by": "Engineer",
+        "row_kind": crs_mapping.ROW_KIND_CARRIED_FORWARD,
+        "engineer_confirmed": True,
+        "standard_reference": "API 520-I 3.20 (p.12)",
+    }
+
+
+def test_an_already_issued_row_with_the_old_drafts_sentence_passes_the_gate_and_exports_unchanged():
+    from app import crs_export
+
+    old = "3 drafts about this field differ; all are kept. (1) Provide the value. (2) State the unit."
+    rows = [_issued_row(old)]
+    # the issued words are the engineer's: the gate does not read them again
+    assert crs_machine_words.scan_issue_rows(rows) == []
+    view = crs_export.build_crs_view(rows, {"review_run_id": "run-1", "copy": "issue"})
+    assert old in str(view)
