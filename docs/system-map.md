@@ -40,6 +40,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
+| `answer_model_notice` | Order 238.2: the dashboard warning when the default 35B answer model is not installed, naming the earlier model |
 | `answerability` | B8: the answer-level safety gate - does the evidence ANSWER the question? |
 | `api.documents` | Routes: upload, list, read and delete documents, the ingest steps and the bulk role change (moved out of main.py, order 73) |
 | `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
