@@ -1,5 +1,7 @@
-"""Order 261.2: a failed AI reading never makes a verdict more confident. s2's real clean vs broken
-I-06 reader summaries (counts only) as invented fixtures. No model, no network."""
+"""Order 261.2: a failed AI reading never makes a verdict more confident. s2's REAL stored reader
+summaries (counts only) as fixtures: three clean relief-valve reads, a clean pump-sheet read, the
+broken read (every page read only in part, "engine answer unusable", no per-field error reason).
+No model, no network."""
 
 from __future__ import annotations
 
@@ -10,10 +12,11 @@ from app import (
     datasheets,
     db,
     degraded_read,
-    form_reader_fields,
     submittal_review,
 )
 from app.config import settings
+
+PARTLY = "read in 2 parts after the answer was cut off; 1 part(s) not read (engine answer unusable)"
 
 
 @pytest.fixture(autouse=True)
@@ -28,8 +31,8 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-# s2's REAL clean I-06 read (35B): the AI proposes far more than it can prove, so many gate
-# refusals (117 > agreed 58) are normal; they are quote and value checks, not engine failures.
+# a CLEAN relief-valve read: 117 gate refusals against 58 agreed is normal (the AI proposes more
+# than it can prove); its 13 per-field refusals are quote and value checks, not engine errors
 CLEAN = {
     "engine": "local",
     "pages": 5,
@@ -41,31 +44,29 @@ CLEAN = {
     "facts_written": 68,
     "conflicts": 16,
     "rejected_fields": {
-        "set_pressure: quote_not_on_page": 4,
-        "design_temperature: value_not_in_quote": 9,
-        "bearing_type: label_not_in_quote": 2,
+        "set_pressure: blank_marker_not_proven": 11,
+        "design_temperature: value_not_in_quote": 1,
+        "bearing_type: unit_not_in_quote": 1,
     },
 }
-# the same sheet when the engine failed under it: replies cut off / malformed / not answered for
-# some fields, fewer facts, fewer agreements, fewer conflicts
+# a CLEAN pump-sheet read: only 27 of its 51 facts are agreed (0.53)
+CLEAN_PUMP = {**CLEAN, "pages": 7, "pages_read": 7, "facts_written": 51, "agreed": 27}
+# the same sheet when the engine failed under it: HTTP 200, no timeout, the SAME per-field
+# refusals as the clean run, but every page read only in part
 BROKEN = {
     **CLEAN,
     "refused_by_gate": 46,
     "agreed": 24,
     "facts_written": 39,
     "conflicts": 4,
-    "rejected_fields": {
-        "set_pressure: model_malformed": 2,
-        "design_temperature: field_not_answered": 2,
-        "bearing_type: label_not_in_quote": 2,
-    },
+    "partly_read": {str(p): PARTLY for p in range(1, 6)},
 }
 
 
-def passes(*roles):
+def passes(*roles, rule_ids=None):
     return [
         {
-            "rule_id": f"P{i}",
+            "rule_id": (rule_ids or {}).get(role, f"P{i}"),
             "role": role,
             "status": "COMPLIANT",
             "checklist": True,
@@ -73,6 +74,10 @@ def passes(*roles):
         }
         for i, role in enumerate(roles)
     ]
+
+
+def meets(results):
+    return sum(r["status"] == "COMPLIANT" for r in results)
 
 
 @pytest.fixture
@@ -83,47 +88,99 @@ def reader(monkeypatch):
     return set_summary
 
 
-def test_a_clean_read_with_many_gate_refusals_holds_and_flags_nothing(reader):
-    assert CLEAN["refused_by_gate"] > CLEAN["agreed"]
-    assert degraded_read.missing_roles(CLEAN) == {}
-    assert degraded_read.assess(CLEAN) is None
-    reader(CLEAN)
+@pytest.mark.parametrize("summary", [CLEAN, CLEAN_PUMP])
+def test_a_clean_read_is_not_flagged_and_holds_nothing(summary, reader):
+    """Many gate refusals (117 > 58) and a low agreed share (0.53) are normal on a clean read."""
+    assert summary["refused_by_gate"] > summary["agreed"] or summary is CLEAN_PUMP
+    assert degraded_read.assess(summary) is None
+    reader(summary)
     results = passes("set_pressure", "design_temperature", "bearing_type")
     assert degraded_read.hold(results, "doc") == results
 
 
-def test_only_the_fields_whose_ai_reading_did_not_come_back_are_held(reader):
-    assert degraded_read.missing_roles(BROKEN) == {
-        "set_pressure": ["model_malformed"],
-        "design_temperature": ["field_not_answered"],
-    }
-    reader(BROKEN)
-    held = {
-        r["role"]: r["status"]
-        for r in degraded_read.hold(
-            passes("set_pressure", "design_temperature", "bearing_type", "flow"), "doc"
-        )
-    }
-    assert held == {
-        "set_pressure": "NEEDS_ENGINEER_REVIEW",
-        "design_temperature": "NEEDS_ENGINEER_REVIEW",
-        "bearing_type": "COMPLIANT",  # refused by a quote check: a gate doing its job
-        "flow": "COMPLIANT",
-    }
-
-
-def test_the_broken_read_gives_no_more_meets_than_the_clean_one(reader):
+def test_the_broken_read_is_flagged_and_no_checklist_pass_survives(reader):
+    record = degraded_read.assess(BROKEN)
+    assert record["why"] == ["partly_read_pages"] and record["partly_read_pages"] == 5
+    assert degraded_read.is_part(record)
+    assert (
+        degraded_read.missing_roles(BROKEN) == {}
+    )  # it has no per-field error reason at all
     roles = ["set_pressure", "design_temperature", "bearing_type", "flow", "orifice"]
     reader(CLEAN)
     clean = degraded_read.hold(passes(*roles), "doc")
     reader(BROKEN)
     broken = degraded_read.hold(passes(*roles), "doc")
-    meets = lambda rs: sum(r["status"] == "COMPLIANT" for r in rs)  # noqa: E731
-    assert meets(broken) < meets(clean) == 5
-    held = next(r for r in broken if r["role"] == "set_pressure")
+    assert meets(clean) == 5 and meets(broken) == 0 <= meets(clean)
+    assert "AI reading missing" in broken[0]["detail"]
+    assert "5 page(s) were read only in part" in broken[0]["detail"]
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ({"cut_off": [2]}, "cut_off_pages"),
+        ({"timed_out": [3]}, "timed_out_pages"),
+        ({"code_only": {"2": "engine answer unusable (x)"}}, "failed_pages"),
+        ({"stopped": "time budget"}, "stopped"),
+        ({"unavailable": "no model"}, "unavailable"),
+    ],
+)
+def test_every_other_way_a_page_is_not_fully_read_flags_and_holds(change, why, reader):
+    record = degraded_read.assess({**CLEAN, **change})
+    assert why in record["why"] and degraded_read.is_part(record)
+    reader({**CLEAN, **change})
+    held = degraded_read.hold(passes("flow"), "doc")
+    assert held[0]["status"] == "NEEDS_ENGINEER_REVIEW"
+
+
+def test_a_page_with_no_text_and_a_reader_that_was_not_asked_flag_nothing():
     assert (
-        "AI reading missing" in held["detail"] and "model_malformed" in held["detail"]
+        degraded_read.assess({**CLEAN, "code_only": {"1": "no text on this page"}})
+        is None
     )
+    assert degraded_read.assess({"engine": "off", "pages": 3}) is None
+    assert degraded_read.assess(None) is None
+
+
+def test_only_the_fields_whose_ai_reading_did_not_come_back_are_held(reader):
+    summary = {
+        **CLEAN,
+        "rejected_fields": {
+            "set_pressure: model_malformed": 2,
+            "bearing_type: quote_missing": 1,
+        },
+    }
+    assert degraded_read.missing_roles(summary) == {"set_pressure": ["model_malformed"]}
+    record = degraded_read.assess(summary)
+    assert record["why"] == ["fields_missing"] and not degraded_read.is_part(record)
+    reader(summary)
+    held = {
+        r["role"]: r["status"]
+        for r in degraded_read.hold(passes("set_pressure", "bearing_type"), "doc")
+    }
+    assert held == {
+        "set_pressure": "NEEDS_ENGINEER_REVIEW",
+        "bearing_type": "COMPLIANT",
+    }
+
+
+def test_a_pass_that_reads_two_fields_is_held_when_either_reading_failed(reader):
+    """PSV-24 reads set_pressure AND mawp; its result carries only the first as `role`."""
+    roles = degraded_read.item_roles()
+    assert roles["PSV-24"] == {"set_pressure", "mawp"}
+    assert {"set_pressure", "mawp", "relief_case"} <= roles["PSV-S04"]
+    summary = {**CLEAN, "rejected_fields": {"mawp: model_failed": 1}}
+    reader(summary)
+    results = passes("set_pressure", rule_ids={"set_pressure": "PSV-24"})
+    held = degraded_read.hold(results, "doc")
+    assert (
+        held[0]["status"] == "NEEDS_ENGINEER_REVIEW"
+        and "mawp: model_failed" in held[0]["detail"]
+    )
+    reader(
+        {**CLEAN, "rejected_fields": {"flow: model_failed": 1}}
+    )  # a field it does not read
+    assert degraded_read.hold(results, "doc") == results
 
 
 def test_a_failure_a_missing_value_and_a_non_checklist_pass_keep_their_status(reader):
@@ -142,10 +199,9 @@ def test_a_failure_a_missing_value_and_a_non_checklist_pass_keep_their_status(re
             "detail": "x",
         },
         {"role": "set_pressure", "status": "COMPLIANT", "detail": "a consistency pair"},
-        {"role": None, "status": "COMPLIANT", "checklist": True, "detail": "x"},
     ]
     kept = [r["status"] for r in degraded_read.hold(results, "doc")]
-    assert kept == ["NON_COMPLIANT", "MISSING_INFORMATION", "COMPLIANT", "COMPLIANT"]
+    assert kept == ["NON_COMPLIANT", "MISSING_INFORMATION", "COMPLIANT"]
 
 
 def test_every_form_reader_error_reason_is_a_missing_reading():
@@ -161,46 +217,24 @@ def test_every_form_reader_error_reason_is_a_missing_reading():
         Reason.FIELD_NOT_ANSWERED,
     }
     assert {r.value for r in errors} == set(degraded_read.ERROR_REASONS)
-    # a failed quote or value check is not one of them
-    assert Reason.QUOTE_NOT_ON_PAGE.value not in degraded_read.ERROR_REASONS
-
-
-def test_the_banner_names_a_page_the_engine_could_not_read_and_a_low_agreed_share():
-    assert degraded_read.assess(BROKEN)["why"] == ["low_agreement", "fields_missing"]
-    failed = {
-        **CLEAN,
-        "code_only": {"2": "engine answer unusable (x)", "3": "no text on this page"},
-    }
-    record = degraded_read.assess(failed)
-    assert record["why"] == ["failed_pages"] and record["failed_pages"] == 1
-    assert degraded_read.is_part(record)
-    assert not degraded_read.is_part(degraded_read.assess(BROKEN))  # internal note only
-    assert degraded_read.assess({**CLEAN, "timed_out": [4]})["why"] == ["timed_out"]
-    assert degraded_read.assess({**CLEAN, "stopped": "time budget"})["why"] == [
-        "stopped"
-    ]
-    assert degraded_read.assess({**CLEAN, "unavailable": "no model"})["why"] == [
-        "unavailable"
-    ]
-
-
-def test_an_ai_reader_that_was_not_asked_is_not_flagged():
-    assert degraded_read.assess({"engine": "off", "pages": 3}) is None
-    assert degraded_read.assess(None) is None
+    assert (
+        Reason.QUOTE_NOT_ON_PAGE.value not in degraded_read.ERROR_REASONS
+    )  # a gate working
 
 
 def test_the_split_carries_the_record_and_the_reader_summary(reader):
     reader(BROKEN)
     split = degraded_read.with_reader({"checked": 3}, "doc")
     assert (
-        split["reader"] == BROKEN and "fields_missing" in split["degraded_read"]["why"]
+        split["reader"] == BROKEN
+        and "partly_read_pages" in split["degraded_read"]["why"]
     )
     reader(CLEAN)
     clean = degraded_read.with_reader({"checked": 3}, "doc")
     assert "degraded_read" not in clean and clean["reader"] == CLEAN
 
 
-def test_the_crs_banner_lists_a_failed_page_but_a_low_share_is_not_in_the_banner():
+def test_the_crs_banner_lists_a_partly_read_page_and_not_a_per_field_reason_alone():
     counts = {"not_compared": 0, "not_applied": 0, "checked": 5}
 
     def parts(record):
@@ -210,14 +244,11 @@ def test_the_crs_banner_lists_a_failed_page_but_a_low_share_is_not_in_the_banner
         }
         return absence.unchecked_parts(run_status="completed", outcome=outcome)
 
-    failed = degraded_read.assess(
-        {**CLEAN, "code_only": {"2": "engine answer unusable (x)"}}
-    )
-    shown = parts(failed)
+    shown = parts(degraded_read.assess(BROKEN))
     assert [p["part"] for p in shown] == ["degraded_read"] and "detail" not in shown[0]
     assert "REVIEW INCOMPLETE" in absence.notice_for(shown)
-    # a low agreed share or missing fields alone stay in the stored record, never in the banner
-    assert parts(degraded_read.assess(BROKEN)) == []
+    only_fields = {**CLEAN, "rejected_fields": {"flow: model_failed": 1}}
+    assert parts(degraded_read.assess(only_fields)) == []
     assert absence.unchecked_parts(run_status="completed", outcome={}) == []
 
 
@@ -228,7 +259,7 @@ def _checklist_findings():
     return [r["compliance_status"] for r in rows]
 
 
-def test_a_whole_review_holds_the_passes_of_fields_the_ai_did_not_read(monkeypatch):
+def test_a_whole_review_on_the_broken_read_holds_every_checklist_pass(monkeypatch):
     from tests.test_746_checklist_governs import _review, _review_again
 
     monkeypatch.setattr(datasheets, "latest_reader_summary", lambda _doc: CLEAN)
@@ -236,11 +267,9 @@ def test_a_whole_review_holds_the_passes_of_fields_the_ai_did_not_read(monkeypat
     clean = _checklist_findings()
     assert "COMPLIANT" in clean
 
-    roles = [f.key for f in form_reader_fields.field_list_for("Pressure Safety Valve")]
-    broken = {**BROKEN, "rejected_fields": {f"{r}: model_malformed": 1 for r in roles}}
-    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda _doc: broken)
+    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda _doc: BROKEN)
     result, _stored, _ids = _review_again("Pressure Safety Valve")
     after = _checklist_findings()
     assert "COMPLIANT" not in after and "NEEDS_ENGINEER_REVIEW" in after
     assert len(after) == len(clean)
-    assert "fields_missing" in result["requirement_split"]["degraded_read"]["why"]
+    assert "partly_read_pages" in result["requirement_split"]["degraded_read"]["why"]
