@@ -17,11 +17,15 @@ Three other readers differ ON PURPOSE or have not been aligned yet, and keep
 their own behaviour (measured on #455):
   * `ai_engineering_check.parse_partial` removes only the OPENING fence: it
     walks a reply the token cap cut off, which has no closing fence;
-  * `reader_api._unfenced` and `claude_datasheet._unfenced` also accept a
+  * the datasheet readers (`claude_datasheet`, `form_reader`) also accept a
     closing fence on the JSON's last line, a tag with digits (```json5) and
-    an indented fence. Aligning these four sites with them changes which
-    replies count, so it needs the review proof (order 64), not a refactor.
+    an indented fence: that rule is `unfenced_whole` / `opened_tagged` below,
+    moved here unchanged. `reader_api` still carries its own, slightly
+    different, copy. Aligning the four strict sites (or `reader_api`) with
+    the reader rule changes which replies count, so it needs the review proof
+    (order 64), not a refactor.
 """
+
 from __future__ import annotations
 
 import re
@@ -34,3 +38,29 @@ def unfenced(body: str) -> str:
     The caller strips first, as each of the four sites always did."""
     fence = _FENCE.match(body)
     return fence.group(1) if fence else body
+
+
+#: The datasheet readers' rule (moved from `claude_datasheet`, #455, unchanged):
+#: ONE fence around the whole answer, tag of letters/digits/"_"/"-", the closing
+#: fence on its own line or right after the JSON, indented or not.
+_READER_FENCE = re.compile(
+    r"^\s*```[A-Za-z0-9_-]*\s*\n(?P<body>.*?)\n?\s*```\s*$", re.DOTALL
+)
+_READER_OPENING = re.compile(r"^```[A-Za-z0-9_-]*\s*\n(.*)$", re.DOTALL)
+
+
+def unfenced_whole(raw):
+    """The answer without ONE surrounding Markdown code fence (the datasheet
+    readers' rule). A value that is not text is returned as it is (the caller's
+    parse then refuses it)."""
+    if not isinstance(raw, str):
+        return raw
+    fenced = _READER_FENCE.match(raw)
+    return fenced.group("body") if fenced else raw
+
+
+def opened_tagged(text: str) -> str:
+    """`text` without its OPENING fence only (a cut-off reply), tag of letters,
+    digits, "_" or "-" (the datasheet readers' rule)."""
+    fence = _READER_OPENING.match(text)
+    return fence.group(1) if fence else text

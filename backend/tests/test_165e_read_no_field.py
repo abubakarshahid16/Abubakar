@@ -78,7 +78,8 @@ def test_a_cover_page_both_readers_found_nothing_on_is_read_not_unread(
     assert cov["fact_pages"] == [2]
     row = page_ledger.rows(doc)[0]
     assert row["facts_status"] == page_ledger.READ_NO_FIELD
-    assert row["facts_reason"].startswith("Read, no checklist field found")
+    # Order 235 item 3: a cover page that passed the text check says so first.
+    assert "Read, no checklist field found" in row["facts_reason"]
 
 
 def test_with_the_ai_reader_off_the_cover_page_stays_unread(tmp_path, monkeypatch):
@@ -267,8 +268,11 @@ def test_a_page_the_picture_reader_could_not_be_asked_about_is_not_counted_as_re
     doc = _ingest(_pdf(tmp_path / "d.pdf"))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     with db.connect() as conn:
+        # The page did NOT pass the cover/notes text check (order 235 item 3),
+        # so the picture reader being down still leaves it unread.
         conn.execute(
-            "UPDATE page_ledger SET vision_status = 'not_attempted', vision_reason = ? "
+            "UPDATE page_ledger SET vision_status = 'not_attempted', vision_reason = ?,"
+            " facts_reason = 'Read, no checklist field found.' "
             "WHERE document_id = ? AND page_no = 1",
             ("routed: ..., but the vision reader is unavailable (down)", doc),
         )
