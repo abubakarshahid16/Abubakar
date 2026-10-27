@@ -2768,15 +2768,13 @@ def _text_layer_words(stored_path: str | None, page_no: int) -> int:
 
 def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[dict],
                     provider):
-    """`vision_reader.read_page` for one page, or None when the page cannot
-    be opened. A refusal (budget, egress) comes back ON the reading."""
+    """`vision_reader.read_page` for one page, or None when it cannot be opened (a refusal comes back ON the reading)."""
     if (not stored_path or provider is None
             or datasheet_inputs.is_office_input(stored_path)):  # DATASHEET_OFFICE_INPUT seam
         return None
     try:
         from . import vision_reader
-        with pdf_guard.opened(stored_path) as doc:
-            # the model call below runs outside the lock
+        with pdf_guard.opened(stored_path) as doc:  # the model call below is outside the lock
             with pdf_guard.held():
                 if not (1 <= page_no <= doc.page_count):
                     return None
