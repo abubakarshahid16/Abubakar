@@ -195,6 +195,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
 | `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset`; a bare-list route's page with its total in `X-Total-Count` (order 117 item 5) |
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
+| `review_recovery` | Put back, or cancel, the review jobs a dead process left running; at startup every claim of another process (order 231) |
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
 | `row_noise` | Page furniture and fragments that are not fields (#193 plan B4, item 3) |
