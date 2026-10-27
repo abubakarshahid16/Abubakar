@@ -129,3 +129,36 @@ def test_each_new_spelling_belongs_to_one_role():
     for role, body in RULES["roles"].items():
         for spelling in body.get("printed_as", []):
             assert seen.setdefault(spelling.lower(), role) == role, spelling
+
+
+@pytest.mark.parametrize(
+    "label",
+    ["plan", "head", "power", "seal", "npsh", "driver", "material", "pump"],
+)
+def test_a_loose_label_is_not_read_as_one_of_the_pump_fields(label):
+    """A bare word is another field's (or nothing's): it must not answer a pump item."""
+    assert dc.role_of(label, RULES) is None
+
+
+def test_the_clause_finder_lists_references_only_never_text():
+    """scripts/pump_checklist_clauses.py: clause references of the rows whose subject names a field."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "pump_checklist_clauses.py"
+    spec = importlib.util.spec_from_file_location("pump_checklist_clauses", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    rows = [
+        {
+            "subject": "Rated differential head",
+            "clause": "6.1.1",
+            "source_text": "never printed",
+        },
+        {"subject": "NPSH required", "clause": "6.1.5"},
+        {"subject": "Differential head tolerance", "clause": "6.1.2"},
+        {"subject": "Seal chamber", "clause": "6.8.1"},
+    ]
+    assert module.clauses_for("rated_head", RULES, rows) == ["6.1.1", "6.1.2"]
+    assert module.clauses_for("npsh_required", RULES, rows) == ["6.1.5"]
+    assert module.clauses_for("seal_plan", RULES, rows) == []
