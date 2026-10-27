@@ -301,7 +301,7 @@ class OllamaProvider:
             raw = post("/api/generate", body, timeout=self.timeout)
         # Broad on purpose and it RE-RAISES: every transport failure becomes a named refusal.
         except Exception as exc:
-            model_metrics.note(self.requested_model, time.time() - started, type(exc).__name__)
+            model_metrics.failed(self.requested_model, started, exc)
             raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
         wall = worker_review.beat_now() - started
         model_metrics.note(self.requested_model, wall)

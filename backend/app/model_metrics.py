@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -55,6 +56,11 @@ def note(model: str, seconds: float, error: str | None = None) -> None:
     if error:
         row["errors"] += 1
         row["kinds"][error] = row["kinds"].get(error, 0) + 1
+
+
+def failed(model: str, started: float, error: BaseException) -> None:
+    """A model call that raised: the seconds since `started` and the error's TYPE (never its message)."""
+    note(model, time.time() - started, type(error).__name__)
 
 
 def ensure_schema() -> None:

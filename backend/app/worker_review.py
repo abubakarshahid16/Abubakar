@@ -74,7 +74,9 @@ class ReviewDrain:
                 with model_metrics.collect() as bucket:
                     try:
                         review_jobs.run(
-                            job_id, job_queue.worker_id(), heartbeat=self._review_activity
+                            job_id,
+                            job_queue.worker_id(),
+                            heartbeat=self._review_activity,
                         )
                     finally:  # a failed review's calls are worth knowing too
                         model_metrics.store_for_job(job_id, bucket)
