@@ -223,7 +223,7 @@ def test_a_rejected_comment_is_left_off_the_sheet(world, monkeypatch):
     assert len(_noise_rows(run)) == 1
     _signed_in(monkeypatch, scope)
     assert TestClient(app).patch(f"/api/reviews/findings/{finding_id}",
-                                 json={"approval_status": "rejected"}).status_code == 200
+                                 json={"approval_status": "rejected", "reason": "wrong clause for this equipment"}).status_code == 200
     assert _noise_rows(run) == []
 
 

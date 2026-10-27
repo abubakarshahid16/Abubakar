@@ -167,7 +167,7 @@ def test_a_comment_rejected_on_an_earlier_run_is_marked_when_raised_again(world,
     assert "previously rejected" not in fresh["comment_by"], "positive control: nothing rejected yet"
 
     assert client.patch(f"/api/reviews/findings/{finding_id}",
-                        json={"approval_status": "rejected"}).status_code == 200
+                        json={"approval_status": "rejected", "reason": "wrong clause for this equipment"}).status_code == 200
     when = db.connect().execute("SELECT approved_at FROM review_findings WHERE id = ?",
                                 (finding_id,)).fetchone()[0][:10]
     third = _new_run(sub, scope)

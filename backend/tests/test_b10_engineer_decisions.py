@@ -92,7 +92,7 @@ def test_a_disposition_is_also_signed_by_the_caller():
 def test_the_decision_is_in_the_finding_history():
     fid = _created()
     client = _as("eng-1")
-    client.patch(f"/api/reviews/findings/{fid}", json={"approval_status": "rejected"})
+    client.patch(f"/api/reviews/findings/{fid}", json={"approval_status": "rejected", "reason": "wrong clause for this equipment"})
     r = client.get(f"/api/reviews/findings/{fid}/history")
     assert r.status_code == 200, r.text
     events = r.json()["events"]

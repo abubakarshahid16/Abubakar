@@ -457,7 +457,7 @@ def test_a_rejected_item_is_not_on_the_sheet(world, monkeypatch):
     [item] = _ai_rows(run)
     _signed_in(monkeypatch, scope)
     assert TestClient(app).patch(f"/api/reviews/findings/{item['id']}",
-                                 json={"approval_status": "rejected"}).status_code == 200
+                                 json={"approval_status": "rejected", "reason": "wrong clause for this equipment"}).status_code == 200
     assert TEXT not in json.dumps(_preview(run))
 
 

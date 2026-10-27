@@ -2179,14 +2179,13 @@ class ReviewFindingUpdate(BaseModel):
     escalation_level: int | None = Field(default=None, ge=0, le=5)
     response_text: str | None = Field(default=None, max_length=8000)
     disposition: ReviewDisposition | None = None
-    # B10: no `approved_by` / `approved_at` here. Who approved is the
-    # authenticated caller, set by the route - the same rule as `confirmed_by`.
-    #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER,
-    #: taken from the authenticated scope and never from this body, because a
-    #: confirmation that can name someone else is not a confirmation. There is
-    #: no way to un-confirm through this route - a wrong pairing is REJECTED,
-    #: which is a different act with a different record.
+    # B10: no `approved_by` / `approved_at` here: who approved is the caller, set by the route.
+    #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER, never this body.
+    #: There is no un-confirm here - a wrong pairing is REJECTED, a different act and record.
     confirmed: bool | None = None
+    #: #962: why a finding of a run is rejected (`approval_status` "rejected"); read, not stored here.
+    reason: str | None = Field(default=None, max_length=2000)
+    reason_code: str | None = None
 
 
 class ReviewScopeDecision(BaseModel):
