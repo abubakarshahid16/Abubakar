@@ -69,6 +69,9 @@ def _why_kept(row: dict, summary: dict | None) -> str:
     reason = (summary.get("refused_rows") or {}).get(row.get("crs_row_key"))
     if reason:
         return REFUSED_IN_WORDS.get(reason, _GENERIC)
+    if "refused_rows" not in summary and summary.get("refused"):
+        # a run stored before the reason was kept per row
+        return "the AI wording was not kept (reason not recorded for this older review)"
     if summary.get("stopped"):
         return "the AI wording step stopped before this row"
     if summary.get("not_tried"):
