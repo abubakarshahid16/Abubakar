@@ -14,7 +14,7 @@ from app import comparison, field_links
 #: (the sentence's words, the sheet's caption, the unit both state)
 PAIRS = [
     ("the pump speed shall not exceed", "Rated speed", "rpm"),
-    ("the operating speed shall be at most", "Speed rated", "rpm"),
+    ("the rotating speed shall be at most", "Speed rated", "rpm"),
     ("the liquid relative density shall be at least", "Specific gravity", "kg/m3"),
     ("the brake horsepower shall not exceed", "Absorbed power", "kW"),
     ("the driver power shall be at least", "Motor rating", "kW"),
@@ -94,3 +94,11 @@ def test_the_spellings_are_written_once_in_the_data_file():
     assert canon("pump speed") == canon("rated speed")
     assert canon("relative density") == canon("specific gravity")
     assert canon("npsha margin") == "npsh margin" != canon("npsha")
+
+
+def test_operating_speed_and_shaft_power_are_not_synonyms_of_the_rated_quantities():
+    """Reviewers (s1, cloud-2): an operating speed is not the rated speed, and a shaft power may be a
+    driver's: both stay apart until a real sheet shows otherwise."""
+    canon = field_links.canonical
+    assert canon("operating speed") != canon("rated speed")
+    assert canon("shaft power") != canon("absorbed power")
