@@ -44,6 +44,9 @@ def test_a_three_letter_service_is_named(text, service):
         "Parts put into service shall be tested.",
         "Units in our service shall be logged.",
         "Both units in one service shall match.",
+        "Put back into use service shall be recorded.",
+        "The top service level shall be marked.",
+        "At the pre service inspection the seal shall be checked.",
     ],
 )
 def test_a_short_word_that_names_no_service_still_names_none(text):
@@ -67,3 +70,9 @@ def test_the_same_clause_is_kept_when_the_sheet_states_the_service():
 def test_a_short_word_inside_a_longer_word_is_not_stated():
     clause = _req("Seals for gas service shall be double.")
     assert cs.gate([clause], facts=[_fact("Fluid", "Gasoline")])["held"]
+
+
+def test_a_number_word_is_not_part_of_a_service_name():
+    # "month" was already read on main; the number word must not join it.
+    found = cs.named_conditions(_req("A six month service interval shall apply."))
+    assert "six month" not in found
