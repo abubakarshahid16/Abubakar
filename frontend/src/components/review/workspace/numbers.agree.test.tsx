@@ -161,7 +161,19 @@ describe("one source of numbers", () => {
     expect(n.needsYou).toBe(2);
     expect(n.undecided).toBe(3); // b2, c1, c2 (b1 decided, b3 agreed)
     expect(n.unreadPages).toEqual([4, 9, 12]);
-    expect(n.missingStandards).toEqual(["API 610", "ISO 5199"]);
+    // the live list only (order 243.1): the stored "API 610" is not unioned in
+    expect(n.missingStandards).toEqual(["ISO 5199"]);
+  });
+
+  it("a standard uploaded after the run is no longer missing: the live list alone is counted (order 243.1)", () => {
+    // the run's stored list still names API 610; the strip (live) no longer does
+    const n = numbersFor({ missingStandards: ["API 610"], readiness: { ...READINESS, standards_missing: [] } });
+    expect(n.missingStandards).toEqual([]);
+    // and the other way: a standard the live list names is counted even when the stored list is empty
+    const m = numbersFor({ missingStandards: [], readiness: { ...READINESS, standards_missing: ["ISO 5199", "API 520"] } });
+    expect(m.missingStandards).toEqual(["ISO 5199", "API 520"]);
+    // the count the screen shows is the strip's count
+    expect(m.missingStandards.length).toBe(READINESS.standards_missing.length + 1);
   });
 
   it("the verdict and the buttons say it in plain words, in fixed order", () => {
@@ -169,7 +181,7 @@ describe("one source of numbers", () => {
     const bar = screen.getByTestId("ws-action-bar");
     expect(screen.getByTestId("ws-verdict").textContent).toBe("5 comments, 2 need your judgement. Not signed yet.");
     expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "Upload missing standards (2)", "Check unread pages (3)", "Decide comments (3)", "Record the final code (not known yet)",
+      "Upload missing standards (1)", "Check unread pages (3)", "Decide comments (3)", "Record the final code (not known yet)",
       "Preview CRS", "Sign and export",
     ]);
     // v2.2: each step is numbered beside its button (1 to 6), in bar order.
