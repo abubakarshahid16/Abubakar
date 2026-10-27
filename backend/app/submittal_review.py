@@ -813,8 +813,8 @@ def fail_orphaned_review_runs() -> int:
 #: scope tests said so. `submittal_document_id` is unambiguous and is left as
 #: `_scope_clause` writes it, since that helper serves other tables too.
 _RUN_SELECT = (
-    "SELECT r.*, u.display_name AS decided_by_name," + run_finishing.COLUMN
-    + " FROM review_runs r LEFT JOIN users u ON u.id = r.decided_by"
+    "SELECT r.*, u.display_name AS decided_by_name"
+    f"{run_finishing.COLUMN} FROM review_runs r LEFT JOIN users u ON u.id = r.decided_by"
 )
 
 
