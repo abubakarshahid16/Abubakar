@@ -49,6 +49,7 @@ def test_the_first_system_is_the_value_and_its_unit_is_kept(text, value, unit):
         "340 (23.4) psig",  # one unit after two numbers: which number it belongs to is unknown
         "24.8 (109) m3/h",
         "5 (note 3) kW (hp)",
+        "6 (2) VEFV (pcs)",  # the word after the numbers is not a unit: a tag, not a quantity
     ],
 )
 def test_a_cell_that_is_not_one_quantity_twice_is_read_exactly_as_before(text):
