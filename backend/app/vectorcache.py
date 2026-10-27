@@ -145,7 +145,8 @@ def _sweep(keep: str) -> None:
     of being closed underneath its reader."""
     for path in cache_dir().iterdir():
         if path.is_file() and not path.name.startswith(keep):
-            if path.suffix == ".tmp" and time.time() - path.stat().st_mtime < _TMP_GRACE_S:
+            young = time.time() - path.stat().st_mtime < _TMP_GRACE_S
+            if path.suffix == ".tmp" and young:
                 continue  # another process may be writing it right now (order 252)
             try:
                 path.unlink()

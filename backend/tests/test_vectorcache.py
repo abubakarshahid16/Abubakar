@@ -198,7 +198,7 @@ def test_a_truncated_cache_file_is_rebuilt_not_mapped(corpus):
 # ------------------------------------------------------- order 252: a mapped file is never rewritten
 
 
-def test_a_build_writes_to_a_temporary_name_no_other_process_shares(corpus, monkeypatch):
+def test_a_build_writes_to_a_private_temporary_name(corpus, monkeypatch):
     import os
 
     """A second process building the same token must not open (and so truncate) a file the first is
@@ -238,7 +238,7 @@ def test_the_sweep_leaves_a_fresh_temporary_file_of_another_writer_alone(corpus)
     assert not stale.exists(), "a long-abandoned temporary file should go"
 
 
-def test_a_file_shorter_than_the_matrix_serves_the_heap_copy_not_an_error(corpus, monkeypatch):
+def test_a_file_shorter_than_the_matrix_serves_the_heap_copy(corpus, monkeypatch):
     def too_short(*_a, **_k):
         raise ValueError("mmap length is greater than file size")
 

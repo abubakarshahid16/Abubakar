@@ -2775,13 +2775,15 @@ def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[d
         return None
     try:
         from . import vision_reader
-        with pdf_guard.opened(stored_path) as doc:  # the model call below is outside the lock
+        with pdf_guard.opened(stored_path) as doc:
+            # the model call below runs outside the lock
             with pdf_guard.held():
                 if not (1 <= page_no <= doc.page_count):
                     return None
                 page = doc[page_no - 1]
-            return vision_reader.read_page(page, page_no, provider,
-                                           geometry_rows=geometry_rows)
+            return vision_reader.read_page(
+                page, page_no, provider, geometry_rows=geometry_rows
+            )
     except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
         _page_failed(page_no, "vision_open", exc)
         return None
