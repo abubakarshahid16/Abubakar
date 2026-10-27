@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SummaryCard } from "./SummaryCard";
 import { summaryBoundary } from "./summaryBoundary";
+import { toAnalysisResult } from "../../views/analysis/analysisModel";
 import type { AnalysisResult, EvidenceItem } from "../../types/analysis";
 
 const IDS = ["ev_a1b2c3d4e5f60718", "ev_0f1e2d3c4b5a6978", "ev_9988776655443322"];
@@ -163,43 +164,86 @@ function ledgerFor(ids: string[], documents: string[]): EvidenceItem[] {
 }
 
 describe("SummaryCard: the summary states its boundary (#1026)", () => {
-  it("says how many of the selected documents the cited passages come from", () => {
-    const result = makeResult({ evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_b"]) });
+  const inScope = (n: number) => ({ ...makeResult().coverage, authorized_documents_selected: n });
+
+  it("says how many of the documents in scope the cited passages come from", () => {
+    const result = makeResult({
+      evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_b"]),
+      coverage: inScope(5),
+    });
     render(<SummaryCard result={result} onCite={vi.fn()} />);
     expect(screen.getByTestId("summary-boundary")).toHaveTextContent(
-      "Passages from 2 of 2 selected documents you can read",
+      "Passages from 2 of the 5 documents this search could reach (the ones you can read)",
     );
     // The header still counts passages only, as before.
     expect(screen.getByText(/^Summary of \d+ passages?$/)).toHaveTextContent("Summary of 3 passages");
   });
 
-  it("uses the coverage count of selected documents, not the cited ones", () => {
+  it("singular: one document in scope", () => {
     const result = makeResult({
       evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_a"]),
-      coverage: { ...makeResult().coverage, authorized_documents_selected: 5 },
+      coverage: inScope(1),
     });
-    expect(summaryBoundary(result)).toBe("Passages from 1 of 5 selected documents you can read");
-  });
-
-  it("singular: one selected document", () => {
-    const result = makeResult({
-      evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_a"]),
-      coverage: { ...makeResult().coverage, authorized_documents_selected: 1 },
-    });
-    expect(summaryBoundary(result)).toBe("Passages from 1 of 1 selected document you can read");
+    expect(summaryBoundary(result)).toBe("Passages from 1 of the 1 document this search could reach (the ones you can read)");
   });
 
   it("states nothing when a cited passage is not in the ledger (never a guessed or zero count)", () => {
-    const result = makeResult({ evidence_ledger: ledgerFor(IDS.slice(0, 2), ["doc_a", "doc_b"]) });
+    const result = makeResult({
+      evidence_ledger: ledgerFor(IDS.slice(0, 2), ["doc_a", "doc_b"]),
+      coverage: inScope(5),
+    });
     expect(summaryBoundary(result)).toBeNull();
     render(<SummaryCard result={result} onCite={vi.fn()} />);
     expect(screen.queryByTestId("summary-boundary")).toBeNull();
   });
 
-  it("states nothing when no passage is cited or the selected count is absent", () => {
-    expect(summaryBoundary(makeResult({ summary_cited_evidence_ids: [] }))).toBeNull();
-    const noCoverage = makeResult({ evidence_ledger: ledgerFor(IDS, ["a", "b", "c"]) });
-    (noCoverage.coverage as unknown as Record<string, unknown>).authorized_documents_selected = null;
-    expect(summaryBoundary(noCoverage)).toBeNull();
+  it("states nothing for a placeholder 0, a missing count, or more documents cited than in scope", () => {
+    const ledger = ledgerFor(IDS, ["a", "b", "c"]);
+    expect(summaryBoundary(makeResult({ evidence_ledger: ledger, coverage: inScope(0) }))).toBeNull();
+    const noCount = makeResult({ evidence_ledger: ledger });
+    (noCount.coverage as unknown as Record<string, unknown>).authorized_documents_selected = null;
+    expect(summaryBoundary(noCount)).toBeNull();
+    expect(summaryBoundary(makeResult({ evidence_ledger: ledger, coverage: inScope(2) }))).toBeNull();
+  });
+
+  it("states nothing when a cited passage has no document, or nothing is cited", () => {
+    const noDocument = ledgerFor(IDS, ["a", "b", "c"]);
+    (noDocument[1] as unknown as Record<string, unknown>).document_id = null;
+    expect(summaryBoundary(makeResult({ evidence_ledger: noDocument, coverage: inScope(3) }))).toBeNull();
+    expect(summaryBoundary(makeResult({ summary_cited_evidence_ids: [], coverage: inScope(3) }))).toBeNull();
+  });
+});
+
+describe("SummaryCard: the line reaches the live hub (#1026)", () => {
+  // What the hub really does: the route response goes through toAnalysisResult, which used to
+  // hard-code an empty ledger and a 0 count, so the line could never render.
+  const response = (extra: Record<string, unknown> = {}) =>
+    ({
+      question: "Compare the required DFT.",
+      evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_b"]),
+      summary: "Both require 280 µm [S1].",
+      summary_truncated: false,
+      summary_cited_evidence_ids: IDS,
+      documented_findings: [],
+      evidence_removed: [],
+      not_implemented_sections: [],
+      applied_scope: { applied: false, types: [], disciplines: [], subject_ids: [], documents_in_scope: 4 },
+      ...extra,
+    }) as unknown as Parameters<typeof toAnalysisResult>[0];
+
+  it("renders the boundary from the server's own ledger and scope count", () => {
+    const result = toAnalysisResult(response(), "Both require 280 µm [S1].", []);
+    expect(result.evidence_ledger).toHaveLength(3);
+    render(<SummaryCard result={result} onCite={vi.fn()} />);
+    expect(screen.getByTestId("summary-boundary")).toHaveTextContent(
+      "Passages from 2 of the 4 documents this search could reach (the ones you can read)",
+    );
+  });
+
+  it("renders nothing when the server sent no scope count (placeholder 0 is absent)", () => {
+    const result = toAnalysisResult(response({ applied_scope: undefined }), "Both require 280 µm [S1].", []);
+    expect(result.coverage.authorized_documents_selected).toBe(0);
+    render(<SummaryCard result={result} onCite={vi.fn()} />);
+    expect(screen.queryByTestId("summary-boundary")).toBeNull();
   });
 });
