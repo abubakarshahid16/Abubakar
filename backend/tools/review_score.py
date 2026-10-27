@@ -95,6 +95,12 @@ def validate_key(data: object) -> dict:
         if str(data.get("approved_by") or "").strip():
             raise KeyError_("a gold_lite key is not engineer-confirmed: it may not carry approved_by "
                             "(an engineer's approval makes it an engineer_confirmed key)")
+    try:
+        from . import review_steps  # the optional per-step sections (#832)
+
+        review_steps.check_key_fields(data)
+    except ValueError as exc:
+        raise KeyError_(f"the answer key: {exc}") from exc
     items = data.get("items")
     if not isinstance(items, list) or not items:
         raise KeyError_("the answer key has no items")
