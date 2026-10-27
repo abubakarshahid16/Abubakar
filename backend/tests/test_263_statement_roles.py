@@ -236,6 +236,9 @@ def test_a_numeric_review_ignores_statement_entries(tmp_path):
         ("Carbon steel", False),
         ("stainless steel", False),
         ("not duplex stainless steel", False),
+        ("other than duplex stainless steel", False),
+        ("Carbon steel unless duplex stainless steel", False),
+        ("neither duplex stainless steel nor bronze", False),
         ("Non duplex stainless steel", False),
         ("", False),
         (None, False),
@@ -584,6 +587,39 @@ def test_a_statement_pairs_with_the_field_of_its_own_role_and_not_with_another_f
             False,
         ),
         ("The casing material shall be the.", "casing material", "the", False),
+        # optional nits of cloud-2 on #1397: empty values, rank words, an alternative written with a slash
+        (
+            "The mechanical seal shall be provided.",
+            "mechanical seal",
+            "provided",
+            False,
+        ),
+        (
+            "The casing material shall be suitable for the service.",
+            "casing material",
+            "suitable for the service",
+            False,
+        ),
+        (
+            "The shaft material shall be 316 stainless steel minimum.",
+            "shaft material",
+            "316 stainless steel minimum",
+            False,
+        ),
+        (
+            "The shaft material shall be at least duplex stainless steel.",
+            "shaft material",
+            "duplex stainless steel",
+            False,
+        ),
+        (
+            "The shaft material shall be better than 316 stainless steel.",
+            "shaft material",
+            "316 stainless steel",
+            False,
+        ),
+        ("The seal plan shall be plan 11/13.", "seal plan", "plan 11/13", False),
+        ("The seal plan shall be plan 53B.", "seal plan", "plan 53B", True),
     ],
 )
 def test_the_shape_is_the_field_as_subject_a_modal_then_the_value_ending_the_rule(

@@ -61,10 +61,31 @@ _CUES = frozenset(
         "alternatively",
         "optional",
         "may",
+        "minimum",
+        "maximum",
+        "least",
+        "most",
+        "better",
+        "equivalent",
     ]
 )
 _NEGATIONS = frozenset(
-    ["not", "no", "non", "never", "without", "except", "excluding", "excepting"]
+    [
+        "not",
+        "no",
+        "non",
+        "never",
+        "without",
+        "except",
+        "excluding",
+        "excepting",
+        "other",
+        "unless",
+        "neither",
+        "nor",
+        "besides",
+        "apart",
+    ]
 )
 MAX_PHRASE_WORDS = 6
 _SCHEMA = {
@@ -166,6 +187,10 @@ _DEFERRALS = frozenset(
         "given",
         "nominated",
         "confirmed",
+        "provided",
+        "suitable",
+        "adequate",
+        "compatible",
     ]
 )
 _MODALS = frozenset(["shall", "should", "must", "will"])
@@ -179,8 +204,8 @@ def value_fits(text: str, field_quote: str, value: str, name: str) -> bool:
     only "be / have / a / of ..." and ENDS the rule; and the text holds no negation, exception,
     condition or alternative word anywhere. Anything else is the engineer's."""
     phrase = _tokens(value)
-    if not phrase or len(phrase) > MAX_PHRASE_WORDS:
-        return False
+    if not phrase or len(phrase) > MAX_PHRASE_WORDS or "/" in value:
+        return False  # a slash is an alternative ("plan 11/13")
     if all(w in field_vocabulary._NEUTRAL for w in phrase) or phrase == name.split():
         return False
     if phrase[0] in _DEFERRALS:
