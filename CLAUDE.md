@@ -138,6 +138,7 @@ When a mistake is called out on #692, add one line here in your next PR.
 - A pause also stopped the wake-ups, so an order was missed (order 211: pause stops work, never wake-ups).
 - Plan tasks were closed without a before/after run (order 213: close only when every acceptance line is proven on main).
 - A new fixture PDF was silently ignored by `.gitignore` (`*.pdf`) and never pushed, so CI failed: after `git add`, check `git ls-files` / `git status` shows the file, and use `git add -f` for fixtures (PR 1294).
+- Approved a PR from its code while it made an existing mutation entry blind (#1355 and M2513: a new rule caught the sentence the old test used, so the entry no longer failed): before approving a change to a module that has mutation entries, apply those entries by hand and run their tests (PR 1369).
 - Moved lines a mutation anchor quotes and pushed without `check_mutation_anchors.py`, so CI went red (s3, #1285; the pre-push guard now runs it).
 - Added a second model pass without asking what it costs on the Claude lane (s3, #1288; a repeat read must be local-only).
 

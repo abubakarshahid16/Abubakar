@@ -11,7 +11,8 @@
     "is never 'does not apply'. Edit this file to add a condition; no code",
     "change is needed.",
     "#725 F6: a condition with \"mode\": \"value\" is declared by WHAT the application fields say: present when a stated field in `field_labels` names one of `satisfied_by`; absent only when such fields are stated and none does (the stated value is cited). Its markers are also read from the clause heading and its parents. Nothing stated keeps it a check.",
-    "#754 F5b: `required_standards` names the standards a datasheet that DECLARES the condition present must be reviewed against (sour service stated: NACE MR0175 / ISO 15156, one standard under two names). applicability.standards_check adds them to the required set; one the contractor did not cite gets one CRS comment. A cited `standards` entry on a datasheet that declares the condition ABSENT gets a \"does not appear to apply\" note. Generic: no per-document rules."
+    "#754 F5b: `required_standards` names the standards a datasheet that DECLARES the condition present must be reviewed against (sour service stated: NACE MR0175 / ISO 15156, one standard under two names). applicability.standards_check adds them to the required set; one the contractor did not cite gets one CRS comment. A cited `standards` entry on a datasheet that declares the condition ABSENT gets a \"does not appear to apply\" note. Generic: no per-document rules.",
+    "#1309 order 260.5 (service_unknown): the three pump-construction conditions (API 610 overhung / between-bearing / vertically suspended) are declared by the pump-type fields and are absent ONLY when a stated field names ANOTHER construction (`contradicted_by`); a type line naming none of them (\"centrifugal\") is unknown and the requirement stays a check. A requirement that names a construction the sheet HAS is kept even if it also names one it does not. These lists are engineer-editable data, drafted from API 610's own type codes. A sentence is dropped only when it names that ONE construction, with no negation, exception, list word or 'vertical' near it; otherwise it is held for the engineer. A negated sheet value (\"Not overhung\") states no construction."
   ],
   "conditions": [
     {
@@ -156,6 +157,149 @@
         "thermal expansion",
         "blocked in"
       ]
+    },
+    {
+      "name": "overhung pump construction",
+      "mode": "value",
+      "standards": [],
+      "requirement_markers": [
+        "overhung pump",
+        "overhung pumps",
+        "overhung type pump",
+        "overhung type pumps"
+      ],
+      "field_labels": [
+        "pump type",
+        "type of pump",
+        "api pump type",
+        "api 610 type",
+        "pump construction",
+        "pump configuration",
+        "pump style"
+      ],
+      "satisfied_by": [
+        "oh1",
+        "oh2",
+        "oh3",
+        "oh4",
+        "oh5",
+        "oh6",
+        "overhung"
+      ],
+      "contradicted_by": [
+        "bb1",
+        "bb2",
+        "bb3",
+        "bb4",
+        "bb5",
+        "vs1",
+        "vs2",
+        "vs3",
+        "vs4",
+        "vs5",
+        "vs6",
+        "vs7",
+        "between bearings",
+        "between bearing",
+        "vertically suspended"
+      ],
+      "sign_off": "DRAFT: the lists were drafted from API 610's own type codes (OH1-6, BB1-5, VS1-7); a client discipline engineer must approve them before they are relied on"
+    },
+    {
+      "name": "between-bearing pump construction",
+      "mode": "value",
+      "standards": [],
+      "requirement_markers": [
+        "between bearing pump",
+        "between bearing pumps",
+        "between bearings pump",
+        "between bearings pumps"
+      ],
+      "field_labels": [
+        "pump type",
+        "type of pump",
+        "api pump type",
+        "api 610 type",
+        "pump construction",
+        "pump configuration",
+        "pump style"
+      ],
+      "satisfied_by": [
+        "bb1",
+        "bb2",
+        "bb3",
+        "bb4",
+        "bb5",
+        "between bearings",
+        "between bearing"
+      ],
+      "contradicted_by": [
+        "oh1",
+        "oh2",
+        "oh3",
+        "oh4",
+        "oh5",
+        "oh6",
+        "vs1",
+        "vs2",
+        "vs3",
+        "vs4",
+        "vs5",
+        "vs6",
+        "vs7",
+        "overhung",
+        "vertically suspended"
+      ],
+      "sign_off": "DRAFT: the lists were drafted from API 610's own type codes (OH1-6, BB1-5, VS1-7); a client discipline engineer must approve them before they are relied on"
+    },
+    {
+      "name": "vertically suspended pump construction",
+      "mode": "value",
+      "standards": [],
+      "requirement_markers": [
+        "vertically suspended pump",
+        "vertically suspended pumps",
+        "vertical suspended pump",
+        "vertical suspended pumps",
+        "vertical turbine pump",
+        "vertical turbine pumps"
+      ],
+      "field_labels": [
+        "pump type",
+        "type of pump",
+        "api pump type",
+        "api 610 type",
+        "pump construction",
+        "pump configuration",
+        "pump style"
+      ],
+      "satisfied_by": [
+        "vs1",
+        "vs2",
+        "vs3",
+        "vs4",
+        "vs5",
+        "vs6",
+        "vs7",
+        "vertically suspended"
+      ],
+      "contradicted_by": [
+        "oh1",
+        "oh2",
+        "oh3",
+        "oh4",
+        "oh5",
+        "oh6",
+        "bb1",
+        "bb2",
+        "bb3",
+        "bb4",
+        "bb5",
+        "overhung",
+        "between bearings",
+        "between bearing"
+      ],
+      "sign_off": "DRAFT: the lists were drafted from API 610's own type codes (OH1-6, BB1-5, VS1-7); a client discipline engineer must approve them before they are relied on"
     }
   ]
 }

@@ -428,14 +428,6 @@ _CELL_COMPARATOR = re.compile(r"^\s*([<>=\u2264\u2265]{1,2})")
 _CELL_OPERATOR = {"<": "<", ">": ">", "=": "=", "<=": "<=", ">=": ">=",
                   "\u2264": "<=", "\u2265": ">=", "=<": "<=", "=>": ">="}
 
-#: A zero followed by a comma and exactly three digits: "0,030". A thousands
-#: group never starts with a zero, so this is a decimal comma. numparse reads
-#: it as 30 (its thousands rule has no leading-zero exclusion, unlike its dot
-#: rule), and numparse is not changed here - the cell reader fixes the one
-#: shape it knows is wrong. Recorded in the honesty audit.
-_ZERO_COMMA_DECIMAL = re.compile(r"^(?P<lead>[^\d]*[-+]?)0,(?P<frac>\d{3})(?!\d)")
-
-
 def cell_number(raw_cell: str, *, decimal_comma_document: bool | None = None
                 ) -> tuple[float | None, str | None]:
     """(number, operator written in the cell) for a table cell, via numparse.
@@ -450,7 +442,6 @@ def cell_number(raw_cell: str, *, decimal_comma_document: bool | None = None
     operator = _CELL_OPERATOR.get(comparator.group(1)) if comparator else None
     text = re.sub(r"[*\u2020\u2021\u00b1]", "", text).strip()
     text = _CELL_COMPARATOR.sub("", text).strip()
-    text = _ZERO_COMMA_DECIMAL.sub(lambda m: f"{m.group('lead')}0.{m.group('frac')}", text)
     return numparse.parse_value(
         text, decimal_comma_document=decimal_comma_document), operator
 

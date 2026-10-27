@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 
-from . import ligatures, numparse
+from . import ligatures, numparse, unsupported_script
 from . import symbols
 
 # Control characters that PDF symbol fonts leave behind. Kept as a module
@@ -289,6 +289,13 @@ def assess(text: str, kind: str = "prose") -> dict:
     cleaned = _WS.sub(" ", normalise_text(text)).strip()
     if not cleaned:
         return {"ok": False, "reasons": ["empty"], "clause": 0, "kind": kind}
+    if unsupported_script.is_unsupported(cleaned):
+        return {
+            "ok": False,
+            "reasons": [unsupported_script.reason(cleaned)],
+            "clause": 0,
+            "kind": kind,
+        }
 
     if kind == "table":
         t = looks_like_table(text)
