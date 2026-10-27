@@ -142,10 +142,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="show the bulk selection to a non-admin, whose every "
                     "apply would 404",
         path=FRONTEND_SRC / "views" / "DocumentsView.tsx",
-        anchor="                                selected={isAdmin ? selectedIds.includes(doc.id) : undefined}\n"
-               "                                onToggleSelected={isAdmin ? toggleSelected : undefined}",
-        replacement="                                selected={selectedIds.includes(doc.id)}\n"
-                    "                                onToggleSelected={toggleSelected}",
+        # Re-anchored for #1087: the card is built once (`card`) for every group.
+        anchor="                  selected={isAdmin ? selectedIds.includes(doc.id) : undefined}\n"
+               "                  onToggleSelected={isAdmin ? toggleSelected : undefined}",
+        replacement="                  selected={selectedIds.includes(doc.id)}\n"
+                    "                  onToggleSelected={toggleSelected}",
         target="src/views/DocumentsView.bulkRole.test.tsx",
         keyword="no selection at all to a non-admin",
         tags=("permission",),

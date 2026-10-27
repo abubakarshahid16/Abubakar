@@ -2491,6 +2491,14 @@ export interface ClassificationVocabulary {
    *  scoped, because a discipline name is project structure, not evidence
    *  that a document exists. */
   needs_classification: number;
+  /** Documents this caller can read with no register type AND no role:
+   *  unknown, still awaiting a type (#1087). SCOPED, like the count above. */
+  awaiting_type: number;
+  /** Documents this caller can read with no register type and a role
+   *  (standard, contract document, submittal ...). The register types only the
+   *  deliverables it lists, so they are not waiting for a type. SCOPED.
+   *  awaiting_type + not_in_register = the documents in scope with no type. */
+  not_in_register: number;
 }
 
 export interface DocumentSubject {
