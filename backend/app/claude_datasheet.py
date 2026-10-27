@@ -47,6 +47,7 @@ import re
 from enum import Enum
 
 from . import blank_markers, claims, datasheets, errors, numparse, submittal_review
+from .ai.json_reply import opened_tagged, unfenced_whole
 from .claude_spend import StopRun
 from .db import connect
 from .reader_speed import shorten_quote_rule
@@ -413,23 +414,6 @@ def atomise(proposals: list[dict]) -> list[dict]:
 
 # -------------------------------------------------------------------- parse
 
-_FENCE = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*\n(?P<body>.*?)\n?\s*```\s*$", re.DOTALL)
-
-
-def _unfenced(raw):
-    """The answer without ONE surrounding Markdown code fence.
-
-    R32, 2026-10-11: the cloud model answered four of five pages as a fenced
-    block and every one was thrown away as malformed. Taking the fence off is
-    not repairing the answer: what is inside must still be the whole, valid
-    JSON, and a cut-off answer (no closing fence, or half an object) still
-    fails the strict parse below."""
-    if not isinstance(raw, str):
-        return raw
-    fenced = _FENCE.match(raw)
-    return fenced.group("body") if fenced else raw
-
-
 #: Said of a page whose answer ended before its list closed.
 CUT_OFF = ("the answer was cut off by the output limit; the values it had finished "
            "before the cut are used")
@@ -453,11 +437,9 @@ def facts_before_the_cut(raw) -> list[dict] | None:
     if not isinstance(raw, str):
         return None
     body = raw.strip()
-    fence = re.match(r"^```[A-Za-z0-9_-]*\s*\n(.*)$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = opened_tagged(body)
     try:
-        json.loads(_unfenced(raw))
+        json.loads(unfenced_whole(raw))
         return None                                   # a whole answer: not this function's business
     except (json.JSONDecodeError, TypeError):
         pass
@@ -529,7 +511,7 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
     to be worth not losing.
     """
     try:
-        body = json.loads(_unfenced(raw))
+        body = json.loads(unfenced_whole(raw))
     except (json.JSONDecodeError, TypeError):
         return [], Reason.MODEL_MALFORMED.value
     if isinstance(body, dict) and "facts" not in body and "field" in body:
