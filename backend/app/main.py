@@ -2973,7 +2973,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
-    meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)  # R7 (#771)
+    meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     return rows, meta, submittal_name, stamp
 
 
