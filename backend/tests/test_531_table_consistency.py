@@ -171,6 +171,45 @@ def test_a_total_row_that_is_not_the_column_sum_is_reported():
     )
 
 
+SUBTOTAL_TABLE = [
+    ["Item", "Qty"],
+    ["A", "1"],
+    ["B", "2"],
+    ["Subtotal", "3"],
+    ["C", "5"],
+    ["D", "6"],
+]
+
+
+def test_a_grand_total_after_a_subtotal_is_the_sum_of_everything_not_of_the_last_section():
+    ok = [*SUBTOTAL_TABLE, ["Grand total", "14"]]  # 1 + 2 + 5 + 6
+    result = tc.check_table(ok)
+    assert result["findings"] == [] and result["checks_run"]["totals"] >= 1
+    # the same total written as the subtotals plus the loose rows after the last one
+    assert kinds([*SUBTOTAL_TABLE, ["Total", "14"]]) == []
+    assert (
+        kinds([*SUBTOTAL_TABLE, ["Total", "11"]]) == []
+    )  # a section total (the rows since)
+
+
+def test_whole_numbers_get_the_rounding_allowance_too_so_a_one_off_is_not_reported():
+    # stated limit: a column of whole numbers may be rounded values, so each term allows half a unit
+    assert kinds([*SUBTOTAL_TABLE, ["Grand total", "15"]]) == []
+
+
+def test_a_wrong_grand_total_after_a_subtotal_is_still_reported():
+    [f] = tc.check_table([*SUBTOTAL_TABLE, ["Grand total", "20"]])["findings"]
+    assert f["kind"] == "total_row_mismatch" and f["columns"] == ["Qty"]
+    assert "add up to 14" in f["message"]
+
+
+def test_a_subtotal_is_the_sum_of_the_rows_since_the_last_subtotal():
+    rows = [["Item", "Qty"], ["A", "1"], ["B", "2"], ["Subtotal", "9"]]
+    assert kinds(rows) == ["total_row_mismatch"]
+    rows = [*SUBTOTAL_TABLE, ["Subtotal", "11"], ["Grand total", "14"]]
+    assert kinds(rows) == []
+
+
 def test_a_total_over_cells_that_are_not_all_numbers_is_not_checked():
     rows = [
         ["Item", "Grade", "Q1", "Q2", "Total"],

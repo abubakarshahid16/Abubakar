@@ -226,6 +226,12 @@ def check_bands(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
 # ------------------------------------------------------------------ totals
 
 
+def _sums_to(terms, total) -> bool:
+    """The terms add up to `total` within the rounding of the printed digits."""
+    allowed = sum(t.half_unit for t in terms) + total.half_unit
+    return abs(sum(t.value for t in terms) - total.value) <= allowed + 1e-12
+
+
 def check_totals(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
     findings, ran = [], 0
     # A Total COLUMN: equals the numbers to its left in the same row, when every
@@ -264,38 +270,65 @@ def check_totals(header, data, *, page, chunk_id) -> tuple[list[dict], int]:
                     chunk_id=chunk_id,
                 )
             )
-    # A Total ROW: each numeric column equals the numbers above it.
+    # A Total ROW: each numeric column equals the numbers above it. A Subtotal row is the sum
+    # of the rows since the last subtotal. A Total / Grand total row is right when it equals ANY
+    # of: every plain row above, the subtotals plus the plain rows after the last subtotal, or
+    # (a section total) the rows since the last subtotal; it is reported only when none holds.
     start = 0
     for r, row in enumerate(data):
         label = (row[0] if row else "").strip()
         if not _TOTAL_WORD.match(label):
             continue
+        is_subtotal = bool(_SUBTOTAL_WORD.match(label))
         for col in range(1, len(header)):
             total = read_number(row[col] if col < len(row) else "")
-            terms = [
-                read_number(d[col] if col < len(d) else "")
-                for d in data[start:r]
-                if not _TOTAL_WORD.match((d[0] if d else "").strip())
-            ]
-            terms = [t for t in terms if t is not None]
-            if total is None or len(terms) < 2:
+            if total is None:
+                continue
+            above = data[:r]
+
+            def cell(d, col=col):
+                return read_number(d[col] if col < len(d) else "")
+
+            def plain(rows):
+                return [
+                    t
+                    for d in rows
+                    if not _TOTAL_WORD.match((d[0] if d else "").strip())
+                    and (t := cell(d)) is not None
+                ]
+
+            since = plain(data[start:r])
+            every = plain(above)
+            if is_subtotal:
+                candidates = [since]
+            else:
+                subtotals = [
+                    t
+                    for d in above
+                    if _SUBTOTAL_WORD.match((d[0] if d else "").strip())
+                    and (t := cell(d)) is not None
+                ]
+                candidates = [every, subtotals + since, since]
+            tested = [c for c in candidates if len(c) >= 2]
+            if not tested:
                 continue
             ran += 1
-            allowed = sum(t.half_unit for t in terms) + total.half_unit
-            if abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12:
-                findings.append(
-                    _finding(
-                        "total_row_mismatch",
-                        f"The '{label}' row gives {total.raw} in '{header[col]}', but the rows above add up to "
-                        f"{sum(t.value for t in terms):g}.",
-                        rows=[r + 1],
-                        columns=[header[col]],
-                        cells=[t.raw for t in terms] + [total.raw],
-                        page=page,
-                        chunk_id=chunk_id,
-                    )
+            if any(_sums_to(c, total) for c in tested):
+                continue
+            terms = tested[0]
+            findings.append(
+                _finding(
+                    "total_row_mismatch",
+                    f"The '{label}' row gives {total.raw} in '{header[col]}', but the rows above add up to "
+                    f"{sum(t.value for t in terms):g}.",
+                    rows=[r + 1],
+                    columns=[header[col]],
+                    cells=[t.raw for t in terms] + [total.raw],
+                    page=page,
+                    chunk_id=chunk_id,
                 )
-        if _SUBTOTAL_WORD.match(label):
+            )
+        if is_subtotal:
             start = r + 1
     return findings, ran
 

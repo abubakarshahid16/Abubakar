@@ -76,8 +76,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         8,
         "a total row mismatch is not reported",
-        '            if abs(sum(t.value for t in terms) - total.value) > allowed + 1e-12:\n                findings.append(\n                    _finding(\n                        "total_row_mismatch",',
-        '            if False:\n                findings.append(\n                    _finding(\n                        "total_row_mismatch",',
+        "            if any(_sums_to(c, total) for c in tested):\n                continue\n",
+        "            if True:\n                continue\n",
         "total_row",
     ),
     _m(
@@ -121,5 +121,19 @@ MUTATIONS: tuple[Mutation, ...] = (
         "MIN_SUMMING_ROWS = 2\n",
         "MIN_SUMMING_ROWS = 1\n",
         "happens_to_add_up",
+    ),
+    _m(
+        15,
+        "a Total / Grand total is compared only with the rows since the last subtotal",
+        "                candidates = [every, subtotals + since, since]\n",
+        "                candidates = [since]\n",
+        "grand_total_after_a_subtotal",
+    ),
+    _m(
+        16,
+        "a Total must equal ALL the ways of adding the rows, not any one of them",
+        "            if any(_sums_to(c, total) for c in tested):\n",
+        "            if all(_sums_to(c, total) for c in tested):\n",
+        "grand_total_after_a_subtotal",
     ),
 )
