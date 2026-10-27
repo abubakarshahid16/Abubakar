@@ -40,6 +40,7 @@ from . import (
     division_text,
     requirement_quality,
     scope_ledger,
+    scope_quote,
     scope_type_words,
     service_scope,
     subject_scope,
@@ -533,6 +534,11 @@ def _read_unit(unit: dict, ctx: dict) -> dict:
         return {**rec, "verdict": "held", "unsure": True}
     if scope.get("limited") != "yes":
         return rec
+    if scope_quote.problems(
+        scope
+    ):  # order 242.2: not a real sentence: refused, the part is compared
+        summary["scope_quote_refused"] = summary.get("scope_quote_refused", 0) + 1
+        return {**rec, "verdict": "kept", "not_confirmed": True}
     summary["limited"] += 1
     verdict, line = _division_decision(
         scope,
@@ -650,6 +656,34 @@ def _effective(requirement: dict, where, sub_map, recs, units) -> dict | None:
     return max([rec, *subs], key=lambda r: _RANK[r["verdict"]])
 
 
+def _question(requirement: dict, rec: dict, labels: dict) -> tuple[tuple, dict] | None:
+    """The engineer's question a held requirement belongs to, or None. One per
+    construction Part (order 242.2): the Part's own scope sentence is real and
+    limits it to a construction, and the datasheet does not settle whether this
+    equipment is of it. Holds with another cause (not read, a stated line, a
+    heading that is not confirmed as a part start) are not this question."""
+    scope, unit = rec.get("scope") or {}, rec["unit"]
+    if (
+        rec["verdict"] != "held"
+        or rec.get("not_read")
+        or rec.get("via")
+        or rec.get("line")
+        or rec.get("contradicted")
+        or unit["kind"] == "candidate"
+        or scope.get("limited") != "yes"
+    ):
+        return None
+    sid = requirement.get("standard_document_id")
+    return unit["key"], {
+        "standard": labels.get(sid) or sid,
+        "part": unit["div"]["heading"],
+        "page": unit["page"],
+        "construction": scope["construction"].strip(),
+        "quote": scope["quote"].strip(),
+        "requirements": 0,
+    }
+
+
 def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
     """(kept, items, held, counts): every requirement with the decision that
     holds for it. `marks`: the ids of the requirements "unplaced", whose
@@ -663,6 +697,7 @@ def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
     }
     counts: dict[str, int] = {}
     notes: dict = {}
+    questions: dict = {}
 
     def count(name: str) -> None:
         counts[name] = counts.get(name, 0) + 1
@@ -683,6 +718,9 @@ def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
             continue
         item = ledger_item(r, rec, labels, model)
         out[item["code"]].append(item)
+        if (asked := _question(r, rec, labels)) is not None:
+            key, question = asked
+            questions.setdefault(key, question)["requirements"] += 1
         if rec.get("not_read"):
             count(NOT_READ_COUNTS[rec["not_read"]])
         elif rec.get("unsure") and not rec.get("via"):
@@ -693,6 +731,7 @@ def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
         out["applicability_unsure"],
         counts,
         notes,
+        sorted(questions.values(), key=lambda q: -q["requirements"]),
     )
 
 
@@ -726,7 +765,7 @@ def _division_gate(
         "screen_failed": ctx["screen_failed"],
         "by_page": ctx["by_page"],
     }
-    kept, items, held, counts, notes = _sort_out(
+    kept, items, held, counts, notes, questions = _sort_out(
         requirements, where, marks, subs_of, recs, units, standard_labels, model
     )
     candidates = sum(
@@ -737,6 +776,8 @@ def _division_gate(
     # the denominator of every requirement count: the requirements of the
     # standards in this review, and nothing else
     summary.update(does_not_apply=len(items), held=len(held), **counts)
+    if questions:
+        summary["questions"] = questions
     summary["requirements_gated"] = len(requirements)
     if candidates:
         summary["candidates_read"] = candidates
