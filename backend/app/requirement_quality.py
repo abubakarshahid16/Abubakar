@@ -103,20 +103,6 @@ _CONSONANT_RUN = re.compile(r"[b-df-hj-np-tv-xzB-DF-HJ-NP-TV-XZ]{5,}")
 _MIN_WORDS_FOR_RATIO = 6
 
 
-#: Words are judged by the committed dictionary (`market_phrase`) as well as the short list above:
-#: a technical word the short list lacks no longer counts against a sentence (#618). The share of
-#: unknown words above which a sentence of at least `_MIN_WORDS_FOR_UNKNOWN` words is flagged;
-#: `scripts/text_quality_count.py` counts what it flags on a copy before it is trusted.
-_UNKNOWN_SHARE = 0.6
-_MIN_WORDS_FOR_UNKNOWN = 8
-
-
-def _is_word(word: str) -> bool:
-    from . import market_phrase  # late: the dictionary is read once, on first use
-
-    return word in _COMMON or market_phrase.vouched_for(word)
-
-
 def _non_latin_letter_share(text: str) -> float:
     letters = [c for c in text if c.isalpha()]
     if len(letters) < 8:
@@ -160,17 +146,12 @@ def text_quality(text: str | None) -> str | None:
     if len(words) < _MIN_WORDS_FOR_RATIO:
         return None
     lowered = [w.lower() for w in words]
-    forward = sum(1 for w in lowered if _is_word(w))
-    # a reversed word counts only from four letters: "net"/"ten" read as words both ways (#618)
-    backward = sum(1 for w in lowered if len(w) >= 4 and _is_word(w[::-1]))
+    forward = sum(1 for w in lowered if w in _COMMON)
+    backward = sum(1 for w in lowered if len(w) >= 3 and w[::-1] in _COMMON)
     if backward >= 3 and backward > forward:
         return TEXT_QUALITY
     wordlike = sum(1 for w in words
                    if _VOWEL.search(w) and not _CONSONANT_RUN.search(w))
     if wordlike / len(words) < 0.5 and forward / len(words) < 0.15:
-        return TEXT_QUALITY
-    # noise that keeps its vowels: most of the words are in no dictionary (#618)
-    unknown = (len(words) - forward) / len(words)
-    if len(words) >= _MIN_WORDS_FOR_UNKNOWN and unknown > _UNKNOWN_SHARE:
         return TEXT_QUALITY
     return None
