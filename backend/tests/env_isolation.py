@@ -117,6 +117,7 @@ EGRESS_SAFE: dict[str, object] = {
     "review_ai_check_enabled": False,
     "rule_parse_model_enabled": False,
     "geometry_reader_enabled": False,      # also gates the Claude vision reader
+    "field_naming_enabled": False,         # order 259.5: model-named fields (stored names) in a review
     "vision_reader_engine": "ollama",      # #830: "claude" sends page images out under per_task
     "answer_judge_enabled": False,          # a model call per answer
     "applicability_reasoning_enabled": False,  # a model call per standard per review
