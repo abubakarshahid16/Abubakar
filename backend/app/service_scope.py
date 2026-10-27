@@ -47,6 +47,10 @@ def _load(path: str, mtime: float) -> list[dict]:
             # not by a yes/no field.
             "mode": c.get("mode") or "declared",
             "satisfied_by": tuple(m.casefold() for m in c.get("satisfied_by") or ()),
+            # A "value" condition with `contradicted_by` is absent only when a stated field
+            # names one of THESE (another construction); a stated field naming neither is
+            # unknown, never "does not apply".
+            "contradicted_by": tuple(m.casefold() for m in c.get("contradicted_by") or ()),
             # #754 F5b: standards a datasheet DECLARING the condition present
             # is reviewed against (applicability.standards_check).
             "required": tuple(c.get("required_standards") or ()),
@@ -88,6 +92,12 @@ def _value_declaration(condition: dict, facts: list[dict]) -> dict | None:
         if any(f" {m} " in _words(raw) for m in condition["satisfied_by"]):
             return {"present": True, "label": fact.get("field_label") or fact.get("field_name"),
                     "value": raw, "page": fact.get("page"), "fact_id": fact.get("id")}
+    if condition.get("contradicted_by"):
+        for fact, raw in stated:
+            if any(f" {m} " in _words(raw) for m in condition["contradicted_by"]):
+                return {"present": False, "label": fact.get("field_label") or fact.get("field_name"),
+                        "value": raw, "page": fact.get("page"), "fact_id": fact.get("id")}
+        return None
     fact, raw = stated[0]
     return {"present": False, "label": fact.get("field_label") or fact.get("field_name"),
             "value": raw, "page": fact.get("page"), "fact_id": fact.get("id")}
@@ -171,8 +181,11 @@ def gate(requirements: list[dict], *, facts: list[dict],
         out = None
         for c in conds:
             d = declared[c["name"]]
+            heading = _heading_of(requirement, headings_by_standard)
             if d is not None and d["present"] is False and specific_to(
-                    c, requirement, label, _heading_of(requirement, headings_by_standard)):
+                    c, requirement, label, heading) and not any(
+                    declared[o["name"]] is not None and declared[o["name"]]["present"]
+                    and specific_to(o, requirement, label, heading) for o in conds):
                 page = f", page {d['page']}" if d.get("page") is not None else ""
                 out = {"requirement": requirement, "code": "service_condition_not_met",
                        "detail": (f"{scope_ledger.REASONS['service_condition_not_met'][1]}: "
@@ -182,8 +195,11 @@ def gate(requirements: list[dict], *, facts: list[dict],
             kept.append(requirement)
         else:
             items.append(out)
+    # A construction condition the sheet does not decide stays HELD (unknown), so only the
+    # conditions it did decide, and the plain ones, are left to this gate by name.
+    decided = [c for c in conds if not (c["contradicted_by"] and declared[c["name"]] is None)]
     known = clause_support.known_words(
-        [c["name"] for c in conds] + [m for c in conds for m in c["markers"]]
+        [c["name"] for c in decided] + [m for c in decided for m in c["markers"]]
     )
     unstated = clause_support.hold_unstated_services(kept, facts=facts, known=known)
     return {
