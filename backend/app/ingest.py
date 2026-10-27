@@ -138,6 +138,10 @@ class IngestionWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.current_document: str | None = None
+        # True while a review job runs on this thread (order 234). A review is
+        # work, but it is not a document: a 35B-model page can take a minute
+        # and a half, and the queue of documents rightly waits behind it.
+        self.reviewing: bool = False
         self.last_beat: float = time.time()
         # Last time a document actually reached a terminal state. Heartbeat
         # freshness only proves the loop is spinning, not that work is moving.
@@ -209,7 +213,10 @@ class IngestionWorker:
 
         dead = not self.alive
         hung = beat_age > STALL_AFTER_SECONDS
-        ignoring_work = pending > 0 and progress_age > NO_PROGRESS_SECONDS
+        # Documents wait behind a review on this one thread: not ignored work.
+        ignoring_work = (
+            pending > 0 and progress_age > NO_PROGRESS_SECONDS and not self.reviewing
+        )
 
         reasons = []
         if dead:
@@ -222,6 +229,7 @@ class IngestionWorker:
         return {
             "alive": self.alive,
             "current_document": self.current_document,
+            "reviewing": self.reviewing,
             "seconds_since_heartbeat": round(beat_age, 1),
             "seconds_since_progress": round(progress_age, 1),
             "documents_completed": len(self._completed),
@@ -374,6 +382,13 @@ class IngestionWorker:
         """
         self.last_beat = time.time()
 
+    def _review_activity(self) -> None:
+        """A running review job reported progress (a step, a page, a scope
+        answer): that is the worker moving, so it counts as both a heartbeat
+        and progress (order 234). Without it the sidebar read "Queue not
+        moving" in the middle of a long, healthy review step."""
+        self.last_beat = self.last_progress = time.time()
+
     def _drain_review_jobs(self) -> bool:
         """Run one queued review, if any. True when one was run."""
         from . import job_queue, review_jobs
@@ -382,7 +397,15 @@ class IngestionWorker:
             job_id = review_jobs.claim_next(job_queue.worker_id())
             if job_id is None:
                 return False
-            review_jobs.run(job_id, job_queue.worker_id(), heartbeat=self._beat)
+            self.reviewing = True
+            self._review_activity()
+            try:
+                review_jobs.run(
+                    job_id, job_queue.worker_id(), heartbeat=self._review_activity
+                )
+            finally:
+                self.reviewing = False
+                self._review_activity()
             return True
         except Exception as exc:  # noqa: BLE001
             self.last_error = errors.record_failure(exc, stage="review_run")

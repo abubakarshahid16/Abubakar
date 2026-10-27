@@ -780,7 +780,8 @@ class HealthWorker(BaseModel):
         description="up but not making progress - distinct from down"
     )
     busy: bool = Field(
-        description="a document is being processed. WHETHER, never WHICH: the "
+        description="a document is being processed, or a review is running "
+        "(order 234). WHETHER, never WHICH: the "
         "badge needs this so a healthy long ingest does not read as a fault, "
         "and a boolean says work is under way where an id would say whose."
     )

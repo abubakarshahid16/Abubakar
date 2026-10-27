@@ -427,7 +427,7 @@ async def health():
             # `stalled` goes true when nothing has COMPLETED for a while,
             # which is normal mid-embed on a 1,400-page document. A boolean
             # says work is under way; an id would say whose.
-            "busy": worker["current_document"] is not None,
+            "busy": worker["current_document"] is not None or worker["reviewing"],
         },
     }
 

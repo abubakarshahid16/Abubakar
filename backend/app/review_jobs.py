@@ -167,8 +167,10 @@ def _scope_of(user_id: str | None) -> frozenset[str]:
     return access.scope_for_user(user_id).allowed_document_ids
 
 
-def _step(conn, job_id: str, index: int) -> None:
+def _step(conn, job_id: str, index: int, heartbeat=None) -> None:
     """Record progress and honour a cancellation - between steps, never inside one."""
+    if heartbeat is not None:
+        heartbeat()
     with conn:
         row = conn.execute("SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if row and row["cancel_requested"]:
@@ -178,14 +180,17 @@ def _step(conn, job_id: str, index: int) -> None:
                      (index, STEPS[index], _now(), _now(), job_id))
 
 
-def _page(conn, job_id: str, done: int, total: int) -> None:
+def _page(conn, job_id: str, done: int, total: int, heartbeat=None) -> None:
     """Order 95 piece 3b: the page the reader is on, inside step 1's label -
     "reading the datasheet, page 3 of 11". Progress only: the step index and
     the job's claim are left as they are.
 
     SKIPPED INSIDE AN OPEN TRANSACTION. The reader shares this thread's
     connection; committing a progress line there would commit the reader's
-    unfinished writes with it. A skipped line costs one stale label."""
+    unfinished writes with it. A skipped line costs one stale label. The worker
+    heartbeat is NOT skipped: the page was read, so the worker is moving."""
+    if heartbeat is not None:
+        heartbeat()
     if conn.in_transaction:
         return
     label = f"{STEPS[0]}, page {done} of {total}"
@@ -194,9 +199,11 @@ def _page(conn, job_id: str, done: int, total: int) -> None:
         conn.execute(sql, (label, _now(), job_id))
 
 
-def _reporting_pages(conn, job_id: str):
+def _reporting_pages(conn, job_id: str, heartbeat=None):
     """The reader's page reports go to this job's label for the block (3b)."""
-    return job_progress.reporting(lambda done, total: _page(conn, job_id, done, total))
+    return job_progress.reporting(
+        lambda done, total: _page(conn, job_id, done, total, heartbeat)
+    )
 
 
 def _record_check_failure(run_id: str, column: str, name: str, exc: BaseException) -> None:
@@ -306,11 +313,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
-        _step(conn, job_id, 0)
-        with review_trace.timed(timings, "read"), _reporting_pages(conn, job_id):
+        _step(conn, job_id, 0, heartbeat)
+        with review_trace.timed(timings, "read"), _reporting_pages(conn, job_id, heartbeat):
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
-        _step(conn, job_id, 1)
-        with review_trace.timed(timings, "standards"), _reporting_pages(conn, job_id):
+        _step(conn, job_id, 1, heartbeat)
+        with review_trace.timed(timings, "standards"), _reporting_pages(conn, job_id, heartbeat):
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
@@ -319,7 +326,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
 
             held = company_standard_confirm.held_readable(scope)
             reread_for_standards.for_review(submittal, scope, run_id, timings)
-        _step(conn, job_id, 2)
+        _step(conn, job_id, 2, heartbeat)
         with review_trace.timed(timings, "compare"):
             comparison.run_comparison(
                 run_id, allowed_document_ids=scope,
