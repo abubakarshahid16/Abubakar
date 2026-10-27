@@ -56,7 +56,8 @@ def test_a_field_stated_under_a_qualifier_is_an_engineers_question_that_names_th
     assert found["status"] == dc.NEEDS_ENGINEER_REVIEW
     assert "'Casing design pressure' (page 1)" in found["detail"] and "not found under that name" in found["detail"]
     assert found["value"] == "14 barg" and found["page"] == 1 and found["fact_id"]
-    assert not [r for r in results if r["status"] == dc.MISSING_INFORMATION]
+    # the mandatory check only: the pump checklist (order 235.2) asks for more fields
+    assert not [r for r in results if r["status"] == dc.MISSING_INFORMATION and not r.get("checklist")]
 
 
 def test_a_field_the_sheet_does_not_state_at_all_is_still_missing():

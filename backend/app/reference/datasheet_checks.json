@@ -47,6 +47,120 @@
         "capacity / flow"
       ]
     },
+    "rated_head": {
+      "kind": "length",
+      "names": [
+        "^(rated |differential |total )(dynamic )?head$"
+      ],
+      "printed_as": [
+        "differential head"
+      ]
+    },
+    "npsh_required": {
+      "kind": "length",
+      "names": [
+        "^npsh ?(r|3|required|\\(required\\))( at rated (flow|capacity))?$",
+        "^npshr$"
+      ],
+      "printed_as": [
+        "NPSH required"
+      ]
+    },
+    "npsh_available": {
+      "kind": "length",
+      "names": [
+        "^npsh ?(a|available|\\(available\\))$",
+        "^npsha$"
+      ],
+      "printed_as": [
+        "NPSH available"
+      ]
+    },
+    "rated_speed": {
+      "kind": "number",
+      "names": [
+        "^(rated |pump |operating )?speed$"
+      ],
+      "printed_as": [
+        "rated speed"
+      ]
+    },
+    "absorbed_power": {
+      "kind": "number",
+      "names": [
+        "^(rated |absorbed |brake |shaft )(pump )?power( at rated (point|flow))?$",
+        "^power absorbed$",
+        "^bhp$"
+      ],
+      "printed_as": [
+        "absorbed power"
+      ]
+    },
+    "driver_rating": {
+      "kind": "number",
+      "names": [
+        "^(driver|motor) (rating|power|rated power|output)$"
+      ],
+      "printed_as": [
+        "driver rating"
+      ]
+    },
+    "casing_material": {
+      "kind": "text",
+      "names": [
+        "^(pump )?casing( material)?$",
+        "^case material$"
+      ],
+      "printed_as": [
+        "casing material"
+      ]
+    },
+    "impeller_material": {
+      "kind": "text",
+      "names": [
+        "^impeller( material)?$"
+      ],
+      "printed_as": [
+        "impeller material"
+      ]
+    },
+    "shaft_material": {
+      "kind": "text",
+      "names": [
+        "^shaft( material)?$"
+      ],
+      "printed_as": [
+        "shaft material"
+      ]
+    },
+    "seal_type": {
+      "kind": "text",
+      "names": [
+        "^(mechanical )?seal type$",
+        "^sealing (type|arrangement)$"
+      ],
+      "printed_as": [
+        "seal type"
+      ]
+    },
+    "seal_plan": {
+      "kind": "text",
+      "names": [
+        "^(api |seal )(seal )?(flush |piping )?plan( no\\.?| number)?$"
+      ],
+      "printed_as": [
+        "seal flush plan"
+      ]
+    },
+    "bearing_type": {
+      "kind": "text",
+      "names": [
+        "^(radial |thrust )?bearings?( type)?$"
+      ],
+      "printed_as": [
+        "bearing type"
+      ]
+    },
     "min_flow": {
       "kind": "flow",
       "names": [
@@ -1374,6 +1488,239 @@
               ]
             }
           ]
+        }
+      ]
+    },
+    "Centrifugal Pump": {
+      "sign_off": {
+        "status": "draft",
+        "by": null,
+        "date": null
+      },
+      "clauses_verified": false,
+      "governs": false,
+      "note": "DRAFT, needs the client engineer's approval. The fields an API 610 centrifugal pump datasheet carries, each written in our own words; every item asks only that the field is STATED. The clause numbers are NOT yet verified: the source clause names the datasheet annex and says the number is to be checked against the held copy (an engineer fills it through the local overlay, see scripts/pump_checklist_clauses.py). This checklist does NOT replace the standard's library requirements (governs: false): API 610 stays checked clause by clause beside it. Nothing here is binding until a client discipline engineer signs it off.",
+      "items": [
+        {
+          "id": "PMP-01",
+          "text": "The rated flow is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "rated_flow"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-02",
+          "text": "The rated differential head is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "rated_head"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-03",
+          "text": "The NPSH required at the rated flow is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "npsh_required"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-04",
+          "text": "The NPSH available is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "npsh_available"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-05",
+          "text": "The rated speed is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "rated_speed"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-06",
+          "text": "The absorbed power at the rated point is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "absorbed_power"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-07",
+          "text": "The driver rating is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "driver_rating"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-08",
+          "text": "The minimum continuous stable flow is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "min_flow"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-09",
+          "text": "The pumping temperature is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "operating_temperature"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PMP-10",
+          "text": "The design pressure is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "design_pressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-11",
+          "text": "The design temperature is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "design_temperature"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PMP-12",
+          "text": "The casing material is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "casing_material"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PMP-13",
+          "text": "The impeller material is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "impeller_material"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PMP-14",
+          "text": "The shaft material is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "shaft_material"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PMP-15",
+          "text": "The seal type is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "seal_type"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PMP-16",
+          "text": "The seal flush plan is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "seal_plan"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PMP-17",
+          "text": "The bearing type is stated.",
+          "source": {
+            "standard": "API 610",
+            "clause": "datasheet annex (clause number to be verified)"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "bearing_type"
+          },
+          "severity": "minor"
         }
       ]
     }
