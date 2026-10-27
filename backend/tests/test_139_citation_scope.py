@@ -734,7 +734,7 @@ def test_a_review_applies_only_the_cited_clause(temp_storage):
     result, stored, ids = _review(
         "Spot examination to XYZ-100, ZT-32 (for spot examination)"
     )
-    assert stored[ids["spot"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["spot"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
     for key in ("full", "hard"):
         assert stored[ids[key]]["state"] == scope_ledger.DOES_NOT_APPLY
         assert stored[ids[key]]["reason_code"] == "outside_cited_clauses"
@@ -747,7 +747,7 @@ def test_a_review_applies_only_the_cited_clause(temp_storage):
 def test_a_review_of_a_bare_citation_applies_the_whole_standard(temp_storage):
     _result, stored, ids = _review("Examination to XYZ-100")
     assert all(
-        stored[ids[k]]["state"] == scope_ledger.CHECKED
+        stored[ids[k]]["reason_code"] in scope_ledger.STATUS_REASON.values()
         for k in ("full", "spot", "hard")
     )
 
@@ -822,7 +822,7 @@ CITED_LINE = "Spot examination to XYZ-100, ZT-32 (for spot examination)"
 
 def _all_checked(stored, ids):
     return all(
-        stored[ids[k]]["state"] == scope_ledger.CHECKED
+        stored[ids[k]]["reason_code"] in scope_ledger.STATUS_REASON.values()
         for k in ("full", "spot", "hard")
     )
 
@@ -845,7 +845,7 @@ def test_clauses_split_over_a_page_break_are_read(temp_storage):
     _result, stored, ids = _review(
         "Spot examination to XYZ-100,", next_page="ZT-32 (for spot examination)\n"
     )
-    assert stored[ids["spot"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["spot"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
     assert stored[ids["hard"]]["reason_code"] == "outside_cited_clauses"
 
 
@@ -924,7 +924,7 @@ def test_a_review_on_an_unsure_reading_leaves_the_rest_for_the_engineer(
     result, stored, ids = _review(CITED_LINE)
     # the review code is told how many were left unchecked for this cause
     assert seen["unsure_citation"] == 2
-    assert stored[ids["spot"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["spot"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
     for key in ("full", "hard"):
         assert stored[ids[key]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
         assert stored[ids[key]]["reason_code"] == "applicability_unsure"

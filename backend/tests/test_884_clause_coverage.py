@@ -38,14 +38,16 @@ def test_each_rule_is_in_exactly_one_state_out_of_the_applicable_ones():
                   "definition", "other_equipment"])
     body = _get(_client(doc), run)
     assert body["recorded"] is True and body["adds_up"] is True
-    assert body["counts"] == {"checked": 4, "engineer": 2, "not_checked": 2,
-                              "covered_by_checklist": 1, "does_not_apply": 2}
+    # order 260.1: only the two COMPARED rules are checked; "the sheet has no value" is not
+    # checked, and "the comparison found it does not apply" is outside the denominator
+    assert body["counts"] == {"checked": 2, "engineer": 2, "not_checked": 3,
+                              "covered_by_checklist": 1, "does_not_apply": 3}
     # the denominator: in scope minus "does not apply", checklist-covered included
-    assert body["applicable"] == 9 and body["checked_share"] == 44.4
+    assert body["applicable"] == 8 and body["checked_share"] == 25.0
     assert body["line"] == (
-        "4 of 9 applicable requirement(s) checked (44.4%), 2 sent to the engineer, "
-        "2 not checked; 1 covered by a checklist (not proof the whole standard was "
-        "checked); 2 do not apply")
+        "2 of 8 applicable requirement(s) checked (25.0%), 2 sent to the engineer, "
+        "3 not checked; 1 covered by a checklist (not proof the whole standard was "
+        "checked); 3 do not apply")
     states = {r["requirement_id"]: r["state"] for r in body["rows"]}
     assert len(states) == 11 and states["req-4"] == "engineer" and states["req-7"] == "not_checked"
 

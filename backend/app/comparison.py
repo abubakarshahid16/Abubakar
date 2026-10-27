@@ -3023,7 +3023,7 @@ def _run_comparison(
         # (confirmed by code) and the definitions - the same items the
         # per-requirement ledger above is built from
         scoped["not_applied_items"] + extra_not_applied,
-        covered_items)
+        covered_items, status_of=status_of)
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
     if checklist_note:
