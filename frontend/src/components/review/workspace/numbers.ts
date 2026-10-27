@@ -65,8 +65,12 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     unreadPages: gate
       ? uniqueSortedPages(gate.unread_pages.map((p) => p.page))
       : runListHeld ? fields.unreadPages : uniqueSortedPages(readiness?.unread_pages ?? []),
-    missingStandards: uniqueStrings([...(input.missingStandards ?? []), ...(readiness?.standards_missing ?? [])]),
-    // Unknown is never "none": both lists need their reads to have answered.
+    // ONE ANSWER (order 243.1): the live list the strip shows (readiness, from
+    // export_status.missing_standards). The run's stored list is as of the run:
+    // a standard uploaded since still names it, so it is not unioned in. Only
+    // while the live list has not answered does the stored one stand in.
+    missingStandards: uniqueStrings(readiness ? readiness.standards_missing : (input.missingStandards ?? [])),
+    // Unknown is never "none": both reads must have answered (unchanged).
     standardsKnown: input.missingStandards !== null && readiness !== null,
     // The page count is known only when someone could count it: readiness
     // answered from a page ledger that is current, or the issue gate

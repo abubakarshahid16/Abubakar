@@ -102,7 +102,7 @@ screens never disagree):
 | removed | `summary?.counts.removed ?? splitRejected(findings).rejected` (exactly what CrsSheetView shows) |
 | unreadPages | when the issue gate is known: its `unread_pages` (pages still to tick); else union of `headlineFieldsOf(...).unreadPages` and `readiness?.unread_pages ?? []`; unique, ascending |
 | signLeft | `signLeft({ gate }, run, rows)` from crs/issueGate.ts; never empty while the gate is unknown |
-| missingStandards | unique of `input.missingStandards` and `readiness?.standards_missing ?? []` |
+| missingStandards | unique of `readiness?.standards_missing ?? []` only: the live list (`export_status.missing_standards`), the one the strip shows. The run's stored list (`input.missingStandards`) is as of the run and is not unioned in (order 243.1) |
 | standardsKnown / pagesKnown | standardsKnown: false while the standards read failed (`missingStandards` null) or readiness is null. pagesKnown: true only when readiness answered from a current page ledger (`ledger_state === "current"`) or the issue gate answered from a page record (no "no page coverage" blocker); false otherwise (loading, failed, stale ledger, no page record). An unknown count is never 0: its step is not done, shows "could not read this yet" with no number, and Sign stays off ("Waiting to read the standards and page checks.") |
 | undecided / undecidedKeys | comment rows where `decisions.decisions[key]` is absent and `priorState !== "agreed"`, in row order |
 | unopenedNeedsYou | tier C rows not in `decisions.opened` |
