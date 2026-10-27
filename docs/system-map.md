@@ -109,6 +109,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_carry` | K1 (code audit 26 Oct): an issued CRS number carries the engineer's confirmation only for the words they confirmed; other words under the same number need a fresh tick (the number stays) |
 | `crs_reference` | Order 227: what a CRS Standard Reference says after the standard's name: its edition (stored on the finding or printed in the standard's own name; "edition not recorded" when unknown, never guessed), the clause words and the page |
 | `crs_mapping` | Write the CRS comment text |
+| `crs_no_field` | A library requirement no field on the sheet answers is one grouped engineer note per standard, never a contractor row (order 245) |
 | `crs_page_words` | What the CRS Page/Section cell says: the datasheet page and field, or "Not found on pages 1-N" with at most three tags (order 228.4) |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
@@ -215,6 +216,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rule_eval` | Table and formula rules, evaluated in code (owner order 2026-09-26, 2a + 2b) |
 | `schemas` | Typed response models |
 | `scope_ledger` | Every requirement in a review's scope ends in exactly ONE state, with a reason (#677) |
+| `scope_quote` | A division's scope reading counts only when its quote is one real sentence (order 242.2) |
 | `scores` | Scores that know which scale they are on |
 | `search` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |
 | `clause_support` | Orders 180: a sentence that states no requirement is never a supporting clause; one naming a service the sheet does not state is held |
