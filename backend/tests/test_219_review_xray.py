@@ -343,15 +343,32 @@ def _reader_run(doc: str, read_at: str, version: str, summary: dict) -> None:
 
 def test_the_reader_section_shows_the_newest_run_first_and_names_the_older_ones(run_id):
     """Order 309.1: the first stored run is the OLDEST; the current values were read by the newest."""
-    _reader_run("sub", "2026-10-11T08:00:00Z", "v-old", {"model": "small-model", "pages_read": 0})
-    _reader_run("sub", "2026-10-28T20:00:00Z", "v-new", {"model": "large-model", "pages_read": 5})
+    _reader_run(
+        "sub",
+        "2026-10-11T08:00:00Z",
+        "v-old",
+        {"model": "small-model", "pages_read": 0},
+    )
+    _reader_run(
+        "sub",
+        "2026-10-28T20:00:00Z",
+        "v-new",
+        {"model": "large-model", "pages_read": 5},
+    )
     rows = {r[0]: r[1] for r in _by_id(run_id)["reader_run"]["rows"]}
-    assert rows["read at"] == "2026-10-28T20:00:00Z" and rows["extractor version"] == "v-new"
+    assert (
+        rows["read at"] == "2026-10-28T20:00:00Z"
+        and rows["extractor version"] == "v-new"
+    )
     assert rows["model"] == "large-model" and rows["pages_read"] == "5"
     assert rows["this run"].startswith("the newest of 2")
     older = [v for k, v in rows.items() if k.startswith("earlier run 2")]
     assert len(older) == 1
-    assert "2026-10-11T08:00:00Z" in older[0] and "small-model" in older[0] and "v-old" in older[0]
+    assert (
+        "2026-10-11T08:00:00Z" in older[0]
+        and "small-model" in older[0]
+        and "v-old" in older[0]
+    )
 
 
 def test_one_reader_run_is_said_to_be_the_only_one(run_id):
