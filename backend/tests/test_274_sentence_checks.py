@@ -473,3 +473,36 @@ def test_two_files_that_say_the_same_thing_still_give_the_rule(
     _on(cworld, monkeypatch)
     _second_file(cworld, tmp_path, "same")
     assert list(_rules(cworld)) == [cworld["stmt"]]
+
+
+# ------------------------------------------------------------------ 7. "applies: no" never drops a rule (s2 on SAES-K-503)
+
+
+def _what_the_review_said(run):
+    return {
+        req: (row["compliance_status"], row["rule_said"], row["trust_label"])
+        for req, row in _findings(run).items()
+    }
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"status": "not_applicable", "applies": "no", "field": None, "limit": None},
+        {"status": "unproven", "applies": "yes"},
+        {"status": "not_asked", "applies": None, "field": None, "limit": None},
+    ],
+)
+def test_a_row_that_is_not_verified_yes_changes_nothing_in_the_review(
+    cworld, monkeypatch, tmp_path, over
+):
+    """The model's "applies: no" (or an unproven, or a not-asked row) must never remove a rule from scope or
+    move a verdict: with the folder and the auto-use switch on, the review says exactly what it says with
+    the folder off."""
+    _on(cworld, monkeypatch, dir_set=False)
+    _rerun(cworld)
+    off = _what_the_review_said(cworld["run"])
+    cworld["folder"] = _mirror(tmp_path / "other", [_row(SENTENCE, **over)])
+    _on(cworld, monkeypatch)
+    _rerun(cworld)
+    assert _what_the_review_said(cworld["run"]) == off
