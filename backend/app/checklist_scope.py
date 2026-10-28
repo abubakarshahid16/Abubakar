@@ -24,3 +24,41 @@ def standards(checklist: dict) -> list[str]:
     if not checklist.get("governs", True):
         return []
     return sorted({item["source"]["standard"] for item in checklist["items"]})
+
+
+def review_type(classification: dict | None) -> str | None:
+    """The equipment type a REVIEW CHECKLIST may be chosen from (order 264, found by the 2p gate on a vessel sheet). A
+    checklist marked `type_from_title_only` (the vessel and exchanger drafts) is chosen only when the
+    type was read from the sheet's title or confirmed by a person; a type that only a passing mention in
+    the body gave ("heat exchanger" twice on a drum sheet, `body_phrase_match`) chooses none, and the
+    sheet gets no checklist (its other checks, DS-R1 included, still use the stored type).
+    Every other type is returned as stored."""
+    from . import datasheet_checks
+
+    classification = classification or {}
+    equipment_type = classification.get("equipment_type")
+    if not equipment_type:
+        return equipment_type
+    table = datasheet_checks.load_rules().get("checklists") or {}
+    entry = table.get(datasheet_checks.table_key(equipment_type, table))
+    evidence = classification.get("equipment_type_evidence") or {}
+    weak = evidence.get("method") == "body_phrase_match" and not classification.get(
+        "confirmed"
+    )
+    if isinstance(entry, dict) and entry.get("type_from_title_only") and weak:
+        return None
+    return equipment_type
+
+
+def evaluate(facts: list[dict], classification: dict, page_texts: dict) -> list[dict]:
+    """The datasheet checks of one review: the stored type for every check, the
+    checklist only when `review_type` allows it (cloud, #1390: the revision-block
+    check DS-R1 must not stop with the checklist)."""
+    from . import datasheet_checks
+
+    return datasheet_checks.evaluate(
+        facts,
+        equipment_type=classification.get("equipment_type"),
+        page_texts=page_texts,
+        with_checklist=review_type(classification) is not None,
+    )

@@ -1953,6 +1953,7 @@
       },
       "clauses_verified": false,
       "governs": false,
+      "type_from_title_only": true,
       "note": "DRAFT, needs the client engineer's approval. The fields an ASME VIII-1 pressure vessel datasheet carries, each written in our own words; every item asks only that the field is STATED. No clause number is claimed (the source clause says \"datasheet fields\") and clauses_verified is false: an engineer fills real clause numbers through the local overlay if wanted. This checklist does NOT replace the standard's library requirements (governs: false): the standards stay checked clause by clause beside it. \"Stated\" means the label of the field was found with a value; bare labels (\"Material\", \"Diameter\", \"Weight\") are deliberately NOT read as these fields. Nothing here is binding until a client discipline engineer signs it off.",
       "items": [
         {
@@ -2199,6 +2200,7 @@
       },
       "clauses_verified": false,
       "governs": false,
+      "type_from_title_only": true,
       "note": "DRAFT, needs the client engineer's approval. The fields a TEMA / API 660 shell-and-tube heat exchanger datasheet carries, each written in our own words; every item asks only that the field is STATED. No clause number is claimed (the source clause says \"datasheet fields\") and clauses_verified is false: an engineer fills real clause numbers through the local overlay if wanted. This checklist does NOT replace the standard's library requirements (governs: false): the standards stay checked clause by clause beside it. \"Stated\" means the label of the field was found with a value; bare labels (\"Material\", \"Passes\", \"Length\") are deliberately NOT read as these fields. Nothing here is binding until a client discipline engineer signs it off.",
       "items": [
         {
