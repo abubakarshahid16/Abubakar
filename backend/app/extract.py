@@ -153,6 +153,46 @@ def _unrotated_rows(table, cells: list[list], derotate) -> list[list]:
     return grid
 
 
+#: A table with no ruling (columns that are only aligned text) is kept only when it reads like a grid
+#: (order 271.4): enough rows, rows that repeat one shape, no word cut across two cells, short cells.
+ALIGNED_MIN_ROWS = 3
+ALIGNED_MIN_CONSISTENCY = 0.75
+ALIGNED_MAX_SPLIT_RATE = 0.02
+ALIGNED_MAX_CELL_CHARS = 60
+
+
+def aligned_grid_ok(texts: list[list[str]], score: dict) -> bool:
+    """Does an aligned-text table read like a grid? `texts` are its cells, `score` is
+    `geometry_reader.table_score` (the datasheet reader's own grid score)."""
+    rows = [r for r in texts if any(r)]
+    cells = [c for r in rows for c in r if c]
+    if len(rows) < ALIGNED_MIN_ROWS or not cells:
+        return False
+    return (
+        score["column_consistency"] >= ALIGNED_MIN_CONSISTENCY
+        and score["split_rate"] <= ALIGNED_MAX_SPLIT_RATE
+        and sum(len(c) for c in cells) / len(cells) <= ALIGNED_MAX_CELL_CHARS
+    )
+
+
+def _aligned_tables(page) -> list:
+    """The aligned-text finder's tables on a page whose ruled-lines finder found none."""
+    from . import geometry_reader
+
+    try:
+        tables = page.find_tables(strategy="text").tables
+        words = page.get_text("words")
+        kept = []
+        for table in tables:
+            grid = geometry_reader._grid(table)
+            if aligned_grid_ok(grid[0], geometry_reader.table_score(table, words, grid)):
+                kept.append(table)
+        return kept
+    except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
+        log.debug("extract: aligned-text finder failed; no table (%s)", type(exc).__name__)
+        return []
+
+
 def page_tables(page, raw_text: str) -> list[dict]:
     """`page_tables_checked(...)[0]` - the tables, for callers that do not ask why none."""
     return page_tables_checked(page, raw_text)[0]
@@ -175,13 +215,16 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
     except Exception as exc:  # noqa: BLE001 - geometry that defeats the reader
         log.debug("extract: get_drawings failed; no table (%s)", type(exc).__name__)
         return [], "table_get_drawings_failed"
-    if len(paths) < MIN_TABLE_PATHS:
-        return [], None
-    try:
-        found = page.find_tables(strategy="lines").tables
-    except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
-        log.debug("extract: find_tables failed; no table (%s)", type(exc).__name__)
-        return [], "table_find_failed"
+    found = []
+    if len(paths) >= MIN_TABLE_PATHS:
+        try:
+            found = page.find_tables(strategy="lines").tables
+        except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
+            log.debug("extract: find_tables failed; no table (%s)", type(exc).__name__)
+            return [], "table_find_failed"
+    aligned = not found and settings.aligned_text_tables_enabled
+    if aligned:
+        found = _aligned_tables(page)
     if not found:
         return [], None
     texts, boxes = _raw_lines(page)
@@ -222,7 +265,7 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
             continue
         claimed.update(lines)
         out.append({"bbox": [round(v, 1) for v in (x0, y0, x1, y1)],
-                    "rows": rows, "lines": lines})
+                    "rows": rows, "lines": lines, **({"aligned": True} if aligned else {})})
     return out, None
 
 
