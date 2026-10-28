@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from pathlib import Path
 
@@ -326,3 +327,52 @@ def test_held_requirements_are_grouped_by_standard_and_reason_and_leave_the_tabl
 def test_every_table_gets_a_filter_box(run_id):
     page = review_xray.render_html(review_xray.build(settings.db_path, run_id))
     assert page.count("<input class='filter'") == page.count("<table>")
+
+
+def _reader_run(doc: str, read_at: str, version: str, summary: dict) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS datasheet_reader_runs (document_id TEXT NOT NULL, read_at TEXT NOT NULL,"
+            " extractor_version TEXT, summary TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO datasheet_reader_runs (document_id, read_at, extractor_version, summary) VALUES (?,?,?,?)",
+            (doc, read_at, version, json.dumps(summary)),
+        )
+
+
+def test_the_reader_section_shows_the_newest_run_first_and_names_the_older_ones(run_id):
+    """Order 309.1: the first stored run is the OLDEST; the current values were read by the newest."""
+    _reader_run(
+        "sub",
+        "2026-10-11T08:00:00Z",
+        "v-old",
+        {"model": "small-model", "pages_read": 0},
+    )
+    _reader_run(
+        "sub",
+        "2026-10-28T20:00:00Z",
+        "v-new",
+        {"model": "large-model", "pages_read": 5},
+    )
+    rows = {r[0]: r[1] for r in _by_id(run_id)["reader_run"]["rows"]}
+    assert (
+        rows["read at"] == "2026-10-28T20:00:00Z"
+        and rows["extractor version"] == "v-new"
+    )
+    assert rows["model"] == "large-model" and rows["pages_read"] == "5"
+    assert rows["this run"].startswith("the newest of 2")
+    older = [v for k, v in rows.items() if k.startswith("earlier run 2")]
+    assert len(older) == 1
+    assert (
+        "2026-10-11T08:00:00Z" in older[0]
+        and "small-model" in older[0]
+        and "v-old" in older[0]
+    )
+
+
+def test_one_reader_run_is_said_to_be_the_only_one(run_id):
+    _reader_run("sub", "2026-10-28T20:00:00Z", "v-new", {"model": "large-model"})
+    rows = {r[0]: r[1] for r in _by_id(run_id)["reader_run"]["rows"]}
+    assert rows["this run"] == "the only reader run stored for this document"
+    assert not any(k.startswith("earlier run") for k in rows)
