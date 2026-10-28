@@ -1207,7 +1207,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
             "trust_label": r.get("trust_label"), "tier": r.get("tier"),
             "show_for_engineer_tick": (int(bool(r["show_for_engineer_tick"]))
                                        if "trust_label" in r else None),
-            "rule_said": r.get("rule_said"),
+            "rule_said": r.get("rule_said"), "trust_by": r.get("trust_by"),
         }, created_by=None)
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})

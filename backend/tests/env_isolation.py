@@ -194,6 +194,7 @@ EGRESS_SAFE: dict[str, object] = {
     "docx_input_enabled": True,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "tested_cards_decide_enabled": False,
+    "rule_cards_approval_enabled": False,
     "rule_auto_use_enabled": False,
 }
 

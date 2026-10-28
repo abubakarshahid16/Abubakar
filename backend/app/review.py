@@ -218,12 +218,11 @@ def ensure_schema() -> None:
             # review wrote it. The machine's own text (finding, rationale) is
             # never overwritten, so both stay on record.
             "engineer_comment": "TEXT",
-            # rule_trust (#947, switch `rule_auto_use_enabled`): who stands
-            # behind the rule this finding was decided with, its tier, whether
-            # a COMPLIANT safety-tier result is shown for an engineer's tick,
-            # and what the rule said before an UNPROVEN verdict was held. NULL
-            # on every finding decided with the switch off - nothing labelled.
+            # rule_trust (#947): who stands behind the rule (label, and the engineer's name for an approved card,
+            # order 302.4 c), its tier, whether a COMPLIANT safety result is shown for a tick, and what the rule said
+            # before an UNPROVEN verdict was held. NULL on every finding decided with the switch off.
             "trust_label": "TEXT",
+            "trust_by": "TEXT",
             "tier": "TEXT",
             "show_for_engineer_tick": "INTEGER",
             "rule_said": "TEXT",
@@ -532,7 +531,7 @@ _EXTRA_FIELDS = (
     "ai_rationale", "fact_id", "equipment_tag", "standard_clause",
     "confirmed_by", "confirmed_at",
     # rule_trust (#947): NULL unless the run labelled the rule (switch on).
-    "trust_label", "tier", "show_for_engineer_tick", "rule_said",
+    "trust_label", "tier", "show_for_engineer_tick", "rule_said", "trust_by",
 )
 
 
@@ -575,9 +574,9 @@ def create(payload: dict, *, created_by: str | None, conn=None) -> dict:
                review_run_id, origin, compliance_status, contractor_page,
                contractor_section, contractor_evidence_text, requirement_source_text,
                ai_rationale, fact_id, equipment_tag, standard_clause,
-               confirmed_by, confirmed_at, trust_label, tier, show_for_engineer_tick, rule_said)
+               confirmed_by, confirmed_at, trust_label, tier, show_for_engineer_tick, rule_said, trust_by)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 finding_id, payload["document_id"], payload.get("baseline_document_id"), template_id,
                 discipline, payload.get("confidence"),

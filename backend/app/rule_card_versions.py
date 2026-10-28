@@ -407,3 +407,20 @@ def listing(conn, rules: dict | None = None) -> dict:
             "total": len(cards),
         }
     return out
+
+
+def in_force(conn, rules: dict) -> dict:
+    """The rules the review evaluates when the approval switch is on: every checklist item replaced by the latest
+    version of its card (an engineer's edit changes the check itself; its state, not its presence, decides whether
+    it may decide). A card nobody edited is the committed item, unchanged."""
+    checklists = {}
+    for equipment_type, checklist in rules["checklists"].items():
+        if not isinstance(checklist, dict):
+            checklists[equipment_type] = checklist
+            continue
+        items = [
+            current(conn, equipment_type, i["id"], rules)["item"]
+            for i in checklist["items"]
+        ]
+        checklists[equipment_type] = {**checklist, "items": items}
+    return {**rules, "checklists": checklists}

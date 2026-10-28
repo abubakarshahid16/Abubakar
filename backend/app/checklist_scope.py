@@ -54,9 +54,13 @@ def evaluate(facts: list[dict], classification: dict, page_texts: dict) -> list[
     """The datasheet checks of one review: the stored type for every check, the
     checklist only when `review_type` allows it (cloud, #1390: the revision-block
     check DS-R1 must not stop with the checklist)."""
-    from . import datasheet_checks
+    from . import datasheet_checks, rule_card_versions
+    from .config import settings
+    from .db import connect
 
     rules = datasheet_checks.load_rules()
+    if settings.rule_cards_approval_enabled:  # order 302.4 c: an engineer's edit is the check in force
+        rules = rule_card_versions.in_force(connect(), rules)
     if review_type(classification) is None:
         rules = {**rules, "checklists": {}}
     return datasheet_checks.evaluate(
