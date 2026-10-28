@@ -16,6 +16,14 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_text` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
 
+Decisions on these three (#736, Stage D; where a row says "kept", the debt is a decision, not a to-do):
+
+| Job | Decision | What must stay common, and where it is checked |
+|---|---|---|
+| Answer a chat question | **Kept as two engines on purpose** (owner order 2026-09-27: Claude is the conversation brain with tools; the local pipeline is the fallback before its first call). | Both verify claims with `answer.verify_claims`, relabel image-only citations the same way, and reach Claude only through the reasoning provider, where `claude_spend.reserve` runs before every call: `tests/test_736_chat_shared_pieces.py`. |
+| Choose the standards that apply | **Open**: `applicability_v2`, `applicability_reasoning` and `scope_records` are removed only after a proof run per module shows they change no selection on I-06, M-03 or 216400C (s2's batch). | Not yet decided per module. |
+| Read a contractor datasheet into facts | **Open**: folding `claude_datasheet` into `datasheet_ai` changes the reader's prompt and parse path (danger zone, Rule C, the 3 real sheets on the 35B); done as an agent-team job after the 2n reader-speed proof (#1340). | Not yet decided. |
+
 ## Modules
 
 | Module | Job |
