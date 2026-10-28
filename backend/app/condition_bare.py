@@ -1,14 +1,20 @@
 """A numeric condition whose threshold states NO unit ("specific gravity below 0.5").
 
 Order 264b, row 340: a clause that applies only where the specific gravity is below 0.5, and a sheet
-that states 0.974, was held as an unexplained unit mismatch. Two numbers that both carry no unit are
-plain numbers, the same kind, and are compared. A value WITH a unit against a threshold without one is
-still undecidable: no unit is guessed for either side.
+that states 0.974, was held as an unexplained unit mismatch. A quantity that is dimensionless BY
+NATURE (a ratio, an efficiency, a count: `reference/dimensionless_quantities.json`) is compared with
+a submitted number that has no unit and whose field NAMES the same quantity (the whole phrase, never
+one shared word: cloud on #1405). Any other quantity without a unit, and a value WITH a unit against
+a threshold without one, stay undecided: no unit is guessed for either side.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from . import claims
+
+PATH = Path(__file__).parent / "reference" / "dimensionless_quantities.json"
 
 #: The words of a bound that `claims.parse_comparator` does not read.
 _BOUND_WORDS = {
@@ -53,8 +59,16 @@ def subject_words(condition: str) -> list[str]:
     ]
 
 
+def phrases() -> list[str]:
+    """The quantities that are dimensionless by nature (`reference/dimensionless_quantities.json`)."""
+    import json
+
+    return json.loads(PATH.read_text(encoding="utf-8"))["phrases"]
+
+
 def evaluate(condition: str, match, facts: list[dict]) -> dict:
-    """The condition's state against the submitted numbers that carry no unit."""
+    """The condition's state against the submitted numbers that carry no unit, for a quantity that
+    is dimensionless by nature and that the submitted field NAMES by the same whole phrase."""
     from . import conditions as c
 
     def unknown(reason: str) -> dict:
@@ -66,13 +80,19 @@ def evaluate(condition: str, match, facts: list[dict]) -> dict:
         return unknown(
             f"the comparator {match.group('cmp')!r} is not one this system parses"
         )
+    named = [p for p in phrases() if c._contains_term(c._fold(condition), p)]
+    if not named:
+        return unknown(
+            "the threshold carries no unit and its quantity is not one that is dimensionless "
+            "by nature, so nothing can be compared without guessing a unit"
+        )
     threshold = claims.parse_value(match.group("value"))
     with_a_unit = None
     for fact in facts:
         if c._is_empty(fact.get("field_value")):
             continue
         name = c._fold(fact.get("field_name"))
-        if not any(c._contains_term(name, w) for w in subject_words(condition)):
+        if not any(c._contains_term(name, p) for p in named):
             continue
         fact_unit = str(fact.get("raw_unit") or fact.get("unit") or "").strip()
         value = claims.parse_value(str(fact.get("raw_value") or ""))
@@ -96,7 +116,7 @@ def evaluate(condition: str, match, facts: list[dict]) -> dict:
             c.SHAPE_NUMERIC,
             condition,
             f"{fact.get('field_name')!r} = {fact.get('field_value')!r} against {operator} "
-            f"{match.group('value')} (neither states a unit; plain numbers)",
+            f"{match.group('value')} (neither states a unit; a quantity with none)",
             c._evidence_of(fact),
         )
     if with_a_unit:

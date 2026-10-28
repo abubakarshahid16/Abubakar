@@ -2754,20 +2754,18 @@ def _run_comparison(
                 # length against a pressure is not a breach and not a pass - it is
                 # a question for a person, and the finding carries both raw units
                 # so they can see what was compared with what.
-                # `same_unit` compares MEASUREMENTS, and it compares the raw
-                # spellings rather than the normalised ones on purpose - `dB(A)`
-                # and `dB` are different units. The base unit is passed as the raw
-                # spelling here so that a gauge pressure and a plain one still meet
-                # (`bar` both sides); the gauge reference itself is carried on the
-                # fact and is a separate question from whether the units match.
-                # THE RAW SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit`
-                # holds the NORMALISED unit, which is NULL for every unit the table
-                # recognises but does not convert - dB(A) among them - so comparing
-                # those columns reported a unit mismatch between two dB(A) values.
-                # `same_unit` is a comparison of spellings and wants the spellings.
+                # `same_unit` compares the RAW SPELLINGS, a gauge reference stripped, on purpose:
+                # `dB(A)` and `dB` are different units, and `unit` is NULL for every unit the
+                # table recognises but does not convert. The gauge reference itself is carried
+                # on the fact and is a separate question from whether the units match.
+                # TWO NUMBERS WITH NO UNIT AT ALL are not a unit mismatch (order 264b): `_compare`
+                # has already said what they are ("neither states a unit"), and this keeps it.
                 requirement_unit = _unit_measure(requirement)
                 fact_unit = _unit_measure(fact)
-                if not _units_comparable(requirement, fact, requirement_unit, fact_unit):
+                bare = not requirement_unit.raw_unit and not fact_unit.raw_unit
+                if not bare and not _units_comparable(
+                    requirement, fact, requirement_unit, fact_unit
+                ):
                     verdict = {
                         **verdict,
                         "status": NEEDS_ENGINEER_REVIEW,
@@ -3227,14 +3225,25 @@ def _units_comparable(requirement: dict, fact: dict,
     """May these two numbers be compared at all?
 
     BY DIMENSION WHEN BOTH SIDES NORMALISE, BY SPELLING WHEN EITHER DOES NOT.
-    A limit in kPa and a value in bar are both pressures and `claims` converts them exactly, so
-    dimension equality is the question there. When a unit has no conversion (`dB(A)` and `dB` share
-    no dimension, both are None) the safe test is that the spellings match.
 
-    TEMPERATURE SCALES ARE THE EXCEPTION (order 141 B): `°F`, `°C` and `K` are one quantity and
-    `compare` converts between them through `claims.compare_across_units`. TWO NUMBERS WITH NO UNIT
-    AT ALL are plain numbers (order 264b): the verdict then says no unit was stated, never "not the
-    same quantity". dB(A) against dB stays refused.
+    The spelling test alone was too strict: a limit in kPa and a value in bar
+    are both pressures, `claims` converts between them exactly, and refusing
+    them sent a comparison the engine could do to a human instead. Dimension
+    equality is the right question there, and `_compatible` does the conversion.
+
+    But dimension is the WRONG question when a unit has no conversion. `dB(A)`
+    and `dB` share no dimension at all (both are None). For those the only
+    safe test is that the spellings match, which is what `same_unit` asks.
+
+    TEMPERATURE SCALES ARE THE EXCEPTION (order 141 B). `°F` has no factor in
+    the unit table (the conversion is affine), but `°F`, `°C` and `K` are one
+    quantity and `compare` converts between them through
+    `claims.compare_across_units`. Refusing them here wrote "not the same
+    quantity" on a °F limit against a °C value, which was false.
+
+    So: if both sides normalised, compare dimensions. If either did not, the
+    spelling, or two temperature scales. That keeps kPa-against-bar working
+    and keeps dB(A)-against-dB refused.
     """
     requirement_measure = _measurement_from_requirement(requirement)
     fact_measure = _measurement_from_fact(fact)
@@ -3247,14 +3256,9 @@ def _units_comparable(requirement: dict, fact: dict,
         left = claims.unit_dimension(requirement_unit.raw_unit or "")
         right = claims.unit_dimension(fact_unit.raw_unit or "")
         return left is not None and left == right
-    bare = not requirement_unit.raw_unit and not fact_unit.raw_unit
-    return (
-        bare
-        or claims.same_unit(requirement_unit, fact_unit)
-        or (
-            claims.is_temperature_scale(requirement_unit.raw_unit)
-            and claims.is_temperature_scale(fact_unit.raw_unit)
-        )
+    return claims.same_unit(requirement_unit, fact_unit) or (
+        claims.is_temperature_scale(requirement_unit.raw_unit)
+        and claims.is_temperature_scale(fact_unit.raw_unit)
     )
 
 

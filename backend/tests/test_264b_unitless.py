@@ -10,7 +10,15 @@ import uuid
 
 import pytest
 
-from app import comparison, conditions, datasheets, db, standards, submittal_review
+from app import (
+    comparison,
+    condition_bare,
+    conditions,
+    datasheets,
+    db,
+    standards,
+    submittal_review,
+)
 from app.config import settings
 
 NOW = "2026-10-28T00:00:00Z"
@@ -58,17 +66,19 @@ def _guard(requirement_unit, fact_unit):
 @pytest.mark.parametrize(
     ("left", "right", "expected"),
     [
-        (None, None, True),
-        ("", "", True),
-        (None, "", True),
+        (
+            None,
+            None,
+            False,
+        ),  # UNCHANGED: the model shortlist still offers no unit-less pair (cloud on #1405)
+        ("", "", False),
         ("mm", None, False),
         (None, "mm", False),
-        ("", "bar", False),
         ("bar", "bar", True),
         ("mm", "°C", False),
     ],
 )
-def test_the_unit_guard_lets_two_unitless_numbers_through_and_nothing_else_new(
+def test_the_shortlist_guard_is_unchanged_two_unitless_numbers_are_not_offered_as_candidates(
     left, right, expected
 ):
     assert _guard(left, right) is expected
@@ -160,7 +170,7 @@ def world(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _run(condition):
+def _run(condition, *, req_unit=None, fact_unit=None, fact_value="0.974"):
     std, sub = "std-1", "sub-1"
     with db.connect() as conn:
         for doc_id, role in ((std, "COMPANY_STANDARD"), (sub, "CONTRACTOR_SUBMITTAL")):
@@ -193,6 +203,7 @@ def _run(condition):
             "subject": "the specific gravity",
             "operator": "<=",
             "raw_value": "25",
+            "raw_unit": req_unit,
             "requirement_type": "numeric_limit",
             "condition": condition,
         },
@@ -201,8 +212,10 @@ def _run(condition):
         submittal_document_id=sub,
         chunk_id="fc",
         field_label="Specific gravity",
-        raw_value="0.974",
+        raw_value=fact_value,
         page=1,
+        unit=fact_unit,
+        printed_unit=fact_unit,
     )
     run_id = str(uuid.uuid4())
     with db.connect() as conn:
@@ -243,3 +256,63 @@ def test_a_value_read_by_the_model_and_not_confirmed_decides_no_condition():
         conditions._evaluate_numeric("specific gravity below 0.5", [confirmed])["state"]
         == conditions.NOT_SATISFIED
     )
+
+
+@pytest.mark.parametrize(
+    ("condition", "fact"),
+    [
+        # a quantity that is NOT dimensionless by nature keeps needing a unit (cloud, finding 1)
+        ("design pressure above 10", _fact("5", None, "design pressure")),
+        ("temperature below 100", _fact("120", None, "temperature")),
+        ("thickness over 12", _fact("20", None, "thickness")),
+        # a field that shares ONE word with the quantity is another quantity (cloud, finding 2)
+        ("specific gravity below 0.5", _fact("2.1", None, "specific heat")),
+        ("specific gravity below 0.5", _fact("5", None, "test pressure")),
+        ("joint efficiency below 0.9", _fact("0.85", None, "joint type")),
+    ],
+)
+def test_a_bare_number_decides_only_a_dimensionless_quantity_named_by_the_same_phrase(
+    condition, fact
+):
+    got = conditions._evaluate_numeric(condition, [fact])
+    assert got["state"] == conditions.UNKNOWN, got
+
+
+def test_the_same_phrase_in_a_longer_field_name_still_speaks_to_the_threshold():
+    fact = _fact("0.974", None, "specific gravity at operating temperature")
+    got = conditions._evaluate_numeric("specific gravity below 0.5", [fact])
+    assert got["state"] == conditions.NOT_SATISFIED
+
+
+def test_the_list_holds_words_only_and_is_a_draft():
+    import json
+
+    data = json.loads(condition_bare.PATH.read_text(encoding="utf-8"))
+    assert data["sign_off"]["status"] == "draft" and data["sign_off"]["by"] is None
+    assert "specific gravity" in data["phrases"] and "pressure" not in " ".join(
+        data["phrases"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("req_unit", "fact_unit", "fact_value"),
+    [("bar", None, "0.974"), (None, "kg/m3", "974")],
+)
+def test_a_number_with_a_unit_against_one_without_is_still_a_unit_mismatch_in_the_run(
+    world, req_unit, fact_unit, fact_value
+):
+    _req, finding = _run(
+        None, req_unit=req_unit, fact_unit=fact_unit, fact_value=fact_value
+    )
+    why = (finding.get("ai_rationale") or "") + (finding.get("finding") or "")
+    assert finding["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "unit_mismatch" in why
+
+
+def test_two_numbers_with_no_unit_keep_the_compare_verdict_not_a_unit_mismatch_in_the_run(
+    world,
+):
+    _req, finding = _run(None)
+    why = (finding.get("ai_rationale") or "") + (finding.get("finding") or "")
+    assert finding["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "unit_mismatch" not in why and "states a unit" in why

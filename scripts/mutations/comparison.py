@@ -221,8 +221,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="compare units by DIMENSION always, so dB(A) and dB - "
                     "which share no dimension - are treated as the same unit",
         path=APP / "comparison.py",
-        anchor="        or claims.same_unit(requirement_unit, fact_unit)\n",
-        replacement="        or True\n",
+        anchor="    return claims.same_unit(requirement_unit, fact_unit)",
+        replacement="    return True",
         target="tests/test_table_row_requirements.py",
         keyword="weighted_unit_and_an_unweighted_one or unconvertible_pair",
         tags=("honesty", "critical"),
