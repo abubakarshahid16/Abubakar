@@ -54,6 +54,7 @@ from pathlib import Path
 from . import (
     claude_approved,
     claude_spend,
+    converter_second,
     field_naming,
     field_vocabulary,
     rule_roles,
@@ -163,7 +164,11 @@ REASONS = (
     "condition_not_in_clause",
     "reply_unreadable",
     "not_asked",
+    *converter_second.REASONS,
 )
+#: Order 305.4: a verified row is asked a second, differently worded question. Tests of the first pass alone
+#: switch it off (`ask_twice=False`); nothing else does.
+ASK_TWICE = True
 ENGINEER = "engineer, please look"
 STOPPED_AT_CAP = "stopped at cap"
 
@@ -594,6 +599,7 @@ def convert(
     limit: int | None = None,
     batch: int | None = None,
     lane: str = LANE_CLAUDE,
+    ask_twice: bool | None = None,
 ) -> Result:
     """Convert every stored requirement of one standard.
 
@@ -622,6 +628,7 @@ def convert(
     )
     before = claude_spend.spent(step) if claude else 0.0
     size, why_not = batch or BATCH, None
+    pairs: list[tuple[dict, dict]] = []
     for start in range(0, len(rows), size):
         chunk = rows[start : start + size]
         if why_not is not None:
@@ -639,7 +646,13 @@ def convert(
             continue
         out.calls += 1
         out.model = getattr(response, "model_tag", None) or out.model
-        out.rows += _read_batch(response, chunk, dictionary, roles, families, out)
+        read = _read_batch(response, chunk, dictionary, roles, families, out)
+        out.rows += read
+        pairs += zip(chunk, read)
+    if ASK_TWICE if ask_twice is None else ask_twice:
+        _ask_again(
+            pairs, equipment_type, step, size, provider, claude, document_id, out
+        )
     for r in (
         not_asked
     ):  # never sent to the model: no check, with the reason, counted by type
@@ -648,6 +661,30 @@ def convert(
         out.types_not_asked[kind] = out.types_not_asked.get(kind, 0) + 1
     out.usd = round(claude_spend.spent(step) - before, 6) if claude else 0.0
     return out
+
+
+def _ask_again(
+    pairs, equipment_type, step, size, provider, claude, document_id, out: Result
+) -> None:
+    """Order 305.4: the second question (`converter_second`). A refused or failed call gives no answer, and a row
+    without a confirming answer is unproven, never verified."""
+
+    def ask(packet):
+        try:
+            if claude:
+                with claude_approved.carrying({document_id}):
+                    response = provider.reason(packet)
+            else:
+                response = provider.reason(packet)
+        except (claude_spend.StopRun, ProviderRefused) as exc:
+            _stop_reason(exc, out)
+            return None
+        out.calls += 1
+        return response
+
+    converter_second.ask_again(
+        pairs, equipment_type, step, size, ask, _answers, _text, ENGINEER
+    )
 
 
 def _answers(response, size: int) -> dict[int, dict] | None:

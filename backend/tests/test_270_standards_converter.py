@@ -41,6 +41,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "convert.sqlite")
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(standards_converter, "ASK_TWICE", False)  # these test the first pass (305.4 has its own file)
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
