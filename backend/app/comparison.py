@@ -53,7 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
-                page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
+                page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 from .provenance import ai_quote_proved
@@ -2352,18 +2352,17 @@ def _run_comparison(
     standard_ids = [a["standard_document_id"] for a in applicable]
 
     requirements: list[dict] = []
-    # #450: WHAT DID NOT REACH A FINDING IS ACCOUNTED FOR. A standard in scope
-    # that holds no requirement at all (extraction never ran) was not checked;
-    # requirements held back as definitions or unreadable text are counted.
+    # #450: WHAT DID NOT REACH A FINDING IS ACCOUNTED FOR. A standard in scope with no
+    # requirement (extraction never ran) was not checked; definitions and unreadable text are counted.
     unchecked_standards: list[str] = []
     held_back = {"definition": 0, "text_quality": 0}
     held_items: list[dict] = []     # #678: requirements that apply, held for unreadable text
-    # #677 THE SCOPE LEDGER: every requirement of every applicable standard
-    # (`in_scope_all`) ends in exactly one decision with a stored reason,
-    # built from the SAME items #678's counts are built from - one source.
+    # #677 THE SCOPE LEDGER: every requirement of every applicable standard (`in_scope_all`) ends in
+    # exactly one decision with a stored reason, built from the SAME items #678's counts are built from.
     from . import converter_review, scope_ledger
     in_scope_all: list[dict] = []
-    extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
+    extra_not_applied: list[dict] = []  # #677: definitions, service gate, AI tier
+    design_standards = recommendations.named(applicable)
     for standard_id in standard_ids:
         from . import standards as standards_mod
         # #596/#597/#288: a definition, unreadable text and a recommendation are never compared.
@@ -2375,7 +2374,6 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
-        loaded = standards_mod.recommendations.apart(loaded, held_back)
         # OWNER DECISION (rule_trust, #947), SWITCH OFF BY DEFAULT: a clause sentence with an
         # AI-compiled check (a draft, else the converter's, order 274.1) is compared through it.
         auto_rules = converter_review.rules_with_drafts(
@@ -2384,8 +2382,10 @@ def _run_comparison(
         for r in loaded:
             if r["id"] in auto_rules:
                 r = {**r, **auto_rules[r["id"]]}
+            if recommendations.left_out(r, standard_id, design_standards, held_back):
+                continue  # #288: advice of a standard the sheet does not name takes no part
             in_scope_all.append(r)
-            if standards_mod.is_reviewable(r):
+            if standards_mod.is_reviewable(r) or recommendations.is_advice(r):
                 requirements.append(r)
             elif r.get("requirement_type") == "definition":
                 held_back["definition"] += 1
@@ -2495,13 +2495,11 @@ def _run_comparison(
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
-    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746).
-    # When this submittal's equipment type has a review checklist, the library
-    # requirements of a standard the checklist CITES are not checked one by
-    # one: the checklist items are. They stay quotable. GUARD: only standards
-    # named in the checklist's own `source.standard` (`checklist_sources`) -
-    # a requirement from any other applicable standard keeps the normal path,
-    # and a type with no checklist is unchanged. AFTER the applicability gates
+    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this submittal's
+    # equipment type has a review checklist, the library requirements of a standard the checklist CITES
+    # are not checked one by one: the checklist items are. They stay quotable. GUARD: only standards
+    # named in the checklist's own `source.standard` (`checklist_sources`); any other applicable
+    # standard keeps the normal path, and a type with no checklist is unchanged. AFTER the applicability gates
     # (subject, service and clause conditions, AI): a clause that does not
     # apply keeps that stronger, reasoned decision; only what still applies -
     # the kept requirements and the table cells no field answered - is "not used".
@@ -2527,6 +2525,8 @@ def _run_comparison(
                 if i["requirement"].get("standard_document_id") not in covered_ids]}
             checklist_note = {"type": governing["key"], "items": governing["items"],
                               "standards": len(covered_ids)}
+    # #288: advice that still applies becomes an engineer's query, not a comparison
+    requirements = recommendations.hold_for_query(requirements, held_items)
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in

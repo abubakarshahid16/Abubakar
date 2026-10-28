@@ -446,18 +446,17 @@ class Settings(BaseSettings):
     #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True
     ai_clause_checks_max_per_run: int = 20
-    #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a
-    #: rule the AI compiled may decide a verdict WITHOUT one-by-one engineer
-    #: approval only when its family (standard x equipment type) has been
-    #: PROVEN on an answer key of at least `rule_proof_min_cases` cases with
-    #: no error (rule of three: 0 errors in 300 bounds the error rate at 1%
-    #: with 95% confidence), and the rule passes code's second check. OFF by
-    #: default: the owner switches it on after the first family is proven.
-    #: A share `rule_audit_rate` (clamped to 2-5%, at least one) of the
-    #: automatic findings is drawn for an engineer's spot-check; one audit
-    #: error drops the family back to unproven. The safety field list and the
-    #: condition words live in reference data, not in code.
+    #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
+    #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment
+    #: type) has been PROVEN on an answer key of at least `rule_proof_min_cases` cases with no error (rule
+    #: of three: 0 errors in 300 bounds the error rate at 1% with 95% confidence), and the rule passes
+    #: code's second check. OFF by default: the owner switches it on after the first family is proven.
+    #: A share `rule_audit_rate` (clamped to 2-5%, at least one) of the automatic findings is drawn
+    #: for an engineer's spot-check; one audit error drops the family back to unproven. The safety
+    #: field list and the condition words live in reference data, not in code.
     rule_auto_use_enabled: bool = False
+    #: Order 288.2: a recommendation of a standard the datasheet names is raised as a query (OFF: ignored).
+    recommendation_queries_enabled: bool = False
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
