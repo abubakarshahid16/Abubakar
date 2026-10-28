@@ -382,12 +382,13 @@ def reviewed(
 ) -> dict[str, dict]:
     """{requirement id: {"role", "name", "expected"}} for the statement rules a reviewed file maps FOR
     THIS EQUIPMENT TYPE whose text still hashes the same and still holds the value phrase."""
-    by_hash: dict[str, tuple[str, dict]] = {}
+    rows: dict[str, list[tuple[str, dict]]] = {}
     for file_type, entry in rule_roles.load(files):
         if entry.get("kind") == STATEMENT and rule_roles.same_type(
             file_type, equipment_type
         ):
-            by_hash[entry["text_sha256"]] = (file_type, entry)
+            rows.setdefault(entry["text_sha256"], []).append((file_type, entry))
+    by_hash = rule_roles.agreed(rows)
     out: dict[str, dict] = {}
     for r in requirements:
         if r.get("requirement_type") != STATEMENT:

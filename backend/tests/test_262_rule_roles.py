@@ -311,3 +311,35 @@ def test_a_review_of_another_type_reads_no_pump_file(tmp_path, monkeypatch):
     assert field_vocabulary.names_for(rules, [], {"equipment_type": PUMP})[
         "requirements"
     ] == {"r1": "design pressure"}
+
+
+def _two_files(tmp_path, first, second):
+    a = rule_roles.export(PUMP, first, tmp_path / "a.json")
+    b = rule_roles.export(PUMP, second, tmp_path / "b.json")
+    return [a, b]
+
+
+def _entry(field, text="The design pressure shall not exceed 25 bar."):
+    return {
+        "standard": "SAES-X-001",
+        "clause": "6.1",
+        "text_sha256": rule_roles.text_hash(text),
+        "field": field,
+    }
+
+
+def test_two_rows_for_one_sentence_that_disagree_are_used_by_neither_in_either_order(
+    tmp_path,
+):
+    # cloud-3 on #1412: the same boilerplate in two standards must not make the rule depend on file order
+    rules = [rule(1, "The design pressure shall not exceed 25 bar.", "25", "bar")]
+    one = [_entry("design_pressure")]
+    other = [_entry("operating_pressure")]
+    assert (
+        rule_roles.reviewed_names(rules, PUMP, _two_files(tmp_path, one, other)) == {}
+    )
+    assert (
+        rule_roles.reviewed_names(rules, PUMP, _two_files(tmp_path, other, one)) == {}
+    )
+    same = rule_roles.reviewed_names(rules, PUMP, _two_files(tmp_path, one, one))
+    assert same == {"r1": "design pressure"}

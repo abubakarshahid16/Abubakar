@@ -211,4 +211,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="the_shape_is_the_field",
         tags=_TAGS,
     ),
+    _m(
+        "22",
+        "two rows for one sentence that disagree are used by one of them (the rule depends on file order)",
+        _R,
+        "        if all(r == group[0] for r in group)\n",
+        "        if group\n",
+        "that_disagree_are_used_by_neither",
+    ),
 )
