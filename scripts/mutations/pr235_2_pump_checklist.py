@@ -37,8 +37,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "02",
         "the pump checklist claims its clause numbers are verified",
         _JSON,
-        '    "Centrifugal Pump": {\n      "sign_off": {\n        "status": "draft",\n        "by": null,\n        "date": null\n      },\n      "clauses_verified": false,',
-        '    "Centrifugal Pump": {\n      "sign_off": {\n        "status": "draft",\n        "by": null,\n        "date": null\n      },\n      "clauses_verified": true,',
+        '      "clauses_verified": false,\n      "governs": false,',
+        '      "clauses_verified": true,\n      "governs": false,',
     ),
     _m(
         "03",

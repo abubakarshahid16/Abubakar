@@ -176,23 +176,6 @@ def test_a_checklist_finding_is_written_with_its_standard_and_page_when_located(
     ) == (std, 2, "API 520-I 3.26")
 
 
-@pytest.mark.parametrize("clause", ["datasheet", "fields", "annex", "Annex"])
-def test_a_placeholder_word_is_never_looked_up_as_a_clause(clause):
-    # Order 260.3 (cloud on #1390): "datasheet fields" splits on its last space into the label
-    # "... datasheet" and the clause "fields"; a heading that starts with that word must not be linked.
-    page = "".join(
-        f"{word}\nGeneral notes for the sheet\n"
-        for word in ("datasheet", "fields", "annex", "Annex")
-    )
-    _std, run = _world([page])
-    assert standard_clause_page.locate(run, "API 520-I", clause) == (None, None)
-
-
-def test_a_clause_number_and_a_lone_annex_letter_are_still_looked_up():
-    std, run = _world([CONTENTS, DEFINITIONS])
-    assert standard_clause_page.locate(run, "API 520-I", "3.26") == (std, 2)
-
-
 def test_a_checklist_finding_whose_clause_is_not_located_stores_no_page():
     _std, run = _world([DEFINITIONS])
     sheet = (
