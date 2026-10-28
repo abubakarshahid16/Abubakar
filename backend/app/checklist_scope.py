@@ -56,9 +56,12 @@ def evaluate(facts: list[dict], classification: dict, page_texts: dict) -> list[
     check DS-R1 must not stop with the checklist)."""
     from . import datasheet_checks
 
+    rules = datasheet_checks.load_rules()
+    if review_type(classification) is None:
+        rules = {**rules, "checklists": {}}
     return datasheet_checks.evaluate(
         facts,
         equipment_type=classification.get("equipment_type"),
         page_texts=page_texts,
-        with_checklist=review_type(classification) is not None,
+        rules=rules,
     )

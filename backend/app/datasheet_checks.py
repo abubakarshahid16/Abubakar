@@ -219,8 +219,8 @@ def revision_check_not_run(equipment_type: str | None, page_texts: dict) -> str 
 
 
 def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[int, str],
-             rules: dict | None = None, with_checklist: bool = True) -> list[dict]:
-    """Every check's result for one datasheet. Pure. No checklist if not with_checklist."""
+             rules: dict | None = None) -> list[dict]:
+    """Every check's result for one datasheet. Pure."""
     rules = rules or load_rules()
     by_tag: dict[str | None, dict[str, list[dict]]] = {}
     qualified: dict[str | None, dict[str, list[dict]]] = {}  # #898: under a qualifier
@@ -361,7 +361,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
     has_block = any(_block(text) for text in page_texts.values())
     # ---- #746 THE REVIEW CHECKLIST for this equipment type (DRAFT until a
     # client discipline engineer signs it off): each item carries its clause.
-    checklist = checklist_for(equipment_type, rules) if with_checklist else None
+    checklist = checklist_for(equipment_type, rules)
     if checklist:
         for tag, roles in by_tag.items():
             if tag is None and tagged:

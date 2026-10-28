@@ -55,23 +55,20 @@ def test_a_title_only_checklist_is_chosen_from_a_title_or_a_person_never_a_body_
     assert checklist_scope.review_type(classification) == expected
 
 
-def _hex_rows(equipment_type, with_checklist=True):
+def _hex_rows(evidence):
     facts = [fact("design pressure", "3.5", "barg", label="Design pressure")]
     return [
         r
-        for r in dc.evaluate(
-            facts,
-            equipment_type=equipment_type,
-            page_texts={1: "x"},
-            with_checklist=with_checklist,
+        for r in checklist_scope.evaluate(
+            facts, cls("Heat Exchanger", evidence), {1: "x"}
         )
         if str(r.get("rule_id", "")).startswith("HEX-")
     ]
 
 
 def test_a_review_with_no_checklist_type_asks_no_exchanger_question_and_one_with_the_type_asks_all_19():
-    assert len(_hex_rows("Heat Exchanger")) == 19
-    assert _hex_rows("Heat Exchanger", with_checklist=False) == []  # a weak type
+    assert len(_hex_rows(TITLE)) == 19
+    assert _hex_rows(BODY) == []  # a weak type
 
 
 def test_the_data_marks_exactly_the_two_new_drafts():
