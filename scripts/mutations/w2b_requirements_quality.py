@@ -83,7 +83,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id='M2511', phase=2511,
              description='definitions are counted as requirements again',
              path=APP / 'standards.py',
-             anchor='        "           AND COALESCE(r.requirement_type, \'\') != \'definition\'"\n        "       ) AS requirement_count,"',
+             anchor='        "           AND COALESCE(r.requirement_type, \'\') NOT IN (\'definition\', \'recommendation\')"\n        "       ) AS requirement_count,"',
              replacement='        "       ) AS requirement_count,"',
              target=_T, keyword='not_counted', tags=_TAG),
     Mutation(id='M2512', phase=2512,

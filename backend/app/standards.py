@@ -1343,7 +1343,7 @@ def verification_queue(*, allowed_document_ids: frozenset[str],
         "SELECT r.*, c.page_start AS chunk_page FROM standard_requirements r"
         " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +
         " AND r.confirmed_by IS NULL AND r.superseded_at IS NULL"
-        " AND COALESCE(r.requirement_type, '') != 'definition'"
+        " AND COALESCE(r.requirement_type, '') NOT IN ('definition', 'recommendation')"
         " AND (r.confidence IS NULL OR r.confidence < ?"
         "      OR r.quality_reason IS NOT NULL)"
         " ORDER BY r.confidence, r.created_at LIMIT ?",
@@ -1768,12 +1768,12 @@ def list_standards(*, allowed_document_ids: frozenset[str],
         "       (SELECT COUNT(*) FROM standard_requirements r"
         "         WHERE r.standard_document_id = d.id"
         "           AND r.superseded_at IS NULL"
-        "           AND COALESCE(r.requirement_type, '') != 'definition'"
+        "           AND COALESCE(r.requirement_type, '') NOT IN ('definition', 'recommendation')"
         "       ) AS requirement_count,"
         "       (SELECT COUNT(*) FROM standard_requirements r"
         "         WHERE r.standard_document_id = d.id"
         "           AND r.confirmed_by IS NULL AND r.superseded_at IS NULL"
-        "           AND COALESCE(r.requirement_type, '') != 'definition'"
+        "           AND COALESCE(r.requirement_type, '') NOT IN ('definition', 'recommendation')"
         "           AND (r.confidence IS NULL OR r.confidence < ?"
         "                OR r.quality_reason IS NOT NULL)"
         "       ) AS awaiting_verification"
