@@ -232,3 +232,15 @@ def test_the_summary_route_returns_what_the_run_stored(world):
 def test_a_run_started_before_this_change_shows_no_settings_never_invented(world):
     run_id, _job = _enqueue(world)
     assert run_settings.of_run(db.connect(), run_id) is None
+
+
+def test_a_run_opened_directly_stores_the_settings_too(world, monkeypatch):
+    monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    run_id = submittal_review.create_review_run(
+        submittal_document_id=world["sub"], allowed_document_ids=world["scope"]
+    )
+    row = _row(run_id)
+    stored = json.loads(row["run_settings"])
+    assert stored["settings"]["geometry_reader_enabled"] is True
+    assert row["config_version"] == config.config_version() == stored["config_version"]
+    assert row["model_name"] == settings.ai_task_model
