@@ -104,6 +104,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
 | `crs_checklist` | Make a checklist item held for the engineer a CRS row, and say when it is a draft |
+| `recommendations` | A "should" sentence of a standard is stored as a recommendation with no limit; no review reads it (order 288.2) |
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
 | `run_finishing` | Order 236: a run whose job is still writing the AI comments, numbers and wording reads as running, not completed |
 | `model_metrics` | #503: per-model latency and error counts of the local model calls a review run makes, stored per run and model with the date (counts and seconds only) |

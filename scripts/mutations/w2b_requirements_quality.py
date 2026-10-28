@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id='M2510', phase=2510,
              description='a definition reaches the review again',
              path=APP / 'standards.py',
-             anchor='    if _column(row, "requirement_type") in (requirement_quality.DEFINITION, recommendations.TYPE):\n        return False\n',
+             anchor='    if _column(row, "requirement_type") in recommendations.NOT_REVIEWED:\n        return False\n',
              replacement='    if False:\n        return False\n',
              target=_T, keyword='definition_never_reaches', tags=_TAG),
     Mutation(id='M2511', phase=2511,

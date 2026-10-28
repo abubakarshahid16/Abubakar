@@ -8,7 +8,10 @@ import pytest
 
 from app import comparison, db, recommendations, standards
 from app import requirements_3b as r
-from tests.test_w6_640_requirements_supersede import _standard, temp_storage  # noqa: F401
+from tests.test_w6_640_requirements_supersede import (  # noqa: F401
+    _standard,
+    temp_storage,
+)
 
 LINES = [
     "5.3 Set pressure",
@@ -68,10 +71,10 @@ def test_the_shall_sentence_is_unchanged_and_may_is_still_not_recorded(extracted
 
 
 def test_no_existing_review_path_may_read_a_recommendation(extracted):
-    rec = [row for t, row in extracted.items() if "at least 10 percent below" in t][0]
-    mandatory = [
+    rec = next(row for t, row in extracted.items() if "at least 10 percent below" in t)
+    mandatory = next(
         row for t, row in extracted.items() if "shall not exceed the maximum" in t
-    ][0]
+    )
     assert standards.is_reviewable(rec) is False
     assert standards.is_reviewable(mandatory) is True
     assert not comparison.is_matchable(dict(rec))

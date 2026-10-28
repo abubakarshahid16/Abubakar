@@ -18,7 +18,11 @@ from __future__ import annotations
 
 import re
 
+from . import requirement_quality
+
 TYPE = "recommendation"
+#: The types no review reads: a definition states no obligation, a recommendation is advice.
+NOT_REVIEWED = (requirement_quality.DEFINITION, TYPE)
 
 #: "should" and "should not" only. "may" is permission and "recommended" is not matched: the
 #: coverage audit named "should" (4 of 147 held) and those are the words the owner asked for.

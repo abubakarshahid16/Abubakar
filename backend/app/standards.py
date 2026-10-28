@@ -543,7 +543,7 @@ def is_reviewable(row) -> bool:
     the text, but it cannot turn a definition into a requirement: for that the
     engineer edits the type. Used by every review that loads requirements.
     """
-    if _column(row, "requirement_type") in (requirement_quality.DEFINITION, recommendations.TYPE):
+    if _column(row, "requirement_type") in recommendations.NOT_REVIEWED:
         return False
     if _column(row, "quality_reason") and not _column(row, "confirmed_by"):
         return False
@@ -1034,10 +1034,9 @@ def extract_requirements(
                     confidence = min(confidence, CONTRADICTED_CONFIDENCE)
                     contradicted += 1
                 exceptions = requirements_3b.parse_exceptions(sentence)
-                # #596 A definition states what a word means, not what anyone
-                # must do. Its number (if any) is not a limit, so none is kept.
+                # #596 a definition, and advice (288.2), state no limit: no number is kept.
                 is_definition = in_definitions or requirement_quality.is_defining_sentence(sentence)
-                if is_definition or not mandatory:    # advice states no limit
+                if is_definition or not mandatory:
                     limit = None
                 structured = {
                     "requirement_type": (
