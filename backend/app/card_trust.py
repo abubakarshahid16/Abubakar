@@ -2,8 +2,8 @@
 
 Every checklist is still a DRAFT, so `rule_trust.check_label` holds each checklist result for the engineer
 (UNPROVEN). With the switch `tested_cards_decide_enabled` ON, a relief-valve checklist card that is TESTED under
-the stricter rule is labelled AUTO_PROVEN instead, with the words "automatic (tested rule, engineer approval
-pending)". The stricter rule, each part checked here by code and never by a model:
+the stricter rule gets its own label, TESTED_CARD, with the words "automatic (tested rule, engineer approval
+pending)" (never "proven": nothing here proves a family). The stricter rule, each part checked by code:
 
   * the real code passed the card's meets, breaks and unclear cases, and an at-the-limit case for a limit rule
     (`rule_cards.run_card`);
@@ -26,7 +26,6 @@ from . import rule_cards
 
 #: The equipment types whose cards may decide (owner order 306: the relief valve first).
 DECIDING_TYPES = ("Pressure Safety Valve",)
-WORDS = "automatic (tested rule, engineer approval pending)"
 _CLAUSE = re.compile(r"^(?:\d+(?:\.\d+)*|[A-Za-z]{1,5}-\d+(?:\.\d+)*)$")
 
 

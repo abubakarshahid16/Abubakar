@@ -26,8 +26,9 @@ def _labelled(facts=SHEET):
 
 def test_a_tested_card_with_written_cases_decides_and_says_what_it_rests_on():
     r = _labelled()["PSV-24"]  # set pressure at most MAWP: 10 <= 12
-    assert r["status"] == "COMPLIANT" and r["trust_label"] == rule_trust.AUTO_PROVEN
+    assert r["status"] == "COMPLIANT" and r["trust_label"] == rule_trust.TESTED_CARD
     assert r["trust_words"] == "automatic (tested rule, engineer approval pending)"
+    assert r["trust_label"] != rule_trust.AUTO_PROVEN  # never a proven family
     assert not r.get("rule_said")
 
 
@@ -36,7 +37,7 @@ def test_a_breach_by_a_tested_card_is_a_verdict_too():
         fact("max allow working pressure", "9.5", "barg")
     ]
     r = _labelled(over)["PSV-24"]
-    assert r["status"] == "NON_COMPLIANT" and r["trust_label"] == rule_trust.AUTO_PROVEN
+    assert r["status"] == "NON_COMPLIANT" and r["trust_label"] == rule_trust.TESTED_CARD
 
 
 def test_a_compliant_verdict_on_a_safety_field_goes_to_the_engineers_tick():
@@ -127,3 +128,29 @@ def test_with_automatic_use_off_the_hook_is_not_called(monkeypatch):
     assert (
         rule_trust.label_check(r) is r
     )  # the check comes back unchanged, no label at all
+
+
+def test_the_crs_words_say_tested_never_proven_on_the_whole_path(monkeypatch):
+    """cloud-2 (#1446): the words the CRS prints come from the STORED label, so the stored label must carry them."""
+    from app import crs_mapping, datasheet_checks, review
+
+    written = []
+    monkeypatch.setattr(review, "rejected_in_run", lambda *a, **k: [])
+    monkeypatch.setattr(
+        review,
+        "create",
+        lambda row, created_by=None: written.append(row) or {"id": "x", **row},
+    )
+    res = [r for r in results(SHEET).values() if r["rule_id"] == "PSV-24"]
+    datasheet_checks.store(
+        "run", "sub", res, pages_read={1: "read"}, label=rule_trust.label_check
+    )
+    stored = next(w for w in written if "PSV-24" in w["requirement_source_text"])
+    assert stored["trust_label"] == rule_trust.TESTED_CARD
+    words = crs_mapping.trust_words(stored)
+    assert (
+        "tested rule, engineer approval pending" in words and "proven rule" not in words
+    )
+    assert "proven" not in crs_mapping.safety_tick_text(
+        {**stored, "compliance_status": "COMPLIANT"}
+    )

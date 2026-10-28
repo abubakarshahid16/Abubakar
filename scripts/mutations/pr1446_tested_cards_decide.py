@@ -99,4 +99,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="safety_field_goes_to_the_engineers_tick",
         tags=_TAG,
     ),
+    Mutation(
+        id="M1446-09",
+        phase=1446,
+        description="a tested card is labelled as a proven family (the CRS then says proven)",
+        path=_R,
+        anchor="        return TESTED_CARD  # order 306.1",
+        replacement="        return AUTO_PROVEN  # order 306.1",
+        target=_T,
+        keyword="crs_words_say_tested_never_proven",
+        tags=_TAG,
+    ),
 )
