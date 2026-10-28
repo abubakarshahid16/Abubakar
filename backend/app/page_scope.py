@@ -205,9 +205,31 @@ def range_boundary(text: str | None, limit: str) -> bool:
     patterns = (
         rf"\b(?:from|between)\b[^.;]{{0,40}}?(?<![\w.]){number}(?![\w.]){_UNIT}\s+(?:to|and|through|up to)\s+{_NUM}",
         rf"\b(?:from|between)\b[^.;]{{0,40}}?{_NUM}{_UNIT}\s+(?:to|and|through|up to)\s+{number}(?![\w.])",
-        rf"(?<![\w.]){number}(?![\w.]){_UNIT}\s*(?:to|through|[-\u2013])\s*{_NUM}",
-        rf"{_NUM}{_UNIT}\s*(?:to|through|[-\u2013])\s*{number}(?![\w.])",
+        rf"(?<![\w.]){number}(?![\w.]){_UNIT}\s*(?:to|through)\s*{_NUM}",
+        rf"{_NUM}{_UNIT}\s*(?:to|through)\s*{number}(?![\w.])",
         rf"\b(?:over|above|exceeding|greater than|more than)\s+{number}(?![\w.]){_UNIT}[^.;]{{0,25}}?\b(?:up to|not exceeding|not more than|less than|and below)\b",
         rf"\b(?:up to|not exceeding|not more than|less than)\s+{number}(?![\w.]){_UNIT}[^.;]{{0,25}}?\b(?:over|above|exceeding|greater than|more than)\s+{_NUM}",
     )
-    return any(re.search(p, body, re.IGNORECASE) for p in patterns)
+    return any(re.search(p, body, re.IGNORECASE) for p in patterns) or _dashed_range(
+        body, str(limit).strip()
+    )
+
+
+_DASHED = re.compile(
+    rf"(?<![\w.\u2013-])({_NUM})\s*([A-Za-z%\u00b0/]*)\s*[-\u2013]\s*({_NUM})\s*([A-Za-z%\u00b0/]*)"
+)
+
+
+def _dashed_range(body: str, limit: str) -> bool:
+    """ "10-50 bar", "10 bar - 50 bar": a dash is a range only when a unit sits on one of the two figures. Without a
+    unit a dash joins a code ("ISO 15156-3", "SAES-J-600 8-3"), not two ends of a range."""
+    from . import field_vocabulary
+
+    wanted = limit.replace(",", ".")
+    for m in _DASHED.finditer(body):
+        first, u1, second, u2 = m.groups()
+        if wanted not in (first.replace(",", "."), second.replace(",", ".")):
+            continue
+        if any(field_vocabulary._unit_families(u) for u in (u1, u2) if u):
+            return True
+    return False

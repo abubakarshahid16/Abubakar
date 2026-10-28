@@ -167,3 +167,25 @@ def test_a_page_that_leaves_a_special_part_for_a_general_one_keeps_the_stricter_
 )
 def test_a_sentence_that_opens_with_for_where_or_in_is_whole(text):
     assert ps.fragment_reasons(text) == []
+
+
+@pytest.mark.parametrize(
+    "text, limit",
+    [
+        ("Valves rated to ISO 15156-3 shall have a set pressure of 3 bar.", "3"),
+        ("See SAES-J-600 section 8-3 for the set pressure of 5 bar.", "3"),
+    ],
+)
+def test_a_dash_between_figures_without_a_unit_is_a_code_not_a_range(text, limit):
+    assert not ps.range_boundary(text, limit)
+
+
+@pytest.mark.parametrize(
+    "text, limit",
+    [
+        ("Pressures of 10-50 bar are covered.", "10"),
+        ("Pressures of 10 bar - 50 bar are covered.", "50"),
+    ],
+)
+def test_a_dash_between_figures_with_a_unit_is_a_range(text, limit):
+    assert ps.range_boundary(text, limit)
