@@ -180,6 +180,14 @@ def reviewed_names(
     for file_type, entry in load(files):
         if entry.get("kind") != "statement" and same_type(file_type, equipment_type):
             by_hash[entry["text_sha256"]] = (file_type, entry["field"])
+    if files is None:
+        # order 270.3: the converter's drafts (verified, applies "yes"), only when the switch names a folder.
+        # The reviewed file above wins where both name the same rule.
+        from . import standards_converter
+
+        for file_type, entry in standards_converter.reviewed_entries():
+            if same_type(file_type, equipment_type):
+                by_hash.setdefault(entry["text_sha256"], (file_type, entry["field"]))
     out: dict[str, str] = {}
     for r in requirements:
         if r.get("requirement_type") not in field_naming.NUMERIC_TYPES:

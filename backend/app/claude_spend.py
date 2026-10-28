@@ -74,6 +74,9 @@ PRICES: dict[str, tuple[float, float, float, float]] = {
 }
 #: The price used for a model id not in the table: the dearest listed.
 _UNKNOWN = max(PRICES.values())
+#: Order 271.3 (owner, #805 plan change 4): a call whose step starts with this is charged to ONE
+#: standard's step and capped at `claude_budget_usd_per_standard` (the converter, `standards_converter`).
+STANDARD_STEP_PREFIX = "standards_convert:"
 #: Message Batches API: every token at half the list price (same pricing
 #: page, "Batch processing"). Applied to all four rates; the caps and the
 #: ledger are the same as for a single call.
@@ -272,13 +275,21 @@ class Caps:
     def from_settings(cls) -> Caps:
         return cls(float(settings.claude_budget_usd_per_step), float(settings.claude_budget_usd_total))
 
+    def for_step(self, step: str) -> Caps:
+        """Order 271.3: the steps that convert ONE standard (`standards_convert:<standard>`) each have
+        their own, larger cap - USD 25 per standard - while every other step keeps `per_step`. Only
+        the caps read from settings are resolved per step: a caller that passed its own `Caps` meant them."""
+        if str(step).startswith(STANDARD_STEP_PREFIX):
+            return Caps(float(settings.claude_budget_usd_per_standard), self.total)
+        return self
+
 
 def ensure_affordable(step: str, worst_case: float, caps: Caps | None = None) -> None:
     """Refuse (raise) when `worst_case` on top of what is spent could cross
     the step cap or the total cap. READ-ONLY: it reserves nothing, so two
     callers can both pass it - a call that is about to be sent must use
     `reserve` instead."""
-    _check(step, worst_case, caps or Caps.from_settings(), spent(step), spent())
+    _check(step, worst_case, caps or Caps.from_settings().for_step(step), spent(step), spent())
 
 
 def _check(step: str, worst_case: float, caps: Caps, step_spent: float, total_spent: float) -> None:
@@ -384,6 +395,7 @@ def reserve_all(items: list[tuple[str, float]], *, model: str, prompt_sha256: st
                 line["documents"] = sorted(claude_approved.carried() or ())
                 _append(line)
         raise DocumentNotApproved(code, reason)
+    explicit = caps
     caps = caps or Caps.from_settings()
     now = time.time()
     out: list[Reservation] = []
@@ -394,7 +406,7 @@ def reserve_all(items: list[tuple[str, float]], *, model: str, prompt_sha256: st
         for e in current:
             per_step[e.get("step")] = per_step.get(e.get("step"), 0.0) + float(e.get("cost_usd") or 0)
         for step, worst in items:
-            _check(step, worst, caps, round(per_step.get(step, 0.0), 6), round(total, 6))
+            _check(step, worst, explicit or caps.for_step(step), round(per_step.get(step, 0.0), 6), round(total, 6))
             per_step[step] = per_step.get(step, 0.0) + worst
             total += worst
             out.append(Reservation(uuid.uuid4().hex, step, model, float(worst), prompt_sha256, now, batch))
