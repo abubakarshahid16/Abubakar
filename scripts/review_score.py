@@ -4,6 +4,7 @@
     python scripts/review_score.py score  --key eval/review/keys/K.json --findings run.findings.json [--json]
     python scripts/review_score.py check  --key K.json --findings F.json [--baseline eval/review/baseline.json]
     python scripts/review_score.py record-baseline --key K.json --findings F.json
+    python scripts/review_score.py steps  --keys-dir eval/review/keys --runs-dir DIR [--out report.md]
     python scripts/review_score.py weekly --keys-dir eval/review/keys --runs-dir DIR [--out report.md]
 
 Formats and the procedure: eval/review/README.md.
@@ -31,6 +32,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
 from tools import review_score as rs  # noqa: E402
+from tools import review_steps  # noqa: E402
 
 DEFAULT_BASELINE = REPO / "eval" / "review" / "baseline.json"
 DEFAULT_KEYS = REPO / "eval" / "review" / "keys"
@@ -82,7 +84,14 @@ def export_findings(conn: sqlite3.Connection, run_id: str, model: str | None = N
                 f.update(standard=standard, clause=clause, checklist=True)
         f["citation_valid"] = rs.citation_valid(f, page_text(r["standard_document_id"], r["standard_page"]))
         findings.append(f)
-    return {"format": rs.FINDINGS_FORMAT, "model": model, "run_id": run_id, "findings": findings}
+    lists = review_steps.per_step_lists(conn, run_id)
+    return {
+        "format": rs.FINDINGS_FORMAT,
+        "model": model,
+        "run_id": run_id,
+        "findings": findings,
+        **lists,
+    }
 
 
 # ---------------------------------------------------------------------- reporting
@@ -202,6 +211,11 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--name", required=True)
     c.add_argument("--approved-by", required=True)
     c.add_argument("--out", required=True, help="the draft key; keep it outside the repo")
+    st = sub.add_parser("steps", help="per-step scores per document type (#832)")
+    st.add_argument("--keys-dir", default=str(DEFAULT_KEYS))
+    st.add_argument("--runs-dir", required=True)
+    st.add_argument("--week")
+    st.add_argument("--out")
     w = sub.add_parser("weekly")
     w.add_argument("--keys-dir", default=str(DEFAULT_KEYS))
     w.add_argument("--runs-dir", required=True)
@@ -230,6 +244,10 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.out).write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
             print(f"{len(doc['findings'])} finding(s) written to {args.out} (holds requirement text: keep it on this machine)")
             return 0
+        if args.cmd == "steps":
+            return review_steps.run_steps(
+                args.keys_dir, args.runs_dir, args.week, args.out
+            )
         if args.cmd == "weekly":
             keys_dir = Path(args.keys_dir)
             if _hidden_exam_path(keys_dir):

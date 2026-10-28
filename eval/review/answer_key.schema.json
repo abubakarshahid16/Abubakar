@@ -11,6 +11,11 @@
                "description": "invented: written to test the scorer. engineer_confirmed: a named engineer wrote or approved it (approved_by required). hidden_exam: the owner's hidden exam; scored only by the merger session (#650), never by the weekly report."},
     "approved_by": {"type": "string", "description": "Required when source is engineer_confirmed. Not allowed when source is gold_lite."},
     "read_by": {"type": "string", "description": "Required when source is gold_lite: who read the documents (a named session or person). No engineer has confirmed the key."},
+    "document_type": {"type": "string", "description": "Optional. The slice a per-step table groups by (for example a pump datasheet). Absent: 'document type not stated'."},
+    "standards_chosen": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "Optional. The standards that should be selected for this sheet; scores the standards step (#832)."},
+    "standards_complete": {"type": "boolean", "default": false, "description": "true when standards_chosen is the whole list, so an extra selected standard counts against precision."},
+    "fields_read": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "Optional. Fields the sheet holds that the reader should read; scores the reading step (#832)."},
+    "fields_complete": {"type": "boolean", "default": false, "description": "true when fields_read is the whole list."},
     "complete_for_flags": {"type": "boolean", "default": false,
       "description": "true when every real defect on the sheet is listed, so a flagged finding that matches no item is a false positive. false: such findings are reported as 'not judged by the key' and stay out of precision."},
     "items": {

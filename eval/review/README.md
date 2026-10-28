@@ -67,6 +67,29 @@ against the stored page text; null when the page is missing). The file also
 names the `model`, and every number is reported per model so the same keys run
 unchanged on the Mac Studio (#683).
 
+## Scores by step (#832)
+
+`review_score.py score` judges the decision step. `review_score.py steps --runs-dir DIR` scores
+every step on its own and prints one table per document type (counts only):
+
+| step | compares | the key needs | the findings file needs |
+|---|---|---|---|
+| reading | fields the key says the sheet holds / fields the run read | `fields_read` | `fields_read` |
+| standards chosen | standards that apply / standards the run selected | `standards_chosen` | `standards_selected` |
+| pairing | for each item that names a `field`: does the answering finding name that field | items with `field` | - |
+| decision | defects found, findings right (the usual score) | the usual items | - |
+| CRS wording | **not scored**: a person reads wording | - | - |
+
+Write the key's field names in full: a one-word key field ("pressure") matches every run field that contains that word. Reading is scored against the sheet's CURRENT facts, so a later re-read changes an old run's reading score. This table is not a merge gate; the false-compliant count stays in `score`.
+
+Optional key fields: `document_type` (the slice; "document type not stated" when absent),
+`fields_complete` and `standards_complete` (true when the key's list is the whole list; only then
+is precision judged, otherwise the extra things the run named are counted and not judged). The
+export adds `standards_selected` and `fields_read` as names only (no value, no text); a database
+without the tables gives no list and the step reads "not scored: ...". A step with nothing to
+compare is never 0 and never 100 %. Counts are SUMMED per document type and then divided;
+percentages are never averaged. Hidden-exam keys are never read by `steps`.
+
 ## Commands
 
 ```powershell
