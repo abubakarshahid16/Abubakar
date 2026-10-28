@@ -22,7 +22,8 @@ _NEVER = re.compile(
 MAX_VALUE_CHARS = 120
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn=None) -> None:
+    conn = conn or connect()
     conn.execute(
         """CREATE TABLE IF NOT EXISTS review_run_settings (
             review_run_id TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL,
