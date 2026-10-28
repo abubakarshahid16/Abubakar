@@ -80,4 +80,20 @@ MUTATIONS: tuple[Mutation, ...] = (
         r'_RECOMMEND = re.compile(r"\b(?:should(?:\s+not)?|may)\b", re.IGNORECASE)',
         "may_is_still_not_recorded",
     ),
+    _m(
+        8,
+        "recommendations reach the scope ledger, counted as 'its text could not be read'",
+        APP / "comparison.py",
+        "        loaded = standards_mod.recommendations.apart(loaded, held_back)\n",
+        "",
+        "not_in_the_scope_ledger",
+    ),
+    _m(
+        9,
+        "the recommendations are dropped without being counted",
+        APP / "recommendations.py",
+        "    held_back[TYPE] = held_back.get(TYPE, 0) + len(rows) - len(kept)\n",
+        "",
+        "not_in_the_scope_ledger",
+    ),
 )

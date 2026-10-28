@@ -39,3 +39,12 @@ def classify(sentence: str, limit: dict | None, mandatory: bool) -> str:
     from . import requirements_3b
 
     return requirements_3b.classify(sentence, limit) if mandatory else TYPE
+
+
+def apart(rows: list[dict], held_back: dict) -> list[dict]:
+    """The rows a review compares: recommendations are counted in `held_back` and kept out of the scope
+    ledger altogether. Advice is neither "applies" nor "does not apply", and it must never read as
+    "its text failed the quality check"."""
+    kept = [r for r in rows if r.get("requirement_type") != TYPE]
+    held_back[TYPE] = held_back.get(TYPE, 0) + len(rows) - len(kept)
+    return kept
