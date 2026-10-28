@@ -193,20 +193,38 @@ def _grid_span(texts: list[list[str]]) -> tuple[int, int] | None:
     return (grid[0], grid[-1]) if grid else None
 
 
-class _Trimmed:
-    """An aligned-text table without the caption or note rows around its grid: same `extract()`, `rows`
-    and `bbox` as a finder table, so the lines of the caption stay in the prose."""
+class _Aligned:
+    """An aligned-text table as the extractor stores it: same `extract()`, `rows` and `bbox` as a finder
+    table, with the words of each cell joined by a space and without the caption or note rows around the
+    grid (their lines stay in the prose)."""
 
-    def __init__(self, table, first: int, last: int) -> None:
+    def __init__(self, table, cells: list[list[str]], first: int, last: int) -> None:
         self.rows = table.rows[first : last + 1]
-        self._cells = table.extract()[first : last + 1]
+        self._cells = cells[first : last + 1]
         box = pymupdf.Rect(self.rows[0].bbox)
         for row in self.rows[1:]:
             box |= pymupdf.Rect(row.bbox)
         self.bbox = tuple(box)
 
-    def extract(self) -> list[list]:
+    def extract(self) -> list[list[str]]:
         return self._cells
+
+
+def _cell_texts(page, rects: list[list]) -> list[list[str]]:
+    """Each cell's words, joined by a space, a word going to the cell holding its centre. The finder's own
+    `extract()` joins words closer than its tolerance with nothing ("Carbonsteel", "80C") on a small font,
+    and `get_textbox` takes in the words of a neighbouring row that a cell's box only touches."""
+    words = page.get_text("words")
+    centre = [((w[0] + w[2]) / 2, (w[1] + w[3]) / 2, w[4]) for w in words]
+    return [
+        [
+            " ".join(t for x, y, t in centre if r[0] <= x <= r[2] and r[1] <= y <= r[3])
+            if r is not None
+            else ""
+            for r in row
+        ]
+        for row in rects
+    ]
 
 
 def _aligned_tables(page) -> list:
@@ -218,13 +236,12 @@ def _aligned_tables(page) -> list:
         words = page.get_text("words")
         kept = []
         for table in tables:
-            texts, rects = geometry_reader._grid(table)
+            _raw, rects = geometry_reader._grid(table)
+            texts = _cell_texts(page, rects)
             if (span := _grid_span(texts)) is None:
                 continue
-            if span != (0, len(texts) - 1):
-                table = _Trimmed(table, *span)
-                texts = texts[span[0] : span[1] + 1]
-                rects = rects[span[0] : span[1] + 1]
+            table = _Aligned(table, texts, *span)
+            texts, rects = texts[span[0] : span[1] + 1], rects[span[0] : span[1] + 1]
             score = geometry_reader.table_score(table, words, (texts, rects))
             if aligned_grid_ok(texts, score):
                 kept.append(table)
