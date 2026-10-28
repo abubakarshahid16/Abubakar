@@ -171,9 +171,13 @@ def documents(conn: sqlite3.Connection, doc: str) -> dict:
 def reader(conn: sqlite3.Connection, doc: str) -> list[dict]:
     """2. The datasheet reader: its run summary, then every current value."""
     out = []
+    # NEWEST FIRST (order 309.1): the table is append-only history, one row per extraction, and the current
+    # values below were written by the newest run. Reading the first row showed the OLDEST run, as if a small
+    # model's timed-out first attempt had read the sheet. Same order as `datasheets.latest_reader_summary`.
     summary_rows = _rows(
         conn,
-        "SELECT summary, read_at, extractor_version FROM datasheet_reader_runs WHERE document_id = ?",
+        "SELECT summary, read_at, extractor_version FROM datasheet_reader_runs WHERE document_id = ?"
+        " ORDER BY rowid DESC",
         (doc,),
     )
     summary = _json(summary_rows[0]["summary"]) if summary_rows else {}
@@ -183,14 +187,35 @@ def reader(conn: sqlite3.Connection, doc: str) -> list[dict]:
     ]
     if summary_rows:
         rows[:0] = [
+            [
+                "this run",
+                f"the newest of {len(summary_rows)}: the values below were read by it"
+                if len(summary_rows) > 1
+                else "the only reader run stored for this document",
+            ],
             ["read at", summary_rows[0]["read_at"]],
             ["extractor version", summary_rows[0]["extractor_version"]],
         ]
+        for n, earlier in enumerate(summary_rows[1:], start=2):
+            kept = list(_json(earlier["summary"]).items())[:4]
+            rows.append(
+                [
+                    f"earlier run {n} (history, not the source of the values below)",
+                    f"read at {earlier['read_at']}; extractor {earlier['extractor_version']}; "
+                    + _short(
+                        "; ".join(
+                            f"{k} = {json.dumps(v) if isinstance(v, (dict, list)) else v}"
+                            for k, v in kept
+                        ),
+                        200,
+                    ),
+                ]
+            )
     out.append(
         _section(
             "reader_run",
             "2a. The datasheet reader's run",
-            "Which engine and model read the sheet, which pages it read, which fields it was asked for."
+            "Newest run first: which engine and model read the sheet, which pages it read, which fields it was asked for."
             if rows
             else "No reader summary is stored for this document.",
             ["item", "value"],
