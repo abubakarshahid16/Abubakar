@@ -8,6 +8,8 @@ import type {
   DeletedDocument,
   ClauseCheckDecisionResult,
   ClauseCheckDraft,
+  RuleCard,
+  RuleCardListing,
   MissingStandard,
   ChunkPage,
   DocumentRecord,
@@ -335,6 +337,23 @@ export const documentsApi = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision }),
       }),
+  /** Order 302.4: the rule cards with their state (super user). */
+  ruleCards: () => request<RuleCardListing>("/rule-cards"),
+  ruleCard: (id: string) => request<RuleCard>(`/rule-cards/${encodeURIComponent(id)}`),
+  /** Approve or reject the version the engineer saw; a changed card answers 409 and writes nothing. */
+  decideRuleCard: (id: string, version: number, contentHash: string, decision: "approved" | "rejected") =>
+    request<RuleCard>(`/rule-cards/${encodeURIComponent(id)}/decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version, content_hash: contentHash, decision }),
+    }),
+  /** A new version with the changes, tested again at once, with no decision. */
+  editRuleCard: (id: string, version: number, contentHash: string, changes: Record<string, unknown>) =>
+    request<RuleCard>(`/rule-cards/${encodeURIComponent(id)}/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version, content_hash: contentHash, changes }),
+    }),
   /** Mark a standard as replaced, or clear the mark with null. ADMIN, audited. */
   /** Standards cited but not in the library, with the publisher's catalogue
    *  page and whether each has been requested. Nothing is fetched. */

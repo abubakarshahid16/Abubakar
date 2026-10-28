@@ -690,6 +690,65 @@ export interface ClauseCheckDraft {
   new_requirement_id: string | null;
 }
 
+/** Order 302.4: a rule card (a checklist item tested with the real code) and the engineer's step on it. */
+export type RuleCardState = "draft" | "tested" | "approved" | "rejected";
+
+export interface RuleCardSummary {
+  card_id: string;
+  text: string;
+  source: { standard: string; clause: string };
+  state: RuleCardState;
+  why: string;
+  version: number;
+  weak_source: boolean;
+  written_cases: number;
+  decided_by: string | null;
+  decided_at: string | null;
+}
+
+/** GET /api/rule-cards: per equipment type, its cards, a count per state and the total (the denominator). */
+export type RuleCardListing = Record<
+  string,
+  { cards: RuleCardSummary[]; counts: Record<RuleCardState, number>; total: number }
+>;
+
+export interface RuleCardCase {
+  case: string;
+  kind: "generated" | "written";
+  expected: string;
+  got: string | null;
+  passed: boolean;
+}
+
+export interface RuleCardItem {
+  id: string;
+  text: string;
+  severity: string;
+  source: { standard: string; clause: string };
+  rule: Record<string, string | number | boolean | string[]>;
+  condition?: Record<string, unknown>;
+  weak_source?: boolean;
+  needs?: string;
+}
+
+export interface RuleCard {
+  card_id: string;
+  equipment_type: string;
+  version: number;
+  content_hash: string;
+  state: RuleCardState;
+  why: string;
+  weak_source: boolean;
+  basis: string;
+  written_cases: number;
+  baseline_changed: boolean;
+  versions: number;
+  decided_by: string | null;
+  decided_at: string | null;
+  item: RuleCardItem;
+  cases: RuleCardCase[];
+}
+
 /** Order 133: the CRS issue gate and its decisions. GENERATED from `backend/app/schemas.py` (order 133): edit the backend
  *  model, then run `python scripts/gen_contract_types.py`; CI fails on drift. */
 export * from "./generated/crs_issue";

@@ -27,6 +27,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { ClauseCheckDrafts } from "../components/standards/ClauseCheckDrafts";
+import { RuleCards } from "../components/standards/RuleCards";
 import { MissingStandards } from "../components/standards/MissingStandards";
 import { StructuredReading } from "../components/standards/StructuredReading";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
@@ -108,6 +109,8 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
       <MissingStandards />
 
       <ClauseCheckDrafts isAdmin={isAdmin} />
+
+      {isAdmin && <RuleCards />}
 
       {current && (
         <StandardDetail
