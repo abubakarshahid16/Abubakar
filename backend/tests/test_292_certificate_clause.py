@@ -48,7 +48,7 @@ def test_a_clause_in_another_style_than_the_standards_is_flagged():
     rows = [row(str(i), f"5.{i}") for i in range(1, 8)] + [row("x", "2.", 1)]
     assert cc.dominant_style(rows) == "decimal"
     pages[1] += "UG-22 text\n"
-    assert cc.check(rows + [row("y", "UG-22")], pages)["flags"] == [
+    assert cc.check([*rows, row("y", "UG-22")], pages)["flags"] == [
         ("y", cc.WRONG_STYLE)
     ]
 
