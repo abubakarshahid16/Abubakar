@@ -31,7 +31,8 @@ def review_type(classification: dict | None) -> str | None:
     checklist marked `type_from_title_only` (the vessel and exchanger drafts) is chosen only when the
     type was read from the sheet's title or confirmed by a person; a type that only a passing mention in
     the body gave ("heat exchanger" twice on a drum sheet, `body_phrase_match`) chooses none, and the
-    sheet is then checked with the generic list. Every other type is returned as stored."""
+    sheet gets no checklist (its other checks, DS-R1 included, still use the stored type).
+    Every other type is returned as stored."""
     from . import datasheet_checks
 
     classification = classification or {}
@@ -47,3 +48,17 @@ def review_type(classification: dict | None) -> str | None:
     if isinstance(entry, dict) and entry.get("type_from_title_only") and weak:
         return None
     return equipment_type
+
+
+def evaluate(facts: list[dict], classification: dict, page_texts: dict) -> list[dict]:
+    """The datasheet checks of one review: the stored type for every check, the
+    checklist only when `review_type` allows it (cloud, #1390: the revision-block
+    check DS-R1 must not stop with the checklist)."""
+    from . import datasheet_checks
+
+    return datasheet_checks.evaluate(
+        facts,
+        equipment_type=classification.get("equipment_type"),
+        page_texts=page_texts,
+        with_checklist=review_type(classification) is not None,
+    )

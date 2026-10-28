@@ -55,20 +55,23 @@ def test_a_title_only_checklist_is_chosen_from_a_title_or_a_person_never_a_body_
     assert checklist_scope.review_type(classification) == expected
 
 
-def _hex_rows(equipment_type):
+def _hex_rows(equipment_type, with_checklist=True):
     facts = [fact("design pressure", "3.5", "barg", label="Design pressure")]
     return [
         r
-        for r in dc.evaluate(facts, equipment_type=equipment_type, page_texts={1: "x"})
+        for r in dc.evaluate(
+            facts,
+            equipment_type=equipment_type,
+            page_texts={1: "x"},
+            with_checklist=with_checklist,
+        )
         if str(r.get("rule_id", "")).startswith("HEX-")
     ]
 
 
 def test_a_review_with_no_checklist_type_asks_no_exchanger_question_and_one_with_the_type_asks_all_19():
     assert len(_hex_rows("Heat Exchanger")) == 19
-    assert (
-        _hex_rows(None) == []
-    )  # what a weak type becomes (`review_type`), checked with the generic list
+    assert _hex_rows("Heat Exchanger", with_checklist=False) == []  # a weak type
 
 
 def test_the_data_marks_exactly_the_two_new_drafts():
@@ -120,3 +123,34 @@ def test_a_review_of_a_sheet_titled_an_exchanger_still_gets_the_exchanger_checkl
     world,
 ):
     assert _review("Heat Exchanger", TITLE) != []
+
+
+NO_REVISION_BLOCK = (
+    "Design pressure 3.5 barg"  # a passing DS-R1 writes no row; a missing one does
+)
+
+
+def _whole_review(equipment_type, evidence):
+    _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE document_classification SET equipment_type = ?, equipment_type_evidence = ?"
+            " WHERE document_id = 'sub-1'",
+            (equipment_type, json.dumps(evidence)),
+        )
+        conn.execute(
+            "INSERT INTO pages (document_id,page_no,text,char_count,needs_ocr,batch_no)"
+            " VALUES ('sub-1',1,?,?,0,0)",
+            (NO_REVISION_BLOCK, len(NO_REVISION_BLOCK)),
+        )
+    return comparison.run_comparison(run, allowed_document_ids=scope)
+
+
+@pytest.mark.parametrize("evidence", [BODY, TITLE])
+def test_a_sheet_whose_type_is_withheld_from_the_checklist_still_gets_the_revision_check(
+    world, evidence
+):
+    """cloud on 4c8f89c9: the withheld type must not switch DS-R1 off while the run says it ran."""
+    result = _whole_review("Pressure Vessel", evidence)
+    ds_r1 = [f for f in result["findings"] if "DS-R1" in json.dumps(f, default=str)]
+    assert ds_r1, "DS-R1 did not run and the run does not say so"

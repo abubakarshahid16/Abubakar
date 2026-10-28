@@ -8,8 +8,8 @@ _D = APP / "datasheet_checks.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M6401", phase=6401, description="the equipment type's checklist is never run",
-             path=_D, anchor="    checklist = checklist_for(equipment_type, rules)\n    if checklist:\n",
-             replacement="    checklist = checklist_for(equipment_type, rules)\n    if False:\n",
+             path=_D, anchor="checklist = checklist_for(equipment_type, rules) if with_checklist else None\n    if checklist:\n",
+             replacement="checklist = checklist_for(equipment_type, rules) if with_checklist else None\n    if False:\n",
              target=_T, keyword="rule_kind", tags=("checklist", "critical")),
     Mutation(id="M6402", phase=6402, description="an item's condition is ignored, so it applies everywhere",
              # re-anchored 2026-10-10: conditions may be a list (#746 SAES items)
