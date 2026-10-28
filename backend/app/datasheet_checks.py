@@ -292,9 +292,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                 # ONE LIST (rule 8): `blank_markers`, the list the datasheet
                 # reader itself used to mark the fact blank - a lone "*" or
                 # "VENDOR TO ADVISE" is a placeholder here exactly as there.
-                printed = fact.get("field_value") or fact.get("blank_marker") or ""
-                if fact.get("is_blank") or (printed.strip()
-                                            and blank_markers.classify(printed)[0]):
+                if blank_markers.fact_is_placeholder(fact):
                     out.append(_result("DS-M2", MISSING_INFORMATION,
                                        f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
                                        f"{_label(fact, role)} is marked '{_said(fact) or fact.get('blank_marker')}' "
@@ -722,7 +720,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(NEEDS_ENGINEER_REVIEW,
                    _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
                    get(field)[0])
-    if fact.get("is_blank"):
+    if blank_markers.fact_is_placeholder(fact, figure_wins=True):
         return res(MISSING_INFORMATION,
                    f"{_label(fact, field)} is marked '{_said(fact) or fact.get('blank_marker')}' "
                    f"on page {fact.get('page')}; the contractor is to provide the value.", fact)
@@ -1150,7 +1148,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     `label` (rule_trust, #947; None with the switch off): applied to each
     result AFTER the choice of which results become rows, so a held pass
     does not turn into a row a plain pass never was."""
-    from . import comparison, standard_clause_page
+    from . import comparison, degraded_read, standard_clause_page
     from . import review as review_mod
     written = []
     # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete and
@@ -1168,7 +1166,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     # result either (#746): the condition's reason is in the result, never a
     # row. NOT CALCULATED is not a row either (R13): the inputs it lacked are
     # asked for by their own `required` items.
-    for r in (x for x in results if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
+    for r in (x for x in degraded_read.hold(results, submittal_id) if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
         if label is not None:
             r = label(r)
