@@ -91,8 +91,10 @@ def _on(cworld, monkeypatch, *, dir_set=True, auto=True):
     )
 
 
-def _rules(cworld, equipment_type=PSV):
-    return standards_converter.converter_rules(SPEC, equipment_type)
+def _rules(cworld, equipment_type=PSV, scope=None):
+    return standards_converter.converter_rules(
+        SPEC, equipment_type, allowed_document_ids=scope or cworld["scope"]
+    )
 
 
 def _findings(run):
@@ -247,7 +249,23 @@ def test_an_operator_that_points_the_other_way_is_refused_by_code(
 # ------------------------------------------------------------------ 3. the road: drafts first, switches, the review itself
 
 
+def test_the_rule_is_given_only_with_both_switches_and_the_standard_in_scope(
+    cworld, monkeypatch
+):
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    assert (
+        _rules(cworld, scope=frozenset({"nace"})) == {}
+    )  # the standard is not in the reader's scope
+    _on(cworld, monkeypatch, auto=False)
+    assert _rules(cworld) == {}
+    _on(cworld, monkeypatch, dir_set=False)
+    assert _rules(cworld) == {}
+
+
 def test_an_ai_clause_check_draft_for_the_same_sentence_wins(cworld, monkeypatch):
+    """The draft's model is "local" and only "local" has a proof: the finding is AUTO_PROVEN only if the
+    DRAFT stood in the sentence's place, not the converter's rule (model claude-sonnet-5, no proof)."""
     _on(cworld, monkeypatch)
     air.ensure_schema()
     with connect() as conn:
@@ -256,38 +274,18 @@ def test_an_ai_clause_check_draft_for_the_same_sentence_wins(cworld, monkeypatch
             " VALUES ('draft-1', ?, 'design pressure', '<=', '16', 'barg', NULL, ?, 'local')",
             (cworld["stmt"], QUOTE),
         )
-    rules = air.auto_use_rules(
-        SPEC, allowed_document_ids=cworld["scope"], equipment_type=PSV
+    result = {"cases": 1, "correct": 1, "errors": [], "status": rule_trust.PROVEN}
+    rule_trust.save_proof(
+        rule_trust.family_key(SPEC, PSV),
+        result,
+        model_id="local",
+        standard_revision=None,
     )
-    assert rules[cworld["stmt"]]["rule_draft_id"] == "draft-1"
-
-
-def test_auto_use_gives_the_converters_rule_only_with_both_switches(
-    cworld, monkeypatch
-):
-    scope = cworld["scope"]
-    _on(cworld, monkeypatch)
-    got = air.auto_use_rules(SPEC, allowed_document_ids=scope, equipment_type=PSV)
-    assert list(got) == [cworld["stmt"]] and got[cworld["stmt"]][
-        "rule_draft_id"
-    ].startswith("converter:")
+    _rerun(cworld)
+    row = _findings(cworld["run"])[cworld["stmt"]]
     assert (
-        air.auto_use_rules(SPEC, allowed_document_ids=scope) == {}
-    )  # a caller that names no type gets none
-    _on(cworld, monkeypatch, auto=False)
-    assert (
-        air.auto_use_rules(SPEC, allowed_document_ids=scope, equipment_type=PSV) == {}
-    )
-    _on(cworld, monkeypatch, dir_set=False)
-    assert (
-        air.auto_use_rules(SPEC, allowed_document_ids=scope, equipment_type=PSV) == {}
-    )
-    _on(cworld, monkeypatch)
-    assert (
-        air.auto_use_rules(
-            SPEC, allowed_document_ids=frozenset({"nace"}), equipment_type=PSV
-        )
-        == {}
+        row["trust_label"] == rule_trust.AUTO_PROVEN
+        and row["compliance_status"] == "COMPLIANT"
     )
 
 

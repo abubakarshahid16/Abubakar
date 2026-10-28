@@ -881,8 +881,7 @@ def limit_from_draft(row: dict, sentence: str) -> dict:
 
 
 def auto_use_rules(standard_document_id: str, *,
-                   allowed_document_ids: frozenset[str],
-                   equipment_type: str | None = None) -> dict[str, dict]:
+                   allowed_document_ids: frozenset[str]) -> dict[str, dict]:
     """OWNER DECISION (`rule_trust`, 14 Oct; switch `rule_auto_use_enabled`,
     OFF by default): the standard's UNDECIDED drafts as rules the review may
     compare with, keyed by the sentence row each stands on. The review puts
@@ -892,17 +891,15 @@ def auto_use_rules(standard_document_id: str, *,
 
     Code checks every draft again (`limit_from_draft`); a refused one is left
     out. The earliest draft per sentence is the one used. Nothing is written.
-    ORDER 274.1: a sentence with no draft is also given the check the standards
-    converter proved for it (`standards_converter.converter_rules`, only when
-    `standards_converter_dir` is set, only for this review's `equipment_type`),
-    through the same `limit_from_draft`. EMPTY WITH THE SWITCH OFF: nothing in
-    a review changes."""
+    EMPTY WITH THE SWITCH OFF: nothing in a review changes."""
     from .db import connect
 
     if not settings.rule_auto_use_enabled or standard_document_id not in allowed_document_ids:
         return {}
     columns = {r["name"] for r in connect().execute("PRAGMA table_info(clause_check_drafts)")}
-    rows = [] if "id" not in columns else connect().execute(
+    if "id" not in columns:
+        return {}
+    rows = connect().execute(
         "SELECT d.*, r.source_text, r.requirement_text"
         " FROM clause_check_drafts d JOIN standard_requirements r ON r.id = d.requirement_id"
         " WHERE r.standard_document_id = ? AND d.status = ? AND r.superseded_at IS NULL"
@@ -922,10 +919,6 @@ def auto_use_rules(standard_document_id: str, *,
             # The AI's rule, never confirmed by a person: `rule_trust` labels it.
             "extraction_method": "model", "model": row["model"], "confirmed_by": None,
             "confirmed_at": None, "rule_draft_id": row["id"], "quote": row["quote"]}
-    from . import standards_converter
-
-    for requirement_id, rule in standards_converter.converter_rules(standard_document_id, equipment_type).items():
-        out.setdefault(requirement_id, rule)
     return out
 
 

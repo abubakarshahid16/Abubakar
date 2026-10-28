@@ -2369,10 +2369,7 @@ def _run_comparison(
     # #677 THE SCOPE LEDGER: every requirement of every applicable standard
     # (`in_scope_all`) ends in exactly one decision with a stored reason,
     # built from the SAME items #678's counts are built from - one source.
-    from . import ai_requirements as ai_requirements_mod
-    from . import classification as classification_mod
-    from . import scope_ledger
-    rule_equipment_type = (classification_mod.of_document(submittal_id) or {}).get("equipment_type")
+    from . import scope_ledger, standards_converter
     in_scope_all: list[dict] = []
     extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
     for standard_id in standard_ids:
@@ -2387,11 +2384,11 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
-        # OWNER DECISION (rule_trust, #947), SWITCH OFF BY DEFAULT: a clause sentence with an undecided
-        # AI-compiled check (a draft, or one the standards converter proved: order 274.1) is compared
-        # through that check, in its own place (same id). Empty with the switch off.
-        auto_rules = ai_requirements_mod.auto_use_rules(
-            standard_id, allowed_document_ids=allowed_document_ids, equipment_type=rule_equipment_type)
+        # OWNER DECISION (rule_trust, #947), SWITCH OFF BY DEFAULT: a clause sentence with an
+        # AI-compiled check (a draft, else the converter's, order 274.1) is compared through it.
+        auto_rules = standards_converter.rules_with_drafts(
+            standard_id, submittal_id, allowed_document_ids
+        )
         for r in loaded:
             if r["id"] in auto_rules:
                 r = {**r, **auto_rules[r["id"]]}
@@ -2436,6 +2433,7 @@ def _run_comparison(
     pages_read = pages_read_with_reading(submittal_id)
     # THE SHEET'S KIND, ONCE PER RUN. The classification's word when an
     # engineer or the classifier gave one; the field names otherwise.
+    from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
