@@ -37,7 +37,7 @@ from .crs_mapping import row_has_no_issuable_text as _no_issuable_text
 from .crs_mapping import row_has_no_text as _no_text
 
 
-def internal_columns(copy: str) -> list[str]:
+def internal_cols(copy: str) -> list[str]:
     """The columns only the internal copy carries; the copy issued to the contractor has none of them."""
     if copy != COPY_INTERNAL:
         return []
@@ -504,7 +504,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": [*HEADERS, STANDARD_COLUMN, PRIORITY_COLUMN, *internal_columns(copy)],
+        "columns": [*HEADERS, STANDARD_COLUMN, PRIORITY_COLUMN, *internal_cols(copy)],
         "crs_copy": copy,
         "rows": rows,
         # Spec e: rows left off THIS copy because they had no comment text

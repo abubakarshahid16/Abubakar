@@ -16,7 +16,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='''            "reasoning": str(finding.get("reasoning") or ""),''',
              target=_T, keyword="issue_copy_never_carries_it", tags=("crs", "honesty")),
     Mutation(id="M803-02", phase=803, description="the issue copy gets the reasoning column",
-             # Re-anchored 305.4: the internal-only columns are one helper (`internal_columns`).
+             # Re-anchored 305.4: the internal-only columns are one helper (`internal_cols`).
              path=_E, anchor="    if copy != COPY_INTERNAL:\n        return []",
              replacement="    if copy != COPY_INTERNAL:\n        return [REASONING_COLUMN]",
              target=_T, keyword="issue_copy_never_carries_it", tags=("crs", "honesty")),
