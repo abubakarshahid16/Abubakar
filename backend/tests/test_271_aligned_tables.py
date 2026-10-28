@@ -188,3 +188,42 @@ def test_the_grid_span_leaves_out_rows_that_fill_fewer_cells_than_the_grid():
     assert (
         extract._grid_span([["A", ""], ["B", ""]]) is None
     )  # one filled column is a list, not a grid
+
+
+def _sentence_grid(n: int = 10) -> list[list[str]]:
+    # a page of one-template requirement sentences cut into one-word cells (s3's probe on #1413)
+    words = "The inlet piping shall be sized so that line {} holds.".split()
+    return [[w.format(i) for w in words] for i in range(1, n + 1)]
+
+
+def test_a_page_of_one_template_sentences_is_prose_not_a_table():
+    assert extract.aligned_grid_ok(_sentence_grid(), GOOD) is False
+    # the same shape without a modal or a full stop and under eight words is a table
+    assert extract.aligned_grid_ok([r[:5] for r in _sentence_grid()], GOOD) is True
+    # a full stop alone makes a long row a sentence; a modal alone does too
+    no_modal = [[w.replace("shall", "is") for w in r] for r in _sentence_grid()]
+    assert extract.aligned_grid_ok(no_modal, GOOD) is False
+    no_stop = [[w.replace("holds.", "holds") for w in r] for r in _sentence_grid()]
+    assert extract.aligned_grid_ok(no_stop, GOOD) is False
+
+
+def test_a_modal_phrase_in_one_column_of_a_real_table_is_still_a_table():
+    rows = [["Item", "Part", "Duty", "Qty"]] + [
+        [str(i), "Pump", "shall be tested", str(i)] for i in range(1, 7)
+    ]
+    assert extract.aligned_grid_ok(rows, GOOD) is True
+
+
+def test_one_long_sentence_row_among_table_rows_does_not_sink_the_table():
+    rows = [
+        ["Material", "Max temp", "Remarks"],
+        [
+            "Carbon steel",
+            "80",
+            "Annealed material shall be used above this limit unless the owner agrees.",
+        ],
+        ["Duplex", "120", "None"],
+        ["Alloy 625", "200", "None"],
+        ["Titanium", "150", "None"],
+    ]
+    assert extract.aligned_grid_ok(rows, GOOD) is True

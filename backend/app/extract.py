@@ -16,6 +16,7 @@ import json
 import logging
 import math
 import os
+import re
 import statistics
 from datetime import datetime, timezone
 
@@ -163,12 +164,28 @@ ALIGNED_MAX_SPLIT_RATE = 0.02
 ALIGNED_MAX_CELL_CHARS = 60
 
 
+#: A row of a real table is not a sentence: eight or more words that carry a modal or end in a full stop.
+_MODAL = re.compile(r"\b(?:shall|must|should|may|will)\b", re.IGNORECASE)
+ALIGNED_SENTENCE_WORDS = 8
+
+
+def _sentence_row(row: list[str]) -> bool:
+    text = " ".join(" ".join(row).split())
+    return len(text.split()) >= ALIGNED_SENTENCE_WORDS and (
+        bool(_MODAL.search(text)) or text.endswith(".")
+    )
+
+
 def aligned_grid_ok(texts: list[list[str]], score: dict) -> bool:
     """Does an aligned-text table read like a grid? `texts` are its cells, `score` is
-    `geometry_reader.table_score` (the datasheet reader's own grid score)."""
+    `geometry_reader.table_score` (the datasheet reader's own grid score). A page of one-template
+    requirement sentences has a regular shape too, but its rows are sentences, not table rows: when half
+    of the rows are, it is prose, and keeping it as a table would take the sentences out of the extraction."""
     rows = [r for r in texts if any(r)]
     cells = [c for r in rows for c in r if c]
     if len(rows) < ALIGNED_MIN_ROWS or not cells:
+        return False
+    if 2 * sum(_sentence_row(r) for r in rows) >= len(rows):
         return False
     return (
         score["column_consistency"] >= ALIGNED_MIN_CONSISTENCY
