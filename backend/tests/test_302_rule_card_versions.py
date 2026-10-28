@@ -143,6 +143,8 @@ def test_an_approval_does_not_survive_a_change_of_the_committed_card(conn):
     }
     card = rcv.whole(conn, TYPE, TESTED_CARD, moved)
     assert card["decision"] is None and card["state"] == "tested"
+    # an unedited card follows the committed card: the new words, not the stored copy of the old ones
+    assert card["item"]["severity"] == "minor" and not card["baseline_changed"]
 
 
 def test_a_rejected_card_stays_rejected_and_an_edit_starts_again(conn):
