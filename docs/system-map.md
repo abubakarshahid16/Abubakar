@@ -106,7 +106,6 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_checklist` | Make a checklist item held for the engineer a CRS row, and say when it is a draft |
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
 | `run_finishing` | Order 236: a run whose job is still writing the AI comments, numbers and wording reads as running, not completed |
-| `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
 | `model_metrics` | #503: per-model latency and error counts of the local model calls a review run makes, stored per run and model with the date (counts and seconds only) |
 | `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
