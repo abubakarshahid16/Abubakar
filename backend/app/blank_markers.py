@@ -94,3 +94,64 @@ def is_marker(text: str | None) -> bool:
     an empty cell): the geometry reader's question about a cell's residue."""
     folded = " ".join((text or "").split())
     return bool(folded) and classify(folded)[0]
+
+
+#: A cell that BEGINS with a figure (an optional sign or comparator, then digits): "10 barg By
+#: Contractor", "<85 dBA TBC". Not a reference number before a phrase ("Note 3 - vendor to advise",
+#: "Per API 520, by contractor", "Item 2 TBA", "ASME Class 300, TBC") and not a list number ("3. By
+#: contractor").
+_STARTS_WITH_FIGURE = re.compile(
+    r"^[\s(]*[<>≤≥=~±+\-]*\s*\d+(?:[.,]\d+)*(?!\d)(?![.):]\s)"
+)
+
+
+#: A STANDALONE star or underscore run in a printed cell ("THERMAL * m3/h", "___*___ m3/h"): the enquiry
+#: sheet's "vendor to advise" ink, which `classify` sees only when it is the whole cell. Not a star inside a
+#: word or a size ("2*4", "5* stage").
+_LONE_INK = re.compile(r"(?:^|[\s_(])(?:\*+|_{2,})(?=[\s_)]|$)")
+
+
+#: A figure standing on its own in a cell ("RATED FLOW * 24.8 m3/h", "Head 78 m *"): not the digit of a
+#: unit ("m3/h"), and not a number that only points elsewhere ("see note 3", "Item 2", "Class 300", "API 526").
+_FIGURE = re.compile(r"(?<![A-Za-z0-9_.,/])\d+(?:[.,]\d+)*(?!\d)")
+_POINTER_WORD = re.compile(
+    r"(?:note|item|class|ref|see|section|clause|table|page|no|api|asme|iso|en|din|bs|iec|ansi|nace|std)"
+    r"[.:#]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _has_standalone_figure(text: str) -> bool:
+    return any(
+        not _POINTER_WORD.search(text[: m.start()]) for m in _FIGURE.finditer(text)
+    )
+
+
+def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
+    """True when the fact is marked blank, or its printed text or bare value is a
+    placeholder. With a unit the printed text is "* m3/h", which alone looks
+    like a value, so the bare value is judged too.
+
+    `figure_wins`: for a test that asks whether a value IS STATED. A cell that
+    begins with a figure ("10 barg By Contractor") states that figure (#725 F3:
+    the phrase is a note on it), so the phrase after it does not make it a
+    placeholder. A bare "*", "TBA", a phrase first, or a number that is only a reference ("Note 3",
+    "Item 2", "Class 300") still does. A standalone `*` or `___` in the printed
+    cell with no standalone figure anywhere in it ("THERMAL * m3/h", "Rated flow * see note 3") is a
+    placeholder on every path; "RATED FLOW * 24.8 m3/h" states its figure."""
+    if fact.get("is_blank"):
+        return True
+    printed = str(fact.get("field_value") or fact.get("raw_value") or "")
+    starts = _STARTS_WITH_FIGURE.search(printed)
+    if figure_wins and starts:
+        return False
+    if _LONE_INK.search(printed) and not _has_standalone_figure(printed):
+        return True
+    return any(
+        v and classify(str(v))[0]
+        for v in (
+            fact.get("field_value"),
+            fact.get("raw_value"),
+            fact.get("blank_marker"),
+        )
+    )

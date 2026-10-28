@@ -103,6 +103,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
+| `crs_checklist` | Make a checklist item held for the engineer a CRS row, and say when it is a draft |
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
 | `run_finishing` | Order 236: a run whose job is still writing the AI comments, numbers and wording reads as running, not completed |
 | `table_cells` | Order 271.4: a standards-table cell as requirement fields, a number, a number with a unit or a range (moved out of `standards`) or, behind a switch, a text cell with no value |
@@ -134,6 +135,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheets` | Read a contractor datasheet into facts |
 | `dual_unit_form` | Reads "24.8 (109) m3/h (USGPM)" as its first system, "24.8 m3/h", when both halves are one quantity |
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
+| `degraded_read` | A degraded AI reading of a datasheet (mostly refused, timed out, stopped, unavailable) is recorded in counts and holds every checklist pass for the engineer (order 261.2) |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
