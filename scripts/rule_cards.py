@@ -264,7 +264,10 @@ def main(argv: list[str] | None = None) -> int:
     result = report()
     print(json.dumps(result, indent=1))
     undeclared = sum(
-        n for v in result.values() for w, n in v["draft_because"].items() if not w.startswith(NEEDS)
+        n
+        for v in result.values()
+        for w, n in v["draft_because"].items()
+        if not w.startswith(NEEDS)
     )
     if args.check and undeclared:
         return 1

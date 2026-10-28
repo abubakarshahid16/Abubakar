@@ -231,13 +231,19 @@ def test_a_card_that_names_what_it_needs_is_draft_whatever_its_cases_say():
 def test_the_nine_cards_cite_the_clause_that_requires_the_value():
     items = _items()
     for card_id, (standard, clause) in REQUIRING_CLAUSES.items():
-        assert (items[card_id]["source"]["standard"], items[card_id]["source"]["clause"]) == (standard, clause)
+        assert (
+            items[card_id]["source"]["standard"],
+            items[card_id]["source"]["clause"],
+        ) == (standard, clause)
         assert not rule_cards.cites_a_definition(items[card_id])
 
 
 def test_the_weak_sources_are_marked_on_the_card():
     items = _items()
-    assert sorted(i for i, item in items.items() if item.get("weak_source")) == ["PSV-03", "PSV-15"]
+    assert sorted(i for i, item in items.items() if item.get("weak_source")) == [
+        "PSV-03",
+        "PSV-15",
+    ]
     assert rule_cards.report()[TYPE]["weak_source"] == ["PSV-03", "PSV-15"]
     assert rule_cards.run_card(items["PSV-03"], TYPE, RULES)["weak_source"] is True
     assert rule_cards.run_card(items["PSV-01"], TYPE, RULES)["weak_source"] is False
@@ -248,7 +254,10 @@ def test_no_card_cites_an_asme_viii_row_stored_under_clause_7_16():
     for checklist in RULES["checklists"].values():
         for item in checklist["items"] if isinstance(checklist, dict) else []:
             source = item["source"]
-            assert not ("ASME" in source["standard"].upper() and str(source["clause"]).startswith("7.16"))
+            assert not (
+                "ASME" in source["standard"].upper()
+                and str(source["clause"]).startswith("7.16")
+            )
 
 
 def test_the_margin_card_is_one_card_with_the_clauses_own_numbers():
@@ -257,7 +266,11 @@ def test_the_margin_card_is_one_card_with_the_clauses_own_numbers():
     assert "PSV-26" not in items
     rule = items["PSV-S03"]["rule"]
     assert items["PSV-S03"]["source"] == {"standard": "SAES-J-600", "clause": "8"}
-    assert (rule["kind"], rule["left"], rule["right"]) == ("above_by", "set_pressure", "operating_pressure")
+    assert (rule["kind"], rule["left"], rule["right"]) == (
+        "above_by",
+        "set_pressure",
+        "operating_pressure",
+    )
     assert (rule["percent"], rule["at_least"], rule["unit"]) == (10, 100, "kPa")
 
 
