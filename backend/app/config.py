@@ -1526,12 +1526,8 @@ ANSWER_AFFECTING_SETTINGS = (
     "claude_context_passages", "claude_context_chars", "claude_context_tokens",
     "ocr_rec_model", "ocr_expected_script",
     "local_num_ctx",
-    # A8/#922: these change a REVIEW's verdict (which engine answered, which
-    # reader read the sheet, whether applicability is decided by taxonomy or
-    # by model reasoning), not only a chat answer; config_version is stamped
-    # on every review run (review_jobs.py, submittal_review.py) as well as on
-    # chat reports, so leaving them out let a run's AI settings change with
-    # no change in the version a report compares against.
+    # A8/#922: these change a REVIEW's verdict, not only a chat answer; config_version
+    # is stamped on every review run as well as on chat reports.
     "ai_task_model", "datasheet_ai_reader", "match_engine",
     "ai_applicability_enabled", "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
@@ -1539,6 +1535,10 @@ ANSWER_AFFECTING_SETTINGS = (
 )
 ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
 ANSWER_AFFECTING_SETTINGS += ("scope_type_words_rule_enabled",)
+# order 273.4: a gate with these off differs from the live app
+ANSWER_AFFECTING_SETTINGS += ("geometry_reader_enabled", "datasheet_reader_mode")
+ANSWER_AFFECTING_SETTINGS += ("geometry_table_reader_enabled", "match_ask_max_per_run")
+ANSWER_AFFECTING_SETTINGS += ("vision_reader_engine", "reasoning_provider")
 
 
 def config_version() -> str:

@@ -35,7 +35,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from . import review, rule_trust, run_finishing
+from . import review, rule_trust, run_finishing, run_settings
 from .db import add_column_if_missing, connect, schema_once
 
 
@@ -303,10 +303,8 @@ def ensure_schema() -> None:
                 updated_at TEXT NOT NULL
             )"""
         )
-        # SECTION 15: the AI recommends, the engineer decides, and both are kept.
-        # The recommendation lives in `outcome_json`; the DECISION gets columns of
-        # its own, because "which reviews are waiting for an engineer" is a
-        # question a dashboard asks in SQL and cannot ask of a JSON blob.
+        # SECTION 15: the AI recommends, the engineer decides, both are kept. The recommendation is
+        # in `outcome_json`; the DECISION has columns (a dashboard asks "who is waiting" in SQL).
         for _column, _type in (
             ("outcome_json", "TEXT"),  # why the run ended: code and reason, or error
             # One of the four codes in section 15. NULL until an engineer
@@ -327,6 +325,7 @@ def ensure_schema() -> None:
             # entered one, and the sheet prints nothing - never a placeholder.
             ("crs_company_transmittal", "TEXT"),
             ("crs_contractor_transmittal", "TEXT"),
+            ("run_settings", "TEXT"),  # order 273.4: see run_settings.py
         ):
             added = add_column_if_missing(conn, "review_runs", _column, _type)
             if added and _column == "outcome_json":  # order 117: a pre-move db
@@ -658,6 +657,7 @@ def create_review_run(
             " VALUES (?,?,?,'running',?,?,?,?)",
             (run_id, submittal_document_id, template_id, started_by, now,
              now, now))
+        run_settings.record(conn, run_id)
     _extract_facts_if_none(run_id, submittal_document_id, allowed_document_ids)
     return run_id
 

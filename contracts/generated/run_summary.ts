@@ -79,6 +79,8 @@ export interface RunSummaryHowReviewed {
   /** order 96: stamped on the run's job; null when the run has no job row */
   code_version?: string | null;
   config_version?: string | null;
+  /** order 273.4: the settings (the values behind `config_version`), the model and the reader the run ran with, read from the running process; null for a run that stored none (never invented) */
+  run_settings?: Record<string, unknown> | null;
   /** order 96: seconds per stage from the stored trace; null when none stored */
   stage_seconds?: Record<string, number> | null;
   /** order 96: clause states per standard from the run's coverage ledger; null when the run recorded none */

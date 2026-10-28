@@ -133,7 +133,7 @@
   "backend/app/standards.py::create_requirement": 127,
   "backend/app/standards.py::extract_requirements": 272,
   "backend/app/standards.py::extract_table_values": 168,
-  "backend/app/submittal_review.py::ensure_schema": 549,
+  "backend/app/submittal_review.py::ensure_schema": 548,
   "backend/app/synthesis.py::_cite": 87,
   "backend/app/synthesis.py::_exhaustive_map_reduce": 212,
   "backend/app/synthesis.py::_run_summary": 105,
