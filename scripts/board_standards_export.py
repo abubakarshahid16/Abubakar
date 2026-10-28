@@ -218,10 +218,16 @@ def build(
                 if e.get("text_sha256"):
                     by_hash.setdefault(e["text_sha256"], (e, d["header"], d["file"]))
         rules, by_type, by_status = [], {}, {}
+        recommendations_answered = 0
         for r in _rules(conn, std["id"]):
             kind = r["requirement_type"] or "untyped"
             by_type[kind] = by_type.get(kind, 0) + 1
             hit = by_hash.get(rule_roles.text_hash(r["requirement_text"]))
+            if kind == RECOMMENDATION:
+                # Advice is not a requirement: an answer the converter once gave to a "should" sentence is
+                # never shown as a check and never counted as proved (order 294, #1429).
+                recommendations_answered += 1 if hit else 0
+                hit = None
             view = _converter_view(*hit) if hit else None
             if view:
                 by_status[view["status"]] = by_status.get(view["status"], 0) + 1
@@ -249,6 +255,7 @@ def build(
                 "pages_ocr": _ocr_pages(conn, std["id"]),
                 "rules_by_type": by_type,
                 "recommendations": recommendations,
+                "recommendations_answered_by_converter_not_counted": recommendations_answered,
                 "converter_draft_files": [d["file"] for d in matched],
                 "converter_by_status": by_status,
                 "rules_file": rules_file,

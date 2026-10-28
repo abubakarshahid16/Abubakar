@@ -348,3 +348,25 @@ def test_the_command_prints_counts_only(library, tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "casing" not in printed and "SAES" not in printed and "bar" not in printed
     assert re.search(r'"standards": 2', printed)
+
+
+def test_a_recommendation_the_converter_answered_is_never_shown_as_a_check_or_counted(
+    library, tmp_path
+):
+    """A converter run made before the recommendation fix may hold a verified-looking answer for a "should"
+    sentence. The board never shows it as a check and never counts it as proved."""
+    advice = _entry(
+        ADVICE, status="verified", field="design_pressure", limit="25", unit="bar"
+    )
+    _counts, out = _run(library, tmp_path, [advice, _entry(SENTENCE)])
+    lib = _load(out, "library.js")
+    a = {s["id"]: s for s in lib["standards"]}["std-a"]
+    assert a["converter_by_status"] == {
+        "verified": 1
+    }  # the one real rule, not the advice
+    assert a["recommendations_answered_by_converter_not_counted"] == 1
+    rules = {r["clause"]: r for r in _load(out, "rules-std-a.js")["rules"]}
+    assert (
+        rules["6.3"]["converter"] is None and rules["6.3"]["type"] == "recommendation"
+    )
+    assert lib["numbers"][2]["value"] == 1
