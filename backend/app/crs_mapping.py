@@ -30,6 +30,7 @@ from . import (
     crs_ai_drafts,
     crs_blank_fields,
     crs_checklist,
+    crs_cited,
     crs_item_series,
     crs_no_field,
     method_notes,
@@ -1658,11 +1659,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         for r in rows[len(sort_keys) :]
     )
 
-    # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that
-    # need another document, pages not yet read, values the page reader did
-    # not find, and cited standards not in the library are the ENGINEER'S
-    # to-do list - the "Review notes" sheet (`build_review_notes`), which the
-    # contractor's copy does not carry.
+    # OWNER ORDER 2f: the internal notes (another document, pages not read, values not
+    # found, cited standards not held) are the "Review notes" sheet (`build_review_notes`).
+    # Order 283.3: a row whose standard the sheet does not cite says so.
+    crs_cited.mark(rows, findings, standards_check)
     # Order 139 part 2 (spec f): THE SHEET'S ORDER IS ITS RANK. Every row
     # kind sorts on one key, so "out of limit" is never below 300 questions.
     return [rows[i] for i in sorted(range(len(rows)), key=sort_keys.__getitem__)]
