@@ -180,3 +180,36 @@ def limit_refusal(sentence: str, limit: str) -> str | None:
     if page_scope.range_boundary(sentence, limit):
         return "limit_is_range_boundary"
     return None
+
+
+#: What may follow a limit's number and unit and leave it unconditional: nothing, a bracketed unit or
+#: conversion, or WHERE it is measured. Anything else ("for services other than sour service", "for pumps
+#: of the vertical type") is a scope: the sentence does not state an unconditional limit (s3, #1412).
+_LOCATION_STARTS = ("at ", "measured at ")
+
+
+def limit_scope(sentence: str, quote: str, limit: str, unit: str) -> str | None:
+    """The scope written AFTER the limit's number and unit, as the clause's own words ("for gas service"), cut by
+    code. "" when the sentence ends right after the limit (a leading bracketed conversion and a measuring
+    location aside); None when the number and unit do not stand together in the quote (nothing to measure the
+    tail from). A scope after the number is not caught by the leading-condition tests of
+    `ai_requirements.verify_proposal`, so it is kept as the row's CONDITION (order 289.2) and settled by the
+    review's own condition gate, never dropped (s3, #1412)."""
+    s_, q = fold(sentence), fold(quote)
+    at = s_.find(q)
+    found = re.search(
+        r"(?<![\w.])"
+        + re.escape(limit.strip().lower())
+        + r"\s*"
+        + re.escape(unit.strip().lower())
+        + r"(?![a-z0-9])",
+        q,
+    )
+    if at < 0 or found is None:
+        return None
+    tail = re.split(r"[.;](?:\s|$)", s_[at + found.end() :], maxsplit=1)[0]
+    tail = re.sub(r"^\s*\([^)]*\)\s*", "", tail).strip(" ,:-")
+    bare = re.sub(r"\([^)]*\)", " ", tail).strip(" ,:-")
+    if not bare or bare.startswith(_LOCATION_STARTS):
+        return ""
+    return tail
