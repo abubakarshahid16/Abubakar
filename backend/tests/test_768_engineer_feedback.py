@@ -32,7 +32,11 @@ def _findings(run_id):
 
 
 def _decide(world, finding_id, **body):
-    r = TestClient(app).patch(f"/api/reviews/findings/{finding_id}", headers=world["admin"], json=body)
+    r = TestClient(app).patch(
+        f"/api/reviews/findings/{finding_id}",
+        headers=world["admin"],
+        json={"reason": "wrong clause here", **body},
+    )
     assert r.status_code == 200, r.text
 
 

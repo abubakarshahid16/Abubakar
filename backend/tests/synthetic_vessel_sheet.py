@@ -84,7 +84,7 @@ def drawing(pdf):
         ["HYDROTEST PRESSURE", "13 barg"],
         ["CORROSION ALLOWANCE", "3 mm"],
         ["SHELL MATERIAL", "SA-516 GR.70"],
-        ["WELD EXAMINATION", "FULL"],
+        ["RADIOGRAPHY", "FULL"],
         ["PWHT", "YES"],
         ["EMPTY WEIGHT", "4500 kg"],
     ])
@@ -126,7 +126,7 @@ REAL_PAIRS = {
     1: {"design code": "asme viii div. 1"},
     3: {"design pressure": "10 barg", "operating pressure": "8 barg", "design temperature": "120 c",
         "hydrotest pressure": "13 barg", "corrosion allowance": "3 mm", "empty weight": "4500 kg",
-        "shell material": "sa-516 gr.70", "weld examination": "full", "pwht": "yes"},
+        "shell material": "sa-516 gr.70", "radiography": "full", "pwht": "yes"},
     4: {"n1 size": "6", "n2 service": "gas outlet", "m1 rating": "cl300"},
     5: {"operating temperature": "90 c", "density": "1020 kg/m3", "liquid level nll": "750 mm"},
 }
