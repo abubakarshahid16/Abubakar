@@ -20,7 +20,7 @@ from ..paging import limit_param, offset_param, page_body
 from . import rule_cards as api_rule_cards
 
 router = APIRouter()
-router.include_router(api_rule_cards.router)  # order 302.4: the rule-approval screen's routes
+router.include_router(api_rule_cards.router)  # order 302.4
 
 
 @router.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,
