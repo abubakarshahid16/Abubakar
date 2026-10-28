@@ -97,7 +97,7 @@ GOOD = {
     "unit": "bar",
     "quote": "design pressure shall not exceed 25 bar",
 }
-SENTENCE = "The casing design pressure shall not exceed 25 bar for this service."
+SENTENCE = "The casing design pressure shall not exceed 25 bar."
 ROW = {"requirement_text": SENTENCE, "clause": "6.1", "requirement_type": "statement"}
 
 
@@ -158,7 +158,12 @@ def test_any_other_family_is_refused_and_nothing_is_sent(label):
 def test_the_script_refuses_a_family_before_it_opens_the_database(tmp_path):
     with pytest.raises(standards_converter.FamilyNotAllowed):
         convert_standards.run(
-            tmp_path / "no-such.sqlite", PUMP, ["ASME B16.5"], tmp_path / "out", SHA
+            tmp_path / "no-such.sqlite",
+            PUMP,
+            ["ASME B16.5"],
+            tmp_path / "out",
+            SHA,
+            lane="claude",
         )
 
 
@@ -317,6 +322,55 @@ def test_the_quote_must_name_the_field_not_just_contain_the_number():
     row = {**ROW, "requirement_text": "The test pressure shall not exceed 25 bar."}
     answer = {**GOOD, "quote": "test pressure shall not exceed 25 bar"}
     assert _verdict(answer, row)[:2] == ("unproven", "field_not_in_quote")
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        " for services other than sour service.",
+        " for pumps of the vertical type.",
+        " when the pump runs at rated flow.",
+        " for this service.",
+    ],
+)
+def test_a_scope_written_after_the_limit_keeps_the_row_unproven(tail):
+    """s3 on #1412: `verify_proposal` catches a condition BEFORE the number; one AFTER it made an unconditional
+    limit out of "... 25 bar for services other than sour service"."""
+    row = {
+        **ROW,
+        "requirement_text": f"The casing design pressure shall not exceed 25 bar{tail}",
+    }
+    assert _verdict(GOOD, row)[:2] == ("unproven", "condition_after_limit")
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        ".",
+        "",
+        " at the discharge flange.",
+        " measured at the inlet.",
+        " (362 psi).",
+        "; the test pressure shall be 30 bar.",
+    ],
+)
+def test_a_limit_that_closes_the_sentence_or_says_where_it_is_measured_is_kept(tail):
+    """A location is not a case, and a bracketed conversion is the same limit: tightening this by accident would
+    send most clauses to the engineer."""
+    row = {
+        **ROW,
+        "requirement_text": f"The casing design pressure shall not exceed 25 bar{tail}",
+    }
+    assert _verdict(GOOD, row)[0] == "verified"
+
+
+def test_a_number_and_unit_that_do_not_stand_together_in_the_quote_are_unproven():
+    row = {
+        **ROW,
+        "requirement_text": "The casing design pressure shall not exceed 25 and 30 bar.",
+    }
+    answer = {**GOOD, "quote": "casing design pressure shall not exceed 25 and 30 bar"}
+    assert _verdict(answer, row)[:2] == ("unproven", "condition_after_limit")
 
 
 def test_a_range_in_the_quote_proves_no_comparator():
@@ -508,7 +562,13 @@ def test_the_script_prints_the_caps_it_read_so_an_env_override_is_seen(
 ):
     _standard(texts=("A.",))
     out = convert_standards.run(
-        tmp_path / "convert.sqlite", PUMP, ["SAES-G-005"], None, None, dry_run=True
+        tmp_path / "convert.sqlite",
+        PUMP,
+        ["SAES-G-005"],
+        None,
+        None,
+        dry_run=True,
+        lane="claude",
     )
     assert out["caps"] == {
         "per_standard": 25.0,
@@ -521,7 +581,13 @@ def test_the_script_prints_the_caps_it_read_so_an_env_override_is_seen(
     )  # what an old backend/.env would give
     monkeypatch.setattr(settings, "claude_budget_usd_per_standard", 7.0)
     out = convert_standards.run(
-        tmp_path / "convert.sqlite", PUMP, ["SAES-G-005"], None, None, dry_run=True
+        tmp_path / "convert.sqlite",
+        PUMP,
+        ["SAES-G-005"],
+        None,
+        None,
+        dry_run=True,
+        lane="claude",
     )
     assert (out["caps"]["total"], out["caps"]["per_standard"]) == (20.0, 7.0)
 
@@ -552,6 +618,8 @@ def test_the_script_run_stops_at_the_first_standard_a_cap_stops(tmp_path, monkey
         tmp_path / "mirror",
         SHA,
         provider=fake,
+        lane="claude",
+        batch=1,
     )
     assert out["stopped"] is True
     [only] = out[
@@ -568,9 +636,14 @@ def test_the_script_run_stops_at_the_first_standard_a_cap_stops(tmp_path, monkey
 def test_the_script_reports_a_closed_lane_and_sends_nothing(tmp_path):
     _standard(texts=("A.",))
     out = convert_standards.run(
-        tmp_path / "convert.sqlite", PUMP, ["SAES-G-005"], tmp_path / "m", SHA
+        tmp_path / "convert.sqlite",
+        PUMP,
+        ["SAES-G-005"],
+        tmp_path / "m",
+        SHA,
+        lane="claude",
     )
-    assert out["lane"] == "PROVIDER_OFF"
+    assert out["lane_closed"] == "PROVIDER_OFF"
     assert out["results"] == [] and not (tmp_path / "m").exists()
 
 
@@ -666,3 +739,280 @@ def test_a_reviewed_file_wins_where_it_names_the_same_rule(tmp_path, monkeypatch
     assert rule_roles.reviewed_names([_numeric(1, SENTENCE, "degC")], PUMP) == {
         "r1": "design temperature"
     }
+
+
+# ------------------------------------------------------------------ 7. the local lane (order 277.1): no Claude, same proof
+
+ENGINE = "http://127.0.0.1:11435"
+TAG = "qwen-test:35b"
+
+
+class FakeEngine:
+    """The engine's HTTP, replacing `model_transport`: answers /api/generate from the sentence it is shown and
+    /api/ps with the loaded models. Records every body it was sent."""
+
+    def __init__(self, loaded=(TAG,), answer_for=lambda text: GOOD, fail_on=None):
+        self.loaded, self.answer_for, self.fail_on = loaded, answer_for, fail_on
+        self.bodies = []
+
+    def post_json(self, path, body, *, timeout):
+        assert path == "/api/generate"
+        self.bodies.append(body)
+        if self.fail_on == len(self.bodies):
+            raise TimeoutError("engine timed out")
+        items = json.loads(body["prompt"].split("\n\n")[-1])["items"]
+        checks = [
+            {
+                "i": i["i"],
+                **(self.answer_for(i["text"]) or {"applies": "yes", "field": None}),
+            }
+            for i in items
+        ]
+        return {
+            "response": json.dumps({"checks": checks}),
+            "model": TAG,
+            "done_reason": "stop",
+            "prompt_eval_count": 10,
+            "eval_count": 10,
+        }
+
+    def get_json(self, path, *, timeout, required=True):
+        assert path == "/api/ps"
+        return {"models": [{"name": n} for n in self.loaded]}
+
+
+@pytest.fixture
+def engine(monkeypatch):
+    from app import model_transport
+
+    fake = FakeEngine()
+    monkeypatch.setattr(model_transport, "post_json", fake.post_json)
+    monkeypatch.setattr(model_transport, "get_json", fake.get_json)
+    monkeypatch.setattr(
+        settings, "ollama_url", settings.ollama_url
+    )  # restored after the test
+    return fake
+
+
+@pytest.fixture
+def no_claude(monkeypatch):
+    """Anything that could reach Claude raises: a local run that touches it fails the test."""
+    from app import claude_spend, reader_transport, reasoning_provider
+
+    def boom(*a, **k):
+        raise AssertionError("the Claude lane was reached on the local lane")
+
+    monkeypatch.setattr(reader_transport, "transport", boom)
+    monkeypatch.setattr(reader_transport, "stream", boom)
+    monkeypatch.setattr(claude_spend, "reserve", boom)
+    monkeypatch.setattr(claude_spend, "reserve_all", boom)
+    monkeypatch.setattr(reasoning_provider.ClaudeProvider, "__init__", boom)
+    monkeypatch.setattr(reasoning_provider.ClaudeProvider, "reason", boom)
+
+
+def _local(tmp_path, standards, **kw):
+    return convert_standards.run(
+        tmp_path / "convert.sqlite",
+        PUMP,
+        standards,
+        tmp_path / "mirror",
+        SHA,
+        lane="local",
+        engine_url=kw.pop("engine_url", ENGINE),
+        **kw,
+    )
+
+
+def test_the_local_lane_converts_through_the_engine_and_never_reaches_claude(
+    tmp_path, engine, no_claude
+):
+    _standard("SAES-K-503", (SENTENCE, "Bearings shall be lubricated."))
+    out = _local(tmp_path, ["SAES-K-503"])
+    [only] = out["results"]
+    assert (only["run"], only["lane"], only["verified"], only["unproven"]) == (
+        "complete",
+        "local",
+        1,
+        1,
+    )
+    assert only["usd_spent"] == 0.0 and claude_spend.entries() == []
+    body = json.loads(next((tmp_path / "mirror").glob("*.json")).read_text())
+    # every file records the lane, the tag the ENGINE reports, and the form it was read against
+    assert (body["lane"], body["model"], body["form_source"]["sha"]) == (
+        "local",
+        TAG,
+        SHA,
+    )
+    assert engine.bodies and all(b["model"] == TAG for b in engine.bodies)
+
+
+def test_the_model_is_the_engines_running_model_never_the_env_setting(
+    tmp_path, engine, no_claude, monkeypatch
+):
+    monkeypatch.setattr(settings, "answer_model", "model-from-env")
+    _standard("SAES-K-503", (SENTENCE,))
+    _local(tmp_path, ["SAES-K-503"])
+    assert {b["model"] for b in engine.bodies} == {TAG}
+    engine.loaded = (
+        "a",
+        "b",
+    )  # two loaded: the operator must name one; nothing is guessed
+    with pytest.raises(ValueError, match="name the one to use with --model"):
+        convert_standards.running_model()
+    engine.loaded = ()
+    with pytest.raises(ValueError, match="0 loaded models"):
+        convert_standards.running_model()
+    provider = convert_standards.local_provider(ENGINE, "named-by-the-operator", 60.0)
+    assert (
+        provider.requested_model == "named-by-the-operator" and provider.timeout == 60.0
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:11434",
+        "http://localhost:11434/",
+        "http://192.168.1.20:11435",
+        "ftp://127.0.0.1:11435",
+    ],
+)
+def test_the_local_lane_refuses_the_live_apps_port_and_any_non_loopback_engine(
+    url, engine
+):
+    from app.config import ModelHostRefused
+
+    with pytest.raises((ValueError, ModelHostRefused)):
+        convert_standards.local_provider(url, "m", 60.0)
+
+
+def test_the_local_lane_needs_an_engine_url_and_does_not_default_to_one(
+    tmp_path, engine
+):
+    _standard("SAES-K-503", (SENTENCE,))
+    with pytest.raises(ValueError, match="--engine-url is required"):
+        _local(tmp_path, ["SAES-K-503"], engine_url="")
+
+
+def test_a_failed_batch_keeps_what_finished_names_the_rest_and_retries_nowhere(
+    tmp_path, engine, no_claude
+):
+    engine.fail_on = 2
+    _standard(
+        "ISO 15156-3",
+        tuple(
+            f"The casing design pressure shall not exceed {20 + i} bar."
+            for i in range(5)
+        ),
+    )
+    _standard("SAES-K-503", ("The casing design pressure shall not exceed 30 bar.",))
+    engine.answer_for = _answer_good
+    out = _local(tmp_path, ["SAES-K-503", "ISO 15156-3"], batch=2)
+    [only] = out["results"]  # the next standard is not started
+    assert out["stopped"] is True and only["run"].startswith("refused: ProviderRefused")
+    assert (only["verified"], only["not_asked"]) == (2, 3)
+    assert (
+        len(engine.bodies) == 2
+    )  # the failed call was not retried, nor sent anywhere else
+    rows = json.loads(next((tmp_path / "mirror").glob("*ISO*.json")).read_text())[
+        "entries"
+    ]
+    assert [r["status"] for r in rows] == ["verified"] * 2 + ["not_asked"] * 3
+    assert all(r["reason"].startswith("not asked: ProviderRefused") for r in rows[2:])
+    assert (
+        "TimeoutError" in rows[2]["reason"] and "engine timed out" in rows[2]["reason"]
+    )
+
+
+def test_a_local_run_converts_any_family_but_the_claude_lane_still_refuses_it(
+    tmp_path, engine, no_claude
+):
+    _standard("API 610", (SENTENCE,))
+    [only] = _local(tmp_path, ["API 610"])["results"]
+    assert (
+        only["standard"] == "API 610" and only["run"] == "complete"
+    )  # nothing leaves the machine
+    with pytest.raises(standards_converter.FamilyNotAllowed):
+        convert_standards.run(
+            tmp_path / "convert.sqlite",
+            PUMP,
+            ["API 610"],
+            tmp_path / "x",
+            SHA,
+            lane="claude",
+        )
+
+
+def test_the_local_lane_declares_no_document_to_the_approved_list(tmp_path):
+    std = _standard("SAES-K-503", (SENTENCE,))
+    fake = Fake(lambda text: GOOD)
+    with db.connect() as conn:
+        standards_converter.convert(conn, std, "SAES-K-503", PUMP, fake, lane="local")
+    assert fake.carried == [None]  # the owner's list governs the Claude lane only
+
+
+def test_local_is_the_default_lane_and_claude_must_be_asked_for(tmp_path, capsys):
+    _standard("SAES-K-503", (SENTENCE,))
+    assert (
+        convert_standards.main(
+            [
+                "--db",
+                str(tmp_path / "convert.sqlite"),
+                "--type",
+                PUMP,
+                "--standard",
+                "SAES-K-503",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    local = json.loads(capsys.readouterr().out)
+    assert (local["lane"], local["caps"], local["batch"]) == (
+        "local",
+        None,
+        convert_standards.LOCAL_BATCH,
+    )
+    assert (
+        convert_standards.main(
+            [
+                "--db",
+                str(tmp_path / "convert.sqlite"),
+                "--type",
+                PUMP,
+                "--standard",
+                "SAES-K-503",
+                "--dry-run",
+                "--lane",
+                "claude",
+            ]
+        )
+        == 0
+    )
+    claude = json.loads(capsys.readouterr().out)
+    assert (claude["lane"], claude["batch"]) == (
+        "claude",
+        convert_standards.CLAUDE_BATCH,
+    ) and claude["caps"]
+
+
+def test_the_claude_lane_is_not_started_without_its_gates(tmp_path, no_claude):
+    """On the Claude lane a closed gate answers with the code and exit 3, and nothing is sent."""
+    _standard("SAES-K-503", (SENTENCE,))
+    code = convert_standards.main(
+        [
+            "--db",
+            str(tmp_path / "convert.sqlite"),
+            "--type",
+            PUMP,
+            "--standard",
+            "SAES-K-503",
+            "--lane",
+            "claude",
+            "--out-dir",
+            str(tmp_path / "m"),
+            "--form-sha",
+            SHA,
+        ]
+    )
+    assert code == convert_standards.EXIT_LANE_CLOSED and not (tmp_path / "m").exists()
