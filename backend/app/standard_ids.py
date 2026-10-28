@@ -467,8 +467,32 @@ _PART_HEAD = re.compile(r"^(?P<head>.*?(?i:PART|PT)\.?\s*-?\s*)(?:\d{1,2}|[IVX]{
 #: A count noun, or a unit, right after the number means it is a QUANTITY ("API 520 Part 1 and 2 valves",
 #: "Part 1 and 3 bar"), not a part. A plain noun not listed here is a known residual: the list cannot be complete.
 _COUNT_NOUNS = frozenset(
-    "unit units valve valves pump pumps set sets off no nos pcs piece pieces copy copies item items device devices"
-    " vessel vessels number numbers".split()
+    {
+        "unit",
+        "units",
+        "valve",
+        "valves",
+        "pump",
+        "pumps",
+        "set",
+        "sets",
+        "off",
+        "no",
+        "nos",
+        "pcs",
+        "piece",
+        "pieces",
+        "copy",
+        "copies",
+        "item",
+        "items",
+        "device",
+        "devices",
+        "vessel",
+        "vessels",
+        "number",
+        "numbers",
+    }
 )
 _PART_NEXT = re.compile(
     r"\s*(?:&|(?i:AND)|/)\s*(?:(?i:PART|PT)\.?\s*-?\s*)?(\d{1,2}|[IVX]{1,4})\b"
