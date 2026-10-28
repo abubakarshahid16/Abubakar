@@ -30,6 +30,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `division_text` | Choose the standards that apply to a submittal |
 | `same_value` | When two readings of a field are one value: the same number and unit with a plain note; a note that changes the meaning stays a second value |
 | `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
+| `scope_construction` | Order 264.8: a Part limited to a construction (a steel family, welded) applies when a fact the datasheet STATES settles it (a shell material, a joint efficiency), with the fact and its page as evidence; only "applies" is decided here, never an exclusion; the lists are DRAFT data in `reference/construction_facts.json` |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai_check_drafts` | The AI checks' drafts keep no status, are counted as "AI observations (draft, no verdict)", and an exact repeat is marked |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |

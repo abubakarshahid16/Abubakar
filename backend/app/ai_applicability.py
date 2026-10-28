@@ -39,6 +39,7 @@ from . import (
     ai_task_runner,
     division_text,
     requirement_quality,
+    scope_construction,
     scope_ledger,
     scope_quote,
     scope_type_words,
@@ -389,6 +390,9 @@ def _division_decision(
     from . import conditions
 
     construction = scope["construction"]
+    if (settled := scope_construction.settle(construction, facts)) is not None:  # order 264.8
+        run.setdefault("settled", []).append({"construction": construction, **settled})
+        return "applies", None
     if not stated:
         return "unsure", None
     rule_on = ai_task_runner.settings.scope_type_words_rule_enabled
@@ -757,6 +761,7 @@ def _division_gate(
         "stated": stated_construction(classification, facts),
     }
     recs, subs_of = _read_all(units, where, ctx)
+    summary["answered_from_sheet"] = ctx["run"].get("settled", [])  # order 264.8
     if stopped := ctx["run"].get("stopped"):
         summary["stopped"] = f"{stopped}; the divisions after it were not read"
         summary["model_unavailable"] = stopped

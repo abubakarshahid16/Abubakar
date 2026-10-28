@@ -232,6 +232,23 @@ def scope_question_lines(questions: list[dict] | None) -> list[str]:
     return lines
 
 
+def settled_scope_lines(summary: dict | None) -> list[str]:
+    """One line per Part construction the datasheet's own stated fact settled (order 264.8): the
+    construction, the field and value that settle it, and the page. Each distinct fact once."""
+    seen, lines = set(), []
+    for item in (summary or {}).get("answered_from_sheet") or []:
+        key = (item.get("construction"), item.get("fact_id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        page = f" (page {item['page']})" if item.get("page") is not None else ""
+        lines.append(
+            f"Answered from the datasheet: a Part limited to {item['construction']!r} applies; "
+            f"{item['field']} states {item['value']!r}{page}."
+        )
+    return lines
+
+
 def split_lines(split: dict | None) -> list[str]:
     """The reasons behind the two groups that have one, as plain lines, most
     common first (the CRS prints the top three of each)."""
@@ -256,6 +273,7 @@ def split_lines(split: dict | None) -> list[str]:
             f"{cov['on_sheet_not_read']}" + (f" (pages {pages})" if pages else "") + "."
         )
     lines += scope_question_lines((split.get("division_scope") or {}).get("questions"))
+    lines += settled_scope_lines(split.get("division_scope"))
     for title, key, count_key in (
             ("Apply but not checked", "applies_not_checked_reasons", "applies_not_checked"),
             ("Do not apply", "does_not_apply_reasons", "does_not_apply")):
