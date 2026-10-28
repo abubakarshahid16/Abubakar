@@ -158,6 +158,27 @@ def shown(context: dict) -> dict:
     return out
 
 
+#: The shortest condition quote taken seriously (the first answer's quote rule is 8 as well), and the words that
+#: tie nothing to nothing when two texts are compared.
+MIN_QUOTE_CHARS = 8
+_FUNCTION_WORDS = frozenset(
+    ["the", "a", "an", "of", "for", "in", "on", "at", "to", "is", "are", "be", "shall", "should", "must", "when", "where", "if", "and", "or", "with", "by", "as", "that", "this"]
+)
+
+
+def _tied(condition: str, quote: str) -> bool:
+    """Does the quote say the condition? The condition is inside the quote, or the quote inside the condition, or
+    they share at least two content words and at least half of the shorter's (cloud-3 on #1454: any three letters of
+    the sentence used to pass as the quote of any condition)."""
+    c, q = converter_gates.fold(condition), quote
+    if c in q or q in c:
+        return True
+    cw = {w for w in c.split() if w not in _FUNCTION_WORDS}
+    qw = {w for w in q.split() if w not in _FUNCTION_WORDS}
+    shared = cw & qw
+    return len(shared) >= 2 and len(shared) * 2 >= min(len(cw), len(qw))
+
+
 def condition_refusal(answer: dict, sentence: str, context: dict | None) -> str | None:
     """The reason a stated condition is not proven (order 305.1), else None. A row asked with context must quote its
     condition: found word for word in the sentence is the only place a condition is kept; found only in the heading
@@ -167,7 +188,7 @@ def condition_refusal(answer: dict, sentence: str, context: dict | None) -> str 
     if context is None or not condition:
         return None
     quote = converter_gates.fold(answer.get("condition_quote"))
-    if len(quote) < 3:
+    if len(quote) < MIN_QUOTE_CHARS or not _tied(condition, quote):
         return "condition_not_quoted"
     if quote in converter_gates.fold(sentence):
         return None

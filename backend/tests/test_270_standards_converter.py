@@ -16,6 +16,7 @@ import pytest
 from app import (
     claude_approved,
     claude_spend,
+    converter_context,
     converter_gates,
     db,
     page_scope,
@@ -1670,3 +1671,44 @@ def test_a_clause_printed_only_in_the_chunks_title_is_not_printed_but_the_cited_
         )
         is None
     )
+
+
+# ---- cloud-3 on #1454: the quote must say the condition, not just be some words of the sentence
+
+PROBE = "The set pressure of a relief valve shall not exceed 10 bar for valves in gas service."
+
+
+@pytest.mark.parametrize(
+    "condition, quote",
+    [
+        ("only for liquid service", "the"),  # a quote of three letters
+        (
+            "only for liquid service",
+            "set pressure of a relief valve",
+        ),  # words that say nothing about when
+        ("for gas service", "gas"),  # shorter than the floor
+    ],
+)
+def test_a_quote_that_does_not_say_the_condition_is_not_a_quote_of_it(condition, quote):
+    answer = {"condition": condition, "condition_quote": quote}
+    assert (
+        converter_context.condition_refusal(answer, PROBE, CTX)
+        == "condition_not_quoted"
+    )
+
+
+@pytest.mark.parametrize(
+    "condition, quote",
+    [
+        ("for valves in gas service", "for valves in gas service"),  # the same words
+        ("gas service", "for valves in gas service"),  # the condition inside the quote
+        (
+            "for valves in gas service at the inlet",
+            "for valves in gas service",
+        ),  # the quote inside the condition
+        ("valves in gas service", "for valves in gas service"),
+    ],
+)
+def test_a_quote_that_says_the_condition_is_kept(condition, quote):
+    answer = {"condition": condition, "condition_quote": quote}
+    assert converter_context.condition_refusal(answer, PROBE, CTX) is None
