@@ -304,10 +304,15 @@ def test_off_the_sentence_is_compared_as_a_sentence_exactly_as_before(
 def test_the_folder_alone_without_the_auto_use_switch_changes_nothing(
     cworld, monkeypatch
 ):
+    _on(cworld, monkeypatch, dir_set=False, auto=False)
+    _rerun(cworld)
+    before = _findings(cworld["run"])[cworld["stmt"]]["compliance_status"]
     _on(cworld, monkeypatch, auto=False)
     _rerun(cworld)
     row = _findings(cworld["run"])[cworld["stmt"]]
     assert row["rule_said"] is None and row["trust_label"] is None
+    # without the owner's switch there is no `rule_trust`: a converted rule would decide on the AI's word alone
+    assert row["compliance_status"] == before != "COMPLIANT"
 
 
 def test_on_an_unproven_family_the_sentence_check_is_compared_but_never_decides(
