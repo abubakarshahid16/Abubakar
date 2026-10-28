@@ -73,6 +73,10 @@ def _mirror(tmp_path, rows, *, standard=LABEL, equipment_type=PSV):
 def cworld(review_run, tmp_path, monkeypatch):  # noqa: F811
     """The review world with one clause sentence and a sheet that states the field it limits."""
     run, ids, scope = review_run
+    with (
+        connect() as conn
+    ):  # order 304.1: the page prints the clause the sentence cites
+        conn.execute("UPDATE chunks SET text = ? WHERE id = 'sc'", ("5.1 Heading",))
     stmt = _req(SPEC, "sc", SENTENCE, requirement_type="statement")
     datasheets.create_fact(
         submittal_document_id=SUB,
@@ -506,3 +510,168 @@ def test_a_row_that_is_not_verified_yes_changes_nothing_in_the_review(
     _on(cworld, monkeypatch)
     _rerun(cworld)
     assert _what_the_review_said(cworld["run"]) == off
+
+
+# ------------------------------------------------------------------ 8. order 286.1: v2 rows have no applicability
+
+
+def test_a_v2_row_without_applicability_is_read_unless_it_carries_a_condition(
+    cworld, monkeypatch, tmp_path
+):
+    _on(cworld, monkeypatch)
+    cworld["folder"] = _mirror(tmp_path / "v2", [_row(SENTENCE, applies=None)])
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    cworld["folder"] = _mirror(
+        tmp_path / "v2c", [_row(SENTENCE, applies=None, condition="for this service")]
+    )
+    _on(cworld, monkeypatch)
+    assert _rules(cworld) == {}
+
+
+def test_a_no_check_row_changes_nothing_in_the_review(cworld, monkeypatch, tmp_path):
+    _on(cworld, monkeypatch, dir_set=False)
+    _rerun(cworld)
+    off = _what_the_review_said(cworld["run"])
+    over = {
+        "status": "no_check",
+        "reason": "no_field",
+        "applies": None,
+        "field": None,
+        "limit": None,
+    }
+    cworld["folder"] = _mirror(tmp_path / "nc", [_row(SENTENCE, **over)])
+    _on(cworld, monkeypatch)
+    _rerun(cworld)
+    assert _what_the_review_said(cworld["run"]) == off
+
+
+# ------------------------------------------------------------------ 9. order 289.2: a scope after the limit is kept as the condition
+
+
+GAS = "The design pressure shall not exceed 16 barg for gas service."
+
+
+def _prove_family():
+    key = rule_trust.family_key(SPEC, PSV)
+    result = {"cases": 1, "correct": 1, "errors": [], "status": rule_trust.PROVEN}
+    rule_trust.save_proof(
+        key, result, model_id="claude-sonnet-5", standard_revision=None
+    )
+
+
+def test_a_scope_after_the_limit_is_read_as_the_rules_condition_when_the_row_stores_it(
+    cworld, monkeypatch, tmp_path
+):
+    _set_sentence(cworld["stmt"], GAS)
+    cworld["folder"] = _mirror(
+        tmp_path / "cond", [_row(GAS, applies=None, condition="for gas service")]
+    )
+    _on(cworld, monkeypatch)
+    rules = _rules(cworld)
+    assert list(rules) == [cworld["stmt"]]
+    assert rules[cworld["stmt"]]["condition"] == "for gas service"
+
+
+def test_a_stored_condition_that_is_not_the_scope_in_the_clause_is_refused(
+    cworld, monkeypatch, tmp_path
+):
+    _set_sentence(cworld["stmt"], GAS)
+    for condition in (None, "for liquid service", "for gas"):
+        cworld["folder"] = _mirror(
+            tmp_path / f"c{condition}", [_row(GAS, condition=condition)]
+        )
+        _on(cworld, monkeypatch)
+        assert _rules(cworld) == {}, condition
+
+
+def test_a_conditional_rule_the_sheet_cannot_settle_goes_to_the_engineer_never_a_pass(
+    cworld, monkeypatch, tmp_path
+):
+    """The sheet states 15 barg and says nothing about the service. Even with the family proven, the review's own
+    condition gate leaves the row to the engineer; without the scope the same sheet is a pass."""
+    _prove_family()
+    _set_sentence(cworld["stmt"], GAS)
+    cworld["folder"] = _mirror(
+        tmp_path / "gate", [_row(GAS, applies=None, condition="for gas service")]
+    )
+    _on(cworld, monkeypatch)
+    _rerun(cworld)
+    row = _findings(cworld["run"])[cworld["stmt"]]
+    assert row["compliance_status"] != "COMPLIANT"
+    assert row["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
+
+
+def test_only_a_verified_yes_row_a_v1_depends_row_is_not_read_even_with_its_condition_in_the_clause(
+    cworld, monkeypatch, tmp_path
+):
+    """A v1 file's "depends" row (the model said it holds only under a condition) is the model's claim about
+    applicability: never read, even when the condition it names is really in the clause and is the trailing
+    scope (the case where nothing else would stop it)."""
+    _set_sentence(cworld["stmt"], GAS)
+    cworld["folder"] = _mirror(
+        tmp_path / "dep",
+        [_row(GAS, applies="depends", condition="for gas service")],
+    )
+    _on(cworld, monkeypatch)
+    assert _rules(cworld) == {}
+
+
+def test_a_v1_file_and_a_v2_file_that_say_the_same_thing_both_stand(
+    cworld, monkeypatch, tmp_path
+):
+    """s3 on #1422: v1 rows have applies "yes", v2 rows none; the same limit in both is one agreeing answer, not
+    a disagreement that silently drops the rule."""
+    folder = _mirror(tmp_path / "old", [_row(SENTENCE)])
+    v2 = _mirror(tmp_path / "new", [_row(SENTENCE, applies=None)])
+    for f in v2.glob("*.json"):
+        (folder / "v2.json").write_text(f.read_text())
+    cworld["folder"] = folder
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    body = json.loads((folder / "v2.json").read_text())
+    body["entries"][0]["limit"] = "10"  # a v2 file that disagrees: neither is used
+    (folder / "v2.json").write_text(json.dumps(body))
+    assert _rules(cworld) == {}
+
+
+# ------------------------------------------------------------------ order 304.1: scope read at review time
+
+
+@pytest.mark.parametrize(
+    "chunk_text",
+    [
+        "Mandatory Appendix 6\n5.1 Windows\n" + SENTENCE,
+        "Rules for acrylic windows\n" + SENTENCE,
+    ],
+)
+def test_a_proven_row_in_an_appendix_or_under_an_unprinted_clause_is_not_a_rule(
+    cworld, monkeypatch, chunk_text
+):
+    """The file says verified; the review re-reads the page: an appendix, or a clause the text does not print,
+    is held back and never compared (the five ASME rows had both faults, existing files need no re-conversion)."""
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    with connect() as conn:
+        conn.execute("UPDATE chunks SET text = ? WHERE id = 'sc'", (chunk_text,))
+    assert _rules(cworld) == {}
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "not more than the design pressure shall not exceed 16 barg.",  # opens with a limit phrase
+        "which design pressure shall not exceed 16 barg.",  # a relative: cut from a longer sentence
+        "the design pressure shall not exceed 16 barg.",  # begins mid-sentence
+        "The design pressure shall not exceed 16 barg and 20 barg at the outlet.",  # one end of a range
+    ],
+)
+def test_a_proven_row_whose_sentence_is_cut_or_whose_limit_is_a_range_end_is_not_a_rule(
+    cworld, monkeypatch, sentence
+):
+    """Order 304.1 (planner's check of the one API-520-I row): the file says verified; the review re-reads the
+    stored sentence: a fragment, or a limit that is one end of a range, never becomes a plain ceiling."""
+    stmt = _req(SPEC, "sc", sentence, requirement_type="statement")
+    cworld["folder"] = _mirror(cworld["folder"].parent / "second", [_row(sentence)])
+    _on(cworld, monkeypatch)
+    assert stmt not in _rules(cworld)

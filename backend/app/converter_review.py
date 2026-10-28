@@ -3,8 +3,8 @@
 The converter (`standards_converter`) writes one DRAFT per standard, offline, outside the repository. This module is
 the READING side, and it is empty unless the owner's switch `standards_converter_dir` names that folder:
 
-  * `reviewed_entries` - the VERIFIED rows whose answer was "yes" (never unproven, no, depends), which
-    `rule_roles.reviewed_names` uses as a field mapping for the numeric rules of the standard;
+  * `reviewed_entries` - the VERIFIED rows (v1: applies "yes"; v2: no applicability and no condition; never
+    unproven or no_check), which `rule_roles.reviewed_names` uses as a field mapping for the numeric rules of the standard;
   * `converter_rules` / `rules_with_drafts` - a clause SENTENCE (requirement_type 'statement') the converter proved,
     as a rule in its sentence's own place, on the road of the AI clause-check drafts
     (`ai_requirements.auto_use_rules`, `rule_auto_use_enabled`): `rule_trust` decides what its verdict may say, and
@@ -47,7 +47,8 @@ def reviewed_entries(files: list[Path] | None = None) -> list[tuple[str, dict]]:
         for e in data.get("entries", []):
             if (
                 e.get("status") == "verified"
-                and e.get("applies") == "yes"
+                # v2 (order 286.1): the converter no longer judges applicability, so a verified row has none
+                and e.get("applies") in ("yes", None)
                 and e.get("field")
                 and e.get("text_sha256")
             ):
@@ -79,11 +80,12 @@ def converter_rules(
 
     EMPTY unless the owner's switch `rule_auto_use_enabled` is on, `standards_converter_dir` names a folder, the
     standard is in the reader's scope and the review's equipment type is the type the draft was made for. A row
-    is used only if it is verified with applies = "yes" (never unproven, no, depends), its sentence still hashes
-    the same, its standard is this one, and CODE CHECKS IT AGAIN against the sentence stored now
-    (`ai_requirements.limit_from_draft`: the quote is in the sentence, the number and unit are in the quote, the
-    operator does not point the other way, a sentence that holds only under a condition is refused). Nothing is
-    written; the draft file is never changed."""
+    is used only if it is VERIFIED (a v1 row with applies "yes", or a v2 row, which has none; never unproven,
+    no_check, no or depends), its sentence still hashes the same, its standard is this one, and CODE CHECKS IT
+    AGAIN against the sentence stored now (`ai_requirements.limit_from_draft`: the quote is in the sentence, the
+    number and unit are in the quote, the operator does not point the other way; a scope after the limit must be
+    the row's stored condition, order 289.2, which the review's own condition gate then settles or leaves to the
+    engineer). Nothing is written; the draft file is never changed."""
     from . import ai_requirements, standard_ids
     from .config import settings
     from .db import connect
@@ -123,8 +125,9 @@ def converter_rules(
     }
     out: dict[str, dict] = {}
     for row in conn.execute(
-        "SELECT id, source_text, requirement_text FROM standard_requirements"
-        " WHERE standard_document_id = ? AND requirement_type = ? AND superseded_at IS NULL ORDER BY id",
+        "SELECT r.id, r.source_text, r.requirement_text, r.clause, c.text AS chunk_text, c.section AS section"
+        " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
+        " WHERE r.standard_document_id = ? AND r.requirement_type = ? AND r.superseded_at IS NULL ORDER BY r.id",
         (standard_document_id, ai_requirements.STATEMENT),
     ):
         digest = rule_roles.text_hash(row["requirement_text"])
@@ -136,10 +139,11 @@ def converter_rules(
 
 
 def _what_it_says(entry: dict) -> tuple:
-    """The parts of a row that decide a comparison: two rows for one sentence agree only if all are equal."""
+    """The parts of a row that decide a comparison: two rows for one sentence agree only if all are equal.
+    Not `applies`: a v1 file ("yes") and a v2 file (none) that say the same thing agree (s3 on #1422)."""
     return tuple(
         entry.get(k)
-        for k in ("field", "applies", "comparator", "limit", "unit", "quote")
+        for k in ("field", "comparator", "limit", "unit", "quote", "condition")
     )
 
 
@@ -157,17 +161,29 @@ def _rule_from(row, digest: str, file_type: str, entry: dict) -> dict | None:
         "operator": entry.get("comparator"),
         "value": entry.get("limit"),
         "unit": entry.get("unit") or None,
-        "condition": None,
+        "condition": entry.get("condition") or None,
         "quote": entry.get("quote"),
     }
     sentence = row["source_text"] or row["requirement_text"] or ""
-    # A scope AFTER the limit ("... 25 bar for services other than sour service") is not caught by
-    # `limit_from_draft`, which reads leading conditions (s3, #1412): it must close the sentence.
-    if not standards_converter.limit_closes_sentence(
+    if standards_converter.scope_refusal(
+        dict(row)
+    ):  # an appendix, or a clause the page does not print (304.1)
+        return None
+    if standards_converter.limit_refusal(  # cut mid-clause, or one end of a range (304.1)
+        row["requirement_text"] or sentence, entry.get("limit") or ""
+    ):
+        return None
+    # A scope AFTER the limit ("... 25 bar for gas service") is not caught by `limit_from_draft`, which reads
+    # leading conditions (s3, #1412): it must be the row's stored condition (order 289.2, which the review's own
+    # condition gate then settles from the sheet, or leaves to the engineer), else the row is refused.
+    scope = standards_converter.limit_scope(
         sentence,
         entry.get("quote") or "",
         entry.get("limit") or "",
         entry.get("unit") or "",
+    )
+    if scope is None or (
+        scope and standards_converter._fold(entry.get("condition")) != scope
     ):
         return None
     try:
