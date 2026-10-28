@@ -4,6 +4,8 @@ Invented standards only. API RP 520 held 4 of its 147 "should" sentences (covera
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app import comparison, db, recommendations, standards
@@ -97,3 +99,66 @@ def test_the_type_is_stored_and_the_api_can_return_it():
 )
 def test_which_words_make_a_recommendation(sentence, expected):
     assert recommendations.is_recommendation(sentence) is expected
+
+
+# ------------------------------------------------------------------ a whole review
+
+
+@pytest.fixture
+def review_world(tmp_path, monkeypatch):
+    from app import submittal_review
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "rec.sqlite")
+    db.reset_connection()
+    db.init_db()
+    submittal_review.ensure_schema()
+    submittal_review.migrate_facts_to_per_document()
+    yield
+    db.reset_connection()
+
+
+def _review_with_a_recommendation():
+    from tests.test_field_naming import _world
+
+    _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
+    advice = "The set pressure should be at least 10 percent below the maximum allowable working pressure."
+    standards.create_requirement(
+        standard_document_id="std-1",
+        chunk_id="sc",
+        requirement_text=advice,
+        source_text=advice,
+        clause="6.4.2",
+        page=1,
+        structured={
+            "requirement_type": "recommendation",
+            "subject": "the set pressure",
+        },
+    )
+    return comparison.run_comparison(run, allowed_document_ids=scope), run
+
+
+def test_a_recommendation_is_not_in_the_scope_ledger_is_not_a_finding_and_is_counted_apart(
+    review_world,
+):
+    result, run = _review_with_a_recommendation()
+    held = (
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run,))
+        .fetchone()
+    )
+    outcome = json.loads(held["outcome_json"])
+    assert outcome["requirements_held_back"]["recommendation"] == 1
+    assert (
+        outcome["requirements_held_back"]["text_quality"] == 0
+    )  # never "its text could not be read"
+    split = outcome["requirement_split"]
+    assert (
+        split["checked"] + split["applies_not_checked"] + split["does_not_apply"] == 1
+    )  # only the shall rule
+    assert not [
+        f
+        for f in result["findings"]
+        if "10 percent below" in str(f.get("requirement_source_text"))
+    ]

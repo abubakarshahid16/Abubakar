@@ -2367,8 +2367,7 @@ def _run_comparison(
     extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
     for standard_id in standard_ids:
         from . import standards as standards_mod
-        # #596/#597: a definition, and text the quality gate holds, are not
-        # compared. They stay in the library; they never reach a finding.
+        # #596/#597/#288: a definition, unreadable text and a recommendation are never compared.
         loaded = standards_mod.list_requirements(
             standard_id, allowed_document_ids=allowed_document_ids)
         if not loaded:
@@ -2377,6 +2376,7 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
+        loaded = standards_mod.recommendations.apart(loaded, held_back)
         # OWNER DECISION (rule_trust, #947 steps 3-6), SWITCH OFF BY DEFAULT: a
         # clause sentence with an undecided AI-compiled check is compared
         # through that check, in the sentence's own place (same id). Empty
