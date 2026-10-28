@@ -158,6 +158,7 @@ def _unrotated_rows(table, cells: list[list], derotate) -> list[list]:
 
 #: A table with no ruling (columns that are only aligned text) is kept only when it reads like a grid
 #: (order 271.4): enough rows, rows that repeat one shape, no word cut across two cells, short cells.
+#: The four numbers are FIRST VALUES, not tuned on a measured set of pages; s2's before/after is the check.
 ALIGNED_MIN_ROWS = 3
 ALIGNED_MIN_CONSISTENCY = 0.75
 ALIGNED_MAX_SPLIT_RATE = 0.02
@@ -244,8 +245,8 @@ def _cell_texts(page, rects: list[list]) -> list[list[str]]:
     ]
 
 
-def _aligned_tables(page) -> list:
-    """The aligned-text finder's tables on a page whose ruled-lines finder found none."""
+def _aligned_tables(page) -> list | None:
+    """The aligned-text finder's tables on a page whose ruled-lines finder found none; None when it failed."""
     from . import geometry_reader
 
     try:
@@ -267,7 +268,7 @@ def _aligned_tables(page) -> list:
         log.debug(
             "extract: aligned-text finder failed; no table (%s)", type(exc).__name__
         )
-        return []
+        return None
 
 
 def page_tables(page, raw_text: str) -> list[dict]:
@@ -302,6 +303,8 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
     aligned = not found and settings.aligned_text_tables_enabled
     if aligned:
         found = _aligned_tables(page)
+        if found is None:  # the aligned finder failed: a named reason, as for the ruled finder
+            return [], "aligned_table_find_failed"
     if not found:
         return [], None
     texts, boxes = _raw_lines(page)

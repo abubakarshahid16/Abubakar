@@ -227,3 +227,14 @@ def test_one_long_sentence_row_among_table_rows_does_not_sink_the_table():
         ["Titanium", "150", "None"],
     ]
     assert extract.aligned_grid_ok(rows, GOOD) is True
+
+
+def test_a_failure_of_the_aligned_finder_is_named_not_silent(monkeypatch):
+    _doc, page = _page()
+    monkeypatch.setattr(settings, "aligned_text_tables_enabled", True)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("geometry the finder cannot read")
+
+    monkeypatch.setattr(pymupdf.Page, "find_tables", boom)
+    assert _tables(page) == ([], "aligned_table_find_failed")
