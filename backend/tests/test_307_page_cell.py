@@ -28,12 +28,12 @@ def _review_tables(request):
 TAGS = [f"PSV-{n}" for n in range(1, 6)]
 
 
-def _fact(doc, name, page, value="12", *, label=None, blank=0):
+def _fact(doc, name, page, value="12", *, label=None, blank=0, superseded=None):
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO submittal_facts (id, review_run_id, submittal_document_id, field_name, field_label,"
-            " field_value, raw_value, page, is_blank, extraction_method, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,'extracted',?,?)",
+            " field_value, raw_value, page, is_blank, extraction_method, created_at, updated_at, superseded_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,'extracted',?,?,?)",
             (
                 str(uuid.uuid4()),
                 None,
@@ -46,6 +46,7 @@ def _fact(doc, name, page, value="12", *, label=None, blank=0):
                 blank,
                 NOW,
                 NOW,
+                NOW if superseded else None,
             ),
         )
 
@@ -134,3 +135,22 @@ def test_where_without_a_label_behaves_as_before():
         crs_page_words.where([], "", "Size", [], {doc}, False)
         == "Not read from the datasheet (5 pages) - Size"
     )
+
+
+def test_a_value_a_later_pass_replaced_is_not_the_final_read():
+    """cloud-2's pin: the cell counts the final read only. A replaced value is not "was read"; the row keeps the
+    old words (the reader's gap is the engineer's question, not a claim the final read cannot support)."""
+    doc = _sheet(5)
+    _fact(doc, "overpressure", 1, "21", superseded=True)
+    assert _cell(doc).startswith("Not read from the datasheet (5 pages)")
+
+
+def test_a_value_read_with_no_page_recorded_never_prints_page_none():
+    doc = _sheet(5)
+    _fact(doc, "overpressure", None, "21")
+    cell = _cell(doc)
+    assert "None" not in cell and "was read on a page that was not recorded" in cell
+    _fact(doc, "overpressure", 2, "21")
+    assert "pages" not in _cell(
+        doc
+    ) and "page 2 and a page that was not recorded" in _cell(doc)

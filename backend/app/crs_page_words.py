@@ -48,12 +48,15 @@ def _tags(tags: list[str]) -> str:
     return f" ({', '.join(shown)}{f' and {more} more' if more else ''})" if tags else ""
 
 
-def read_pages(document_ids: set[str | None], label: str) -> tuple[list[int], bool]:
+def read_pages(
+    document_ids: set[str | None], label: str
+) -> tuple[list[int | None], bool]:
     """(pages, exact): where a non-blank value was read, anywhere on the submittal, under this field's name
     (order 307: a row must never say "not read" about a field the reader did read). Names are compared as the
     pairing compares them (`field_links.canonical`). `exact` False = no exact name, but every word of the
     row's name is inside a read name of two words or more ("viscosity relieving" in "viscosity at relieving
-    temper."): a probable match, said as one."""
+    temper."): a probable match, said as one. A value with no page recorded is a value that was read: None in
+    the list. A value a later pass replaced (`superseded_at`) is not the final read and is not counted."""
     documents = sorted(d for d in document_ids if d)
     want = field_links.canonical(label)
     if not documents or not want:
@@ -64,8 +67,7 @@ def read_pages(document_ids: set[str | None], label: str) -> tuple[list[int], bo
             connect()
             .execute(
                 "SELECT field_name, field_label, page FROM submittal_facts"
-                f" WHERE submittal_document_id IN ({marks}) AND superseded_at IS NULL AND is_blank = 0"
-                " AND page IS NOT NULL",
+                f" WHERE submittal_document_id IN ({marks}) AND superseded_at IS NULL AND is_blank = 0",
                 documents,
             )
             .fetchall()
@@ -74,8 +76,8 @@ def read_pages(document_ids: set[str | None], label: str) -> tuple[list[int], bo
         sqlite3.OperationalError
     ):  # no review tables yet: nothing was read, so nothing to point at
         return [], True
-    exact: set[int] = set()
-    probable: set[int] = set()
+    exact: set[int | None] = set()
+    probable: set[int | None] = set()
     words = set(want.split())
     for r in rows:
         names = [
@@ -86,11 +88,17 @@ def read_pages(document_ids: set[str | None], label: str) -> tuple[list[int], bo
             exact.add(r["page"])
         elif len(words) >= 2 and any(words <= set(n.split()) for n in names if n):
             probable.add(r["page"])
-    return (sorted(exact), True) if exact else (sorted(probable), False)
+    found, is_exact = (exact, True) if exact else (probable, False)
+    return sorted(found, key=lambda p: (p is None, p or 0)), is_exact
 
 
-def _pages_words(pages: list[int]) -> str:
-    return f"page{'s' if len(pages) > 1 else ''} " + ", ".join(str(p) for p in pages)
+def _pages_words(pages: list[int | None]) -> str:
+    known = [p for p in pages if p is not None]
+    unrecorded = len(known) < len(pages)
+    if not known:
+        return "a page that was not recorded"
+    text = f"page{'s' if len(known) > 1 else ''} " + ", ".join(str(p) for p in known)
+    return text + (" and a page that was not recorded" if unrecorded else "")
 
 
 def where(
