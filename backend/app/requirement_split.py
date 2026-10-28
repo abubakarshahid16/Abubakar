@@ -100,7 +100,8 @@ def build(
     for r in checked:
         group, words = scope_ledger.group_of(status_of.get(r.get("id")))
         put(group, requirement_key(r), "" if group == CHECKED else words)
-    queries = set()     # order 288.2: advice raised as a query is not a requirement, counted apart
+    # order 288.2: advice raised as a query is not a requirement, counted apart
+    queries = set()
     for item in not_checked:
         if item.get("code") == recommendations.CODE:
             queries.add(requirement_key(item["requirement"]))

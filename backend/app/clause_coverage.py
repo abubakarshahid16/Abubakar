@@ -104,7 +104,7 @@ def summarise(decisions: list[dict]) -> dict:
             counts[state_of(d)] += 1
     applicable = sum(counts[s] for s in STATES)
     adds_up = applicable + counts[DOES_NOT_APPLY] + queries == len(decisions)
-    if queries:    # only a run that raised some carries the key
+    if queries:  # only a run that raised some carries the key
         counts = {**counts, QUERY: queries}
     share = round(100 * counts[CHECKED] / applicable, 1) if applicable else None
     return {"applicable": applicable, "counts": counts, "checked_share": share,
