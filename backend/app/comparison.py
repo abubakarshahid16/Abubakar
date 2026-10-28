@@ -2507,8 +2507,9 @@ def _run_comparison(
     # the kept requirements and the table cells no field answered - is "not used".
     covered_items: list[dict] = []
     checklist_note = None
+    from . import checklist_scope
     from . import datasheet_checks as _checks
-    governing = _checks.checklist_sources(stored.get("equipment_type"))
+    governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
         if covered_ids:
@@ -2968,20 +2969,16 @@ def _run_comparison(
             ai_requirements.undecided_statements(requirements, status_of),
             review_run_id=review_run_id, limit=settings.ai_clause_checks_max_per_run)
 
-    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
-    # itself, pure arithmetic, no standard needed. Written before the code is
-    # recommended, so a design pressure below the operating pressure counts
-    # like any other unmet requirement.
+    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against itself, pure
+    # arithmetic, no standard needed. Written before the code is recommended.
     from . import datasheet_checks
     page_texts = {r["page_no"]: r["text"] or "" for r in connect().execute(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
-                                              page_texts=page_texts)
-    # rule_trust (#947): every rule labelled, the checks too - a signed-off
-    # checklist item is an engineer's rule; every other check is held when it
-    # would decide (planner answer on #985). Nothing with the switch off.
+    check_results = checklist_scope.evaluate(facts, stored, page_texts)
+    # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
+    # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
