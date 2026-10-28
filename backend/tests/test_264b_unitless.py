@@ -232,3 +232,14 @@ def test_the_run_decides_the_clause_does_not_apply_and_does_not_overwrite_it_wit
     assert finding["compliance_status"] == comparison.NOT_APPLICABLE
     why = (finding.get("ai_rationale") or "") + (finding.get("finding") or "")
     assert "unit_mismatch" not in why
+
+
+def test_a_value_read_by_the_model_and_not_confirmed_decides_no_condition():
+    fact = {**_fact(), "extraction_method": "model"}
+    got = conditions._evaluate_numeric("specific gravity below 0.5", [fact])
+    assert got["state"] == conditions.UNKNOWN and "not yet trusted" in got["reason"]
+    confirmed = {**fact, "confirmed_by": "an engineer"}
+    assert (
+        conditions._evaluate_numeric("specific gravity below 0.5", [confirmed])["state"]
+        == conditions.NOT_SATISFIED
+    )
