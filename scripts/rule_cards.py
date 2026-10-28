@@ -70,6 +70,9 @@ def _fact(
     }
 
 
+#: A card can name what it waits for ("needs a standard we do not hold", order 301.1). Such a draft is declared,
+#: not a defect: `--check` fails only on a draft nobody has explained.
+NEEDS = "needs "
 TESTS_PATH = (
     Path(__file__).resolve().parent.parent
     / "backend"
@@ -215,7 +218,9 @@ def run_card(item: dict, equipment_type: str, rules: dict | None = None) -> dict
     ]
     runs = [run_case(item, equipment_type, c, rules) for c in cases]
     names = {r["case"] for r in runs}
-    if cites_a_definition(item):
+    if item.get("needs"):
+        status, why = "draft", NEEDS + item["needs"]
+    elif cites_a_definition(item):
         status, why = "draft", "its source clause is a definition, not a requirement"
     elif not runs:
         status, why = "draft", "no test cases for this kind of rule"
@@ -225,7 +230,13 @@ def run_card(item: dict, equipment_type: str, rules: dict | None = None) -> dict
         status, why = "draft", "a case failed"
     else:
         status, why = "tested", ""
-    return {"id": item["id"], "status": status, "why": why, "runs": runs}
+    return {
+        "id": item["id"],
+        "status": status,
+        "why": why,
+        "weak_source": bool(item.get("weak_source")),
+        "runs": runs,
+    }
 
 
 def report() -> dict:
@@ -241,6 +252,7 @@ def report() -> dict:
             "tested": sum(c["status"] == "tested" for c in cards),
             "draft": sum(c["status"] != "tested" for c in cards),
             "draft_because": dict(why),
+            "weak_source": [c["id"] for c in cards if c["weak_source"]],
         }
     return out
 
@@ -251,7 +263,10 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     result = report()
     print(json.dumps(result, indent=1))
-    if args.check and any(v["draft"] for v in result.values()):
+    undeclared = sum(
+        n for v in result.values() for w, n in v["draft_because"].items() if not w.startswith(NEEDS)
+    )
+    if args.check and undeclared:
         return 1
     return 0
 

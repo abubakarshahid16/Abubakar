@@ -175,34 +175,90 @@ def test_every_stated_rule_of_the_other_checklists_is_tested_today(equipment_typ
     assert sum(c["status"] == "tested" for c in cards) >= len(cards) - 2
 
 
-DEFINITION_CARDS = {
-    "PSV-01", "PSV-02", "PSV-03", "PSV-04", "PSV-05", "PSV-07", "PSV-08", "PSV-11", "PSV-14", "PSV-15", "PSV-25",
-    "PSV-26",
-}  # fmt: skip
+#: Order 301.1: where the nine "is stated" cards that cited a definition now point (the clause that REQUIRES the value).
+REQUIRING_CLAUSES = {
+    "PSV-01": ("SAES-J-600", "8"),
+    "PSV-02": ("SAES-J-600", "8.3"),
+    "PSV-03": ("SAES-J-600", "8.16"),
+    "PSV-04": ("SAES-J-600", "8"),
+    "PSV-07": ("API 520-I", "5.3.4.1"),
+    "PSV-08": ("API 520-I", "4.2.1.3.6"),
+    "PSV-11": ("SAES-J-600", "8.13.1"),
+    "PSV-14": ("SAES-J-600", "4.1.2"),
+    "PSV-15": ("API 520-I", "5.3.4.1"),
+}
 
 
-def test_every_card_is_tested_except_the_twelve_that_cite_a_definition():
-    """Order 298.1: a card whose only source is a definition ("3.16 design pressure") stays draft, whatever its cases
-    say. The gate (`--check`) therefore fails until the planner / an engineer names the clause that requires each value."""
+def _items(equipment_type: str = TYPE) -> dict:
+    return {i["id"]: i for i in RULES["checklists"][equipment_type]["items"]}
+
+
+def test_every_relief_valve_card_is_tested_except_the_two_that_need_a_standard_we_do_not_hold():
+    """Order 301.1: 47 cards, 45 tested; PSV-05 and PSV-25 stay draft and say what they wait for. `--check` passes
+    because both drafts are declared; an unexplained draft still fails it (next test)."""
     report = rule_cards.report()
-    assert {k: v["draft"] for k, v in report.items()} == {
-        "Pressure Safety Valve": 12,
-        "Centrifugal Pump": 0,
-        "Pressure Vessel": 0,
-        "Heat Exchanger": 0,
-    }
-    assert report[TYPE]["draft_because"] == {
-        "its source clause is a definition, not a requirement": 12
-    }
+    assert report[TYPE]["cards"] == 47
+    assert report[TYPE]["tested"] == 45 and report[TYPE]["draft"] == 2
+    assert report[TYPE]["draft_because"] == {"needs a standard we do not hold": 2}
+    assert [k for k, v in report.items() if k != TYPE and v["draft"]] == []
     drafts = {
         i["id"]
         for i in RULES["checklists"][TYPE]["items"]
-        if rule_cards.run_card(i, TYPE, RULES)["why"].startswith(
-            "its source clause is a definition"
-        )
+        if rule_cards.run_card(i, TYPE, RULES)["status"] == "draft"
     }
-    assert drafts == DEFINITION_CARDS
+    assert drafts == {"PSV-05", "PSV-25"}
+    assert rule_cards.main(["--check"]) == 0
+
+
+def test_a_draft_nobody_explained_still_fails_the_gate(monkeypatch):
+    real = rule_cards.report()
+    real[TYPE]["draft"] += 1
+    real[TYPE]["draft_because"]["a case failed"] = 1
+    monkeypatch.setattr(rule_cards, "report", lambda: real)
     assert rule_cards.main(["--check"]) == 1
+
+
+def test_a_card_that_names_what_it_needs_is_draft_whatever_its_cases_say():
+    item = _item(SET_PRESSURE)
+    item["needs"] = "a standard we do not hold"
+    card = rule_cards.run_card(item, TYPE, RULES)
+    assert (card["status"], card["why"]) == ("draft", "needs a standard we do not hold")
+    assert all(r["passed"] for r in card["runs"])  # not a failing card: a waiting one
+    del item["needs"]
+    assert rule_cards.run_card(item, TYPE, RULES)["status"] == "tested"
+
+
+def test_the_nine_cards_cite_the_clause_that_requires_the_value():
+    items = _items()
+    for card_id, (standard, clause) in REQUIRING_CLAUSES.items():
+        assert (items[card_id]["source"]["standard"], items[card_id]["source"]["clause"]) == (standard, clause)
+        assert not rule_cards.cites_a_definition(items[card_id])
+
+
+def test_the_weak_sources_are_marked_on_the_card():
+    items = _items()
+    assert sorted(i for i, item in items.items() if item.get("weak_source")) == ["PSV-03", "PSV-15"]
+    assert rule_cards.report()[TYPE]["weak_source"] == ["PSV-03", "PSV-15"]
+    assert rule_cards.run_card(items["PSV-03"], TYPE, RULES)["weak_source"] is True
+    assert rule_cards.run_card(items["PSV-01"], TYPE, RULES)["weak_source"] is False
+
+
+def test_no_card_cites_an_asme_viii_row_stored_under_clause_7_16():
+    """Order 301.1: those rows' clause numbers are not ASME's own yet (clause-attribution gap)."""
+    for checklist in RULES["checklists"].values():
+        for item in checklist["items"] if isinstance(checklist, dict) else []:
+            source = item["source"]
+            assert not ("ASME" in source["standard"].upper() and str(source["clause"]).startswith("7.16"))
+
+
+def test_the_margin_card_is_one_card_with_the_clauses_own_numbers():
+    """Order 301.1: PSV-26 (a margin the clause does not state) was merged into PSV-S03."""
+    items = _items()
+    assert "PSV-26" not in items
+    rule = items["PSV-S03"]["rule"]
+    assert items["PSV-S03"]["source"] == {"standard": "SAES-J-600", "clause": "8"}
+    assert (rule["kind"], rule["left"], rule["right"]) == ("above_by", "set_pressure", "operating_pressure")
+    assert (rule["percent"], rule["at_least"], rule["unit"]) == (10, 100, "kPa")
 
 
 def test_a_card_citing_a_requirement_clause_is_not_held_back_by_the_definition_rule():

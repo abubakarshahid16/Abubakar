@@ -446,54 +446,6 @@
     "text": ""
    }
   ],
-  "PSV-26": [
-   {
-    "name": "meets",
-    "expect": "COMPLIANT",
-    "facts": [
-     [
-      "operating pressure",
-      "8",
-      "barg"
-     ],
-     [
-      "set pressure",
-      "10",
-      "barg"
-     ]
-    ],
-    "text": ""
-   },
-   {
-    "name": "breaks",
-    "expect": "NON_COMPLIANT",
-    "facts": [
-     [
-      "operating pressure",
-      "9.5",
-      "barg"
-     ],
-     [
-      "set pressure",
-      "10",
-      "barg"
-     ]
-    ],
-    "text": ""
-   },
-   {
-    "name": "unclear",
-    "expect": "NEEDS_ENGINEER_REVIEW",
-    "facts": [
-     [
-      "operating pressure",
-      "8",
-      "barg"
-     ]
-    ],
-    "text": ""
-   }
-  ],
   "PSV-27": [
    {
     "name": "meets",
@@ -1720,7 +1672,7 @@
   ]
  },
  "_definition_sections": {
-  "_about": "Order 298.1: the clause prefixes of a standard that are its Terms and definitions (read from the stored chunk titles, e.g. '3.16 design pressure', '3.20 inlet size'). A card whose only source is such a clause cites a definition, not the clause that requires the value: it stays draft.",
+  "_about": "Order 298.1: the clause prefixes of a standard that are its Terms and definitions (read from the stored chunk titles, e.g. '3.16 design pressure', '3.20 inlet size). A card whose only source is such a clause cites a definition, not the clause that requires the value: it stays draft. Since order 301.1 no checklist card cites one; the rule stays so a new one cannot.",
   "API 520-I": [
    "3."
   ]
