@@ -194,6 +194,7 @@ EGRESS_SAFE: dict[str, object] = {
     "docx_input_enabled": True,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "rule_auto_use_enabled": False,
+    "tested_cards_decide_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,

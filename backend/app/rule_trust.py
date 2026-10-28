@@ -65,7 +65,14 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import ai_requirements, field_links, field_naming, requirements_3b, rule_eval
+from . import (
+    ai_requirements,
+    card_trust,
+    field_links,
+    field_naming,
+    requirements_3b,
+    rule_eval,
+)
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -311,6 +318,8 @@ def check_label(result: dict) -> str:
     a mandatory field - is UNPROVEN. No family proof applies: none is AI-compiled."""
     if result.get("checklist") and not result.get("draft") and not result.get("local"):
         return ENGINEER_CONFIRMED
+    if settings.tested_cards_decide_enabled and card_trust.decides(result):
+        return AUTO_PROVEN  # order 306.1: a tested card decides while its engineer approval is pending
     return UNPROVEN
 
 
@@ -349,6 +358,13 @@ def label_check(result: dict) -> dict:
     if out.get("rule_said"):
         out["detail"] = f"{result.get('detail') or ''} ({UNPROVEN_REASON})".strip()
     out.update(tier=None, show_for_engineer_tick=False)
+    if out["trust_label"] == AUTO_PROVEN and result.get("checklist"):  # a tested card (306.1), not a proven family
+        is_safety = card_trust.safety(result["rule_id"])
+        out.update(
+            trust_words=card_trust.WORDS,
+            tier=SAFETY if is_safety else STANDARD,
+            show_for_engineer_tick=is_safety and out.get("status") == COMPLIANT,
+        )
     return out
 
 

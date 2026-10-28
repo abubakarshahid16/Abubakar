@@ -1,0 +1,129 @@
+"""Order 306.1: a relief-valve card tested under the stricter rule may decide while its engineer approval is
+pending, behind `tested_cards_decide_enabled`. Every other card stays held for the engineer. Invented values."""
+
+from __future__ import annotations
+
+import pytest
+
+from app import card_trust, rule_cards, rule_trust
+from app import datasheet_checks as dc
+from app.config import settings
+from tests.test_746_relief_valve_checklist import SHEET, fact, results
+
+
+@pytest.fixture(autouse=True)
+def _on(monkeypatch):
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    monkeypatch.setattr(settings, "tested_cards_decide_enabled", True)
+    card_trust.clear()
+    yield
+    card_trust.clear()
+
+
+def _labelled(facts=SHEET):
+    return {k: rule_trust.label_check(v) for k, v in results(facts).items()}
+
+
+def test_a_tested_card_with_written_cases_decides_and_says_what_it_rests_on():
+    r = _labelled()["PSV-24"]  # set pressure at most MAWP: 10 <= 12
+    assert r["status"] == "COMPLIANT" and r["trust_label"] == rule_trust.AUTO_PROVEN
+    assert r["trust_words"] == "automatic (tested rule, engineer approval pending)"
+    assert not r.get("rule_said")
+
+
+def test_a_breach_by_a_tested_card_is_a_verdict_too():
+    over = [f for f in SHEET if f["field_name"] != "max allow working pressure"] + [
+        fact("max allow working pressure", "9.5", "barg")
+    ]
+    r = _labelled(over)["PSV-24"]
+    assert r["status"] == "NON_COMPLIANT" and r["trust_label"] == rule_trust.AUTO_PROVEN
+
+
+def test_a_compliant_verdict_on_a_safety_field_goes_to_the_engineers_tick():
+    r = _labelled()["PSV-24"]
+    assert r["tier"] == rule_trust.SAFETY and r["show_for_engineer_tick"] is True
+    non_safety = next(
+        k
+        for k in _labelled()
+        if card_trust.why_not(k) is None and not card_trust.safety(k)
+    )
+    assert _labelled()[non_safety]["show_for_engineer_tick"] is False
+
+
+def test_a_card_with_generated_cases_only_stays_held():
+    r = _labelled()[
+        "PSV-01"
+    ]  # "the set pressure is stated": tested by generated cases only
+    assert card_trust.why_not("PSV-01") == "generated cases only"
+    assert r["trust_label"] == rule_trust.UNPROVEN
+    assert r["status"] == "NEEDS_ENGINEER_REVIEW" and r["rule_said"] == "COMPLIANT"
+
+
+@pytest.mark.parametrize(
+    "card, why",
+    [
+        ("PSV-03", "weak source"),
+        ("PSV-15", "weak source"),
+        ("PSV-05", "a standard we do not hold"),
+    ],
+)
+def test_a_weak_or_waiting_card_stays_held(card, why):
+    assert why in card_trust.why_not(card)
+    got = _labelled()
+    if card in got:
+        assert got[card]["trust_label"] == rule_trust.UNPROVEN
+
+
+def test_a_card_whose_tests_fail_stays_held(monkeypatch):
+    real = rule_cards.run_card
+    monkeypatch.setattr(
+        rule_cards,
+        "run_card",
+        lambda item, t, rules=None: {
+            **real(item, t, rules),
+            "status": "draft",
+            "why": "a case failed",
+        },
+    )
+    card_trust.clear()
+    assert card_trust.why_not("PSV-24") == "a case failed"
+    assert _labelled()["PSV-24"]["trust_label"] == rule_trust.UNPROVEN
+
+
+def test_a_source_that_is_not_a_clause_number_stays_held(monkeypatch):
+    card_trust.clear()
+    _, item = card_trust._cards()["PSV-24"]
+    monkeypatch.setitem(item["source"], "clause", "datasheet fields")
+    card_trust.why_not.cache_clear()
+    assert card_trust.why_not("PSV-24") == "the source is not a clause number"
+
+
+def test_only_the_relief_valve_cards_decide_for_now():
+    vessel = dc.load_rules()["checklists"]["Pressure Vessel"]["items"][0]["id"]
+    assert card_trust.why_not(vessel) == "this equipment type's cards do not decide yet"
+
+
+def test_a_local_item_never_decides():
+    assert not card_trust.decides(
+        {"checklist": True, "local": True, "rule_id": "PSV-24"}
+    )
+    assert not card_trust.decides({"checklist": False, "rule_id": "PSV-24"})
+    assert not card_trust.decides({"checklist": True, "rule_id": "NO-SUCH"})
+
+
+def test_with_the_switch_off_nothing_changes(monkeypatch):
+    monkeypatch.setattr(settings, "tested_cards_decide_enabled", False)
+    r = _labelled()["PSV-24"]
+    assert (
+        r["trust_label"] == rule_trust.UNPROVEN
+        and r["status"] == "NEEDS_ENGINEER_REVIEW"
+    )
+    assert r["rule_said"] == "COMPLIANT"
+
+
+def test_with_automatic_use_off_the_hook_is_not_called(monkeypatch):
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", False)
+    r = results(SHEET)["PSV-24"]
+    assert (
+        rule_trust.label_check(r) is r
+    )  # the check comes back unchanged, no label at all

@@ -27,6 +27,7 @@ does not make one.
 | `ai_answer_reuse_enabled` | `True` | permanent | | | Reuse of a stored local AI answer to the exact same question (#1221, order 205). Off for the final test before anything goes to a client: every page is read fresh |
 | `ai_clause_checks_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI check proposals for undecided clauses (#645) |
 | `rule_auto_use_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Proven rule families used without an engineer |
+| `tested_cards_decide_enabled` | `False` | rollout | 2026-10-29 | 2026-11-12 | Order 306.1: a relief-valve checklist card tested under the stricter rule (written cases, an at-the-limit case, a clause number, not weak) may decide while its engineer approval is pending; owner decides default on or remove |
 | `match_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI matcher (#794) |
 | `geometry_reader_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Geometry reader form path and vision reader |
 | `field_naming_enabled` | `False` | rollout | 2026-10-27 | 2026-11-10 | Model-named canonical field names pair numeric requirements with sheet fields (order 259.5); measured by s2, then default on or removed |

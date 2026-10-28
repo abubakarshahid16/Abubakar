@@ -455,9 +455,9 @@ class Settings(BaseSettings):
     #: default: the owner switches it on after the first family is proven.
     #: A share `rule_audit_rate` (clamped to 2-5%, at least one) of the
     #: automatic findings is drawn for an engineer's spot-check; one audit
-    #: error drops the family back to unproven. The safety field list and the
-    #: condition words live in reference data, not in code.
+    #: error drops the family back to unproven. Safety fields, condition words: reference data.
     rule_auto_use_enabled: bool = False
+    tested_cards_decide_enabled: bool = False  # order 306.1: a tested relief-valve card may decide (rule_trust)
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
