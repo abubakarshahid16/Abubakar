@@ -1718,5 +1718,11 @@
     "text": ""
    }
   ]
+ },
+ "_definition_sections": {
+  "_about": "Order 298.1: the clause prefixes of a standard that are its Terms and definitions (read from the stored chunk titles, e.g. '3.16 design pressure', '3.20 inlet size'). A card whose only source is such a clause cites a definition, not the clause that requires the value: it stays draft.",
+  "API 520-I": [
+   "3."
+  ]
  }
 }

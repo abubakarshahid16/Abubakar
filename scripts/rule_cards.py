@@ -189,6 +189,21 @@ def run_case(item: dict, equipment_type: str, case: dict, rules: dict) -> dict:
     }
 
 
+def cites_a_definition(item: dict, path: Path = TESTS_PATH) -> bool:
+    """Is the card's source clause one of its standard's Terms and definitions (order 298.1)? A definition says what
+    a word means; it requires nothing, so a card resting on it cannot be `tested`, whatever its cases say."""
+    if not path.exists():
+        return False
+    sections = (
+        json.loads(path.read_text(encoding="utf-8")).get("_definition_sections") or {}
+    )
+    source = item.get("source") or {}
+    return any(
+        str(source.get("clause") or "").startswith(prefix)
+        for prefix in sections.get(source.get("standard"), [])
+    )
+
+
 def run_card(item: dict, equipment_type: str, rules: dict | None = None) -> dict:
     """The card's result: every case run, and its status: `tested` only when there are at least three cases
     (meets, breaks, unclear) and all passed; `draft` otherwise, with the reason."""
@@ -200,7 +215,9 @@ def run_card(item: dict, equipment_type: str, rules: dict | None = None) -> dict
     ]
     runs = [run_case(item, equipment_type, c, rules) for c in cases]
     names = {r["case"] for r in runs}
-    if not runs:
+    if cites_a_definition(item):
+        status, why = "draft", "its source clause is a definition, not a requirement"
+    elif not runs:
         status, why = "draft", "no test cases for this kind of rule"
     elif not {"meets", "breaks", "unclear"} <= names:
         status, why = "draft", "needs a meets, a breaks and an unclear case"

@@ -175,17 +175,44 @@ def test_every_stated_rule_of_the_other_checklists_is_tested_today(equipment_typ
     assert sum(c["status"] == "tested" for c in cards) >= len(cards) - 2
 
 
-def test_every_card_of_every_checklist_is_tested_by_the_real_code_today():
-    """The release gate of order 296.4: `python scripts/rule_cards.py --check` exits 0. A new checklist item without
-    cases, or a code change that breaks a rule, turns a card to draft and fails here."""
+DEFINITION_CARDS = {
+    "PSV-01", "PSV-02", "PSV-03", "PSV-04", "PSV-05", "PSV-07", "PSV-08", "PSV-11", "PSV-14", "PSV-15", "PSV-25",
+    "PSV-26",
+}  # fmt: skip
+
+
+def test_every_card_is_tested_except_the_twelve_that_cite_a_definition():
+    """Order 298.1: a card whose only source is a definition ("3.16 design pressure") stays draft, whatever its cases
+    say. The gate (`--check`) therefore fails until the planner / an engineer names the clause that requires each value."""
     report = rule_cards.report()
     assert {k: v["draft"] for k, v in report.items()} == {
-        "Pressure Safety Valve": 0,
+        "Pressure Safety Valve": 12,
         "Centrifugal Pump": 0,
         "Pressure Vessel": 0,
         "Heat Exchanger": 0,
     }
-    assert rule_cards.main(["--check"]) == 0
+    assert report[TYPE]["draft_because"] == {
+        "its source clause is a definition, not a requirement": 12
+    }
+    drafts = {
+        i["id"]
+        for i in RULES["checklists"][TYPE]["items"]
+        if rule_cards.run_card(i, TYPE, RULES)["why"].startswith(
+            "its source clause is a definition"
+        )
+    }
+    assert drafts == DEFINITION_CARDS
+    assert rule_cards.main(["--check"]) == 1
+
+
+def test_a_card_citing_a_requirement_clause_is_not_held_back_by_the_definition_rule():
+    item = _item(SET_PRESSURE)
+    item["source"] = {"standard": "API 520-I", "clause": "5.4.2.1.1"}
+    assert not rule_cards.cites_a_definition(item)
+    item["source"] = {"standard": "API 520-I", "clause": "3.49"}
+    assert rule_cards.cites_a_definition(item)
+    item["source"] = {"standard": "OTHER STD", "clause": "3.49"}
+    assert not rule_cards.cites_a_definition(item)  # only the standards the data names
 
 
 def test_the_area_calculation_cards_rest_on_an_independent_calculation():
