@@ -3243,9 +3243,8 @@ def _units_comparable(requirement: dict, fact: dict,
     `claims.compare_across_units`. Refusing them here wrote "not the same
     quantity" on a °F limit against a °C value, which was false.
 
-    So: if both sides normalised, compare dimensions. If either did not, the
-    spelling, or two temperature scales. That keeps kPa-against-bar working
-    and keeps dB(A)-against-dB refused.
+    So: both normalised, compare dimensions; if either did not, the spelling, two temperature scales,
+    or two numbers with NO unit (plain numbers; order 264b). dB(A)-against-dB stays refused.
     """
     requirement_measure = _measurement_from_requirement(requirement)
     fact_measure = _measurement_from_fact(fact)
@@ -3258,7 +3257,8 @@ def _units_comparable(requirement: dict, fact: dict,
         left = claims.unit_dimension(requirement_unit.raw_unit or "")
         right = claims.unit_dimension(fact_unit.raw_unit or "")
         return left is not None and left == right
-    return claims.same_unit(requirement_unit, fact_unit) or (
+    bare = not requirement_unit.raw_unit and not fact_unit.raw_unit
+    return bare or claims.same_unit(requirement_unit, fact_unit) or (
         claims.is_temperature_scale(requirement_unit.raw_unit)
         and claims.is_temperature_scale(fact_unit.raw_unit)
     )
