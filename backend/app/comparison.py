@@ -2375,7 +2375,6 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
-        loaded = standards_mod.recommendations.apart(loaded, held_back)
         # OWNER DECISION (rule_trust, #947), SWITCH OFF BY DEFAULT: a clause sentence with an
         # AI-compiled check (a draft, else the converter's, order 274.1) is compared through it.
         auto_rules = converter_review.rules_with_drafts(
