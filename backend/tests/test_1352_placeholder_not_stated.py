@@ -47,10 +47,9 @@ def _named(name, printed, raw, unit="barg"):
         ("10 barg (By Contractor, as per Code)", "10"),
         ("10 barg By Contractor", None),  # only the printed cell is left
         ("10 barg TBC", None),
-        (
-            "(By Contractor) 10 barg",
-            "10",
-        ),  # the phrase first, but the reader parsed the figure
+        ("<85 dBA By Contractor", None),  # a comparator first is still a figure first
+        ("-5 degC TBC", None),
+        ("0.5 bar (by vendor)", None),
     ],
 )
 def test_a_figure_with_a_note_beside_it_is_stated(printed, raw):
@@ -64,6 +63,10 @@ def test_a_figure_with_a_note_beside_it_is_stated(printed, raw):
             "By Contractor 10 barg",
             None,
         ),  # the phrase first: nothing says which is the value
+        (
+            "(By Contractor) 10 barg",
+            "10",
+        ),  # the phrase first, even when a figure was parsed
         ("TBC 10 barg", None),
         ("TBA 2025", "TBA 2025"),  # a digit after the phrase is not its figure
         ("TBA", "TBA"),
@@ -72,8 +75,27 @@ def test_a_figure_with_a_note_beside_it_is_stated(printed, raw):
         ("By Contractor", "By Contractor"),
     ],
 )
-def test_a_phrase_with_no_figure_before_it_is_still_missing(printed, raw):
+def test_a_phrase_with_no_figure_first_is_still_missing(printed, raw):
     assert _set_pressure_status(_named(SET, printed, raw)) == "MISSING_INFORMATION"
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "See note 3 - vendor to advise",
+        "Note 3: by contractor",
+        "Per API 520, by contractor",
+        "ASME Class 300, TBC",
+        "Item 2 TBA",
+        "3. By contractor",  # a list number
+        "3: vendor to advise",
+        "10. By contractor",
+    ],
+)
+def test_a_reference_number_before_a_phrase_is_not_a_figure(printed):
+    """cloud-2 on #1399 (28 Oct): a note, code, class or item number ahead of the phrase is not the value."""
+    assert _set_pressure_status(_named(SET, printed, "3")) == "MISSING_INFORMATION"
+    assert _set_pressure_status(_named(SET, printed, None)) == "MISSING_INFORMATION"
 
 
 def test_the_mandatory_field_path_keeps_a_figure_with_a_note_as_missing():
