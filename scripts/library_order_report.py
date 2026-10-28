@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--standard", action="append")
     ap.add_argument("--csv", type=Path)
     args = ap.parse_args(argv)
-    if args.csv and (REPO == args.csv.resolve() or REPO in args.csv.resolve().parents):
+    if args.csv and (args.csv.resolve() == REPO or REPO in args.csv.resolve().parents):
         print("refused: write the csv outside the repository")
         return 2
     counts, problems = run(args.db, args.standard)
