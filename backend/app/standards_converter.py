@@ -16,6 +16,9 @@ CODE THEN VERIFIES (`verify`); the model never writes a check:
   3. the unit is of the kind the field is (a pressure is not in minutes);
   4. the quote names the field (every content word of its canonical name is in the quote);
   5. the comparator is the one the quote's own words say ("shall not exceed" is <=, "at least" is >=).
+  6. a scope written AFTER the limit ("... 25 bar for gas service") is cut from the clause by code and kept as
+     the row's condition (order 289.2); the review's own condition gate settles it from the sheet, or leaves the
+     row to the engineer. Never dropped, never an unconditional limit.
 
 Verified = a CHECK. Anything else is UNPROVEN, and an unproven row may only say "engineer, please look":
 it carries no limit, no comparator and no verdict - there is no path from it to "meets". A sentence the model
@@ -136,7 +139,8 @@ REASONS = (
     "unit_not_of_field",
     "field_not_in_quote",
     "comparator_not_in_quote",
-    "condition_after_limit",
+    "number_and_unit_apart",
+    "two_conditions",
     "condition_not_in_clause",
     "reply_unreadable",
     "not_asked",
@@ -342,13 +346,15 @@ def comparators_said(quote: str) -> set[str]:
 _LOCATION_STARTS = ("at ", "measured at ")
 
 
-def limit_closes_sentence(sentence: str, quote: str, limit: str, unit: str) -> bool:
-    """Does the sentence end right after the limit's number and unit (a bracketed conversion and a
-    measuring location aside)? A condition written AFTER the number is not caught by the leading-condition
-    tests of `ai_requirements.verify_proposal`, so a scope that follows the limit must refuse the row here.
-    False when the number and unit do not stand together in the quote (nothing to measure the tail from)."""
-    s, q = _fold(sentence), _fold(quote)
-    at = s.find(q)
+def limit_scope(sentence: str, quote: str, limit: str, unit: str) -> str | None:
+    """The scope written AFTER the limit's number and unit, as the clause's own words ("for gas service"), cut by
+    code. "" when the sentence ends right after the limit (a leading bracketed conversion and a measuring
+    location aside); None when the number and unit do not stand together in the quote (nothing to measure the
+    tail from). A scope after the number is not caught by the leading-condition tests of
+    `ai_requirements.verify_proposal`, so it is kept as the row's CONDITION (order 289.2) and settled by the
+    review's own condition gate, never dropped (s3, #1412)."""
+    s_, q = _fold(sentence), _fold(quote)
+    at = s_.find(q)
     found = re.search(
         r"(?<![\w.])"
         + re.escape(limit.strip().lower())
@@ -358,10 +364,19 @@ def limit_closes_sentence(sentence: str, quote: str, limit: str, unit: str) -> b
         q,
     )
     if at < 0 or found is None:
-        return False
-    tail = re.split(r"[.;](?:\s|$)", s[at + found.end() :], maxsplit=1)[0]
-    tail = re.sub(r"\([^)]*\)", " ", tail).strip(" ,:-")
-    return not tail or tail.startswith(_LOCATION_STARTS)
+        return None
+    tail = re.split(r"[.;](?:\s|$)", s_[at + found.end() :], maxsplit=1)[0]
+    tail = re.sub(r"^\s*\([^)]*\)\s*", "", tail).strip(" ,:-")
+    bare = re.sub(r"\([^)]*\)", " ", tail).strip(" ,:-")
+    if not bare or bare.startswith(_LOCATION_STARTS):
+        return ""
+    return tail
+
+
+def limit_closes_sentence(sentence: str, quote: str, limit: str, unit: str) -> bool:
+    """Does the sentence end right after the limit's number and unit (a bracketed conversion and a
+    measuring location aside)? False when a scope follows, or when number and unit do not stand together."""
+    return limit_scope(sentence, quote, limit, unit) == ""
 
 
 def _comparator_says(quote: str, comparator: str) -> bool:
@@ -377,6 +392,9 @@ class Check:
     limit: str
     unit: str
     quote: str
+    #: A scope the clause itself writes (after the limit, or the model's leading condition found in the clause):
+    #: kept as text and settled by the review's own condition gate (order 289.2), never dropped.
+    condition: str | None = None
 
 
 def verify(
@@ -418,8 +436,16 @@ def verify(
         return "unproven", "number_not_in_quote", None
     if not _has_unit(quote, unit):
         return "unproven", "unit_not_in_quote", None
-    if not limit_closes_sentence(text, quote, limit, unit):
-        return "unproven", "condition_after_limit", None
+    scope = limit_scope(text, quote, limit, unit)
+    if scope is None:
+        return "unproven", "number_and_unit_apart", None
+    if scope and condition and _fold(condition) != scope:
+        return (
+            "unproven",
+            "two_conditions",
+            None,
+        )  # a leading and a trailing scope that differ: engineer
+    condition = scope or condition
     if not set(families.get(name, ())) & field_vocabulary._unit_families(unit):
         return "unproven", "unit_not_of_field", None
     if not _names_field(quote, name):
@@ -427,7 +453,11 @@ def verify(
     comparator = str(answer.get("comparator") or "").strip()
     if comparator not in COMPARATORS or not _comparator_says(quote, comparator):
         return "unproven", "comparator_not_in_quote", None
-    return "verified", None, Check(roles[name], comparator, limit, unit, quote)
+    return (
+        "verified",
+        None,
+        Check(roles[name], comparator, limit, unit, quote, _fold(condition) or None),
+    )
 
 
 # ------------------------------------------------------------------------------------------- the run
@@ -473,7 +503,7 @@ def _row(
         "requirement_type": src.get("requirement_type"),
         "text_sha256": rule_roles.text_hash(src.get("requirement_text")),
         "applies": applies,
-        "condition": condition,
+        "condition": check.condition if check and check.condition else condition,
         "status": status,
         "reason": reason,
         "field": check.field if check else None,

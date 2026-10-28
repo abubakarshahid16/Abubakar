@@ -329,14 +329,46 @@ def test_the_quote_must_name_the_field_not_just_contain_the_number():
         " for this service.",
     ],
 )
-def test_a_scope_written_after_the_limit_keeps_the_row_unproven(tail):
-    """s3 on #1412: `verify_proposal` catches a condition BEFORE the number; one AFTER it made an unconditional
-    limit out of "... 25 bar for services other than sour service"."""
+def test_a_scope_written_after_the_limit_is_kept_as_the_rows_condition(tail):
+    """Order 289.2 (s3 on #1412 before it): a scope AFTER the number is never an unconditional limit. The code
+    cuts it from the clause and keeps it as the row's condition; the review's own gate settles it or the
+    engineer looks. Before 289.2 the row was thrown away as unproven."""
     row = {
         **ROW,
         "requirement_text": f"The casing design pressure shall not exceed 25 bar{tail}",
     }
-    assert _verdict(GOOD, row)[:2] == ("unproven", "condition_after_limit")
+    status, reason, check = _verdict(GOOD, row)
+    assert (status, reason) == ("verified", None)
+    assert check.condition == tail.strip(" .") and check.limit == "25"
+
+
+def test_a_scope_after_the_limit_and_a_different_leading_condition_is_unproven():
+    row = {
+        **ROW,
+        "requirement_text": "For gas service the casing design pressure shall not exceed 25 bar for pumps in sour service.",
+    }
+    answer = {**GOOD, "condition": "For gas service"}
+    assert _verdict(answer, row)[:2] == ("unproven", "two_conditions")
+
+
+def test_a_leading_condition_found_in_the_clause_is_kept_as_the_rows_condition():
+    row = {
+        **ROW,
+        "requirement_text": "For gas service the casing design pressure shall not exceed 25 bar.",
+    }
+    status, _reason, check = _verdict({**GOOD, "condition": "For gas service"}, row)
+    assert status == "verified" and check.condition == "for gas service"
+
+
+def test_the_file_row_carries_the_condition_cut_from_the_clause(tmp_path):
+    sentence = "The casing design pressure shall not exceed 25 bar for gas service."
+    folder = _mirror(tmp_path, {sentence: GOOD})
+    [row] = json.loads(next(folder.glob("*.json")).read_text())["entries"]
+    assert (row["status"], row["condition"], row["note"]) == (
+        "verified",
+        "for gas service",
+        None,
+    )
 
 
 @pytest.mark.parametrize(
@@ -366,7 +398,7 @@ def test_a_number_and_unit_that_do_not_stand_together_in_the_quote_are_unproven(
         "requirement_text": "The casing design pressure shall not exceed 25 and 30 bar.",
     }
     answer = {**GOOD, "quote": "casing design pressure shall not exceed 25 and 30 bar"}
-    assert _verdict(answer, row)[:2] == ("unproven", "condition_after_limit")
+    assert _verdict(answer, row)[:2] == ("unproven", "number_and_unit_apart")
 
 
 def test_a_range_in_the_quote_proves_no_comparator():
@@ -1187,9 +1219,7 @@ def test_a_claude_lane_file_says_so_and_names_its_model(tmp_path):
     assert "LOCAL" not in body["_about"]
 
 
-def test_a_v2_verified_row_is_read_but_not_when_it_carries_a_condition(
-    tmp_path, monkeypatch
-):
+def test_a_v2_verified_row_is_read_with_its_condition(tmp_path, monkeypatch):
     folder = _mirror(tmp_path, {SENTENCE: GOOD})
     monkeypatch.setattr(settings, "standards_converter_dir", str(folder))
     assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {
@@ -1198,7 +1228,9 @@ def test_a_v2_verified_row_is_read_but_not_when_it_carries_a_condition(
     path = next(folder.glob("*.json"))
     body = json.loads(path.read_text())
     body["entries"][0]["condition"] = (
-        "The casing"  # a condition found in the clause: stored, never read
+        "for gas service"  # a conditional row is a mapping too
     )
     path.write_text(json.dumps(body))
-    assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {}
+    assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {
+        "r1": "design pressure"
+    }
