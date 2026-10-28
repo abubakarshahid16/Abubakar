@@ -80,7 +80,6 @@ TEST_PINS: dict[str, object] = {
     # On by default since the owner order of 2026-10-11 (item 4); in tests it
     # would be two model calls per unmatched requirement.
     "match_enabled": False,
-    "tested_cards_decide_enabled": False,
     # #806 S3 is ON in production. The suite's Claude-lane tests run fake
     # transports over invented documents that are on no approved list; the
     # guard has its own tests (`test_806_claude_approved.py`), which turn it on.
@@ -194,6 +193,7 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only: reads an uploaded Word file with the standard library
     "docx_input_enabled": True,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
+    "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,
 }
 
