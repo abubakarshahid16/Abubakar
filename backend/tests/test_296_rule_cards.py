@@ -173,3 +173,50 @@ def test_every_stated_rule_of_the_other_checklists_is_tested_today(equipment_typ
     failed = [c["id"] for c in cards if c["why"] == "a case failed"]
     assert failed == []
     assert sum(c["status"] == "tested" for c in cards) >= len(cards) - 2
+
+
+def test_every_card_of_every_checklist_is_tested_by_the_real_code_today():
+    """The release gate of order 296.4: `python scripts/rule_cards.py --check` exits 0. A new checklist item without
+    cases, or a code change that breaks a rule, turns a card to draft and fails here."""
+    report = rule_cards.report()
+    assert {k: v["draft"] for k, v in report.items()} == {
+        "Pressure Safety Valve": 0,
+        "Centrifugal Pump": 0,
+        "Pressure Vessel": 0,
+        "Heat Exchanger": 0,
+    }
+    assert rule_cards.main(["--check"]) == 0
+
+
+def test_the_area_calculation_cards_rest_on_an_independent_calculation():
+    """The API 520-I gas area written out here from the published SI equation (not from the code under test) agrees
+    with the area the card's case was built on, and the real code's own figure agrees with it within 0.5%."""
+    import math
+
+    w, p1, t, m, z, k = (
+        9400.0,
+        1000.0 + 100.0 + 101.325,
+        120 + 273.15,
+        30.13,
+        0.892,
+        1.3,
+    )
+    c = 520 * math.sqrt(k * (2 / (k + 1)) ** ((k + 1) / (k - 1)))
+    independent = 13160 * w / (c * 0.975 * p1) * math.sqrt(t * z / m)
+    assert abs(independent - 1038.4) < 0.1
+    item = next(i for i in RULES["checklists"][TYPE]["items"] if i["id"] == "PSV-C01")
+    case = next(
+        c for c in rule_cards.written_cases(TYPE, "PSV-C01") if c["name"] == "meets"
+    )
+    one = {
+        **RULES,
+        "checklists": {TYPE: {"items": [item], "sign_off": {"status": "draft"}}},
+    }
+    got = next(
+        r
+        for r in dc.evaluate(
+            case["facts"], equipment_type=TYPE, page_texts={1: "x"}, rules=one
+        )
+        if r["rule_id"] == "PSV-C01"
+    )
+    assert abs(got["calculated_mm2"] - independent) / independent < 0.005

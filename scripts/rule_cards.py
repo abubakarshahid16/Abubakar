@@ -37,8 +37,9 @@ GENERATED_KINDS = ("required", "allowed")
 
 
 def field_name_of(role: str, rules: dict) -> str | None:
-    """A field name the real role reader maps to `role`, or None when none of the obvious spellings does."""
-    for name in (role.replace("_", " "), f"{role.replace('_', ' ')}."):
+    """A field name the real role reader maps to `role`: the role's own printed spelling first, else the role's words."""
+    printed = list((rules["roles"].get(role) or {}).get("printed_as") or [])
+    for name in (*printed, role.replace("_", " "), f"{role.replace('_', ' ')}."):
         if dc.role_of(name, rules) == role:
             return name
     return None
