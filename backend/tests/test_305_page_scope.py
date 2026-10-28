@@ -4,9 +4,16 @@ fragment, range boundary)."""
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 import pytest
 
-from app import page_scope as ps
+_spec = importlib.util.spec_from_file_location(
+    "page_scope", Path(__file__).resolve().parents[2] / "scripts" / "page_scope.py"
+)
+ps = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(ps)
 
 
 def _pages(*texts):

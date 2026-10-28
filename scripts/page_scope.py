@@ -19,6 +19,8 @@ pages after its heading until the next heading of a region; a page that holds bo
 heading is tagged with the stricter side and `boundary` True. The safe direction is always "not main body":
 when in doubt a page is NOT main body, because main body is the only scope that may decide without an engineer.
 
+It lives in scripts/ until the converter (order 305.1) reads it; then it moves into the app.
+
 `fragment_reasons(text)` and `range_boundary(text, limit)` look at one stored requirement sentence."""
 
 from __future__ import annotations

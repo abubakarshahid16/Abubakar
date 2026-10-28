@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def main() -> int:
@@ -26,7 +27,9 @@ def main() -> int:
     parser.add_argument("--like", required=True)
     parser.add_argument("--pages", default="")
     args = parser.parse_args()
-    from app import db, live_guard, page_scope
+    import page_scope
+
+    from app import db, live_guard
     from app.config import settings
 
     settings.db_path = live_guard.diagnostic_copy(args.db or settings.db_path)
