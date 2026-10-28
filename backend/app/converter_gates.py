@@ -7,6 +7,8 @@ stays under the project's size limit and so each gate has one home.
   * `quote_unreadable` - is the quote, or the sentence it was cut from, OCR noise?
   * `scope_refusal` - order 304.1: a sentence in an appendix or annex, or under a clause the page does not print,
     is not shown to apply to every sheet, so it is "unproven: scope" and never decides.
+  * `limit_refusal` - order 304.1 add: a stored sentence cut mid-clause (no subject before the limit), or a limit
+    that is one end of a stated range, is not a plain ceiling or floor: "unproven".
   * `fold` - the one way text is compared: lower case, one space between words.
 """
 
@@ -163,4 +165,85 @@ def scope_refusal(row: dict) -> str | None:
         return "scope_in_appendix"
     if clause_printed(row) is False:
         return "scope_clause_not_printed"
+    return None
+
+
+#: Words a sentence cannot start with unless it was cut from a longer one: a limit phrase, a joiner, a relative.
+_FRAGMENT_OPENERS = frozenset(
+    [
+        "not",
+        "no",
+        "at",
+        "up",
+        "from",
+        "between",
+        "above",
+        "below",
+        "over",
+        "under",
+        "less",
+        "greater",
+        "more",
+        "maximum",
+        "minimum",
+        "max",
+        "min",
+        "and",
+        "or",
+        "but",
+        "which",
+        "where",
+        "whereas",
+        "whose",
+        "than",
+        "to",
+        "of",
+    ]
+)
+_NUM = r"\d+(?:[.,]\d+)?"
+_UNIT = r"[a-zA-Z%\u00b0/.()]{0,12}"
+_RANGE = re.compile(
+    rf"({_NUM})\s*({_UNIT})\s*(and|to|\u2013|\u2014|-)\s*({_NUM})\s*({_UNIT})",
+    re.IGNORECASE,
+)
+
+
+def is_fragment(sentence: str) -> bool:
+    """Was the stored sentence cut out of a longer clause? Its first word is lower-case (it began mid-sentence)
+    or is a limit phrase, a joiner or a relative ("not more than 25 bar ...", "which shall ..."): nothing before the
+    limit says what it limits."""
+    words = re.findall(r"[^\W\d_]+", sentence or "")
+    if not words:
+        return False
+    first = words[0]
+    return first[0].islower() or first.lower() in _FRAGMENT_OPENERS
+
+
+def range_boundary(sentence: str, limit: str) -> bool:
+    """Is `limit` one end of a range the sentence states ("between 10 and 20 bar", "from 10 to 20", "10 to 20 bar")?
+    A single comparator on one end drops the other end, so it is never a plain ceiling or floor. Two figures of
+    different units ("25 bar and 30 degC") are two quantities, not a range; a hyphen is a range only with a unit."""
+    from . import field_vocabulary
+
+    wanted = str(limit or "").strip().replace(",", ".")
+    for m in _RANGE.finditer(sentence or ""):
+        first, u1, sep, second, u2 = m.groups()
+        if u1 and u2 and u1.lower().strip(".") != u2.lower().strip("."):
+            continue
+        if sep == "-" and not any(
+            field_vocabulary._unit_families(u) for u in (u1, u2) if u
+        ):
+            continue
+        if wanted and wanted in (first.replace(",", "."), second.replace(",", ".")):
+            return True
+    return False
+
+
+def limit_refusal(sentence: str, limit: str) -> str | None:
+    """The reason a verified-looking row must not decide for the SENTENCE's own shape (order 304.1 add), else None:
+    `sentence_is_fragment`, `limit_is_range_boundary`."""
+    if is_fragment(sentence):
+        return "sentence_is_fragment"
+    if range_boundary(sentence, limit):
+        return "limit_is_range_boundary"
     return None

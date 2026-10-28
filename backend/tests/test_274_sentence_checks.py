@@ -655,3 +655,23 @@ def test_a_proven_row_in_an_appendix_or_under_an_unprinted_clause_is_not_a_rule(
     with connect() as conn:
         conn.execute("UPDATE chunks SET text = ? WHERE id = 'sc'", (chunk_text,))
     assert _rules(cworld) == {}
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "not more than the design pressure shall not exceed 16 barg.",  # opens with a limit phrase
+        "which design pressure shall not exceed 16 barg.",  # a relative: cut from a longer sentence
+        "the design pressure shall not exceed 16 barg.",  # begins mid-sentence
+        "The design pressure shall not exceed 16 barg and 20 barg at the outlet.",  # one end of a range
+    ],
+)
+def test_a_proven_row_whose_sentence_is_cut_or_whose_limit_is_a_range_end_is_not_a_rule(
+    cworld, monkeypatch, sentence
+):
+    """Order 304.1 (planner's check of the one API-520-I row): the file says verified; the review re-reads the
+    stored sentence: a fragment, or a limit that is one end of a range, never becomes a plain ceiling."""
+    stmt = _req(SPEC, "sc", sentence, requirement_type="statement")
+    cworld["folder"] = _mirror(cworld["folder"].parent / "second", [_row(sentence)])
+    _on(cworld, monkeypatch)
+    assert stmt not in _rules(cworld)

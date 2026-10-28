@@ -1461,3 +1461,49 @@ def test_a_number_followed_by_a_unit_is_not_a_clause_heading():
 def test_the_gate_is_silent_when_the_chunk_text_is_not_at_hand():
     assert converter_gates.clause_printed(ROW) is None
     assert _verdict(GOOD, ROW)[0] == "verified"
+
+
+# ---- order 304.1 add: a cut sentence, or a limit that is one end of a range, is not a plain ceiling
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "not more than the casing design pressure shall not exceed 25 bar.",
+        "which casing design pressure shall not exceed 25 bar.",
+        "the casing design pressure shall not exceed 25 bar.",
+    ],
+)
+def test_a_sentence_cut_from_a_longer_clause_is_unproven(sentence):
+    row = {**ROW, "requirement_text": sentence}
+    answer = {**GOOD, "quote": "casing design pressure shall not exceed 25 bar"}
+    assert _verdict(answer, row)[:2] == ("unproven", "sentence_is_fragment")
+
+
+@pytest.mark.parametrize(
+    "sentence, limit",
+    [
+        ("The casing design pressure shall be between 10 and 25 bar.", "25"),
+        ("The casing design pressure shall be from 25 bar to 40 bar.", "25"),
+        ("The casing design pressure range is 10 - 25 bar and shall be stated.", "25"),
+    ],
+)
+def test_a_limit_that_is_one_end_of_a_range_is_unproven_even_for_a_cross_field_limit(
+    sentence, limit
+):
+    row = {**ROW, "requirement_text": sentence, "requirement_type": "cross_field_limit"}
+    quote = " ".join(sentence.rstrip(".").split()[1:])
+    answer = {**GOOD, "quote": quote, "limit": limit}
+    assert _verdict(answer, row)[:2] == ("unproven", "limit_is_range_boundary")
+
+
+def test_two_figures_of_different_units_are_not_a_range():
+    sentence = (
+        "The casing design pressure shall not exceed 25 bar and 30 degC at the inlet."
+    )
+    assert converter_gates.range_boundary(sentence, "25") is False
+    assert converter_gates.range_boundary("See ISO 15156-3 for details.", "3") is False
+
+
+def test_a_whole_sentence_with_one_ceiling_still_verifies():
+    assert _verdict(GOOD, ROW)[0] == "verified"

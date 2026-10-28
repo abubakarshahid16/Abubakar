@@ -169,6 +169,10 @@ def _rule_from(row, digest: str, file_type: str, entry: dict) -> dict | None:
         dict(row)
     ):  # an appendix, or a clause the page does not print (304.1)
         return None
+    if standards_converter.limit_refusal(  # cut mid-clause, or one end of a range (304.1)
+        row["requirement_text"] or sentence, entry.get("limit") or ""
+    ):
+        return None
     # A scope AFTER the limit ("... 25 bar for gas service") is not caught by `limit_from_draft`, which reads
     # leading conditions (s3, #1412): it must be the row's stored condition (order 289.2, which the review's own
     # condition gate then settles from the sheet, or leaves to the engineer), else the row is refused.
