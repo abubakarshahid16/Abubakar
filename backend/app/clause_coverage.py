@@ -4,11 +4,12 @@ Owner pass mark (PROOF FIRST, 13 Oct 2026): of the run's APPLICABLE
 requirements (after the applicability gates, including those a checklist
 covers), 100% sit in exactly one state:
 
-  checked        reached the comparison and ended in it (met, not met,
-                 conditional, the sheet states no value, or the comparison
-                 found it does not apply) - shown with its finding;
+  checked        COMPARED with a datasheet value (met, not met, conditional)
+                 - shown with its finding (order 260.1: one meaning of
+                 "checked", `scope_ledger.group_of`);
   engineer       sent to the engineer, with the reason;
-  not_checked    applies, but was not compared - with the reason.
+  not_checked    applies, but was not compared (including "the sheet states
+                 no value") - with the reason.
 
 A requirement a review CHECKLIST covers is counted in the denominator and
 listed apart, in words that say it is not proof the whole standard was
@@ -34,7 +35,7 @@ STATES = (CHECKED, ENGINEER, NOT_CHECKED, CHECKLIST)
 #: here (`test_every_ledger_reason_has_one_pf4_state`), so a new reason cannot
 #: slip into no state.
 STATE_OF = {
-    "compared": CHECKED, "missing_information": CHECKED, "not_applicable": CHECKED,
+    "compared": CHECKED,
     "needs_engineer": ENGINEER, "needs_other_document": ENGINEER,
     "covered_by_checklist": CHECKLIST,
 }

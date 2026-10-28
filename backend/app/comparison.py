@@ -1854,19 +1854,10 @@ def completeness_for_run(
 
 
 def _unchecked_causes(counts: dict) -> str:
-    """Why the requirements that apply were not checked, each cause with its
-    count (#139): the cited-clause step's unsure ones are not "no field"."""
-    unsure = min(counts.get("unsure_citation", 0), counts.get("not_compared", 0))
-    rest = counts.get("not_compared", 0) - unsure
-    if not unsure:
-        return "no matching field, or text that could not be read"
-    causes = [
-        f"{unsure} because the datasheet's citation does not say for certain "
-        "which clauses of the standard apply - the engineer decides"
-    ]
-    if rest:
-        causes.append(f"{rest} with no matching field, or text that could not be read")
-    return "; ".join(causes)
+    """Why the requirements that apply were not checked, with counts (#139)."""
+    from . import requirement_split
+
+    return requirement_split.causes(counts)
 
 
 def recommend_code(findings: list[dict], completeness: dict, *,
@@ -1900,9 +1891,10 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             and result["code"] in (codes[0], codes[1])):
         unchecked_n = counts.get("not_compared", 0)
         applies_n = unchecked_n + counts.get("checked", 0)
+        why = _unchecked_causes(counts)
         result = {**result, "code": codes[3],
                   "reason": (f"Manual review: {unchecked_n} of {applies_n} requirements that apply "
-                             f"to this submittal were not checked ({_unchecked_causes(counts)}), "
+                             f"to this submittal were not checked ({why}), "
                              "so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
     # PF3 (#883): AN INCOMPLETE READING CANNOT BE APPROVED. A page the AI reader
@@ -2517,8 +2509,9 @@ def _run_comparison(
     # the kept requirements and the table cells no field answered - is "not used".
     covered_items: list[dict] = []
     checklist_note = None
+    from . import checklist_scope
     from . import datasheet_checks as _checks
-    governing = _checks.checklist_sources(stored.get("equipment_type"))
+    governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
         if covered_ids:
@@ -2947,9 +2940,7 @@ def _run_comparison(
     # must not be deleted by it.
     _write_run_findings(review_run_id, prepared_rows, replace=replace)
 
-    # #677 EVERY REQUIREMENT THAT REACHED THE COMPARISON: its finding's status
-    # decides its state; one with no finding (an engineer rejected the
-    # pairing) is an engineer's question, never silent.
+    # #677: a requirement's finding status decides its state; none is an engineer's question.
     status_of: dict = {}
     for row in prepared_rows:
         status_of.setdefault(row.get("requirement_id"), row.get("compliance_status"))
@@ -2980,20 +2971,16 @@ def _run_comparison(
             ai_requirements.undecided_statements(requirements, status_of),
             review_run_id=review_run_id, limit=settings.ai_clause_checks_max_per_run)
 
-    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
-    # itself, pure arithmetic, no standard needed. Written before the code is
-    # recommended, so a design pressure below the operating pressure counts
-    # like any other unmet requirement.
+    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against itself, pure
+    # arithmetic, no standard needed. Written before the code is recommended.
     from . import datasheet_checks
     page_texts = {r["page_no"]: r["text"] or "" for r in connect().execute(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
-                                              page_texts=page_texts)
-    # rule_trust (#947): every rule labelled, the checks too - a signed-off
-    # checklist item is an engineer's rule; every other check is held when it
-    # would decide (planner answer on #985). Nothing with the switch off.
+    check_results = checklist_scope.evaluate(facts, stored, page_texts)
+    # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
+    # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
@@ -3023,7 +3010,9 @@ def _run_comparison(
         # (confirmed by code) and the definitions - the same items the
         # per-requirement ledger above is built from
         scoped["not_applied_items"] + extra_not_applied,
-        covered_items)
+        covered_items,
+        status_of=status_of,
+    )
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
     if checklist_note:
@@ -3034,19 +3023,19 @@ def _run_comparison(
         split = {**split, "checklist_coverage": checklist_coverage}
     if divided["summary"]:  # #141: divisions limited by their own scope
         split = {**split, "division_scope": divided["summary"]}
-    # Owner order 2026-10-11: the run says which reader read the sheet - the
-    # AI engine and model, or "code readers only", and the pages the AI did
-    # not read (timed out, unavailable) with the reason.
-    reader = datasheets.latest_reader_summary(submittal_id)
-    if reader:
-        split = {**split, "reader": reader}
+    # Owner order 2026-10-11: the run says which reader read the sheet (engine,
+    # model or "code readers only") and the pages the AI did not read, with the reason.
+    from . import degraded_read
+
+    split = degraded_read.with_reader(split, submittal_id)
     ai_matcher = matcher_summary(matcher_counts, model_matches=model_matches,
                                  model_held=model_held, questions=ask_counts)
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
         "checked": split["checked"],
-        "unsure_citation": len(cited_scope["unsure"])}
+        "unsure_citation": len(cited_scope["unsure"]),
+        "reasons": split["applies_not_checked_reasons"]}
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
