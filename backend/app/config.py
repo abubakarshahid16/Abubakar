@@ -1535,10 +1535,10 @@ ANSWER_AFFECTING_SETTINGS = (
 )
 ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
 ANSWER_AFFECTING_SETTINGS += ("scope_type_words_rule_enabled",)
-ANSWER_AFFECTING_SETTINGS += (  # order 273.4: a gate with these off differs from the live app
-    "geometry_reader_enabled", "geometry_table_reader_enabled", "datasheet_reader_mode",
-    "match_ask_max_per_run", "vision_reader_engine", "reasoning_provider",
-)
+# order 273.4: a gate with these off differs from the live app
+ANSWER_AFFECTING_SETTINGS += ("geometry_reader_enabled", "datasheet_reader_mode")
+ANSWER_AFFECTING_SETTINGS += ("geometry_table_reader_enabled", "match_ask_max_per_run")
+ANSWER_AFFECTING_SETTINGS += ("vision_reader_engine", "reasoning_provider")
 
 
 def config_version() -> str:
