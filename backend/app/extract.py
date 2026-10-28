@@ -14,7 +14,10 @@ from __future__ import annotations
 import concurrent.futures as cf
 import json
 import logging
+import math
 import os
+import re
+import statistics
 from datetime import datetime, timezone
 
 import pymupdf  # PyMuPDF
@@ -153,6 +156,121 @@ def _unrotated_rows(table, cells: list[list], derotate) -> list[list]:
     return grid
 
 
+#: A table with no ruling (columns that are only aligned text) is kept only when it reads like a grid
+#: (order 271.4): enough rows, rows that repeat one shape, no word cut across two cells, short cells.
+#: The four numbers are FIRST VALUES, not tuned on a measured set of pages; s2's before/after is the check.
+ALIGNED_MIN_ROWS = 3
+ALIGNED_MIN_CONSISTENCY = 0.75
+ALIGNED_MAX_SPLIT_RATE = 0.02
+ALIGNED_MAX_CELL_CHARS = 60
+
+
+#: A row of a real table is not a sentence: eight or more words that carry a modal or end in a full stop.
+_MODAL = re.compile(r"\b(?:shall|must|should|may|will)\b", re.IGNORECASE)
+ALIGNED_SENTENCE_WORDS = 8
+
+
+def _sentence_row(row: list[str]) -> bool:
+    text = " ".join(" ".join(row).split())
+    return len(text.split()) >= ALIGNED_SENTENCE_WORDS and (
+        bool(_MODAL.search(text)) or text.endswith(".")
+    )
+
+
+def aligned_grid_ok(texts: list[list[str]], score: dict) -> bool:
+    """Does an aligned-text table read like a grid? `texts` are its cells, `score` is
+    `geometry_reader.table_score` (the datasheet reader's own grid score). A page of one-template
+    requirement sentences has a regular shape too, but its rows are sentences, not table rows: when half
+    of the rows are, it is prose, and keeping it as a table would take the sentences out of the extraction."""
+    rows = [r for r in texts if any(r)]
+    cells = [c for r in rows for c in r if c]
+    if len(rows) < ALIGNED_MIN_ROWS or not cells:
+        return False
+    if 2 * sum(_sentence_row(r) for r in rows) >= len(rows):
+        return False
+    return (
+        score["column_consistency"] >= ALIGNED_MIN_CONSISTENCY
+        and score["split_rate"] <= ALIGNED_MAX_SPLIT_RATE
+        and sum(len(c) for c in cells) / len(cells) <= ALIGNED_MAX_CELL_CHARS
+    )
+
+
+def _grid_span(texts: list[list[str]]) -> tuple[int, int] | None:
+    """(first, last) row of the grid proper: the rows that fill about as many cells as most rows do.
+
+    A caption above the table, split across its columns by the finder, and a note below it fill fewer
+    cells and are left out (a caption left in cuts words and fails `aligned_grid_ok`)."""
+    counts = {i: sum(1 for c in row if c) for i, row in enumerate(texts)}
+    filled = [n for n in counts.values() if n]
+    if not filled:
+        return None
+    mode = statistics.mode(filled)
+    if mode < 2:
+        return None
+    grid = [i for i, n in counts.items() if n >= max(2, math.ceil(0.75 * mode))]
+    return (grid[0], grid[-1]) if grid else None
+
+
+class _Aligned:
+    """An aligned-text table as the extractor stores it: same `extract()`, `rows` and `bbox` as a finder
+    table, with the words of each cell joined by a space and without the caption or note rows around the
+    grid (their lines stay in the prose)."""
+
+    def __init__(self, table, cells: list[list[str]], first: int, last: int) -> None:
+        self.rows = table.rows[first : last + 1]
+        self._cells = cells[first : last + 1]
+        box = pymupdf.Rect(self.rows[0].bbox)
+        for row in self.rows[1:]:
+            box |= pymupdf.Rect(row.bbox)
+        self.bbox = tuple(box)
+
+    def extract(self) -> list[list[str]]:
+        return self._cells
+
+
+def _cell_texts(page, rects: list[list]) -> list[list[str]]:
+    """Each cell's words, joined by a space, a word going to the cell holding its centre. The finder's own
+    `extract()` joins words closer than its tolerance with nothing ("Carbonsteel", "80C") on a small font,
+    and `get_textbox` takes in the words of a neighbouring row that a cell's box only touches."""
+    words = page.get_text("words")
+    centre = [((w[0] + w[2]) / 2, (w[1] + w[3]) / 2, w[4]) for w in words]
+    return [
+        [
+            " ".join(t for x, y, t in centre if r[0] <= x <= r[2] and r[1] <= y <= r[3])
+            if r is not None
+            else ""
+            for r in row
+        ]
+        for row in rects
+    ]
+
+
+def _aligned_tables(page) -> list | None:
+    """The aligned-text finder's tables on a page whose ruled-lines finder found none; None when it failed."""
+    from . import geometry_reader
+
+    try:
+        tables = page.find_tables(strategy="text").tables
+        words = page.get_text("words")
+        kept = []
+        for table in tables:
+            _raw, rects = geometry_reader._grid(table)
+            texts = _cell_texts(page, rects)
+            if (span := _grid_span(texts)) is None:
+                continue
+            table = _Aligned(table, texts, *span)
+            texts, rects = texts[span[0] : span[1] + 1], rects[span[0] : span[1] + 1]
+            score = geometry_reader.table_score(table, words, (texts, rects))
+            if aligned_grid_ok(texts, score):
+                kept.append(table)
+        return kept
+    except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
+        log.debug(
+            "extract: aligned-text finder failed; no table (%s)", type(exc).__name__
+        )
+        return None
+
+
 def page_tables(page, raw_text: str) -> list[dict]:
     """`page_tables_checked(...)[0]` - the tables, for callers that do not ask why none."""
     return page_tables_checked(page, raw_text)[0]
@@ -175,13 +293,18 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
     except Exception as exc:  # noqa: BLE001 - geometry that defeats the reader
         log.debug("extract: get_drawings failed; no table (%s)", type(exc).__name__)
         return [], "table_get_drawings_failed"
-    if len(paths) < MIN_TABLE_PATHS:
-        return [], None
-    try:
-        found = page.find_tables(strategy="lines").tables
-    except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
-        log.debug("extract: find_tables failed; no table (%s)", type(exc).__name__)
-        return [], "table_find_failed"
+    found = []
+    if len(paths) >= MIN_TABLE_PATHS:
+        try:
+            found = page.find_tables(strategy="lines").tables
+        except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
+            log.debug("extract: find_tables failed; no table (%s)", type(exc).__name__)
+            return [], "table_find_failed"
+    aligned = not found and settings.aligned_text_tables_enabled
+    if aligned:
+        found = _aligned_tables(page)
+        if found is None:  # the aligned finder failed: a named reason, as for the ruled finder
+            return [], "aligned_table_find_failed"
     if not found:
         return [], None
     texts, boxes = _raw_lines(page)
@@ -221,8 +344,14 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
         if not lines:
             continue
         claimed.update(lines)
-        out.append({"bbox": [round(v, 1) for v in (x0, y0, x1, y1)],
-                    "rows": rows, "lines": lines})
+        out.append(
+            {
+                "bbox": [round(v, 1) for v in (x0, y0, x1, y1)],
+                "rows": rows,
+                "lines": lines,
+                **({"aligned": True} if aligned else {}),
+            }
+        )
     return out, None
 
 
