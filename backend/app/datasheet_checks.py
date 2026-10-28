@@ -34,7 +34,14 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, severity_rule
+from . import (
+    absence,
+    blank_markers,
+    checklist_fold,
+    claims,
+    datasheet_roles,
+    severity_rule,
+)
 from .checklist_scope import governs, standards
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
@@ -234,20 +241,12 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
     if not by_tag:
         by_tag[None] = {}
     out: list[dict] = []
-    # GENERIC_FALLBACK (2026-09-27): `equipment_type` is unknown/unconfirmed
-    # on almost every submittal today (nothing wrote it before B9, and B9's
-    # classifier itself only matches a document whose own text names its
-    # equipment - many still will not). Before this fallback that meant
-    # `mandatory` was silently `[]`: every one of these checks ran and found
-    # nothing to say, on every such document, forever. A generic minimum
-    # (design and test conditions any datasheet states) now runs instead -
-    # never zero checks for the mere fact that the type is not yet known.
-    # An equipment_type the mandatory table has no entry for, directly or
-    # through its equipment family (a value this file's author never
-    # anticipated - see `mandatory_list_key`), gets the same generic list,
-    # for the same reason: a name that fails to look up is not evidence the
-    # sheet needs no checking. A label the CLASSIFIER emits must never land
-    # here - tests/test_datasheet_checks.py enumerates them all.
+    # GENERIC_FALLBACK (2026-09-27): `equipment_type` is unknown on almost every submittal (B9's classifier only
+    # matches a document whose own text names its equipment), and `mandatory` was silently `[]`: every check ran
+    # and found nothing. A generic minimum (design and test conditions any datasheet states) runs instead, also
+    # for a type the table has no entry for (see `mandatory_list_key`): a name that fails to look up is not
+    # evidence the sheet needs no checking. A label the CLASSIFIER emits must never land here -
+    # tests/test_datasheet_checks.py enumerates them all.
     mandatory = rules["mandatory"].get(mandatory_list_key(equipment_type, rules), [])
     equipment_phrase = f"a {equipment_type}" if equipment_type else "any datasheet"
     # UNTAGGED FIELDS ARE THE SHEET'S COMMON SECTION (audit 2026-09-30). A
@@ -369,6 +368,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
             for item in checklist["items"]:
                 out.append(evaluate_item(item, roles, common if tag is not None else {},
                                          tag, rules, draft=checklist["draft"], page_texts=page_texts))
+        out = checklist_fold.fold_into_stated(out, checklist)  # order 279.1: one request per missing value
     if page_texts and equipment_type:
         out.append(_result("DS-R1", COMPLIANT if has_block else MISSING_INFORMATION,
                            "A datasheet carries a revision block.",
