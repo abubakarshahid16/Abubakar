@@ -20,6 +20,7 @@ import argparse
 import json
 import sqlite3
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -34,6 +35,15 @@ COLOURS = {
     "ai": (0.95, 0.5, 0.05),
 }
 LABEL_COLOUR = (0.55, 0.55, 0.55)
+#: What the board prints beside a picture, so the colours and the boxes are never read as more than they are.
+LEGEND = {
+    "geometry_reader": "blue: read by the geometry reader",
+    "vision_reader": "green: read by the picture reader",
+    "ai": "orange: read by the AI reader",
+    "label": "grey: the label's own box",
+    "red": "red: a reader the board does not name",
+}
+NOTE = "A box is where a reader says it found the value; it is not a check that the value is right."
 
 
 def _provenance(raw: object) -> dict:
@@ -175,6 +185,9 @@ def export(
     payload = {
         "dpi": DPI,
         "pdf_scale": DPI / 72,
+        "legend": LEGEND,
+        "note": NOTE,
+        "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "pages": {
             str(n): [f for f in facts if (f["page"] or 0) == n]
             for n in sorted({f["page"] or 0 for f in facts})

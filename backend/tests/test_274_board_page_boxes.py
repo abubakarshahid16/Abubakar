@@ -180,9 +180,28 @@ def test_an_unfinished_run_a_missing_pdf_and_an_existing_file_are_refused(
         boxes.export(copy_db, "run1", out)
 
 
-def test_the_pictures_may_not_go_inside_the_repository(boxes, copy_db):
+def test_the_pictures_may_not_go_inside_the_repository(
+    boxes, copy_db, tmp_path, monkeypatch
+):
+    fake_repo = tmp_path / "repo"
+    (fake_repo / "docs").mkdir(parents=True)
+    monkeypatch.setattr(
+        boxes, "REPO", fake_repo
+    )  # never the real checkout: a broken check must write nothing there
     with pytest.raises(ValueError, match="outside the repository"):
-        boxes.export(copy_db, "run1", boxes.REPO / "docs" / "pictures")
+        boxes.export(copy_db, "run1", fake_repo / "docs" / "pictures")
+    assert not (fake_repo / "docs" / "pictures").exists()
+
+
+def test_the_board_gets_the_colour_legend_the_claim_and_the_export_time(
+    boxes, copy_db, tmp_path
+):
+    out = tmp_path / "m"
+    boxes.export(copy_db, "run1", out)
+    data = _data(out)
+    assert {"geometry_reader", "vision_reader", "ai", "label"} <= set(data["legend"])
+    assert "not a check that the value is right" in data["note"]
+    assert data["exported_at"].endswith("+00:00")
 
 
 def test_a_live_shaped_path_is_refused(boxes, tmp_path):
