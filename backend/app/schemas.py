@@ -352,9 +352,9 @@ class StandardRequirement(BaseModel):
 #: requirements list with a 500 (found 2026-09-30 by the frontend contract
 #: check). `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home;
 #: tests/test_requirement_types_contract.py keeps them equal.
-RequirementType = Literal["numeric_limit", "statement", "table_value",
-                          "applicability_trigger", "relative_limit", "table_row",
-                          "definition", "table_range", "range_limit", "nominal_value", "cross_field_limit"]
+RequirementType = Literal["numeric_limit", "statement", "table_value", "applicability_trigger",
+                          "relative_limit", "table_row", "definition", "table_range", "range_limit",
+                          "nominal_value", "cross_field_limit", "recommendation"]
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]

@@ -48,16 +48,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from . import chunker, claims, classification, numparse, orphan_guard, provenance, requirement_quality, requirements_3b
-from . import submittal_review
+from . import recommendations, submittal_review
 from . import tables as tables_mod
 from .db import connect
 
 #: Mandatory wording. A requirement is a sentence that OBLIGES something.
 #:
-#: `should` is deliberately absent: it is a RECOMMENDATION, and recording it as
-#: a requirement would manufacture non-compliance against advice. `may` is
-#: permission. Both are 3B's problem if they are anyone's - this phase records
-#: obligations only and says so.
+#: `should` is deliberately absent: it is a RECOMMENDATION, recorded apart as its own
+#: type with no limit (`recommendations`, order 288.2), so it cannot manufacture
+#: non-compliance against advice. `may` is permission and is not recorded.
 _MANDATORY = re.compile(
     r"\b(shall|must\s+not|must|is\s+required\s+to|are\s+required\s+to"
     r"|is\s+to\s+be|are\s+to\s+be|may\s+not\s+exceed\s+[-+]?\d)",
@@ -544,7 +543,7 @@ def is_reviewable(row) -> bool:
     the text, but it cannot turn a definition into a requirement: for that the
     engineer edits the type. Used by every review that loads requirements.
     """
-    if _column(row, "requirement_type") == requirement_quality.DEFINITION:
+    if _column(row, "requirement_type") in (requirement_quality.DEFINITION, recommendations.TYPE):
         return False
     if _column(row, "quality_reason") and not _column(row, "confirmed_by"):
         return False
@@ -1008,7 +1007,8 @@ def extract_requirements(
             if inline_clause:
                 clause = inline_clause.group("clause")
             for sentence in _requirement_parts(joined_sentence):
-                if not _MANDATORY.search(sentence):
+                mandatory = bool(_MANDATORY.search(sentence))
+                if not mandatory and not recommendations.is_recommendation(sentence):
                     continue
                 if len(sentence.split()) < MIN_REQUIREMENT_WORDS:
                     # A heading or a table cell that happens to contain "shall".
@@ -1037,12 +1037,12 @@ def extract_requirements(
                 # #596 A definition states what a word means, not what anyone
                 # must do. Its number (if any) is not a limit, so none is kept.
                 is_definition = in_definitions or requirement_quality.is_defining_sentence(sentence)
-                if is_definition:
+                if is_definition or not mandatory:    # advice states no limit
                     limit = None
                 structured = {
                     "requirement_type": (
                         requirements_3b.DEFINITION if is_definition
-                        else requirements_3b.classify(sentence, limit)),
+                        else recommendations.classify(sentence, limit, mandatory)),
                     "condition": requirements_3b.parse_condition(sentence),
                     "exceptions": requirements_3b.encode_exceptions(exceptions),
                     "discipline": discipline,

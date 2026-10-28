@@ -30,7 +30,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from . import claims, numparse, own_value_limit
+from . import claims, numparse, own_value_limit, recommendations
 
 #: What kind of thing a requirement states. Enforced in Pydantic
 #: (`schemas.RequirementType`), stored as plain TEXT.
@@ -1283,11 +1283,11 @@ TABLE_ROW = "table_row"
 #: never counted as a requirement.
 DEFINITION = "definition"
 
-#: EVERY requirement_type this module writes - what the API must be able to
-#: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
-#: three the parser may classify an obligation as; these are all of them.
+#: EVERY requirement_type this module writes (what `schemas.RequirementType` must return);
+#: `REQUIREMENT_TYPES` above is the core three the parser may classify an obligation as.
 STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
-                           DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE, CROSS_FIELD_LIMIT)
+                           DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE, CROSS_FIELD_LIMIT,
+                           recommendations.TYPE)
 
 
 def classify(sentence: str, limit: dict | None) -> str:
