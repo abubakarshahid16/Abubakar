@@ -80,11 +80,12 @@ def converter_rules(
 
     EMPTY unless the owner's switch `rule_auto_use_enabled` is on, `standards_converter_dir` names a folder, the
     standard is in the reader's scope and the review's equipment type is the type the draft was made for. A row
-    is used only if it is verified with applies = "yes" (never unproven, no, depends), its sentence still hashes
-    the same, its standard is this one, and CODE CHECKS IT AGAIN against the sentence stored now
-    (`ai_requirements.limit_from_draft`: the quote is in the sentence, the number and unit are in the quote, the
-    operator does not point the other way, a sentence that holds only under a condition is refused). Nothing is
-    written; the draft file is never changed."""
+    is used only if it is VERIFIED (a v1 row with applies "yes", or a v2 row, which has none; never unproven,
+    no_check, no or depends), its sentence still hashes the same, its standard is this one, and CODE CHECKS IT
+    AGAIN against the sentence stored now (`ai_requirements.limit_from_draft`: the quote is in the sentence, the
+    number and unit are in the quote, the operator does not point the other way; a scope after the limit must be
+    the row's stored condition, order 289.2, which the review's own condition gate then settles or leaves to the
+    engineer). Nothing is written; the draft file is never changed."""
     from . import ai_requirements, standard_ids
     from .config import settings
     from .db import connect
@@ -137,10 +138,11 @@ def converter_rules(
 
 
 def _what_it_says(entry: dict) -> tuple:
-    """The parts of a row that decide a comparison: two rows for one sentence agree only if all are equal."""
+    """The parts of a row that decide a comparison: two rows for one sentence agree only if all are equal.
+    Not `applies`: a v1 file ("yes") and a v2 file (none) that say the same thing agree (s3 on #1422)."""
     return tuple(
         entry.get(k)
-        for k in ("field", "applies", "comparator", "limit", "unit", "quote")
+        for k in ("field", "comparator", "limit", "unit", "quote", "condition")
     )
 
 

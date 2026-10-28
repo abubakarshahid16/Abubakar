@@ -611,3 +611,21 @@ def test_only_a_verified_yes_row_a_v1_depends_row_is_not_read_even_with_its_cond
     )
     _on(cworld, monkeypatch)
     assert _rules(cworld) == {}
+
+
+def test_a_v1_file_and_a_v2_file_that_say_the_same_thing_both_stand(
+    cworld, monkeypatch, tmp_path
+):
+    """s3 on #1422: v1 rows have applies "yes", v2 rows none; the same limit in both is one agreeing answer, not
+    a disagreement that silently drops the rule."""
+    folder = _mirror(tmp_path / "old", [_row(SENTENCE)])
+    v2 = _mirror(tmp_path / "new", [_row(SENTENCE, applies=None)])
+    for f in v2.glob("*.json"):
+        (folder / "v2.json").write_text(f.read_text())
+    cworld["folder"] = folder
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    body = json.loads((folder / "v2.json").read_text())
+    body["entries"][0]["limit"] = "10"  # a v2 file that disagrees: neither is used
+    (folder / "v2.json").write_text(json.dumps(body))
+    assert _rules(cworld) == {}
