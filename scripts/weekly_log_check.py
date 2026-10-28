@@ -83,8 +83,10 @@ def spend_section(since: datetime) -> list[str]:
     for e in week:
         week_usd[e.get("step")] += float(e.get("cost_usd") or 0)
     for step in sorted(per_step, key=str):
-        lines.append(f"| {step} | {week_calls.get(step, 0)} | {week_usd.get(step, 0.0):.4f}"
-                     f" | {per_step[step]:.4f} | {caps.for_step(str(step)).per_step:.2f} |")
+        lines.append(
+            f"| {step} | {week_calls.get(step, 0)} | {week_usd.get(step, 0.0):.4f}"
+            f" | {per_step[step]:.4f} | {caps.for_step(str(step)).per_step:.2f} |"
+        )
 
     unusual = []
     unknown = Counter(e.get("model") for e in week
@@ -104,7 +106,8 @@ def spend_section(since: datetime) -> list[str]:
         if n:
             unusual.append(f"{words}: {n}")
     for step, usd in sorted(per_step.items(), key=lambda kv: str(kv[0])):
-        step_cap = caps.for_step(str(step)).per_step  # a converter step has its own, larger cap (order 271.3)
+        # a converter step has its own, larger cap (order 271.3)
+        step_cap = caps.for_step(str(step)).per_step
         if usd >= NEAR_CAP * step_cap:
             unusual.append(f"step at {usd / step_cap:.0%} of its cap: {step}")
     if total >= NEAR_CAP * caps.total:

@@ -156,7 +156,9 @@ def test_a_converter_step_is_reported_against_its_own_25_dollar_cap(env, monkeyp
     ledger, path = env
     monkeypatch.setattr(settings, "claude_budget_usd_total", 500.0)
     monkeypatch.setattr(claude_spend, "_today", lambda: datetime(2026, 11, 15).date())
-    _write(ledger, _call("standards_convert:SAES-G-005", 24.0, 1), _call("chat", 4.9, 1))
+    _write(
+        ledger, _call("standards_convert:SAES-G-005", 24.0, 1), _call("chat", 4.9, 1)
+    )
     out = _report(path)
     assert "| standards_convert:SAES-G-005 | 1 | 24.0000 | 24.0000 | 25.00 |" in out
     assert "| chat | 1 | 4.9000 | 4.9000 | 5.00 |" in out
