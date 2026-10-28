@@ -49,6 +49,9 @@ def test_a_quantity_after_a_citation_is_not_a_part():
     assert standard_ids.cited_standards(
         "API 610, 2 units supplied; API 682 & 2 spares"
     ) == ["API 610", "API 682"]
+    assert standard_ids.cited_standards("API 520 Part 1, 2 units supplied") == [
+        "API 520 Part 1"
+    ]
 
 
 def test_each_part_is_its_own_entry_and_other_citations_are_unchanged():
