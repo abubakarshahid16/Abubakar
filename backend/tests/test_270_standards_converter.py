@@ -1065,3 +1065,82 @@ def test_the_claude_lane_is_not_started_without_its_gates(tmp_path, no_claude):
         ]
     )
     assert code == convert_standards.EXIT_LANE_CLOSED and not (tmp_path / "m").exists()
+
+
+# ------------------------------------------------------------------ 8. order 283: a "no" rests on clause words; the file says who made it
+
+NO_QUOTE = "The casing design pressure"  # words that are in SENTENCE
+
+
+def test_a_no_with_a_quote_that_is_in_the_clause_is_not_applicable_and_keeps_the_quote(
+    tmp_path,
+):
+    answer = {"applies": "no", "quote": NO_QUOTE}
+    assert _verdict(answer)[0] == "not_applicable"
+    folder = _mirror(tmp_path, {SENTENCE: answer})
+    [row] = json.loads(next(folder.glob("*.json")).read_text())["entries"]
+    assert (row["status"], row["applies"], row["quote"]) == (
+        "not_applicable",
+        "no",
+        NO_QUOTE,
+    )
+    assert row["limit"] is None and row["field"] is None and row["note"] is None
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"applies": "no"},
+        {"applies": "no", "quote": None},
+        {"applies": "no", "quote": ""},
+        {"applies": "no", "quote": "pumps"},  # too short to rest on
+        {"applies": "no", "quote": "words that are not in the clause at all"},
+    ],
+)
+def test_a_no_without_a_quote_found_in_the_clause_is_unproven_not_not_applicable(
+    tmp_path, answer
+):
+    assert _verdict(answer) == ("unproven", "no_without_quote", None)
+    folder = _mirror(tmp_path, {SENTENCE: answer})
+    [row] = json.loads(next(folder.glob("*.json")).read_text())["entries"]
+    assert (row["status"], row["reason"], row["note"]) == (
+        "unproven",
+        "no_without_quote",
+        standards_converter.ENGINEER,
+    )
+    assert row["limit"] is None and row["quote"] is None
+
+
+def test_the_quote_of_a_no_is_checked_against_the_clause_as_stored_not_as_the_model_says():
+    other = {**ROW, "requirement_text": "Bearings shall be lubricated."}
+    assert _verdict({"applies": "no", "quote": NO_QUOTE}, other) == (
+        "unproven",
+        "no_without_quote",
+        None,
+    )
+
+
+def test_the_prompt_asks_for_the_quote_and_the_version_moved():
+    text = standards_converter.system_text(PUMP, DICT)
+    assert "ONLY when you can quote" in text and "do not answer no" in text
+    assert standards_converter.PROMPT_VERSION == "o283-convert-v2"
+    assert "no_without_quote" in standards_converter.REASONS
+
+
+def test_a_local_run_file_names_the_lane_and_the_model_it_used_not_the_cloud_model(
+    tmp_path, engine, no_claude
+):
+    _standard("SAES-K-503", (SENTENCE,))
+    _local(tmp_path, ["SAES-K-503"])
+    body = json.loads(next((tmp_path / "mirror").glob("*.json")).read_text())
+    assert "LOCAL lane" in body["_about"] and TAG in body["_about"]
+    assert "cloud model" not in body["_about"] and "CLAUDE lane" not in body["_about"]
+    assert body["prompt_version"] == "o283-convert-v2"
+
+
+def test_a_claude_lane_file_says_so_and_names_its_model(tmp_path):
+    folder = _mirror(tmp_path, {SENTENCE: GOOD})
+    body = json.loads(next(folder.glob("*.json")).read_text())
+    assert body["lane"] == "claude"
+    assert "CLAUDE lane" in body["_about"] and body["model"] in body["_about"]
+    assert "LOCAL" not in body["_about"]

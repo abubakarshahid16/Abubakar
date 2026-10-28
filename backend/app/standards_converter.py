@@ -19,7 +19,9 @@ CODE THEN VERIFIES (`verify`); the model never writes a check:
 
 Verified = a CHECK. Anything else is UNPROVEN, and an unproven row may only say "engineer, please look":
 it carries no limit, no comparator and no verdict - there is no path from it to "meets". A "no" or a
-"depends" answer is the model's claim, stored unconfirmed; only a "yes" row is ever read by a review.
+"depends" answer is the model's claim, stored unconfirmed; only a "yes" row is ever read by a review. A "no"
+must also quote the clause words it rests on, and code checks the quote is in the stored clause; without one
+it is stored UNPROVEN ("no_without_quote"), never "not_applicable" (order 283, rule B).
 
 WHAT GOES TO THE CLOUD: standards text only. The prompt is built from `standard_requirements` rows of
 documents classified COMPANY_STANDARD (clause and sentence), the system block from the type's field names.
@@ -63,7 +65,7 @@ STEP_PREFIX = claude_spend.STANDARD_STEP_PREFIX
 #: for now); "claude" is the lane behind `claude_spend`, the approved-documents list and the egress flags.
 LANE_CLAUDE, LANE_LOCAL = "claude", "local"
 LANES = (LANE_LOCAL, LANE_CLAUDE)
-PROMPT_VERSION = "o270-convert-v1"
+PROMPT_VERSION = "o283-convert-v2"
 STATUS = "draft"
 #: Requirements per call.
 BATCH = 12
@@ -114,6 +116,7 @@ _CUE_LIST = sorted(
 #: The reason an answer stays unproven (counts only; never text).
 REASONS = (
     "applies_unreadable",
+    "no_without_quote",
     "no_field",
     "quote_not_in_clause",
     "number_not_in_quote",
@@ -173,6 +176,9 @@ def system_text(equipment_type: str, dictionary: list[str]) -> str:
         "Rules: choose a field only from the list; never invent a field, a number or a unit; the quote, "
         "the number and the unit must all appear in the sentence word for word; when the sentence has "
         "no numeric limit for one of these fields answer field null. Unproven is a good answer.\n"
+        "Answer applies no ONLY when you can quote, in quote, the exact words of the sentence that show it "
+        "is about other equipment or another subject (for example the equipment the sentence names). "
+        "If you cannot quote such words, do not answer no: answer depends with condition null.\n"
         f"FIELDS OF THE {equipment_type.upper()} FORM:\n{numbered}"
     )
 
@@ -343,6 +349,15 @@ class Check:
     quote: str
 
 
+def no_quote(answer: dict, row: dict) -> str | None:
+    """The words a "no" rests on, when code can find them in the stored clause (order 283, rule B); else None.
+    The quote is the model's claim: it counts only if it is in the clause now stored."""
+    quote = " ".join(str(answer.get("quote") or "").split())
+    if len(quote) < 8 or _fold(quote) not in _fold(_text(row)):
+        return None
+    return quote
+
+
 def verify(
     answer: dict,
     row: dict,
@@ -356,6 +371,10 @@ def verify(
     if applies not in APPLIES:
         return "unproven", "applies_unreadable", None
     if applies == "no":
+        if (
+            no_quote(answer, row) is None
+        ):  # a "no" rests on clause words or it is only a guess
+            return "unproven", "no_without_quote", None
         return "not_applicable", None, None
     text = _fold(_text(row))
     condition = (answer.get("condition") or "").strip()
@@ -487,7 +506,12 @@ def _read_batch(
         status, reason, check = verify(got, src, dictionary, roles, families)
         applies = str(got.get("applies") or "").lower() or None
         condition = (got.get("condition") or None) if status != "unproven" else None
-        rows.append(_row(src, status, reason, applies, condition, check))
+        row = _row(src, status, reason, applies, condition, check)
+        if status == "not_applicable":
+            row["quote"] = no_quote(
+                got, src
+            )  # the words the "no" rests on, proven in the clause
+        rows.append(row)
     return rows
 
 
@@ -606,6 +630,14 @@ def file_stem(result: Result) -> str:
     return f"{rule_roles.slug(result.equipment_type)}.{re.sub(r'[^A-Za-z0-9]+', '_', result.standard).strip('_')}"
 
 
+def _made_by(result: Result) -> str:
+    """Who converted it, as the run recorded it (order 283, rule C): the lane and the model actually used."""
+    model = result.model or "not reported"
+    if result.lane == LANE_LOCAL:
+        return f"on the LOCAL lane by the engine's model {model} (no Claude)"
+    return f"on the CLAUDE lane by the model {model}"
+
+
 def write(
     result: Result, out_dir: Path, *, form_sha: str, form_source: str = "#1352"
 ) -> dict[str, Path]:
@@ -619,7 +651,7 @@ def write(
     folder = refuse_out_dir(out_dir)
     folder.mkdir(parents=True, exist_ok=True)
     body = {
-        "_about": "Order 270.3: DRAFT checks converted from one standard by the cloud model, each proven by "
+        "_about": f"Order 270.3: DRAFT checks converted from one standard {_made_by(result)}, each proven by "
         "code against the stored clause. Unproven rows say 'engineer, please look' and carry no limit. "
         "Holds clause quotes: never commit it.",
         "converter": True,
