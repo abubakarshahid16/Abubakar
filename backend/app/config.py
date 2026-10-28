@@ -457,7 +457,7 @@ class Settings(BaseSettings):
     #: automatic findings is drawn for an engineer's spot-check; one audit
     #: error drops the family back to unproven. Safety fields, condition words: reference data.
     rule_auto_use_enabled: bool = False
-    tested_cards_decide_enabled: bool = False  # order 306.1: a tested relief-valve card may decide (rule_trust)
+    tested_cards_decide_enabled: bool = False  # order 306.1
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"

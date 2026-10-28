@@ -358,7 +358,8 @@ def label_check(result: dict) -> dict:
     if out.get("rule_said"):
         out["detail"] = f"{result.get('detail') or ''} ({UNPROVEN_REASON})".strip()
     out.update(tier=None, show_for_engineer_tick=False)
-    if out["trust_label"] == AUTO_PROVEN and result.get("checklist"):  # a tested card (306.1), not a proven family
+    # order 306.1: a tested card, not a proven family
+    if out["trust_label"] == AUTO_PROVEN and result.get("checklist"):
         is_safety = card_trust.safety(result["rule_id"])
         out.update(
             trust_words=card_trust.WORDS,
