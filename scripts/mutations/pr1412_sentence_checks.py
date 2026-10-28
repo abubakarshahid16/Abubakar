@@ -120,27 +120,24 @@ MUTATIONS: tuple[Mutation, ...] = (
         "09",
         "the review reads an unproven row of the draft file",
         _C,
-        '                e.get("status") == "verified"\n                and (\n',
-        '                e.get("status") is not None\n                and (\n',
+        '                e.get("status") == "verified"\n',
+        '                e.get("status") is not None\n',
         "verified_yes_row",
     ),
     _m(
         "10",
         "the review reads a depends row of the draft file",
         _C,
-        '                    e.get("applies") == "yes"\n                    # v2 (order 286.1)',
-        '                    e.get("applies") in ("yes", "depends")\n                    # v2 (order 286.1)',
+        '                and e.get("applies") in ("yes", None)\n',
+        '                and e.get("applies") in ("yes", "depends", None)\n',
         "verified_yes_row",
     ),
     _m(
         "11",
         "a scope written after the limit is read as an unconditional limit by the review",
         _C,
-        "    if not standards_converter.limit_closes_sentence(\n"
-        "        sentence,\n"
-        '        entry.get("quote") or "",\n'
-        '        entry.get("limit") or "",\n'
-        '        entry.get("unit") or "",\n'
+        "    if scope is None or (\n"
+        '        scope and standards_converter._fold(entry.get("condition")) != scope\n'
         "    ):\n"
         "        return None\n",
         "",
