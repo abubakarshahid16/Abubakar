@@ -33,12 +33,11 @@ No datasheet, procedure, CRS or register text can enter it: `requirements_of` is
 list refuses the call when that standard is not on it. Only the families in `ALLOWED_FAMILIES` are ever
 sent (owner, 28 Oct: SAES and ISO; API and ASME are on hold until the owner confirms the licence).
 
-WHAT COMES OUT: one draft per standard, JSON + CSV, in a folder OUTSIDE the repository (the files hold clause
-quotes - they belong in the mirror, never in git). Every file names the pump form it was read against (the
-sha of #1352's head), the model, the prompt version, the USD spent, and whether the run completed or
-`stopped at cap`. The review reads only the "yes" + verified rows of those files, only when
-`standards_converter_dir` is set (empty by default = off), and only as a field mapping that rides
-`comparison.match_by_field_name`: it never carries a verdict by itself (NEEDS_ENGINEER_REVIEW).
+WHAT COMES OUT: one draft per standard, JSON + CSV, OUTSIDE the repository (the files hold clause quotes: the
+mirror, never git). Each names the form it was read against, the model, the prompt version, the USD spent and
+whether the run completed or `stopped at cap`. The review reads only the verified rows, only when
+`standards_converter_dir` is set (empty = off), only as a field mapping through `comparison.match_by_field_name`:
+never a verdict by itself (NEEDS_ENGINEER_REVIEW).
 
 Nothing here reads a datasheet, writes the database, or opens a socket: the provider does, behind its gates.
 """
@@ -166,9 +165,7 @@ REASONS = (
     "not_asked",
     *converter_second.REASONS,
 )
-#: Order 305.4: a verified row is asked a second, differently worded question. Tests of the first pass alone
-#: switch it off (`ask_twice=False`); nothing else does.
-ASK_TWICE = True
+ASK_TWICE = True  # order 305.4: a verified row is asked again; only tests of the first pass turn it off
 ENGINEER = "engineer, please look"
 STOPPED_AT_CAP = "stopped at cap"
 
@@ -510,6 +507,8 @@ class Result:
     unreadable_batches: int = 0
     #: Rows of types the converter does not ask about (order 295.7), by type.
     types_not_asked: dict = field(default_factory=dict)
+    #: Order 305.4: set when the second question was asked; the file says so.
+    asked_twice: bool = False
 
     def counts(self) -> dict[str, int]:
         out = {
@@ -648,8 +647,9 @@ def convert(
         out.model = getattr(response, "model_tag", None) or out.model
         read = _read_batch(response, chunk, dictionary, roles, families, out)
         out.rows += read
-        pairs += zip(chunk, read)
-    if ASK_TWICE if ask_twice is None else ask_twice:
+        pairs += zip(chunk, read, strict=True)
+    out.asked_twice = ASK_TWICE if ask_twice is None else ask_twice
+    if out.asked_twice:
         _ask_again(
             pairs, equipment_type, step, size, provider, claude, document_id, out
         )
@@ -666,8 +666,7 @@ def convert(
 def _ask_again(
     pairs, equipment_type, step, size, provider, claude, document_id, out: Result
 ) -> None:
-    """Order 305.4: the second question (`converter_second`). A refused or failed call gives no answer, and a row
-    without a confirming answer is unproven, never verified."""
+    """Order 305.4: the second question (`converter_second`); a row without a confirming answer is unproven."""
 
     def ask(packet):
         try:
@@ -778,6 +777,7 @@ def write(
         "lane": result.lane,
         "model": result.model,
         "prompt_version": PROMPT_VERSION,
+        "ask_twice": converter_second.PROMPT_VERSION if result.asked_twice else None,
         "run": STOPPED_AT_CAP
         if result.stopped_at_cap
         else (f"refused: {result.refused}" if result.refused else "complete"),

@@ -28,7 +28,7 @@ TWO = "standards_convert:ISO 15156-3"
 def _ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
-    monkeypatch.setattr(standards_converter, "ASK_TWICE", False)  # these test the first pass (305.4 has its own file)
+    monkeypatch.setattr(standards_converter, "ASK_TWICE", False)  # 305.4: own file
     # the USD 500 is for November 2026: these tests run on a November day whatever day it is
     monkeypatch.setattr(claude_spend, "_today", lambda: date(2026, 11, 15))
 
