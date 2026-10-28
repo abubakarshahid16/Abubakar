@@ -2570,9 +2570,9 @@ def _run_comparison(
     # pre-B4 matching, untouched.
     field_names = None
     field_name_matches = 0
-    if settings.geometry_reader_enabled:
-        from . import field_naming
-        field_names = field_naming.ensure_names(requirements, facts)
+    if settings.geometry_reader_enabled or settings.field_naming_enabled:
+        from . import field_vocabulary
+        field_names = field_vocabulary.names_for(requirements, facts, stored)
     for requirement in requirements:
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
@@ -3583,15 +3583,16 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     None (fall through) when the requirement is unnamed or no fact passes.
     """
     if not is_matchable(requirement) or requirement.get("raw_value") in (None, ""):
-        return None
+        from . import statement_roles
+
+        return statement_roles.match(requirement, facts, names)  # 263.1
     field = (names.get("requirements") or {}).get(str(requirement.get("id")))
     if not field:
         return None
     fact_names = names.get("facts") or {}
     rejected = _rejected_keys_for(requirement)
     tag_scoped = facts_are_tag_scoped(facts)
-    # B4 item 2: a BLANK field pairs too - "the sheet leaves this to be
-    # provided" is an answer about the requirement's quantity.
+    # B4 item 2: a BLANK field pairs too ("left to be provided" answers the quantity).
     hits = [f for f in facts
             if (fact_has_number(f) or f.get("is_blank"))
             and fact_names.get(str(f.get("id"))) == field
@@ -3613,9 +3614,8 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     if len(allowed) > 1:
         filled = [f for f in allowed if fact_has_number(f) and not f.get("is_blank")]
         if not filled:
-            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the
-            # same - the sheet leaves this quantity to be provided. The one
-            # whose OWN label is the name comes first, then by page and label;
+            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the same (left to be
+            # provided). The one whose OWN label is the name comes first, then by page and label;
             # the others are NAMED; no value was chosen between.
             from .field_naming import own_names
             ordered = sorted(allowed, key=lambda f: (field not in own_names(f),
