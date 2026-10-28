@@ -22,6 +22,7 @@ from .. import (
     review_jobs,
     review_tiers,
     review_trace,
+    run_settings,
     schemas,
 )
 from .. import ai_engineering_check as ai_engineering_check_mod
@@ -185,6 +186,9 @@ class HowReviewed(BaseModel):
     #: order 96: stamped on the run's job; null when the run has no job row
     code_version: str | None = None
     config_version: str | None = None
+    #: order 273.4: the settings (the values behind `config_version`), the model and the reader the run
+    #: ran with, read from the running process; null for a run that stored none (never invented)
+    run_settings: dict | None = None
     #: order 96: seconds per stage from the stored trace; null when none stored
     stage_seconds: dict[str, float] | None = None
     #: order 96: clause states per standard from the run's coverage ledger;
@@ -360,6 +364,7 @@ def review_run_summary(
             "unread_pages": page_ledger_mod.run_unread_pages_of(outcome),
             "code_version": versions.get("code_version"),
             "config_version": versions.get("config_version"),
+            "run_settings": run_settings.of_run(connect(), review_run_id),
             "stage_seconds": _stage_seconds(review_trace.stored(review_run_id, scope)),
             "clauses_by_standard": _clauses_by_standard(
                 clause_coverage_mod.for_run(review_run_id, allowed_document_ids=allowed)

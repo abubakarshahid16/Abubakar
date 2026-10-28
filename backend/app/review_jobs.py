@@ -31,6 +31,7 @@ from . import (
     job_queue,
     provenance,
     reread_for_standards,
+    run_settings,
     submittal_fill,
 )
 from .config import config_version, settings
@@ -150,6 +151,7 @@ def claim_next(worker_id: str) -> str | None:
             return None
         conn.execute("UPDATE review_runs SET status = 'running', updated_at = ? WHERE id = ?",
                      (now, row["review_run_id"]))
+        run_settings.record(conn, row["review_run_id"])
     return row["id"]
 
 
@@ -375,11 +377,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         with _phase(conn, job_id, None, heartbeat, timings, None):
             number_crs_rows(run_id, requester)
             word_crs_rows(run_id, requester)
-        # #791 part 1: the run's step-by-step trace, stored behind the run's
-        # access rules (reads only, never fails the run) ...
+        # #791 part 1: the run's step-by-step trace, stored behind the run's access rules ...
         review_trace.store(run_id, requester, timings)
         # ... and part 0: REVIEW_DEBUG prints it (off by default).
         review_trace.emit(run_id, requester)
+        run_settings.finish(conn, run_id, submittal)
     except _Cancelled:
         with conn:
             from . import review as review_mod
