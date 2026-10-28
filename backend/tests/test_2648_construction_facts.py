@@ -123,14 +123,18 @@ def test_a_stainless_sheet_does_not_settle_a_carbon_steel_part_and_nothing_is_ex
 
 
 def test_a_layer_on_the_base_never_settles_it():
-    facts = [_fact("Shell material", "SA-516 Gr 70 with stainless cladding")]
+    facts = [_fact("Shell material", "SA-516 Gr 70, rubber lined")]
     out, _ = _gate(facts, reqs=(GENERAL, CARBON_RULE))
     assert out["summary"].get("answered_from_sheet") == []
+    assert scope_construction.settle("carbon and low alloy steel", facts) is None
+    clad = [_fact("Shell material", "SA-516 Gr 70 with 316L cladding")]
+    assert scope_construction.settle("carbon and low alloy steel", clad) is None
 
 
-def test_a_welded_part_applies_when_the_sheet_states_a_joint_efficiency():
+def test_a_welded_part_applies_when_a_shell_or_design_code_value_states_welded():
     out, model = _gate(
-        [_fact("Joint efficiency", "0.85", page=3)], reqs=(GENERAL, WELD_RULE)
+        [_fact("Design code", "ASME VIII Div 1, welded construction", page=3)],
+        reqs=(GENERAL, WELD_RULE),
     )
     assert _ids(out["kept"]) == ["aa", "ww"]
     assert "construction" not in model.calls
@@ -169,7 +173,7 @@ def test_a_blank_field_settles_nothing():
 def test_the_words_of_the_phrase_name_the_family(phrase, family):
     facts = [
         _fact("Shell material", "SA-516 Gr 70 forged shell"),
-        _fact("Joint efficiency", "0.85"),
+        _fact("Design code", "ASME VIII, welded"),
     ]
     assert scope_construction.settle(phrase, facts)["family"] == family
 
@@ -206,12 +210,10 @@ def test_the_review_notes_say_what_the_sheet_settled_once_per_fact():
 
 def test_a_tube_or_a_seal_material_is_not_the_vessel():
     # a main part or only a component? Not for code to say: the shell and the heads settle a material
-    facts = [
-        _fact("Tube material", "Seamless titanium tubes"),
-        _fact("Tube material", "SA-516 Gr 70", fact_id="f2"),
-    ]
-    assert scope_construction.settle("constructed of titanium", facts) is None
-    assert scope_construction.settle("carbon and low alloy steel", facts) is None
+    titanium_tube = [_fact("Tube material", "Seamless titanium tubes")]
+    assert scope_construction.settle("constructed of titanium", titanium_tube) is None
+    carbon_tube = [_fact("Tube material", "SA-516 Gr 70")]
+    assert scope_construction.settle("carbon and low alloy steel", carbon_tube) is None
 
 
 def test_a_fact_with_no_page_settles_nothing_no_claim_without_a_resolving_page():
@@ -239,3 +241,89 @@ def test_a_sheet_naming_a_carbon_shell_and_stainless_tubes_settles_the_carbon_pa
         == "f1"
     )
     assert scope_construction.settle("high alloy steel", facts) is None
+
+
+# ----------------------------------------------- cloud-2's three findings on #1409
+
+
+@pytest.mark.parametrize(
+    ("phrase", "label", "value"),
+    [
+        ("welded construction", "Shell material", "SA-106 Gr B seamless, not welded"),
+        ("forged construction", "Head material", "not forged, formed plate SA-516-70"),
+        ("welded construction", "Shell material", "non-welded seamless pipe"),
+        ("welded construction", "Shell material", "seamless, without any welding"),
+    ],
+)
+def test_a_negated_hit_settles_nothing(phrase, label, value):
+    assert scope_construction.settle(phrase, [_fact(label, value)]) is None
+
+
+def test_a_negation_far_from_the_hit_does_not_hide_it():
+    fact = _fact(
+        "Design code",
+        "No exceptions taken to the code; vessel is a welded construction",
+    )
+    assert scope_construction.settle("welded construction", [fact]) is not None
+
+
+@pytest.mark.parametrize("value", ["N/A", "0.85", "1.0", "per code"])
+def test_a_joint_efficiency_says_nothing_about_welding_by_itself(value):
+    assert (
+        scope_construction.settle(
+            "welded construction", [_fact("Joint efficiency", value)]
+        )
+        is None
+    )
+    assert (
+        scope_construction.settle("welded construction", [_fact("PWHT", "Required")])
+        is None
+    )
+
+
+def test_the_label_never_settles_only_the_value_does():
+    assert (
+        scope_construction.settle(
+            "welded construction", [_fact("Welded joint type", "see drawing")]
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "facts",
+    [
+        # a stainless shell with a carbon head is mixed
+        [
+            _fact("Shell material", "SA-240 316L", fact_id="f1"),
+            _fact("Head material", "SA-516-70", fact_id="f2"),
+        ],
+        # one value naming two families
+        [_fact("Shell material", "Stainless steel 316L, carbon steel supports")],
+    ],
+)
+def test_a_mixed_vessel_settles_no_material_family(facts):
+    assert scope_construction.settle("carbon and low alloy steel", facts) is None
+    assert scope_construction.settle("high alloy steel", facts) is None
+
+
+def test_two_facts_of_one_family_agree_and_the_first_is_named():
+    facts = [
+        _fact("Shell material", "SA-516-70", fact_id="f1", page=2),
+        _fact("Head material", "SA-516-70", fact_id="f2", page=3),
+    ]
+    got = scope_construction.settle("carbon and low alloy steel", facts)
+    assert got["fact_id"] == "f1" and got["page"] == 2
+
+
+def test_a_process_family_is_not_made_mixed_by_a_material():
+    facts = [
+        _fact("Shell material", "SA-516-70 welded plate", fact_id="f1"),
+        _fact("Head material", "SA-240 316L", fact_id="f2"),
+    ]
+    # the welding is stated; the materials are mixed, which blocks only the material Parts
+    assert (
+        scope_construction.settle("welded construction", facts)["family"]
+        == "welded construction"
+    )
+    assert scope_construction.settle("carbon and low alloy steel", facts) is None
