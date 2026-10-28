@@ -433,8 +433,7 @@ class Settings(BaseSettings):
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
     #: #141 a part limited by its own scope sentence to one construction
-    #: (`ai_applicability.division_gate`). ON (#805 rule 1); off, nothing
-    #: changes; a part not read (or past the per-run limit) is HELD.
+    #: (`ai_applicability.division_gate`). ON (#805 rule 1); off: nothing changes; a part not read or past the limit is HELD.
     ai_division_scope_enabled: bool = True
     ai_answer_reuse_enabled: bool = True  # order 205: off for the final client test
     ai_division_scope_max_per_run: int = 120
@@ -455,11 +454,12 @@ class Settings(BaseSettings):
     #: default: the owner switches it on after the first family is proven.
     #: A share `rule_audit_rate` (clamped to 2-5%, at least one) of the
     #: automatic findings is drawn for an engineer's spot-check; one audit
-    #: error drops the family back to unproven. Safety fields, condition words: reference data.
+    #: error drops the family back to unproven. The safety field list and the
+    #: condition words live in reference data, not in code.
     rule_auto_use_enabled: bool = False
-    tested_cards_decide_enabled: bool = False  # order 306.1
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
+    tested_cards_decide_enabled: bool = False  # order 306.1
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md
