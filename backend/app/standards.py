@@ -973,21 +973,12 @@ def extract_requirements(
     # #596 WHERE THE DEFINITIONS SECTION IS. A heading titled "Terms and
     # definitions" opens it; it runs over the chunks filed under that clause
     # (3, 3.1, 3.2.1 ...) and closes at the first chunk filed elsewhere.
-    in_definitions = False
-    definitions_clause: str | None = None
+    definitions = requirement_quality.SectionRun(requirement_quality.is_definitions_heading, clause_number)
+    references = requirement_quality.SectionRun(requirement_quality.is_references_heading, clause_number)
     for chunk in chunks:
-        if requirement_quality.is_definitions_heading(chunk["section"]):
-            in_definitions = True
-            definitions_clause = clause_number(chunk["section"])
-        elif in_definitions:
-            section_clause = clause_number(chunk["section"])
-            under = (
-                section_clause is None if definitions_clause is None
-                else section_clause is None
-                or section_clause == definitions_clause
-                or section_clause.startswith(definitions_clause + "."))
-            if not under:
-                in_definitions = False
+        in_definitions = definitions.step(chunk["section"])
+        if references.step(chunk["section"]):
+            continue  # a list of cited documents states no obligation of its own
         if chunker.is_revision_history(chunk["section"]):
             # A record of what changed between revisions states no obligation:
             # "No CSD recommendation is required to conduct retroactive PMI
@@ -1010,6 +1001,8 @@ def extract_requirements(
             for sentence in _requirement_parts(joined_sentence):
                 if not _MANDATORY.search(sentence):
                     continue
+                if requirement_quality.is_reference_list_sentence(sentence):
+                    continue  # a references list run into one line (order 267.1)
                 if len(sentence.split()) < MIN_REQUIREMENT_WORDS:
                     # A heading or a table cell that happens to contain "shall".
                     continue
