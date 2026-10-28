@@ -76,6 +76,8 @@ def _card(card: dict) -> dict:
         "state": card["state"],
         "why": card["why"],
         "weak_source": card["weak_source"],
+        "basis": card["basis"],
+        "written_cases": card["written_cases"],
         "baseline_changed": card["baseline_changed"],
         "versions": card["versions"],
         "decided_by": card["decided_by"],

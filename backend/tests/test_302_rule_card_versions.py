@@ -233,3 +233,18 @@ def test_the_listing_counts_states_against_the_types_own_cards(conn):
     assert listing["total"] == len(listing["cards"]) == 47
     assert listing["counts"] == {"draft": 2, "tested": 44, "approved": 1, "rejected": 0}
     assert sum(listing["counts"].values()) == listing["total"]
+
+
+def test_the_card_says_what_tested_rests_on(conn):
+    """cloud-3 (#1435): a card with only generated cases checks the code path, not that its box is the right one."""
+    generated = next(
+        i
+        for i in RULES["checklists"][TYPE]["items"]
+        if i["rule"]["kind"] == "required"
+        and not rcv.rule_cards.written_cases(TYPE, i["id"])
+    )
+    card = rcv.whole(conn, TYPE, generated["id"], RULES)
+    assert card["state"] == "tested" and card["written_cases"] == 0
+    assert card["basis"] == rcv.BASIS_GENERATED
+    written = rcv.whole(conn, TYPE, TESTED_CARD, RULES)
+    assert written["written_cases"] > 0 and written["basis"] == rcv.BASIS_WRITTEN

@@ -51,6 +51,12 @@ SEVERITIES = ("critical", "major", "minor")
 _CLAUSE = re.compile(r"^(?:\d+(?:\.\d+)*|[A-Za-z]{1,5}-\d+(?:\.\d+)*)$")
 
 
+#: What "tested" rests on (cloud-3, #1435): cases built from the card itself test the code path, not that the box
+#: the card names is the right one; only a person's written cases test the rule's meaning.
+BASIS_WRITTEN = "cases written from the rule's meaning, run on the real code"
+BASIS_GENERATED = "generated cases only: they check the code path, not that the box named is the right one"
+
+
 class CardError(ValueError):
     """The decision or edit is refused; the message says why, in plain words."""
 
@@ -162,11 +168,14 @@ def state_of(card: dict, rules: dict | None = None) -> dict:
         state, why = APPROVED, ""
     else:
         state, why = TESTED, "tested, not yet approved"
+    written = sum(r["kind"] == "written" for r in ran["runs"])
     return {
         "state": state,
         "why": why,
         "runs": ran["runs"],
         "weak_source": ran["weak_source"],
+        "written_cases": written,
+        "basis": BASIS_WRITTEN if written else BASIS_GENERATED,
     }
 
 
@@ -388,6 +397,7 @@ def listing(conn, rules: dict | None = None) -> dict:
                     "why": c["why"],
                     "version": c["version"],
                     "weak_source": c["weak_source"],
+                    "written_cases": c["written_cases"],
                     "decided_by": c["decided_by"],
                     "decided_at": c["decided_at"],
                 }
