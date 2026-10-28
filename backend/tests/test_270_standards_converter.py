@@ -1234,3 +1234,59 @@ def test_a_v2_verified_row_is_read_with_its_condition(tmp_path, monkeypatch):
     assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {
         "r1": "design pressure"
     }
+
+
+# ------------------------------------------------------------------ 9. #1421: a "should" sentence is advice, never asked about
+
+
+def _with_a_recommendation():
+    std = _standard(texts=(SENTENCE,))
+    _req(
+        std,
+        "The pump should be installed on a rigid base.",
+        clause="6.9",
+        rtype="recommendation",
+    )
+    return std
+
+
+def test_the_converter_never_asks_about_a_recommendation_and_counts_it(tmp_path):
+    std = _with_a_recommendation()
+    asked = []
+    fake = Fake(lambda text: asked.append(text) or GOOD)
+    with db.connect() as conn:
+        result = standards_converter.convert(conn, std, "SAES-G-005", PUMP, fake)
+    assert len(result.rows) == 1 and result.recommendations_skipped == 1
+    assert all("rigid base" not in text for text in asked)
+    assert all("rigid base" not in p.prompt for p in fake.packets) and fake.packets
+    assert (
+        result.counts()["requirements"] == 1
+    )  # advice is not a rule the converter converted
+    files = standards_converter.write(result, tmp_path / "mirror", form_sha=SHA)
+    body = json.loads(files["json"].read_text())
+    assert body["recommendations_not_asked"] == 1 and len(body["entries"]) == 1
+
+
+def test_a_recommendation_can_never_become_a_verified_check(tmp_path):
+    """Even a model that would give a field, a limit and a proving quote to advice is never asked."""
+    std = _standard("SAES-K-503")
+    _req(
+        std,
+        "The casing design pressure should not exceed 25 bar.",
+        clause="6.1",
+        rtype="recommendation",
+    )
+    with db.connect() as conn:
+        result = standards_converter.convert(
+            conn, std, "SAES-K-503", PUMP, Fake(lambda text: GOOD)
+        )
+    assert result.rows == [] and result.recommendations_skipped == 1
+    assert result.counts()["verified"] == 0
+
+
+def test_the_dry_run_counts_exclude_recommendations(tmp_path):
+    _with_a_recommendation()
+    out = convert_standards.run(
+        tmp_path / "convert.sqlite", PUMP, ["SAES-G-005"], None, None, dry_run=True
+    )
+    assert out["results"] == [{"standard": "SAES-G-005", "requirements": 1, "calls": 1}]

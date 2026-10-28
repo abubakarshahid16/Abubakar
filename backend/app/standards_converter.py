@@ -70,6 +70,9 @@ LANE_CLAUDE, LANE_LOCAL = "claude", "local"
 LANES = (LANE_LOCAL, LANE_CLAUDE)
 PROMPT_VERSION = "o286-convert-v2"
 STATUS = "draft"
+#: #1421's requirement_type for a "should" sentence (advice, no limit). The converter never asks about one:
+#: a recommendation is not a requirement, so it must not become a "verified check" or be counted as one.
+RECOMMENDATION = "recommendation"
 #: Requirements per call.
 BATCH = 12
 #: Characters of a clause the model reads (and the quote is verified against).
@@ -257,10 +260,20 @@ def requirements_of(conn, document_id: str) -> list[dict]:
         for r in conn.execute(
             "SELECT id, standard_document_id, clause, requirement_type, requirement_text, raw_value, raw_unit,"
             " unit FROM standard_requirements WHERE standard_document_id = ? AND superseded_at IS NULL"
-            " AND requirement_text IS NOT NULL AND TRIM(requirement_text) <> '' ORDER BY id",
-            (document_id,),
+            " AND requirement_text IS NOT NULL AND TRIM(requirement_text) <> ''"
+            " AND COALESCE(requirement_type, '') <> ? ORDER BY id",
+            (document_id, RECOMMENDATION),
         )
     ]
+
+
+def recommendations_skipped(conn, document_id: str) -> int:
+    """How many recommendation rows of the standard the converter did not ask about (counted, never hidden)."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM standard_requirements WHERE standard_document_id = ? AND superseded_at IS NULL"
+        " AND requirement_type = ?",
+        (document_id, RECOMMENDATION),
+    ).fetchone()[0]
 
 
 def _text(row: dict) -> str:
@@ -476,6 +489,8 @@ class Result:
     usd: float = 0.0
     calls: int = 0
     unreadable_batches: int = 0
+    #: Recommendation rows ("should" sentences) of the standard that were not asked about.
+    recommendations_skipped: int = 0
 
     def counts(self) -> dict[str, int]:
         out = {
@@ -588,6 +603,7 @@ def convert(
         equipment_type,
         lane=lane,
         model=getattr(provider, "requested_model", None),
+        recommendations_skipped=recommendations_skipped(conn, document_id),
     )
     before = claude_spend.spent(step) if claude else 0.0
     size, why_not = batch or BATCH, None
@@ -709,6 +725,7 @@ def write(
         else (f"refused: {result.refused}" if result.refused else "complete"),
         "usd_spent": result.usd,
         "calls": result.calls,
+        "recommendations_not_asked": result.recommendations_skipped,
         "counts": result.counts(),
         "entries": result.rows,
     }
