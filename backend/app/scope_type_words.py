@@ -27,7 +27,7 @@ FUNCTION_WORDS = frozenset(
 #: The note on a requirement of a standard's title block whose scope was not confirmed.
 SCOPE_NOT_CONFIRMED = (
     "the standard's own scope sentence could not be tied to this equipment "
-    "(the model was unsure or did not answer); the clause is compared as usual"
+    "(the model was unsure or did not answer); the engineer must judge whether this clause applies"
 )
 
 
