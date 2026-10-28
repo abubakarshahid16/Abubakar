@@ -183,9 +183,9 @@ def reviewed_names(
     if files is None:
         # order 270.3: the converter's drafts (verified, applies "yes"), only when the switch names a folder.
         # The reviewed file above wins where both name the same rule.
-        from . import standards_converter
+        from . import converter_review
 
-        for file_type, entry in standards_converter.reviewed_entries():
+        for file_type, entry in converter_review.reviewed_entries():
             if same_type(file_type, equipment_type):
                 by_hash.setdefault(entry["text_sha256"], (file_type, entry["field"]))
     out: dict[str, str] = {}

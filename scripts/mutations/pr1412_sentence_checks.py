@@ -1,5 +1,5 @@
 """Order 274.1 (PR 1412): the review reads the standards converter's SENTENCE checks. The hook in `comparison.py`
-(danger zone) and the gates of `standards_converter.converter_rules` decide which sentence a review compares with an
+(danger zone) and the gates of `converter_review.converter_rules` decide which sentence a review compares with an
 AI-proven check, so each gets an entry. Ids M1412-01 onwards, phase 1412."""
 
 from __future__ import annotations
@@ -24,14 +24,14 @@ def _m(n, description, path, anchor, replacement, keyword):
     )
 
 
-_C = APP / "standards_converter.py"
+_C = APP / "converter_review.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "01",
         "the review no longer asks for the converter's rules (nor the drafts): no sentence is compared through a check",
         APP / "comparison.py",
-        "        auto_rules = standards_converter.rules_with_drafts(\n"
+        "        auto_rules = converter_review.rules_with_drafts(\n"
         "            standard_id, submittal_id, allowed_document_ids\n"
         "        )",
         "        auto_rules = {}",
@@ -81,9 +81,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "07",
         "code does not check the row again against the stored sentence: the file's word stands",
         _C,
-        "        limit = ai_requirements.limit_from_draft(\n"
-        '            draft, row["source_text"] or row["requirement_text"] or ""\n'
-        "        )\n",
+        "        limit = ai_requirements.limit_from_draft(draft, sentence)\n",
         "        limit = {\n"
         '            "operator": draft["operator"],\n'
         '            "raw_value": draft["value"],\n'
@@ -133,5 +131,19 @@ MUTATIONS: tuple[Mutation, ...] = (
         '                and e.get("applies") == "yes"\n                and e.get("field")\n',
         '                and e.get("applies") in ("yes", "depends")\n                and e.get("field")\n',
         "verified_yes_row",
+    ),
+    _m(
+        "11",
+        "a scope written after the limit is read as an unconditional limit by the review",
+        _C,
+        "    if not standards_converter.limit_closes_sentence(\n"
+        "        sentence,\n"
+        '        entry.get("quote") or "",\n'
+        '        entry.get("limit") or "",\n'
+        '        entry.get("unit") or "",\n'
+        "    ):\n"
+        "        return None\n",
+        "",
+        "scope_written_after_the_limit",
     ),
 )

@@ -19,6 +19,7 @@ from app import (
 from app import (
     claude_spend,
     comparison,
+    converter_review,
     datasheets,
     rule_trust,
     standards_converter,
@@ -92,7 +93,7 @@ def _on(cworld, monkeypatch, *, dir_set=True, auto=True):
 
 
 def _rules(cworld, equipment_type=PSV, scope=None):
-    return standards_converter.converter_rules(
+    return converter_review.converter_rules(
         SPEC, equipment_type, allowed_document_ids=scope or cworld["scope"]
     )
 
@@ -230,6 +231,41 @@ def test_a_sentence_that_holds_only_under_a_condition_is_refused_by_code(
     cworld["folder"] = _mirror(tmp_path / "cond", [_row(conditional)])
     _on(cworld, monkeypatch)
     assert _rules(cworld) == {}
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        " for services other than sour service.",
+        " for pumps of the vertical type.",
+        " when the pump runs at rated flow.",
+    ],
+)
+def test_a_scope_written_after_the_limit_is_refused_by_the_review_even_in_an_old_file(
+    cworld, monkeypatch, tmp_path, tail
+):
+    """s3 on #1412: `ai_requirements.limit_from_draft` accepts the first two as an unconditional limit (it reads
+    leading conditions); a file made before the converter's own gate, or edited by hand, must not carry one in."""
+    sentence = f"The design pressure shall not exceed 16 barg{tail}"
+    _set_sentence(cworld["stmt"], sentence)
+    cworld["folder"] = _mirror(tmp_path / "scope", [_row(sentence)])
+    _on(cworld, monkeypatch)
+    assert _rules(cworld) == {}
+
+
+@pytest.mark.parametrize(
+    "tail", [".", " at the discharge flange.", " measured at the inlet.", " (232 psi)."]
+)
+def test_a_location_or_a_bracketed_conversion_after_the_limit_is_kept(
+    cworld, monkeypatch, tmp_path, tail
+):
+    """A location is not a case: said here so nobody tightens it by accident (it would send most clauses to
+    the engineer)."""
+    sentence = f"The design pressure shall not exceed 16 barg{tail}"
+    _set_sentence(cworld["stmt"], sentence)
+    cworld["folder"] = _mirror(tmp_path / "loc", [_row(sentence)])
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
 
 
 def test_an_operator_that_points_the_other_way_is_refused_by_code(
