@@ -1,4 +1,4 @@
-"""Order 228.4: a row with no datasheet page says "Not found on pages 1-N", with the field and
+"""Order 228.4: a row with no datasheet page says "Not read from the datasheet (N pages)", with the field and
 at most three tags, instead of the field and every tag of its group (300+ characters).
 Invented documents only."""
 
@@ -80,11 +80,11 @@ def test_a_row_with_a_page_prints_exactly_what_it_printed_before():
     )
 
 
-def test_a_value_that_was_read_but_has_no_page_is_never_called_not_found():
+def test_a_value_that_was_read_but_has_no_page_is_never_called_not_read():
     doc = _sheet(5)
     group = [_finding(doc, "V-2001", fact_id="f1")]
     cell = crs_mapping._page_section(group)
-    assert "Not found" not in cell and "Rated capacity" in cell
+    assert "Not read" not in cell and "Rated capacity" in cell
 
 
 def test_the_count_is_the_documents_size_never_a_claim_that_its_pages_were_searched():
