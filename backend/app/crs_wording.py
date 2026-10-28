@@ -75,6 +75,10 @@ TRUNCATED, UNKNOWN = output_limits.TRUNCATED, output_limits.UNKNOWN
 NUMBER_CHANGED, UNIT_CHANGED = "number_not_in_template", "unit_not_in_template"
 CLAUSE_DROPPED, STANDARD_CHANGED = "clause_dropped", "standard_changed"
 CLAIM_ADDED, STATUS_REVERSED = "claim_not_in_template", "status_reversed"
+#: Order 308: the rewrite says a value is absent ("missing from the datasheet")
+#: and the template does not. "No field was read" is the reader's gap, not
+#: proof the sheet omits it, so the machine's wording may not harden it.
+ABSENCE_ADDED = "absence_not_in_template"
 
 #: Conformance words a breach or an open question may never carry (the
 #: deleted claude_crs_comments gate, #450 / #648).
@@ -84,6 +88,26 @@ _CONFORMANCE = ("complies", "comply with", "is compliant", "are compliant", "con
 _NEGATED = ("not acceptable", "is not acceptable", "does not comply", "not compliant",
             "non compliant", "non-compliant", "not in accordance", "does not conform",
             "not adequate", "does not meet", "not satisfy", "unacceptable")
+
+#: Phrases that claim the datasheet lacks a value. Used only to refuse a
+#: rewrite that adds one the template did not say.
+_ABSENCE = (
+    "missing from",
+    "is missing",
+    "are missing",
+    "not provided",
+    "not supplied",
+    "not included",
+    "not stated",
+    "not given",
+    "omitted",
+    "is absent",
+    "absent from",
+    "does not state",
+    "does not give",
+    "does not include",
+    "does not provide",
+)
 
 _VOCABULARY_PATH = Path(__file__).parent / "reference" / "crs_comment_vocabulary.json"
 _WORD = re.compile(r"[a-z]{4,}")
@@ -206,6 +230,12 @@ def lock(ai_text: str, row: dict) -> str | None:
             return CLAIM_ADDED
     if _reversed(str(row.get("row_kind") or ""), text):
         return STATUS_REVERSED
+    said_text, said_template = _fold(text), _fold(template)
+    if any(
+        _contains(said_text, _fold(p)) and not _contains(said_template, _fold(p))
+        for p in _ABSENCE
+    ):
+        return ABSENCE_ADDED
     return None
 
 
