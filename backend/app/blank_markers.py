@@ -94,3 +94,15 @@ def is_marker(text: str | None) -> bool:
     an empty cell): the geometry reader's question about a cell's residue."""
     folded = " ".join((text or "").split())
     return bool(folded) and classify(folded)[0]
+
+
+def fact_is_placeholder(fact: dict) -> bool:
+    """True when the fact is marked blank, or its printed text or bare value is a
+    placeholder. With a unit the printed text is "* m3/h", which alone looks
+    like a value, so the bare value is judged too."""
+    if fact.get("is_blank"):
+        return True
+    return any(
+        v and classify(str(v))[0]
+        for v in (fact.get("field_value"), fact.get("raw_value"))
+    )
