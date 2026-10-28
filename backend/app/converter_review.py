@@ -47,12 +47,8 @@ def reviewed_entries(files: list[Path] | None = None) -> list[tuple[str, dict]]:
         for e in data.get("entries", []):
             if (
                 e.get("status") == "verified"
-                and (
-                    e.get("applies") == "yes"
-                    # v2 (order 286.1): the converter no longer judges applicability, so a verified row has
-                    # none; a conditional one is never read as an unconditional check
-                    or (e.get("applies") is None and not e.get("condition"))
-                )
+                # v2 (order 286.1): the converter no longer judges applicability, so a verified row has none
+                and e.get("applies") in ("yes", None)
                 and e.get("field")
                 and e.get("text_sha256")
             ):
@@ -162,17 +158,21 @@ def _rule_from(row, digest: str, file_type: str, entry: dict) -> dict | None:
         "operator": entry.get("comparator"),
         "value": entry.get("limit"),
         "unit": entry.get("unit") or None,
-        "condition": None,
+        "condition": entry.get("condition") or None,
         "quote": entry.get("quote"),
     }
     sentence = row["source_text"] or row["requirement_text"] or ""
-    # A scope AFTER the limit ("... 25 bar for services other than sour service") is not caught by
-    # `limit_from_draft`, which reads leading conditions (s3, #1412): it must close the sentence.
-    if not standards_converter.limit_closes_sentence(
+    # A scope AFTER the limit ("... 25 bar for gas service") is not caught by `limit_from_draft`, which reads
+    # leading conditions (s3, #1412): it must be the row's stored condition (order 289.2, which the review's own
+    # condition gate then settles from the sheet, or leaves to the engineer), else the row is refused.
+    scope = standards_converter.limit_scope(
         sentence,
         entry.get("quote") or "",
         entry.get("limit") or "",
         entry.get("unit") or "",
+    )
+    if scope is None or (
+        scope and standards_converter._fold(entry.get("condition")) != scope
     ):
         return None
     try:
