@@ -59,7 +59,9 @@ def test_a_standard_whose_name_is_not_a_known_family_is_never_called_not_cited()
 
 def test_a_row_standing_on_one_cited_standard_among_others_is_not_labelled():
     group = [
-        finding("f1", "SAES-G-005.pdf", crs_is_blank=True, status="MISSING_INFORMATION"),
+        finding(
+            "f1", "SAES-G-005.pdf", crs_is_blank=True, status="MISSING_INFORMATION"
+        ),
         finding("f2", "API 610.pdf", crs_is_blank=True, status="MISSING_INFORMATION"),
     ]
     rows = rows_for(group, {"cited": ["API 610"]})
@@ -70,15 +72,21 @@ def test_a_row_standing_on_one_cited_standard_among_others_is_not_labelled():
 
 def test_a_row_standing_only_on_uncited_standards_is_labelled_whatever_their_number():
     group = [
-        finding("f1", "SAES-G-005.pdf", crs_is_blank=True, status="MISSING_INFORMATION"),
-        finding("f2", "SAES-G-006.pdf", crs_is_blank=True, status="MISSING_INFORMATION"),
+        finding(
+            "f1", "SAES-G-005.pdf", crs_is_blank=True, status="MISSING_INFORMATION"
+        ),
+        finding(
+            "f2", "SAES-G-006.pdf", crs_is_blank=True, status="MISSING_INFORMATION"
+        ),
     ]
     [row] = rows_for(group, {"cited": ["API 610"]})
     assert len(row["finding_ids"]) == 2 and row["standard_cited"] is False
 
 
 def test_an_engineers_own_wording_is_kept_without_the_label_but_the_row_is_marked():
-    f = finding("f1", "SAES-G-005.pdf", engineer_comment="Please confirm the design pressure.")
+    f = finding(
+        "f1", "SAES-G-005.pdf", engineer_comment="Please confirm the design pressure."
+    )
     [row] = rows_for([f], {"cited": ["API 610"]})
     assert row["comment"] == "Please confirm the design pressure."
     assert row["standard_cited"] is False
@@ -91,11 +99,16 @@ def test_a_datasheet_check_names_its_own_source_and_is_not_labelled():
 
 
 def test_mark_counts_the_rows_it_labelled_marks_once_and_numbering_does_not_move():
-    fs = [finding("f1", "SAES-G-005.pdf"), finding("f2", "API 610.pdf", crs_field_label="TEMP")]
+    fs = [
+        finding("f1", "SAES-G-005.pdf"),
+        finding("f2", "API 610.pdf", crs_field_label="TEMP"),
+    ]
     check = {"cited": ["API 610"]}
     plain = rows_for(fs, None)
     rows = rows_for(fs, check)
     assert {r["comment_key"] for r in rows} == {r["comment_key"] for r in plain}
-    assert crs_cited.mark(rows, fs, check) == 0  # already marked by build_crs_rows: never twice
+    assert (
+        crs_cited.mark(rows, fs, check) == 0
+    )  # already marked by build_crs_rows: never twice
     assert sum(r["comment"].count(crs_cited.LABEL) for r in rows) == 1
     assert crs_cited.mark(plain, fs, check) == 1
