@@ -1,0 +1,18 @@
+{
+  "_about": "Order 264b: quantities that are dimensionless BY NATURE (a ratio, an efficiency, a count). A numeric condition on one of these (\"specific gravity below 0.5\") is decided against a submitted number with no unit only when the submitted field is NAMED by the same phrase: the whole phrase, never one shared word. A quantity not listed here (a pressure, a temperature, a size) keeps needing a unit. DRAFT: a client discipline engineer approves the list before it is relied on.",
+  "sign_off": {
+    "status": "draft",
+    "by": null,
+    "date": null
+  },
+  "phrases": [
+    "specific gravity",
+    "relative density",
+    "joint efficiency",
+    "specific heat ratio",
+    "compressibility factor",
+    "safety factor",
+    "service factor",
+    "number of"
+  ]
+}

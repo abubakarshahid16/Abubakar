@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import re
 
-from . import claims, condition_choice, condition_stated, field_links
+from . import claims, condition_bare, condition_choice, condition_stated, field_links
 
 #: The condition is established and holds — the comparison may proceed.
 SATISFIED = "SATISFIED"
@@ -361,9 +361,7 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
                        "the threshold could not be parsed")
     unit = (match.group("unit") or "").strip()
     if not unit:
-        return _result(UNKNOWN, SHAPE_NUMERIC, condition,
-                       "the threshold carries no unit, so nothing can be "
-                       "compared against it without guessing one")
+        return condition_bare.evaluate(condition, match, facts)
     operator = claims.parse_comparator(match.group("cmp"))
     if not operator:
         return _result(UNKNOWN, SHAPE_NUMERIC, condition,
@@ -378,12 +376,7 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
                        f"the threshold unit {unit!r} is not in the unit table")
 
     # The subject words of the condition, used to find a fact that speaks to it.
-    subject_words = [w for w in _WORD.findall(_fold(condition))
-                     if len(w) > 3 and not w.replace(".", "").isdigit()
-                     and w not in {"than", "less", "more", "over", "under",
-                                   "with", "least", "most", "equal", "greater",
-                                   "exceeding", "exceeds", "exceed", "above",
-                                   "below"}]
+    subject_words = condition_bare.subject_words(condition)
     for fact in facts:
         if _is_empty(fact.get("field_value")):
             continue

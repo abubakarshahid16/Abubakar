@@ -2745,20 +2745,18 @@ def _run_comparison(
                 # length against a pressure is not a breach and not a pass - it is
                 # a question for a person, and the finding carries both raw units
                 # so they can see what was compared with what.
-                # `same_unit` compares MEASUREMENTS, and it compares the raw
-                # spellings rather than the normalised ones on purpose - `dB(A)`
-                # and `dB` are different units. The base unit is passed as the raw
-                # spelling here so that a gauge pressure and a plain one still meet
-                # (`bar` both sides); the gauge reference itself is carried on the
-                # fact and is a separate question from whether the units match.
-                # THE RAW SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit`
-                # holds the NORMALISED unit, which is NULL for every unit the table
-                # recognises but does not convert - dB(A) among them - so comparing
-                # those columns reported a unit mismatch between two dB(A) values.
-                # `same_unit` is a comparison of spellings and wants the spellings.
+                # `same_unit` compares the RAW SPELLINGS, a gauge reference stripped, on purpose:
+                # `dB(A)` and `dB` are different units, and `unit` is NULL for every unit the
+                # table recognises but does not convert. The gauge reference itself is carried
+                # on the fact and is a separate question from whether the units match.
+                # TWO NUMBERS WITH NO UNIT AT ALL are not a unit mismatch (order 264b): `_compare`
+                # has already said what they are ("neither states a unit"), and this keeps it.
                 requirement_unit = _unit_measure(requirement)
                 fact_unit = _unit_measure(fact)
-                if not _units_comparable(requirement, fact, requirement_unit, fact_unit):
+                bare = not requirement_unit.raw_unit and not fact_unit.raw_unit
+                if not bare and not _units_comparable(
+                    requirement, fact, requirement_unit, fact_unit
+                ):
                     verdict = {
                         **verdict,
                         "status": NEEDS_ENGINEER_REVIEW,
