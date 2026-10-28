@@ -59,7 +59,8 @@ def evaluate(facts: list[dict], classification: dict, page_texts: dict) -> list[
     from .db import connect
 
     rules = datasheet_checks.load_rules()
-    if settings.rule_cards_approval_enabled:  # order 302.4 c: an engineer's edit is the check in force
+    # order 302.4 c: an engineer's edit is the check in force
+    if settings.rule_cards_approval_enabled:
         rules = rule_card_versions.in_force(connect(), rules)
     if review_type(classification) is None:
         rules = {**rules, "checklists": {}}

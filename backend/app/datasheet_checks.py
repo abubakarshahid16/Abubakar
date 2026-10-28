@@ -1148,11 +1148,10 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     `label` (rule_trust, #947; None with the switch off): applied to each
     result AFTER the choice of which results become rows, so a held pass
     does not turn into a row a plain pass never was."""
-    from . import comparison, degraded_read, standard_clause_page
+    from . import card_trust, comparison, degraded_read, standard_clause_page
     from . import review as review_mod
     written = []
-    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete and
-    # not written again beside it (audit 2026-09-30): same rule, field, tag, value.
+    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete, not written again (audit 2026-09-30).
     fold = lambda v: " ".join(str(v or "").lower().split())  # noqa: E731
     rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
                  fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
@@ -1207,8 +1206,9 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
             "trust_label": r.get("trust_label"), "tier": r.get("tier"),
             "show_for_engineer_tick": (int(bool(r["show_for_engineer_tick"]))
                                        if "trust_label" in r else None),
-            "rule_said": r.get("rule_said"), "trust_by": r.get("trust_by"),
+            "rule_said": r.get("rule_said"),
         }, created_by=None)
+        card_trust.remember(finding, r)
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})
     standard_clause_page.attach(review_run_id, written)
