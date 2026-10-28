@@ -49,4 +49,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="missing_on_every_tag",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1449-05",
+        phase=1449,
+        description="the mandatory-field check's MISSING result is rewritten as well as a checklist row",
+        path=APP / "read_elsewhere.py",
+        anchor='            pages\n            and r.get("checklist")\n            and r["status"] == MISSING',
+        replacement='            pages\n            and r["status"] == MISSING',
+        target=TARGET,
+        keyword="not_a_checklist_item",
+        tags=("honesty",),
+    ),
 )
