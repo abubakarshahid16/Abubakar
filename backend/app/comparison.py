@@ -2361,8 +2361,7 @@ def _run_comparison(
     # #677 THE SCOPE LEDGER: every requirement of every applicable standard
     # (`in_scope_all`) ends in exactly one decision with a stored reason,
     # built from the SAME items #678's counts are built from - one source.
-    from . import ai_requirements as ai_requirements_mod
-    from . import scope_ledger
+    from . import converter_review, scope_ledger
     in_scope_all: list[dict] = []
     extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
     for standard_id in standard_ids:
@@ -2377,12 +2376,11 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
-        # OWNER DECISION (rule_trust, #947 steps 3-6), SWITCH OFF BY DEFAULT: a
-        # clause sentence with an undecided AI-compiled check is compared
-        # through that check, in the sentence's own place (same id). Empty
-        # with the switch off, so nothing below changes.
-        auto_rules = ai_requirements_mod.auto_use_rules(
-            standard_id, allowed_document_ids=allowed_document_ids)
+        # OWNER DECISION (rule_trust, #947), SWITCH OFF BY DEFAULT: a clause sentence with an
+        # AI-compiled check (a draft, else the converter's, order 274.1) is compared through it.
+        auto_rules = converter_review.rules_with_drafts(
+            standard_id, submittal_id, allowed_document_ids
+        )
         for r in loaded:
             if r["id"] in auto_rules:
                 r = {**r, **auto_rules[r["id"]]}

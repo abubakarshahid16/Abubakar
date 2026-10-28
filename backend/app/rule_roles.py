@@ -196,9 +196,9 @@ def reviewed_names(
     if files is None:
         # order 270.3: the converter's drafts (verified, applies "yes"), only when the switch names a folder.
         # They join the same rows: a draft and a reviewed file that disagree are used by neither (s3 on #1406).
-        from . import standards_converter
+        from . import converter_review
 
-        for file_type, entry in standards_converter.reviewed_entries():
+        for file_type, entry in converter_review.reviewed_entries():
             if same_type(file_type, equipment_type):
                 rows.setdefault(entry["text_sha256"], []).append(
                     (file_type, entry["field"])
