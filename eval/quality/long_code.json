@@ -16,7 +16,7 @@
   "backend/app/claude_datasheet.py": 897,
   "backend/app/comparison.py": 4504,
   "backend/app/conditions.py": 1007,
-  "backend/app/config.py": 1556,
+  "backend/app/config.py": 1555,
   "backend/app/crs_mapping.py": 1668,
   "backend/app/datasheet_ai.py": 1087,
   "backend/app/datasheet_checks.py": 1215,
