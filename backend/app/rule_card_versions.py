@@ -76,7 +76,12 @@ def content_hash(item: dict) -> str:
     ).hexdigest()
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn=None) -> None:
+    """Create the table (a write). Reads never call it: `_rows` asks `sqlite_master` first."""
+    if conn is None:
+        from .db import connect
+
+        conn = connect()
     conn.execute(
         """CREATE TABLE IF NOT EXISTS rule_card_versions (
                id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +110,10 @@ def _baseline(equipment_type: str, card_id: str, rules: dict) -> dict:
 
 
 def _rows(conn, equipment_type: str, card_id: str) -> list:
-    ensure_schema(conn)
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'rule_card_versions'"
+    ).fetchone():
+        return []  # nobody has decided or edited anything yet: a read creates nothing
     return conn.execute(
         "SELECT * FROM rule_card_versions WHERE equipment_type = ? AND card_id = ? ORDER BY version",
         (equipment_type, card_id),
@@ -204,6 +212,7 @@ def _write_decision(conn, card: dict, decision: str, actor: str, counts: dict) -
     base = content_hash(
         _baseline(card["equipment_type"], card["card_id"], dc.load_rules())
     )
+    ensure_schema(conn)
     with conn:
         conn.execute(
             "INSERT OR IGNORE INTO rule_card_versions (equipment_type, card_id, version, content, content_hash,"
@@ -343,6 +352,7 @@ def edit(
     new = apply_changes(card["item"], changes, rules)
     base = content_hash(_baseline(equipment_type, card_id, rules))
     now = _now()
+    ensure_schema(conn)
     with conn:
         if not _rows(conn, equipment_type, card_id):
             conn.execute(
