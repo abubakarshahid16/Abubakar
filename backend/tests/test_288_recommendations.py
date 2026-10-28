@@ -310,3 +310,53 @@ def test_with_the_switch_off_a_recommendation_of_a_named_standard_raises_nothing
     out = _outcome(run)
     assert out["requirements_held_back"]["recommendation"] == 1
     assert _reasons(out["requirement_split"]).get(recommendations.REASON) is None
+
+
+def _numbers_of_the_run(monkeypatch, tmp_path, switch):
+    from app import submittal_review
+    from app.config import settings
+    from tests.test_field_naming import _world
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "rec.sqlite")
+    db.reset_connection()
+    db.init_db()
+    submittal_review.ensure_schema()
+    submittal_review.migrate_facts_to_per_document()
+    monkeypatch.setattr(settings, "recommendation_queries_enabled", switch)
+    _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
+    for n in range(3):
+        _add_advice(
+            "std-1",
+            "sc",
+            f"6.6.{n}",
+            text=f"The vent {n} should be 2 m above the platform edge.",
+        )
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    out = _outcome(run)
+    queries = (
+        db.connect()
+        .execute(
+            "SELECT COUNT(*) FROM review_findings WHERE review_run_id = ? AND ai_rationale LIKE 'Query: recommended by%'",
+            (run,),
+        )
+        .fetchone()[0]
+    )
+    return {
+        "counts": out["unchecked_counts"],
+        "share": out["requirement_split"]["unchecked_share"],
+        "code": out["recommended_code"],
+        "applicable": out["clause_coverage"]["applicable"],
+    }, queries
+
+
+def test_the_headline_numbers_and_the_recommended_code_are_the_same_with_the_queries_on_or_off(
+    monkeypatch, tmp_path
+):
+    """cloud-2 on #1425: advice must not move the unchecked share, the count the 'manual review' rule reads,
+    the clause-coverage denominator or the run's recommended code."""
+    off, off_queries = _numbers_of_the_run(monkeypatch, tmp_path / "off", False)
+    on, on_queries = _numbers_of_the_run(monkeypatch, tmp_path / "on", True)
+    assert (off_queries, on_queries) == (0, 3)  # the queries are really there
+    assert on == off
+    db.reset_connection()

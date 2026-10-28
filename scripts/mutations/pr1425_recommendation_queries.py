@@ -97,4 +97,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    applicable = sum(counts[s] for s in STATES) + queries\n",
         "is_raised_as_a_query",
     ),
+    _m(
+        10,
+        "recommendation queries move the unchecked share and the run's code (the whole-review check)",
+        APP / "requirement_split.py",
+        '        if item.get("code") == recommendations.CODE:\n            queries.add(requirement_key(item["requirement"]))\n            continue\n',
+        "",
+        "headline_numbers",
+    ),
 )
