@@ -31,6 +31,17 @@ type Load =
   | { state: "error"; error: ApiError }
   | { state: "ready"; listing: RuleCardListing };
 
+/** Only the groups that are really a list of cards: an answer of another shape shows no group, never a crash. */
+function usable(data: unknown): RuleCardListing {
+  const out: RuleCardListing = {};
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    for (const [type, group] of Object.entries(data as Record<string, RuleCardListing[string]>)) {
+      if (group && Array.isArray(group.cards) && group.counts) out[type] = group;
+    }
+  }
+  return out;
+}
+
 /** The rule in plain words, from the card's own fields. */
 export function describeRule(rule: RuleCard["item"]["rule"]): string {
   const name = (key: string) => String(rule[key] ?? "").replace(/_/g, " ");
@@ -211,7 +222,7 @@ export function RuleCards() {
 
   const refresh = useCallback(async () => {
     const result = await api.ruleCards();
-    if (result.ok) setLoad({ state: "ready", listing: result.data });
+    if (result.ok) setLoad({ state: "ready", listing: usable(result.data) });
     else setLoad({ state: "error", error: result.error });
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);

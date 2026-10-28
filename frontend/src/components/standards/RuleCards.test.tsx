@@ -62,6 +62,14 @@ describe("RuleCards", () => {
     expect(group).toHaveTextContent("PSV-24: The set pressure is at most the MAWP.");
   });
 
+  it("shows no group, and does not crash, for an answer of another shape", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify([{ id: "x" }]),
+      { status: 200, headers: { "Content-Type": "application/json" } })));
+    render(<RuleCards />);
+    expect(await screen.findByRole("heading", { name: /Rule cards/ })).toBeInTheDocument();
+    expect(screen.queryByTestId(/rule-card-group-/)).toBeNull();
+  });
+
   it("filters by state", async () => {
     mock();
     render(<RuleCards />);
