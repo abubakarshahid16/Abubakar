@@ -188,3 +188,17 @@ def test_the_names_checker_reports_a_name_two_boxes_claim_as_several(monkeypatch
         "several_boxes": 1,
         "no_box_with_unit_family": 0,
     }
+
+
+def test_constant_and_variable_superimposed_back_pressure_are_boxes_that_verify_a_pressure_limit():
+    for kind in ("constant", "variable"):
+        sentence = f"The {kind} superimposed back pressure shall not exceed 5 bar."
+        status, reason, check = _verdict(
+            sentence,
+            f"{kind} superimposed back pressure shall not exceed 5 bar",
+            "5",
+            "bar",
+            f"{kind} superimposed back pressure",
+        )
+        assert (status, reason) == ("verified", None)
+        assert check.field == f"{kind}_superimposed_back_pressure"
