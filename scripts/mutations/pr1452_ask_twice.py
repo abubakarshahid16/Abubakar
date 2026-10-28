@@ -89,4 +89,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="review_refuses_a_verified_row",
         tags=_TAG,
     ),
+    Mutation(
+        id="M1452-08",
+        phase=1452,
+        description="a one-word condition agrees with anything that contains it",
+        path=_S,
+        anchor="(short in long_ and len(short.split()) >= 2)",
+        replacement="(short in long_)",
+        target=_T,
+        keyword="one_word_condition_does_not_agree",
+        tags=_TAG,
+    ),
 )

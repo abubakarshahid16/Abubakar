@@ -242,3 +242,24 @@ def test_the_file_says_the_second_question_was_asked(tmp_path):
     body = json.loads(paths["json"].read_text(encoding="utf-8"))
     assert body["ask_twice"] == converter_second.PROMPT_VERSION
     assert body["entries"][0]["asked_twice"] is True
+
+
+def test_a_one_word_condition_does_not_agree_with_anything_that_contains_it():
+    """cloud-2 and cloud-3 on #1452: "in" against "in installations of type A" must not agree."""
+    assert converter_second._same_words("in", "in installations of type A") is False
+    assert (
+        converter_second._same_words(
+            "for gas service", "for gas service in installations"
+        )
+        is True
+    )
+    assert converter_second._same_words("type A", "for gas service") is False
+    assert converter_second._same_words("for sour service", "FOR  sour service") is True
+
+
+def test_a_second_answer_that_only_shares_one_word_with_the_first_is_a_disagreement():
+    inside = second(False, "in", "in")
+    row = _run(
+        [HIDDEN], Scripted(inside, first_for=first("for pumps in sour service"))
+    ).rows[0]
+    assert (row["status"], row["reason"]) == ("unproven", converter_second.DISAGREES)

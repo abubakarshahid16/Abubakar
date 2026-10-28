@@ -89,7 +89,9 @@ def packet(pairs: list[tuple[dict, dict]], equipment_type: str, step: str):
 
 def _same_words(first: str, second: str) -> bool:
     a, b = fold(first), fold(second)
-    return bool(a and b) and (a == b or a in b or b in a)
+    short, long_ = sorted((a, b), key=len)
+    # one condition inside the other agrees only when the shorter says something: two words or more
+    return bool(a and b) and (a == b or (short in long_ and len(short.split()) >= 2))
 
 
 def judge(
