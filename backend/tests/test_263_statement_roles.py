@@ -627,3 +627,28 @@ def test_the_shape_is_the_field_as_subject_a_modal_then_the_value_ending_the_rul
 ):
     name = field_quote
     assert statement_roles.value_fits(text, field_quote, value, name) is expected
+
+
+def test_two_statement_rows_for_one_sentence_that_disagree_are_used_by_neither(
+    tmp_path,
+):
+    text = "The casing material shall be duplex stainless steel."
+    rules = [stmt(1, text)]
+
+    def entry(phrase):
+        toks = statement_roles._tokens(phrase)
+        return {
+            "kind": "statement",
+            "standard": "SAES-X-001",
+            "clause": "6.1",
+            "text_sha256": rule_roles.text_hash(text),
+            "field": "casing_material",
+            "expected_sha256": statement_roles._phrase_hash(toks),
+            "expected_words": len(toks),
+        }
+
+    a = rule_roles.export(PUMP, [entry("duplex stainless steel")], tmp_path / "a.json")
+    b = rule_roles.export(PUMP, [entry("stainless steel")], tmp_path / "b.json")
+    assert statement_roles.reviewed(rules, PUMP, [a, b]) == {}
+    assert statement_roles.reviewed(rules, PUMP, [b, a]) == {}
+    assert len(statement_roles.reviewed(rules, PUMP, [a, a])) == 1
