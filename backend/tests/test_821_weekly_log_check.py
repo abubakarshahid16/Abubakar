@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from app import db
+from app import claude_spend, db
 from app.config import settings
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "weekly_log_check.py"
@@ -148,3 +148,17 @@ def test_main_reads_the_ledger_named_on_the_command_line(env, tmp_path, capsys):
     _write(other, _call("chat", 2.0, 1))
     assert _load().main(["--ledger", str(other), "--db", str(path)]) == 0
     assert "All time: USD 2.0000" in capsys.readouterr().out
+
+
+def test_a_converter_step_is_reported_against_its_own_25_dollar_cap(env, monkeypatch):
+    """Order 271.3: `standards_convert:<standard>` steps have a USD 25 cap, so the table must not say 5.00 and
+    a step at USD 24 is at 96 % of its cap, not 480 %."""
+    ledger, path = env
+    monkeypatch.setattr(settings, "claude_budget_usd_total", 500.0)
+    monkeypatch.setattr(claude_spend, "_today", lambda: datetime(2026, 11, 15).date())
+    _write(ledger, _call("standards_convert:SAES-G-005", 24.0, 1), _call("chat", 4.9, 1))
+    out = _report(path)
+    assert "| standards_convert:SAES-G-005 | 1 | 24.0000 | 24.0000 | 25.00 |" in out
+    assert "| chat | 1 | 4.9000 | 4.9000 | 5.00 |" in out
+    assert "step at 96% of its cap: standards_convert:SAES-G-005" in out
+    assert "480%" not in out

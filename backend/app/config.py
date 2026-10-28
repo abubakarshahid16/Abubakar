@@ -1073,7 +1073,7 @@ class Settings(BaseSettings):
     #: `claude_context_tokens`; at claude-sonnet-5's USD 2 per million input
     #: tokens that is at most +USD 0.016 per Claude Tier 2 answer (typically
     #: ~+USD 0.004: 5 x 2,400 chars of prose is ~3,000 tokens against ~900).
-    #: Every call is still checked against the USD 5 per step / 20 total caps
+    #: Every call is still checked against the `claude_spend` USD caps
     #: by `claude_spend` before it leaves. Set these equal to the local values
     #: to pay nothing extra. Env: CLAUDE_CONTEXT_PASSAGES / _CHARS / _TOKENS.
     claude_context_passages: int = 5
