@@ -81,4 +81,20 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    advice = []\n",
         "is_raised_as_a_query",
     ),
+    _m(
+        8,
+        "recommendation queries count in the standard's rules 'applies, not checked' (the headline moves)",
+        APP / "requirement_split.py",
+        '        if item.get("code") == recommendations.CODE:\n            queries.add(requirement_key(item["requirement"]))\n            continue\n',
+        "",
+        "is_raised_as_a_query",
+    ),
+    _m(
+        9,
+        "recommendation queries count in the clause-coverage denominator",
+        APP / "clause_coverage.py",
+        "    applicable = sum(counts[s] for s in STATES)\n",
+        "    applicable = sum(counts[s] for s in STATES) + queries\n",
+        "is_raised_as_a_query",
+    ),
 )

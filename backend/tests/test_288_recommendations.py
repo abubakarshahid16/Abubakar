@@ -247,7 +247,19 @@ def test_a_recommendation_of_a_standard_the_sheet_names_is_raised_as_a_query_nev
         and "not a requirement" in text
     )
     split = _outcome(run)["requirement_split"]
-    assert _reasons(split).get(recommendations.REASON) == 1
+    assert (
+        split["recommendation_queries"] == 1
+    )  # outside checked / not checked / does not apply
+    assert _reasons(split).get(recommendations.REASON) is None
+    cov = _outcome(run)["clause_coverage"]
+    assert (
+        cov["counts"]["recommendation_query"] == 1
+        and "1 recommendation(s) raised as queries" in cov["line"]
+    )
+    assert (
+        cov["adds_up"] is True
+        and cov["applicable"] == split["checked"] + split["applies_not_checked"]
+    )
 
 
 def test_a_recommendation_of_a_standard_the_sheet_does_not_name_raises_nothing_and_is_counted(
