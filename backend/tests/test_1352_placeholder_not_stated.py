@@ -127,6 +127,10 @@ def test_the_mandatory_field_path_keeps_a_figure_with_a_note_as_missing():
         "THERMAL ___*___ m3/h",
         "THERMAL ___ m3/h",
         "m3/h *",
+        "Rated flow * see note 3",
+        "Rated flow * Item 2 TBA",
+        "Set pressure * per API 526",
+        "Rated flow * Class 300",
     ],
 )
 def test_a_lone_star_between_a_label_and_a_unit_is_a_placeholder(printed):
@@ -138,7 +142,17 @@ def test_a_lone_star_between_a_label_and_a_unit_is_a_placeholder(printed):
     )
 
 
-@pytest.mark.parametrize("printed", ["10 barg *", "Pump 2*4 inline", "5* stage"])
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "10 barg *",
+        "Pump 2*4 inline",
+        "5* stage",
+        "RATED FLOW * 24.8 m3/h",
+        "Set pressure * 10 barg",
+        "Head 78 m *",
+    ],
+)
 def test_a_star_that_is_not_standing_alone_or_follows_a_figure_is_not_a_placeholder(
     printed,
 ):
