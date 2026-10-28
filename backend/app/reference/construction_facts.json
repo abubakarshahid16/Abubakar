@@ -1,5 +1,5 @@
 {
-  "_about": "Order 264.8: which datasheet fact SETTLES that a standard's Part (a division whose own scope limits it to one construction) applies to this equipment. A family is named by the words a Part's scope uses for it (every word of one `scope_words` entry is in the Part's construction phrase) and is settled by a stated fact: a fact whose label and value match one of `patterns` (and, when `roles` is not null, whose field is one of those roles; a MATERIAL family is settled by the shell or the heads only: a tube, a seal or a lining is not the vessel). Only 'applies' is ever decided from here; a Part is never excluded from here. DRAFT: a client discipline engineer approves the lists before they are relied on. No standard and no Part is named.",
+  "_about": "Order 264.8: which datasheet fact SETTLES that a standard's Part (a division whose own scope limits it to one construction) applies to this equipment. A family is named by the words a Part's scope uses for it (every word of one `scope_words` entry is in the Part's construction phrase) and is settled by a stated fact: a fact whose label and value match one of `patterns` (and, when `roles` is not null, whose field is one of those roles; only the pressure-containing parts settle a construction (the shell, the heads, the design code, the joint efficiency, the weld examination): never a tube, trim, gasket, bolting, a seal or a lining). Only 'applies' is ever decided from here; a Part is never excluded from here. DRAFT: a client discipline engineer approves the lists before they are relied on. No standard and no Part is named.",
   "sign_off": {
     "status": "draft",
     "by": null,
@@ -45,13 +45,13 @@
     {
       "name": "welded construction",
       "scope_words": [["welded"], ["weld"]],
-      "roles": null,
+      "roles": ["joint_efficiency", "radiography", "pwht", "shell_material", "head_material", "design_code"],
       "patterns": ["\\bwelded\\b", "\\bweld(?:ing)?\\b", "\\bjoint efficiency\\b"]
     },
     {
       "name": "forged construction",
       "scope_words": [["forged"], ["forging"]],
-      "roles": null,
+      "roles": ["shell_material", "head_material"],
       "patterns": ["\\bforged\\b", "\\bforging\\b"]
     }
   ]

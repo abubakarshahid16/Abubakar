@@ -6,7 +6,7 @@ sheet: 2,441 of 4,790 applicable vessel requirements waited on 27 such questions
 states the construction: a shell material, a welding note. `settle` reads the closed, DRAFT list in
 `reference/construction_facts.json`: a family is named by the words the Part's construction phrase
 uses; it is settled when a stated fact (its label and value) matches the family's patterns, in one of
-the family's fields. Only "applies" is decided here, with the fact and its page as evidence; a Part
+the family's fields. Only "applies" is decided here, with the fact and its page as evidence (a fact with no page settles nothing); a Part
 is never excluded here, and a layer on a base (cladding, a lining) never settles. Anything else
 stays with the model task and then the engineer. No standard or Part is named in code.
 """
@@ -73,8 +73,8 @@ def settle(
     for family in named:
         for fact in facts:
             value = str(fact.get("field_value") or fact.get("raw_value") or "").strip()
-            if fact.get("is_blank") or not value:
-                continue
+            if fact.get("is_blank") or not value or fact.get("page") is None:
+                continue  # no claim without a resolving page
             label = fact.get("field_label") or fact.get("field_name") or ""
             if family["roles"] is not None:
                 role = datasheet_checks.role_of(normalise_field_name(label), rules)

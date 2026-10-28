@@ -168,9 +168,8 @@ def test_a_blank_field_settles_nothing():
 )
 def test_the_words_of_the_phrase_name_the_family(phrase, family):
     facts = [
-        _fact("Shell material", "SA-516 Gr 70"),
-        _fact("Weld joint type", "double welded butt"),
-        _fact("Forging note", "forged shell"),
+        _fact("Shell material", "SA-516 Gr 70 forged shell"),
+        _fact("Joint efficiency", "0.85"),
     ]
     assert scope_construction.settle(phrase, facts)["family"] == family
 
@@ -213,3 +212,30 @@ def test_a_tube_or_a_seal_material_is_not_the_vessel():
     ]
     assert scope_construction.settle("constructed of titanium", facts) is None
     assert scope_construction.settle("carbon and low alloy steel", facts) is None
+
+
+def test_a_fact_with_no_page_settles_nothing_no_claim_without_a_resolving_page():
+    undated = {**_fact("Shell material", "SA-516 Gr 70"), "page": None}
+    assert scope_construction.settle("carbon and low alloy steel", [undated]) is None
+
+
+def test_welding_wording_in_a_tube_joint_or_a_seal_is_not_the_vessel_being_welded():
+    facts = [
+        _fact("Tube to tubesheet joint", "welded and expanded"),
+        _fact("Seal type", "welded bellows"),
+        _fact("Gasket", "spiral wound, welded ring"),
+    ]
+    assert scope_construction.settle("welded construction", facts) is None
+    assert scope_construction.settle("of forged construction", facts) is None
+
+
+def test_a_sheet_naming_a_carbon_shell_and_stainless_tubes_settles_the_carbon_part_and_never_the_stainless_one():
+    facts = [
+        _fact("Shell material", "SA-516 Gr 70", fact_id="f1"),
+        _fact("Tube material", "SA-213 TP304 stainless", fact_id="f2"),
+    ]
+    assert (
+        scope_construction.settle("carbon and low alloy steel", facts)["fact_id"]
+        == "f1"
+    )
+    assert scope_construction.settle("high alloy steel", facts) is None
