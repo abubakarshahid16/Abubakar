@@ -86,3 +86,34 @@ def test_the_folded_comparison_writes_no_row_so_the_crs_asks_once(monkeypatch):
         )
     ]
     assert len(written) == 1
+
+
+def test_a_comparison_that_is_not_missing_keeps_its_status_and_row():
+    from app import checklist_fold
+
+    checklist = {
+        "items": [
+            {"id": "X-1", "rule": {"kind": "required"}},
+            {"id": "X-2", "rule": {"kind": "compare"}},
+        ]
+    }
+
+    def row(rule_id, status):
+        return {
+            "rule_id": rule_id,
+            "status": status,
+            "checklist": True,
+            "equipment_tag": "T",
+            "role": "some_value",
+            "detail": "d",
+        }
+
+    out = checklist_fold.fold_into_stated(
+        [row("X-1", "MISSING_INFORMATION"), row("X-2", "NEEDS_ENGINEER_REVIEW")],
+        checklist,
+    )
+    assert [r["status"] for r in out] == [
+        "MISSING_INFORMATION",
+        "NEEDS_ENGINEER_REVIEW",
+    ]
+    assert out[1]["detail"] == "d"

@@ -38,4 +38,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="folds_into_the_is_stated",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1433-04",
+        phase=1433,
+        description="a comparison that is not missing (an unclear question) is folded away and its row lost",
+        path=APP / "checklist_fold.py",
+        anchor='and r["status"] == MISSING\n            and kind',
+        replacement="and kind",
+        target=TARGET,
+        keyword="keeps_its_status_and_row",
+        tags=("honesty",),
+    ),
 )
