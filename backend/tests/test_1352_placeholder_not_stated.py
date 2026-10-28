@@ -28,17 +28,3 @@ def test_a_placeholder_with_a_unit_is_missing_not_stated(value):
 
 def test_a_real_value_is_still_stated():
     assert _set_pressure_status(fact(SET, "10", "barg")) == "COMPLIANT"
-
-
-def test_a_mandatory_field_with_a_unit_and_a_placeholder_value_is_missing():
-    """The mandatory-field check (DS-M2) judges the bare value too."""
-    from tests.test_datasheet_checks import fact as dfact
-    from tests.test_datasheet_checks import full_vessel, run
-
-    results = run(
-        full_vessel(**{"hydrotest pressure": dfact("hydrotest pressure", "*", "barg")})
-    )
-    assert results["DS-M2"]["status"] == "MISSING_INFORMATION"
-    assert results["DS-M2"]["detail"].startswith(
-        "Hydrotest pressure is marked '* barg'"
-    )

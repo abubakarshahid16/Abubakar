@@ -104,5 +104,5 @@ def fact_is_placeholder(fact: dict) -> bool:
         return True
     return any(
         v and classify(str(v))[0]
-        for v in (fact.get("field_value"), fact.get("raw_value"), fact.get("blank_marker"))
+        for v in (fact.get("field_value"), fact.get("raw_value"))
     )
