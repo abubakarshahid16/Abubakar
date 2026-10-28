@@ -107,6 +107,18 @@ _ABSENCE = (
     "does not give",
     "does not include",
     "does not provide",
+    "has no value",
+    "no value on",
+    "lacks",
+    "lack the",
+    "not specified",
+    "is blank",
+    "is empty",
+    "without a value",
+    "does not have",
+    "has not been",
+    "never provided",
+    "not available",
 )
 
 _VOCABULARY_PATH = Path(__file__).parent / "reference" / "crs_comment_vocabulary.json"

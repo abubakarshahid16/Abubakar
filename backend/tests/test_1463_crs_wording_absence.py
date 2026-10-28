@@ -41,6 +41,32 @@ def test_wording_never_turns_no_field_read_into_missing_from_the_datasheet(
     assert crs_wording.lock(text, MISSING_ROW) == reason
 
 
+ROW_11 = {
+    **MISSING_ROW,
+    "comment": "Inlet rating was not read as a value, and no label for it was found in the "
+    "text of pages 1-4; the contractor is to provide it.",
+}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Inlet rating has no value on the datasheet.",
+        "The datasheet lacks the inlet rating.",
+        "Inlet rating is not specified.",
+        "Inlet rating is blank on the datasheet.",
+        "Inlet rating is empty.",
+        "Inlet rating is without a value.",
+        "The datasheet does not have the inlet rating.",
+        "Inlet rating has not been given.",
+        "Inlet rating was never provided.",
+        "Inlet rating is not available.",
+    ],
+)
+def test_every_listed_absence_phrase_is_refused_against_a_no_label_template(text):
+    assert crs_wording.lock(text, ROW_11) == crs_wording.ABSENCE_ADDED
+
+
 def test_an_absence_the_template_itself_states_may_be_kept():
     row = {**MISSING_ROW, "comment": "Design pressure is missing from the sheet."}
     text = "Design pressure is missing from the sheet; please add it."
