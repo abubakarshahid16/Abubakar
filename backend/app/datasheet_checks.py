@@ -714,8 +714,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                         f"page{'s' if len(searched) > 1 else ''} {pages}: engineer to check.")
                 return {**r, "reader_gap": True, "pages": searched}
             r = res(MISSING_INFORMATION,
-                    f"{_pretty(field)} was not found in the fields read or in the text of "
-                    f"pages {_page_span(page_texts)}; the contractor is to provide it.")
+                    f"{_pretty(field)} was not read as a value, and no label for it was found in the text of pages "
+                    f"{_page_span(page_texts)} (searched by its name; the sheet may state it in other words); the contractor is to provide it.")
             return {**r, "text_searched": True}
         return res(NEEDS_ENGINEER_REVIEW,
                    _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
