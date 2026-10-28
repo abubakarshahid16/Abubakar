@@ -125,8 +125,9 @@ def converter_rules(
     }
     out: dict[str, dict] = {}
     for row in conn.execute(
-        "SELECT r.id, r.source_text, r.requirement_text, r.clause, c.text AS chunk_text, c.section AS section"
+        "SELECT r.id, r.source_text, r.requirement_text, r.clause, r.page, c.text AS chunk_text, c.section AS section, p.text AS page_text"
         " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
+        " LEFT JOIN pages p ON p.document_id = r.standard_document_id AND p.page_no = r.page"
         " WHERE r.standard_document_id = ? AND r.requirement_type = ? AND r.superseded_at IS NULL ORDER BY r.id",
         (standard_document_id, ai_requirements.STATEMENT),
     ):

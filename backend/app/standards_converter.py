@@ -292,8 +292,9 @@ def requirements_of(conn, document_id: str) -> list[dict]:
         dict(r)
         for r in conn.execute(
             "SELECT r.id, r.standard_document_id, r.clause, r.requirement_type, r.requirement_text,"
-            " r.source_text, r.raw_value, r.raw_unit, r.unit, r.page, c.text AS chunk_text, c.section AS section"
+            " r.source_text, r.raw_value, r.raw_unit, r.unit, r.page, c.text AS chunk_text, c.section AS section, p.text AS page_text"
             " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
+            " LEFT JOIN pages p ON p.document_id = r.standard_document_id AND p.page_no = r.page"
             " WHERE r.standard_document_id = ? AND r.superseded_at IS NULL"
             " AND r.requirement_text IS NOT NULL AND TRIM(r.requirement_text) <> '' ORDER BY r.id",
             (document_id,),
@@ -397,6 +398,21 @@ class Check:
     condition: str | None = None
 
 
+def _condition_reason(answer: dict, row: dict, text: str) -> str | None:
+    """A stated condition must be quoted from the sentence when context was shown (order 305.1), and its words must
+    be in the sentence (a leading or trailing scope of the clause itself)."""
+    if reason := converter_context.condition_refusal(
+        answer, _text(row), row.get("context")
+    ):
+        return reason
+    condition = (answer.get("condition") or "").strip()
+    return (
+        "condition_not_in_clause"
+        if condition and _fold(condition) not in text
+        else None
+    )
+
+
 def _row_refusal(row: dict) -> str | None:
     """The reason the STORED ROW cannot carry a check, whatever the model said: no real clause number (295.7 d), a
     worked example (295.7 b: it illustrates, it states no requirement), outside the main body or an uncitable
@@ -418,16 +434,6 @@ def verify(
     for the sentence: nothing to look at, and never "not applicable" - applicability is not decided here)."""
     text = _fold(_text(row))
     condition = (answer.get("condition") or "").strip()
-    if reason := converter_context.condition_refusal(
-        answer, _text(row), row.get("context")
-    ):
-        return (
-            "unproven",
-            reason,
-            None,
-        )  # a stated condition must be quoted from the sentence (order 305.1)
-    if condition and _fold(condition) not in text:
-        return "unproven", "condition_not_in_clause", None
     idx = answer.get("field")
     if idx is None:
         return "no_check", "no_field", None
@@ -438,6 +444,10 @@ def verify(
     ):
         return "unproven", "no_field", None
     name = dictionary[idx]
+    if reason := _condition_reason(
+        answer, row, text
+    ):  # after the field test: no box stays "no check"
+        return "unproven", reason, None
     if reason := _row_refusal(row):
         return "unproven", reason, None
     quote = " ".join(str(answer.get("quote") or "").split())

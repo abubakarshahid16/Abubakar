@@ -1646,3 +1646,27 @@ def test_no_condition_with_context_still_verifies_and_a_row_without_context_asks
         "requirement_text": "For gas service the casing design pressure shall not exceed 25 bar.",
     }
     assert _verdict({**GOOD, "condition": "For gas service"}, row)[0] == "verified"
+
+
+def test_a_clause_printed_only_in_the_chunks_title_is_not_printed_but_the_cited_pages_text_counts():
+    """cloud-2 on 304.1: the chunker takes the clause from the title, so a title must not vouch for it."""
+    row = {
+        **ROW,
+        "clause": "2.5",
+        "section": "2.5 Windows",
+        "chunk_text": "Rules for windows\nText.",
+    }
+    assert converter_gates.clause_printed(row) is False
+    assert converter_gates.clause_printed_where(row) == {
+        "section": True,
+        "chunk": False,
+        "page": None,
+    }
+    with_page = {**row, "page_text": "2.5 Windows\nText of the page."}
+    assert converter_gates.clause_printed(with_page) is True
+    assert (
+        converter_gates.clause_printed(
+            {**ROW, "clause": "2.5", "section": "2.5 Windows"}
+        )
+        is None
+    )

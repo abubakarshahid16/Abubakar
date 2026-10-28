@@ -131,28 +131,52 @@ def in_appendix(row: dict) -> bool:
     return False
 
 
-def clause_printed(row: dict) -> bool | None:
-    """Is the stored clause number printed as a heading in the chunk the sentence came from (a line that starts
-    with it, then a word or the end of the line; not a number followed by a unit)? None when the chunk text or
-    the clause is not at hand: the gate stays silent rather than refuse on what it cannot see."""
+def _heads_a_line(clause: str, lines: list[str]) -> bool:
+    """Does one of `lines` start with the clause number, then a word or the end of the line (not a unit)?"""
     from . import field_vocabulary
 
-    clause = str(row.get("clause") or "").strip().rstrip(".")
-    chunk = str(row.get("chunk_text") or "")
-    if not clause or not chunk:
-        return None
     heading = re.compile(
         r"^\s*(?:clause\s+|section\s+)?" + re.escape(clause) + r"\.?(?=\s*$|\s)",
         re.IGNORECASE,
     )
-    for source in [str(row.get("section") or ""), *chunk.splitlines()]:
-        m = heading.match(source)
+    for line in lines:
+        m = heading.match(line)
         if not m:
             continue
-        rest = _WORD_AFTER.match(source[m.end() :])
+        rest = _WORD_AFTER.match(line[m.end() :])
         if rest is None or not field_vocabulary._unit_families(rest.group(1)):
             return True
     return False
+
+
+def clause_printed_where(row: dict) -> dict[str, bool | None]:
+    """Where the stored clause number is printed: `section` (the chunk's title, which is where the chunker FOUND
+    it, so true by construction for a clause that came from it), `chunk` (a heading line of the chunk's text) and
+    `page` (a heading line of the cited page's own text). None for a place whose text is not at hand."""
+    clause = str(row.get("clause") or "").strip().rstrip(".")
+    out: dict[str, bool | None] = {"section": None, "chunk": None, "page": None}
+    if not clause:
+        return out
+    if row.get("section"):
+        out["section"] = _heads_a_line(clause, [str(row["section"])])
+    if row.get("chunk_text"):
+        out["chunk"] = _heads_a_line(clause, str(row["chunk_text"]).splitlines())
+    if row.get("page_text"):
+        out["page"] = _heads_a_line(clause, str(row["page_text"]).splitlines())
+    return out
+
+
+def clause_printed(row: dict) -> bool | None:
+    """Is the stored clause number printed as a heading in the TEXT of the chunk the sentence came from or of the
+    page it cites (a line that starts with it, then a word or the end of the line; not a number followed by a
+    unit)? The chunk's section title does NOT count: the chunker took the clause from it (cloud-2, 304.1), so it
+    would pass every layout-fallback number by construction. None when no text is at hand: the gate stays silent
+    rather than refuse on what it cannot see."""
+    where = clause_printed_where(row)
+    seen = [where["chunk"], where["page"]]
+    if all(v is None for v in seen):
+        return None
+    return any(seen)
 
 
 def scope_refusal(row: dict) -> str | None:
