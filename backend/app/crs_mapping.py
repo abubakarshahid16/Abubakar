@@ -38,7 +38,8 @@ from . import (
 )
 
 # isort: split
-from . import crs_decider, crs_page_words, crs_reference, crs_suggestion, equipment_subtype
+from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
+from .crs_suggestion import for_group as _suggestions
 
 # isort: split
 from . import paragraph_ids
@@ -793,9 +794,7 @@ def _supporting_clause_lines(group: list[dict]) -> list[str]:
 
 
 def trust_words(finding: dict) -> str:
-    """rule_trust (#947): the label's words for the CRS ("engineer-approved
-    rule", "automatic (proven rule)", ...), from the ONE table in
-    `rule_trust.TRUST_WORDS`. "" on a finding the run did not label."""
+    """rule_trust (#947): the label's words for the CRS, from the ONE table `rule_trust.TRUST_WORDS`; "" if unlabelled."""
     label = finding.get("trust_label")
     if not label:
         return ""
@@ -804,10 +803,8 @@ def trust_words(finding: dict) -> str:
 
 
 def safety_tick_text(f: dict) -> str:
-    """The safety-tick row's text: what the rule required, what the sheet
-    states and where, and that the automatic result was "meets" - for the
-    engineer to read against the page and tick. Every value is one already
-    on the finding; nothing is re-derived."""
+    """The safety-tick row's text: what the rule required, what the sheet states and where, and that the
+    automatic result was "meets" - for the engineer to read against the page and tick. Nothing is re-derived."""
     ref = _standard_reference(f) or "Requirement"
     value = str(f.get("contractor_evidence_text") or "").strip()
     page = f.get("contractor_page")
@@ -1514,8 +1511,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     # on whichever clause leads it, so a re-run that adds a
                     # clause keeps its number.
                     "comment_key": item["comment_key"],
-                    # Never printed (spec d): every finding's own per-requirement
-                    # key, so the numbers earlier per-clause rows hold are found.
+                    # Never printed (spec d): every finding's own per-requirement key (earlier numbers are found).
                     "member_keys": crs_item_series.member_keys(group),
                     # Never printed: the group key the run summary sends the
                     # screen, and the row's first line when it asks two or more
@@ -1524,8 +1520,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     "crs_action": item["action"],
                     # R30: the chain behind the comment (internal copy only).
                     "reasoning": reasoning_text(group),
-                    "rule_trust": trust_words(f),  # rule_trust (#947): who stands behind the rule
-                    "ai_suggests": crs_suggestion.for_group(group, _standard_reference),
+                    # rule_trust (#947): who stands behind the rule, in words.
+                    "rule_trust": trust_words(f),
+                    "ai_suggests": _suggestions(group, _standard_reference),
                 }
             )
             # A row that is not a field row also holds its OWN key (a row split

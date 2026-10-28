@@ -490,6 +490,9 @@ export interface CrsPreviewRow {
   /** rule_trust (#947): who stands behind the rule the comment rests on, in
    *  words; "" on an unlabelled row and always in the issue copy. */
   rule_trust?: string;
+  /** Order 305.4: the review's Pass / Fail / Query suggestion beside the row (never the
+   *  verdict); "" in the issue copy. */
+  ai_suggests?: string;
 }
 
 /**

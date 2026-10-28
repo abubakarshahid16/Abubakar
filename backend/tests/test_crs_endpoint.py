@@ -534,6 +534,7 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
         "AI Review Comments",
         "Reasoning (internal)",
         "Rule trust (internal)",
+        "AI suggests (internal)",
     ]
     assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
     issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
@@ -602,7 +603,7 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
 
     # The column headers, directly under the header block.
     assert [_cell(ws, COLUMN_HEADER_ROW, c)
-            for c in range(1, 13)] == body["columns"]
+            for c in range(1, 14)] == body["columns"]
 
     # Every data row, from row 9, across all seven columns.
     assert len(body["rows"]) >= 3, "the fixture produced too few rows to prove"

@@ -27,7 +27,9 @@ def _word(finding: dict) -> str:
     said = finding.get("rule_said")
     if said in _WORD:
         return _WORD[said]
-    return "Query" if finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW" else ""
+    return (
+        "Query" if finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW" else ""
+    )
 
 
 def words(finding: dict, clause: str) -> str:

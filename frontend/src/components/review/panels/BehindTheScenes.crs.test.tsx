@@ -161,6 +161,23 @@ describe("the CRS preview", () => {
     }
   });
 
+  it("shows the AI-suggests column beside the row, a cell on every row (order 305.4)", async () => {
+    const base = sheet();
+    previewCrs.mockResolvedValue({ ok: true, data: sheet({
+      columns: [...base.columns, "Standard Reference", "Priority", "AI Review Comments",
+                "Reasoning (internal)", "Rule trust (internal)", "AI suggests (internal)"],
+      rows: base.rows.map((r, i) => ({ ...r, ai_suggests: i === 0 ? "Fail (sheet: Set pressure = 12 barg) - suggestion only" : "" })),
+    }) });
+    const panel = within(await openThePreview());
+    const cells = panel.getAllByTestId("crs-ai-suggests");
+    expect(cells).toHaveLength(2);
+    expect(cells[0].textContent).toContain("suggestion only");
+    expect(cells[1].textContent).toBe("");
+    for (const row of panel.getAllByRole("row").slice(1)) {
+      expect(within(row).getAllByRole("cell")).toHaveLength(13);
+    }
+  });
+
   it("shows no reasoning column when the copy does not carry it", async () => {
     const panel = within(await openThePreview());
     expect(panel.queryAllByTestId("crs-reasoning")).toHaveLength(0);
