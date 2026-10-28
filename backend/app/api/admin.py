@@ -17,8 +17,10 @@ from ..api_utils import reject_unknown_params
 from ..config import settings
 from ..db import connect
 from ..paging import limit_param, offset_param, page_body
+from . import rule_cards as api_rule_cards
 
 router = APIRouter()
+router.include_router(api_rule_cards.router)  # order 302.4: the rule-approval screen's routes
 
 
 @router.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,

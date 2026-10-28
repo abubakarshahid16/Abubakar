@@ -31,6 +31,8 @@ MISSING, REVIEW = dc.MISSING_INFORMATION, dc.NEEDS_ENGINEER_REVIEW
 
 #: Rule kinds a case can be generated for. Any other kind needs a written case (`item["tests"]`).
 GENERATED_KINDS = ("required", "allowed")
+#: A limit has a boundary: "at most" must accept the limit itself and "above" must refuse it (cloud-2, #1440).
+BOUNDARY_KINDS = ("compare", "constant", "percent_of", "above_by")
 
 
 def field_name_of(role: str, rules: dict) -> str | None:
@@ -217,6 +219,11 @@ def run_card(item: dict, equipment_type: str, rules: dict | None = None) -> dict
         status, why = "draft", "no test cases for this kind of rule"
     elif not {"meets", "breaks", "unclear"} <= names:
         status, why = "draft", "needs a meets, a breaks and an unclear case"
+    elif item["rule"]["kind"] in BOUNDARY_KINDS and "at the limit" not in names:
+        status, why = (
+            "draft",
+            "needs an at-the-limit case (the value equal to the limit)",
+        )
     elif not all(r["passed"] for r in runs):
         status, why = "draft", "a case failed"
     else:

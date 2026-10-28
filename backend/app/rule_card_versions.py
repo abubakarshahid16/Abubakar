@@ -24,7 +24,7 @@ import copy
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from . import datasheet_checks as dc
 from . import rule_cards
@@ -60,12 +60,14 @@ class Conflict(CardError):
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def content_hash(item: dict) -> str:
     """The hash an approval is tied to: the card's whole content, canonical."""
-    return hashlib.sha256(json.dumps(item, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(item, sort_keys=True, ensure_ascii=True).encode()
+    ).hexdigest()
 
 
 def ensure_schema(conn) -> None:
@@ -160,7 +162,12 @@ def state_of(card: dict, rules: dict | None = None) -> dict:
         state, why = APPROVED, ""
     else:
         state, why = TESTED, "tested, not yet approved"
-    return {"state": state, "why": why, "runs": ran["runs"], "weak_source": ran["weak_source"]}
+    return {
+        "state": state,
+        "why": why,
+        "runs": ran["runs"],
+        "weak_source": ran["weak_source"],
+    }
 
 
 def whole(conn, equipment_type: str, card_id: str, rules: dict | None = None) -> dict:
@@ -170,18 +177,24 @@ def whole(conn, equipment_type: str, card_id: str, rules: dict | None = None) ->
 
 
 def clause_is_a_number(item: dict) -> bool:
-    return bool(_CLAUSE.match(str((item.get("source") or {}).get("clause") or "").strip()))
+    return bool(
+        _CLAUSE.match(str((item.get("source") or {}).get("clause") or "").strip())
+    )
 
 
 def _check_stale(card: dict, version: int, seen_hash: str) -> None:
     if card["version"] != version or card["content_hash"] != seen_hash:
-        raise Conflict("this card changed since you opened it; reload it and decide again")
+        raise Conflict(
+            "this card changed since you opened it; reload it and decide again"
+        )
 
 
 def _write_decision(conn, card: dict, decision: str, actor: str, counts: dict) -> dict:
     """Write the decision on the card's current version once. Version 1 gets its row now (the committed item)."""
     now = _now()
-    base = content_hash(_baseline(card["equipment_type"], card["card_id"], dc.load_rules()))
+    base = content_hash(
+        _baseline(card["equipment_type"], card["card_id"], dc.load_rules())
+    )
     with conn:
         conn.execute(
             "INSERT OR IGNORE INTO rule_card_versions (equipment_type, card_id, version, content, content_hash,"
@@ -240,10 +253,17 @@ def decide(
     ran = state_of(card, rules)
     if decision == APPROVED:
         if ran["state"] != TESTED:
-            raise CardError(f"only a tested card can be approved (this one is {ran['state']}: {ran['why']})")
+            raise CardError(
+                f"only a tested card can be approved (this one is {ran['state']}: {ran['why']})"
+            )
         if not clause_is_a_number(card["item"]):
-            raise CardError("the card's source is not a clause number; name the clause before approving")
-    counts = {"cases": len(ran["runs"]), "passed": sum(r["passed"] for r in ran["runs"])}
+            raise CardError(
+                "the card's source is not a clause number; name the clause before approving"
+            )
+    counts = {
+        "cases": len(ran["runs"]),
+        "passed": sum(r["passed"] for r in ran["runs"]),
+    }
     return _write_decision(conn, card, decision, actor, counts)
 
 
@@ -277,7 +297,11 @@ def apply_changes(item: dict, changes: dict, rules: dict) -> dict:
             if key in ROLE_KEYS and value not in rules["roles"]:
                 raise CardError(f"{value!r} is not a box this checklist knows")
             if key == "values":
-                if not isinstance(value, list) or not value or not all(isinstance(v, str) and v.strip() for v in value):
+                if (
+                    not isinstance(value, list)
+                    or not value
+                    or not all(isinstance(v, str) and v.strip() for v in value)
+                ):
                     raise CardError("values is a list of words")
                 value = [v.strip() for v in value]
             if key in ("percent", "at_least", "value", "tolerance_percent"):
@@ -315,14 +339,30 @@ def edit(
             conn.execute(
                 "INSERT INTO rule_card_versions (equipment_type, card_id, version, content, content_hash,"
                 " base_hash, created_by, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (equipment_type, card_id, 1, json.dumps(card["item"], sort_keys=True), card["content_hash"], base,
-                 "committed", now),
+                (
+                    equipment_type,
+                    card_id,
+                    1,
+                    json.dumps(card["item"], sort_keys=True),
+                    card["content_hash"],
+                    base,
+                    "committed",
+                    now,
+                ),
             )
         conn.execute(
             "INSERT INTO rule_card_versions (equipment_type, card_id, version, content, content_hash,"
             " base_hash, created_by, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (equipment_type, card_id, card["version"] + 1, json.dumps(new, sort_keys=True), content_hash(new), base,
-             actor, now),
+            (
+                equipment_type,
+                card_id,
+                card["version"] + 1,
+                json.dumps(new, sort_keys=True),
+                content_hash(new),
+                base,
+                actor,
+                now,
+            ),
         )
     return whole(conn, equipment_type, card_id, rules)
 
@@ -334,7 +374,9 @@ def listing(conn, rules: dict | None = None) -> dict:
     for equipment_type, checklist in rules["checklists"].items():
         if not isinstance(checklist, dict):
             continue
-        cards = [whole(conn, equipment_type, i["id"], rules) for i in checklist["items"]]
+        cards = [
+            whole(conn, equipment_type, i["id"], rules) for i in checklist["items"]
+        ]
         counts = {s: sum(c["state"] == s for c in cards) for s in STATES}
         out[equipment_type] = {
             "cards": [
