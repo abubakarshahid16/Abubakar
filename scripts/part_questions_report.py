@@ -83,10 +83,11 @@ def classify(construction: str) -> str:
 
 
 def run(db_path: Path, review_run: str) -> dict:
-    from app import datasheet_checks, datasheets, scope_type_words
-    from app import classification as classification_mod
-    from app.config import settings
     from rehearse_requirement_reextraction import refuse_live
+
+    from app import classification as classification_mod
+    from app import datasheet_checks, datasheets, scope_type_words
+    from app.config import settings
 
     settings.db_path = refuse_live(db_path)
     conn = sqlite3.connect(f"file:{settings.db_path}?mode=ro", uri=True)
