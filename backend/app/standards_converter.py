@@ -59,6 +59,10 @@ from .reasoning_provider import ProviderRefused
 #: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. API and ASME: HOLD.
 ALLOWED_FAMILIES = ("SAES", "ISO")
 STEP_PREFIX = claude_spend.STANDARD_STEP_PREFIX
+#: Where the model runs. "local" is the Mac's own engine (owner order of 28 Oct, order 277: no Claude API
+#: for now); "claude" is the lane behind `claude_spend`, the approved-documents list and the egress flags.
+LANE_CLAUDE, LANE_LOCAL = "claude", "local"
+LANES = (LANE_LOCAL, LANE_CLAUDE)
 PROMPT_VERSION = "o270-convert-v1"
 STATUS = "draft"
 #: Requirements per call.
@@ -117,6 +121,7 @@ REASONS = (
     "unit_not_of_field",
     "field_not_in_quote",
     "comparator_not_in_quote",
+    "condition_after_limit",
     "condition_not_in_clause",
     "reply_unreadable",
     "not_asked",
@@ -295,6 +300,34 @@ def comparators_said(quote: str) -> set[str]:
     return said
 
 
+#: What may follow a limit's number and unit and leave it unconditional: nothing, a bracketed unit or
+#: conversion, or WHERE it is measured. Anything else ("for services other than sour service", "for pumps
+#: of the vertical type") is a scope: the sentence does not state an unconditional limit (s3, #1412).
+_LOCATION_STARTS = ("at ", "measured at ")
+
+
+def limit_closes_sentence(sentence: str, quote: str, limit: str, unit: str) -> bool:
+    """Does the sentence end right after the limit's number and unit (a bracketed conversion and a
+    measuring location aside)? A condition written AFTER the number is not caught by the leading-condition
+    tests of `ai_requirements.verify_proposal`, so a scope that follows the limit must refuse the row here.
+    False when the number and unit do not stand together in the quote (nothing to measure the tail from)."""
+    s, q = _fold(sentence), _fold(quote)
+    at = s.find(q)
+    found = re.search(
+        r"(?<![\w.])"
+        + re.escape(limit.strip().lower())
+        + r"\s*"
+        + re.escape(unit.strip().lower())
+        + r"(?![a-z0-9])",
+        q,
+    )
+    if at < 0 or found is None:
+        return False
+    tail = re.split(r"[.;](?:\s|$)", s[at + found.end() :], maxsplit=1)[0]
+    tail = re.sub(r"\([^)]*\)", " ", tail).strip(" ,:-")
+    return not tail or tail.startswith(_LOCATION_STARTS)
+
+
 def _comparator_says(quote: str, comparator: str) -> bool:
     return comparators_said(quote) == {comparator}
 
@@ -347,6 +380,8 @@ def verify(
         return "unproven", "number_not_in_quote", None
     if not _has_unit(quote, unit):
         return "unproven", "unit_not_in_quote", None
+    if not limit_closes_sentence(text, quote, limit, unit):
+        return "unproven", "condition_after_limit", None
     if not set(families.get(name, ())) & field_vocabulary._unit_families(unit):
         return "unproven", "unit_not_of_field", None
     if not _names_field(quote, name):
@@ -366,6 +401,7 @@ class Result:
     equipment_type: str
     rows: list[dict] = field(default_factory=list)
     stopped_at_cap: bool = False
+    lane: str = LANE_CLAUDE
     #: Why a call was refused (not a USD cap): a code, never text. None = nothing was refused.
     refused: str | None = None
     model: str | None = None
@@ -414,6 +450,47 @@ def _row(
     }
 
 
+def _not_asked(src: dict, why: str) -> dict:
+    return _row(src, "not_asked", f"not asked: {why}", None, None, None)
+
+
+def _stop_reason(exc: BaseException, out: Result) -> str:
+    """Why a call stopped the run, recorded on `out` and as the words of every row not asked. A USD cap is
+    "stopped at cap"; a refusal before the call left (document not on the list, egress off) and a failed call
+    are named, never called a cap. Names only: no prompt text is in any of them."""
+    if isinstance(exc, claude_spend.DocumentNotApproved):
+        out.refused = exc.code
+        return f"refused: {exc.code}"
+    if isinstance(exc, claude_spend.BudgetExceeded):
+        out.stopped_at_cap = True
+        return STOPPED_AT_CAP
+    out.refused = type(exc).__name__
+    return f"{type(exc).__name__}: {str(exc)[:120]}"
+
+
+def _read_batch(
+    response, chunk: list[dict], dictionary, roles, families, out: Result
+) -> list[dict]:
+    """The rows of one answered batch: every answer proven by code, an unreadable reply unproven."""
+    answers = _answers(response, len(chunk))
+    if answers is None:
+        out.unreadable_batches += 1
+        return [
+            _row(r, "unproven", "reply_unreadable", None, None, None) for r in chunk
+        ]
+    rows = []
+    for n, src in enumerate(chunk):
+        got = answers.get(n)
+        if got is None:
+            rows.append(_row(src, "unproven", "applies_unreadable", None, None, None))
+            continue
+        status, reason, check = verify(got, src, dictionary, roles, families)
+        applies = str(got.get("applies") or "").lower() or None
+        condition = (got.get("condition") or None) if status != "unproven" else None
+        rows.append(_row(src, status, reason, applies, condition, check))
+    return rows
+
+
 def convert(
     conn,
     document_id: str,
@@ -422,11 +499,19 @@ def convert(
     provider,
     *,
     limit: int | None = None,
+    batch: int | None = None,
+    lane: str = LANE_CLAUDE,
 ) -> Result:
-    """Convert every stored requirement of one standard. Refuses a family that is not allowed BEFORE
-    anything is built. A refused or capped call stops the run: what was finished is kept and the rest
-    is 'not_asked' (STOPPED_AT_CAP when a USD cap stopped it)."""
-    require_family(standard)
+    """Convert every stored requirement of one standard.
+
+    LANE "claude": the family must be allowed (refused BEFORE anything is built), each call declares the
+    standard to the approved-documents list and is reserved in `claude_spend`. LANE "local" (owner, 28 Oct:
+    no Claude API for now): `provider` is the local engine's; nothing here touches `claude_spend`, the
+    approved-documents list or `reader_transport`. Either way a refused, failed or capped call stops the run:
+    what was finished is kept, the rest is "not asked: <why>", and the run NEVER retries into another lane."""
+    claude = lane == LANE_CLAUDE
+    if claude:
+        require_family(standard)
     rows = requirements_of(conn, document_id)
     if limit:
         rows = rows[:limit]
@@ -434,55 +519,32 @@ def convert(
     step = step_for(standard)
     system = system_text(equipment_type, dictionary)
     out = Result(
-        standard, equipment_type, model=getattr(provider, "requested_model", None)
+        standard,
+        equipment_type,
+        lane=lane,
+        model=getattr(provider, "requested_model", None),
     )
-    before = claude_spend.spent(step)
-    stopped = False
-    for start in range(0, len(rows), BATCH):
-        batch = rows[start : start + BATCH]
-        if stopped:
-            out.rows += [
-                _row(r, "not_asked", "not_asked", None, None, None) for r in batch
-            ]
+    before = claude_spend.spent(step) if claude else 0.0
+    size, why_not = batch or BATCH, None
+    for start in range(0, len(rows), size):
+        chunk = rows[start : start + size]
+        if why_not is not None:
+            out.rows += [_not_asked(r, why_not) for r in chunk]
             continue
         try:
-            with claude_approved.carrying({document_id}):
-                response = provider.reason(packet(batch, system, step))
-        except (claude_spend.StopRun, ProviderRefused) as exc:
-            # a USD cap stops the run ("stopped at cap"); so does a call that was refused before it left
-            # (document not on the approved list, egress off, a failed call): both keep what was finished
-            stopped = True
-            if isinstance(exc, claude_spend.DocumentNotApproved):
-                out.refused = exc.code
-            elif isinstance(exc, claude_spend.BudgetExceeded):
-                out.stopped_at_cap = True
+            if claude:
+                with claude_approved.carrying({document_id}):
+                    response = provider.reason(packet(chunk, system, step))
             else:
-                out.refused = type(exc).__name__
-            out.rows += [
-                _row(r, "not_asked", "not_asked", None, None, None) for r in batch
-            ]
+                response = provider.reason(packet(chunk, system, step))
+        except (claude_spend.StopRun, ProviderRefused) as exc:
+            why_not = _stop_reason(exc, out)
+            out.rows += [_not_asked(r, why_not) for r in chunk]
             continue
         out.calls += 1
         out.model = getattr(response, "model_tag", None) or out.model
-        answers = _answers(response, len(batch))
-        if answers is None:
-            out.unreadable_batches += 1
-            out.rows += [
-                _row(r, "unproven", "reply_unreadable", None, None, None) for r in batch
-            ]
-            continue
-        for n, src in enumerate(batch):
-            got = answers.get(n)
-            if got is None:
-                out.rows.append(
-                    _row(src, "unproven", "applies_unreadable", None, None, None)
-                )
-                continue
-            status, reason, check = verify(got, src, dictionary, roles, families)
-            applies = str(got.get("applies") or "").lower() or None
-            condition = (got.get("condition") or None) if status != "unproven" else None
-            out.rows.append(_row(src, status, reason, applies, condition, check))
-    out.usd = round(claude_spend.spent(step) - before, 6)
+        out.rows += _read_batch(response, chunk, dictionary, roles, families, out)
+    out.usd = round(claude_spend.spent(step) - before, 6) if claude else 0.0
     return out
 
 
@@ -565,6 +627,7 @@ def write(
         "equipment_type": result.equipment_type,
         "standard": result.standard,
         "form_source": {"ref": form_source, "sha": sha},
+        "lane": result.lane,
         "model": result.model,
         "prompt_version": PROMPT_VERSION,
         "run": STOPPED_AT_CAP
