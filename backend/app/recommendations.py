@@ -29,6 +29,10 @@ NOT_REVIEWED = (requirement_quality.DEFINITION, TYPE)
 _RECOMMEND = re.compile(r"\bshould(?:\s+not)?\b", re.IGNORECASE)
 
 
+def is_advice(row: dict) -> bool:
+    return row.get("requirement_type") == TYPE
+
+
 def is_recommendation(sentence: str) -> bool:
     return bool(_RECOMMEND.search(sentence or ""))
 

@@ -53,7 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
-                page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
+                page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 from .provenance import ai_quote_proved
@@ -2362,9 +2362,8 @@ def _run_comparison(
     from . import ai_requirements as ai_requirements_mod
     from . import scope_ledger
     in_scope_all: list[dict] = []
-    extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
-    from . import recommendations as rec_mod
-    design_standards = rec_mod.named(applicable)
+    extra_not_applied: list[dict] = []  # #677: definitions, service gate, AI tier
+    design_standards = recommendations.named(applicable)
     for standard_id in standard_ids:
         from . import standards as standards_mod
         # #596/#597/#288: a definition, unreadable text and a recommendation are never compared.
@@ -2383,10 +2382,10 @@ def _run_comparison(
         for r in loaded:
             if r["id"] in auto_rules:
                 r = {**r, **auto_rules[r["id"]]}
-            if rec_mod.left_out(r, standard_id, design_standards, held_back):
-                continue    # #288: advice of a standard the sheet does not name takes no part
+            if recommendations.left_out(r, standard_id, design_standards, held_back):
+                continue  # #288: advice of a standard the sheet does not name takes no part
             in_scope_all.append(r)
-            if standards_mod.is_reviewable(r) or r.get("requirement_type") == rec_mod.TYPE:
+            if standards_mod.is_reviewable(r) or recommendations.is_advice(r):
                 requirements.append(r)
             elif r.get("requirement_type") == "definition":
                 held_back["definition"] += 1
@@ -2527,7 +2526,8 @@ def _run_comparison(
                 if i["requirement"].get("standard_document_id") not in covered_ids]}
             checklist_note = {"type": governing["key"], "items": governing["items"],
                               "standards": len(covered_ids)}
-    requirements = rec_mod.hold_for_query(requirements, held_items)    # #288: advice that applies is a query
+    # #288: advice that still applies becomes an engineer's query, not a comparison
+    requirements = recommendations.hold_for_query(requirements, held_items)
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
