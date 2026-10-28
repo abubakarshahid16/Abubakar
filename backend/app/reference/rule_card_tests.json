@@ -1,0 +1,498 @@
+{
+ "Pressure Safety Valve": {
+  "PSV-11": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "9400",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "*",
+      null
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-19": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "molecular weight",
+      "18",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-20": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "compressibility",
+      "0.9",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-21": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-22": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "density",
+      "800",
+      "kg/m3"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-23": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "viscosity",
+      "2",
+      "cP"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-S09": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "sour service",
+      "Yes",
+      null
+     ],
+     [
+      "spring",
+      "Inconel X-750",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "sour service",
+      "Yes",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-24": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "set pressure",
+      "13",
+      "barg"
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-25": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "mawp",
+      "13",
+      "barg"
+     ],
+     [
+      "design pressure",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "mawp",
+      "11",
+      "barg"
+     ],
+     [
+      "design pressure",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "mawp",
+      "13",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-30": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "cdtp",
+      "9",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "cdtp",
+      "11",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "cdtp",
+      "9",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-31": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "9400",
+      "kg/h"
+     ],
+     [
+      "required capacity",
+      "9000",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "8000",
+      "kg/h"
+     ],
+     [
+      "required capacity",
+      "9000",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "9400",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-26": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "operating pressure",
+      "8",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "operating pressure",
+      "9.5",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "operating pressure",
+      "8",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ]
+ }
+}

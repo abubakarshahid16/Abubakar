@@ -45,15 +45,20 @@ def field_name_of(role: str, rules: dict) -> str | None:
 
 
 def _fact(
-    name: str, value: str | None, *, tag: str = "a", blank: str | None = None
+    name: str,
+    value: str | None,
+    *,
+    tag: str = "a",
+    blank: str | None = None,
+    unit: str | None = None,
 ) -> dict:
     return {
         "id": f"card-{name}-{value}-{tag}",
         "field_name": name,
         "field_label": name.capitalize(),
-        "field_value": value,
+        "field_value": f"{value} {unit}".strip() if unit else value,
         "raw_value": None if blank else value,
-        "raw_unit": None,
+        "raw_unit": unit,
         "normalized_value": None,
         "normalized_unit": None,
         "is_blank": 1 if blank else 0,
@@ -62,6 +67,45 @@ def _fact(
         "page": 1,
         "equipment_tag": None,
     }
+
+
+TESTS_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "backend"
+    / "app"
+    / "reference"
+    / "rule_card_tests.json"
+)
+
+
+def written_cases(
+    equipment_type: str, item_id: str, path: Path = TESTS_PATH
+) -> list[dict]:
+    """The cases a person wrote for one card (`reference/rule_card_tests.json`, kept apart from the item): each fact is
+    [field name as the sheet prints it, value, unit or null]; each case names the status the real code must give."""
+    if not path.exists():
+        return []
+    cases = (
+        json.loads(path.read_text(encoding="utf-8")).get(equipment_type) or {}
+    ).get(item_id) or []
+    return [
+        {
+            "name": c["name"],
+            "kind": "written",
+            "facts": [
+                _fact(
+                    f[0],
+                    f[1],
+                    unit=f[2] if len(f) > 2 else None,
+                    blank=f[1] if f[1] in ("*", "TBA") else None,
+                )
+                for f in c["facts"]
+            ],
+            "text": c.get("text", ""),
+            "expect": c["expect"],
+        }
+        for c in cases
+    ]
 
 
 def generated_cases(item: dict, rules: dict) -> list[dict]:
@@ -148,7 +192,11 @@ def run_card(item: dict, equipment_type: str, rules: dict | None = None) -> dict
     """The card's result: every case run, and its status: `tested` only when there are at least three cases
     (meets, breaks, unclear) and all passed; `draft` otherwise, with the reason."""
     rules = rules or dc.load_rules()
-    cases = [*generated_cases(item, rules), *(item.get("tests") or [])]
+    cases = [
+        *generated_cases(item, rules),
+        *written_cases(equipment_type, item["id"]),
+        *(item.get("tests") or []),
+    ]
     runs = [run_case(item, equipment_type, c, rules) for c in cases]
     names = {r["case"] for r in runs}
     if not runs:
