@@ -1367,6 +1367,18 @@ def test_a_quote_with_more_than_15_percent_garbled_words_is_unproven():
     assert _verdict(answer, row)[:2] == ("unproven", "quote_unreadable")
 
 
+def test_real_words_ending_in_five_consonants_are_not_garble():
+    """cloud-3's probe: "lengths" and "strengths" end in a five-consonant run and are common in standards."""
+    sentence = "The casing design pressure shall not exceed 25 bar for all lengths and strengths."
+    row = {**ROW, "requirement_text": sentence}
+    answer = {
+        **GOOD,
+        "quote": "design pressure shall not exceed 25 bar for all lengths and strengths",
+    }
+    assert standards_converter.quote_unreadable(answer["quote"], sentence) is False
+    assert _verdict(answer, row)[0] == "verified"
+
+
 def test_acronyms_figures_and_units_are_not_garble():
     sentence = "The PSV casing design pressure shall not exceed 25 bar (362 psig) at NPS 6 per SAES-G-005."
     row = {**ROW, "requirement_text": sentence}
