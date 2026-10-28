@@ -170,3 +170,7 @@ eval/results/
 /backend/rehearsal*.txt
 /frontend/dash-body.txt
 /docs/review-command.md
+
+# the board's generated data holds document text: it lives in the Mac mirror, never in git (order 274.6)
+/docs/board/
+/docs/diffs/
