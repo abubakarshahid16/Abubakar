@@ -132,9 +132,11 @@ def test_nobody_signed_in_writes_nothing():
         },
     )
     assert r.status_code == 422 and "nobody is signed in" in r.text
-    assert not db.connect().execute(
-        "SELECT 1 FROM sqlite_master WHERE name = 'rule_card_versions'"
-    ).fetchone()  # nothing was written, not even the table
+    assert (
+        not db.connect()
+        .execute("SELECT 1 FROM sqlite_master WHERE name = 'rule_card_versions'")
+        .fetchone()
+    )  # nothing was written, not even the table
 
 
 def test_a_user_who_is_not_a_super_user_gets_the_admin_404(monkeypatch):

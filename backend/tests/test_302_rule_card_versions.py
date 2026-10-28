@@ -20,7 +20,11 @@ def _stored(conn) -> int:
     table = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE name = 'rule_card_versions'"
     ).fetchone()
-    return conn.execute("SELECT COUNT(*) FROM rule_card_versions").fetchone()[0] if table else 0
+    return (
+        conn.execute("SELECT COUNT(*) FROM rule_card_versions").fetchone()[0]
+        if table
+        else 0
+    )
 
 
 @pytest.fixture()
