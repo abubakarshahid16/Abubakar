@@ -114,6 +114,14 @@ def test_a_condition_the_clause_does_not_say_is_not_accepted():
     assert (row["status"], row["reason"]) == ("unproven", converter_second.NOT_QUOTED)
 
 
+def test_a_condition_whose_quote_is_real_but_whose_words_are_invented_is_not_accepted():
+    invented = second(
+        False, "for offshore pumps", IN_SOUR
+    )  # the quote is in the clause, the condition is not
+    row = _run([HIDDEN], Scripted(invented, first_for=first(IN_SOUR))).rows[0]
+    assert (row["status"], row["reason"]) == ("unproven", converter_second.NOT_QUOTED)
+
+
 def test_a_second_condition_that_overlaps_the_first_agrees():
     inside = second(False, "pumps in sour service", "pumps in sour service")
     row = _run([HIDDEN], Scripted(inside, first_for=first(IN_SOUR))).rows[0]
@@ -176,7 +184,11 @@ def test_with_ask_twice_off_the_first_answer_alone_verifies():
     assert result.asked_twice is False
 
 
-def test_the_default_is_to_ask_twice(monkeypatch):
+def test_the_shipped_default_is_to_ask_twice(monkeypatch):
+    """The first-pass test files switch it off with a fixture; the code's own default is on."""
+    import inspect
+
+    assert "\nASK_TWICE = True" in inspect.getsource(standards_converter)
     monkeypatch.setattr(standards_converter, "ASK_TWICE", True)
     doc = _standard("SAES-G-005", (PLAIN,))
     fake = Scripted(ALWAYS)
