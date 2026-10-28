@@ -2361,8 +2361,7 @@ def _run_comparison(
     # #677 THE SCOPE LEDGER: every requirement of every applicable standard
     # (`in_scope_all`) ends in exactly one decision with a stored reason,
     # built from the SAME items #678's counts are built from - one source.
-    from . import ai_requirements as ai_requirements_mod
-    from . import scope_ledger
+    from . import converter_review, scope_ledger
     in_scope_all: list[dict] = []
     extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
     for standard_id in standard_ids:
@@ -2377,12 +2376,11 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
-        # OWNER DECISION (rule_trust, #947 steps 3-6), SWITCH OFF BY DEFAULT: a
-        # clause sentence with an undecided AI-compiled check is compared
-        # through that check, in the sentence's own place (same id). Empty
-        # with the switch off, so nothing below changes.
-        auto_rules = ai_requirements_mod.auto_use_rules(
-            standard_id, allowed_document_ids=allowed_document_ids)
+        # OWNER DECISION (rule_trust, #947), SWITCH OFF BY DEFAULT: a clause sentence with an
+        # AI-compiled check (a draft, else the converter's, order 274.1) is compared through it.
+        auto_rules = converter_review.rules_with_drafts(
+            standard_id, submittal_id, allowed_document_ids
+        )
         for r in loaded:
             if r["id"] in auto_rules:
                 r = {**r, **auto_rules[r["id"]]}
@@ -2509,8 +2507,9 @@ def _run_comparison(
     # the kept requirements and the table cells no field answered - is "not used".
     covered_items: list[dict] = []
     checklist_note = None
+    from . import checklist_scope
     from . import datasheet_checks as _checks
-    governing = _checks.checklist_sources(stored.get("equipment_type"))
+    governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
         if covered_ids:
@@ -2569,9 +2568,9 @@ def _run_comparison(
     # pre-B4 matching, untouched.
     field_names = None
     field_name_matches = 0
-    if settings.geometry_reader_enabled:
-        from . import field_naming
-        field_names = field_naming.ensure_names(requirements, facts)
+    if settings.geometry_reader_enabled or settings.field_naming_enabled:
+        from . import field_vocabulary
+        field_names = field_vocabulary.names_for(requirements, facts, stored)
     for requirement in requirements:
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
@@ -2968,20 +2967,16 @@ def _run_comparison(
             ai_requirements.undecided_statements(requirements, status_of),
             review_run_id=review_run_id, limit=settings.ai_clause_checks_max_per_run)
 
-    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
-    # itself, pure arithmetic, no standard needed. Written before the code is
-    # recommended, so a design pressure below the operating pressure counts
-    # like any other unmet requirement.
+    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against itself, pure
+    # arithmetic, no standard needed. Written before the code is recommended.
     from . import datasheet_checks
     page_texts = {r["page_no"]: r["text"] or "" for r in connect().execute(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
-                                              page_texts=page_texts)
-    # rule_trust (#947): every rule labelled, the checks too - a signed-off
-    # checklist item is an engineer's rule; every other check is held when it
-    # would decide (planner answer on #985). Nothing with the switch off.
+    check_results = checklist_scope.evaluate(facts, stored, page_texts)
+    # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
+    # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
@@ -3584,15 +3579,16 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     None (fall through) when the requirement is unnamed or no fact passes.
     """
     if not is_matchable(requirement) or requirement.get("raw_value") in (None, ""):
-        return None
+        from . import statement_roles
+
+        return statement_roles.match(requirement, facts, names)  # 263.1
     field = (names.get("requirements") or {}).get(str(requirement.get("id")))
     if not field:
         return None
     fact_names = names.get("facts") or {}
     rejected = _rejected_keys_for(requirement)
     tag_scoped = facts_are_tag_scoped(facts)
-    # B4 item 2: a BLANK field pairs too - "the sheet leaves this to be
-    # provided" is an answer about the requirement's quantity.
+    # B4 item 2: a BLANK field pairs too ("left to be provided" answers the quantity).
     hits = [f for f in facts
             if (fact_has_number(f) or f.get("is_blank"))
             and fact_names.get(str(f.get("id"))) == field
@@ -3614,9 +3610,8 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     if len(allowed) > 1:
         filled = [f for f in allowed if fact_has_number(f) and not f.get("is_blank")]
         if not filled:
-            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the
-            # same - the sheet leaves this quantity to be provided. The one
-            # whose OWN label is the name comes first, then by page and label;
+            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the same (left to be
+            # provided). The one whose OWN label is the name comes first, then by page and label;
             # the others are NAMED; no value was chosen between.
             from .field_naming import own_names
             ordered = sorted(allowed, key=lambda f: (field not in own_names(f),
