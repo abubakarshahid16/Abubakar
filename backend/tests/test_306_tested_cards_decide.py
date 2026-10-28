@@ -8,7 +8,7 @@ import pytest
 from app import card_trust, rule_cards, rule_trust
 from app import datasheet_checks as dc
 from app.config import settings
-from tests.test_746_relief_valve_checklist import SHEET, fact, results
+from tests.test_746_relief_valve_checklist import PSV, SHEET, fact, results
 
 
 @pytest.fixture(autouse=True)
@@ -154,3 +154,43 @@ def test_the_crs_words_say_tested_never_proven_on_the_whole_path(monkeypatch):
     assert "proven" not in crs_mapping.safety_tick_text(
         {**stored, "compliance_status": "COMPLIANT"}
     )
+
+
+def test_a_sizing_calculation_card_never_decides():
+    """Planner 03:04: the four calc cards have no at-the-limit case, so they stay held whatever their cases say."""
+    calc = [
+        i["id"]
+        for i in dc.load_rules()["checklists"][PSV]["items"]
+        if i["rule"]["kind"] == "calc"
+    ]
+    assert len(calc) == 4
+    for card_id in calc:
+        assert card_trust.why_not(card_id) == "a sizing calculation does not decide yet"
+    assert [
+        k
+        for k in _labelled()
+        if k in calc and _labelled()[k]["trust_label"] == rule_trust.TESTED_CARD
+    ] == []
+
+
+def test_the_cards_that_decide_all_have_an_at_the_limit_case_or_need_none():
+    for card_id, (equipment_type, item) in card_trust._cards().items():
+        if (
+            card_trust.why_not(card_id) is None
+            and item["rule"]["kind"] in rule_cards.BOUNDARY_KINDS
+        ):
+            names = {
+                r["case"] for r in rule_cards.run_card(item, equipment_type)["runs"]
+            }
+            assert "at the limit" in names, card_id
+
+
+def test_no_card_id_is_used_twice():
+    """`card_trust._cards` is keyed by id: a duplicate would silently hide a card (planner 03:04)."""
+    ids = [
+        i["id"]
+        for checklist in dc.load_rules()["checklists"].values()
+        if isinstance(checklist, dict)
+        for i in checklist["items"]
+    ]
+    assert len(ids) == len(set(ids))

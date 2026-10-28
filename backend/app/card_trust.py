@@ -10,7 +10,8 @@ pending)" (never "proven": nothing here proves a family). The stricter rule, eac
   * its tests include cases WRITTEN from the rule's meaning (generated cases only test the code path, not that
     the box the card names is the right one);
   * its source is a clause NUMBER, not a definition, not a "datasheet fields" placeholder;
-  * it is not marked `weak_source`, and it does not wait for a standard we do not hold.
+  * it is not marked `weak_source`, and it does not wait for a standard we do not hold;
+  * it is not a sizing calculation (`calc`): those have no at-the-limit case yet and do not decide.
 
 Every other card stays UNPROVEN. A COMPLIANT verdict on a safety field still goes to the engineer's tick
 (`rule_trust.tier`). Tested is not approved: the approval screen (order 302.4) is the engineer's step.
@@ -55,6 +56,8 @@ def why_not(rule_id: str) -> str | None:
     equipment_type, item = found
     if equipment_type not in DECIDING_TYPES:
         return "this equipment type's cards do not decide yet"
+    if item["rule"]["kind"] == "calc":
+        return "a sizing calculation does not decide yet"  # planner 03:04: no at-the-limit case for it
     if item.get("weak_source"):
         return "weak source"
     if item.get("needs"):

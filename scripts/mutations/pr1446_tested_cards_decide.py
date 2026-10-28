@@ -110,4 +110,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="crs_words_say_tested_never_proven",
         tags=_TAG,
     ),
+    Mutation(
+        id="M1446-10",
+        phase=1446,
+        description="a sizing calculation card decides without an at-the-limit case",
+        path=_C,
+        anchor='    if item["rule"]["kind"] == "calc":',
+        replacement="    if False:",
+        target=_T,
+        keyword="sizing_calculation_card_never_decides",
+        tags=_TAG,
+    ),
 )
