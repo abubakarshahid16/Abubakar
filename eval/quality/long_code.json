@@ -84,7 +84,7 @@
   "backend/app/coverage.py::document_incidence": 158,
   "backend/app/crs_export.py::build_crs": 154,
   "backend/app/crs_export.py::build_crs_view": 211,
-  "backend/app/crs_mapping.py::build_crs_rows": 235,
+  "backend/app/crs_mapping.py::build_crs_rows": 233,
   "backend/app/crs_numbers.py::assign": 92,
   "backend/app/datasheet_ai.py::merge_readings": 102,
   "backend/app/datasheet_checks.py::evaluate": 158,
