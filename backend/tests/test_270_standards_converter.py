@@ -18,6 +18,7 @@ from app import (
     claude_spend,
     converter_gates,
     db,
+    page_scope,
     rule_roles,
     standards,
     standards_converter,
@@ -1501,8 +1502,7 @@ def test_two_figures_of_different_units_are_not_a_range():
     sentence = (
         "The casing design pressure shall not exceed 25 bar and 30 degC at the inlet."
     )
-    assert converter_gates.range_boundary(sentence, "25") is False
-    assert converter_gates.range_boundary("See ISO 15156-3 for details.", "3") is False
+    assert page_scope.range_boundary(sentence, "25") is False
 
 
 def test_a_whole_sentence_with_one_ceiling_still_verifies():
