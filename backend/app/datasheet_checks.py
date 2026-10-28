@@ -368,7 +368,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
             for item in checklist["items"]:
                 out.append(evaluate_item(item, roles, common if tag is not None else {},
                                          tag, rules, draft=checklist["draft"], page_texts=page_texts))
-        out = checklist_fold.fold_into_stated(out, checklist)  # order 279.1: one request per missing value
+        out = checklist_fold.fold_into_stated(out, checklist)  # 279.1
     if page_texts and equipment_type:
         out.append(_result("DS-R1", COMPLIANT if has_block else MISSING_INFORMATION,
                            "A datasheet carries a revision block.",
