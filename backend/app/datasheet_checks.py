@@ -1148,7 +1148,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     `label` (rule_trust, #947; None with the switch off): applied to each
     result AFTER the choice of which results become rows, so a held pass
     does not turn into a row a plain pass never was."""
-    from . import comparison, degraded_read, standard_clause_page
+    from . import comparison, degraded_read, read_elsewhere, standard_clause_page
     from . import review as review_mod
     written = []
     # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete and
@@ -1157,15 +1157,11 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
                  fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
                 for f in review_mod.rejected_in_run(review_run_id, ORIGIN)}
-    # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met
-    # checklist item (an R13 calculation included) is stored as a COMPLIANT
-    # finding with its item id, the fact, the page and the clause, so "Meets"
-    # is visible like any result. It is never a CRS comment (`crs_mapping`
-    # takes only breaches and gaps). Any OTHER check that held (a consistency
-    # pair, the revision block) still adds no row. "Does not apply" is not a
-    # result either (#746): the condition's reason is in the result, never a
-    # row. NOT CALCULATED is not a row either (R13): the inputs it lacked are
-    # asked for by their own `required` items.
+    # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met item (an R13 calculation included) is
+    # stored as a COMPLIANT finding with its item id, fact, page and clause, so "Meets" is visible like any result;
+    # never a CRS comment (`crs_mapping` takes only breaches and gaps). Any OTHER check that held adds no row.
+    # "Does not apply" and NOT CALCULATED are no rows either: the reason, or the inputs `required` items ask for.
+    results = read_elsewhere.soften(results)  # 307.1: a value read for other tags is not "not read"
     for r in (x for x in degraded_read.hold(results, submittal_id) if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
         if label is not None:
