@@ -37,9 +37,10 @@ carries the client's name; only the owner can rename it.
    converted standard / USD 500 in total for November** (owner, #805 plan
    change 4, 28 Oct 2026; it was USD 20 in total; the USD 500 ends on 30 Nov
    unless the owner says otherwise; enforced in `claude_spend`), and with **no
-   document text in logs, GitHub issues, PRs or CI**. **The Claude lane is off
-   by owner decision of 28 Oct 2026 (order 277); the caps apply only when the
-   owner opens it.** Until then the converter runs on the local engine only.
+   document text in logs, GitHub issues, PRs or CI**. **The standards
+   converter's Claude lane is off by owner decision of 28 Oct 2026 (order 277);
+   its caps apply only when the owner opens it.** Until then the converter runs
+   on the local engine only.
    The standards converter
    (order 270.3) sends STANDARDS text only, of the SAES and ISO families (API
    and ASME on hold), and never a datasheet, procedure or CRS. Every other
