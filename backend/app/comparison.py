@@ -2495,13 +2495,11 @@ def _run_comparison(
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
-    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746).
-    # When this submittal's equipment type has a review checklist, the library
-    # requirements of a standard the checklist CITES are not checked one by
-    # one: the checklist items are. They stay quotable. GUARD: only standards
-    # named in the checklist's own `source.standard` (`checklist_sources`) -
-    # a requirement from any other applicable standard keeps the normal path,
-    # and a type with no checklist is unchanged. AFTER the applicability gates
+    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this submittal's
+    # equipment type has a review checklist, the library requirements of a standard the checklist CITES
+    # are not checked one by one: the checklist items are. They stay quotable. GUARD: only standards
+    # named in the checklist's own `source.standard` (`checklist_sources`); any other applicable
+    # standard keeps the normal path, and a type with no checklist is unchanged. AFTER the applicability gates
     # (subject, service and clause conditions, AI): a clause that does not
     # apply keeps that stronger, reasoned decision; only what still applies -
     # the kept requirements and the table cells no field answered - is "not used".
