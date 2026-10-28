@@ -15,6 +15,8 @@ from tests.test_141_division_scope import (  # noqa: F401 - the fixture and the 
     temp_storage,
 )
 
+pytestmark = pytest.mark.usefixtures("temp_storage")
+
 CC_SCOPE = "The rules in Part CC are applicable to vessels constructed of carbon and low alloy steel."
 WW_SCOPE = "The rules in Part WW are applicable to vessels of welded construction."
 EXTRA_PAGES = [
@@ -93,9 +95,7 @@ def _ids(rows):
     return [r["requirement"]["id"] if "requirement" in r else r["id"] for r in rows]
 
 
-def test_a_carbon_steel_part_applies_when_the_shell_material_is_a_carbon_steel_plate(
-    temp_storage,
-):
+def test_a_carbon_steel_part_applies_when_the_shell_material_is_a_carbon_steel_plate():
     out, model = _gate(
         [_fact("Shell material", "SA-516 Gr 70", page=2)], reqs=(GENERAL, CARBON_RULE)
     )
@@ -110,9 +110,7 @@ def test_a_carbon_steel_part_applies_when_the_shell_material_is_a_carbon_steel_p
     assert answered["page"] == 2 and answered["family"] == "carbon and low-alloy steel"
 
 
-def test_a_stainless_sheet_does_not_settle_a_carbon_steel_part_and_nothing_is_excluded_by_it(
-    temp_storage,
-):
+def test_a_stainless_sheet_does_not_settle_a_carbon_steel_part_and_nothing_is_excluded_by_it():
     out, model = _gate(
         [_fact("Shell material", "SA-240 Type 304 stainless")],
         reqs=(GENERAL, CARBON_RULE),
@@ -124,13 +122,13 @@ def test_a_stainless_sheet_does_not_settle_a_carbon_steel_part_and_nothing_is_ex
     assert "cc" not in _ids(out["kept"]) or out["items"] == []
 
 
-def test_a_layer_on_the_base_never_settles_it(temp_storage):
+def test_a_layer_on_the_base_never_settles_it():
     facts = [_fact("Shell material", "SA-516 Gr 70 with stainless cladding")]
     out, _ = _gate(facts, reqs=(GENERAL, CARBON_RULE))
     assert out["summary"].get("answered_from_sheet") == []
 
 
-def test_a_welded_part_applies_when_the_sheet_states_a_joint_efficiency(temp_storage):
+def test_a_welded_part_applies_when_the_sheet_states_a_joint_efficiency():
     out, model = _gate(
         [_fact("Joint efficiency", "0.85", page=3)], reqs=(GENERAL, WELD_RULE)
     )
@@ -139,14 +137,14 @@ def test_a_welded_part_applies_when_the_sheet_states_a_joint_efficiency(temp_sto
     assert out["summary"]["answered_from_sheet"][0]["page"] == 3
 
 
-def test_a_material_in_another_field_does_not_settle_the_shell(temp_storage):
+def test_a_material_in_another_field_does_not_settle_the_shell():
     out, _ = _gate(
         [_fact("Gasket material", "SA-516 Gr 70")], reqs=(GENERAL, CARBON_RULE)
     )
     assert out["summary"].get("answered_from_sheet") == []
 
 
-def test_a_blank_field_settles_nothing(temp_storage):
+def test_a_blank_field_settles_nothing():
     blank = {**_fact("Shell material", "SA-516 Gr 70"), "is_blank": 1}
     assert scope_construction.settle("carbon and low alloy steel", [blank]) is None
     assert (
@@ -207,7 +205,7 @@ def test_the_review_notes_say_what_the_sheet_settled_once_per_fact():
     )
 
 
-def test_a_tube_or_a_seal_material_is_not_the_vessel(temp_storage):
+def test_a_tube_or_a_seal_material_is_not_the_vessel():
     # a main part or only a component? Not for code to say: the shell and the heads settle a material
     facts = [
         _fact("Tube material", "Seamless titanium tubes"),

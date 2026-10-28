@@ -390,7 +390,7 @@ def _division_decision(
     from . import conditions
 
     construction = scope["construction"]
-    if (settled := scope_construction.settle(construction, facts)) is not None:  # order 264.8
+    if settled := scope_construction.settle(construction, facts):  # order 264.8
         run.setdefault("settled", []).append({"construction": construction, **settled})
         return "applies", None
     if not stated:
