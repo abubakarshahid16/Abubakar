@@ -96,4 +96,28 @@ MUTATIONS: tuple[Mutation, ...] = (
         "",
         "not_in_the_scope_ledger",
     ),
+    _m(
+        10,
+        "the verification queue holds the recommendations",
+        APP / "standards.py",
+        "NOT IN ('definition', 'recommendation')\"\n        \" AND (r.confidence IS NULL OR r.confidence < ?\"",
+        'NOT IN (\'definition\')"\n        " AND (r.confidence IS NULL OR r.confidence < ?"',
+        "verification_queue",
+    ),
+    _m(
+        11,
+        "the library's requirement count includes the recommendations",
+        APP / "standards.py",
+        "NOT IN ('definition', 'recommendation')\"\n        \"       ) AS requirement_count,\"",
+        'NOT IN (\'definition\')"\n        "       ) AS requirement_count,"',
+        "verification_queue",
+    ),
+    _m(
+        12,
+        "the library's 'awaiting verification' count includes the recommendations",
+        APP / "standards.py",
+        "NOT IN ('definition', 'recommendation')\"\n        \"           AND (r.confidence IS NULL OR r.confidence < ?\"",
+        'NOT IN (\'definition\')"\n        "           AND (r.confidence IS NULL OR r.confidence < ?"',
+        "verification_queue",
+    ),
 )

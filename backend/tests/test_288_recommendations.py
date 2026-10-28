@@ -162,3 +162,41 @@ def test_a_recommendation_is_not_in_the_scope_ledger_is_not_a_finding_and_is_cou
         for f in result["findings"]
         if "10 percent below" in str(f.get("requirement_source_text"))
     ]
+
+
+# ----------------------------------------------- the library's counts and the verification queue (s1 on #1421)
+
+
+def test_a_recommendation_is_in_no_requirement_count_and_not_in_the_verification_queue(
+    extracted,
+):
+    std = next(iter(extracted.values()))["standard_document_id"]
+    scope = frozenset({std})
+    types = {
+        row["requirement_type"]
+        for row in db.connect().execute(
+            "SELECT requirement_type FROM standard_requirements WHERE standard_document_id = ?",
+            (std,),
+        )
+    }
+    assert "recommendation" in types
+    # every row of this invented standard is low-confidence enough to wait, so the queue would hold it
+    db.connect().execute(
+        "UPDATE standard_requirements SET confidence = 0.1 WHERE standard_document_id = ?",
+        (std,),
+    )
+    db.connect().commit()
+    queued = standards.verification_queue(allowed_document_ids=scope)
+    assert queued and "recommendation" not in {q["requirement_type"] for q in queued}
+    listed = next(
+        s
+        for s in standards.list_standards(allowed_document_ids=scope)
+        if s["id"] == std
+    )
+    held = [
+        r
+        for r in extracted.values()
+        if r["requirement_type"] not in ("recommendation", "definition")
+    ]
+    assert listed["requirement_count"] == len(held)
+    assert listed["awaiting_verification"] == len(held)
