@@ -3,18 +3,10 @@
 from __future__ import annotations
 
 import copy
-import importlib.util
-from pathlib import Path
-
 import pytest
 
 from app import datasheet_checks as dc
-
-_SPEC = importlib.util.spec_from_file_location(
-    "rule_cards", Path(__file__).resolve().parents[2] / "scripts" / "rule_cards.py"
-)
-rule_cards = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(rule_cards)
+from app import rule_cards
 
 TYPE = "Pressure Safety Valve"
 RULES = dc.load_rules()
