@@ -731,10 +731,10 @@ class Settings(BaseSettings):
     #: "IMPELLER DIA." with "RATED *". The same precedence as the full flag
     #: applies - a rule-reader fact always wins, and a geometry reading never
     #: makes a page "read into fields" in the ledger.
-    #: Env: GEOMETRY_TABLE_READER_ENABLED. ON by default - owner decision
-    #: 2026-09-25, after the measurement above; set it false to go back to the
-    #: rule readers alone.
+    #: Env: GEOMETRY_TABLE_READER_ENABLED. ON by default (owner, 2026-09-25, after the
+    #: measurement above); false goes back to the rule readers alone.
     geometry_table_reader_enabled: bool = True
+    table_text_cells_enabled: bool = False  # order 271.4 fix B: standards re-extraction
     #: Datasheets that are NOT a PDF text layer (`datasheet_inputs.py`): an
     #: uploaded .docx is accepted, an .xlsx or .docx is INDEXED (its pages
     #: are the rendered sheets / document, read by `datasheet_inputs` instead

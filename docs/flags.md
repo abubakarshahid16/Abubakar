@@ -37,6 +37,7 @@ does not make one.
 | `review_debug_detail` | `False` | permanent | | | Operator debug switch |
 | `crs_ai_wording_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI CRS wording |
 | `geometry_table_reader_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Geometry table reader |
+| `table_text_cells_enabled` | `False` | permanent | | | Record a standards-table cell that is text, not a number, as a requirement with no value (order 271.4 fix B). Set for a standards re-extraction; it adds rows to a standard that has such cells |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |
