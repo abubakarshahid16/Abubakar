@@ -137,6 +137,20 @@ def approved_by(result: dict, label: str) -> dict:
     return {"trust_by": by, "trust_words": f"rule approved by {by}"} if by else {}
 
 
+def remember(finding: dict, result: dict) -> None:
+    """Order 302.4 c: write the engineer who approved the card on the stored finding (`review_findings.trust_by`),
+    so the CRS can say "rule approved by <engineer>". Nothing to write for any other result."""
+    by = result.get("trust_by")
+    if not (by and finding.get("id")):
+        return
+    from .db import connect
+
+    with connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET trust_by = ? WHERE id = ?", (by, finding["id"])
+        )
+
+
 def decides(result: dict) -> bool:
     """May this checklist result decide? Only a committed card's result, never a local or draft-only item."""
     return (

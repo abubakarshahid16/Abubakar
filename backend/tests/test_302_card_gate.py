@@ -10,7 +10,7 @@ from app import checklist_scope, crs_mapping, datasheet_checks, db, review, rule
 from app import rule_card_versions as versions
 from app.config import settings
 from tests.test_746_relief_valve_checklist import PSV, SHEET
-from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
+from tests.test_crs_endpoint import _run, _submittal, temp_db  # noqa: F401 - fixture
 
 CARD = "PSV-24"  # set pressure at most MAWP; a written-case card with a clause number
 WHO = "engineer@example.test"
@@ -48,7 +48,9 @@ def test_a_tested_card_nobody_decided_is_tested_not_approved():
 def test_an_approved_card_is_the_engineers_rule_by_name():
     _approve()
     r = _labelled()
-    assert r["trust_label"] == rule_trust.ENGINEER_CONFIRMED and r["status"] == "COMPLIANT"
+    assert (
+        r["trust_label"] == rule_trust.ENGINEER_CONFIRMED and r["status"] == "COMPLIANT"
+    )
     assert r["trust_by"] == WHO and r["trust_words"] == f"rule approved by {WHO}"
     assert not r.get("rule_said")
 
@@ -95,26 +97,39 @@ def test_with_the_approval_switch_off_the_approval_is_ignored(monkeypatch):
     assert r["trust_label"] == rule_trust.TESTED_CARD and "trust_by" not in r
 
 
-def test_the_crs_says_approved_by_name_never_proven_or_tested(monkeypatch):
-    """Whole path: a finding stored from an approved card, then the CRS words."""
+def test_the_crs_says_approved_by_name_never_proven_or_tested():
+    """Whole path with the real store: a finding stored from an approved card keeps the engineer's name, and the
+    CRS words are built from the STORED finding."""
     _approve()
-    written = []
-    monkeypatch.setattr(review, "rejected_in_run", lambda *a, **k: [])
-    monkeypatch.setattr(
-        review, "create", lambda row, created_by=None: written.append(row) or {"id": "x", **row}
+    doc = _submittal()
+    run = _run(doc)
+    res = [
+        r
+        for r in checklist_scope.evaluate(SHEET, {"equipment_type": PSV}, {1: "x"})
+        if r.get("rule_id") == CARD
+    ]
+    datasheet_checks.store(
+        run, doc, res, pages_read={1: "read"}, label=rule_trust.label_check
     )
-    res = [r for r in checklist_scope.evaluate(SHEET, {"equipment_type": PSV}, {1: "x"}) if r.get("rule_id") == CARD]
-    datasheet_checks.store("run", "sub", res, pages_read={1: "read"}, label=rule_trust.label_check)
-    stored = next(w for w in written if "PSV-24" in w["requirement_source_text"])
-    assert stored["trust_label"] == rule_trust.ENGINEER_CONFIRMED and stored["trust_by"] == WHO
+    stored = review.list_findings(review_run_id=run)[0]
+    assert (
+        stored["trust_label"] == rule_trust.ENGINEER_CONFIRMED
+        and stored["trust_by"] == WHO
+    )
     assert crs_mapping.trust_words(stored) == f"rule approved by {WHO}"
+    assert "proven" not in crs_mapping.trust_words(stored)
 
 
 def test_an_engineer_confirmed_finding_without_a_name_keeps_the_old_words():
-    assert crs_mapping.trust_words({"trust_label": rule_trust.ENGINEER_CONFIRMED}) == "engineer-approved rule"
+    assert (
+        crs_mapping.trust_words({"trust_label": rule_trust.ENGINEER_CONFIRMED})
+        == "engineer-approved rule"
+    )
 
 
 def test_the_finding_table_keeps_the_engineers_name():
     review.ensure_schema()
-    columns = {r["name"] for r in db.connect().execute("PRAGMA table_info(review_findings)")}
+    columns = {
+        r["name"] for r in db.connect().execute("PRAGMA table_info(review_findings)")
+    }
     assert "trust_by" in columns

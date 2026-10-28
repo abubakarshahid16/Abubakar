@@ -798,7 +798,7 @@ def trust_words(finding: dict) -> str:
     if not label:
         return ""
     from .rule_trust import ENGINEER_CONFIRMED, TRUST_WORDS
-    if label == ENGINEER_CONFIRMED and finding.get("trust_by"):  # 302.4 c: an approved card, by name
+    if label == ENGINEER_CONFIRMED and finding.get("trust_by"):
         return f"rule approved by {finding['trust_by']}"
     return TRUST_WORDS.get(label, str(label))
 
