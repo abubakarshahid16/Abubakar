@@ -621,6 +621,100 @@ def reviewed_entries(files: list[Path] | None = None) -> list[tuple[str, dict]]:
                 and e.get("text_sha256")
             ):
                 out.append(
-                    (data["equipment_type"], {**e, "standard": data.get("standard")})
+                    (
+                        data["equipment_type"],
+                        {
+                            **e,
+                            "standard": data.get("standard"),
+                            "model": data.get("model"),
+                        },
+                    )
                 )
+    return out
+
+
+# ------------------------------------------------------- the review reads SENTENCE checks (order 274.1)
+
+
+def converter_rules(
+    standard_document_id: str, equipment_type: str | None
+) -> dict[str, dict]:
+    """The standard's SENTENCE rules (requirement_type 'statement') that the converter proved, as rules the
+    review may compare with, keyed by the sentence row each stands on - the same shape and the same road as
+    `ai_requirements.auto_use_rules` (which calls this): the rule takes its sentence's place, same id, so the
+    scope ledger still ends every requirement in exactly one state, and `rule_trust.label_finding` decides what
+    its verdict may say (an unproven family never decides: NEEDS_ENGINEER_REVIEW with the arithmetic shown).
+
+    Read ONLY when `standards_converter_dir` names a folder (empty = nothing) and the review's equipment type is
+    the type the draft was made for. A row is used only if it is verified with applies = "yes" (never unproven,
+    no, depends), its sentence still hashes the same, its standard is this one, and CODE CHECKS IT AGAIN against
+    the sentence now stored (`ai_requirements.limit_from_draft`: the quote is in the sentence, the number and unit
+    are in the quote, the operator does not point the other way, and a sentence that holds only under a condition
+    is refused). Nothing is written; the draft file is never changed."""
+    from . import ai_requirements, standard_ids
+    from .db import connect
+
+    if not equipment_type:
+        return {}
+    entries = [
+        (file_type, e)
+        for file_type, e in reviewed_entries()
+        if rule_roles.same_type(file_type, equipment_type)
+    ]
+    if not entries:
+        return {}
+    conn = connect()
+    doc = conn.execute(
+        "SELECT d.filename, c.document_number FROM documents d"
+        " LEFT JOIN document_classification c ON c.document_id = d.id WHERE d.id = ?",
+        (standard_document_id,),
+    ).fetchone()
+    if doc is None:
+        return {}
+    label = doc["document_number"] or doc["filename"]
+    by_hash = {
+        e["text_sha256"]: (file_type, e)
+        for file_type, e in entries
+        if standard_ids.same_standard(e.get("standard"), label)
+    }
+    if not by_hash:
+        return {}
+    out: dict[str, dict] = {}
+    for row in conn.execute(
+        "SELECT id, source_text, requirement_text FROM standard_requirements"
+        " WHERE standard_document_id = ? AND requirement_type = ? AND superseded_at IS NULL ORDER BY id",
+        (standard_document_id, ai_requirements.STATEMENT),
+    ):
+        digest = rule_roles.text_hash(row["requirement_text"])
+        if digest not in by_hash:
+            continue
+        file_type, entry = by_hash[digest]
+        _dictionary, roles, _families = rule_roles.form(file_type)
+        name = next((n for n, role in roles.items() if role == entry["field"]), None)
+        if name is None:
+            continue
+        sentence = row["source_text"] or row["requirement_text"] or ""
+        draft = {
+            "field": name,
+            "operator": entry.get("comparator"),
+            "value": entry.get("limit"),
+            "unit": entry.get("unit") or None,
+            "condition": None,
+            "quote": entry.get("quote"),
+        }
+        try:
+            limit = ai_requirements.limit_from_draft(draft, sentence)
+        except ai_requirements.DraftError:
+            continue
+        out[row["id"]] = {
+            "requirement_type": "numeric_limit",
+            **limit,
+            # The AI's rule, never confirmed by a person: `rule_trust` labels it.
+            "extraction_method": "model",
+            "model": entry.get("model"),
+            "confirmed_by": None,
+            "confirmed_at": None,
+            "rule_draft_id": f"converter:{digest[:16]}",
+            "quote": entry.get("quote"),
+        }
     return out
