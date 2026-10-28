@@ -102,3 +102,37 @@ def test_the_clause_coverage_agrees_with_the_ledger_on_every_reason():
         clause_coverage.STATE_OF["missing_information"] == clause_coverage.NOT_CHECKED
     )
     assert clause_coverage.STATE_OF["not_applicable"] == clause_coverage.DOES_NOT_APPLY
+
+
+def test_the_manual_review_banner_names_the_real_reasons():
+    """cloud's blocking ask on #1392: a run whose unchecked requirements only ask for another
+    document must not say "no matching field, or text that could not be read"."""
+    met = [{"compliance_status": comparison.COMPLIANT}] * 3
+    sufficient = {
+        "sufficient": True,
+        "fields_read": 9,
+        "fields_estimated": 9,
+        "extraction_coverage": 1.0,
+    }
+    reasons = [
+        {"reason": "it asks for evidence another document gives", "count": 259},
+        {"reason": "no value for it on this datasheet", "count": 40},
+        {"reason": "an engineer has to decide it", "count": 7},
+        {
+            "reason": "table row: its column is not a field of this datasheet",
+            "count": 5,
+        },
+        {"reason": "whether it applies could not be confirmed", "count": 2},
+        {"reason": "no label", "count": 1},
+    ]
+    counts = {"not_compared": 314, "checked": 3, "unsure_citation": 0}
+    result = comparison.recommend_code(
+        met, sufficient, unchecked_counts={**counts, "reasons": reasons}
+    )
+    assert result["code"] == comparison.CODE_MANUAL
+    text = result["reason"]
+    assert "259 it asks for evidence another document gives" in text
+    assert "3 for other reasons" in text
+    assert "no matching field" not in text and "could not be read" not in text
+    # the named counts add up to the unchecked count
+    assert 259 + 40 + 7 + 5 + 3 == 314

@@ -964,11 +964,11 @@ def test_the_manual_review_reason_names_the_unsure_citation_cause():
     assert (
         "120 of 123 requirements that apply to this submittal were not checked (100 "
         "because the datasheet's citation does not say for certain which clauses of the "
-        "standard apply - the engineer decides; 20 with no matching field, or text that "
-        "could not be read)"
+        "standard apply - the engineer decides; 20 not compared with a value on the "
+        "datasheet)"
     ) in result["reason"]
     # with no unsure citation, the cause reads as before
     plain = comparison.recommend_code(
         met, sufficient, unchecked_counts={"not_compared": 900, "checked": 3}
     )
-    assert "(no matching field, or text that could not be read)" in plain["reason"]
+    assert "(not compared with a value on the datasheet)" in plain["reason"]
