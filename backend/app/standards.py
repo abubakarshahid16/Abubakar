@@ -47,7 +47,9 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import chunker, claims, classification, numparse, orphan_guard, provenance, requirement_quality, requirements_3b
+from . import chunker, claims, classification, orphan_guard, provenance, requirement_quality, requirements_3b
+from . import table_cells
+from .config import settings
 from . import submittal_review
 from . import tables as tables_mod
 from .db import connect
@@ -1141,6 +1143,30 @@ def extract_requirements(
     }
 
 
+def _store_table_cell(document_id: str, parse, label: str, column: str, raw_value: str,
+                      structured: dict, stamp: tuple) -> dict | None:
+    """One table cell as a requirement; None when the requirement gate refuses it."""
+    extractor_version, inputs, run_id = stamp
+    try:
+        return create_requirement(
+            standard_document_id=document_id,
+            chunk_id=parse.chunk_id,
+            requirement_text=f"{label} - {column}: {raw_value}",
+            source_text=f"{label} | {column} | {raw_value}",
+            clause=None, page=parse.page,
+            extraction_method="extracted",
+            # A table cell carries no obligation word, so it is recorded at the
+            # verification threshold: a human decides whether this number is a
+            # requirement or a reference value. It is never presented as confirmed.
+            confidence=0.5,
+            structured=structured,
+            extractor_version=extractor_version,
+            input_hash=inputs,
+            extraction_run_id=run_id)
+    except RequirementError:
+        return None
+
+
 def extract_table_values(
     document_id: str, *, allowed_document_ids: frozenset[str],
     actor: dict | None = None, replace: bool = True,
@@ -1198,95 +1224,38 @@ def extract_table_values(
                 if column_index >= len(header):
                     continue
                 raw_value = (cell or "").strip()
-                # A cell that is not a number is not a value. A label repeated
-                # in a data column, an empty cell, a footnote marker - none of
-                # them is a limit, and recording one would invent a
-                # requirement out of formatting. A number that carries its own
-                # unit ("50 mm") IS a value (#695); every cell skipped is
-                # counted by reason, not lost.
+                # A cell that is not a number is not a value: a repeated label, an empty
+                # cell or a footnote marker would invent a requirement out of formatting.
+                # A number with its own unit ("50 mm") IS one (#695); every cell skipped is
+                # counted by reason. With TABLE_TEXT_CELLS_ENABLED a TEXT cell is recorded
+                # with no value (order 271.4 fix B, `table_text_cells`).
                 reading = requirements_3b.cell_reading(raw_value)
                 span = requirements_3b.cell_range(raw_value) if reading is None else None
                 if reading is None and span is None:
-                    skipped["empty" if not raw_value else "not_a_number"] += 1
-                    continue
-                number_text, cell_unit = reading if reading is not None else ("", span.unit)
-                column = header[column_index]
-                unit = cell_unit or requirements_3b.header_unit(column)
-                # #595 THE NUMBER COMES FROM numparse (decimal comma, sign,
-                # thousands). A unit the table does not know leaves the value
-                # NULL (never 0); a cell with no unit anywhere keeps the
-                # number as written, with no unit.
-                number, cell_operator = (requirements_3b.cell_number(number_text)
-                                         if span is None else (None, None))
-                if span is not None:
-                    # #617: a range is ONE requirement with two bounds, never
-                    # one number. In the table's unit only when the unit is
-                    # known; an ambiguous dash keeps no bounds at all.
-                    low, high = span.low, span.high
-                    if unit and low is not None and high is not None:
-                        lo = requirements_3b.measure(f"{low:.12f}".rstrip("0").rstrip("."), unit)
-                        hi = requirements_3b.measure(f"{high:.12f}".rstrip("0").rstrip("."), unit)
-                        low, high = lo.normalized_value, hi.normalized_value
-                        normal_unit = lo.normalized_unit if lo.normalized_value is not None else None
-                        if low is None or high is None:
-                            low = high = None
+                    stored = None
+                    if (settings.table_text_cells_enabled
+                            and table_cells.is_text_cell(raw_value, label)):
+                        stored = _store_table_cell(
+                            document_id, parse, label, header[column_index], raw_value,
+                            table_cells.text_structured(label, header[column_index], raw_value,
+                                                        row_index, signature),
+                            (extractor_version, inputs, run_id))
+                    if stored is None:
+                        skipped["empty" if not raw_value else "not_a_number"] += 1
+                        continue
+                    touched.add(stored["id"])
+                    if stored.get("upserted") == "merged":
+                        merged += 1
                     else:
-                        normal_unit = None
-                    value = None
-                elif unit:
-                    # The parsed number goes in, not the cell's text: the unit
-                    # table reads the text with its own rules, numparse's
-                    # answer for a decimal comma is the one recorded here.
-                    measurement = requirements_3b.measure(
-                        "" if number is None else f"{number:.12f}".rstrip("0").rstrip("."),
-                        unit)
-                    value, normal_unit = (measurement.normalized_value,
-                                          measurement.normalized_unit)
-                else:
-                    value, normal_unit = number, None
-                operator = (cell_operator or requirements_3b.header_operator(column)
-                            if span is None else
-                            (requirements_3b.RANGE_OPERATOR if span.low is not None else None))
-                field = requirements_3b.field_name("", column)
-                # #594 IDENTITY: standard (the column below) + table (its
-                # header) + row key + column + the value as written.
-                identity = "\x1f".join((
-                    signature, numparse.fold(label), numparse.fold(column),
-                    numparse.normalise_text(raw_value)))
-                try:
-                    stored = create_requirement(
-                        standard_document_id=document_id,
-                        chunk_id=parse.chunk_id,
-                        requirement_text=f"{label} - {column}: {raw_value}",
-                        source_text=f"{label} | {column} | {raw_value}",
-                        clause=None, page=parse.page,
-                        extraction_method="extracted",
-                        # A table cell carries no obligation word, so it is
-                        # recorded at the verification threshold: a human
-                        # decides whether this number is a requirement or a
-                        # reference value. It is never presented as confirmed.
-                        confidence=0.5,
-                        structured={
-                            "requirement_type": ("table_value" if span is None
-                                                 else requirements_3b.TABLE_RANGE),
-                            "field": field,
-                            "condition": label,
-                            "operator": operator,
-                            "raw_value": raw_value,
-                            "raw_unit": unit,
-                            "unit_from": (("cell" if cell_unit else "column_header")
-                                          if unit else None),
-                            "value": value,
-                            "unit": normal_unit,
-                            "value_low": low if span is not None else None,
-                            "value_high": high if span is not None else None,
-                            "table_row": row_index,
-                            "identity_key": identity,
-                        },
-                        extractor_version=extractor_version,
-                        input_hash=inputs,
-                        extraction_run_id=run_id)
-                except RequirementError:
+                        written += 1
+                    continue
+                column = header[column_index]
+                stored = _store_table_cell(
+                    document_id, parse, label, column, raw_value,
+                    table_cells.numeric_structured(label, column, raw_value, reading, span,
+                                                   row_index, signature),
+                    (extractor_version, inputs, run_id))
+                if stored is None:
                     continue
                 touched.add(stored["id"])
                 if stored.get("upserted") == "merged":
