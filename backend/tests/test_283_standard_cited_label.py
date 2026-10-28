@@ -112,3 +112,40 @@ def test_mark_counts_the_rows_it_labelled_marks_once_and_numbering_does_not_move
     )  # already marked by build_crs_rows: never twice
     assert sum(r["comment"].count(crs_cited.LABEL) for r in rows) == 1
     assert crs_cited.mark(plain, fs, check) == 1
+
+
+def test_an_empty_cited_list_is_unknown_not_everything_uncited():
+    # cloud-3: an unread sheet also gives []
+    [row] = rows_for([finding("f1", "API 610 11th Ed.pdf")], {"cited": []})
+    assert "standard_cited" not in row
+
+
+def test_a_standard_the_equipment_type_requires_is_not_company_practice():
+    check = {"cited": ["API 682"], "required": [{"identifier": "API 610"}]}
+    [row] = rows_for([finding("f1", "API 610 11th Ed.pdf")], check)
+    assert "standard_cited" not in row
+    [other] = rows_for([finding("f2", "SAES-G-005.pdf")], check)
+    assert other["standard_cited"] is False
+
+
+def test_an_unedited_label_is_never_text_a_contractor_is_sent():
+    from app import crs_export
+    from app.crs_mapping import row_has_no_issuable_text
+
+    [row] = rows_for([finding("f1", "SAES-G-005.pdf")], {"cited": ["API 610"]})
+    assert row_has_no_issuable_text(row)
+    row["engineer_confirmed"] = True
+    issued = crs_export.build_crs_view([row], {"copy": crs_export.COPY_ISSUE})
+    assert issued["rows_withheld_no_text"] == 1 and not issued["rows"]
+    internal = crs_export.build_crs_view([row], {"copy": crs_export.COPY_INTERNAL})
+    assert crs_cited.LABEL in str(internal["rows"][0]["comment"])
+
+
+def test_a_row_the_engineer_worded_is_issuable_and_marked():
+    f = finding(
+        "f1", "SAES-G-005.pdf", engineer_comment="Please confirm the design pressure."
+    )
+    [row] = rows_for([f], {"cited": ["API 610"]})
+    from app.crs_mapping import row_has_no_issuable_text
+
+    assert row["standard_cited"] is False and not row_has_no_issuable_text(row)

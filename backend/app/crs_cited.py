@@ -21,26 +21,34 @@ LABEL = "Company practice, not cited in this datasheet: engineer to judge."
 _CHECK_ORIGIN = "datasheet_check"  # a kind B check names its own checklist source
 
 
-def _not_cited(finding: dict, cited: list[str]) -> bool:
+def _not_cited(finding: dict, cited: list[str], required: list[str]) -> bool:
     name = str(finding.get("standard_name") or "")
     if finding.get("origin") == _CHECK_ORIGIN or standard_ids.parse(name) is None:
         return False
-    return not any(standard_ids.same_standard(c, name) for c in cited)
+    return not any(standard_ids.same_standard(c, name) for c in [*cited, *required])
+
+
+def holds_label(row: dict) -> bool:
+    """A labelled row whose comment is still the machine's labelled text."""
+    return row.get("standard_cited") is False and str(
+        row.get("comment") or ""
+    ).startswith(LABEL)
 
 
 def mark(rows: list[dict], findings: list[dict], standards_check: dict | None) -> int:
     """Label, in place, every finding row whose standards are ALL known and none cited
     in the datasheet. Returns how many rows were marked."""
     cited = (standards_check or {}).get("cited")
-    if cited is None:
+    if not cited:
         return 0
+    required = [r["identifier"] for r in (standards_check or {}).get("required") or []]
     by_id = {f["id"]: f for f in findings if f.get("id")}
     marked = 0
     for row in rows:
         group = [by_id[i] for i in row.get("finding_ids") or [] if i in by_id]
         if not group or row.get("standard_cited") is False:
             continue
-        if not all(_not_cited(f, cited) for f in group):
+        if not all(_not_cited(f, cited, required) for f in group):
             continue
         row["standard_cited"] = False
         if not row.get("edited"):

@@ -35,8 +35,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         2,
         "no cited list is read as an empty list, so every row is labelled",
-        '(standards_check or {}).get("cited")\n    if cited is None:',
-        '(standards_check or {}).get("cited") or []\n    if cited is None:',
+        "    if not cited:\n        return 0\n",
+        "    if False:\n        return 0\n",
         "without_a_cited_list",
     ),
     _m(
@@ -49,15 +49,15 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         4,
         "a row is labelled when ANY of its standards is uncited",
-        "not all(_not_cited(f, cited) for f in group)",
-        "not any(_not_cited(f, cited) for f in group)",
+        "not all(_not_cited(f, cited, required) for f in group)",
+        "not any(_not_cited(f, cited, required) for f in group)",
         "among_others",
     ),
     _m(
         5,
         "the match is inverted: a cited standard is called not cited",
-        "return not any(standard_ids.same_standard(c, name) for c in cited)",
-        "return any(standard_ids.same_standard(c, name) for c in cited)",
+        "return not any(standard_ids.same_standard(c, name) for c in [*cited, *required])",
+        "return any(standard_ids.same_standard(c, name) for c in [*cited, *required])",
         "cited_standard_is_unchanged",
     ),
     _m(
@@ -88,5 +88,27 @@ MUTATIONS: tuple[Mutation, ...] = (
         '        if not group or row.get("standard_cited") is False:\n',
         "        if not group:\n",
         "marks_once",
+    ),
+    _m(
+        10,
+        "an empty cited list (an unread sheet) is read as 'everything is uncited'",
+        "    if not cited:\n        return 0\n",
+        "    if cited is None:\n        return 0\n",
+        "empty_cited_list",
+    ),
+    _m(
+        11,
+        "a standard the equipment type requires is called company practice",
+        "for c in [*cited, *required])",
+        "for c in cited)",
+        "equipment_type_requires",
+    ),
+    _m(
+        12,
+        "an unedited label is issued to the contractor",
+        "        or crs_cited.holds_label(row)\n",
+        "",
+        "never_text_a_contractor",
+        path=APP / "crs_mapping.py",
     ),
 )

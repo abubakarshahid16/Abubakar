@@ -1022,11 +1022,12 @@ def row_has_no_text(row: dict) -> bool:
 
 
 def row_has_no_issuable_text(row: dict) -> bool:
-    """`row_has_no_text` for a row that is about to be ISSUED (1b): a waiting
-    sentence is never text a contractor is sent, draft beside it or not - the
-    draft is the machine's, and an issued number's row can carry both."""
-    return row_has_no_text(row) or (
-        str(row.get("comment") or "").strip() in WAITING_COMMENTS
+    """`row_has_no_text` for a row about to be ISSUED (1b): a waiting sentence is never text a
+    contractor is sent, draft beside it or not; nor is an unedited "not cited" label (283.3)."""
+    return (
+        row_has_no_text(row)
+        or str(row.get("comment") or "").strip() in WAITING_COMMENTS
+        or crs_cited.holds_label(row)
     )
 
 
@@ -1659,8 +1660,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         for r in rows[len(sort_keys) :]
     )
 
-    # OWNER ORDER 2f: the internal notes (another document, pages not read, values not
-    # found, cited standards not held) are the "Review notes" sheet (`build_review_notes`).
+    # OWNER ORDER 2f: the internal notes are the "Review notes" sheet (`build_review_notes`).
     # Order 283.3: a row whose standard the sheet does not cite says so.
     crs_cited.mark(rows, findings, standards_check)
     # Order 139 part 2 (spec f): THE SHEET'S ORDER IS ITS RANK. Every row
