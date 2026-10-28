@@ -163,9 +163,20 @@ def test_an_unfinished_run_and_an_unknown_run_are_refused_and_write_nothing(
     assert not out.exists()
 
 
-def test_the_files_may_not_go_inside_the_repository(board, copy_db):
+def test_the_files_may_not_go_inside_the_repository(
+    board, copy_db, tmp_path, monkeypatch
+):
+    fake_repo = tmp_path / "repo"
+    (fake_repo / "docs").mkdir(parents=True)
+    monkeypatch.setattr(
+        board, "REPO", fake_repo
+    )  # never the real checkout: a failing test must write nothing there
     with pytest.raises(ValueError, match="outside the repository"):
-        board.export(copy_db, "run1", board.REPO / "docs" / "board")
+        board.export(copy_db, "run1", fake_repo / "docs" / "board")
+    assert not (fake_repo / "docs" / "board").exists()
+    board.export(
+        copy_db, "run1", fake_repo / "backend" / "data" / "board"
+    )  # git-ignored: allowed
 
 
 def test_a_live_shaped_path_is_refused(board, tmp_path):

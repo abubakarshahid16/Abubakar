@@ -49,6 +49,7 @@ FINDING_COLUMNS = (
     "ai_rationale",
     "disposition",
     "origin",
+    "equipment_tag",
 )
 
 
@@ -106,6 +107,7 @@ def _run_block(run: sqlite3.Row, outcome: dict, findings: list[dict]) -> dict:
     keys = run.keys()
     return {
         "id": run["id"],
+        "submittal_document_id": run["submittal_document_id"],
         "status": run["status"],
         "started_at": run["started_at"],
         "completed_at": run["completed_at"],
