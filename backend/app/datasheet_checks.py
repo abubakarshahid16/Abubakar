@@ -720,7 +720,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(NEEDS_ENGINEER_REVIEW,
                    _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
                    get(field)[0])
-    if blank_markers.fact_is_placeholder(fact):
+    if blank_markers.fact_is_placeholder(fact, figure_wins=True):
         return res(MISSING_INFORMATION,
                    f"{_label(fact, field)} is marked '{_said(fact) or fact.get('blank_marker')}' "
                    f"on page {fact.get('page')}; the contractor is to provide the value.", fact)

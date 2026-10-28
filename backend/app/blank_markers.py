@@ -96,13 +96,47 @@ def is_marker(text: str | None) -> bool:
     return bool(folded) and classify(folded)[0]
 
 
-def fact_is_placeholder(fact: dict) -> bool:
+#: A digit that starts a figure, not one inside a unit ("m3/h").
+_FIGURE = re.compile(r"(?<![A-Za-z_])\d")
+
+
+def figure_beside_note(text: str | None) -> bool:
+    """True when `text` is a figure followed by a "not provided" phrase ("145 psig
+    By Contractor, as per Code", "340 psig (By Contractor)"): a digit stands
+    BEFORE the phrase. The phrase first ("By Contractor 340 psig"), a lone
+    marker and drawn ink are not."""
+    folded = " ".join((text or "").split())
+    if not folded or folded.lower() in _ANSWERS:
+        return False
+    if _WHOLE_CELL.match(folded) or _PLACEHOLDER.match(folded):
+        return False
+    marker = _ANYWHERE.search(folded)
+    return bool(marker and _FIGURE.search(folded[: marker.start()]))
+
+
+def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
     """True when the fact is marked blank, or its printed text or bare value is a
     placeholder. With a unit the printed text is "* m3/h", which alone looks
-    like a value, so the bare value is judged too."""
+    like a value, so the bare value is judged too.
+
+    `figure_wins`: for a test that asks whether a value IS STATED. A figure the
+    reader parsed, or a figure printed before the phrase ("10 barg By
+    Contractor"), states that figure (#725 F3: the phrase is a note on it), so
+    the phrase beside it does not make it a placeholder. A bare "*", "TBA" or a
+    phrase with no figure before it still does."""
     if fact.get("is_blank"):
         return True
+    if figure_wins:
+        shown = str(fact.get("raw_value") or fact.get("field_value") or "")
+        if _FIGURE.search(shown) and (
+            not classify(shown)[0] or figure_beside_note(shown)
+        ):
+            return False
     return any(
         v and classify(str(v))[0]
-        for v in (fact.get("field_value"), fact.get("raw_value"), fact.get("blank_marker"))
+        for v in (
+            fact.get("field_value"),
+            fact.get("raw_value"),
+            fact.get("blank_marker"),
+        )
     )
