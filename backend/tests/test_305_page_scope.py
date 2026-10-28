@@ -244,3 +244,18 @@ def test_a_real_heading_at_the_top_still_opens_its_region():
     tags = ps.tag_pages(_pages("MANDATORY APPENDIX 3\ntext", "more text"))
     assert [t["scope"] for t in tags.values()] == [ps.MANDATORY, ps.MANDATORY]
     assert tags[1]["region"] == "Appendix 3"
+
+
+def test_the_shape_report_keeps_region_words_and_masks_the_rest():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import page_scope_report as report
+
+    assert report._mask("MANDATORY APPENDIX 12 Pressure Rules") == (
+        "MANDATORY APPENDIX 99 Aaaaaaaa Aaaaa"
+    )
+    pages = {1: "MANDATORY APPENDIX 3\nbody", 2: "more", 3: "1 Scope\nbody"}
+    shapes = report._region_openers(ps, pages, ps.tag_pages(pages))
+    assert dict(shapes) == {("MANDATORY APPENDIX 9", "top"): 1}
