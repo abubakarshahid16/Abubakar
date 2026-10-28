@@ -96,22 +96,13 @@ def is_marker(text: str | None) -> bool:
     return bool(folded) and classify(folded)[0]
 
 
-#: A digit that starts a figure, not one inside a unit ("m3/h").
-_FIGURE = re.compile(r"(?<![A-Za-z_])\d")
-
-
-def figure_beside_note(text: str | None) -> bool:
-    """True when `text` is a figure followed by a "not provided" phrase ("145 psig
-    By Contractor, as per Code", "340 psig (By Contractor)"): a digit stands
-    BEFORE the phrase. The phrase first ("By Contractor 340 psig"), a lone
-    marker and drawn ink are not."""
-    folded = " ".join((text or "").split())
-    if not folded or folded.lower() in _ANSWERS:
-        return False
-    if _WHOLE_CELL.match(folded) or _PLACEHOLDER.match(folded):
-        return False
-    marker = _ANYWHERE.search(folded)
-    return bool(marker and _FIGURE.search(folded[: marker.start()]))
+#: A cell that BEGINS with a figure (an optional sign or comparator, then digits): "10 barg By
+#: Contractor", "<85 dBA TBC". Not a reference number before a phrase ("Note 3 - vendor to advise",
+#: "Per API 520, by contractor", "Item 2 TBA", "ASME Class 300, TBC") and not a list number ("3. By
+#: contractor").
+_STARTS_WITH_FIGURE = re.compile(
+    r"^[\s(]*[<>≤≥=~±+\-]*\s*\d+(?:[.,]\d+)*(?!\d)(?![.):]\s)"
+)
 
 
 def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
@@ -119,19 +110,17 @@ def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
     placeholder. With a unit the printed text is "* m3/h", which alone looks
     like a value, so the bare value is judged too.
 
-    `figure_wins`: for a test that asks whether a value IS STATED. A figure the
-    reader parsed, or a figure printed before the phrase ("10 barg By
-    Contractor"), states that figure (#725 F3: the phrase is a note on it), so
-    the phrase beside it does not make it a placeholder. A bare "*", "TBA" or a
-    phrase with no figure before it still does."""
+    `figure_wins`: for a test that asks whether a value IS STATED. A cell that
+    begins with a figure ("10 barg By Contractor") states that figure (#725 F3:
+    the phrase is a note on it), so the phrase after it does not make it a
+    placeholder. A bare "*", "TBA", a phrase first, or a number that is only a reference ("Note 3",
+    "Item 2", "Class 300") still does."""
     if fact.get("is_blank"):
         return True
-    if figure_wins:
-        shown = str(fact.get("raw_value") or fact.get("field_value") or "")
-        if _FIGURE.search(shown) and (
-            not classify(shown)[0] or figure_beside_note(shown)
-        ):
-            return False
+    if figure_wins and _STARTS_WITH_FIGURE.search(
+        str(fact.get("field_value") or fact.get("raw_value") or "")
+    ):
+        return False
     return any(
         v and classify(str(v))[0]
         for v in (
