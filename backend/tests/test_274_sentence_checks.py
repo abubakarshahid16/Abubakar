@@ -437,3 +437,39 @@ def test_the_draft_file_is_never_modified_by_a_review(cworld, monkeypatch):
     before = path.read_bytes()
     _rerun(cworld)
     assert path.read_bytes() == before and json.loads(before)["converter"] is True
+
+
+# ------------------------------------------------------------------ 6. two rows for one sentence (cloud-3 on #1412)
+
+
+def _second_file(cworld, tmp_path, name, **over):
+    """A second draft file in the same folder holding the same sentence, optionally saying something else."""
+    other = _mirror(
+        tmp_path / name,
+        [_row(SENTENCE, **over)],
+    )
+    for f in other.glob("*.json"):
+        (cworld["folder"] / f"{name}.json").write_text(f.read_text())
+
+
+def test_two_files_that_disagree_on_one_sentence_are_used_by_neither_in_any_order(
+    cworld, monkeypatch, tmp_path
+):
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    for name in (
+        "a-first",
+        "zz-last",
+    ):  # the extra file sorts before, then after, the first
+        _second_file(cworld, tmp_path, name, limit="10")
+        assert _rules(cworld) == {}, name
+        (cworld["folder"] / f"{name}.json").unlink()
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+
+
+def test_two_files_that_say_the_same_thing_still_give_the_rule(
+    cworld, monkeypatch, tmp_path
+):
+    _on(cworld, monkeypatch)
+    _second_file(cworld, tmp_path, "same")
+    assert list(_rules(cworld)) == [cworld["stmt"]]

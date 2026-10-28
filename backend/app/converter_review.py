@@ -108,10 +108,18 @@ def converter_rules(
     if not entries or doc is None:
         return {}
     label = doc["document_number"] or doc["filename"]
+    rows: dict[str, list[tuple]] = {}
+    for file_type, e in entries:
+        if standard_ids.same_standard(e.get("standard"), label):
+            rows.setdefault(e["text_sha256"], []).append(
+                (file_type, _what_it_says(e), e)
+            )
+    # One sentence, two rows that say different things (the same boilerplate in two drafts): used by neither,
+    # whatever the file order (cloud-3 on #1412).
     by_hash = {
-        e["text_sha256"]: (file_type, e)
-        for file_type, e in entries
-        if standard_ids.same_standard(e.get("standard"), label)
+        key: (group[0][0], group[0][2])
+        for key, group in rows.items()
+        if all(g[:2] == group[0][:2] for g in group)
     }
     out: dict[str, dict] = {}
     for row in conn.execute(
@@ -125,6 +133,14 @@ def converter_rules(
             if rule is not None:
                 out[row["id"]] = rule
     return out
+
+
+def _what_it_says(entry: dict) -> tuple:
+    """The parts of a row that decide a comparison: two rows for one sentence agree only if all are equal."""
+    return tuple(
+        entry.get(k)
+        for k in ("field", "applies", "comparator", "limit", "unit", "quote")
+    )
 
 
 def _rule_from(row, digest: str, file_type: str, entry: dict) -> dict | None:
