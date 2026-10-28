@@ -162,7 +162,33 @@ def shown(context: dict) -> dict:
 #: tie nothing to nothing when two texts are compared.
 MIN_QUOTE_CHARS = 8
 _FUNCTION_WORDS = frozenset(
-    ["the", "a", "an", "of", "for", "in", "on", "at", "to", "is", "are", "be", "shall", "should", "must", "when", "where", "if", "and", "or", "with", "by", "as", "that", "this"]
+    [
+        "the",
+        "a",
+        "an",
+        "of",
+        "for",
+        "in",
+        "on",
+        "at",
+        "to",
+        "is",
+        "are",
+        "be",
+        "shall",
+        "should",
+        "must",
+        "when",
+        "where",
+        "if",
+        "and",
+        "or",
+        "with",
+        "by",
+        "as",
+        "that",
+        "this",
+    ]
 )
 
 

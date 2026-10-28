@@ -292,9 +292,10 @@ def requirements_of(conn, document_id: str) -> list[dict]:
         dict(r)
         for r in conn.execute(
             "SELECT r.id, r.standard_document_id, r.clause, r.requirement_type, r.requirement_text,"
-            " r.source_text, r.raw_value, r.raw_unit, r.unit, r.page, c.text AS chunk_text, c.section AS section, p.text AS page_text"
+            " r.source_text, r.raw_value, r.raw_unit, r.unit, r.page, c.text AS chunk_text, c.section AS section, COALESCE(CASE WHEN o.error IS NULL AND o.text <> '' THEN o.text END, p.text) AS page_text"
             " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
             " LEFT JOIN pages p ON p.document_id = r.standard_document_id AND p.page_no = r.page"
+            " LEFT JOIN page_ocr o ON o.document_id = r.standard_document_id AND o.page_no = r.page"
             " WHERE r.standard_document_id = ? AND r.superseded_at IS NULL"
             " AND r.requirement_text IS NOT NULL AND TRIM(r.requirement_text) <> '' ORDER BY r.id",
             (document_id,),

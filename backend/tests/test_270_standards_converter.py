@@ -1712,3 +1712,30 @@ def test_a_quote_that_does_not_say_the_condition_is_not_a_quote_of_it(condition,
 def test_a_quote_that_says_the_condition_is_kept(condition, quote):
     answer = {"condition": condition, "condition_quote": quote}
     assert converter_context.condition_refusal(answer, PROBE, CTX) is None
+
+
+def _ocr(doc_id, number, text, error=None):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO page_ocr (document_id, page_no, text, char_count, engine, model, dpi, box_count,"
+            " seconds, recognised_at, batch_no, error) VALUES (?,?,?,?,'e','m',200,3,0.5,'2026-01-01T00:00:00Z',0,?)",
+            (doc_id, number, text, len(text), error),
+        )
+
+
+def test_the_cited_page_text_of_a_scanned_page_is_the_recognised_text():
+    std = _standard(texts=("The casing design pressure shall not exceed 25 bar.",))
+    _page(std, 1, "")
+    _ocr(std, 1, "6.1 The casing design pressure shall not exceed 25 bar.")
+    with db.connect() as conn:
+        [row] = standards_converter.requirements_of(conn, std)
+    assert "casing design pressure" in row["page_text"]
+
+
+def test_a_failed_recognition_does_not_replace_the_text_layer():
+    std = _standard(texts=("The casing design pressure shall not exceed 25 bar.",))
+    _page(std, 1, "text layer words")
+    _ocr(std, 1, "garbled", error="failed")
+    with db.connect() as conn:
+        [row] = standards_converter.requirements_of(conn, std)
+    assert row["page_text"] == "text layer words"
