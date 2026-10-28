@@ -20,6 +20,7 @@ def _copy(tmp_path, rows):
         " requirement_text TEXT, source_text TEXT, requirement_type TEXT, superseded_at TEXT);"
         "CREATE TABLE chunks (id TEXT, text TEXT, section TEXT);"
         "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT);"
+        "CREATE TABLE page_ocr (document_id TEXT, page_no INTEGER, text TEXT, error TEXT);"
         "CREATE TABLE documents (id TEXT, filename TEXT);"
         "CREATE TABLE document_classification (document_id TEXT, document_number TEXT);"
         "INSERT INTO documents VALUES ('d1', 'f.pdf');"
@@ -117,3 +118,28 @@ def test_it_says_where_the_clause_is_printed_so_the_title_cannot_hide_a_layout_n
         "of 2 rules with a clause: in the chunk's title 2, in the chunk text 1, in the cited page text 1"
         in out
     )
+
+
+def test_a_scanned_page_is_read_from_its_recognised_text(tmp_path, capsys):
+    """The count must read the cited page the way the gates do: recognised text first (s2 on #1454: 146 pages of
+    API-520-I are in page_ocr only, so the count could not show the fix)."""
+    path = _copy(
+        tmp_path,
+        [
+            (
+                "6.1",
+                "Rules\nThe casing pressure shall not exceed 25 bar.",
+                "Rules",
+                "statement",
+            )
+        ],
+    )
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO pages VALUES ('d1', 1, '')")
+    conn.execute(
+        "INSERT INTO page_ocr VALUES ('d1', 1, '6.1 Casing\nSome text.', NULL)"
+    )
+    conn.commit()
+    conn.close()
+    scope_gate_count.main(["--db", str(path)])
+    assert "in the cited page text 1" in capsys.readouterr().out

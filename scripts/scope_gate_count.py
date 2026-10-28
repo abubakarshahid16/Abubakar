@@ -52,11 +52,12 @@ def count(
     marks = ",".join("?" for _ in TYPES)
     sql = (
         "SELECT r.clause, r.page, r.requirement_text, r.source_text, c.text AS chunk_text, c.section AS section,"
-        " p.text AS page_text,"
+        " COALESCE(CASE WHEN o.error IS NULL AND o.text <> '' THEN o.text END, p.text) AS page_text,"
         " COALESCE(k.document_number, d.filename) AS label"
         " FROM standard_requirements r"
         " LEFT JOIN chunks c ON c.id = r.chunk_id"
         " LEFT JOIN pages p ON p.document_id = r.standard_document_id AND p.page_no = r.page"
+        " LEFT JOIN page_ocr o ON o.document_id = r.standard_document_id AND o.page_no = r.page"
         " LEFT JOIN documents d ON d.id = r.standard_document_id"
         " LEFT JOIN document_classification k ON k.document_id = r.standard_document_id"
         f" WHERE r.superseded_at IS NULL AND r.requirement_type IN ({marks})"
