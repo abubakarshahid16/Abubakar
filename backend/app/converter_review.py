@@ -3,8 +3,8 @@
 The converter (`standards_converter`) writes one DRAFT per standard, offline, outside the repository. This module is
 the READING side, and it is empty unless the owner's switch `standards_converter_dir` names that folder:
 
-  * `reviewed_entries` - the VERIFIED rows whose answer was "yes" (never unproven, no, depends), which
-    `rule_roles.reviewed_names` uses as a field mapping for the numeric rules of the standard;
+  * `reviewed_entries` - the VERIFIED rows (v1: applies "yes"; v2: no applicability and no condition; never
+    unproven or no_check), which `rule_roles.reviewed_names` uses as a field mapping for the numeric rules of the standard;
   * `converter_rules` / `rules_with_drafts` - a clause SENTENCE (requirement_type 'statement') the converter proved,
     as a rule in its sentence's own place, on the road of the AI clause-check drafts
     (`ai_requirements.auto_use_rules`, `rule_auto_use_enabled`): `rule_trust` decides what its verdict may say, and
@@ -47,7 +47,12 @@ def reviewed_entries(files: list[Path] | None = None) -> list[tuple[str, dict]]:
         for e in data.get("entries", []):
             if (
                 e.get("status") == "verified"
-                and e.get("applies") == "yes"
+                and (
+                    e.get("applies") == "yes"
+                    # v2 (order 286.1): the converter no longer judges applicability, so a verified row has
+                    # none; a conditional one is never read as an unconditional check
+                    or (e.get("applies") is None and not e.get("condition"))
+                )
                 and e.get("field")
                 and e.get("text_sha256")
             ):
