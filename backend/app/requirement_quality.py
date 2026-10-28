@@ -65,9 +65,13 @@ class SectionRun:
 
 #: A references section: "2 References", "Normative references", "Saudi Aramco References", "Bibliography".
 #: Its text lists the documents the standard cites; it states no obligation of its own (order 267.1).
+#: Free leading words only with the plural "References" or "Bibliography" ("Saudi Aramco References"); the singular
+#: "Reference" only bare or after one of a few fixed words, so "Design Reference" or "Pressure Relief Valve Reference"
+#: (a numbered section with real rules) is not a references section.
 _REFERENCES_WORDS = (
-    r"(?:(?:normative|informative|applicable|referenced?|company|industry|[A-Za-z&]+)\s+){0,3}"
-    r"(?:references?|bibliography|referenced\s+documents?|reference\s+documents?)"
+    r"(?:(?:[A-Za-z&]+\s+){0,3}(?:references|bibliography)"
+    r"|(?:(?:normative|informative|applicable|referenced?|company|industry)\s+)?reference"
+    r"|referenced\s+documents?|reference\s+documents?)"
 )
 _REFERENCES_TITLE = re.compile(
     r"^\s*(?:\d+(?:\.\d+)*\.?\s+)?" + _REFERENCES_WORDS + r"\s*:?\s*$", re.IGNORECASE

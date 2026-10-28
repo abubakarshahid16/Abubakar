@@ -60,4 +60,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="after_the_references",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1426-06",
+        phase=1426,
+        description="any leading words are allowed before the singular 'Reference': 'Design Reference' opens a references section",
+        path=APP / "requirement_quality.py",
+        anchor='r"|(?:(?:normative|informative|applicable|referenced?|company|industry)\\s+)?reference"',
+        replacement='r"|(?:[A-Za-z&]+\\s+){0,3}reference"',
+        target=TARGET,
+        keyword="which_titles_open",
+        tags=("honesty",),
+    ),
 )
