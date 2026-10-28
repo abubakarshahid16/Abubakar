@@ -89,7 +89,6 @@ def _standard(number: str = "SAES-G-005", texts: tuple[str, ...] = ()) -> str:
 
 
 GOOD = {
-    "applies": "yes",
     "condition": None,
     "field": DICT.index("design pressure"),
     "comparator": "<=",
@@ -281,13 +280,10 @@ def test_an_answer_that_passes_every_gate_is_a_check_in_the_forms_own_terms():
 @pytest.mark.parametrize(
     "change, reason",
     [
-        ({"applies": "maybe"}, "applies_unreadable"),
-        ({"applies": "depends", "condition": None}, "condition_not_in_clause"),
         (
-            {"applies": "depends", "condition": "for sour service"},
+            {"condition": "for sour service"},
             "condition_not_in_clause",
         ),
-        ({"field": None}, "no_field"),
         ({"field": 999}, "no_field"),
         ({"field": True}, "no_field"),
         (
@@ -403,16 +399,58 @@ def test_comparators_said_by_the_quotes_own_words(quote, said):
     assert standards_converter.comparators_said(quote) == said
 
 
-def test_no_is_the_models_claim_and_never_a_check():
+def test_no_box_is_no_check_never_not_applicable():
+    """Order 286.1: the converter does not judge applicability. A sentence with no form box is "no check"."""
+    for answer in ({"field": None}, {}, {"field": None, "quote": "design pressure"}):
+        assert _verdict(answer) == ("no_check", "no_field", None)
+
+
+def test_a_rule_the_model_would_have_called_not_for_pumps_is_verified_when_its_quote_proves_it():
+    """The old 'applies: no' answer is not read at all: a field, a limit and a quote that all prove are a check,
+    whatever the model said about applicability (286.1)."""
     status, reason, check = _verdict({**GOOD, "applies": "no"})
-    assert (status, reason, check) == ("not_applicable", None, None)
+    assert (status, reason) == ("verified", None) and check.limit == "25"
+
+
+@pytest.mark.parametrize(
+    "sentence, quote",
+    [
+        (
+            "NPSHA shall be assumed as 5.8 m when it is not specified.",
+            "NPSHA shall be assumed as 5.8 m",
+        ),
+        (
+            "The casing design pressure shall not exceed 25 bar if not specified by the purchaser.",
+            "design pressure shall not exceed 25 bar",
+        ),
+        (
+            "Taken as 25 bar, the design pressure shall not exceed 25 bar.",
+            "design pressure shall not exceed 25 bar",
+        ),
+        (
+            "In the absence of data the design pressure shall not exceed 25 bar.",
+            "design pressure shall not exceed 25 bar",
+        ),
+    ],
+)
+def test_a_default_or_an_assumption_is_not_a_limit(sentence, quote):
+    """s2's hand check of SAES-G-005 6.7.2: 'shall be assumed as 5.8 m' became 'npsh available = 5.8 m'."""
+    row = {**ROW, "requirement_text": sentence}
+    answer = {**GOOD, "quote": quote, "field": DICT.index("design pressure")}
+    assert _verdict(answer, row) == ("unproven", "default_not_limit", None)
+
+
+def test_a_clause_without_default_words_is_unaffected():
+    assert _verdict(GOOD)[0] == "verified"
 
 
 def test_an_unproven_row_carries_no_limit_and_only_says_engineer_please_look():
     std = _standard(texts=(SENTENCE, "Bearings shall be lubricated."))
     fake = Fake(
         lambda text: (
-            GOOD if "design pressure" in text else {"applies": "yes", "field": None}
+            GOOD
+            if "design pressure" in text
+            else {"field": DICT.index("design pressure"), "quote": "not in the clause"}
         )
     )
     with db.connect() as conn:
@@ -426,7 +464,8 @@ def test_an_unproven_row_carries_no_limit_and_only_says_engineer_please_look():
         "bar",
     )
     assert ok["note"] is None
-    assert bad["note"] == "engineer, please look" and bad["reason"] == "no_field"
+    assert bad["note"] == "engineer, please look"
+    assert bad["reason"] == "quote_not_in_clause"
     for key in ("field", "comparator", "limit", "unit", "quote"):
         assert bad[key] is None
     assert result.counts()["verified"] == 1 and result.counts()["unproven"] == 1
@@ -726,13 +765,12 @@ def test_the_review_reads_the_drafts_only_when_the_switch_names_a_folder(
 @pytest.mark.parametrize(
     "answer",
     [
-        {**GOOD, "applies": "no"},
-        {**GOOD, "applies": "depends", "condition": "for this service"},
+        {**GOOD, "condition": "for this service"},  # not in the clause: unproven
         {**GOOD, "unit": "psi"},
-        {"applies": "yes", "field": None},
+        {"field": None},  # no box: no check
     ],
 )
-def test_only_verified_yes_rows_are_read_by_the_review(tmp_path, monkeypatch, answer):
+def test_only_verified_rows_are_read_by_the_review(tmp_path, monkeypatch, answer):
     folder = _mirror(tmp_path, {SENTENCE: answer})
     monkeypatch.setattr(settings, "standards_converter_dir", str(folder))
     assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {}
@@ -1065,3 +1103,102 @@ def test_the_claude_lane_is_not_started_without_its_gates(tmp_path, no_claude):
         ]
     )
     assert code == convert_standards.EXIT_LANE_CLOSED and not (tmp_path / "m").exists()
+
+
+# ------------------------------------------------------------------ 8. order 286.1: converter v2 does not judge applicability
+
+
+def test_the_prompt_and_schema_no_longer_ask_whether_a_sentence_applies():
+    text = standards_converter.system_text(PUMP, DICT)
+    assert "Do NOT decide whether the sentence applies" in text
+    assert "applies (yes" not in text
+    props = standards_converter.SCHEMA["properties"]["checks"]["items"]
+    assert "applies" not in props["properties"] and props["required"] == ["i"]
+    assert standards_converter.PROMPT_VERSION == "o286-convert-v2"
+    assert "default_not_limit" in standards_converter.REASONS
+
+
+def test_a_run_never_stores_applicability_and_a_sentence_with_a_proving_quote_is_verified(
+    tmp_path,
+):
+    """The model says 'applies: no' anyway (a v1 habit): code does not read it. The row has no applicability,
+    the rule with field + limit + proving quote is verified, the one with no box is 'no check'."""
+    folder = _mirror(
+        tmp_path,
+        {
+            SENTENCE: {**GOOD, "applies": "no"},
+            "Bearings shall be lubricated.": {"field": None},
+        },
+    )
+    body = json.loads(next(folder.glob("*.json")).read_text())
+    by_status = {r["status"]: r for r in body["entries"]}
+    assert set(by_status) == {"verified", "no_check"}
+    assert all(r["applies"] is None for r in body["entries"])
+    assert by_status["verified"]["limit"] == "25"
+    assert (by_status["no_check"]["reason"], by_status["no_check"]["note"]) == (
+        "no_field",
+        None,
+    )
+    assert body["counts"]["no_check"] == 1 and "not_applicable" not in body["counts"]
+    assert "applies_yes" not in body["counts"]
+
+
+def test_an_unknown_equipment_type_is_refused_before_anything_is_asked(tmp_path):
+    std = _standard(texts=("A.",))
+    asked = []
+    fake = Fake(lambda text: asked.append(text))
+    with db.connect() as conn, pytest.raises(ValueError, match="not an equipment type"):
+        standards_converter.convert(conn, std, "SAES-G-005", "Relief Valve", fake)
+    assert asked == [] and fake.packets == []
+    with pytest.raises(ValueError, match="not an equipment type"):
+        convert_standards.run(
+            tmp_path / "convert.sqlite",
+            "Relief Valve",
+            ["SAES-G-005"],
+            None,
+            None,
+            dry_run=True,
+        )
+    with pytest.raises(ValueError):
+        standards_converter.require_known_type("")
+
+
+@pytest.mark.parametrize("known", ["Centrifugal Pump", "Pressure Safety Valve"])
+def test_the_types_with_a_form_are_accepted(known):
+    standards_converter.require_known_type(known)
+
+
+def test_a_local_run_file_names_the_lane_and_the_model_it_used_not_the_cloud_model(
+    tmp_path, engine, no_claude
+):
+    _standard("SAES-K-503", (SENTENCE,))
+    _local(tmp_path, ["SAES-K-503"])
+    body = json.loads(next((tmp_path / "mirror").glob("*.json")).read_text())
+    assert "LOCAL lane" in body["_about"] and TAG in body["_about"]
+    assert "cloud model" not in body["_about"] and "CLAUDE lane" not in body["_about"]
+    assert body["prompt_version"] == "o286-convert-v2"
+
+
+def test_a_claude_lane_file_says_so_and_names_its_model(tmp_path):
+    folder = _mirror(tmp_path, {SENTENCE: GOOD})
+    body = json.loads(next(folder.glob("*.json")).read_text())
+    assert body["lane"] == "claude"
+    assert "CLAUDE lane" in body["_about"] and body["model"] in body["_about"]
+    assert "LOCAL" not in body["_about"]
+
+
+def test_a_v2_verified_row_is_read_but_not_when_it_carries_a_condition(
+    tmp_path, monkeypatch
+):
+    folder = _mirror(tmp_path, {SENTENCE: GOOD})
+    monkeypatch.setattr(settings, "standards_converter_dir", str(folder))
+    assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {
+        "r1": "design pressure"
+    }
+    path = next(folder.glob("*.json"))
+    body = json.loads(path.read_text())
+    body["entries"][0]["condition"] = (
+        "The casing"  # a condition found in the clause: stored, never read
+    )
+    path.write_text(json.dumps(body))
+    assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {}

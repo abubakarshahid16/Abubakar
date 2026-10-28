@@ -506,3 +506,37 @@ def test_a_row_that_is_not_verified_yes_changes_nothing_in_the_review(
     _on(cworld, monkeypatch)
     _rerun(cworld)
     assert _what_the_review_said(cworld["run"]) == off
+
+
+# ------------------------------------------------------------------ 8. order 286.1: v2 rows have no applicability
+
+
+def test_a_v2_row_without_applicability_is_read_unless_it_carries_a_condition(
+    cworld, monkeypatch, tmp_path
+):
+    _on(cworld, monkeypatch)
+    cworld["folder"] = _mirror(tmp_path / "v2", [_row(SENTENCE, applies=None)])
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    cworld["folder"] = _mirror(
+        tmp_path / "v2c", [_row(SENTENCE, applies=None, condition="for this service")]
+    )
+    _on(cworld, monkeypatch)
+    assert _rules(cworld) == {}
+
+
+def test_a_no_check_row_changes_nothing_in_the_review(cworld, monkeypatch, tmp_path):
+    _on(cworld, monkeypatch, dir_set=False)
+    _rerun(cworld)
+    off = _what_the_review_said(cworld["run"])
+    over = {
+        "status": "no_check",
+        "reason": "no_field",
+        "applies": None,
+        "field": None,
+        "limit": None,
+    }
+    cworld["folder"] = _mirror(tmp_path / "nc", [_row(SENTENCE, **over)])
+    _on(cworld, monkeypatch)
+    _rerun(cworld)
+    assert _what_the_review_said(cworld["run"]) == off
