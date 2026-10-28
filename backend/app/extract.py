@@ -185,11 +185,14 @@ def _aligned_tables(page) -> list:
         kept = []
         for table in tables:
             grid = geometry_reader._grid(table)
-            if aligned_grid_ok(grid[0], geometry_reader.table_score(table, words, grid)):
+            score = geometry_reader.table_score(table, words, grid)
+            if aligned_grid_ok(grid[0], score):
                 kept.append(table)
         return kept
     except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
-        log.debug("extract: aligned-text finder failed; no table (%s)", type(exc).__name__)
+        log.debug(
+            "extract: aligned-text finder failed; no table (%s)", type(exc).__name__
+        )
         return []
 
 
@@ -264,8 +267,14 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
         if not lines:
             continue
         claimed.update(lines)
-        out.append({"bbox": [round(v, 1) for v in (x0, y0, x1, y1)],
-                    "rows": rows, "lines": lines, **({"aligned": True} if aligned else {})})
+        out.append(
+            {
+                "bbox": [round(v, 1) for v in (x0, y0, x1, y1)],
+                "rows": rows,
+                "lines": lines,
+                **({"aligned": True} if aligned else {}),
+            }
+        )
     return out, None
 
 

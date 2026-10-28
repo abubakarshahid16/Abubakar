@@ -735,7 +735,7 @@ class Settings(BaseSettings):
     #: Env: GEOMETRY_TABLE_READER_ENABLED. ON by default (owner, 2026-09-25, after the
     #: measurement above); false goes back to the rule readers alone.
     geometry_table_reader_enabled: bool = True
-    aligned_text_tables_enabled: bool = False  # 271.4: tables with no ruling, set for a standards re-extraction
+    aligned_text_tables_enabled: bool = False  # order 271.4: standards re-extraction
     #: Datasheets that are NOT a PDF text layer (`datasheet_inputs.py`): an
     #: uploaded .docx is accepted, an .xlsx or .docx is INDEXED (its pages
     #: are the rendered sheets / document, read by `datasheet_inputs` instead

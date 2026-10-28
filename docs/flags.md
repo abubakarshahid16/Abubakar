@@ -35,6 +35,7 @@ does not make one.
 | `review_debug_detail` | `False` | permanent | | | Operator debug switch |
 | `crs_ai_wording_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI CRS wording |
 | `geometry_table_reader_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Geometry table reader |
+| `aligned_text_tables_enabled` | `False` | permanent | | | Keep tables with no ruling when they read like a grid (order 271.4). Set only for a standards re-extraction; a datasheet ingested with it on gets those tables too |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |

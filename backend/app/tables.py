@@ -266,16 +266,26 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
 
 
 def _aligned_on_page(document_id: str, page_no: int) -> list[list[list[str]]]:
-    """The rows of the aligned-text tables the extractor stored for this page (order 271.4): the ruled
-    parser above cannot find a table that has no ruling, so the page's stored rows are the table."""
-    row = connect().execute(
-        "SELECT tables_json FROM pages WHERE document_id = ? AND page_no = ?",
-        (document_id, page_no)).fetchone()
+    """The rows of the aligned-text tables the extractor stored for this page (order 271.4).
+
+    The ruled parser cannot find a table that has no ruling, so the stored rows are the table."""
+    row = (
+        connect()
+        .execute(
+            "SELECT tables_json FROM pages WHERE document_id = ? AND page_no = ?",
+            (document_id, page_no),
+        )
+        .fetchone()
+    )
     try:
         stored = json.loads(row["tables_json"]) if row and row["tables_json"] else {}
     except ValueError:
         return []
-    return [t["rows"] for t in stored.get("tables") or [] if t.get("aligned") and t.get("rows")]
+    return [
+        t["rows"]
+        for t in stored.get("tables") or []
+        if t.get("aligned") and t.get("rows")
+    ]
 
 
 def _table_of_chunk(tables: list[list[list[str]]], chunk_text: str | None) -> list[list[str]]:
@@ -328,8 +338,9 @@ def parse_document_tables(
     for row in rows:
         page = row["page_start"]
         if page not in by_page:
-            by_page[page] = parse_page_tables(row["stored_path"], page) or _aligned_on_page(
-                document_id, page)
+            by_page[page] = parse_page_tables(
+                row["stored_path"], page
+            ) or _aligned_on_page(document_id, page)
         tables = by_page[page]
         if not tables:
             out.append(TableParse(

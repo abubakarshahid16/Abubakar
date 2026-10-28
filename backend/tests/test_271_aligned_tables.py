@@ -67,7 +67,10 @@ def test_the_grid_gate_keeps_a_regular_grid():
     ("texts", "score"),
     [
         (GRID[:2], GOOD),  # too few rows
-        (GRID, {**GOOD, "column_consistency": 0.5}),  # rows that do not repeat one shape
+        (
+            GRID,
+            {**GOOD, "column_consistency": 0.5},
+        ),  # rows that do not repeat one shape
         (GRID, {**GOOD, "split_rate": 0.1}),  # words cut across two cells
         ([["x" * 90, "y" * 90]] * 4, GOOD),  # prose cut into long cells
         ([], GOOD),
@@ -110,14 +113,19 @@ def _stored(storage, tables_json):
 
 
 def test_the_standards_parser_reads_the_stored_rows_of_an_aligned_table(storage):
-    stored = {"v": "2", "tables": [{"bbox": [0, 0, 1, 1], "rows": ROWS, "lines": [0], "aligned": True}]}
+    stored = {
+        "v": "2",
+        "tables": [{"bbox": [0, 0, 1, 1], "rows": ROWS, "lines": [0], "aligned": True}],
+    }
     _stored(storage, json.dumps(stored))
     parses = tables.parse_document_tables("d", allowed_document_ids=frozenset({"d"}))
     assert [p.parsed for p in parses] == [True]
     assert ["Carbon steel", "80", "10"] in parses[0].rows
 
 
-def test_a_stored_table_that_is_not_aligned_stays_unparsed_when_the_ruled_parser_finds_none(storage):
+def test_a_stored_table_that_is_not_aligned_stays_unparsed_when_the_ruled_parser_finds_none(
+    storage,
+):
     stored = {"v": "2", "tables": [{"bbox": [0, 0, 1, 1], "rows": ROWS, "lines": [0]}]}
     _stored(storage, json.dumps(stored))
     parses = tables.parse_document_tables("d", allowed_document_ids=frozenset({"d"}))
