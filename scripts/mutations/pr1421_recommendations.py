@@ -68,8 +68,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         6,
         "the type is not registered, so the API cannot return it",
         APP / "requirements_3b.py",
-        "CROSS_FIELD_LIMIT,\n                           recommendations.TYPE)",
-        "CROSS_FIELD_LIMIT)",
+        "STORED_REQUIREMENT_TYPES += (recommendations.TYPE,)\n",
+        "",
         "type_is_stored",
     ),
     _m(

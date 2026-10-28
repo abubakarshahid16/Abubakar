@@ -1283,11 +1283,11 @@ TABLE_ROW = "table_row"
 #: never counted as a requirement.
 DEFINITION = "definition"
 
-#: EVERY requirement_type this module writes (what `schemas.RequirementType` must return);
-#: `REQUIREMENT_TYPES` above is the core three the parser may classify an obligation as.
+#: EVERY requirement_type this module writes - what the API must be able to return
+#: (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core three the parser classifies.
 STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
-                           DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE, CROSS_FIELD_LIMIT,
-                           recommendations.TYPE)
+                           DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE, CROSS_FIELD_LIMIT)
+STORED_REQUIREMENT_TYPES += (recommendations.TYPE,)
 
 
 def classify(sentence: str, limit: dict | None) -> str:

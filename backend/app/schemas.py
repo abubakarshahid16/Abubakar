@@ -349,12 +349,12 @@ class StandardRequirement(BaseModel):
 #: three it writes for shapes it will not force into a limit
 #: (`APPLICABILITY_TRIGGER`, `RELATIVE_LIMIT`, `TABLE_ROW`). The response model
 #: listed only three, so a standard holding any of the others failed its
-#: requirements list with a 500 (found 2026-09-30 by the frontend contract
-#: check). `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home;
-#: tests/test_requirement_types_contract.py keeps them equal.
-RequirementType = Literal["numeric_limit", "statement", "table_value", "applicability_trigger",
-                          "relative_limit", "table_row", "definition", "table_range", "range_limit",
-                          "nominal_value", "cross_field_limit", "recommendation"]
+#: requirements list with a 500 (found 2026-09-30 by the frontend contract check).
+#: `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home; tests/test_requirement_types_contract.py keeps them equal.
+RequirementType = Literal["numeric_limit", "statement", "table_value",
+                          "applicability_trigger", "relative_limit", "table_row",
+                          "definition", "table_range", "range_limit", "nominal_value", "cross_field_limit"]
+RequirementType = Literal[RequirementType, "recommendation"]  # order 288.2
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]
