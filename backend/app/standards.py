@@ -973,8 +973,12 @@ def extract_requirements(
     # #596 WHERE THE DEFINITIONS SECTION IS. A heading titled "Terms and
     # definitions" opens it; it runs over the chunks filed under that clause
     # (3, 3.1, 3.2.1 ...) and closes at the first chunk filed elsewhere.
-    definitions = requirement_quality.SectionRun(requirement_quality.is_definitions_heading, clause_number)
-    references = requirement_quality.SectionRun(requirement_quality.is_references_heading, clause_number)
+    definitions = requirement_quality.SectionRun(
+        requirement_quality.is_definitions_heading, clause_number
+    )
+    references = requirement_quality.SectionRun(
+        requirement_quality.is_references_heading, clause_number
+    )
     for chunk in chunks:
         in_definitions = definitions.step(chunk["section"])
         if references.step(chunk["section"]):

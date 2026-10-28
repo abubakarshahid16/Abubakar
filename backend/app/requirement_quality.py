@@ -54,8 +54,12 @@ class SectionRun:
         elif self.on:
             here = self.number_of(section)
             self.on = (
-                here is None if self.clause is None
-                else here is None or here == self.clause or here.startswith(self.clause + "."))
+                here is None
+                if self.clause is None
+                else here is None
+                or here == self.clause
+                or here.startswith(self.clause + ".")
+            )
         return self.on
 
 
@@ -79,7 +83,9 @@ def is_references_heading(section: str | None) -> bool:
 #: A standard identifier as a references list writes it: an upper-case body then a number ("SAEP-31", "SAMSS-044",
 #: "API 610", "ASME B31.3", "ISO 15156-3", "SAES-A-007"). Local on purpose: `standard_ids.parse_all` knows only the
 #: families in its vocabulary and finds one identifier in "SAEP-31 and SAMSS-044".
-_IDENTIFIER = re.compile(r"\b[A-Z]{2,6}(?:[-\s][A-Z]{1,2})?[-\s]?\d{1,4}(?:[.\-]\d+)*[A-Z]?\b")
+_IDENTIFIER = re.compile(
+    r"\b[A-Z]{2,6}(?:[-\s][A-Z]{1,2})?[-\s]?\d{1,4}(?:[.\-]\d+)*[A-Z]?\b"
+)
 
 
 def is_reference_list_sentence(sentence: str) -> bool:
@@ -90,7 +96,10 @@ def is_reference_list_sentence(sentence: str) -> bool:
     start = _REFERENCES_START.match(sentence or "")
     if start is None or len(_IDENTIFIER.findall(sentence)) < 2:
         return False
-    return _IDENTIFIER.match(sentence[start.end() :].lstrip(" :-\u2013\u2014\t")) is not None
+    return (
+        _IDENTIFIER.match(sentence[start.end() :].lstrip(" :-\u2013\u2014\t"))
+        is not None
+    )
 
 
 _MODAL = r"(?:shall|must|should|may|will|can)"

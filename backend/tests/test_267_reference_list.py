@@ -47,15 +47,24 @@ def _standard_on_page_two(lines: list[str]) -> str:
     pdf = pymupdf.open()
     for n in range(10):
         page = pdf.new_page()
-        text = lines if n == 1 else [f"9.{n} Filler clause {n}", f"Filler text number {n} about nothing in particular here."]
+        text = (
+            lines
+            if n == 1
+            else [
+                f"9.{n} Filler clause {n}",
+                f"Filler text number {n} about nothing in particular here.",
+            ]
+        )
         for i, line in enumerate(text):
             page.insert_text((72, 100 + i * 16), line)
     pdf.save(str(path))
     pdf.close()
     with path.open("rb") as fh:
-        doc_id = TestClient(app).post(
-            "/api/documents", files={"file": ("ref.pdf", fh, "application/pdf")}
-        ).json()["document"]["id"]
+        doc_id = (
+            TestClient(app)
+            .post("/api/documents", files={"file": ("ref.pdf", fh, "application/pdf")})
+            .json()["document"]["id"]
+        )
     extract_document(doc_id)
     chunk_document(doc_id)
     with db.connect() as conn:
