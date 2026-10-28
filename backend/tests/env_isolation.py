@@ -189,6 +189,8 @@ EGRESS_SAFE: dict[str, object] = {
     "geometry_table_reader_enabled": True,
     # --- local only, no model or socket: keeps a table that has no ruling at ingestion (off by default)
     "aligned_text_tables_enabled": False,
+    # --- local only, no model or socket: records a text cell of a standards table with no value (off by default)
+    "table_text_cells_enabled": False,
     # --- local only: reads an uploaded Word file with the standard library
     "docx_input_enabled": True,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)

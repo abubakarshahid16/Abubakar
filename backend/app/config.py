@@ -725,9 +725,8 @@ class Settings(BaseSettings):
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many
-    #: columns, which the label/value readers pair into nonsense ("raised face
-    #: -> <the nozzle's service>") that the value gate then rightly rejects, so a
-    #: whole nozzle schedule was lost. The FORM path and the vision reader stay
+    #: columns, which the label/value readers pair into nonsense that the value
+    #: gate then rightly rejects, so a whole nozzle schedule was lost. The FORM path and the vision reader stay
     #: behind GEOMETRY_READER_ENABLED: on a pump sheet the form path paired
     #: "IMPELLER DIA." with "RATED *". The same precedence as the full flag
     #: applies - a rule-reader fact always wins, and a geometry reading never
@@ -736,6 +735,7 @@ class Settings(BaseSettings):
     #: measurement above); false goes back to the rule readers alone.
     geometry_table_reader_enabled: bool = True
     aligned_text_tables_enabled: bool = False  # order 271.4: standards re-extraction
+    table_text_cells_enabled: bool = False  # order 271.4 fix B: standards re-extraction
     #: Datasheets that are NOT a PDF text layer (`datasheet_inputs.py`): an
     #: uploaded .docx is accepted, an .xlsx or .docx is INDEXED (its pages
     #: are the rendered sheets / document, read by `datasheet_inputs` instead
