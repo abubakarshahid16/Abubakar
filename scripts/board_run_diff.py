@@ -6,8 +6,7 @@ Reads the `findings.js` that `board_export_run.py` saved for each run (no databa
 call) and writes `diff.js`: every requirement present in both runs whose verdict changed, the requirements
 only one run has, and the counts of each change ("MISSING_INFORMATION -> COMPLIANT: 12"). Findings are
 matched by the REQUIREMENT they answer, never by position: first by `requirement_id`, then (the ids change
-when a standard is re-extracted) by standard, clause and the requirement's own words. Several findings for
-one requirement (one per equipment tag) are paired in id order.
+when a standard is re-extracted) by standard, clause and the requirement's own words. One finding per requirement AND equipment tag; findings with the same requirement and tag are paired in id order. Two runs of different datasheets are refused.
 
 THE FIX BEHIND A CHANGE is never guessed. `--fixes` names a file the planner keeps:
     {"by_requirement": {"<after finding id>": {"pr": "#1399", "line": "..."}},
@@ -60,9 +59,14 @@ def match(
     left = sorted(before, key=lambda f: str(f["id"]))
     right = sorted(after, key=lambda f: str(f["id"]))
     for keyer in (
-        lambda f: ("req", f.get("requirement_id")) if f.get("requirement_id") else None,
+        # the equipment tag is part of the identity: one finding per tag stays one per tag
         lambda f: (
-            ("text", *text_key(f))
+            ("req", f.get("requirement_id"), f.get("equipment_tag"))
+            if f.get("requirement_id")
+            else None
+        ),
+        lambda f: (
+            ("text", *text_key(f), f.get("equipment_tag"))
             if _words(f.get("requirement_source_text") or f.get("requirement"))
             else None
         ),
@@ -105,12 +109,29 @@ def _fix(after: dict, transition: str, fixes: dict) -> dict | None:
     return entry if isinstance(entry, dict) else None
 
 
-def build(before_dir: Path, after_dir: Path, fixes: dict | None = None) -> dict:
+def same_sheet(b_run: dict, a_run: dict) -> bool | None:
+    """True / False when both runs name their datasheet, None when an older export does not."""
+    b, a = b_run.get("submittal_document_id"), a_run.get("submittal_document_id")
+    return None if b is None or a is None else b == a
+
+
+def build(
+    before_dir: Path,
+    after_dir: Path,
+    fixes: dict | None = None,
+    *,
+    allow_different_sheets: bool = False,
+) -> dict:
     fixes = fixes or {}
     b_run, a_run = (
         read_run_file(before_dir, "run.js", "run"),
         read_run_file(after_dir, "run.js", "run"),
     )
+    if same_sheet(b_run, a_run) is False and not allow_different_sheets:
+        raise ValueError(
+            "the two runs are reviews of different datasheets: a before / after of them would pair"
+            " unrelated rows (--allow-different-sheets overrides)"
+        )
     b_find, a_find = (
         read_run_file(before_dir, "findings.js", "findings"),
         read_run_file(after_dir, "findings.js", "findings"),
@@ -155,6 +176,7 @@ def build(before_dir: Path, after_dir: Path, fixes: dict | None = None) -> dict:
     return {
         "before_run": b_run["id"],
         "after_run": a_run["id"],
+        "same_sheet": same_sheet(b_run, a_run),
         "numbers": numbers,
         "changes": sorted(
             changes, key=lambda c: (c["transition"], str(c["after"]["finding_id"]))
@@ -165,12 +187,22 @@ def build(before_dir: Path, after_dir: Path, fixes: dict | None = None) -> dict:
 
 
 def export(
-    before_dir: Path, after_dir: Path, out_dir: Path, fixes_file: Path | None = None
+    before_dir: Path,
+    after_dir: Path,
+    out_dir: Path,
+    fixes_file: Path | None = None,
+    *,
+    allow_different_sheets: bool = False,
 ) -> dict[str, int]:
     fixes = (
         json.loads(Path(fixes_file).read_text(encoding="utf-8")) if fixes_file else {}
     )
-    diff = build(Path(before_dir), Path(after_dir), fixes)
+    diff = build(
+        Path(before_dir),
+        Path(after_dir),
+        fixes,
+        allow_different_sheets=allow_different_sheets,
+    )
     out_dir = Path(out_dir).expanduser().resolve()
     if (out_dir == REPO or REPO in out_dir.parents) and not out_dir.is_relative_to(
         REPO / "backend" / "data"
@@ -205,9 +237,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--after", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--fixes", type=Path)
+    ap.add_argument(
+        "--allow-different-sheets",
+        action="store_true",
+        help="compare runs of two different datasheets (refused by default)",
+    )
     args = ap.parse_args(argv)
     try:
-        counts = export(args.before, args.after, args.out, args.fixes)
+        counts = export(
+            args.before,
+            args.after,
+            args.out,
+            args.fixes,
+            allow_different_sheets=args.allow_different_sheets,
+        )
     except (ValueError, FileExistsError, FileNotFoundError, KeyError) as exc:
         print(f"refused: {type(exc).__name__}: {exc}")
         return 1

@@ -27,8 +27,9 @@ def export():
     return _load("board_export_run")
 
 
-def _f(fid, req_id, status, text, *, reason=None, clause="5.1", std="std1"):
+def _f(fid, req_id, status, text, *, reason=None, clause="5.1", std="std1", tag=None):
     return {
+        "equipment_tag": tag,
         "id": fid,
         "requirement_id": req_id,
         "compliance_status": status,
@@ -41,11 +42,12 @@ def _f(fid, req_id, status, text, *, reason=None, clause="5.1", std="std1"):
     }
 
 
-def _save(export, folder: Path, run_id: str, findings: list[dict]) -> Path:
+def _save(
+    export, folder: Path, run_id: str, findings: list[dict], sheet: str | None = "sub"
+) -> Path:
     folder.mkdir(parents=True)
-    (folder / "run.js").write_text(
-        export._script(run_id, "run", {"id": run_id}), encoding="utf-8"
-    )
+    run = {"id": run_id, **({"submittal_document_id": sheet} if sheet else {})}
+    (folder / "run.js").write_text(export._script(run_id, "run", run), encoding="utf-8")
     (folder / "findings.js").write_text(
         export._script(run_id, "findings", findings), encoding="utf-8"
     )
@@ -173,7 +175,9 @@ def test_every_number_names_the_file_and_place_it_came_from(diff, export, tmp_pa
     )
 
 
-def test_a_diff_is_saved_once_and_never_inside_the_repository(diff, export, tmp_path):
+def test_a_diff_is_saved_once_and_never_inside_the_repository(
+    diff, export, tmp_path, monkeypatch
+):
     b, a = _runs(
         export,
         tmp_path,
@@ -186,9 +190,91 @@ def test_a_diff_is_saved_once_and_never_inside_the_repository(diff, export, tmp_
     assert '"runB..runA"' in saved
     with pytest.raises(FileExistsError):
         diff.export(b, a, out)
-    with pytest.raises(ValueError, match="outside the repository"):
-        diff.export(b, a, diff.REPO / "docs" / "diffs")
     assert (out / "diff.js").read_text() == saved
+    fake_repo = tmp_path / "repo"
+    (fake_repo / "docs").mkdir(parents=True)
+    monkeypatch.setattr(
+        diff, "REPO", fake_repo
+    )  # never the real checkout: a broken check must write nothing there
+    with pytest.raises(ValueError, match="outside the repository"):
+        diff.export(b, a, fake_repo / "docs" / "diffs")
+    assert not (fake_repo / "docs" / "diffs").exists()
+
+
+def test_findings_of_different_tags_are_paired_by_tag_not_by_id(diff, export, tmp_path):
+    # s3's probe: identical verdicts per tag, ids in the opposite order, must show no change
+    before = [
+        _f("b1", "r1", "COMPLIANT", "x", tag="PSV-1"),
+        _f("b2", "r1", "MISSING_INFORMATION", "x", tag="PSV-2"),
+    ]
+    after = [
+        _f("a1", "r1", "MISSING_INFORMATION", "x", tag="PSV-2"),
+        _f("a2", "r1", "COMPLIANT", "x", tag="PSV-1"),
+    ]
+    result = diff.build(*_runs(export, tmp_path, before, after))
+    assert (
+        result["changes"] == []
+        and result["only_before"] == []
+        and result["only_after"] == []
+    )
+
+
+def test_a_tag_whose_verdict_changed_is_the_change(diff, export, tmp_path):
+    before = [
+        _f("b1", "r1", "MISSING_INFORMATION", "x", tag="PSV-1"),
+        _f("b2", "r1", "COMPLIANT", "x", tag="PSV-2"),
+    ]
+    after = [
+        _f("a1", "r1", "COMPLIANT", "x", tag="PSV-1"),
+        _f("a2", "r1", "COMPLIANT", "x", tag="PSV-2"),
+    ]
+    [change] = diff.build(*_runs(export, tmp_path, before, after))["changes"]
+    assert (change["before"]["finding_id"], change["after"]["finding_id"]) == (
+        "b1",
+        "a1",
+    )
+
+
+def test_two_runs_of_different_datasheets_are_refused_unless_asked_for(
+    diff, export, tmp_path
+):
+    b = _save(
+        export,
+        tmp_path / "b",
+        "runB",
+        [_f("b1", "r1", "COMPLIANT", "x")],
+        sheet="sheet1",
+    )
+    a = _save(
+        export,
+        tmp_path / "a",
+        "runA",
+        [_f("a1", "r1", "COMPLIANT", "x")],
+        sheet="sheet2",
+    )
+    with pytest.raises(ValueError, match="different datasheets"):
+        diff.build(b, a)
+    assert diff.build(b, a, allow_different_sheets=True)["same_sheet"] is False
+    assert (
+        diff.main(["--before", str(b), "--after", str(a), "--out", str(tmp_path / "o")])
+        == 1
+    )
+
+
+def test_an_older_export_without_the_datasheet_id_is_compared_and_says_unknown(
+    diff, export, tmp_path
+):
+    b = _save(
+        export, tmp_path / "b", "runB", [_f("b1", "r1", "COMPLIANT", "x")], sheet=None
+    )
+    a = _save(
+        export,
+        tmp_path / "a",
+        "runA",
+        [_f("a1", "r1", "COMPLIANT", "x")],
+        sheet="sheet2",
+    )
+    assert diff.build(b, a)["same_sheet"] is None
 
 
 def test_a_folder_without_a_saved_run_is_refused(diff, tmp_path):
