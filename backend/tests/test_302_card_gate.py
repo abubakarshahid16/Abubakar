@@ -133,3 +133,50 @@ def test_the_finding_table_keeps_the_engineers_name():
         r["name"] for r in db.connect().execute("PRAGMA table_info(review_findings)")
     }
     assert "trust_by" in columns
+
+
+def test_a_sizing_calculation_card_cannot_be_approved():
+    """cloud-2 (#1456): an approval cannot make the review decide what it is not built to decide."""
+    calc = next(
+        i["id"]
+        for i in datasheet_checks.load_rules()["checklists"][PSV]["items"]
+        if i["rule"]["kind"] == "calc"
+    )
+    seen = versions.current(db.connect(), PSV, calc)
+    with pytest.raises(
+        versions.CardError, match="can be rejected or edited, not approved"
+    ):
+        versions.decide(
+            db.connect(),
+            PSV,
+            calc,
+            versions.APPROVED,
+            version=seen["version"],
+            seen_hash=seen["content_hash"],
+            actor=WHO,
+        )
+
+
+def test_a_stored_approval_on_a_card_the_review_cannot_decide_is_held(monkeypatch):
+    """An approval given before the rule existed still gives no verdict."""
+    from app import card_trust
+
+    calc = next(
+        i["id"]
+        for i in datasheet_checks.load_rules()["checklists"][PSV]["items"]
+        if i["rule"]["kind"] == "calc"
+    )
+    monkeypatch.setattr(
+        card_trust,
+        "standing",
+        lambda rule_id: {
+            "state": "approved",
+            "decided_by": WHO,
+            "reason": None,
+            "structural": "a sizing calculation does not decide yet",
+        },
+    )
+    assert (
+        card_trust.label_for({"checklist": True, "rule_id": calc})
+        == rule_trust.UNPROVEN
+    )

@@ -47,12 +47,21 @@ def has_clause_number(item: dict) -> bool:
     )
 
 
-def reason_item(equipment_type: str, item: dict) -> str | None:
-    """None when this card content may decide while its approval is pending; otherwise the reason, in words."""
+def structural_reason(equipment_type: str, item: dict) -> str | None:
+    """Why the review is not built to let this card decide at all, even with an engineer's approval: an equipment
+    type we have not opened, or a sizing calculation (planner 03:04: no at-the-limit case for it). The soft reasons
+    (weak source, generated cases only) are the engineer's to accept; these two are not."""
     if equipment_type not in DECIDING_TYPES:
         return "this equipment type's cards do not decide yet"
     if item["rule"]["kind"] == "calc":
-        return "a sizing calculation does not decide yet"  # planner 03:04: no at-the-limit case for it
+        return "a sizing calculation does not decide yet"
+    return None
+
+
+def reason_item(equipment_type: str, item: dict) -> str | None:
+    """None when this card content may decide while its approval is pending; otherwise the reason, in words."""
+    if reason := structural_reason(equipment_type, item):
+        return reason
     if item.get("weak_source"):
         return "weak source"
     if item.get("needs"):
@@ -94,6 +103,7 @@ def standing(rule_id: str | None) -> dict | None:
         "decided_by": card["decided_by"],
         "version": card["version"],
         "reason": reason_item(equipment_type, card["item"]),
+        "structural": structural_reason(equipment_type, card["item"]),
     }
 
 
@@ -112,6 +122,9 @@ def label_for(result: dict) -> str | None:
     if stand is None:
         return None
     if stand["state"] == "approved":
+        # belt and braces (cloud-2, #1456): an approval given before the rule, or on a card the review cannot decide
+        if stand["structural"]:
+            return rule_trust.UNPROVEN
         return rule_trust.ENGINEER_CONFIRMED
     if (
         stand["state"] == "tested"

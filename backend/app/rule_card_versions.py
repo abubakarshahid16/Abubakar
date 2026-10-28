@@ -27,8 +27,8 @@ import math
 import re
 from datetime import UTC, datetime
 
+from . import card_trust, rule_cards
 from . import datasheet_checks as dc
-from . import rule_cards
 
 APPROVED, REJECTED = "approved", "rejected"
 DRAFT, TESTED = "draft", "tested"
@@ -296,6 +296,8 @@ def decide(
             raise CardError(
                 "the card's source is not a clause number; name the clause before approving"
             )
+        if why := card_trust.structural_reason(card["equipment_type"], card["item"]):
+            raise CardError(f"{why}; it can be rejected or edited, not approved")
     counts = {
         "cases": len(ran["runs"]),
         "passed": sum(r["passed"] for r in ran["runs"]),
