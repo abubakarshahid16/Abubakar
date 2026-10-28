@@ -83,7 +83,7 @@ CONVERTIBLE_TYPES = (
     "table_value",
     "table_row",
 )
-#: A clause number the extractor did not really read.
+#: A clause number the extractor did not really read. "1.0" is deliberately NOT here: it is a real clause number.
 PLACEHOLDER_CLAUSES = ("", "-", "n/a", "na", "none", "0", "0.0")
 #: Requirements per call.
 BATCH = 12

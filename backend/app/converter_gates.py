@@ -62,7 +62,7 @@ def in_example(row: dict) -> bool:
 def quote_unreadable(quote: str, sentence: str) -> bool:
     """Is the quote (or the sentence it was cut from) OCR noise (order 295.7 c)? `requirement_quality.text_quality`
     is the one home of "unreadable as a sentence"; on top of it more than 15% garbled tokens in the QUOTE (a token
-    with a mirror glyph or a non-Latin letter, or no vowel, or a run of five consonants; acronyms and figures
+    with a mirror glyph or a non-Latin letter, or no vowel, or a run of six consonants - "lengths" and "strengths" end in five and are real words; acronyms and figures
     are not counted) is enough, because a short quote can carry a stamp's noise below that function's floor."""
     from . import requirement_quality
 
@@ -90,7 +90,7 @@ def quote_unreadable(quote: str, sentence: str) -> bool:
             and not letters.isupper()
             and (
                 not re.search(r"[aeiouyAEIOUY]", letters)
-                or re.search(r"[b-df-hj-np-tv-xzB-DF-HJ-NP-TV-XZ]{5,}", letters)
+                or re.search(r"[b-df-hj-np-tv-xzB-DF-HJ-NP-TV-XZ]{6,}", letters)
             )
         ):
             garbled += 1
