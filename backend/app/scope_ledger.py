@@ -32,18 +32,24 @@ DOES_NOT_APPLY = "does_not_apply"
 NOT_USED = "not_used"
 STATES = (CHECKED, APPLIES_NOT_CHECKED, DOES_NOT_APPLY, NOT_USED)
 
-#: reason code -> (state, plain words for an engineer). "checked" means what
-#: #678's three-way split means by it: the requirement REACHED the comparison
-#: (met / not met / needs engineer); the reason says how it ended there, so
-#: "compared with a value" stays visible beside "needs an engineer".
+#: reason code -> (state, plain words for an engineer). ONE MEANING OF "checked"
+#: (order 260.1): a requirement is CHECKED only when it was compared with a
+#: datasheet value (met, not met, conditional). One that reached the comparison
+#: and ended as missing information, an engineer's question or "another
+#: document gives it" applies but was NOT checked; the reason still says how it
+#: ended, so "no value on the sheet" stays visible. `requirement_split`,
+#: `clause_coverage` and the approval guard all read these states.
 REASONS: dict[str, tuple[str, str]] = {
-    # checked: reached the comparison - how it ended
     "compared": (CHECKED, "compared with the datasheet value"),
-    "missing_information": (CHECKED, "no value for it on this datasheet"),
-    "needs_engineer": (CHECKED, "an engineer has to decide it"),
-    "needs_other_document": (CHECKED, "it asks for evidence another document gives"),
-    "not_applicable": (CHECKED, "the comparison found it does not apply here"),
-    # applies, not checked
+    # reached the comparison, but nothing was compared with a value
+    "missing_information": (APPLIES_NOT_CHECKED, "no value for it on this datasheet"),
+    "needs_engineer": (APPLIES_NOT_CHECKED, "an engineer has to decide it"),
+    "needs_other_document": (
+        APPLIES_NOT_CHECKED,
+        "it asks for evidence another document gives",
+    ),
+    "not_applicable": (DOES_NOT_APPLY, "the comparison found it does not apply here"),
+    # applies, not checked (never reached the comparison)
     "row_label_not_on_sheet": (APPLIES_NOT_CHECKED,
                                "table row: its row label is not on this datasheet"),
     "column_not_on_sheet": (APPLIES_NOT_CHECKED,
@@ -95,6 +101,13 @@ STATUS_REASON = {
 
 #: #678 item codes that differ from this module's reason codes.
 _ITEM_CODE = {"text_quality": "unreadable_text"}
+
+
+def group_of(status: str | None) -> tuple[str, str]:
+    """(state, plain words) of a requirement that reached the comparison, from its finding's
+    status. No status (an engineer rejected the pairing, no finding) is an engineer's question.
+    The ONE place that says which findings count as checked."""
+    return REASONS[STATUS_REASON.get(status or "", "needs_engineer")]
 
 
 def build(*, checked: list[dict], status_of: dict, rejected: set,
