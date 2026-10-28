@@ -20,11 +20,60 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 
+_KEEP = r"(?i:non-?\s?mandatory|mandatory|normative|informative|appendix|annex|part|example)"
+
+
+def _mask(line: str) -> str:
+    """The SHAPE of a heading line: its region words are kept, every other letter becomes a / A and every digit 9,
+    so a post can show which line shapes open regions without quoting the standard."""
+    import re
+
+    out, pos = [], 0
+    for m in re.finditer(_KEEP, line):
+        out.append(
+            re.sub(
+                r"\d",
+                "9",
+                re.sub(r"[a-z]", "a", re.sub(r"[A-Z]", "A", line[pos : m.start()])),
+            )
+        )
+        out.append(m.group(0))
+        pos = m.end()
+    out.append(
+        re.sub(r"\d", "9", re.sub(r"[a-z]", "a", re.sub(r"[A-Z]", "A", line[pos:])))
+    )
+    return "".join(out)[:60]
+
+
+def _region_openers(page_scope, pages: dict, tags: dict) -> collections.Counter:
+    """For each page where the region changes, the mask of the line that matches a region pattern at its position
+    on the page (`line index`), counted by (mask, index bucket)."""
+    shapes: collections.Counter = collections.Counter()
+    previous = None
+    for number in sorted(tags):
+        region = (tags[number]["scope"], tags[number]["region"])
+        if region != previous and region[0] != "main_body":
+            lines = [ln for ln in (pages.get(number) or "").splitlines() if ln.strip()]
+            for i, ln in enumerate(lines):
+                if page_scope._APPENDIX.match(ln) or page_scope._PART.match(ln):
+                    shapes[
+                        (_mask(ln), "top" if i < page_scope._TOP_LINES else "low")
+                    ] += 1
+                    break
+        previous = region
+    return shapes
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=None)
     parser.add_argument("--like", required=True)
     parser.add_argument("--pages", default="")
+    parser.add_argument(
+        "--shapes",
+        action="store_true",
+        help="also print the masked shapes of the lines that open regions",
+    )
     args = parser.parse_args()
     from app import db, live_guard, page_scope
     from app.config import settings
@@ -60,6 +109,11 @@ def main() -> int:
         print(
             "  pages with a worked example:", sum(t["example"] for t in tags.values())
         )
+        if args.shapes:
+            for (mask, where), n in _region_openers(
+                page_scope, pages, tags
+            ).most_common(25):
+                print(f"  opener x{n} ({where}): {mask!r}")
         for number in sorted(named & set(tags)):
             t = tags[number]
             print(
