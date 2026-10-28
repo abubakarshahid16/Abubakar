@@ -250,7 +250,10 @@ def locate(
     """(standard document id, page) for a checklist item's source, or
     (None, None): nothing is stored for a standard or a clause not located."""
     clause = (clause or "").strip().rstrip(".")
-    if not label or not clause:
+    # A clause is a number ("3.26", "A.3") or a lone annex letter. A word is a placeholder
+    # ("datasheet fields", "datasheet annex" split on the last space): never looked up, or a
+    # heading that merely starts with that word would be linked as the clause.
+    if not label or not (re.search(r"\d", clause) or re.fullmatch(r"[A-Za-z]", clause)):
         return None, None
     standard = _standard_of(run_id, label)
     if standard is None:

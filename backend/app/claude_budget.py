@@ -26,7 +26,7 @@ WHAT THIS IS NOT. Not a rate limiter and not a lock: two routes running at
 once each get their own cap. It exists so that one route cannot spend more
 than one route's worth, and so the total is never a surprise.
 
-AND NOT THE DOLLAR CAP. The owner's USD 5 per step / USD 20 in total is
+AND NOT THE DOLLAR CAP. The owner's USD 5 per step / USD 500 in total (November) is
 enforced by `claude_spend`, whose JSONL ledger is the one the caps read. The
 routes in `claude_api` reach it through `claude_spend.metered`, which checks
 each call before it leaves and writes each call to that ledger. The
