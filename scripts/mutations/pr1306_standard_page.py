@@ -139,4 +139,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_T,
         tags=("honesty", "critical"),
     ),
+    Mutation(
+        id="M1306-14",
+        phase=1306,
+        description="every number is folded when finding running headers: a lone '3.26' or '5.1 General' looks like a header",
+        path=_P,
+        anchor='    return _PAGE_NUMBER.sub(\n        lambda m: "#" + (" " if m.group().endswith(" ") else ""),\n        line.lower().strip(),\n        count=1,\n    )\n',
+        replacement='    return re.sub(r"\\d+", "#", line.lower())\n',
+        target=_T,
+        tags=("honesty",),
+    ),
 )
