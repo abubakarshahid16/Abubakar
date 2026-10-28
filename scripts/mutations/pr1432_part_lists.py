@@ -40,8 +40,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         3,
         "a word after 'and' (digits or roman only are parts) is read as a part",
-        r'(\d{1,2}|[IVX]{1,4})\b")',
-        r'(\w{1,4})\b")',
+        '(\\d{1,2}|[IVX]{1,4})\\b"\n)',
+        '(\\w{1,4})\\b"\n)',
         "what_is_not_named",
     ),
     _m(

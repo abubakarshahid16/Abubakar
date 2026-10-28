@@ -464,7 +464,9 @@ def find_citations(text: str, *, typed_question: bool = False) -> list[tuple[str
 
 #: "Pt-1&2", "Part 1 and 2", "Part I / II": a citation that names several parts of one standard.
 _PART_HEAD = re.compile(r"^(?P<head>.*?(?i:PART|PT)\.?\s*-?\s*)(?:\d{1,2}|[IVX]{1,4})$")
-_PART_NEXT = re.compile(r"\s*(?:&|(?i:AND)|/)\s*(?:(?i:PART|PT)\.?\s*-?\s*)?(\d{1,2}|[IVX]{1,4})\b")
+_PART_NEXT = re.compile(
+    r"\s*(?:&|(?i:AND)|/)\s*(?:(?i:PART|PT)\.?\s*-?\s*)?(\d{1,2}|[IVX]{1,4})\b"
+)
 
 
 def _further_parts(text: str, raw: str, end: int) -> list[str]:
@@ -487,7 +489,9 @@ def cited_standards(text: str) -> list[str]:
     for raw, _, end in find_citations(text):
         for spelling in [raw, *_further_parts(text, raw, end)]:
             ident = parse(spelling)
-            seen.setdefault(ident.literal_key() if ident else flat_key(spelling), spelling)
+            seen.setdefault(
+                ident.literal_key() if ident else flat_key(spelling), spelling
+            )
     return list(seen.values())
 
 
