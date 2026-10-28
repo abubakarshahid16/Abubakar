@@ -1,5 +1,5 @@
 """Canonical field names for printed labels and numeric requirements (#193
-plan B4, orders 5.2 and 5.3). Behind `settings.geometry_reader_enabled`.
+plan B4, orders 5.2 and 5.3). Behind `settings.field_naming_enabled` (or the geometry reader).
 
 THE MODEL NAMES; IT NEVER WRITES A VALUE. A language model (the labelling
 provider: Haiku when Claude is configured and allowed, the local engine
