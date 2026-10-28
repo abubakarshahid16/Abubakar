@@ -15,6 +15,14 @@ NEEDS_CARD = "PSV-05"  # waits for a standard we do not hold
 RULES = dc.load_rules()
 
 
+def _stored(conn) -> int:
+    """Rows written; a table that was never created means nothing was written (a read creates nothing)."""
+    table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE name = 'rule_card_versions'"
+    ).fetchone()
+    return conn.execute("SELECT COUNT(*) FROM rule_card_versions").fetchone()[0] if table else 0
+
+
 @pytest.fixture()
 def conn():
     c = sqlite3.connect(":memory:")
@@ -73,13 +81,13 @@ def test_a_stale_screen_writes_nothing(conn):
             actor="eng-1",
             rules=RULES,
         )
-    assert conn.execute("SELECT COUNT(*) FROM rule_card_versions").fetchone()[0] == 0
+    assert _stored(conn) == 0
 
 
 def test_nobody_signed_in_writes_nothing(conn):
     with pytest.raises(rcv.CardError):
         _approve(conn, actor="")
-    assert conn.execute("SELECT COUNT(*) FROM rule_card_versions").fetchone()[0] == 0
+    assert _stored(conn) == 0
 
 
 def test_a_card_that_needs_a_standard_we_do_not_hold_cannot_be_approved(conn):
@@ -206,7 +214,7 @@ def test_an_edit_outside_what_the_rule_allows_is_refused(conn, changes, message)
         rcv.edit(
             conn, TYPE, TESTED_CARD, changes, actor="eng-1", rules=RULES, **_seen(conn)
         )
-    assert conn.execute("SELECT COUNT(*) FROM rule_card_versions").fetchone()[0] == 0
+    assert _stored(conn) == 0
 
 
 def test_a_number_edit_must_be_a_number(conn):
