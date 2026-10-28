@@ -16,6 +16,9 @@ wording and verdict are not touched.
 
 from __future__ import annotations
 
+import sqlite3
+
+from . import field_links
 from .db import connect
 
 #: At most this many tags are named in the cell; the rest are counted.
@@ -45,6 +48,59 @@ def _tags(tags: list[str]) -> str:
     return f" ({', '.join(shown)}{f' and {more} more' if more else ''})" if tags else ""
 
 
+def read_pages(
+    document_ids: set[str | None], label: str
+) -> tuple[list[int | None], bool]:
+    """(pages, exact): where a non-blank value was read, anywhere on the submittal, under this field's name
+    (order 307: a row must never say "not read" about a field the reader did read). Names are compared as the
+    pairing compares them (`field_links.canonical`). `exact` False = no exact name, but every word of the
+    row's name is inside a read name of two words or more ("viscosity relieving" in "viscosity at relieving
+    temper."): a probable match, said as one. A value with no page recorded is a value that was read: None in
+    the list. A value a later pass replaced (`superseded_at`) is not the final read and is not counted."""
+    documents = sorted(d for d in document_ids if d)
+    want = field_links.canonical(label)
+    if not documents or not want:
+        return [], True
+    marks = ",".join("?" * len(documents))
+    try:
+        rows = (
+            connect()
+            .execute(
+                "SELECT field_name, field_label, page FROM submittal_facts"
+                f" WHERE submittal_document_id IN ({marks}) AND superseded_at IS NULL AND is_blank = 0",
+                documents,
+            )
+            .fetchall()
+        )
+    except (
+        sqlite3.OperationalError
+    ):  # no review tables yet: nothing was read, so nothing to point at
+        return [], True
+    exact: set[int | None] = set()
+    probable: set[int | None] = set()
+    words = set(want.split())
+    for r in rows:
+        names = [
+            field_links.canonical(r["field_name"]),
+            field_links.canonical(r["field_label"]),
+        ]
+        if want in names:
+            exact.add(r["page"])
+        elif len(words) >= 2 and any(words <= set(n.split()) for n in names if n):
+            probable.add(r["page"])
+    found, is_exact = (exact, True) if exact else (probable, False)
+    return sorted(found, key=lambda p: (p is None, p or 0)), is_exact
+
+
+def _pages_words(pages: list[int | None]) -> str:
+    known = [p for p in pages if p is not None]
+    unrecorded = len(known) < len(pages)
+    if not known:
+        return "a page that was not recorded"
+    text = f"page{'s' if len(known) > 1 else ''} " + ", ".join(str(p) for p in known)
+    return text + (" and a page that was not recorded" if unrecorded else "")
+
+
 def where(
     pages: list[int],
     page_text: str,
@@ -52,6 +108,7 @@ def where(
     tags: list[str],
     document_ids: set[str | None],
     read: bool,
+    label: str = "",
 ) -> str:
     """The Page/Section text. With pages, or with a value that was read but has no page
     recorded: `page_text` ("p.1-2"), the field and the tags, as before. With nothing read
@@ -62,6 +119,14 @@ def where(
     if pages or read or not (field or tags):
         text = f"{page_text} - {field}" if field and page_text else page_text or field
         return text + (f" ({', '.join(tags)})" if tags else "")
+    elsewhere, exact = read_pages(document_ids, label)
+    if elsewhere:
+        # a value WAS read, just not tied to this row's tags: never "not read" (order 307)
+        what = "A value" if exact else "A value that may be this field"
+        return (
+            f"{field}: {what} was read on {_pages_words(elsewhere)}, "
+            f"not tied to this row{_tags(tags)}; engineer to confirm"
+        )
     documents = {d for d in document_ids if d}
     total = _page_count(next(iter(documents))) if len(documents) == 1 else 0
     lead = (
