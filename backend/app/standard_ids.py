@@ -462,14 +462,32 @@ def find_citations(text: str, *, typed_question: bool = False) -> list[tuple[str
     return out
 
 
+#: "Pt-1&2", "Part 1 and 2", "Part I / II": a citation that names several parts of one standard.
+_PART_HEAD = re.compile(r"^(?P<head>.*?(?i:PART|PT)\.?\s*-?\s*)(?:\d{1,2}|[IVX]{1,4})$")
+_PART_NEXT = re.compile(r"\s*(?:&|(?i:AND)|/)\s*(?:(?i:PART|PT)\.?\s*-?\s*)?(\d{1,2}|[IVX]{1,4})\b")
+
+
+def _further_parts(text: str, raw: str, end: int) -> list[str]:
+    """The spellings of the parts a citation names AFTER the first ("API RP 520 Pt-1&2" cites Part 2 too), so
+    `same_standard` finds either part. A citation that names no part adds none."""
+    head = _PART_HEAD.match(raw)
+    out: list[str] = []
+    while head is not None and (more := _PART_NEXT.match(text, end)):
+        out.append(head.group("head") + more.group(1))
+        end = more.end()
+    return out
+
+
 def cited_standards(text: str) -> list[str]:
     """The standards cited in `text`, one per identifier, as first printed.
     Two spellings of one identifier are one entry; two EQUIVALENT standards
-    (NACE MR0175, ISO 15156) are two, because both were cited."""
+    (NACE MR0175, ISO 15156) are two, because both were cited. A citation of
+    several parts ("Pt-1&2") is one entry per part."""
     seen: dict[str, str] = {}
-    for raw, _, _ in find_citations(text):
-        ident = parse(raw)
-        seen.setdefault(ident.literal_key() if ident else flat_key(raw), raw)
+    for raw, _, end in find_citations(text):
+        for spelling in [raw, *_further_parts(text, raw, end)]:
+            ident = parse(spelling)
+            seen.setdefault(ident.literal_key() if ident else flat_key(spelling), spelling)
     return list(seen.values())
 
 
