@@ -227,7 +227,7 @@ def test_a_number_edit_must_be_a_number(conn):
         for i in RULES["checklists"][TYPE]["items"]
         if i["rule"]["kind"] == "above_by"
     )
-    with pytest.raises(rcv.CardError, match="must be a number"):
+    with pytest.raises(rcv.CardError, match="must be a finite number"):
         rcv.edit(
             conn,
             TYPE,
@@ -260,3 +260,65 @@ def test_the_card_says_what_tested_rests_on(conn):
     assert card["basis"] == rcv.BASIS_GENERATED
     written = rcv.whole(conn, TYPE, TESTED_CARD, RULES)
     assert written["written_cases"] > 0 and written["basis"] == rcv.BASIS_WRITTEN
+
+
+def _moved_rules():
+    return {
+        **RULES,
+        "checklists": {
+            **RULES["checklists"],
+            TYPE: {
+                **RULES["checklists"][TYPE],
+                "items": [
+                    {**i, "severity": "minor"} if i["id"] == TESTED_CARD else i
+                    for i in RULES["checklists"][TYPE]["items"]
+                ],
+            },
+        },
+    }
+
+
+def test_a_card_can_be_approved_again_after_the_committed_card_moved(conn):
+    """cloud-2 (#1445): the old decision stays in the history and a new approval is not refused as 'already decided'."""
+    _approve(conn)
+    moved = _moved_rules()
+    seen = rcv.current(conn, TYPE, TESTED_CARD, moved)
+    assert seen["decision"] is None
+    rcv.decide(
+        conn,
+        TYPE,
+        TESTED_CARD,
+        rcv.APPROVED,
+        version=seen["version"],
+        seen_hash=seen["content_hash"],
+        actor="eng-2",
+        rules=moved,
+    )
+    now = rcv.whole(conn, TYPE, TESTED_CARD, moved)
+    assert (now["state"], now["decided_by"], now["version"]) == ("approved", "eng-2", 2)
+    rows = conn.execute(
+        "SELECT version, decision, decided_by FROM rule_card_versions ORDER BY version"
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [
+        (1, "approved", "eng-1"),
+        (2, "approved", "eng-2"),
+    ]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+def test_a_number_edit_must_be_finite(conn, bad):
+    card = next(
+        i["id"]
+        for i in RULES["checklists"][TYPE]["items"]
+        if i["rule"]["kind"] == "above_by"
+    )
+    with pytest.raises(rcv.CardError, match="finite number"):
+        rcv.edit(
+            conn,
+            TYPE,
+            card,
+            {"percent": bad},
+            actor="eng-1",
+            rules=RULES,
+            **_seen(conn, card),
+        )

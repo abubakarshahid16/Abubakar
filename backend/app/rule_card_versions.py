@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import re
 from datetime import UTC, datetime
 
@@ -206,13 +207,30 @@ def _check_stale(card: dict, version: int, seen_hash: str) -> None:
         )
 
 
-def _write_decision(conn, card: dict, decision: str, actor: str, counts: dict) -> dict:
-    """Write the decision on the card's current version once. Version 1 gets its row now (the committed item)."""
+def _write_decision(
+    conn, card: dict, decision: str, actor: str, counts: dict, rules: dict
+) -> dict:
+    """Write the decision on the card's current version once. Version 1 gets its row now (the committed item).
+    When the stored row of that version was written against an OLDER committed card (git moved the baseline), the
+    decision goes on a NEW version row, so the old decision stays in the history and the card is not stuck at
+    "already decided"."""
     now = _now()
-    base = content_hash(
-        _baseline(card["equipment_type"], card["card_id"], dc.load_rules())
-    )
+    base = content_hash(_baseline(card["equipment_type"], card["card_id"], rules))
     ensure_schema(conn)
+    version = card["version"]
+    stored = conn.execute(
+        "SELECT base_hash FROM rule_card_versions"
+        " WHERE equipment_type = ? AND card_id = ? AND version = ?",
+        (card["equipment_type"], card["card_id"], version),
+    ).fetchone()
+    if stored and stored["base_hash"] != base:
+        version = (
+            conn.execute(
+                "SELECT MAX(version) FROM rule_card_versions WHERE equipment_type = ? AND card_id = ?",
+                (card["equipment_type"], card["card_id"]),
+            ).fetchone()[0]
+            + 1
+        )
     with conn:
         conn.execute(
             "INSERT OR IGNORE INTO rule_card_versions (equipment_type, card_id, version, content, content_hash,"
@@ -220,7 +238,7 @@ def _write_decision(conn, card: dict, decision: str, actor: str, counts: dict) -
             (
                 card["equipment_type"],
                 card["card_id"],
-                card["version"],
+                version,
                 json.dumps(card["item"], sort_keys=True),
                 card["content_hash"],
                 base,
@@ -238,7 +256,7 @@ def _write_decision(conn, card: dict, decision: str, actor: str, counts: dict) -
                 json.dumps(counts),
                 card["equipment_type"],
                 card["card_id"],
-                card["version"],
+                version,
                 card["content_hash"],
             ),
         )
@@ -282,12 +300,16 @@ def decide(
         "cases": len(ran["runs"]),
         "passed": sum(r["passed"] for r in ran["runs"]),
     }
-    return _write_decision(conn, card, decision, actor, counts)
+    return _write_decision(conn, card, decision, actor, counts, rules)
 
 
 def _number(value, name: str) -> float | int:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise CardError(f"{name} must be a number")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
+        raise CardError(f"{name} must be a finite number")
     return value
 
 
