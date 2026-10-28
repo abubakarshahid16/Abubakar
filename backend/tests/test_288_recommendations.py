@@ -119,51 +119,6 @@ def review_world(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _review_with_a_recommendation():
-    from tests.test_field_naming import _world
-
-    _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
-    advice = "The set pressure should be at least 10 percent below the maximum allowable working pressure."
-    standards.create_requirement(
-        standard_document_id="std-1",
-        chunk_id="sc",
-        requirement_text=advice,
-        source_text=advice,
-        clause="6.4.2",
-        page=1,
-        structured={
-            "requirement_type": "recommendation",
-            "subject": "the set pressure",
-        },
-    )
-    return comparison.run_comparison(run, allowed_document_ids=scope), run
-
-
-def test_a_recommendation_is_not_in_the_scope_ledger_is_not_a_finding_and_is_counted_apart(
-    review_world,
-):
-    result, run = _review_with_a_recommendation()
-    held = (
-        db.connect()
-        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run,))
-        .fetchone()
-    )
-    outcome = json.loads(held["outcome_json"])
-    assert outcome["requirements_held_back"]["recommendation"] == 1
-    assert (
-        outcome["requirements_held_back"]["text_quality"] == 0
-    )  # never "its text could not be read"
-    split = outcome["requirement_split"]
-    assert (
-        split["checked"] + split["applies_not_checked"] + split["does_not_apply"] == 1
-    )  # only the shall rule
-    assert not [
-        f
-        for f in result["findings"]
-        if "10 percent below" in str(f.get("requirement_source_text"))
-    ]
-
-
 # ----------------------------------------------- the library's counts and the verification queue (s1 on #1421)
 
 
@@ -200,3 +155,146 @@ def test_a_recommendation_is_in_no_requirement_count_and_not_in_the_verification
     ]
     assert listed["requirement_count"] == len(held)
     assert listed["awaiting_verification"] == len(held)
+
+
+# ----------------------------------------------- step 2: a review raises a recommendation as a query
+
+ADVICE = "The set pressure should not exceed 3 bar in normal operation of the unit."
+
+
+def _add_advice(standard, chunk, clause, page=1, text=ADVICE):
+    return standards.create_requirement(
+        standard_document_id=standard,
+        chunk_id=chunk,
+        requirement_text=text,
+        source_text=text,
+        clause=clause,
+        page=page,
+        structured={
+            "requirement_type": "recommendation",
+            "subject": "the set pressure",
+        },
+    )
+
+
+def _second_standard(run):
+    """A standard the review includes because of the equipment type, NOT because the sheet names it."""
+    import uuid
+
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)"
+            " VALUES ('std-2','std-2.pdf','sha-std-2',1,'std-2.pdf','ready',1,'2026-10-28T00:00:00Z')"
+        )
+        conn.execute(
+            "INSERT INTO document_classification (document_id,suggested_by,document_role)"
+            " VALUES ('std-2','test','COMPANY_STANDARD')"
+        )
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,"
+            "token_count,content_hash,retrievable) VALUES ('sc2','std-2','f.pdf',0,1,1,NULL,'prose','x',1,'h2',1)"
+        )
+        conn.execute(
+            "INSERT INTO review_applicable_standards (id,review_run_id,standard_document_id,selection_reason,"
+            "selection_method,included,created_at) VALUES (?,?,'std-2','type','equipment_type',1,'2026-10-28T00:00:00Z')",
+            (str(uuid.uuid4()), run),
+        )
+
+
+@pytest.fixture
+def queries_on(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "recommendation_queries_enabled", True)
+
+
+def _reasons(split):
+    return {r["reason"]: r["count"] for r in split["applies_not_checked_reasons"]}
+
+
+def _outcome(run):
+    row = (
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run,))
+        .fetchone()
+    )
+    return json.loads(row["outcome_json"])
+
+
+def test_a_recommendation_of_a_standard_the_sheet_names_is_raised_as_a_query_never_a_verdict(
+    review_world, queries_on
+):
+    from tests.test_field_naming import _world
+
+    _req, _fact, run, scope = _world(
+        "Set pressure", "9 bar"
+    )  # the sheet states 9 bar: the advice says 3
+    _add_advice("std-1", "sc", "6.4.2")
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+    [query] = [
+        f
+        for f in result["findings"]
+        if "recommended by" in str(f.get("finding") or f.get("ai_rationale"))
+    ]
+    assert (
+        query["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    )  # not NON_COMPLIANT: 9 > 3
+    assert query["fact_id"] is None
+    text = str(query.get("finding") or "") + str(query.get("ai_rationale") or "")
+    assert (
+        "cl. 6.4.2" in text
+        and "Please confirm or justify" in text
+        and "not a requirement" in text
+    )
+    split = _outcome(run)["requirement_split"]
+    assert _reasons(split).get(recommendations.REASON) == 1
+
+
+def test_a_recommendation_of_a_standard_the_sheet_does_not_name_raises_nothing_and_is_counted(
+    review_world, queries_on
+):
+    from tests.test_field_naming import _world
+
+    _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
+    _second_standard(run)
+    _add_advice("std-2", "sc2", "2.1")
+    result = comparison.run_comparison(run, allowed_document_ids=scope | {"std-2"})
+    assert not [f for f in result["findings"] if "recommended by" in str(f)]
+    out = _outcome(run)
+    assert out["requirements_held_back"]["recommendation"] == 1
+    assert _reasons(out["requirement_split"]).get(recommendations.REASON) is None
+
+
+def test_every_recommendation_is_its_own_query_however_many_there_are(
+    review_world, queries_on
+):
+    from tests.test_field_naming import _world
+
+    _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
+    for n in range(8):  # more than held_findings.GROUP_ABOVE
+        _add_advice(
+            "std-1",
+            "sc",
+            f"6.5.{n}",
+            text=f"The vent {n} should be 2 m above the platform edge.",
+        )
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+    queries = [f for f in result["findings"] if "recommended by" in str(f)]
+    assert len(queries) == 8
+    assert {q["compliance_status"] for q in queries} == {
+        comparison.NEEDS_ENGINEER_REVIEW
+    }
+
+
+def test_with_the_switch_off_a_recommendation_of_a_named_standard_raises_nothing(
+    review_world,
+):
+    from tests.test_field_naming import _world
+
+    _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
+    _add_advice("std-1", "sc", "6.4.2")
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+    assert not [f for f in result["findings"] if "recommended by" in str(f)]
+    out = _outcome(run)
+    assert out["requirements_held_back"]["recommendation"] == 1
+    assert _reasons(out["requirement_split"]).get(recommendations.REASON) is None
