@@ -65,8 +65,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "05",
         "a draft made for another standard is read for this one",
         _C,
-        '        if standard_ids.same_standard(e.get("standard"), label)\n',
-        "",
+        '        if standard_ids.same_standard(e.get("standard"), label):\n',
+        "        if True:\n",
         "another_equipment_type",
     ),
     _m(
