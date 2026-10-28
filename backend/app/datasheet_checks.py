@@ -1160,8 +1160,8 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met item (an R13 calculation included) is
     # stored as a COMPLIANT finding with its item id, fact, page and clause, so "Meets" is visible like any result;
     # never a CRS comment (`crs_mapping` takes only breaches and gaps). Any OTHER check that held adds no row.
-    # "Does not apply" and NOT CALCULATED are no rows either: the reason, or the inputs `required` items ask for.
-    results = read_elsewhere.soften(results)  # 307.1: a value read for other tags is not "not read"
+    # "Does not apply" and NOT CALCULATED are no rows either. 307.1: a value read for other tags is not "not read".
+    results = read_elsewhere.soften(results)
     for r in (x for x in degraded_read.hold(results, submittal_id) if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
         if label is not None:
