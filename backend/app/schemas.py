@@ -2181,12 +2181,11 @@ class ReviewFindingUpdate(BaseModel):
     disposition: ReviewDisposition | None = None
     # B10: no `approved_by` / `approved_at` here. Who approved is the
     # authenticated caller, set by the route - the same rule as `confirmed_by`.
-    #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER,
-    #: taken from the authenticated scope and never from this body, because a
-    #: confirmation that can name someone else is not a confirmation. There is
-    #: no way to un-confirm through this route - a wrong pairing is REJECTED,
-    #: which is a different act with a different record.
+    #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER, never this body.
+    #: No un-confirm here - a wrong pairing is REJECTED, a different act and record.
     confirmed: bool | None = None
+    reason: str | None = Field(default=None, max_length=2000)  # #962
+    reason_code: str | None = None
 
 
 class ReviewScopeDecision(BaseModel):
