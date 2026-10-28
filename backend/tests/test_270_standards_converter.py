@@ -1234,3 +1234,156 @@ def test_a_v2_verified_row_is_read_with_its_condition(tmp_path, monkeypatch):
     assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {
         "r1": "design pressure"
     }
+
+
+# ------------------------------------------------------------------ 10. order 295.7 (converter v2.2): types, examples, noise, clause
+
+
+def _convert_all(std, answer_for=lambda text: GOOD):
+    asked = []
+    fake = Fake(lambda text: asked.append(text) or answer_for(text))
+    with db.connect() as conn:
+        result = standards_converter.convert(conn, std, "SAES-G-005", PUMP, fake)
+    return result, asked
+
+
+def test_only_the_convertible_types_are_asked_and_the_rest_are_no_check(tmp_path):
+    """(a) The planner's API-520-I rows: advice, definitions and triggers are never sent to the model."""
+    std = _standard(texts=(SENTENCE,))
+    _req(
+        std,
+        "The pump should not exceed 25 bar casing pressure.",
+        "6.7",
+        "recommendation",
+    )
+    _req(std, "Pressure: the force per unit area is 1 bar.", "3.1", "definition")
+    _req(std, "Where API 610 applies, 30 bar governs.", "6.8", "applicability_trigger")
+    result, asked = _convert_all(std)
+    assert len(asked) == 1 and "casing design pressure" in asked[0]
+    by_status = {}
+    for row in result.rows:
+        by_status.setdefault(row["status"], []).append(row)
+    assert len(by_status["verified"]) == 1
+    skipped = by_status["no_check"]
+    assert len(skipped) == 3
+    assert {r["reason"] for r in skipped} == {"type_not_convertible"}
+    assert all(r["limit"] is None and r["note"] is None for r in skipped)
+    assert result.types_not_asked == {
+        "recommendation": 1,
+        "definition": 1,
+        "applicability_trigger": 1,
+    }
+    body = json.loads(
+        next(
+            standards_converter.write(result, tmp_path / "mirror", form_sha=SHA)[
+                "json"
+            ].parent.glob("*.json")
+        ).read_text()
+    )
+    assert body["types_not_asked"]["recommendation"] == 1
+    assert body["counts"]["verified"] == 1
+
+
+def test_a_recommendation_with_a_figure_never_becomes_a_verified_check():
+    std = _standard("SAES-K-503")
+    _req(
+        std,
+        "The casing design pressure should not exceed 25 bar.",
+        "6.1",
+        "recommendation",
+    )
+    result, asked = _convert_all(std)
+    assert asked == [] and result.counts()["verified"] == 0
+    assert [r["reason"] for r in result.rows] == ["type_not_convertible"]
+
+
+EXAMPLE_SENTENCE = "The casing design pressure shall not exceed 25 bar."
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Example 3: the casing design pressure shall not exceed 25 bar.",
+        "Worked example. The casing design pressure shall not exceed 25 bar.",
+        "Sizing example - the casing design pressure shall not exceed 25 bar.",
+    ],
+)
+def test_a_sentence_that_opens_as_an_example_is_not_a_requirement(sentence):
+    row = {**ROW, "requirement_text": sentence}
+    answer = {**GOOD, "quote": "casing design pressure shall not exceed 25 bar"}
+    assert _verdict(answer, row)[:2] == ("unproven", "example_not_requirement")
+
+
+def test_a_sentence_under_an_example_heading_in_its_chunk_is_not_a_requirement():
+    chunk = "5.6.4 Sizing\nExample 1\nThe casing design pressure shall not exceed 25 bar.\n5.6.5 Next clause\nText."
+    row = {**ROW, "requirement_text": EXAMPLE_SENTENCE, "chunk_text": chunk}
+    assert standards_converter.in_example(row) is True
+    assert _verdict(GOOD, row)[:2] == ("unproven", "example_not_requirement")
+
+
+def test_a_new_numbered_clause_ends_the_example_block():
+    chunk = "5.6.4 Sizing\nExample 1\n5.6.5 Next clause heading\nThe casing design pressure shall not exceed 25 bar."
+    row = {**ROW, "requirement_text": EXAMPLE_SENTENCE, "chunk_text": chunk}
+    assert standards_converter.in_example(row) is False
+    assert _verdict(GOOD, row)[0] == "verified"
+
+
+def test_a_section_titled_as_an_example_is_not_a_requirement():
+    row = {
+        **ROW,
+        "requirement_text": EXAMPLE_SENTENCE,
+        "section": "6.2 Worked examples",
+    }
+    assert _verdict(GOOD, row)[:2] == ("unproven", "example_not_requirement")
+
+
+def test_a_plain_requirement_is_not_taken_for_an_example():
+    row = {
+        **ROW,
+        "chunk_text": "6.1 Casing\nThe casing design pressure shall not exceed 25 bar.",
+        "section": "6.1 Casing",
+    }
+    assert standards_converter.in_example(row) is False
+    assert _verdict(GOOD, row)[0] == "verified"
+
+
+def test_a_quote_with_mirrored_noise_is_unproven_as_unreadable():
+    """(c) The planner's second row: a stamp's mirrored text mixed into the line."""
+    sentence = "The casing design pressure shall not exceed 25 bar ɘƨƨɘɿq ƨʜɘɘt."
+    row = {**ROW, "requirement_text": sentence, "clause": "1.0"}
+    answer = {**GOOD, "quote": "casing design pressure shall not exceed 25 bar ɘƨƨɘɿq"}
+    assert _verdict(answer, row)[:2] == ("unproven", "quote_unreadable")
+
+
+def test_a_quote_with_more_than_15_percent_garbled_words_is_unproven():
+    sentence = (
+        "The casing design pressure shall not exceed 25 bar xkcdfgh qwrtpsd zzzxcvb."
+    )
+    row = {**ROW, "requirement_text": sentence}
+    answer = {
+        **GOOD,
+        "quote": "design pressure shall not exceed 25 bar xkcdfgh qwrtpsd zzzxcvb",
+    }
+    assert _verdict(answer, row)[:2] == ("unproven", "quote_unreadable")
+
+
+def test_acronyms_figures_and_units_are_not_garble():
+    sentence = "The PSV casing design pressure shall not exceed 25 bar (362 psig) at NPS 6 per SAES-G-005."
+    row = {**ROW, "requirement_text": sentence}
+    answer = {
+        **GOOD,
+        "quote": "PSV casing design pressure shall not exceed 25 bar (362 psig)",
+    }
+    assert standards_converter.quote_unreadable(answer["quote"], sentence) is False
+    assert _verdict(answer, row)[0] == "verified"
+
+
+@pytest.mark.parametrize("clause", ["", " ", "-", "n/a", "0", "0.0", None])
+def test_a_row_with_no_real_clause_is_unproven(clause):
+    row = {**ROW, "clause": clause}
+    assert _verdict(GOOD, row)[:2] == ("unproven", "no_real_clause")
+
+
+def test_a_real_clause_is_kept():
+    for clause in ("6.1", "5.6.4.2", "A.3", "1.0.1"):
+        assert _verdict(GOOD, {**ROW, "clause": clause})[0] == "verified"

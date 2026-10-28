@@ -59,6 +59,8 @@ from . import (
     rule_roles,
 )
 from .ai.json_reply import unfenced
+from .converter_gates import fold as _fold
+from .converter_gates import in_example, quote_unreadable
 from .reasoning_provider import ProviderRefused
 
 #: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. API and ASME: HOLD.
@@ -70,6 +72,19 @@ LANE_CLAUDE, LANE_LOCAL = "claude", "local"
 LANES = (LANE_LOCAL, LANE_CLAUDE)
 PROMPT_VERSION = "o286-convert-v2"
 STATUS = "draft"
+#: The stored requirement types the converter asks about (order 295.7). A recommendation (advice, #1421), a
+#: definition and an applicability trigger are not rules with a limit: they are written as "no check" with the
+#: reason `type_not_convertible` and never sent to the model.
+CONVERTIBLE_TYPES = (
+    "statement",
+    "numeric_limit",
+    "cross_field_limit",
+    "range_limit",
+    "table_value",
+    "table_row",
+)
+#: A clause number the extractor did not really read.
+PLACEHOLDER_CLAUSES = ("", "-", "n/a", "na", "none", "0", "0.0")
 #: Requirements per call.
 BATCH = 12
 #: Characters of a clause the model reads (and the quote is verified against).
@@ -133,6 +148,10 @@ REASONS = (
     "answer_unreadable",
     "no_field",
     "default_not_limit",
+    "example_not_requirement",
+    "quote_unreadable",
+    "no_real_clause",
+    "type_not_convertible",
     "quote_not_in_clause",
     "number_not_in_quote",
     "unit_not_in_quote",
@@ -255,9 +274,11 @@ def requirements_of(conn, document_id: str) -> list[dict]:
     return [
         dict(r)
         for r in conn.execute(
-            "SELECT id, standard_document_id, clause, requirement_type, requirement_text, raw_value, raw_unit,"
-            " unit FROM standard_requirements WHERE standard_document_id = ? AND superseded_at IS NULL"
-            " AND requirement_text IS NOT NULL AND TRIM(requirement_text) <> '' ORDER BY id",
+            "SELECT r.id, r.standard_document_id, r.clause, r.requirement_type, r.requirement_text,"
+            " r.source_text, r.raw_value, r.raw_unit, r.unit, c.text AS chunk_text, c.section AS section"
+            " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
+            " WHERE r.standard_document_id = ? AND r.superseded_at IS NULL"
+            " AND r.requirement_text IS NOT NULL AND TRIM(r.requirement_text) <> '' ORDER BY r.id",
             (document_id,),
         )
     ]
@@ -286,10 +307,6 @@ def packet(batch: list[dict], system: str, step: str):
 
 
 # ------------------------------------------------------------------------------------------ the proof
-
-
-def _fold(text: str | None) -> str:
-    return " ".join((text or "").lower().split())
 
 
 def _has_figure(quote: str, figure: str) -> bool:
@@ -421,9 +438,19 @@ def verify(
     ):
         return "unproven", "no_field", None
     name = dictionary[idx]
+    if str(row.get("clause") or "").strip().lower() in PLACEHOLDER_CLAUSES:
+        return "unproven", "no_real_clause", None
+    if in_example(
+        row
+    ):  # a worked example illustrates; it states no requirement (order 295.7 b)
+        return "unproven", "example_not_requirement", None
     quote = " ".join(str(answer.get("quote") or "").split())
     if len(quote) < 8 or _fold(quote) not in text:
         return "unproven", "quote_not_in_clause", None
+    if quote_unreadable(
+        quote, str(row.get("source_text") or row.get("requirement_text") or "")
+    ):
+        return "unproven", "quote_unreadable", None
     if any(
         w in text for w in DEFAULT_WORDS
     ):  # a default or an assumption is not a limit (286.3)
@@ -476,6 +503,8 @@ class Result:
     usd: float = 0.0
     calls: int = 0
     unreadable_batches: int = 0
+    #: Rows of types the converter does not ask about (order 295.7), by type.
+    types_not_asked: dict = field(default_factory=dict)
 
     def counts(self) -> dict[str, int]:
         out = {
@@ -580,6 +609,8 @@ def convert(
     rows = requirements_of(conn, document_id)
     if limit:
         rows = rows[:limit]
+    not_asked = [r for r in rows if r.get("requirement_type") not in CONVERTIBLE_TYPES]
+    rows = [r for r in rows if r.get("requirement_type") in CONVERTIBLE_TYPES]
     dictionary, roles, families = rule_roles.form(equipment_type)
     step = step_for(standard)
     system = system_text(equipment_type, dictionary)
@@ -609,6 +640,12 @@ def convert(
         out.calls += 1
         out.model = getattr(response, "model_tag", None) or out.model
         out.rows += _read_batch(response, chunk, dictionary, roles, families, out)
+    for r in (
+        not_asked
+    ):  # never sent to the model: no check, with the reason, counted by type
+        out.rows.append(_row(r, "no_check", "type_not_convertible", None, None, None))
+        kind = r.get("requirement_type") or "untyped"
+        out.types_not_asked[kind] = out.types_not_asked.get(kind, 0) + 1
     out.usd = round(claude_spend.spent(step) - before, 6) if claude else 0.0
     return out
 
@@ -709,6 +746,7 @@ def write(
         else (f"refused: {result.refused}" if result.refused else "complete"),
         "usd_spent": result.usd,
         "calls": result.calls,
+        "types_not_asked": result.types_not_asked,
         "counts": result.counts(),
         "entries": result.rows,
     }
