@@ -41,7 +41,7 @@ _ORDER = (SPECIAL, PART_UNKNOWN, MANDATORY, NONMANDATORY, APPENDIX, MAIN)
 _MAX_HEADING_WORDS = 14
 _APPENDIX = re.compile(
     r"^\s*(?:(?P<q>non-?\s?mandatory|mandatory|normative|informative)\s+)?"
-    r"(?P<kind>appendix|annex)\s+(?P<id>[A-Z]{1,2}\d{0,2}|\d{1,3}|[IVX]{1,5})\b(?P<rest>.*)$",
+    r"(?P<kind>appendix|annex)\s+(?P<id>(?-i:[A-Z]{1,2}\d{0,2}|\d{1,3}|[IVX]{1,5}))\b(?P<rest>.*)$",
     re.IGNORECASE,
 )
 _ANNEX_TAIL = re.compile(
@@ -63,11 +63,42 @@ _GENERAL_PART = re.compile(
 )
 
 
+#: A contents entry ends on dot leaders or a page number ("Annex D (informative) Sizing .... 41").
+_CONTENTS_ENTRY = re.compile(r"\S.*(?:(?:\.|(?:\s\.)){3,}\s*\d*|\s\d{1,3})\s*$")
+#: Lines of the page that count as its top: running headers and the heading of a page that opens a region.
+_TOP_LINES = 8
+#: A page with this many region headings is a contents page, not the start of a region.
+_CONTENTS_PAGE_HEADINGS = 3
+
+
 def _is_heading_line(line: str) -> bool:
     words = line.split()
     return 0 < len(words) <= _MAX_HEADING_WORDS and not line.rstrip().endswith(
         (".", ",", ";")
     )
+
+
+def _is_region_heading(
+    match: re.Match, line: str, position: int, previous: str = ""
+) -> bool:
+    """A line that matches a region pattern is a heading only when it is not a sentence that happens to start
+    with the word (a wrapped "Appendix E applies to ..."), not a contents entry, and, below the top of the page,
+    carries a strong mark (capitals, or the standard's own word normative / mandatory)."""
+    rest = (
+        match.groupdict().get("rest") or match.groupdict().get("title") or ""
+    ).strip()
+    if _CONTENTS_ENTRY.search(rest):
+        return False
+    first = rest.lstrip("-\u2013\u2014:. ")[:1]
+    if first and first.isalpha() and first.islower():
+        return False
+    before = previous.rstrip()
+    if len(before.split()) >= 5 and before[-1:] in ",abcdefghijklmnopqrstuvwxyz":
+        return False
+    if position < _TOP_LINES:
+        return True
+    qualifier = match.groupdict().get("q") or _ANNEX_TAIL.search(rest)
+    return bool(qualifier) or line.strip().isupper()
 
 
 def _appendix_scope(match: re.Match) -> str:
@@ -102,11 +133,24 @@ def tag_pages(pages: dict[int, str]) -> dict[int, dict]:
         lines = [ln for ln in (pages[number] or "").splitlines() if ln.strip()]
         content_before_heading = False
         mixed = False
+        found = [
+            (_APPENDIX.match(ln), _PART.match(ln))
+            if _is_heading_line(ln)
+            else (None, None)
+            for ln in lines
+        ]
+        contents_page = sum(1 for a, q in found if a or q) >= _CONTENTS_PAGE_HEADINGS
         for i, line in enumerate(lines):
             if not _is_heading_line(line):
                 content_before_heading = True
                 continue
-            appendix, part = _APPENDIX.match(line), _PART.match(line)
+            appendix, part = found[i]
+            heading = appendix or part
+            if heading and (
+                contents_page
+                or not _is_region_heading(heading, line, i, lines[i - 1] if i else "")
+            ):
+                appendix = part = None
             if appendix:
                 if content_before_heading and scope == MAIN:
                     mixed = True

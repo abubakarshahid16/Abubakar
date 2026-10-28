@@ -189,3 +189,58 @@ def test_a_dash_between_figures_without_a_unit_is_a_code_not_a_range(text, limit
 )
 def test_a_dash_between_figures_with_a_unit_is_a_range(text, limit):
     assert ps.range_boundary(text, limit)
+
+
+# ---- over-tagging found on the real library (s2, 29 Oct): invented text in the shapes it listed ------------------
+
+
+def test_a_contents_page_does_not_open_a_region():
+    contents = (
+        "CONTENTS\nAnnex A (informative) Sizing examples .... 40\n"
+        "Annex B (normative) Tables .... 44\nAnnex D (informative) Notes .... 50\n"
+    )
+    body = "5.1 Relief valves\nThe set pressure shall not exceed 10 bar."
+    tags = ps.tag_pages(_pages(contents, body, body))
+    assert {t["scope"] for t in tags.values()} == {ps.MAIN}
+
+
+def test_a_contents_entry_alone_with_a_page_number_is_not_a_heading():
+    tags = ps.tag_pages(
+        _pages("Annex D (informative) Sizing 41", "5.1 Relief valves\nA rule.")
+    )
+    assert tags[2]["scope"] == ps.MAIN
+
+
+def test_a_sentence_that_starts_with_the_word_appendix_is_not_a_heading():
+    tags = ps.tag_pages(
+        _pages(
+            "UG-33 Formed heads\nThe thickness of a formed head follows the rules given\n"
+            "Appendix E applies to the selection of the\nmaterial.",
+            "UG-36 Openings\nAppendix is mentioned here\nmore text",
+        )
+    )
+    assert {t["scope"] for t in tags.values()} == {ps.MAIN}
+
+
+def test_the_label_of_an_appendix_is_its_letter_or_number_never_a_word():
+    tags = ps.tag_pages(_pages("Appendix is the last part\nAppendix of rules"))
+    assert tags[1]["scope"] == ps.MAIN
+
+
+def test_a_parenthesis_after_the_label_is_kept_as_a_heading():
+    tags = ps.tag_pages(_pages("Annex D (informative)\nSizing\nlimit 5 bar."))
+    assert tags[1]["scope"] == ps.NONMANDATORY
+
+
+def test_a_heading_far_down_the_page_needs_a_strong_mark():
+    filler = "\n".join(f"line {i} of text." for i in range(10))
+    weak = ps.tag_pages(_pages(f"{filler}\nAppendix 12 Pressure rules\nx"))
+    strong = ps.tag_pages(_pages(f"{filler}\nMANDATORY APPENDIX 3\nx"))
+    assert weak[1]["scope"] == ps.MAIN
+    assert strong[1]["scope"] == ps.MANDATORY
+
+
+def test_a_real_heading_at_the_top_still_opens_its_region():
+    tags = ps.tag_pages(_pages("MANDATORY APPENDIX 3\ntext", "more text"))
+    assert [t["scope"] for t in tags.values()] == [ps.MANDATORY, ps.MANDATORY]
+    assert tags[1]["region"] == "Appendix 3"

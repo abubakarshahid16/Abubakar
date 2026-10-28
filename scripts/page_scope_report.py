@@ -49,6 +49,11 @@ def main() -> int:
                 "SELECT page_no, text FROM pages WHERE document_id = ?", (doc,)
             )
         }
+        for r in conn.execute(  # a scanned page has no text layer: its headings are in the recognised text
+            "SELECT page_no, text FROM page_ocr WHERE document_id = ? AND error IS NULL AND text != ''",
+            (doc,),
+        ):
+            pages[r["page_no"]] = r["text"]
         tags = page_scope.tag_pages(pages)
         by_scope = collections.Counter(t["scope"] for t in tags.values())
         print(doc, "pages", len(tags), dict(sorted(by_scope.items())))
