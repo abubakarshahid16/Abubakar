@@ -110,6 +110,8 @@ EGRESS_SAFE: dict[str, object] = {
     "standards_reader_enabled": False,
     "standards_reader_allow_public_egress": False,
     "anthropic_api_key": "",
+    # Order 270.3: where the review reads the converter's draft files; empty = reads none.
+    "standards_converter_dir": "",
     # #806 S3: the approved-document guard is off for the suite only (its
     # fakes carry invented documents); with no key and the egress flags off
     # above, nothing can leave either way.

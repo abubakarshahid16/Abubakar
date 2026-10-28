@@ -1073,7 +1073,7 @@ class Settings(BaseSettings):
     #: `claude_context_tokens`; at claude-sonnet-5's USD 2 per million input
     #: tokens that is at most +USD 0.016 per Claude Tier 2 answer (typically
     #: ~+USD 0.004: 5 x 2,400 chars of prose is ~3,000 tokens against ~900).
-    #: Every call is still checked against the USD 5 per step / 20 total caps
+    #: Every call is still checked against the `claude_spend` USD caps
     #: by `claude_spend` before it leaves. Set these equal to the local values
     #: to pay nothing extra. Env: CLAUDE_CONTEXT_PASSAGES / _CHARS / _TOKENS.
     claude_context_passages: int = 5
@@ -1181,19 +1181,19 @@ class Settings(BaseSettings):
     #: Models that REJECT `temperature` (400 "deprecated for this model",
     #: measured on claude-sonnet-5, 2026-09-25). Prefix match on the id.
     claude_models_without_temperature: tuple[str, ...] = ("claude-sonnet-5",)
-    #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the
-    #: worst case of the next call must fit under both. Owner: 5 per step,
-    #: 20 in total.
+    #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the worst case of the next call must fit
+    #: under both. Owner: 5 per step; plan change 4 (#805, 28 Oct 2026): 25 per converted standard (the
+    #: `standards_convert:` steps) and 500 in total for November (`claude_spend.total_cap`: 20 again from 1 Dec).
     claude_budget_usd_per_step: float = 5.0
-    #: #806 S3: a Claude call is refused, before it leaves, unless every
-    #: document its prompt carries is on the owner's approved list
-    #: (`<data_dir>/claude_approved_documents.json`, by file sha256) - and when
-    #: its caller declared nothing (`claude_approved`). ON, and it stays on:
-    #: the switch exists for the test suite (pinned off in
-    #: `tests/env_isolation.py`, whose fakes carry invented documents) and for
-    #: a measurement on a copy. Env: CLAUDE_APPROVED_LIST_ENFORCED.
+    claude_budget_usd_per_standard: float = 25.0
+    #: Order 270.3: folder of the converter's draft files (outside the repo). Empty = the review reads none.
+    standards_converter_dir: str = ""
+    #: #806 S3: a Claude call is refused, before it leaves, unless every document its prompt carries is on the owner's
+    #: approved list (`<data_dir>/claude_approved_documents.json`, by file sha256) - and when its caller declared nothing
+    #: (`claude_approved`). ON, and it stays on: the switch exists for the test suite (pinned off in `tests/env_isolation.py`,
+    #: whose fakes carry invented documents) and for a measurement on a copy. Env: CLAUDE_APPROVED_LIST_ENFORCED.
     claude_approved_list_enforced: bool = True
-    claude_budget_usd_total: float = 20.0
+    claude_budget_usd_total: float = 500.0
     #: Local JSONL ledger: one line per call - time, step, model, tokens, cost,
     #: prompt digest. Never prompt or document text, never the key.
     #: ONE ledger per machine, not per checkout (#315): a worktree writes and
