@@ -3227,24 +3227,14 @@ def _units_comparable(requirement: dict, fact: dict,
     """May these two numbers be compared at all?
 
     BY DIMENSION WHEN BOTH SIDES NORMALISE, BY SPELLING WHEN EITHER DOES NOT.
+    A limit in kPa and a value in bar are both pressures and `claims` converts them exactly, so
+    dimension equality is the question there. When a unit has no conversion (`dB(A)` and `dB` share
+    no dimension, both are None) the safe test is that the spellings match.
 
-    The spelling test alone was too strict: a limit in kPa and a value in bar
-    are both pressures, `claims` converts between them exactly, and refusing
-    them sent a comparison the engine could do to a human instead. Dimension
-    equality is the right question there, and `_compatible` does the conversion.
-
-    But dimension is the WRONG question when a unit has no conversion. `dB(A)`
-    and `dB` share no dimension at all (both are None). For those the only
-    safe test is that the spellings match, which is what `same_unit` asks.
-
-    TEMPERATURE SCALES ARE THE EXCEPTION (order 141 B). `°F` has no factor in
-    the unit table (the conversion is affine), but `°F`, `°C` and `K` are one
-    quantity and `compare` converts between them through
-    `claims.compare_across_units`. Refusing them here wrote "not the same
-    quantity" on a °F limit against a °C value, which was false.
-
-    So: both normalised, compare dimensions; if either did not, the spelling, two temperature scales,
-    or two numbers with NO unit (plain numbers; order 264b). dB(A)-against-dB stays refused.
+    TEMPERATURE SCALES ARE THE EXCEPTION (order 141 B): `°F`, `°C` and `K` are one quantity and
+    `compare` converts between them through `claims.compare_across_units`. TWO NUMBERS WITH NO UNIT
+    AT ALL are plain numbers (order 264b): the verdict then says no unit was stated, never "not the
+    same quantity". dB(A) against dB stays refused.
     """
     requirement_measure = _measurement_from_requirement(requirement)
     fact_measure = _measurement_from_fact(fact)
@@ -3258,9 +3248,13 @@ def _units_comparable(requirement: dict, fact: dict,
         right = claims.unit_dimension(fact_unit.raw_unit or "")
         return left is not None and left == right
     bare = not requirement_unit.raw_unit and not fact_unit.raw_unit
-    return bare or claims.same_unit(requirement_unit, fact_unit) or (
-        claims.is_temperature_scale(requirement_unit.raw_unit)
-        and claims.is_temperature_scale(fact_unit.raw_unit)
+    return (
+        bare
+        or claims.same_unit(requirement_unit, fact_unit)
+        or (
+            claims.is_temperature_scale(requirement_unit.raw_unit)
+            and claims.is_temperature_scale(fact_unit.raw_unit)
+        )
     )
 
 

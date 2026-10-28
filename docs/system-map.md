@@ -89,6 +89,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `company_standard_confirm` | Hold a non-admin's Company standard for an administrator's confirmation before reviews use it (#620) |
 | `comparison` | Phase 5B: does this submittal meet the requirements that govern it |
 | `comparators` | The one vocabulary of limit-direction words: which way does a sentence say a limit points (#915) |
+| `condition_bare` | Order 264b: a numeric condition whose threshold states no unit ("specific gravity below 0.5") is decided against a submitted value that states none either (plain numbers); a value with a unit stays undecided |
 | `condition_choice` | Which clause applies: conditions in a question and in a passage |
 | `conditions` | B24 — can a requirement's condition be established from the submittal? |
 | `condition_stated` | #899 (PF2): an UNKNOWN condition is settled by a trusted field that names the equipment and says the qualifier ("Valve type: Conventional" establishes "a conventional valve"), or by a field named for the thing that states none ("Internal lining: None" rules out "an internal lining is specified"); negation, placeholders, untrusted values and conflicts decide nothing |

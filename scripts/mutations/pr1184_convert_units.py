@@ -65,10 +65,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the run's unit guard calls °F and °C 'not the same quantity' again",
         path=_CO,
         anchor=(
-            "        claims.is_temperature_scale(requirement_unit.raw_unit)\n"
-            "        and claims.is_temperature_scale(fact_unit.raw_unit)\n"
+            "            claims.is_temperature_scale(requirement_unit.raw_unit)\n"
+            "            and claims.is_temperature_scale(fact_unit.raw_unit)\n"
         ),
-        replacement="        False\n",
+        replacement="            False\n",
         target=_T,
         keyword="lets_two_temperature_scales_through",
         tags=("units", "honesty"),
