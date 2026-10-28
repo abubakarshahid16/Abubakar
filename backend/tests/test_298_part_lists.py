@@ -45,10 +45,29 @@ def test_what_is_not_named_is_not_cited(text, wanted):
     assert not _cites(text, wanted)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "API 520 Part 1 and 2 valves shall be supplied by the vendor.",
+        "API 520 Part 1 and 2 units are supplied.",
+        "per API 610 Part 1 and 5 pumps",
+        "Per API 520 Part 1 and 3 bar max",
+        "API 520 Part 1 / 2 mm",
+    ],
+)
+def test_a_number_that_counts_things_after_a_part_is_not_a_second_part(text):
+    """cloud-3 on #1432: a count noun after the number makes it a quantity; 'Part 1 and 2 shall apply' still cites both."""
+    assert len(standard_ids.cited_standards(text)) == 1
+    assert len(standard_ids.cited_standards("API 520 Part 1 and 2 shall apply.")) == 2
+
+
 def test_a_quantity_after_a_citation_is_not_a_part():
     assert standard_ids.cited_standards(
         "API 610, 2 units supplied; API 682 & 2 spares"
     ) == ["API 610", "API 682"]
+    assert standard_ids.cited_standards("API 520 Part 1, 2 are noted") == [
+        "API 520 Part 1"
+    ]
     assert standard_ids.cited_standards("API 520 Part 1, 2 units supplied") == [
         "API 520 Part 1"
     ]

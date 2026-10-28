@@ -464,17 +464,37 @@ def find_citations(text: str, *, typed_question: bool = False) -> list[tuple[str
 
 #: "Pt-1&2", "Part 1 and 2", "Part I / II": a citation that names several parts of one standard.
 _PART_HEAD = re.compile(r"^(?P<head>.*?(?i:PART|PT)\.?\s*-?\s*)(?:\d{1,2}|[IVX]{1,4})$")
+#: A count noun, or a unit, right after the number means it is a QUANTITY ("API 520 Part 1 and 2 valves",
+#: "Part 1 and 3 bar"), not a part. A plain noun not listed here is a known residual: the list cannot be complete.
+_COUNT_NOUNS = frozenset(
+    "unit units valve valves pump pumps set sets off no nos pcs piece pieces copy copies item items device devices"
+    " vessel vessels number numbers".split()
+)
 _PART_NEXT = re.compile(
     r"\s*(?:&|(?i:AND)|/)\s*(?:(?i:PART|PT)\.?\s*-?\s*)?(\d{1,2}|[IVX]{1,4})\b"
 )
 
 
+def _is_quantity(text: str, pos: int) -> bool:
+    """Is the word right after a number a unit or a count noun, so the number counts or measures something?"""
+    word = _NEXT_WORD.match(text, pos)
+    if word is None:
+        return False
+    from .claims import is_unit
+
+    token = word.group(1)
+    return token.lower().rstrip(".") in _COUNT_NOUNS or is_unit(token)
+
+
 def _further_parts(text: str, raw: str, end: int) -> list[str]:
     """The spellings of the parts a citation names AFTER the first ("API RP 520 Pt-1&2" cites Part 2 too), so
-    `same_standard` finds either part. A citation that names no part adds none."""
+    `same_standard` finds either part. A citation that names no part adds none; a number followed by a unit or a
+    count noun is a quantity, not a part."""
     head = _PART_HEAD.match(raw)
     out: list[str] = []
     while head is not None and (more := _PART_NEXT.match(text, end)):
+        if _is_quantity(text, more.end()):
+            break
         out.append(head.group("head") + more.group(1))
         end = more.end()
     return out

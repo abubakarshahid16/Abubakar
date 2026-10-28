@@ -40,8 +40,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         3,
         "a word after 'and' (digits or roman only are parts) is read as a part",
-        '(\\d{1,2}|[IVX]{1,4})\\b"\n)',
-        '(\\w{1,4})\\b"\n)',
+        '(\\d{1,2}|[IVX]{1,4})\\b"',
+        '(\\w{1,4})\\b"',
         "what_is_not_named",
     ),
     _m(
@@ -50,5 +50,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         r"(?:&|(?i:AND)|/)",
         r"(?:&|(?i:AND)|/|,)",
         "quantity_after_a_citation",
+    ),
+    _m(
+        5,
+        "a number that counts or measures something after a part is read as a second part",
+        "        if _is_quantity(text, more.end()):\n            break\n",
+        "",
+        "counts_things",
     ),
 )
