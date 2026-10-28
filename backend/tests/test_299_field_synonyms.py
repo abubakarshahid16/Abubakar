@@ -44,11 +44,6 @@ def test_no_spelling_belongs_to_two_groups():
         ("Vapour density", "vapor density"),
         ("Volume flow rate", "volumetric flow rate"),
         ("MDMT", "minimum design metal temperature"),
-        ("Back pressure - constant", "constant superimposed back pressure"),
-        ("Variable back press.", "variable superimposed back pressure"),
-        ("Superimposed back pressure variable", "variable superimposed back pressure"),
-        ("Max. allow. working pressure", "mawp"),
-        ("Back pressure, built-up", "built up back pressure"),
     ],
 )
 def test_a_relief_valve_label_in_another_spelling_folds_to_the_quantity(
@@ -117,12 +112,3 @@ def test_a_different_quantity_still_does_not_pair():
     row = _fact("Set Press.")
     match = comparison.match_by_containment(_req("relieving pressure"), [row])
     assert match["fact"] is None
-
-
-def test_a_label_naming_both_constant_and_variable_is_not_folded_to_either_quantity():
-    """Two quantities in one label stay unmapped: a pairing would pick one and drop the other."""
-    folded = field_links.canonical("Back pressure constant / variable")
-    assert folded not in (
-        "constant superimposed back pressure",
-        "variable superimposed back pressure",
-    )

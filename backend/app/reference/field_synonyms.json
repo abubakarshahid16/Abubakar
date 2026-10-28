@@ -2,7 +2,7 @@
   "_about": "CRS quick wins (2026-09-27, audit crs.md defect 3). The words a datasheet field and a standard's clause use for THE SAME quantity. Read by app/field_links.py and used by comparison.match_by_containment on BOTH sides (the clause's subject and the field's name) before the whole-word containment test, so 'hydrostatic test pressure' in a clause meets 'HYDROTEST PRESSURE' on a sheet. Each group maps every spelling to its canonical phrase; the longest spelling wins where two overlap. Edit here, not in code. A pairing made through this table says so on the finding.",
   "groups": {
     "hydrotest": ["hydrostatic test", "hydrostatic testing", "hydro test", "hydro-test", "hydrotest", "hydro static test"],
-    "mawp": ["maximum allowable working pressure", "max allowable working pressure", "max. allowable working pressure", "maximum allowable pressure", "mawp", "max allow working pressure", "max allow working press", "max allowable working press", "maximum allowable working press"],
+    "mawp": ["maximum allowable working pressure", "max allowable working pressure", "max. allowable working pressure", "maximum allowable pressure", "mawp"],
     "npsh available": ["net positive suction head available", "npsh available", "npsha", "npsh a", "npsh avail"],
     "npsh required": ["net positive suction head required", "npsh required", "npshr", "npsh r", "npsh req", "npsh reqd"],
     "npsh": ["net positive suction head", "npsh"],
@@ -25,7 +25,7 @@
     "set pressure": ["set press"],
     "relieving pressure": ["relieving press"],
     "relieving temperature": ["relieving temp"],
-    "built up back pressure": ["built up backpressure", "builtup back pressure", "builtup backpressure", "back pressure built up", "builtup back press", "built up back press"],
+    "built up back pressure": ["built up backpressure", "builtup back pressure", "builtup backpressure"],
     "superimposed back pressure": ["superimposed backpressure", "super imposed back pressure", "super imposed backpressure"],
     "overpressure": ["over pressure"],
     "blowdown": ["blow down"],
@@ -41,9 +41,7 @@
     "set pressure tolerance": ["set pressure accuracy"],
     "mass flow rate": ["mass flowrate"],
     "volumetric flow rate": ["volume flow rate", "volumetric flowrate", "volume flowrate"],
-    "minimum design metal temperature": ["mdmt", "minimum design metal temp", "min design metal temperature"],
-    "constant superimposed back pressure": ["constant back pressure", "back pressure constant", "constant superimposed backpressure", "superimposed back pressure constant", "constant back press", "back press constant", "constant superimposed back press"],
-    "variable superimposed back pressure": ["variable back pressure", "back pressure variable", "variable superimposed backpressure", "superimposed back pressure variable", "variable back press", "back press variable", "variable superimposed back press"]
+    "minimum design metal temperature": ["mdmt", "minimum design metal temp", "min design metal temperature"]
   },
   "_nozzle_marks": "A field named after a nozzle mark ('N1 SIZE', 'N3 RATING') is read as the NOZZLE's field ('nozzle size', 'nozzle rating') with the mark kept as the item it is about. Only 'N' + digits: other marks (M1, K2) mean different things on different sheets.",
   "nozzle_attributes": ["size", "rating", "class", "facing", "schedule", "service", "qty"]
