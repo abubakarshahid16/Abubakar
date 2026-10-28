@@ -1,0 +1,150 @@
+{
+  "_about": "Order 264.8: which datasheet fact SETTLES that a standard's Part (a division whose own scope limits it to one construction) applies to this equipment. A family is named by the words a Part's scope uses for it (every word of one `scope_words` entry is in the Part's construction phrase) and is settled by a stated fact: the VALUE of a field (never its label) matches one of `patterns`, in one of the family's `roles`. Only the pressure-containing parts settle a construction (the shell, the heads, the design code): never a tube, trim, gasket, bolting, a seal or a lining. A negated hit (\"not welded\") settles nothing; a layer (cladding, lining) settles nothing; an `exclusive` family (the materials) is never settled when ANOTHER exclusive family is also stated on the shell or the heads, or when one value names two of them. A joint efficiency, a radiography or a PWHT note says nothing about the construction by itself and is not used. Only 'applies' is ever decided from here; a Part is never excluded from here. DRAFT: a client discipline engineer approves the lists before they are relied on. No standard and no Part is named.",
+  "sign_off": {
+    "status": "draft",
+    "by": null,
+    "date": null
+  },
+  "families": [
+    {
+      "name": "carbon and low-alloy steel",
+      "scope_words": [
+        [
+          "carbon",
+          "steel"
+        ],
+        [
+          "low",
+          "alloy"
+        ]
+      ],
+      "roles": [
+        "shell_material",
+        "head_material"
+      ],
+      "patterns": [
+        "\\bcarbon steel\\b",
+        "\\blow[- ]alloy\\b",
+        "\\bsa[- ]?(?:516|515|285|106|53|105|181|350|333|387|335)\\b",
+        "\\ba(?:516|515|285|106|53|105|181|350|333|387|335)\\b"
+      ],
+      "exclusive": "material"
+    },
+    {
+      "name": "high-alloy and stainless steel",
+      "scope_words": [
+        [
+          "high",
+          "alloy"
+        ],
+        [
+          "stainless"
+        ]
+      ],
+      "roles": [
+        "shell_material",
+        "head_material"
+      ],
+      "patterns": [
+        "\\bstainless\\b",
+        "\\bduplex\\b",
+        "\\bsa[- ]?(?:240|182|312|376|479|213|268)\\b"
+      ],
+      "exclusive": "material"
+    },
+    {
+      "name": "non-ferrous metal",
+      "scope_words": [
+        [
+          "nonferrous"
+        ],
+        [
+          "non",
+          "ferrous"
+        ],
+        [
+          "aluminium"
+        ],
+        [
+          "aluminum"
+        ],
+        [
+          "copper"
+        ],
+        [
+          "nickel"
+        ],
+        [
+          "titanium"
+        ]
+      ],
+      "roles": [
+        "shell_material",
+        "head_material"
+      ],
+      "patterns": [
+        "\\b(?:aluminium|aluminum|copper|nickel|titanium|monel|inconel|hastelloy|cupronickel|brass|bronze)\\b",
+        "\\bsb[- ]?\\d{3}\\b"
+      ],
+      "exclusive": "material"
+    },
+    {
+      "name": "cast iron",
+      "scope_words": [
+        [
+          "cast",
+          "iron"
+        ]
+      ],
+      "roles": [
+        "shell_material",
+        "head_material"
+      ],
+      "patterns": [
+        "\\bcast iron\\b",
+        "\\bductile iron\\b",
+        "\\bsa[- ]?278\\b"
+      ],
+      "exclusive": "material"
+    },
+    {
+      "name": "welded construction",
+      "scope_words": [
+        [
+          "welded"
+        ],
+        [
+          "weld"
+        ]
+      ],
+      "roles": [
+        "shell_material",
+        "head_material",
+        "design_code"
+      ],
+      "patterns": [
+        "\\bwelded\\b",
+        "\\bweld(?:ing)?\\b"
+      ]
+    },
+    {
+      "name": "forged construction",
+      "scope_words": [
+        [
+          "forged"
+        ],
+        [
+          "forging"
+        ]
+      ],
+      "roles": [
+        "shell_material",
+        "head_material"
+      ],
+      "patterns": [
+        "\\bforged\\b",
+        "\\bforging\\b"
+      ]
+    }
+  ]
+}
