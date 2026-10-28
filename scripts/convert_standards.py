@@ -75,9 +75,19 @@ def run(
     }
     for label in chosen.values():
         standards_converter.require_family(label)
+    from app import claude_spend
+
+    caps = claude_spend.Caps.from_settings()
     out: dict = {
         "equipment_type": equipment_type,
         "standards_found": len(chosen),
+        # the caps this process READ (backend/.env wins over the code defaults), posted with every run
+        "caps": {
+            "per_standard": float(settings.claude_budget_usd_per_standard),
+            "per_other_step": caps.per_step,
+            "total": caps.total,
+            "total_raised_until": str(claude_spend.TOTAL_RAISED_UNTIL),
+        },
         "lane": None,
         "results": [],
         "stopped": False,

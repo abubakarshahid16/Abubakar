@@ -1183,7 +1183,7 @@ class Settings(BaseSettings):
     claude_models_without_temperature: tuple[str, ...] = ("claude-sonnet-5",)
     #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the worst case of the next call must fit
     #: under both. Owner: 5 per step; plan change 4 (#805, 28 Oct 2026): 25 per converted standard (the
-    #: `standards_convert:` steps) and 500 in total for November (back to 20 on 1 Dec unless the owner says otherwise).
+    #: `standards_convert:` steps) and 500 in total for November (`claude_spend.total_cap`: 20 again from 1 Dec).
     claude_budget_usd_per_step: float = 5.0
     claude_budget_usd_per_standard: float = 25.0
     #: Order 270.3: folder of the converter's draft files (outside the repo). Empty = the review reads none.

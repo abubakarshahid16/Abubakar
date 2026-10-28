@@ -1,7 +1,8 @@
 """What the Claude API has cost, and the refusal before it costs more.
 
 OWNER RULE 2026-09-25: USD 5 per step, USD 20 in total; stop BEFORE exceeding
-either. So the check is made before a call leaves, on the WORST CASE of that
+either. Plan change 4 (#805, 28 Oct 2026): USD 25 per converted standard, and USD 500
+in total for November 2026 only (`total_cap`: from 1 Dec it is 20 again). So the check is made before a call leaves, on the WORST CASE of that
 call (every prompt token uncached, every allowed output token spent), against
 what the ledger says was already spent. A call that could cross a cap is
 refused - it never goes out and then gets reported as over budget.
@@ -58,7 +59,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, date, datetime, timezone
 from pathlib import Path
 
 from .config import settings
@@ -77,6 +78,11 @@ _UNKNOWN = max(PRICES.values())
 #: Order 271.3 (owner, #805 plan change 4): a call whose step starts with this is charged to ONE
 #: standard's step and capped at `claude_budget_usd_per_standard` (the converter, `standards_converter`).
 STANDARD_STEP_PREFIX = "standards_convert:"
+#: Order 271.3: the raised total is for NOVEMBER 2026 only (UTC dates). After this day the total is
+#: `BASELINE_TOTAL_USD` whatever the setting says, so a lapsed approval fails closed; renewing it is a
+#: reviewed change here, not a line in `.env`.
+TOTAL_RAISED_UNTIL = date(2026, 11, 30)
+BASELINE_TOTAL_USD = 20.0
 #: Message Batches API: every token at half the list price (same pricing
 #: page, "Batch processing"). Applied to all four rates; the caps and the
 #: ledger are the same as for a single call.
@@ -226,7 +232,7 @@ def _raw_lines() -> list[dict]:
                 # call fits until a person has looked at the ledger. The
                 # caps themselves are unchanged.
                 out.append({"step": CORRUPT_STEP, "corrupt": True,
-                            "cost_usd": float(settings.claude_budget_usd_total),
+                            "cost_usd": total_cap(),
                             "finish_reason": "unreadable ledger line"})
     return out
 
@@ -266,6 +272,16 @@ def spent(step: str | None = None) -> float:
                      if step is None or e.get("step") == step), 6)
 
 
+def _today() -> date:
+    return datetime.now(UTC).date()
+
+
+def total_cap() -> float:
+    """The USD cap in total: the setting, but never above `BASELINE_TOTAL_USD` after `TOTAL_RAISED_UNTIL`."""
+    total = float(settings.claude_budget_usd_total)
+    return min(total, BASELINE_TOTAL_USD) if _today() > TOTAL_RAISED_UNTIL else total
+
+
 @dataclass(frozen=True)
 class Caps:
     per_step: float
@@ -273,7 +289,7 @@ class Caps:
 
     @classmethod
     def from_settings(cls) -> Caps:
-        return cls(float(settings.claude_budget_usd_per_step), float(settings.claude_budget_usd_total))
+        return cls(float(settings.claude_budget_usd_per_step), total_cap())
 
     def for_step(self, step: str) -> Caps:
         """Order 271.3: the steps that convert ONE standard (`standards_convert:<standard>`) each have
@@ -289,7 +305,13 @@ def ensure_affordable(step: str, worst_case: float, caps: Caps | None = None) ->
     the step cap or the total cap. READ-ONLY: it reserves nothing, so two
     callers can both pass it - a call that is about to be sent must use
     `reserve` instead."""
-    _check(step, worst_case, caps or Caps.from_settings().for_step(step), spent(step), spent())
+    _check(
+        step,
+        worst_case,
+        caps or Caps.from_settings().for_step(step),
+        spent(step),
+        spent(),
+    )
 
 
 def _check(step: str, worst_case: float, caps: Caps, step_spent: float, total_spent: float) -> None:
@@ -406,7 +428,13 @@ def reserve_all(items: list[tuple[str, float]], *, model: str, prompt_sha256: st
         for e in current:
             per_step[e.get("step")] = per_step.get(e.get("step"), 0.0) + float(e.get("cost_usd") or 0)
         for step, worst in items:
-            _check(step, worst, explicit or caps.for_step(step), round(per_step.get(step, 0.0), 6), round(total, 6))
+            _check(
+                step,
+                worst,
+                explicit or caps.for_step(step),
+                round(per_step.get(step, 0.0), 6),
+                round(total, 6),
+            )
             per_step[step] = per_step.get(step, 0.0) + worst
             total += worst
             out.append(Reservation(uuid.uuid4().hex, step, model, float(worst), prompt_sha256, now, batch))

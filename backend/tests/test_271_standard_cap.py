@@ -5,6 +5,7 @@ A call over a cap is refused BEFORE it leaves, and the converter stops cleanly t
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pytest
 
@@ -27,6 +28,8 @@ TWO = "standards_convert:ISO 15156-3"
 def _ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    # the USD 500 is for November 2026: these tests run on a November day whatever day it is
+    monkeypatch.setattr(claude_spend, "_today", lambda: date(2026, 11, 15))
 
 
 def _hold(step: str, usd: float):
@@ -158,3 +161,54 @@ def test_a_standard_under_the_cap_is_asked_and_charged_to_its_own_step(monkeypat
         ONE
     ) < 1 and claude_spend.spent() == claude_spend.spent(ONE)
     assert result.usd == claude_spend.spent(ONE)
+
+
+# ------------------------------------------------------------------ the November window ends in code
+
+
+def _day(monkeypatch, y, m, d):
+    monkeypatch.setattr(claude_spend, "_today", lambda: date(y, m, d))
+
+
+def test_the_500_holds_on_the_last_day_of_november_and_lapses_the_next(monkeypatch):
+    _day(monkeypatch, 2026, 11, 30)
+    assert (
+        claude_spend.total_cap() == 500.0
+        and claude_spend.Caps.from_settings().total == 500.0
+    )
+    _day(monkeypatch, 2026, 12, 1)
+    assert (
+        claude_spend.total_cap() == 20.0
+        and claude_spend.Caps.from_settings().total == 20.0
+    )
+
+
+def test_a_lapsed_approval_cannot_be_renewed_by_a_bigger_env_value(monkeypatch):
+    monkeypatch.setattr(settings, "claude_budget_usd_total", 1500.0)
+    _day(monkeypatch, 2026, 11, 30)
+    assert claude_spend.total_cap() == 1500.0
+    _day(monkeypatch, 2027, 1, 5)
+    assert claude_spend.total_cap() == 20.0
+
+
+def test_a_total_set_below_20_stays_below_20_after_the_window(monkeypatch):
+    monkeypatch.setattr(settings, "claude_budget_usd_total", 7.0)
+    _day(monkeypatch, 2026, 12, 2)
+    assert claude_spend.total_cap() == 7.0
+
+
+def test_after_the_window_a_reservation_meets_the_old_20_total(monkeypatch):
+    _day(monkeypatch, 2026, 12, 1)
+    _hold(ONE, 20.0)
+    with pytest.raises(claude_spend.BudgetExceeded, match=r"cap \$20\.00 in total"):
+        _hold(TWO, 0.01)
+
+
+def test_an_unreadable_ledger_line_counts_at_the_total_cap_in_force(
+    monkeypatch, tmp_path
+):
+    (tmp_path / "spend.jsonl").write_text("{torn\n", encoding="utf-8")
+    _day(monkeypatch, 2026, 11, 20)
+    assert claude_spend.spent(claude_spend.CORRUPT_STEP) == 500.0
+    _day(monkeypatch, 2026, 12, 1)
+    assert claude_spend.spent(claude_spend.CORRUPT_STEP) == 20.0

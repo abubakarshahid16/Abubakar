@@ -503,6 +503,29 @@ def test_the_files_name_the_form_the_model_the_spend_and_the_run(tmp_path):
     assert files["json"].name == "centrifugal_pump.SAES_G_005.json"
 
 
+def test_the_script_prints_the_caps_it_read_so_an_env_override_is_seen(
+    tmp_path, monkeypatch
+):
+    _standard(texts=("A.",))
+    out = convert_standards.run(
+        tmp_path / "convert.sqlite", PUMP, ["SAES-G-005"], None, None, dry_run=True
+    )
+    assert out["caps"] == {
+        "per_standard": 25.0,
+        "per_other_step": 5.0,
+        "total": claude_spend.total_cap(),
+        "total_raised_until": "2026-11-30",
+    }
+    monkeypatch.setattr(
+        settings, "claude_budget_usd_total", 20.0
+    )  # what an old backend/.env would give
+    monkeypatch.setattr(settings, "claude_budget_usd_per_standard", 7.0)
+    out = convert_standards.run(
+        tmp_path / "convert.sqlite", PUMP, ["SAES-G-005"], None, None, dry_run=True
+    )
+    assert (out["caps"]["total"], out["caps"]["per_standard"]) == (20.0, 7.0)
+
+
 def test_the_script_dry_run_counts_and_sends_nothing(tmp_path):
     _standard(texts=("A.", "B.", "C."))
     out = convert_standards.run(
