@@ -38,7 +38,7 @@ from . import (
 )
 
 # isort: split
-from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
+from . import crs_decider, crs_page_words, crs_reference, crs_suggestion, equipment_subtype
 
 # isort: split
 from . import paragraph_ids
@@ -1524,8 +1524,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     "crs_action": item["action"],
                     # R30: the chain behind the comment (internal copy only).
                     "reasoning": reasoning_text(group),
-                    # rule_trust (#947): who stands behind the rule, in words.
-                    "rule_trust": trust_words(f),
+                    "rule_trust": trust_words(f),  # rule_trust (#947): who stands behind the rule
+                    "ai_suggests": crs_suggestion.for_group(group, _standard_reference),
                 }
             )
             # A row that is not a field row also holds its OWN key (a row split

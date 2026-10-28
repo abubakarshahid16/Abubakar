@@ -142,6 +142,9 @@ REASONING_COLUMN_WIDTH = 70.0
 #: it is the owner's call, not this file's.
 TRUST_COLUMN = "Rule trust (internal)"
 TRUST_COLUMN_WIDTH = 28.0
+#: Order 305.4: what the review would suggest for a row an engineer decides (Pass / Fail / Query with the value,
+#: the rule and the clause); a suggestion beside the row, never the verdict. Internal copy only.
+SUGGEST_COLUMN = crs_suggestion.COLUMN
 #: The two copies Export CRS offers. INTERNAL (the default) carries the AI
 #: column; ISSUE (to the contractor) drops it and every unconfirmed AI row,
 #: so only confirmed comments leave the building.
@@ -473,6 +476,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # rule_trust (#947): internal copy only, like the two above.
             "rule_trust": (str(finding.get("rule_trust") or "")
                            if copy == COPY_INTERNAL else ""),
+            "ai_suggests": (str(finding.get("ai_suggests") or "")
+                            if copy == COPY_INTERNAL else ""),
         })
         # Order 139 part 2: the row's rank and this copy's word for it (spec
         # f), and whether the caller sent no comment text (spec e; internal
@@ -490,7 +495,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
         "columns": list(HEADERS) + [STANDARD_COLUMN, PRIORITY_COLUMN]
-                   + ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]
+                   + ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN, SUGGEST_COLUMN]
                       if copy == COPY_INTERNAL else []),
         "crs_copy": copy,
         "rows": rows,
@@ -599,6 +604,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
         ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
         ws.column_dimensions["L"].width = TRUST_COLUMN_WIDTH
+        ws.column_dimensions["M"].width = crs_suggestion.WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = _write(ws, row, col, value)
@@ -639,10 +645,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                   entry["standard_reference"], entry.get("priority_label", "")]
         if internal:
             values.extend([entry["ai_review_comment"], entry["reasoning"],
-                           entry.get("rule_trust", "")])
+                           entry.get("rule_trust", ""), entry.get("ai_suggests", "")])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9)))
+            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12, 13)), center=(i in (1, 9)))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill
