@@ -105,6 +105,12 @@ _STARTS_WITH_FIGURE = re.compile(
 )
 
 
+#: A STANDALONE star or underscore run in a printed cell ("THERMAL * m3/h", "___*___ m3/h"): the enquiry
+#: sheet's "vendor to advise" ink, which `classify` sees only when it is the whole cell. Not a star inside a
+#: word or a size ("2*4", "5* stage").
+_LONE_INK = re.compile(r"(?:^|[\s_(])(?:\*+|_{2,})(?=[\s_)]|$)")
+
+
 def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
     """True when the fact is marked blank, or its printed text or bare value is a
     placeholder. With a unit the printed text is "* m3/h", which alone looks
@@ -114,13 +120,16 @@ def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
     begins with a figure ("10 barg By Contractor") states that figure (#725 F3:
     the phrase is a note on it), so the phrase after it does not make it a
     placeholder. A bare "*", "TBA", a phrase first, or a number that is only a reference ("Note 3",
-    "Item 2", "Class 300") still does."""
+    "Item 2", "Class 300") still does. A standalone `*` or `___` in the printed
+    cell with no figure first ("THERMAL * m3/h") is a placeholder on every path."""
     if fact.get("is_blank"):
         return True
-    if figure_wins and _STARTS_WITH_FIGURE.search(
-        str(fact.get("field_value") or fact.get("raw_value") or "")
-    ):
+    printed = str(fact.get("field_value") or fact.get("raw_value") or "")
+    starts = _STARTS_WITH_FIGURE.search(printed)
+    if figure_wins and starts:
         return False
+    if _LONE_INK.search(printed) and not starts:
+        return True
     return any(
         v and classify(str(v))[0]
         for v in (
