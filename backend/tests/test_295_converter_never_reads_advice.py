@@ -20,6 +20,11 @@ from tests.test_274_sentence_checks import (  # noqa: F401 - fixtures
 )
 
 
+@pytest.fixture
+def world(request):
+    return request.getfixturevalue("cworld")
+
+
 def _retype(stmt, requirement_type):
     with connect() as conn:
         conn.execute(
@@ -29,31 +34,31 @@ def _retype(stmt, requirement_type):
 
 
 def test_a_statement_with_a_verified_row_is_read_and_is_the_control(
-    cworld, monkeypatch, tmp_path
+    world, monkeypatch, tmp_path
 ):
-    cworld["folder"] = _mirror(tmp_path / "ok", [_row(SENTENCE, applies=None)])
-    _on(cworld, monkeypatch)
-    assert list(_rules(cworld)) == [cworld["stmt"]]
+    world["folder"] = _mirror(tmp_path / "ok", [_row(SENTENCE, applies=None)])
+    _on(world, monkeypatch)
+    assert list(_rules(world)) == [world["stmt"]]
 
 
 @pytest.mark.parametrize(
     "kind", ["recommendation", "definition", "applicability_trigger"]
 )
 def test_a_verified_draft_row_is_never_a_rule_for_a_stored_row_that_is_not_a_statement(
-    cworld, monkeypatch, tmp_path, kind
+    world, monkeypatch, tmp_path, kind
 ):
-    cworld["folder"] = _mirror(tmp_path / kind, [_row(SENTENCE, applies=None)])
-    _retype(cworld["stmt"], kind)
-    _on(cworld, monkeypatch)
-    assert _rules(cworld) == {}
+    world["folder"] = _mirror(tmp_path / kind, [_row(SENTENCE, applies=None)])
+    _retype(world["stmt"], kind)
+    _on(world, monkeypatch)
+    assert _rules(world) == {}
 
 
 @pytest.mark.parametrize("kind", ["recommendation", "definition"])
 def test_a_verified_draft_row_never_names_a_field_for_a_stored_row_of_those_types(
-    cworld, monkeypatch, tmp_path, kind
+    world, monkeypatch, tmp_path, kind
 ):
-    cworld["folder"] = _mirror(tmp_path / f"n{kind}", [_row(SENTENCE, applies=None)])
-    _on(cworld, monkeypatch)
+    world["folder"] = _mirror(tmp_path / f"n{kind}", [_row(SENTENCE, applies=None)])
+    _on(world, monkeypatch)
     row = {
         "id": "r1",
         "requirement_type": kind,
