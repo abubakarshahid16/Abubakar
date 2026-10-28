@@ -111,6 +111,22 @@ _STARTS_WITH_FIGURE = re.compile(
 _LONE_INK = re.compile(r"(?:^|[\s_(])(?:\*+|_{2,})(?=[\s_)]|$)")
 
 
+#: A figure standing on its own in a cell ("RATED FLOW * 24.8 m3/h", "Head 78 m *"): not the digit of a
+#: unit ("m3/h"), and not a number that only points elsewhere ("see note 3", "Item 2", "Class 300", "API 526").
+_FIGURE = re.compile(r"(?<![A-Za-z0-9_.,/])\d+(?:[.,]\d+)*(?!\d)")
+_POINTER_WORD = re.compile(
+    r"(?:note|item|class|ref|see|section|clause|table|page|no|api|asme|iso|en|din|bs|iec|ansi|nace|std)"
+    r"[.:#]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _has_standalone_figure(text: str) -> bool:
+    return any(
+        not _POINTER_WORD.search(text[: m.start()]) for m in _FIGURE.finditer(text)
+    )
+
+
 def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
     """True when the fact is marked blank, or its printed text or bare value is a
     placeholder. With a unit the printed text is "* m3/h", which alone looks
@@ -121,14 +137,15 @@ def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
     the phrase is a note on it), so the phrase after it does not make it a
     placeholder. A bare "*", "TBA", a phrase first, or a number that is only a reference ("Note 3",
     "Item 2", "Class 300") still does. A standalone `*` or `___` in the printed
-    cell with no figure first ("THERMAL * m3/h") is a placeholder on every path."""
+    cell with no standalone figure anywhere in it ("THERMAL * m3/h", "Rated flow * see note 3") is a
+    placeholder on every path; "RATED FLOW * 24.8 m3/h" states its figure."""
     if fact.get("is_blank"):
         return True
     printed = str(fact.get("field_value") or fact.get("raw_value") or "")
     starts = _STARTS_WITH_FIGURE.search(printed)
     if figure_wins and starts:
         return False
-    if _LONE_INK.search(printed) and not starts:
+    if _LONE_INK.search(printed) and not _has_standalone_figure(printed):
         return True
     return any(
         v and classify(str(v))[0]
