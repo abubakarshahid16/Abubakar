@@ -1,5 +1,5 @@
 {
-  "_about": "Order 299.1: the converter's relief-valve form v2 = the type's own numeric boxes (datasheet_checks.json) PLUS these. DATA ONLY, no document text, no sheet wording: each box is a quantity the public relief-valve standards name. A box has a plain-words name, a unit kind (the family a limit's unit must belong to) and other spellings. Not read by the datasheet reader or the mandatory-field check. `spellings` feed only scripts/check_form_v2_names.py (the converter's model picks a box by its number); a sheet label's other spellings fold through reference/field_synonyms.json.",
+  "_about": "Order 299.1: the converter's relief-valve form v2 = the type's own numeric boxes (datasheet_checks.json) PLUS these. DATA ONLY, no document text, no sheet wording: each box is a quantity the public relief-valve standards name. A box has a plain-words name, a unit kind (the family a limit's unit must belong to) and other spellings. Not read by the datasheet reader or the mandatory-field check.",
   "equipment_type": "Pressure Safety Valve",
   "status": "draft",
   "boxes": [
@@ -163,20 +163,6 @@
       "name": "operating viscosity",
       "unit_kind": "viscosity",
       "spellings": []
-    },
-    {
-      "name": "constant superimposed back pressure",
-      "unit_kind": "pressure",
-      "spellings": [
-        "constant back pressure"
-      ]
-    },
-    {
-      "name": "variable superimposed back pressure",
-      "unit_kind": "pressure",
-      "spellings": [
-        "variable back pressure"
-      ]
     }
   ]
 }
