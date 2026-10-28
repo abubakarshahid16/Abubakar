@@ -2517,8 +2517,8 @@ def _run_comparison(
     # the kept requirements and the table cells no field answered - is "not used".
     covered_items: list[dict] = []
     checklist_note = None
-    from . import datasheet_checks as _checks
-    governing = _checks.checklist_sources(stored.get("equipment_type"))
+    from . import checklist_scope, datasheet_checks as _checks
+    governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
         if covered_ids:
@@ -2989,7 +2989,7 @@ def _run_comparison(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
+    check_results = datasheet_checks.evaluate(facts, equipment_type=checklist_scope.review_type(stored),
                                               page_texts=page_texts)
     # rule_trust (#947): every rule labelled, the checks too - a signed-off
     # checklist item is an engineer's rule; every other check is held when it

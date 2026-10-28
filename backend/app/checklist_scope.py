@@ -24,3 +24,26 @@ def standards(checklist: dict) -> list[str]:
     if not checklist.get("governs", True):
         return []
     return sorted({item["source"]["standard"] for item in checklist["items"]})
+
+
+def review_type(classification: dict | None) -> str | None:
+    """The equipment type a REVIEW CHECKLIST may be chosen from (order 264, 2p gate on 216400C). A
+    checklist marked `type_from_title_only` (the vessel and exchanger drafts) is chosen only when the
+    type was read from the sheet's title or confirmed by a person; a type that only a passing mention in
+    the body gave ("heat exchanger" twice on a drum sheet, `body_phrase_match`) chooses none, and the
+    sheet is then checked with the generic list. Every other type is returned as stored."""
+    from . import datasheet_checks
+
+    classification = classification or {}
+    equipment_type = classification.get("equipment_type")
+    if not equipment_type:
+        return equipment_type
+    table = datasheet_checks.load_rules().get("checklists") or {}
+    entry = table.get(datasheet_checks.table_key(equipment_type, table))
+    evidence = classification.get("equipment_type_evidence") or {}
+    weak = evidence.get("method") == "body_phrase_match" and not classification.get(
+        "confirmed"
+    )
+    if isinstance(entry, dict) and entry.get("type_from_title_only") and weak:
+        return None
+    return equipment_type
