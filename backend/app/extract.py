@@ -14,7 +14,9 @@ from __future__ import annotations
 import concurrent.futures as cf
 import json
 import logging
+import math
 import os
+import statistics
 from datetime import datetime, timezone
 
 import pymupdf  # PyMuPDF
@@ -175,6 +177,38 @@ def aligned_grid_ok(texts: list[list[str]], score: dict) -> bool:
     )
 
 
+def _grid_span(texts: list[list[str]]) -> tuple[int, int] | None:
+    """(first, last) row of the grid proper: the rows that fill about as many cells as most rows do.
+
+    A caption above the table, split across its columns by the finder, and a note below it fill fewer
+    cells and are left out (a caption left in cuts words and fails `aligned_grid_ok`)."""
+    counts = {i: sum(1 for c in row if c) for i, row in enumerate(texts)}
+    filled = [n for n in counts.values() if n]
+    if not filled:
+        return None
+    mode = statistics.mode(filled)
+    if mode < 2:
+        return None
+    grid = [i for i, n in counts.items() if n >= max(2, math.ceil(0.75 * mode))]
+    return (grid[0], grid[-1]) if grid else None
+
+
+class _Trimmed:
+    """An aligned-text table without the caption or note rows around its grid: same `extract()`, `rows`
+    and `bbox` as a finder table, so the lines of the caption stay in the prose."""
+
+    def __init__(self, table, first: int, last: int) -> None:
+        self.rows = table.rows[first : last + 1]
+        self._cells = table.extract()[first : last + 1]
+        box = pymupdf.Rect(self.rows[0].bbox)
+        for row in self.rows[1:]:
+            box |= pymupdf.Rect(row.bbox)
+        self.bbox = tuple(box)
+
+    def extract(self) -> list[list]:
+        return self._cells
+
+
 def _aligned_tables(page) -> list:
     """The aligned-text finder's tables on a page whose ruled-lines finder found none."""
     from . import geometry_reader
@@ -184,9 +218,15 @@ def _aligned_tables(page) -> list:
         words = page.get_text("words")
         kept = []
         for table in tables:
-            grid = geometry_reader._grid(table)
-            score = geometry_reader.table_score(table, words, grid)
-            if aligned_grid_ok(grid[0], score):
+            texts, rects = geometry_reader._grid(table)
+            if (span := _grid_span(texts)) is None:
+                continue
+            if span != (0, len(texts) - 1):
+                table = _Trimmed(table, *span)
+                texts = texts[span[0] : span[1] + 1]
+                rects = rects[span[0] : span[1] + 1]
+            score = geometry_reader.table_score(table, words, (texts, rects))
+            if aligned_grid_ok(texts, score):
                 kept.append(table)
         return kept
     except Exception as exc:  # noqa: BLE001 - same: no table rather than no page

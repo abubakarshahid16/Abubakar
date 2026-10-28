@@ -130,3 +130,61 @@ def test_a_stored_table_that_is_not_aligned_stays_unparsed_when_the_ruled_parser
     _stored(storage, json.dumps(stored))
     parses = tables.parse_document_tables("d", allowed_document_ids=frozenset({"d"}))
     assert [p.parsed for p in parses] == [False]
+
+
+def _captioned_page(note: bool = True):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text(
+        (60, 60), "Table 2 Limits for materials in sour service", fontsize=12
+    )
+    for i, row in enumerate(ROWS):
+        for j, cell in enumerate(row):
+            page.insert_text((60 + j * 130, 110 + i * 22), cell, fontsize=10)
+    if note:
+        page.insert_text(
+            (60, 110 + len(ROWS) * 22 + 10),
+            "NOTE 1 Values are for annealed material.",
+            fontsize=9,
+        )
+    return doc, page
+
+
+@pytest.mark.parametrize("note", [False, True])
+def test_a_table_with_a_caption_above_and_a_note_below_is_kept_without_them(
+    monkeypatch, note
+):
+    _doc, page = _captioned_page(note)
+    monkeypatch.setattr(settings, "aligned_text_tables_enabled", True)
+    found, failed = _tables(page)
+    assert failed is None and len(found) == 1
+    table = found[0]
+    text = " ".join(c for row in table["rows"] for c in row)
+    assert (
+        "Table 2" not in text
+        and "NOTE" not in text
+        and "Carbon" in text
+        and "Titanium" in text
+    )
+    lines = page.get_text("text").split("\n")
+    kept = {lines[i] for i in table["lines"]}
+    assert not any(
+        line.startswith(("Table 2", "NOTE 1")) for line in kept
+    )  # they stay in the prose
+    assert "Carbon steel" in kept
+
+
+def test_the_grid_span_leaves_out_rows_that_fill_fewer_cells_than_the_grid():
+    rows = [
+        ["Table 2 Limits", "for materials", "", ""],
+        ["A", "B", "C", "D"],
+        ["1", "2", "3", "4"],
+        ["5", "6", "7", "8"],
+        ["NOTE 1", "", "", ""],
+    ]
+    assert extract._grid_span(rows) == (1, 3)
+    assert extract._grid_span([["A", "B"], ["1", "2"]]) == (0, 1)
+    assert extract._grid_span([["", ""], ["", ""]]) is None
+    assert (
+        extract._grid_span([["A", ""], ["B", ""]]) is None
+    )  # one filled column is a list, not a grid
