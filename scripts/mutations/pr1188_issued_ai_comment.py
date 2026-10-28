@@ -87,9 +87,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "06",
         "a waiting sentence beside a draft is issuable text to the gate and the export",
         _M,
-        "    return row_has_no_text(row) or (\n"
-        '        str(row.get("comment") or "").strip() in WAITING_COMMENTS\n    )\n',
-        "    return row_has_no_text(row)\n",
+        '        or str(row.get("comment") or "").strip() in WAITING_COMMENTS\n',
+        "",
         "confirmed_row_with_a_draft_and_a_waiting_sentence",
     ),
     _m(
