@@ -27,7 +27,7 @@ def standards(checklist: dict) -> list[str]:
 
 
 def review_type(classification: dict | None) -> str | None:
-    """The equipment type a REVIEW CHECKLIST may be chosen from (order 264, 2p gate on 216400C). A
+    """The equipment type a REVIEW CHECKLIST may be chosen from (order 264, found by the 2p gate on a vessel sheet). A
     checklist marked `type_from_title_only` (the vessel and exchanger drafts) is chosen only when the
     type was read from the sheet's title or confirmed by a person; a type that only a passing mention in
     the body gave ("heat exchanger" twice on a drum sheet, `body_phrase_match`) chooses none, and the

@@ -2517,7 +2517,8 @@ def _run_comparison(
     # the kept requirements and the table cells no field answered - is "not used".
     covered_items: list[dict] = []
     checklist_note = None
-    from . import checklist_scope, datasheet_checks as _checks
+    from . import checklist_scope
+    from . import datasheet_checks as _checks
     governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
@@ -2991,9 +2992,8 @@ def _run_comparison(
         stored.get("equipment_type"), page_texts)
     check_results = datasheet_checks.evaluate(facts, equipment_type=checklist_scope.review_type(stored),
                                               page_texts=page_texts)
-    # rule_trust (#947): every rule labelled, the checks too - a signed-off
-    # checklist item is an engineer's rule; every other check is held when it
-    # would decide (planner answer on #985). Nothing with the switch off.
+    # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
+    # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
