@@ -139,3 +139,29 @@ def test_only_a_missing_row_is_softened_a_reader_gap_row_keeps_its_own_words():
     )
     out = read_elsewhere.soften([row("A", "COMPLIANT", "f1", "stated"), gap])
     assert out[1] == gap
+
+
+def test_a_missing_result_that_is_not_a_checklist_item_is_left_alone():
+    """The mandatory-field check (DS-M1) has its own wording and is not part of this pass."""
+    read = {
+        "rule_id": "X-1",
+        "status": "COMPLIANT",
+        "checklist": True,
+        "role": "set_pressure",
+        "field": "Set pressure",
+        "equipment_tag": "A",
+        "fact_id": "f1",
+        "page": 3,
+        "detail": "stated",
+    }
+    mandatory = {
+        "rule_id": "DS-M1",
+        "status": "MISSING_INFORMATION",
+        "role": "set_pressure",
+        "field": "Set pressure",
+        "equipment_tag": "B",
+        "fact_id": None,
+        "page": None,
+        "detail": "not found in the fields read from the datasheet.",
+    }
+    assert read_elsewhere.soften([read, mandatory])[1] == mandatory
