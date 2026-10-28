@@ -48,7 +48,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
-from . import heavy_lock, model_transport, progress
+from . import heavy_lock, model_metrics, model_transport, progress
 from .ai import output_limits
 from .config import settings
 from .db import connect
@@ -282,6 +282,7 @@ def reuse_or_ask(
     key = answer_cache_key(task, version, identity, schema, prompt, nth)
     reused = cached_answer(key)
     if reused is not None:
+        model_metrics.note_cache(key, task, identity, True)
         if asked is not None:
             asked[prompt] = nth + 1
         return reused
@@ -290,6 +291,7 @@ def reuse_or_ask(
     # is never stored, and the next ask of the prompt takes the same slot.
     if text and (keep_if is None or keep_if(text)):
         store_answer(key, task, version, identity, text)
+        model_metrics.note_cache(key, task, identity, False)
         if asked is not None:
             asked[prompt] = nth + 1
     return text
@@ -431,6 +433,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
     if use_cache:
         hit = _cache_get(key)
         if hit is not None:
+            model_metrics.note_cache(key, spec.name, model, True)
             return TaskResult(spec.name, STATE_OK, hit, None, model, True, 0)
 
     problems: list[str] = []
@@ -455,6 +458,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
             data = json.loads(response.text)
             if use_cache:
                 _cache_put(key, spec, model, data)
+                model_metrics.note_cache(key, spec.name, model, False)
             return TaskResult(spec.name, STATE_OK, data, None, model, False, attempt)
     return _failed(spec, model, "the reply was not valid: " + "; ".join(problems[:3]),
                    MAX_ATTEMPTS)
