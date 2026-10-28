@@ -2352,19 +2352,19 @@ def _run_comparison(
     standard_ids = [a["standard_document_id"] for a in applicable]
 
     requirements: list[dict] = []
-    # #450: WHAT DID NOT REACH A FINDING IS ACCOUNTED FOR. A standard in scope
-    # that holds no requirement at all (extraction never ran) was not checked;
-    # requirements held back as definitions or unreadable text are counted.
+    # #450: WHAT DID NOT REACH A FINDING IS ACCOUNTED FOR. A standard in scope with no
+    # requirement (extraction never ran) was not checked; definitions and unreadable text are counted.
     unchecked_standards: list[str] = []
     held_back = {"definition": 0, "text_quality": 0}
     held_items: list[dict] = []     # #678: requirements that apply, held for unreadable text
-    # #677 THE SCOPE LEDGER: every requirement of every applicable standard
-    # (`in_scope_all`) ends in exactly one decision with a stored reason,
-    # built from the SAME items #678's counts are built from - one source.
+    # #677 THE SCOPE LEDGER: every requirement of every applicable standard (`in_scope_all`) ends in
+    # exactly one decision with a stored reason, built from the SAME items #678's counts are built from.
     from . import ai_requirements as ai_requirements_mod
     from . import scope_ledger
     in_scope_all: list[dict] = []
     extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
+    from . import recommendations as rec_mod
+    design_standards = rec_mod.named(applicable)
     for standard_id in standard_ids:
         from . import standards as standards_mod
         # #596/#597/#288: a definition, unreadable text and a recommendation are never compared.
@@ -2376,18 +2376,17 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
-        loaded = standards_mod.recommendations.apart(loaded, held_back)
-        # OWNER DECISION (rule_trust, #947 steps 3-6), SWITCH OFF BY DEFAULT: a
-        # clause sentence with an undecided AI-compiled check is compared
-        # through that check, in the sentence's own place (same id). Empty
-        # with the switch off, so nothing below changes.
+        # OWNER DECISION (rule_trust, #947 steps 3-6), SWITCH OFF BY DEFAULT: a clause sentence with an
+        # undecided AI-compiled check is compared through it, in its own place. Empty with the switch off.
         auto_rules = ai_requirements_mod.auto_use_rules(
             standard_id, allowed_document_ids=allowed_document_ids)
         for r in loaded:
             if r["id"] in auto_rules:
                 r = {**r, **auto_rules[r["id"]]}
+            if rec_mod.left_out(r, standard_id, design_standards, held_back):
+                continue    # #288: advice of a standard the sheet does not name takes no part
             in_scope_all.append(r)
-            if standards_mod.is_reviewable(r):
+            if standards_mod.is_reviewable(r) or r.get("requirement_type") == rec_mod.TYPE:
                 requirements.append(r)
             elif r.get("requirement_type") == "definition":
                 held_back["definition"] += 1
@@ -2528,6 +2527,7 @@ def _run_comparison(
                 if i["requirement"].get("standard_document_id") not in covered_ids]}
             checklist_note = {"type": governing["key"], "items": governing["items"],
                               "standards": len(covered_ids)}
+    requirements = rec_mod.hold_for_query(requirements, held_items)    # #288: advice that applies is a query
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in

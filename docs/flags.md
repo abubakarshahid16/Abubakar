@@ -27,6 +27,7 @@ does not make one.
 | `ai_answer_reuse_enabled` | `True` | permanent | | | Reuse of a stored local AI answer to the exact same question (#1221, order 205). Off for the final test before anything goes to a client: every page is read fresh |
 | `ai_clause_checks_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI check proposals for undecided clauses (#645) |
 | `rule_auto_use_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Proven rule families used without an engineer |
+| `recommendation_queries_enabled` | `False` | rollout | 2026-10-28 | 2026-11-11 | A recommendation ("should") of a standard the datasheet names is raised as a query for the engineer (order 288.2); OFF, a review ignores recommendations |
 | `match_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI matcher (#794) |
 | `geometry_reader_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Geometry reader form path and vision reader |
 | `answer_judge_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Chat answer judge |
