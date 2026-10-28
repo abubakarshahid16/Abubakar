@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 
+from app import blank_markers
 from tests.test_746_relief_valve_checklist import fact, results
 
 SET = "set pressure"
@@ -112,3 +113,35 @@ def test_the_mandatory_field_path_keeps_a_figure_with_a_note_as_missing():
         "Hydrotest pressure is marked '340 psig By Contractor'"
         in results["DS-M2"]["detail"]
     )
+
+
+# 2p gate, M-03 (s2 21:04): the geometry reader stores the cell as a label word, a lone "*" and a unit with a
+# digit, with no parsed value and no blank flag. `classify` sees a star only when it is the whole cell.
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "THERMAL * m3/h",
+        "Min flow * m3/h",
+        "THERMAL ___*___ m3/h",
+        "THERMAL ___ m3/h",
+        "m3/h *",
+    ],
+)
+def test_a_lone_star_between_a_label_and_a_unit_is_a_placeholder(printed):
+    assert _set_pressure_status(_named(SET, printed, None)) == "MISSING_INFORMATION"
+    f = _named(SET, printed, None)
+    f.update(is_blank=0, blank_marker=None, raw_unit=None)
+    assert blank_markers.fact_is_placeholder(f) and blank_markers.fact_is_placeholder(
+        f, figure_wins=True
+    )
+
+
+@pytest.mark.parametrize("printed", ["10 barg *", "Pump 2*4 inline", "5* stage"])
+def test_a_star_that_is_not_standing_alone_or_follows_a_figure_is_not_a_placeholder(
+    printed,
+):
+    assert _set_pressure_status(_named(SET, printed, None)) == "COMPLIANT"
+    # and on the path that does not let a figure win (the mandatory-field check)
+    assert not blank_markers.fact_is_placeholder(_named(SET, printed, None))
