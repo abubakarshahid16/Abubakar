@@ -105,4 +105,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         "",
         "headline_numbers",
     ),
+    _m(
+        11,
+        "a recommendation whose text failed the quality gate is admitted: the ledger no longer adds up",
+        APP / "recommendations.py",
+        "    if standard_id in design_standards and not unreadable:\n",
+        "    if standard_id in design_standards:\n",
+        "quality_gate",
+    ),
 )

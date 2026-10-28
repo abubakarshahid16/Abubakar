@@ -360,3 +360,33 @@ def test_the_headline_numbers_and_the_recommended_code_are_the_same_with_the_que
     assert (off_queries, on_queries) == (0, 3)  # the queries are really there
     assert on == off
     db.reset_connection()
+
+
+def test_a_recommendation_whose_text_failed_the_quality_gate_takes_no_part_and_the_ledger_adds_up(
+    review_world, queries_on
+):
+    """s2's first I-06 run: 3 of 299 API-520 recommendations carried the 'unreadable text' flag; `table_gate`
+    dropped them with no ledger item and the run stopped with IncompleteScope."""
+    from tests.test_field_naming import _world
+
+    _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
+    _add_advice("std-1", "sc", "6.4.2")
+    flagged = _add_advice(
+        "std-1",
+        "sc",
+        "6.4.3",
+        text="The vent should be 2 m above the platform edge ok.",
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE standard_requirements SET quality_reason = 'text_quality', confirmed_by = NULL WHERE id = ?",
+            (flagged["id"],),
+        )
+    result = comparison.run_comparison(
+        run, allowed_document_ids=scope
+    )  # must not raise IncompleteScope
+    queries = [f for f in result["findings"] if "recommended by" in str(f)]
+    assert len(queries) == 1 and "6.4.2" in str(
+        queries[0]
+    )  # the readable one is a query, the flagged one is not
+    assert _outcome(run)["requirements_held_back"]["recommendation"] == 1

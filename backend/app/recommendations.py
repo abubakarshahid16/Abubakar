@@ -66,10 +66,15 @@ def named(applicable: list[dict]) -> set[str]:
 def left_out(
     row: dict, standard_id: str, design_standards: set[str], held_back: dict
 ) -> bool:
-    """True when a recommendation takes no part in this review: its standard is not one the datasheet names.
+    """True when a recommendation takes no part in this review: its standard is not one the datasheet names, or its text
+    failed the quality gate and nobody confirmed it (`table_gate` drops such a row without a ledger item).
     Counted in `held_back`, never in the scope ledger (advice is neither "applies" nor "does not apply" until a
     standard the sheet names makes it a question)."""
-    if row.get("requirement_type") != TYPE or standard_id in design_standards:
+    if row.get("requirement_type") != TYPE:
+        return False
+    # the quality gate's rule, as for any rule: text that failed it and nobody confirmed takes no part
+    unreadable = bool(row.get("quality_reason")) and not row.get("confirmed_by")
+    if standard_id in design_standards and not unreadable:
         return False
     held_back[TYPE] = held_back.get(TYPE, 0) + 1
     return True
