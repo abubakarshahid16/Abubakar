@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from .. import admin as admin_mod
 from .. import errors
@@ -19,6 +19,61 @@ from ..api_utils import reject_unknown_params
 from ..db import connect
 
 router = APIRouter()
+
+
+class CardRow(BaseModel):
+    """One card in the listing."""
+
+    card_id: str
+    text: str
+    source: dict[str, str]
+    state: str
+    why: str
+    version: int
+    weak_source: bool
+    written_cases: int
+    decided_by: str | None = None
+    decided_at: str | None = None
+
+
+class TypeGroup(BaseModel):
+    """One equipment type: its cards, a count per state, and the total (the denominator)."""
+
+    cards: list[CardRow]
+    counts: dict[str, int]
+    total: int
+
+
+class CardListing(RootModel[dict[str, TypeGroup]]):
+    """GET /api/rule-cards: equipment type -> its cards, a count per state and the total."""
+
+
+class CardCase(BaseModel):
+    case: str
+    kind: str
+    expected: str
+    got: str | None = None
+    passed: bool
+
+
+class CardDetail(BaseModel):
+    """One card as the screen shows it: its content, state, why, and the cases run on it."""
+
+    card_id: str
+    equipment_type: str
+    version: int
+    content_hash: str
+    state: str
+    why: str
+    weak_source: bool
+    basis: str
+    written_cases: int
+    baseline_changed: bool
+    versions: int
+    decided_by: str | None = None
+    decided_at: str | None = None
+    item: dict[str, Any]
+    cases: list[CardCase]
 
 
 class SeenCard(BaseModel):
@@ -87,7 +142,11 @@ def _card(card: dict) -> dict:
     }
 
 
-@router.get("/api/rule-cards", dependencies=[Depends(admin_mod.current_admin)])
+@router.get(
+    "/api/rule-cards",
+    response_model=CardListing,
+    dependencies=[Depends(admin_mod.current_admin)],
+)
 def list_rule_cards(request: Request):
     """Every card with its state, and the counts per equipment type (its own cards are the denominator)."""
     reject_unknown_params(request, set())
@@ -95,7 +154,9 @@ def list_rule_cards(request: Request):
 
 
 @router.get(
-    "/api/rule-cards/{card_id}", dependencies=[Depends(admin_mod.current_admin)]
+    "/api/rule-cards/{card_id}",
+    response_model=CardDetail,
+    dependencies=[Depends(admin_mod.current_admin)],
 )
 def get_rule_card(card_id: str, request: Request):
     reject_unknown_params(request, set())
@@ -105,7 +166,7 @@ def get_rule_card(card_id: str, request: Request):
     return _card(versions.whole(connect(), _find(card_id, rules), card_id, rules))
 
 
-@router.post("/api/rule-cards/{card_id}/decision")
+@router.post("/api/rule-cards/{card_id}/decision", response_model=CardDetail)
 def decide_rule_card(
     card_id: str,
     body: DecisionRequest,
@@ -140,7 +201,7 @@ def decide_rule_card(
     return _card(versions.whole(connect(), equipment_type, card_id, rules))
 
 
-@router.post("/api/rule-cards/{card_id}/edit")
+@router.post("/api/rule-cards/{card_id}/edit", response_model=CardDetail)
 def edit_rule_card(
     card_id: str,
     body: EditRequest,
