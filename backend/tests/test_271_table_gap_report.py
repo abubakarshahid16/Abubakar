@@ -58,7 +58,7 @@ def _db() -> sqlite3.Connection:
                             tables_json TEXT);
         CREATE TABLE chunks (document_id TEXT, kind TEXT);
         CREATE TABLE standard_requirements (standard_document_id TEXT, page INT,
-                                            requirement_type TEXT);
+                                            requirement_type TEXT, superseded_at TEXT);
         """
     )
     return conn
@@ -88,7 +88,7 @@ def test_pages_with_no_rule_are_split_by_what_the_extractor_recorded(gap):
             (5, 0, 1, None),  # no text: not counted as a page with text
         ],
     )
-    conn.execute("INSERT INTO standard_requirements VALUES ('d', 1, 'sentence')")
+    conn.execute("INSERT INTO standard_requirements VALUES ('d', 1, 'sentence', NULL)")
     conn.execute("INSERT INTO chunks VALUES ('d', 'table')")
     report = gap.report_document(conn, "d")
     assert report["pages"] == 5
@@ -144,3 +144,17 @@ def test_a_live_shaped_path_is_refused(gap, tmp_path):
     live.write_bytes(b"")
     with pytest.raises(SystemExit):
         gap.main(["--db", str(live)])
+
+
+def test_a_superseded_requirement_is_not_a_rule_on_its_page(gap):
+    conn = _db()
+    conn.execute("INSERT INTO documents VALUES ('d', NULL)")
+    conn.executemany("INSERT INTO pages VALUES ('d', ?, 500, 0, NULL)", [(1,), (2,)])
+    conn.executemany(
+        "INSERT INTO standard_requirements VALUES ('d', ?, ?, ?)",
+        [(1, "sentence", None), (2, "table_value", "2026-10-28T00:00:00Z")],
+    )
+    report = gap.report_document(conn, "d")
+    assert report["pages_with_text_and_rule"] == 1  # page 2's only rule was replaced
+    assert report["pages_with_text_no_rule"] == 1
+    assert report["requirements"] == 1 and report["table_value_requirements"] == 0

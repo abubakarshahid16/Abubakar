@@ -136,7 +136,8 @@ def report_document(
     with_rule = {
         r[0]
         for r in conn.execute(
-            "SELECT DISTINCT page FROM standard_requirements WHERE standard_document_id = ?",
+            "SELECT DISTINCT page FROM standard_requirements WHERE standard_document_id = ?"
+            " AND superseded_at IS NULL",
             (document_id,),
         )
         if r[0] is not None
@@ -157,11 +158,12 @@ def report_document(
         ).fetchone()[0],
         "table_value_requirements": conn.execute(
             "SELECT COUNT(*) FROM standard_requirements WHERE standard_document_id = ? "
-            "AND requirement_type = 'table_value'",
+            "AND requirement_type = 'table_value' AND superseded_at IS NULL",
             (document_id,),
         ).fetchone()[0],
         "requirements": conn.execute(
-            "SELECT COUNT(*) FROM standard_requirements WHERE standard_document_id = ?",
+            "SELECT COUNT(*) FROM standard_requirements WHERE standard_document_id = ?"
+            " AND superseded_at IS NULL",
             (document_id,),
         ).fetchone()[0],
     }
@@ -218,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
             r[0]
             for r in conn.execute(
                 "SELECT DISTINCT standard_document_id FROM standard_requirements"
+                " WHERE superseded_at IS NULL"
             )
         ]
         report = {i: report_document(conn, i, args.probe) for i in sorted(ids)}
