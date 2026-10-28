@@ -37,6 +37,13 @@ from .crs_mapping import row_has_no_issuable_text as _no_issuable_text
 from .crs_mapping import row_has_no_text as _no_text
 
 
+def internal_columns(copy: str) -> list[str]:
+    """The columns only the internal copy carries; the copy issued to the contractor has none of them."""
+    if copy != COPY_INTERNAL:
+        return []
+    return [AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN, SUGGEST_COLUMN]
+
+
 def _internal_only(finding: dict, key: str, copy: str) -> str:
     """A cell of the internal copy: the finding's text, or nothing in the copy issued to the contractor."""
     return str(finding.get(key) or "") if copy == COPY_INTERNAL else ""
@@ -497,9 +504,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS) + [STANDARD_COLUMN, PRIORITY_COLUMN]
-                   + ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN, SUGGEST_COLUMN]
-                      if copy == COPY_INTERNAL else []),
+        "columns": [*HEADERS, STANDARD_COLUMN, PRIORITY_COLUMN, *internal_columns(copy)],
         "crs_copy": copy,
         "rows": rows,
         # Spec e: rows left off THIS copy because they had no comment text
@@ -646,7 +651,8 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                   entry["standard_reference"], entry.get("priority_label", "")]
         if internal:
             values.extend([entry["ai_review_comment"], entry["reasoning"],
-                           entry.get("rule_trust", ""), entry["ai_suggests"]])
+                           entry.get("rule_trust", "")])
+            values.append(entry["ai_suggests"])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
             cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12, 13)), center=(i in (1, 9)))
