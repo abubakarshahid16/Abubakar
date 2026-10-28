@@ -92,11 +92,24 @@ def _documents(conn, standards: list[str]) -> dict[str, str]:
             " WHERE c.document_role = 'COMPANY_STANDARD'"
         )
     }
-    return {
-        doc_id: label
-        for doc_id, label in docs.items()
-        if any(standard_ids.same_standard(s, label) for s in standards)
-    }
+    chosen: dict[str, str] = {}
+    for wanted in standards:
+        found = {i: n for i, n in docs.items() if standard_ids.same_standard(wanted, n)}
+        if len(found) > 1:
+            # a name that fits several standards must not pick them all (s2's dry run: "ISO-15156-3" fit 3)
+            exact = {
+                i: n
+                for i, n in found.items()
+                if standard_ids.flat_key(n) == standard_ids.flat_key(wanted)
+            }
+            if len(exact) != 1:
+                raise ValueError(
+                    f"{wanted!r} matches {len(found)} standards ({', '.join(sorted(found.values()))});"
+                    " name exactly one of them"
+                )
+            found = exact
+        chosen.update(found)
+    return chosen
 
 
 def _caps() -> dict:

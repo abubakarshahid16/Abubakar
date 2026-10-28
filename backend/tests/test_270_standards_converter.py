@@ -600,6 +600,40 @@ def test_the_script_dry_run_counts_and_sends_nothing(tmp_path):
     assert out["results"] == [{"standard": "SAES-G-005", "requirements": 3, "calls": 1}]
 
 
+def _three_iso_like(texts=("A.",)):
+    for number in (
+        "ISO 15156-3-2020",
+        "NACE-MR0175-ISO15156-specification",
+        "NACE MR0175 ISO 15156-2",
+    ):
+        _standard(number, texts)
+
+
+def test_a_name_that_fits_several_standards_is_refused_not_all_taken(tmp_path):
+    """s2's dry run: --standard ISO-15156-3 fitted three standards and would have converted all of them."""
+    _three_iso_like()
+    with pytest.raises(ValueError, match=r"matches 3 standards.*name exactly one"):
+        convert_standards.run(
+            tmp_path / "convert.sqlite", PUMP, ["ISO-15156-3"], None, None, dry_run=True
+        )
+
+
+def test_the_exact_name_takes_only_that_standard(tmp_path):
+    _three_iso_like(("A.", "B."))
+    out = convert_standards.run(
+        tmp_path / "convert.sqlite",
+        PUMP,
+        ["ISO-15156-3-2020"],
+        None,
+        None,
+        dry_run=True,
+    )
+    assert out["standards_found"] == 1
+    assert out["results"] == [
+        {"standard": "ISO 15156-3-2020", "requirements": 2, "calls": 1}
+    ]
+
+
 def test_the_script_run_stops_at_the_first_standard_a_cap_stops(tmp_path, monkeypatch):
     monkeypatch.setattr(standards_converter, "BATCH", 1)
     _standard(
