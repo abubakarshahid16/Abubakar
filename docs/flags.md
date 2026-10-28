@@ -29,6 +29,7 @@ does not make one.
 | `rule_auto_use_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Proven rule families used without an engineer |
 | `match_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI matcher (#794) |
 | `geometry_reader_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Geometry reader form path and vision reader |
+| `field_naming_enabled` | `False` | rollout | 2026-10-27 | 2026-11-10 | Model-named canonical field names pair numeric requirements with sheet fields (order 259.5); measured by s2, then default on or removed |
 | `answer_judge_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Chat answer judge |
 | `applicability_reasoning_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Scope reasoning (#757) |
 | `review_debug` | `False` | permanent | | | Operator debug switch |

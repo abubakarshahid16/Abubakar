@@ -110,6 +110,8 @@ EGRESS_SAFE: dict[str, object] = {
     "standards_reader_enabled": False,
     "standards_reader_allow_public_egress": False,
     "anthropic_api_key": "",
+    # Order 270.3: where the review reads the converter's draft files; empty = reads none.
+    "standards_converter_dir": "",
     # #806 S3: the approved-document guard is off for the suite only (its
     # fakes carry invented documents); with no key and the egress flags off
     # above, nothing can leave either way.
@@ -117,6 +119,7 @@ EGRESS_SAFE: dict[str, object] = {
     "review_ai_check_enabled": False,
     "rule_parse_model_enabled": False,
     "geometry_reader_enabled": False,      # also gates the Claude vision reader
+    "field_naming_enabled": False,  # order 259.5: model-named fields in a review
     "vision_reader_engine": "ollama",      # #830: "claude" sends page images out under per_task
     "answer_judge_enabled": False,          # a model call per answer
     "applicability_reasoning_enabled": False,  # a model call per standard per review
