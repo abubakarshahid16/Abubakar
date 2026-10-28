@@ -168,6 +168,17 @@ def same_type(a: str | None, b: str | None) -> bool:
     return ka == kb and ka != datasheet_checks.GENERIC
 
 
+def agreed(rows: dict[str, list]) -> dict:
+    """{text hash: the one entry} for the rules every row of which says the same thing. Two rows for one
+    sentence text (the same boilerplate in two standards) that DISAGREE are used by neither: the rule
+    used must never depend on the order of the files (cloud-3 on #1412)."""
+    return {
+        key: group[0]
+        for key, group in rows.items()
+        if all(r == group[0] for r in group)
+    }
+
+
 def reviewed_names(
     requirements: list[dict],
     equipment_type: str | None,
@@ -176,18 +187,23 @@ def reviewed_names(
     """{requirement id: canonical field name} for the numeric rules a reviewed file maps FOR THIS
     EQUIPMENT TYPE (a pump mapping never applies to a vessel review) and whose text still hashes
     the same and whose unit still fits the field. Anything else is dropped."""
-    by_hash: dict[str, tuple[str, str]] = {}
+    rows: dict[str, list[tuple[str, str]]] = {}
     for file_type, entry in load(files):
         if entry.get("kind") != "statement" and same_type(file_type, equipment_type):
-            by_hash[entry["text_sha256"]] = (file_type, entry["field"])
+            rows.setdefault(entry["text_sha256"], []).append(
+                (file_type, entry["field"])
+            )
     if files is None:
         # order 270.3: the converter's drafts (verified, applies "yes"), only when the switch names a folder.
-        # The reviewed file above wins where both name the same rule.
+        # They join the same rows: a draft and a reviewed file that disagree are used by neither (s3 on #1406).
         from . import standards_converter
 
         for file_type, entry in standards_converter.reviewed_entries():
             if same_type(file_type, equipment_type):
-                by_hash.setdefault(entry["text_sha256"], (file_type, entry["field"]))
+                rows.setdefault(entry["text_sha256"], []).append(
+                    (file_type, entry["field"])
+                )
+    by_hash = agreed(rows)
     out: dict[str, str] = {}
     for r in requirements:
         if r.get("requirement_type") not in field_naming.NUMERIC_TYPES:

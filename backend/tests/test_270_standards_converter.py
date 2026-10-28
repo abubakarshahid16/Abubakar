@@ -719,9 +719,7 @@ def test_a_file_that_is_not_a_converter_draft_is_not_read(tmp_path, monkeypatch)
     }
 
 
-def test_a_reviewed_file_wins_where_it_names_the_same_rule(tmp_path, monkeypatch):
-    folder = _mirror(tmp_path, {SENTENCE: GOOD})
-    monkeypatch.setattr(settings, "standards_converter_dir", str(folder))
+def _reviewed_file(tmp_path, monkeypatch, field):
     reviewed = tmp_path / "reviewed"
     rule_roles.export(
         PUMP,
@@ -730,14 +728,31 @@ def test_a_reviewed_file_wins_where_it_names_the_same_rule(tmp_path, monkeypatch
                 "standard": "SAES-G-005",
                 "clause": "6.1",
                 "text_sha256": rule_roles.text_hash(SENTENCE),
-                "field": "design_temperature",
+                "field": field,
             }
         ],
         reviewed / "pump.json",
     )
     monkeypatch.setattr(rule_roles, "DIR", reviewed)
-    assert rule_roles.reviewed_names([_numeric(1, SENTENCE, "degC")], PUMP) == {
-        "r1": "design temperature"
+
+
+def test_a_reviewed_file_and_a_draft_that_disagree_are_used_by_neither(
+    tmp_path, monkeypatch
+):
+    """s3 on #1406: one sentence must never get a different field depending on which source is read first."""
+    folder = _mirror(tmp_path, {SENTENCE: GOOD})
+    monkeypatch.setattr(settings, "standards_converter_dir", str(folder))
+    _reviewed_file(tmp_path, monkeypatch, "design_temperature")
+    assert rule_roles.reviewed_names([_numeric(1, SENTENCE, "degC")], PUMP) == {}
+    assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {}
+
+
+def test_a_reviewed_file_and_a_draft_that_agree_give_that_field(tmp_path, monkeypatch):
+    folder = _mirror(tmp_path, {SENTENCE: GOOD})
+    monkeypatch.setattr(settings, "standards_converter_dir", str(folder))
+    _reviewed_file(tmp_path, monkeypatch, "design_pressure")
+    assert rule_roles.reviewed_names([_numeric(1, SENTENCE)], PUMP) == {
+        "r1": "design pressure"
     }
 
 
