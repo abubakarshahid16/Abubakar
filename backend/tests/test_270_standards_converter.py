@@ -16,6 +16,7 @@ import pytest
 from app import (
     claude_approved,
     claude_spend,
+    converter_context,
     converter_gates,
     db,
     page_scope,
@@ -1153,7 +1154,7 @@ def test_the_prompt_and_schema_no_longer_ask_whether_a_sentence_applies():
     assert "applies (yes" not in text
     props = standards_converter.SCHEMA["properties"]["checks"]["items"]
     assert "applies" not in props["properties"] and props["required"] == ["i"]
-    assert standards_converter.PROMPT_VERSION == "o286-convert-v2"
+    assert standards_converter.PROMPT_VERSION == "o305-convert-v23"
     assert "default_not_limit" in standards_converter.REASONS
 
 
@@ -1215,7 +1216,7 @@ def test_a_local_run_file_names_the_lane_and_the_model_it_used_not_the_cloud_mod
     body = json.loads(next((tmp_path / "mirror").glob("*.json")).read_text())
     assert "LOCAL lane" in body["_about"] and TAG in body["_about"]
     assert "cloud model" not in body["_about"] and "CLAUDE lane" not in body["_about"]
-    assert body["prompt_version"] == "o286-convert-v2"
+    assert body["prompt_version"] == "o305-convert-v23"
 
 
 def test_a_claude_lane_file_says_so_and_names_its_model(tmp_path):
@@ -1507,3 +1508,234 @@ def test_two_figures_of_different_units_are_not_a_range():
 
 def test_a_whole_sentence_with_one_ceiling_still_verifies():
     assert _verdict(GOOD, ROW)[0] == "verified"
+
+
+# ---- order 305.1: the converter shows the model the heading path, the page, the scope and the neighbours
+
+CTX = {
+    "heading_path": ["Single-device installation"],
+    "before": "Where the fluid is a liquid:",
+    "after": "",
+    "page": 1,
+    "scope": "main_body",
+    "region": None,
+    "example": False,
+}
+
+
+def _page(doc_id, number, text):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES (?,?,?,?,0)",
+            (doc_id, number, text, len(text)),
+        )
+
+
+@pytest.mark.parametrize(
+    "page_text, label",
+    [
+        (
+            "MANDATORY APPENDIX 9\nJACKETED VESSELS\nSome text of the appendix.",
+            "Appendix 9",
+        ),
+        (
+            "PART UHT REQUIREMENTS FOR VESSELS MADE OF FERRITIC STEELS WITH ENHANCED PROPERTIES\nText.",
+            "Part UHT",
+        ),
+        (
+            "6.1 Casing\nExample 1: a worked sizing\nA vessel at 10 bar is relieved.",
+            "worked example",
+        ),
+    ],
+)
+def test_a_rule_on_a_page_that_is_not_main_body_is_not_sent_and_is_counted_by_region(
+    page_text, label
+):
+    std = _standard(texts=("The casing design pressure shall not exceed 25 bar.",))
+    _page(std, 1, page_text)
+    fake = Fake()
+    with db.connect() as conn:
+        result = standards_converter.convert(conn, std, "SAES-G-005", PUMP, fake)
+    assert fake.packets == []
+    [row] = result.rows
+    assert (row["status"], row["reason"]) == ("no_check", "scope_not_main_body")
+    assert result.scope_not_asked == {label: 1}
+
+
+def test_a_main_body_rule_is_sent_with_its_heading_path_page_and_neighbours():
+    std = _standard(texts=("The casing design pressure shall not exceed 25 bar.",))
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE chunks SET section = '6 Casing', text = ? WHERE document_id = ?",
+            (
+                "6.1 Limits\nWhere the fluid is a liquid:\nThe casing design pressure shall not exceed 25 bar.\n"
+                "The test pressure is separate.",
+                std,
+            ),
+        )
+        conn.execute(
+            "UPDATE standard_requirements SET clause = '6.1' WHERE standard_document_id = ?",
+            (std,),
+        )
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,"
+            "token_count,content_hash,retrievable) VALUES ('c-head',?,'f.pdf',1,1,1,'6.1 Limits','prose','x',1,'h-head',1)",
+            (std,),
+        )
+    _page(
+        std,
+        1,
+        "6 Casing\n6.1 Limits\nThe casing design pressure shall not exceed 25 bar.",
+    )
+    fake = Fake()
+    with db.connect() as conn:
+        standards_converter.convert(conn, std, "SAES-G-005", PUMP, fake)
+    [item] = json.loads(fake.packets[0].prompt)["items"]
+    assert item["heading_path"] == ["Casing", "Limits"]
+    assert item["page"] == 1
+    assert item["before"] == "Where the fluid is a liquid:"
+    assert item["after"] == "The test pressure is separate."
+
+
+def _with_condition(sentence, condition, quote, **over):
+    row = {**ROW, "requirement_text": sentence, "context": CTX, **over}
+    answer = {
+        **GOOD,
+        "condition": condition,
+        "condition_quote": quote,
+        "quote": "casing design pressure shall not exceed 25 bar",
+    }
+    return _verdict(answer, row)
+
+
+def test_a_condition_quoted_from_the_sentence_is_kept_when_context_was_shown():
+    sentence = "For gas service the casing design pressure shall not exceed 25 bar."
+    status, _reason, check = _with_condition(
+        sentence, "For gas service", "For gas service"
+    )
+    assert status == "verified" and check.condition == "for gas service"
+
+
+@pytest.mark.parametrize(
+    "condition, quote, reason",
+    [
+        (
+            "single-device installation",
+            "Single-device installation",
+            "condition_outside_sentence",
+        ),
+        (
+            "where the fluid is a liquid",
+            "Where the fluid is a liquid",
+            "condition_outside_sentence",
+        ),
+        ("for gas service", None, "condition_not_quoted"),
+        ("for gas service", "for steam service", "condition_not_quoted"),
+    ],
+)
+def test_a_condition_not_quoted_from_the_sentence_is_unproven_with_a_named_reason(
+    condition, quote, reason
+):
+    sentence = "The casing design pressure shall not exceed 25 bar."
+    assert _with_condition(sentence, condition, quote)[:2] == ("unproven", reason)
+
+
+def test_no_condition_with_context_still_verifies_and_a_row_without_context_asks_nothing_new():
+    assert _with_condition(SENTENCE, None, None)[0] == "verified"
+    row = {
+        **ROW,
+        "requirement_text": "For gas service the casing design pressure shall not exceed 25 bar.",
+    }
+    assert _verdict({**GOOD, "condition": "For gas service"}, row)[0] == "verified"
+
+
+def test_a_clause_printed_only_in_the_chunks_title_is_not_printed_but_the_cited_pages_text_counts():
+    """cloud-2 on 304.1: the chunker takes the clause from the title, so a title must not vouch for it."""
+    row = {
+        **ROW,
+        "clause": "2.5",
+        "section": "2.5 Windows",
+        "chunk_text": "Rules for windows\nText.",
+    }
+    assert converter_gates.clause_printed(row) is False
+    assert converter_gates.clause_printed_where(row) == {
+        "section": True,
+        "chunk": False,
+        "page": None,
+    }
+    with_page = {**row, "page_text": "2.5 Windows\nText of the page."}
+    assert converter_gates.clause_printed(with_page) is True
+    assert (
+        converter_gates.clause_printed(
+            {**ROW, "clause": "2.5", "section": "2.5 Windows"}
+        )
+        is None
+    )
+
+
+# ---- cloud-3 on #1454: the quote must say the condition, not just be some words of the sentence
+
+PROBE = "The set pressure of a relief valve shall not exceed 10 bar for valves in gas service."
+
+
+@pytest.mark.parametrize(
+    "condition, quote",
+    [
+        ("only for liquid service", "the"),  # a quote of three letters
+        (
+            "only for liquid service",
+            "set pressure of a relief valve",
+        ),  # words that say nothing about when
+        ("for gas service", "gas"),  # shorter than the floor
+    ],
+)
+def test_a_quote_that_does_not_say_the_condition_is_not_a_quote_of_it(condition, quote):
+    answer = {"condition": condition, "condition_quote": quote}
+    assert (
+        converter_context.condition_refusal(answer, PROBE, CTX)
+        == "condition_not_quoted"
+    )
+
+
+@pytest.mark.parametrize(
+    "condition, quote",
+    [
+        ("for valves in gas service", "for valves in gas service"),  # the same words
+        ("gas service", "for valves in gas service"),  # the condition inside the quote
+        (
+            "for valves in gas service at the inlet",
+            "for valves in gas service",
+        ),  # the quote inside the condition
+        ("valves in gas service", "for valves in gas service"),
+    ],
+)
+def test_a_quote_that_says_the_condition_is_kept(condition, quote):
+    answer = {"condition": condition, "condition_quote": quote}
+    assert converter_context.condition_refusal(answer, PROBE, CTX) is None
+
+
+def _ocr(doc_id, number, text, error=None):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO page_ocr (document_id, page_no, text, char_count, engine, model, dpi, box_count,"
+            " seconds, recognised_at, batch_no, error) VALUES (?,?,?,?,'e','m',200,3,0.5,'2026-01-01T00:00:00Z',0,?)",
+            (doc_id, number, text, len(text), error),
+        )
+
+
+def test_the_cited_page_text_of_a_scanned_page_is_the_recognised_text():
+    std = _standard(texts=("The casing design pressure shall not exceed 25 bar.",))
+    _page(std, 1, "")
+    _ocr(std, 1, "6.1 The casing design pressure shall not exceed 25 bar.")
+    with db.connect() as conn:
+        [row] = standards_converter.requirements_of(conn, std)
+    assert "casing design pressure" in row["page_text"]
+
+
+def test_a_failed_recognition_does_not_replace_the_text_layer():
+    std = _standard(texts=("The casing design pressure shall not exceed 25 bar.",))
+    _page(std, 1, "text layer words")
+    _ocr(std, 1, "garbled", error="failed")
+    with db.connect() as conn:
+        [row] = standards_converter.requirements_of(conn, std)
+    assert row["page_text"] == "text layer words"

@@ -40,14 +40,24 @@ def classify(row: dict) -> str:
     return converter_gates.scope_refusal(row) or "ok"
 
 
-def count(conn: sqlite3.Connection, like: str | None = None) -> dict[str, Counter]:
+def count(
+    conn: sqlite3.Connection,
+    like: str | None = None,
+    where: dict[str, Counter] | None = None,
+) -> dict[str, Counter]:
+    """{standard label: Counter of outcomes}. `where`, when given, is filled with {label: Counter of where the stored
+    clause is printed: section / chunk / page, and rules with a clause}: the numbers that say whether "printed in the
+    text" separates anything from "the chunker took it from its own title"."""
     conn.row_factory = sqlite3.Row
     marks = ",".join("?" for _ in TYPES)
     sql = (
-        "SELECT r.clause, r.requirement_text, r.source_text, c.text AS chunk_text, c.section AS section,"
+        "SELECT r.clause, r.page, r.requirement_text, r.source_text, c.text AS chunk_text, c.section AS section,"
+        " COALESCE(CASE WHEN o.error IS NULL AND o.text <> '' THEN o.text END, p.text) AS page_text,"
         " COALESCE(k.document_number, d.filename) AS label"
         " FROM standard_requirements r"
         " LEFT JOIN chunks c ON c.id = r.chunk_id"
+        " LEFT JOIN pages p ON p.document_id = r.standard_document_id AND p.page_no = r.page"
+        " LEFT JOIN page_ocr o ON o.document_id = r.standard_document_id AND o.page_no = r.page"
         " LEFT JOIN documents d ON d.id = r.standard_document_id"
         " LEFT JOIN document_classification k ON k.document_id = r.standard_document_id"
         f" WHERE r.superseded_at IS NULL AND r.requirement_type IN ({marks})"
@@ -58,6 +68,12 @@ def count(conn: sqlite3.Connection, like: str | None = None) -> dict[str, Counte
         if like and like.lower() not in label.lower():
             continue
         out.setdefault(label, Counter())[classify(dict(row))] += 1
+        if where is not None and str(row["clause"] or "").strip():
+            seen = converter_gates.clause_printed_where(dict(row))
+            tally = where.setdefault(label, Counter())
+            tally["with_clause"] += 1
+            for place, yes in seen.items():
+                tally[place] += 1 if yes else 0
     return out
 
 
@@ -71,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
     path = refuse_live(args.db)
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        result = count(conn, args.like)
+        where: dict[str, Counter] = {}
+        result = count(conn, args.like, where)
     finally:
         conn.close()
     for label in sorted(result):
@@ -87,6 +104,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         print(f"{label}: {total} rules ({parts})")
+        tally = where.get(label)
+        if tally:
+            print(
+                f"  clause printed as a heading, of {tally['with_clause']} rules with a clause: "
+                f"in the chunk's title {tally['section']}, in the chunk text {tally['chunk']}, in the cited page text {tally['page']}"
+            )
     return 0
 
 
