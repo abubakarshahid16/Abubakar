@@ -433,8 +433,7 @@ class Settings(BaseSettings):
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
     #: #141 a part limited by its own scope sentence to one construction
-    #: (`ai_applicability.division_gate`). ON (#805 rule 1); off, nothing
-    #: changes; a part not read (or past the per-run limit) is HELD.
+    #: (`ai_applicability.division_gate`). ON (#805 rule 1); off: nothing changes; a part not read or past the limit is HELD.
     ai_division_scope_enabled: bool = True
     ai_answer_reuse_enabled: bool = True  # order 205: off for the final client test
     ai_division_scope_max_per_run: int = 120
@@ -459,6 +458,7 @@ class Settings(BaseSettings):
     recommendation_queries_enabled: bool = False
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
+    tested_cards_decide_enabled: bool = False  # order 306.1
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md
