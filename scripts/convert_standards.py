@@ -200,6 +200,9 @@ def run(
         raise ValueError(
             f"unknown lane {lane!r}; expected one of {standards_converter.LANES}"
         )
+    standards_converter.require_known_type(
+        equipment_type
+    )  # before anything is opened or asked
     claude = lane == "claude"
     if claude:  # before the database is even opened: a family not allowed sends nothing
         for s in standards:
