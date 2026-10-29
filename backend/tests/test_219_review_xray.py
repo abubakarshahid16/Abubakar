@@ -174,7 +174,11 @@ def test_what_the_system_did_not_store_is_said_not_guessed(run_id):
         s["id"]: s for s in review_xray.build(settings.db_path, run_id)["sections"]
     }
     assert by_id["pages"]["rows"][0][2] == review_xray.NOT_RECORDED
-    assert "no run id" in by_id["ai"]["note"]
+    assert "whole database" in by_id["ai"]["note"]
+    [none_for_run] = [
+        r for r in by_id["ai"]["rows"] if r[0] == "cached answers (this run)"
+    ]
+    assert none_for_run[1] == review_xray.NOT_RECORDED
 
 
 def test_the_comment_sheet_section_has_the_rows_the_review_screen_builds(run_id):
@@ -326,3 +330,41 @@ def test_held_requirements_are_grouped_by_standard_and_reason_and_leave_the_tabl
 def test_every_table_gets_a_filter_box(run_id):
     page = review_xray.render_html(review_xray.build(settings.db_path, run_id))
     assert page.count("<input class='filter'") == page.count("<table>")
+
+
+def test_a_run_with_its_record_shows_its_model_settings_and_cache_use(run_id):
+    from app import model_metrics, run_settings
+
+    with db.connect() as conn:
+        run_settings.record(conn, run_id)
+    bucket = model_metrics.Bucket()
+    bucket["model-a"] = {
+        "calls": 2,
+        "errors": 0,
+        "seconds": 1.0,
+        "longest": 1.0,
+        "kinds": {},
+    }
+    bucket.cache[("k1", "task-x", "model-a@d")] = [3, 1]
+    model_metrics.store(run_id, bucket)
+    by_id = _by_id(run_id)
+    header = {r[0]: r[1] for r in by_id["run"]["rows"]}
+    assert header["model"] == "model-a (2)"
+    assert header["setting: answer_model"] == settings.answer_model
+    uses = [r for r in by_id["ai"]["rows"] if r[0] == "cached answers (this run)"]
+    assert uses == [
+        [
+            "cached answers (this run)",
+            "task-x",
+            "model-a@d",
+            "3 reused, 1 asked fresh and kept",
+            "",
+        ]
+    ]
+
+
+def test_a_run_queued_before_the_record_says_not_recorded_and_guesses_nothing(run_id):
+    header = {r[0]: r[1] for r in _by_id(run_id)["run"]["rows"]}
+    assert header["model"] == review_xray.NOT_RECORDED
+    assert header["settings"].startswith(review_xray.NOT_RECORDED)
+    assert not any(k.startswith("setting: ") for k in header)

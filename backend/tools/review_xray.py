@@ -83,7 +83,9 @@ def _run(conn: sqlite3.Connection, run_id: str) -> sqlite3.Row | None:
     return rows[0] if rows else None
 
 
-def header(run: sqlite3.Row, outcome: dict) -> dict:
+def header(
+    run: sqlite3.Row, outcome: dict, conn: sqlite3.Connection | None = None
+) -> dict:
     split = outcome.get("requirement_split") or {}
     rows = [
         ["review run", run["id"]],
@@ -94,6 +96,18 @@ def header(run: sqlite3.Row, outcome: dict) -> dict:
         ["completed", run["completed_at"] or NOT_RECORDED],
         ["config version", run["config_version"] or NOT_RECORDED],
     ]
+    if conn is not None:
+        # Order 309.2: the settings this run was queued with (the hash above says only that they differ).
+        settings_rows = _rows(
+            conn,
+            "SELECT name, value FROM review_run_settings WHERE review_run_id = ? ORDER BY name",
+            (run["id"],),
+        )
+        rows += [[f"setting: {r['name']}", r["value"]] for r in settings_rows]
+        if not settings_rows:
+            rows.append(
+                ["settings", NOT_RECORDED + " (run queued before settings were kept)"]
+            )
     if isinstance(split, dict):
         rows += [
             [f"requirements: {k}", _short(v, 80)]
@@ -668,13 +682,38 @@ def ai_calls(conn: sqlite3.Connection, run_id: str) -> dict:
     )
     for c in cached:
         rows.append(
-            ["cached answers", c["task"], c["model"], f"{c['n']} answer(s)", ""]
+            [
+                "cached answers (whole database)",
+                c["task"],
+                c["model"],
+                f"{c['n']} answer(s)",
+                "",
+            ]
         )
+    uses = _rows(
+        conn,
+        "SELECT task, model, SUM(reused) AS reused, SUM(fresh) AS fresh FROM review_run_cache_uses"
+        " WHERE review_run_id = ? GROUP BY task, model ORDER BY task, model",
+        (run_id,),
+    )
+    for u in uses:
+        rows.append(
+            [
+                "cached answers (this run)",
+                u["task"],
+                u["model"],
+                f"{u['reused']} reused, {u['fresh']} asked fresh and kept",
+                "",
+            ]
+        )
+    if not uses:
+        rows.append(["cached answers (this run)", NOT_RECORDED, "", "", ""])
     return _section(
         "ai",
         "9. Steps and AI answers",
-        "The AI task cache has no run id, so these counts are for the whole database, not only this review; "
-        "a call that was answered live and not cached is not recorded anywhere. Steps are from the run's stored trace.",
+        "'whole database' rows count every stored answer, not only this review's. 'this run' rows count the stored "
+        "answers this run reused and the ones it asked fresh and kept (order 309.2); a call that was not cacheable is "
+        "not recorded there. Steps are from the run's stored trace.",
         ["kind", "name", "status / model", "what", "seconds"],
         rows,
     )
@@ -692,7 +731,7 @@ def build(db_path: Path | str, run_id: str) -> dict:
         outcome = _json(run["outcome_json"])
         doc = run["submittal_document_id"]
         sections = [
-            header(run, outcome),
+            header(run, outcome, conn),
             documents(conn, doc),
             *reader(conn, doc),
             classification(conn, doc),

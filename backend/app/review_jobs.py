@@ -31,6 +31,7 @@ from . import (
     job_queue,
     provenance,
     reread_for_standards,
+    run_settings,
     submittal_fill,
 )
 from .config import config_version, settings
@@ -82,6 +83,8 @@ def enqueue(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, 0, ?, 'queued')""",
             (job_id, submittal_document_id, STAGE, now, now, job_queue.PRIORITY_INTERACTIVE,
              requested_by, review_code_version(), config_version(), run_id, len(STEPS)))
+        # order 309.2: the readable settings beside the hash
+        run_settings.record(conn, run_id)
         job_queue.audit(conn, "job.queued", job_id, actor_user_id=requested_by,
                         detail=f"stage={STAGE} run={run_id}")
     return run_id, job_id
