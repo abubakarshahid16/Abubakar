@@ -16,10 +16,14 @@ import re
 from .config import ANSWER_AFFECTING_SETTINGS, settings
 from .db import connect
 
+#: Names that look like a credential, a place or a mail setting. The test applies to TEXT values only: a number or a
+#: switch cannot be a key, and `max_output_tokens` is a count, not a credential (cloud-2 on #1466: ten of the 38
+#: settings were dropped for having "token" in the name).
 _NEVER = re.compile(
     r"key|token|secret|passw|path|url|host|dir|smtp|email", re.IGNORECASE
 )
 MAX_VALUE_CHARS = 120
+NOT_STORED = "settings not stored"
 
 
 def ensure_schema(conn=None) -> None:
@@ -31,21 +35,31 @@ def ensure_schema(conn=None) -> None:
     )
 
 
-def snapshot() -> dict[str, str]:
-    """{setting name: value as text} of the allowed settings now."""
+def snapshot() -> tuple[dict[str, str], int]:
+    """({setting name: value as text} of the allowed settings now, how many named settings were left out)."""
     out: dict[str, str] = {}
+    left_out = 0
     for name in sorted(ANSWER_AFFECTING_SETTINGS):
         value = getattr(settings, name, None)
-        if _NEVER.search(name) or not isinstance(value, (bool, int, float, str)):
+        plain = isinstance(value, (bool, int, float)) or (
+            isinstance(value, str) and not _NEVER.search(name)
+        )
+        if not plain:
+            left_out += 1
             continue
         out[name] = str(value)[:MAX_VALUE_CHARS]
-    return out
+    return out, left_out
 
 
 def record(conn, review_run_id: str) -> None:
     """Write the run's settings on `conn` (inside the caller's transaction)."""
     ensure_schema(conn)
-    for name, value in snapshot().items():
+    stored, left_out = snapshot()
+    # The boundary of the list is stored with it: a list read as complete when it is not is a false count.
+    stored[NOT_STORED] = (
+        f"{left_out} of {len(stored) + left_out} (text values named like a key, path or address, or not plain)"
+    )
+    for name, value in stored.items():
         conn.execute(
             "INSERT OR REPLACE INTO review_run_settings (review_run_id, name, value) VALUES (?, ?, ?)",
             (review_run_id, name, value),

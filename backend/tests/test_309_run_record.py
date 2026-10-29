@@ -73,14 +73,30 @@ def test_the_settings_are_stored_with_the_run_and_a_later_change_does_not_alter_
     assert run_settings.for_run("no-such-run") == {}
 
 
-def test_a_name_that_looks_like_a_secret_or_an_address_is_never_stored(monkeypatch):
+def test_a_text_value_named_like_a_secret_or_an_address_is_never_stored(monkeypatch):
     monkeypatch.setattr(
         run_settings,
         "ANSWER_AFFECTING_SETTINGS",
         ("answer_model", "ollama_url", "data_dir", "db_path"),
     )
-    stored = run_settings.snapshot()
-    assert set(stored) == {"answer_model"}
+    stored, left_out = run_settings.snapshot()
+    assert set(stored) == {"answer_model"} and left_out == 3
+
+
+def test_a_number_is_stored_even_when_its_name_says_tokens_and_the_list_states_its_boundary(
+    world, monkeypatch
+):
+    monkeypatch.setattr(settings, "max_output_tokens", 1234)
+    monkeypatch.setattr(
+        run_settings,
+        "ANSWER_AFFECTING_SETTINGS",
+        ("max_output_tokens", "answer_model", "ollama_url"),
+    )
+    run_id, _job = p3._enqueue(world)
+    got = run_settings.for_run(run_id)
+    assert got["max_output_tokens"] == "1234"
+    assert "ollama_url" not in got
+    assert got[run_settings.NOT_STORED].startswith("1 of 3")
 
 
 def _fake_cache(monkeypatch):
