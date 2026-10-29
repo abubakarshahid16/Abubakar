@@ -33,10 +33,18 @@ carries the client's name; only the owner can rename it.
 1. **Privacy is the product.** No document text, filename, page reference or
    anything derived from a document may leave the machine - with ONE
    owner-approved lanes: the **Claude API**, only through
-   `reader_transport.py`, only under the budget of **USD 5 per step /
-   USD 20 in total** (enforced in `claude_spend`), and with **no document text
-   in logs, GitHub issues, PRs or CI**. Every other outbound path for document
-   content stays forbidden. In chat, the user may choose Claude and explicitly
+   `reader_transport.py`, only under the budget of **USD 5 per step, USD 25 per
+   converted standard / USD 500 in total for November** (owner, #805 plan
+   change 4, 28 Oct 2026; it was USD 20 in total; the USD 500 ends on 30 Nov
+   unless the owner says otherwise; enforced in `claude_spend`), and with **no
+   document text in logs, GitHub issues, PRs or CI**. **The standards
+   converter's Claude lane is off by owner decision of 28 Oct 2026 (order 277);
+   its caps apply only when the owner opens it.** Until then the converter runs
+   on the local engine only.
+   The standards converter
+   (order 270.3) sends STANDARDS text only, of the SAES and ISO families (API
+   and ASME on hold), and never a datasheet, procedure or CRS. Every other
+   outbound path for document content stays forbidden. In chat, the user may choose Claude and explicitly
    select the documents for that request; that selection is per-request consent
    for only those files. Local sends no file content to Claude; Claude without
    explicit document selection can answer general questions but gets no document
@@ -141,6 +149,8 @@ When a mistake is called out on #692, add one line here in your next PR.
 - Approved a PR from its code while it made an existing mutation entry blind (#1355 and M2513: a new rule caught the sentence the old test used, so the entry no longer failed): before approving a change to a module that has mutation entries, apply those entries by hand and run their tests (PR 1369).
 - Moved lines a mutation anchor quotes and pushed without `check_mutation_anchors.py`, so CI went red (s3, #1285; the pre-push guard now runs it).
 - Added a second model pass without asking what it costs on the Claude lane (s3, #1288; a repeat read must be local-only).
+- Approved a danger-zone label change from the gate alone (#1446, cloud-2 caught it): a tested-card verdict printed "proven" on the CRS because the words are built from the stored label; before approving, follow the value from where it is set to the cell the engineer reads.
+- Pushed a new `backend/app` module without `check_system_map.py` and `check_unused_modules.py`, so CI sent two PRs back (#1447, #1449): run both before the push.
 
 ## Who does what
 
