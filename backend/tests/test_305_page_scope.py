@@ -288,7 +288,23 @@ def test_the_shape_report_lists_lines_that_carry_a_region_word_but_are_not_headi
         2: "MANDATORY\nAPPENDIX 4\ntext",
     }
     near = report._near_misses(ps, pages)
-    assert ("Appendix A aaaaaaa aa aaa", "top") in near or any(
-        mask.startswith("Appendix A") for mask, _ in near
+    assert any(
+        mask.startswith("Appendix A") and why == "lower_case_after_label"
+        for mask, _, why in near
     )
-    assert ("MANDATORY", "top") in near
+    assert ("MANDATORY", "top", "label_shape_not_known") in near
+
+
+def test_a_three_letter_or_dashed_appendix_label_is_a_label():
+    for line in ("NONMANDATORY APPENDIX AAA", "NONMANDATORY APPENDIX FF-A"):
+        tags = ps.tag_pages(_pages(f"{line}\ntext", "more"))
+        assert [t["scope"] for t in tags.values()] == [ps.NONMANDATORY] * 2
+
+
+def test_a_rejection_has_a_code():
+    m = ps._APPENDIX.match("Appendix E applies to the selection")
+    assert ps.heading_rejection(m, "Appendix E applies to the selection", 2) == (
+        "lower_case_after_label"
+    )
+    ok = ps._APPENDIX.match("MANDATORY APPENDIX 3")
+    assert ps.heading_rejection(ok, "MANDATORY APPENDIX 3", 0) is None

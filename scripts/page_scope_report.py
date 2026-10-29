@@ -45,8 +45,8 @@ def _mask(line: str) -> str:
     return "".join(out)[:60]
 
 
-def _accepted(page_scope, lines: list[str]) -> dict[int, bool]:
-    """For each line of a page that matches a region pattern: did the tagger accept it as a heading (same rules as
+def _accepted(page_scope, lines: list[str]) -> dict[int, str | None]:
+    """For each line of a page that matches a region pattern: why did the tagger NOT accept it (None = accepted) (same rules as
     `tag_pages`: heading-shaped line, not on a contents page, `_is_region_heading`)?"""
     found = {
         i: page_scope._APPENDIX.match(ln) or page_scope._PART.match(ln)
@@ -55,9 +55,9 @@ def _accepted(page_scope, lines: list[str]) -> dict[int, bool]:
     }
     found = {i: m for i, m in found.items() if m}
     if len(found) >= page_scope._CONTENTS_PAGE_HEADINGS:
-        return dict.fromkeys(found, False)
+        return dict.fromkeys(found, "contents_page")
     return {
-        i: page_scope._is_region_heading(m, lines[i], i, lines[i - 1] if i else "")
+        i: page_scope.heading_rejection(m, lines[i], i, lines[i - 1] if i else "")
         for i, m in found.items()
     }
 
@@ -71,8 +71,8 @@ def _region_openers(page_scope, pages: dict, tags: dict) -> collections.Counter:
         region = (tags[number]["scope"], tags[number]["region"])
         if region != previous and region[0] != "main_body":
             lines = [ln for ln in (pages.get(number) or "").splitlines() if ln.strip()]
-            for i, ok in sorted(_accepted(page_scope, lines).items()):
-                if ok:
+            for i, why in sorted(_accepted(page_scope, lines).items()):
+                if why is None:
                     shapes[
                         (
                             _mask(lines[i]),
@@ -86,7 +86,7 @@ def _region_openers(page_scope, pages: dict, tags: dict) -> collections.Counter:
 
 def _near_misses(page_scope, pages: dict) -> collections.Counter:
     """Lines that carry a region word (appendix / annex / part / mandatory ...) near the start of a line but were
-    NOT accepted as a heading, counted by (mask, top or low). This is where a heading shape the tagger does not know
+    NOT accepted as a heading, counted by (mask, top or low, why). This is where a heading shape the tagger does not know
     shows up (a qualifier alone on its line, a label split over two lines, a heading with a lower-case title)."""
     import re
 
@@ -99,8 +99,10 @@ def _near_misses(page_scope, pages: dict) -> collections.Counter:
         lines = [ln for ln in (pages.get(number) or "").splitlines() if ln.strip()]
         accepted = _accepted(page_scope, lines)
         for i, ln in enumerate(lines):
-            if word.match(ln) and not accepted.get(i):
-                out[(_mask(ln), "top" if i < page_scope._TOP_LINES else "low")] += 1
+            why = accepted.get(i, "label_shape_not_known")
+            if word.match(ln) and why is not None:
+                where = "top" if i < page_scope._TOP_LINES else "low"
+                out[(_mask(ln), where, why)] += 1
     return out
 
 
@@ -154,8 +156,10 @@ def main() -> int:
                 page_scope, pages, tags
             ).most_common(25):
                 print(f"  opener x{n} ({where}): {mask!r}")
-            for (mask, where), n in _near_misses(page_scope, pages).most_common(30):
-                print(f"  not a heading x{n} ({where}): {mask!r}")
+            for (mask, where, why), n in _near_misses(page_scope, pages).most_common(
+                30
+            ):
+                print(f"  not a heading x{n} ({where}, {why}): {mask!r}")
         for number in sorted(named & set(tags)):
             t = tags[number]
             print(
