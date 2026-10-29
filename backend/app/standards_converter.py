@@ -60,7 +60,7 @@ from . import (
 )
 from .ai.json_reply import unfenced
 from .converter_gates import fold as _fold
-from .converter_gates import in_example, quote_unreadable
+from .converter_gates import in_example, limit_refusal, quote_unreadable, scope_refusal
 from .reasoning_provider import ProviderRefused
 
 #: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. API and ASME: HOLD.
@@ -151,6 +151,10 @@ REASONS = (
     "example_not_requirement",
     "quote_unreadable",
     "no_real_clause",
+    "scope_in_appendix",
+    "scope_clause_not_printed",
+    "sentence_is_fragment",
+    "limit_is_range_boundary",
     "type_not_convertible",
     "quote_not_in_clause",
     "number_not_in_quote",
@@ -444,6 +448,10 @@ def verify(
         row
     ):  # a worked example illustrates; it states no requirement (order 295.7 b)
         return "unproven", "example_not_requirement", None
+    if reason := scope_refusal(
+        row
+    ):  # outside the main body, or an uncitable clause (order 304.1)
+        return "unproven", reason, None
     quote = " ".join(str(answer.get("quote") or "").split())
     if len(quote) < 8 or _fold(quote) not in text:
         return "unproven", "quote_not_in_clause", None
@@ -466,6 +474,10 @@ def verify(
     scope = limit_scope(text, quote, limit, unit)
     if scope is None:
         return "unproven", "number_and_unit_apart", None
+    if reason := limit_refusal(  # cut mid-clause, or one end of a range (order 304.1)
+        str(row.get("requirement_text") or row.get("source_text") or ""), limit
+    ):
+        return "unproven", reason, None
     if scope and condition and _fold(condition) != scope:
         return (
             "unproven",

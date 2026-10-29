@@ -5,6 +5,10 @@ stays under the project's size limit and so each gate has one home.
 
   * `in_example` - is the stored sentence part of a worked example (an illustration, never a requirement)?
   * `quote_unreadable` - is the quote, or the sentence it was cut from, OCR noise?
+  * `scope_refusal` - order 304.1: a sentence in an appendix or annex, or under a clause the page does not print,
+    is not shown to apply to every sheet, so it is "unproven: scope" and never decides.
+  * `limit_refusal` - order 304.1 add: a stored sentence cut mid-clause (no subject before the limit), or a limit
+    that is one end of a stated range, is not a plain ceiling or floor: "unproven".
   * `fold` - the one way text is compared: lower case, one space between words.
 """
 
@@ -95,3 +99,84 @@ def quote_unreadable(quote: str, sentence: str) -> bool:
         ):
             garbled += 1
     return garbled / len(tokens) > 0.15
+
+
+#: A heading that opens an appendix or an annex. A limit under one applies to the part the appendix is about.
+_APPENDIX_HEADING = re.compile(
+    r"^\W*(?:(?:non[-\s]?)?mandatory\s+)?(?:appendix|annex)\b", re.IGNORECASE
+)
+_WORD_AFTER = re.compile(r"\s*(\S+)")
+
+
+def _is_heading_line(line: str) -> bool:
+    return len(line.split()) <= 12
+
+
+def in_appendix(row: dict) -> bool:
+    """Is the sentence under an appendix or annex heading: its chunk's section title, or a short heading line of
+    the chunk before the sentence? ("see Annex A" in the middle of a line is not a heading.)"""
+    if _APPENDIX_HEADING.search(str(row.get("section") or "")[:80]):
+        return True
+    chunk = str(row.get("chunk_text") or "")
+    at = fold(chunk).find(fold(row.get("requirement_text"))[:60]) if chunk else -1
+    if at < 0:
+        return False
+    seen = 0
+    for line in chunk.splitlines():
+        if seen > at + 40:
+            break
+        seen += len(fold(line)) + 1
+        if _is_heading_line(line) and _APPENDIX_HEADING.search(line.strip()):
+            return True
+    return False
+
+
+def clause_printed(row: dict) -> bool | None:
+    """Is the stored clause number printed as a heading in the chunk the sentence came from (a line that starts
+    with it, then a word or the end of the line; not a number followed by a unit)? None when the chunk text or
+    the clause is not at hand: the gate stays silent rather than refuse on what it cannot see."""
+    from . import field_vocabulary
+
+    clause = str(row.get("clause") or "").strip().rstrip(".")
+    chunk = str(row.get("chunk_text") or "")
+    if not clause or not chunk:
+        return None
+    heading = re.compile(
+        r"^\s*(?:clause\s+|section\s+)?" + re.escape(clause) + r"\.?(?=\s*$|\s)",
+        re.IGNORECASE,
+    )
+    for source in [str(row.get("section") or ""), *chunk.splitlines()]:
+        m = heading.match(source)
+        if not m:
+            continue
+        rest = _WORD_AFTER.match(source[m.end() :])
+        if rest is None or not field_vocabulary._unit_families(rest.group(1)):
+            return True
+    return False
+
+
+def scope_refusal(row: dict) -> str | None:
+    """The reason a verified-looking row must not decide (order 304.1), else None: `scope_in_appendix` (an
+    appendix or annex), `scope_clause_not_printed` (its stored clause is not a heading of its own text, so the
+    citation would point at a clause the engineer cannot find). Silent when the chunk text is not at hand.
+    NOT detected, by design: a limit for one kind of part under a real, printed clause of the main body; no
+    wording marks that in every standard, so it stays with the rule card an engineer approves."""
+    if in_appendix(row):
+        return "scope_in_appendix"
+    if clause_printed(row) is False:
+        return "scope_clause_not_printed"
+    return None
+
+
+def limit_refusal(sentence: str, limit: str) -> str | None:
+    """The reason a verified-looking row must not decide for the SENTENCE's own shape (order 304.1 add), else None:
+    `sentence_is_fragment` (`page_scope.fragment_reasons`: it starts mid-sentence, has no subject before its first
+    figure, is cut mid-clause or is too short), `limit_is_range_boundary` (`page_scope.range_boundary`: the limit
+    is one end of a range). One home for both tests: `page_scope` (cloud-3, order 305.3)."""
+    from . import page_scope
+
+    if page_scope.fragment_reasons(sentence):
+        return "sentence_is_fragment"
+    if page_scope.range_boundary(sentence, limit):
+        return "limit_is_range_boundary"
+    return None
