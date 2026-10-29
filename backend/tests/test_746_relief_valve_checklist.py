@@ -77,6 +77,10 @@ def test_a_breach_is_non_compliant_with_both_values_and_the_clause():
     tight = [f for f in SHEET if f["field_name"] != "operating pressure"] + [
         fact("operating pressure", "9.5", "barg")]
     assert results(tight)["PSV-S03"]["status"] == "NON_COMPLIANT"  # 10 < 9.5 + 1.0
+    # a percent-of rule (PSV-29, conventional valve): back pressure 2 barg is 20% of the 10 barg set pressure
+    back = [f for f in SHEET if f["field_name"] != "back press variable"]
+    back.append(fact("back press variable", "2", "barg"))
+    assert results(back)["PSV-29"]["status"] == "NON_COMPLIANT"
 
 
 def test_a_condition_decides_whether_an_item_applies():

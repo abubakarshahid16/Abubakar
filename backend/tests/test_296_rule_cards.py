@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import copy
-import importlib.util
-from pathlib import Path
 
 import pytest
 
 from app import datasheet_checks as dc
-
-_SPEC = importlib.util.spec_from_file_location(
-    "rule_cards", Path(__file__).resolve().parents[2] / "scripts" / "rule_cards.py"
-)
-rule_cards = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(rule_cards)
+from app import rule_cards
 
 TYPE = "Pressure Safety Valve"
 RULES = dc.load_rules()
@@ -122,6 +115,13 @@ def test_written_cases_count_beside_the_generated_ones_and_are_marked_apart():
             "facts": [ten],
             "text": "",
             "expect": dc.NEEDS_ENGINEER_REVIEW,
+        },
+        {
+            "name": "at the limit",
+            "kind": "written",
+            "facts": [rule_cards._fact("set pressure", "12"), twelve],
+            "text": "",
+            "expect": dc.COMPLIANT,
         },
     ]
     card = rule_cards.run_card(item, TYPE, RULES)
@@ -316,3 +316,44 @@ def test_the_area_calculation_cards_rest_on_an_independent_calculation():
         if r["rule_id"] == "PSV-C01"
     )
     assert abs(got["calculated_mm2"] - independent) / independent < 0.005
+
+
+def _compare_card() -> dict:
+    return _items()["PSV-24"]
+
+
+def test_a_limit_card_needs_an_at_the_limit_case():
+    """cloud-2 (#1440): "tested" must prove that "at most" accepts the limit itself. A limit card with no such case
+    stays draft."""
+    item = _compare_card()
+    assert rule_cards.run_card(item, TYPE, RULES)["status"] == "tested"
+    names = {r["case"] for r in rule_cards.run_card(item, TYPE, RULES)["runs"]}
+    assert "at the limit" in names
+    keep = rule_cards.written_cases
+    try:
+        rule_cards.written_cases = lambda t, i: [
+            c for c in keep(t, i) if c["name"] != "at the limit"
+        ]
+        card = rule_cards.run_card(item, TYPE, RULES)
+    finally:
+        rule_cards.written_cases = keep
+    assert (card["status"], card["why"]) == (
+        "draft",
+        "needs an at-the-limit case (the value equal to the limit)",
+    )
+
+
+@pytest.mark.parametrize(
+    "op, flipped",
+    [("<=", "<"), (">=", ">"), (">", ">=")],
+)
+def test_a_boundary_slip_in_the_real_comparison_turns_cards_back_to_draft(
+    monkeypatch, op, flipped
+):
+    """The same slip cloud-2 tried by hand on the real code: "at most" made "below" must be caught."""
+    before = rule_cards.report()[TYPE]["tested"]
+    ops = dict(dc._OPS)
+    ops[op] = ops[flipped]
+    monkeypatch.setattr(dc, "_OPS", ops)
+    after = rule_cards.report()[TYPE]["tested"]
+    assert after < before
