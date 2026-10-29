@@ -259,3 +259,36 @@ def test_the_shape_report_keeps_region_words_and_masks_the_rest():
     pages = {1: "MANDATORY APPENDIX 3\nbody", 2: "more", 3: "1 Scope\nbody"}
     shapes = report._region_openers(ps, pages, ps.tag_pages(pages))
     assert dict(shapes) == {("MANDATORY APPENDIX 9", "top"): 1}
+
+
+def test_a_qualifier_alone_on_the_line_above_the_label_counts():
+    tags = ps.tag_pages(_pages("MANDATORY\nAPPENDIX 18\nTitle\ntext", "more"))
+    assert [t["scope"] for t in tags.values()] == [ps.MANDATORY, ps.MANDATORY]
+    split = ps.tag_pages(_pages("NONMANDATORY\nAPPENDIX B\ntext"))
+    assert split[1]["scope"] == ps.NONMANDATORY
+
+
+def test_a_page_that_opens_with_a_general_part_heading_is_main_body():
+    tags = ps.tag_pages(
+        _pages("MANDATORY APPENDIX 3\ntext", "PART UG GENERAL REQUIREMENTS\nbody text.")
+    )
+    assert tags[2]["scope"] == ps.MAIN
+    assert tags[2]["region"] == "Part UG"
+
+
+def test_the_shape_report_lists_lines_that_carry_a_region_word_but_are_not_headings():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import page_scope_report as report
+
+    pages = {
+        1: "A line of running text that goes on and on and on\nAppendix E applies to the\nmore text",
+        2: "MANDATORY\nAPPENDIX 4\ntext",
+    }
+    near = report._near_misses(ps, pages)
+    assert ("Appendix A aaaaaaa aa aaa", "top") in near or any(
+        mask.startswith("Appendix A") for mask, _ in near
+    )
+    assert ("MANDATORY", "top") in near
