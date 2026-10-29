@@ -190,12 +190,16 @@ EGRESS_SAFE: dict[str, object] = {
     "applicability_taxonomy_path": None,
     # --- local only; listed so the completeness check has seen it
     "geometry_table_reader_enabled": True,
+    # --- local only, no model or socket: records a text cell of a standards table with no value (off by default)
+    "table_text_cells_enabled": False,
     # --- local only: reads an uploaded Word file with the standard library
     "docx_input_enabled": True,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "tested_cards_decide_enabled": False,
     "rule_cards_approval_enabled": False,
     "rule_auto_use_enabled": False,
+    # --- local only, no model or socket: a recommendation is raised as a query (order 288.2, off by default)
+    "recommendation_queries_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,

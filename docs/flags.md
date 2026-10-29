@@ -27,6 +27,7 @@ does not make one.
 | `ai_answer_reuse_enabled` | `True` | permanent | | | Reuse of a stored local AI answer to the exact same question (#1221, order 205). Off for the final test before anything goes to a client: every page is read fresh |
 | `ai_clause_checks_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI check proposals for undecided clauses (#645) |
 | `rule_auto_use_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Proven rule families used without an engineer |
+| `recommendation_queries_enabled` | `False` | rollout | 2026-10-28 | 2026-11-11 | A recommendation ("should") of a standard the datasheet names is raised as a query for the engineer (order 288.2); OFF, a review ignores recommendations |
 | `match_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI matcher (#794) |
 | `tested_cards_decide_enabled` | `False` | rollout | 2026-10-29 | 2026-11-12 | Order 306.1: a relief-valve checklist card tested under the stricter rule (written cases, an at-the-limit case, a clause number, not weak) may decide while its engineer approval is pending; owner decides default on or remove |
 | `rule_cards_approval_enabled` | `False` | rollout | 2026-10-29 | 2026-11-12 | Order 302.4 c: the engineer's approval of a rule card gates it (approved = "rule approved by <engineer>"; an edited, draft or rejected card is held); the edited content is what the review evaluates; owner decides default on or remove |
@@ -38,6 +39,7 @@ does not make one.
 | `review_debug_detail` | `False` | permanent | | | Operator debug switch |
 | `crs_ai_wording_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI CRS wording |
 | `geometry_table_reader_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Geometry table reader |
+| `table_text_cells_enabled` | `False` | permanent | | | Record a standards-table cell that is text, not a number, as a requirement with no value (order 271.4 fix B). Set for a standards re-extraction; it adds rows to a standard that has such cells |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |

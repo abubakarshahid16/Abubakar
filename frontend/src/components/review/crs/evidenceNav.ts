@@ -66,7 +66,7 @@ export function comparisonLine(f: ReviewFinding): string {
   const said = orNothing(f.contractor_evidence_text);
   const asks = orNothing(f.requirement_source_text) || orNothing(f.requirement);
   const parts = [
-    said ? `${field ? `${field}: ` : ""}the datasheet says "${said}"` : field ? `${field}: not found on the datasheet` : "",
+    said ? `${field ? `${field}: ` : ""}the datasheet says "${said}"` : field ? `${field}: no value read from the datasheet` : "",
     asks ? `the rule asks: ${asks}` : "",
   ].filter(Boolean);
   const result = statusLabel(f.compliance_status);
