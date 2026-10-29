@@ -137,11 +137,37 @@ def test_where_without_a_label_behaves_as_before():
     )
 
 
-def test_a_value_a_later_pass_replaced_is_not_the_final_read():
-    """cloud-2's pin: the cell counts the final read only. A replaced value is not "was read"; the row keeps the
-    old words (the reader's gap is the engineer's question, not a claim the final read cannot support)."""
+def test_a_value_a_later_reading_replaced_is_said_as_read_earlier_never_as_not_read():
+    """Order 308: the reader found a value, a later extraction of the same sheet replaced it and wrote none. The
+    final read has no value, but "Not read from the datasheet" would be untrue of the sheet: the cell says what
+    happened and leaves the row to the engineer."""
     doc = _sheet(5)
     _fact(doc, "overpressure", 1, "21", superseded=True)
+    cell = _cell(doc)
+    assert "Not read" not in cell
+    assert cell == (
+        "Overpressure: A value was read on page 1 in an earlier reading of the sheet, "
+        "but the last reading has no value for it (PSV-1, PSV-2, PSV-3 and 2 more); engineer to confirm"
+    )
+
+
+def test_a_current_value_wins_over_an_earlier_one():
+    doc = _sheet(5)
+    _fact(doc, "overpressure", 1, "21", superseded=True)
+    _fact(doc, "overpressure", 3, "21")
+    assert "page 3" in _cell(doc) and "earlier reading" not in _cell(doc)
+
+
+def test_a_replaced_blank_or_a_replaced_value_of_another_field_is_not_an_earlier_read():
+    doc = _sheet(5)
+    _fact(doc, "overpressure", 1, "", blank=1, superseded=True)
+    _fact(doc, "spring material", 1, "x", superseded=True)
+    assert _cell(doc).startswith("Not read from the datasheet (5 pages)")
+
+
+def test_a_replaced_value_of_another_submittal_is_not_counted():
+    doc, other = _sheet(5), _sheet(5)
+    _fact(other, "overpressure", 1, "21", superseded=True)
     assert _cell(doc).startswith("Not read from the datasheet (5 pages)")
 
 

@@ -49,14 +49,16 @@ def _tags(tags: list[str]) -> str:
 
 
 def read_pages(
-    document_ids: set[str | None], label: str
+    document_ids: set[str | None], label: str, *, replaced: bool = False
 ) -> tuple[list[int | None], bool]:
     """(pages, exact): where a non-blank value was read, anywhere on the submittal, under this field's name
     (order 307: a row must never say "not read" about a field the reader did read). Names are compared as the
     pairing compares them (`field_links.canonical`). `exact` False = no exact name, but every word of the
     row's name is inside a read name of two words or more ("viscosity relieving" in "viscosity at relieving
     temper."): a probable match, said as one. A value with no page recorded is a value that was read: None in
-    the list. A value a later pass replaced (`superseded_at`) is not the final read and is not counted."""
+    the list. A value a later pass replaced (`superseded_at`) is not the final read and is not counted, unless
+    `replaced` is True: then ONLY those values are looked at (order 308: a reading that found a value and a later
+    reading of the same sheet that did not, which the cell says in its own words)."""
     documents = sorted(d for d in document_ids if d)
     want = field_links.canonical(label)
     if not documents or not want:
@@ -67,7 +69,8 @@ def read_pages(
             connect()
             .execute(
                 "SELECT field_name, field_label, page FROM submittal_facts"
-                f" WHERE submittal_document_id IN ({marks}) AND superseded_at IS NULL AND is_blank = 0",
+                f" WHERE submittal_document_id IN ({marks}) AND superseded_at IS {'NOT ' if replaced else ''}NULL"
+                " AND is_blank = 0",
                 documents,
             )
             .fetchall()
@@ -126,6 +129,14 @@ def where(
         return (
             f"{field}: {what} was read on {_pages_words(elsewhere)}, "
             f"not tied to this row{_tags(tags)}; engineer to confirm"
+        )
+    earlier, earlier_exact = read_pages(document_ids, label, replaced=True)
+    if earlier:
+        # a value WAS read by an earlier reading of this sheet and the last reading has none: say so (order 308)
+        what = "A value" if earlier_exact else "A value that may be this field"
+        return (
+            f"{field}: {what} was read on {_pages_words(earlier)} in an earlier reading of the sheet, "
+            f"but the last reading has no value for it{_tags(tags)}; engineer to confirm"
         )
     documents = {d for d in document_ids if d}
     total = _page_count(next(iter(documents))) if len(documents) == 1 else 0
