@@ -41,7 +41,7 @@ _ORDER = (SPECIAL, PART_UNKNOWN, MANDATORY, NONMANDATORY, APPENDIX, MAIN)
 _MAX_HEADING_WORDS = 14
 _APPENDIX = re.compile(
     r"^\s*(?:(?P<q>non-?\s?mandatory|mandatory|normative|informative)\s+)?"
-    r"(?P<kind>appendix|annex)\s+(?P<id>[A-Z]{1,2}\d{0,2}|\d{1,3}|[IVX]{1,5})\b(?P<rest>.*)$",
+    r"(?P<kind>appendix|annex)\s+(?P<id>(?-i:[A-Z]{1,3}(?:-[A-Z0-9]{1,2})?\d{0,2}|\d{1,3}|[IVX]{1,5}))\b(?P<rest>.*)$",
     re.IGNORECASE,
 )
 _ANNEX_TAIL = re.compile(
@@ -63,6 +63,14 @@ _GENERAL_PART = re.compile(
 )
 
 
+#: A contents entry ends on dot leaders or a page number ("Annex D (informative) Sizing .... 41").
+_CONTENTS_ENTRY = re.compile(r"\S.*(?:(?:\.|(?:\s\.)){3,}\s*\d*|\s\d{1,3})\s*$")
+#: Lines of the page that count as its top: running headers and the heading of a page that opens a region.
+_TOP_LINES = 8
+#: A page with this many region headings is a contents page, not the start of a region.
+_CONTENTS_PAGE_HEADINGS = 3
+
+
 def _is_heading_line(line: str) -> bool:
     words = line.split()
     return 0 < len(words) <= _MAX_HEADING_WORDS and not line.rstrip().endswith(
@@ -70,8 +78,49 @@ def _is_heading_line(line: str) -> bool:
     )
 
 
-def _appendix_scope(match: re.Match) -> str:
-    qualifier = (match.group("q") or "").lower().replace(" ", "").replace("-", "")
+def heading_rejection(
+    match: re.Match, line: str, position: int, previous: str = ""
+) -> str | None:
+    """Why a line that matches a region pattern is NOT a heading, as a code, or None when it is one. A heading is not
+    a sentence that happens to start with the word (a wrapped "Appendix E applies to ..."), not a contents entry, and,
+    below the top of the page, carries a strong mark (capitals, or the standard's own word normative / mandatory)."""
+    rest = (
+        match.groupdict().get("rest") or match.groupdict().get("title") or ""
+    ).strip()
+    if _CONTENTS_ENTRY.search(rest):
+        return "contents_entry"
+    first = rest.lstrip("-\u2013\u2014:. ")[:1]
+    if first and first.isalpha() and first.islower():
+        return "lower_case_after_label"
+    before = previous.rstrip()
+    if len(before.split()) >= 5 and before[-1:] in ",abcdefghijklmnopqrstuvwxyz":
+        return "follows_unfinished_sentence"
+    if position < _TOP_LINES:
+        return None
+    qualifier = match.groupdict().get("q") or _ANNEX_TAIL.search(rest)
+    if qualifier or line.strip().isupper():
+        return None
+    return "weak_mark_low_on_page"
+
+
+def _is_region_heading(
+    match: re.Match, line: str, position: int, previous: str = ""
+) -> bool:
+    return heading_rejection(match, line, position, previous) is None
+
+
+_QUALIFIER_ALONE = re.compile(r"^\s*(non-?\s?mandatory|mandatory)\s*$", re.IGNORECASE)
+
+
+def _appendix_scope(match: re.Match, previous: str = "") -> str:
+    """The scope the heading names. A qualifier alone on the line above ("MANDATORY" over "APPENDIX 18") counts."""
+    alone = _QUALIFIER_ALONE.match(previous)
+    qualifier = (
+        (match.group("q") or (alone.group(1) if alone else ""))
+        .lower()
+        .replace(" ", "")
+        .replace("-", "")
+    )
     if not qualifier:
         tail = _ANNEX_TAIL.search(match.group("rest") or "")
         qualifier = ((tail.group("q") or tail.group("q2")) if tail else "").lower()
@@ -102,15 +151,28 @@ def tag_pages(pages: dict[int, str]) -> dict[int, dict]:
         lines = [ln for ln in (pages[number] or "").splitlines() if ln.strip()]
         content_before_heading = False
         mixed = False
+        found = [
+            (_APPENDIX.match(ln), _PART.match(ln))
+            if _is_heading_line(ln)
+            else (None, None)
+            for ln in lines
+        ]
+        contents_page = sum(1 for a, q in found if a or q) >= _CONTENTS_PAGE_HEADINGS
         for i, line in enumerate(lines):
             if not _is_heading_line(line):
                 content_before_heading = True
                 continue
-            appendix, part = _APPENDIX.match(line), _PART.match(line)
+            appendix, part = found[i]
+            heading = appendix or part
+            if heading and (
+                contents_page
+                or not _is_region_heading(heading, line, i, lines[i - 1] if i else "")
+            ):
+                appendix = part = None
             if appendix:
                 if content_before_heading and scope == MAIN:
                     mixed = True
-                scope = _appendix_scope(appendix)
+                scope = _appendix_scope(appendix, lines[i - 1] if i else "")
                 region, example = (
                     f"{appendix.group('kind').title()} {appendix.group('id')}",
                     False,
@@ -130,6 +192,8 @@ def tag_pages(pages: dict[int, str]) -> dict[int, dict]:
             else:
                 content_before_heading = True
                 continue
+            if not content_before_heading:
+                seen = []  # nothing but headers above it: the whole page is the new region
             seen.append((scope, region))
         strictest, strict_region = min(seen, key=lambda pair: _ORDER.index(pair[0]))
         out[number] = {
@@ -205,9 +269,31 @@ def range_boundary(text: str | None, limit: str) -> bool:
     patterns = (
         rf"\b(?:from|between)\b[^.;]{{0,40}}?(?<![\w.]){number}(?![\w.]){_UNIT}\s+(?:to|and|through|up to)\s+{_NUM}",
         rf"\b(?:from|between)\b[^.;]{{0,40}}?{_NUM}{_UNIT}\s+(?:to|and|through|up to)\s+{number}(?![\w.])",
-        rf"(?<![\w.]){number}(?![\w.]){_UNIT}\s*(?:to|through|[-\u2013])\s*{_NUM}",
-        rf"{_NUM}{_UNIT}\s*(?:to|through|[-\u2013])\s*{number}(?![\w.])",
+        rf"(?<![\w.]){number}(?![\w.]){_UNIT}\s*(?:to|through)\s*{_NUM}",
+        rf"{_NUM}{_UNIT}\s*(?:to|through)\s*{number}(?![\w.])",
         rf"\b(?:over|above|exceeding|greater than|more than)\s+{number}(?![\w.]){_UNIT}[^.;]{{0,25}}?\b(?:up to|not exceeding|not more than|less than|and below)\b",
         rf"\b(?:up to|not exceeding|not more than|less than)\s+{number}(?![\w.]){_UNIT}[^.;]{{0,25}}?\b(?:over|above|exceeding|greater than|more than)\s+{_NUM}",
     )
-    return any(re.search(p, body, re.IGNORECASE) for p in patterns)
+    return any(re.search(p, body, re.IGNORECASE) for p in patterns) or _dashed_range(
+        body, str(limit).strip()
+    )
+
+
+_DASHED = re.compile(
+    rf"(?<![\w.\u2013-])({_NUM})\s*([A-Za-z%\u00b0/]*)\s*[-\u2013]\s*({_NUM})\s*([A-Za-z%\u00b0/]*)"
+)
+
+
+def _dashed_range(body: str, limit: str) -> bool:
+    """ "10-50 bar", "10 bar - 50 bar": a dash is a range only when a unit sits on one of the two figures. Without a
+    unit a dash joins a code ("ISO 15156-3", "SAES-J-600 8-3"), not two ends of a range."""
+    from . import field_vocabulary
+
+    wanted = limit.replace(",", ".")
+    for m in _DASHED.finditer(body):
+        first, u1, second, u2 = m.groups()
+        if wanted not in (first.replace(",", "."), second.replace(",", ".")):
+            continue
+        if any(field_vocabulary._unit_families(u) for u in (u1, u2) if u):
+            return True
+    return False
