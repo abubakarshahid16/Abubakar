@@ -127,6 +127,15 @@ _NEGATION = frozenset(
         "wont",
         "cant",
         "couldnt",
+        "absence",
+        "silent",
+        "wanting",
+        "fails",
+        "failed",
+        "unable",
+        "nowhere",
+        "neither",
+        "nor",
     }
 )
 

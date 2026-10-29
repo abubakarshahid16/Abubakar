@@ -74,6 +74,10 @@ ROW_11 = {
         "The datasheet gives no inlet rating.",
         "Inlet rating is not indicated.",
         "Inlet rating is not mentioned.",
+        # s3's residual three, and the neighbours with no "not" in them
+        "There is an absence of an inlet rating.",
+        "The datasheet is silent on the inlet rating.",
+        "The inlet rating is wanting from the datasheet.",
     ],
 )
 def test_every_listed_absence_phrase_is_refused_against_a_no_label_template(text):
@@ -96,3 +100,18 @@ def test_a_rewrite_that_keeps_the_templates_own_negated_words_is_kept():
         "The contractor is to provide the inlet rating, which was not read as a value."
     )
     assert crs_wording.lock(moved, ROW_11) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The reader was unable to find the inlet rating.",
+        "The inlet rating fails to appear.",
+    ],
+)
+def test_other_absence_wordings_are_refused_whichever_check_catches_them_first(text):
+    # the new-words check may refuse these before the absence check does; either way the template stays
+    assert crs_wording.lock(text, ROW_11) in (
+        crs_wording.ABSENCE_ADDED,
+        crs_wording.CLAIM_ADDED,
+    )
