@@ -75,6 +75,10 @@ TRUNCATED, UNKNOWN = output_limits.TRUNCATED, output_limits.UNKNOWN
 NUMBER_CHANGED, UNIT_CHANGED = "number_not_in_template", "unit_not_in_template"
 CLAUSE_DROPPED, STANDARD_CHANGED = "clause_dropped", "standard_changed"
 CLAIM_ADDED, STATUS_REVERSED = "claim_not_in_template", "status_reversed"
+#: Order 308: the rewrite says a value is absent ("missing from the datasheet")
+#: and the template does not. "No field was read" is the reader's gap, not
+#: proof the sheet omits it, so the machine's wording may not harden it.
+ABSENCE_ADDED = "absence_not_in_template"
 
 #: Conformance words a breach or an open question may never carry (the
 #: deleted claude_crs_comments gate, #450 / #648).
@@ -84,6 +88,68 @@ _CONFORMANCE = ("complies", "comply with", "is compliant", "are compliant", "con
 _NEGATED = ("not acceptable", "is not acceptable", "does not comply", "not compliant",
             "non compliant", "non-compliant", "not in accordance", "does not conform",
             "not adequate", "does not meet", "not satisfy", "unacceptable")
+
+#: The words that make a sentence an absence claim (a CLOSED set of words, not a list of phrases: a fifth way of
+#: saying "the sheet lacks it" still carries one of these or is not an absence claim). A rewrite may use one only
+#: inside a stretch of words the TEMPLATE itself has (one word before it, two after it).
+_NEGATION = frozenset(
+    {
+        "not",
+        "no",
+        "never",
+        "none",
+        "nothing",
+        "without",
+        "lacks",
+        "lack",
+        "lacking",
+        "missing",
+        "absent",
+        "omitted",
+        "blank",
+        "empty",
+        "unspecified",
+        "unstated",
+        "unavailable",
+        "unknown",
+        "left",
+        "cannot",
+        "isnt",
+        "wasnt",
+        "arent",
+        "werent",
+        "doesnt",
+        "dont",
+        "didnt",
+        "hasnt",
+        "havent",
+        "hadnt",
+        "wont",
+        "cant",
+        "couldnt",
+    }
+)
+
+#: "not more than", "no less than", "not exceed": a limit, not an absence.
+_LIMIT_WORDS = frozenset(
+    {
+        "more",
+        "less",
+        "greater",
+        "lower",
+        "higher",
+        "exceed",
+        "exceeds",
+        "exceeding",
+        "below",
+        "above",
+        "fewer",
+        "larger",
+        "smaller",
+        "over",
+        "under",
+    }
+)
 
 _VOCABULARY_PATH = Path(__file__).parent / "reference" / "crs_comment_vocabulary.json"
 _WORD = re.compile(r"[a-z]{4,}")
@@ -166,6 +232,27 @@ def _reversed(row_kind: str, text: str) -> bool:
     return any(_contains(folded, _fold(word)) for word in _CONFORMANCE)
 
 
+def _words(text: str) -> list[str]:
+    return re.findall(
+        r"[a-z0-9]+", (text or "").lower().replace("'", "").replace("\u2019", "")
+    )
+
+
+def _absence_added(text: str, template: str) -> bool:
+    """True when `text` says something is absent in words the template does not use: a word of `_NEGATION` whose
+    neighbourhood (one word before, two after) is not a run of the template's own words."""
+    said, given = _words(text), _words(template)
+    for i, word in enumerate(said):
+        if word not in _NEGATION or (
+            said[i + 1 : i + 2] and said[i + 1] in _LIMIT_WORDS
+        ):
+            continue
+        run = said[max(i - 1, 0) : i + 3]
+        if not any(given[j : j + len(run)] == run for j in range(len(given))):
+            return True
+    return False
+
+
 def lock(ai_text: str, row: dict) -> str | None:
     """None when the rewrite keeps every fact of the row; else the reason."""
     text = (ai_text or "").strip()
@@ -206,6 +293,8 @@ def lock(ai_text: str, row: dict) -> str | None:
             return CLAIM_ADDED
     if _reversed(str(row.get("row_kind") or ""), text):
         return STATUS_REVERSED
+    if _absence_added(text, template):
+        return ABSENCE_ADDED
     return None
 
 
