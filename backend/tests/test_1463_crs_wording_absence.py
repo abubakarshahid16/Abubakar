@@ -61,6 +61,19 @@ ROW_11 = {
         "Inlet rating has not been given.",
         "Inlet rating was never provided.",
         "Inlet rating is not available.",
+        # cloud-3's twelve (closed set of negation words, not a phrase list)
+        "Inlet rating was not found on the datasheet.",
+        "Inlet rating is not shown.",
+        "Inlet rating is not listed.",
+        "Inlet rating does not appear.",
+        "Inlet rating is not present.",
+        "There is no inlet rating on the sheet.",
+        "Inlet rating was left out.",
+        "Inlet rating is not entered.",
+        "The datasheet doesn't state the inlet rating.",
+        "The datasheet gives no inlet rating.",
+        "Inlet rating is not indicated.",
+        "Inlet rating is not mentioned.",
     ],
 )
 def test_every_listed_absence_phrase_is_refused_against_a_no_label_template(text):
@@ -71,3 +84,15 @@ def test_an_absence_the_template_itself_states_may_be_kept():
     row = {**MISSING_ROW, "comment": "Design pressure is missing from the sheet."}
     text = "Design pressure is missing from the sheet; please add it."
     assert crs_wording.lock(text, row) is None
+
+
+def test_a_rewrite_that_keeps_the_templates_own_negated_words_is_kept():
+    kept = (
+        "Inlet rating was not read as a value, and no label for it was found in the text of "
+        "pages 1-4; the contractor is to provide it."
+    )
+    assert crs_wording.lock(kept, ROW_11) is None
+    moved = (
+        "The contractor is to provide the inlet rating, which was not read as a value."
+    )
+    assert crs_wording.lock(moved, ROW_11) is None
