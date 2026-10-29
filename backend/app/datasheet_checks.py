@@ -695,7 +695,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         # The condition is unknown and the field is absent: whether the
         # contractor owes this value is not known, so it is not a missing value.
         return res(NEEDS_ENGINEER_REVIEW, _sentence(
-            f"the {_pretty(field).lower()} is not given, and whether it is needed depends on the "
+            f"the {_pretty(field).lower()} {'is not given' if why == 'absent' else 'has two different values on the sheet'}, and whether it is needed depends on the "
             f"{_pretty(unknown['role']).lower()}, which the sheet does not state"))
     if fact is None:
         if why == "absent":
