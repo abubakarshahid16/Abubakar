@@ -2,8 +2,8 @@
 
 A rule is a quotation: `standard_requirements.source_text` is the sentence the extractor took from the page
 `standard_requirements.page`. The citation is only worth anything if the sentence is really there. This check
-looks for each rule's sentence in the text of its cited page (and the page after it, for a sentence that runs
-over a page break), using the project's own folding (`standards._fold_for_page`: letters and digits only, so
+looks for each rule's sentence in the text of its cited page (and the page after it, for a sentence that STARTS on the cited page and runs
+over the page break), using the project's own folding (`standards._fold_for_page`: letters and digits only, so
 line breaks, hyphenation and spacing do not matter). Not "70 percent alike": the whole sentence.
 
 A page recognised by OCR is read through `page_ocr` (the recognised text), a page with a text layer through
@@ -81,7 +81,14 @@ def _reason(row: dict, pages: dict[int, str]) -> str | None:
     page = row.get("page")
     if page is None or page not in pages:
         return NO_PAGE
-    if probe in pages[page] or probe in pages[page] + pages.get(page + 1, ""):
+    here = pages[page]
+    if probe in here:
+        return None
+    # a sentence that runs over the page break STARTS on the cited page: a match that begins on the next page
+    # is the next page's sentence, not this one's
+    joined = here + pages.get(page + 1, "")
+    start = joined.find(probe)
+    if start != -1 and start < len(here):
         return None
     return NOT_ON_PAGE
 
