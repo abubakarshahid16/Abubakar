@@ -1150,17 +1150,16 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     does not turn into a row a plain pass never was."""
     from . import comparison, degraded_read, read_elsewhere, standard_clause_page
     from . import review as review_mod
+    from .card_trust import remember
     written = []
-    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete and
-    # not written again beside it (audit 2026-09-30): same rule, field, tag, value.
+    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete, not written again (audit 2026-09-30).
     fold = lambda v: " ".join(str(v or "").lower().split())  # noqa: E731
     rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
                  fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
                 for f in review_mod.rejected_in_run(review_run_id, ORIGIN)}
     # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met item (an R13 calculation included) is
     # stored as a COMPLIANT finding with its item id, fact, page and clause, so "Meets" is visible like any result;
-    # never a CRS comment (`crs_mapping` takes only breaches and gaps). Any OTHER check that held adds no row.
-    # "Does not apply" and NOT CALCULATED are no rows either. 307.1: a value read for other tags is not "not read".
+    # never a CRS comment. Any OTHER check that held, "does not apply" and NOT CALCULATED add no row.
     results = read_elsewhere.soften(results)
     for r in (x for x in degraded_read.hold(results, submittal_id) if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
@@ -1205,6 +1204,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
                                        if "trust_label" in r else None),
             "rule_said": r.get("rule_said"),
         }, created_by=None)
+        remember(finding, r)
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})
     standard_clause_page.attach(review_run_id, written)

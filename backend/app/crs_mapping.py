@@ -793,13 +793,13 @@ def _supporting_clause_lines(group: list[dict]) -> list[str]:
 
 
 def trust_words(finding: dict) -> str:
-    """rule_trust (#947): the label's words for the CRS ("engineer-approved
-    rule", "automatic (proven rule)", ...), from the ONE table in
-    `rule_trust.TRUST_WORDS`. "" on a finding the run did not label."""
+    """rule_trust (#947): the label's words for the CRS, from the ONE table `rule_trust.TRUST_WORDS` ("" if unlabelled)."""
     label = finding.get("trust_label")
     if not label:
         return ""
-    from .rule_trust import TRUST_WORDS
+    from .rule_trust import ENGINEER_CONFIRMED, TRUST_WORDS
+    if label == ENGINEER_CONFIRMED and finding.get("trust_by"):
+        return f"rule approved by {finding['trust_by']}"
     return TRUST_WORDS.get(label, str(label))
 
 

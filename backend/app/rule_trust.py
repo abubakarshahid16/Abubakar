@@ -325,6 +325,9 @@ def check_label(result: dict) -> str:
     a mandatory field - is UNPROVEN. No family proof applies: none is AI-compiled."""
     if result.get("checklist") and not result.get("draft") and not result.get("local"):
         return ENGINEER_CONFIRMED
+    # order 302.4 c: the engineer's approval gates the card
+    if label := card_trust.label_for(result):
+        return label
     if settings.tested_cards_decide_enabled and card_trust.decides(result):
         return TESTED_CARD  # order 306.1: a tested card decides while its engineer approval is pending
     return UNPROVEN
@@ -365,6 +368,7 @@ def label_check(result: dict) -> dict:
     if out.get("rule_said"):
         out["detail"] = f"{result.get('detail') or ''} ({UNPROVEN_REASON})".strip()
     out.update(tier=None, show_for_engineer_tick=False)
+    out.update(card_trust.approved_by(result, out["trust_label"]))  # 302.4 c
     if out["trust_label"] == TESTED_CARD:  # order 306.1
         is_safety = card_trust.safety(result["rule_id"])
         out.update(

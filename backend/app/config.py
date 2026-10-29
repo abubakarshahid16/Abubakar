@@ -441,8 +441,7 @@ class Settings(BaseSettings):
     #: #645 clause to check: for a clause sentence with no stored limit that
     #: the review could not decide, the local model PROPOSES a check (field,
     #: limit, unit, condition, quote); code verifies every part and keeps what
-    #: passes as a DRAFT for the engineer, never a verdict. ON by default
-    #: (#805 rule 1); at most this many sentences per run (one call each).
+    #: passes as a DRAFT for the engineer, never a verdict. ON by default (#805 rule 1); at most this many.
     ai_clause_checks_enabled: bool = True
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
@@ -459,6 +458,7 @@ class Settings(BaseSettings):
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     tested_cards_decide_enabled: bool = False  # order 306.1
+    rule_cards_approval_enabled: bool = False  # order 302.4 c
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md
