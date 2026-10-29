@@ -16,7 +16,9 @@ import pytest
 from app import (
     claude_approved,
     claude_spend,
+    converter_gates,
     db,
+    page_scope,
     rule_roles,
     standards,
     standards_converter,
@@ -41,6 +43,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "convert.sqlite")
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(standards_converter, "ASK_TWICE", False)  # 305.4: own file
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
@@ -63,9 +66,14 @@ def _doc(doc_id: str, role: str, number: str | None = None) -> None:
         )
         conn.execute(
             "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,"
-            "token_count,content_hash,retrievable) VALUES (?,?,?,0,1,1,NULL,'prose','x',1,?,1)",
-            (f"c-{doc_id}", doc_id, "f.pdf", f"h-{doc_id}"),
+            "token_count,content_hash,retrievable) VALUES (?,?,?,0,1,1,NULL,'prose',?,1,?,1)",
+            (f"c-{doc_id}", doc_id, "f.pdf", CHUNK_TEXT, f"h-{doc_id}"),
         )
+
+
+#: A chunk that prints the clause headings the tests' rows cite (order 304.1: a clause the page does not print is
+#: not citable, so the fixture's page must print them).
+CHUNK_TEXT = "\n".join(f"6.{n} Heading {n}" for n in range(1, 41))
 
 
 def _req(doc_id: str, text: str, clause: str = "6.1", rtype: str = "statement") -> dict:
@@ -1323,7 +1331,12 @@ def test_a_sentence_under_an_example_heading_in_its_chunk_is_not_a_requirement()
 
 def test_a_new_numbered_clause_ends_the_example_block():
     chunk = "5.6.4 Sizing\nExample 1\n5.6.5 Next clause heading\nThe casing design pressure shall not exceed 25 bar."
-    row = {**ROW, "requirement_text": EXAMPLE_SENTENCE, "chunk_text": chunk}
+    row = {
+        **ROW,
+        "requirement_text": EXAMPLE_SENTENCE,
+        "chunk_text": chunk,
+        "clause": "5.6.5",
+    }
     assert standards_converter.in_example(row) is False
     assert _verdict(GOOD, row)[0] == "verified"
 
@@ -1399,3 +1412,99 @@ def test_a_row_with_no_real_clause_is_unproven(clause):
 def test_a_real_clause_is_kept():
     for clause in ("6.1", "5.6.4.2", "A.3", "1.0.1"):
         assert _verdict(GOOD, {**ROW, "clause": clause})[0] == "verified"
+
+
+# ---- order 304.1: a verified-looking row outside the main body, or under a clause the page does not print
+
+APPENDIX_CHUNK = "Mandatory Appendix 6\n6.1 Windows\nThe casing design pressure shall not exceed 25 bar."
+
+
+def test_a_sentence_in_an_appendix_is_unproven_scope_not_a_check():
+    row = {**ROW, "chunk_text": APPENDIX_CHUNK}
+    assert _verdict(GOOD, row)[:2] == ("unproven", "scope_in_appendix")
+
+
+def test_an_appendix_named_by_the_chunks_section_is_unproven_scope():
+    row = {
+        **ROW,
+        "chunk_text": "6.1 Windows\nThe casing design pressure shall not exceed 25 bar.",
+        "section": "Annex C (informative)",
+    }
+    assert _verdict(GOOD, row)[:2] == ("unproven", "scope_in_appendix")
+
+
+def test_a_mention_of_an_annex_inside_a_line_is_not_an_appendix_heading():
+    chunk = "6.1 Casing\nThe casing design pressure shall not exceed 25 bar (see Annex A for the method)."
+    assert _verdict(GOOD, {**ROW, "chunk_text": chunk})[0] == "verified"
+
+
+def test_a_clause_the_page_does_not_print_is_unproven_scope():
+    """The shape of the planner's five ASME rows: a stored clause of 2.5 or 0.3 that no heading of the text carries."""
+    chunk = (
+        "Rules for acrylic windows\nThe casing design pressure shall not exceed 25 bar."
+    )
+    for clause in ("2.5", "0.3", "9.5"):
+        row = {**ROW, "clause": clause, "chunk_text": chunk}
+        assert _verdict(GOOD, row)[:2] == ("unproven", "scope_clause_not_printed")
+
+
+def test_a_clause_printed_as_a_heading_of_its_chunk_is_citable():
+    chunk = "6.1 Casing design\nThe casing design pressure shall not exceed 25 bar."
+    assert _verdict(GOOD, {**ROW, "chunk_text": chunk})[0] == "verified"
+
+
+def test_a_number_followed_by_a_unit_is_not_a_clause_heading():
+    chunk = (
+        "6.1 bar of margin is kept\nThe casing design pressure shall not exceed 25 bar."
+    )
+    assert converter_gates.clause_printed({**ROW, "chunk_text": chunk}) is False
+
+
+def test_the_gate_is_silent_when_the_chunk_text_is_not_at_hand():
+    assert converter_gates.clause_printed(ROW) is None
+    assert _verdict(GOOD, ROW)[0] == "verified"
+
+
+# ---- order 304.1 add: a cut sentence, or a limit that is one end of a range, is not a plain ceiling
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "not more than the casing design pressure shall not exceed 25 bar.",
+        "which casing design pressure shall not exceed 25 bar.",
+        "the casing design pressure shall not exceed 25 bar.",
+    ],
+)
+def test_a_sentence_cut_from_a_longer_clause_is_unproven(sentence):
+    row = {**ROW, "requirement_text": sentence}
+    answer = {**GOOD, "quote": "casing design pressure shall not exceed 25 bar"}
+    assert _verdict(answer, row)[:2] == ("unproven", "sentence_is_fragment")
+
+
+@pytest.mark.parametrize(
+    "sentence, limit",
+    [
+        ("The casing design pressure shall be between 10 and 25 bar.", "25"),
+        ("The casing design pressure shall be from 25 bar to 40 bar.", "25"),
+        ("The casing design pressure range is 10 - 25 bar and shall be stated.", "25"),
+    ],
+)
+def test_a_limit_that_is_one_end_of_a_range_is_unproven_even_for_a_cross_field_limit(
+    sentence, limit
+):
+    row = {**ROW, "requirement_text": sentence, "requirement_type": "cross_field_limit"}
+    quote = " ".join(sentence.rstrip(".").split()[1:])
+    answer = {**GOOD, "quote": quote, "limit": limit}
+    assert _verdict(answer, row)[:2] == ("unproven", "limit_is_range_boundary")
+
+
+def test_two_figures_of_different_units_are_not_a_range():
+    sentence = (
+        "The casing design pressure shall not exceed 25 bar and 30 degC at the inlet."
+    )
+    assert page_scope.range_boundary(sentence, "25") is False
+
+
+def test_a_whole_sentence_with_one_ceiling_still_verifies():
+    assert _verdict(GOOD, ROW)[0] == "verified"

@@ -44,9 +44,11 @@ def reviewed_entries(files: list[Path] | None = None) -> list[tuple[str, dict]]:
             or data.get("status") != standards_converter.STATUS
         ):
             continue
+        asked = bool(data.get("ask_twice"))  # 305.4: its verified rows were asked twice
         for e in data.get("entries", []):
             if (
                 e.get("status") == "verified"
+                and (e.get("asked_twice") is True or not asked)
                 # v2 (order 286.1): the converter no longer judges applicability, so a verified row has none
                 and e.get("applies") in ("yes", None)
                 and e.get("field")
@@ -125,8 +127,9 @@ def converter_rules(
     }
     out: dict[str, dict] = {}
     for row in conn.execute(
-        "SELECT id, source_text, requirement_text FROM standard_requirements"
-        " WHERE standard_document_id = ? AND requirement_type = ? AND superseded_at IS NULL ORDER BY id",
+        "SELECT r.id, r.source_text, r.requirement_text, r.clause, c.text AS chunk_text, c.section AS section"
+        " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
+        " WHERE r.standard_document_id = ? AND r.requirement_type = ? AND r.superseded_at IS NULL ORDER BY r.id",
         (standard_document_id, ai_requirements.STATEMENT),
     ):
         digest = rule_roles.text_hash(row["requirement_text"])
@@ -164,6 +167,14 @@ def _rule_from(row, digest: str, file_type: str, entry: dict) -> dict | None:
         "quote": entry.get("quote"),
     }
     sentence = row["source_text"] or row["requirement_text"] or ""
+    if standards_converter.scope_refusal(
+        dict(row)
+    ):  # an appendix, or a clause the page does not print (304.1)
+        return None
+    if standards_converter.limit_refusal(  # cut mid-clause, or one end of a range (304.1)
+        row["requirement_text"] or sentence, entry.get("limit") or ""
+    ):
+        return None
     # A scope AFTER the limit ("... 25 bar for gas service") is not caught by `limit_from_draft`, which reads
     # leading conditions (s3, #1412): it must be the row's stored condition (order 289.2, which the review's own
     # condition gate then settles from the sheet, or leaves to the engineer), else the row is refused.
