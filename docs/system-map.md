@@ -105,8 +105,10 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
 | `crs_checklist` | Make a checklist item held for the engineer a CRS row, and say when it is a draft |
+| `recommendations` | A "should" sentence of a standard is stored as a recommendation with no limit; no review reads it (order 288.2) |
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
 | `run_finishing` | Order 236: a run whose job is still writing the AI comments, numbers and wording reads as running, not completed |
+| `table_cells` | Order 271.4: a standards-table cell as requirement fields, a number, a number with a unit or a range (moved out of `standards`) or, behind a switch, a text cell with no value |
 | `model_metrics` | #503: per-model latency and error counts of the local model calls a review run makes, stored per run and model with the date (counts and seconds only) |
 | `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
@@ -160,6 +162,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `statement_roles` | Order 263.1: a STATEMENT rule ("the pump shall have X") mapped to a TEXT field of the type's own form plus the value the clause requires - proposed offline (`scripts/propose_rule_roles.py`), kept in the same DRAFT file as hashes only, paired at run time through `match_by_field_name` (always NEEDS_ENGINEER_REVIEW, both sides shown) |
 | `standards_converter` | Order 270.3: the sentences of ONE standard (SAES, ISO only) turned into checks offline (`scripts/convert_standards.py`) - Claude Sonnet through `ClaudeProvider` answers applicability, one field of the type's own form, comparator, limit, unit and the exact clause words; code proves every answer against the stored clause, the rest is "unproven: engineer, please look"; drafts (JSON + CSV, clause quotes) are written outside the repo and a review reads only the verified "yes" rows, only when `standards_converter_dir` is set |
 | `converter_review` | Orders 270.3 and 274.1: the READING side of the standards converter - the verified "yes" rows of its drafts as field mappings (`rule_roles`) and, for a clause sentence it proved, a rule in the sentence's place (`ai_requirements.auto_use_rules`' road, `rule_trust` decides the verdict); empty unless `standards_converter_dir` is set; code re-checks every row against the stored sentence |
+| `converter_gates` | Orders 295.7 b and c: the standards converter's proof gates that read the SENTENCE's surroundings - `in_example` (a worked example illustrates, it is not a requirement) and `quote_unreadable` (a quote, or the sentence it was cut from, that is OCR noise); pure functions, called by `standards_converter.verify`; `fold` is the one way converter text is compared |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
@@ -262,6 +265,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `synthesis` | Stage 3 and stage 4: the consolidated summary, and the advisory recommendation |
 | `time_units` | The time rows of the one unit table: hours, minutes, seconds, milliseconds, days (#896) |
 | `rate_units` | The flow-rate rows of the one unit table: kg/s, t/h, l/min, m3/s and their kin, exact factors only (#1290) |
+| `read_elsewhere` | A checklist row MISSING for one equipment tag, while the field was read for another tag, becomes an engineer check that says where the value was read, never "not read" (order 307.1) |
 | `table_gate` | Which requirements a review may check (#598) |
 | `tables` | Structured rows and columns for chunks already identified as tables |
 | `table_consistency` | #531: a numeric table checked against itself (overlapping or gapped bands, a Total that is not the sum, a column that is not its own declared formula); findings are cited questions for the engineer, never "consistent" |

@@ -150,6 +150,8 @@ When a mistake is called out on #692, add one line here in your next PR.
 - Moved lines a mutation anchor quotes and pushed without `check_mutation_anchors.py`, so CI went red (s3, #1285; the pre-push guard now runs it).
 - Added a second model pass without asking what it costs on the Claude lane (s3, #1288; a repeat read must be local-only).
 - Removed the only breached item of a rule kind and made an old mutation entry blind (M6403, s3, #1435); and let a tested card print "proven" because only the label, not the stored words, was tested (s3, #1446): run `mutation_check.py --changed` before asking for a read, and test a new label from the stored finding to the CRS words.
+- Approved a danger-zone label change from the gate alone (#1446, cloud-2 caught it): a tested-card verdict printed "proven" on the CRS because the words are built from the stored label; before approving, follow the value from where it is set to the cell the engineer reads.
+- Pushed a new `backend/app` module without `check_system_map.py` and `check_unused_modules.py`, so CI sent two PRs back (#1447, #1449): run both before the push.
 
 ## Who does what
 

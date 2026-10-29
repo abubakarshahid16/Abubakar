@@ -113,9 +113,10 @@ _LONE_INK = re.compile(r"(?:^|[\s_(])(?:\*+|_{2,})(?=[\s_)]|$)")
 
 #: A figure standing on its own in a cell ("RATED FLOW * 24.8 m3/h", "Head 78 m *"): not the digit of a
 #: unit ("m3/h"), and not a number that only points elsewhere ("see note 3", "Item 2", "Class 300", "API 526").
-_FIGURE = re.compile(r"(?<![A-Za-z0-9_.,/])\d+(?:[.,]\d+)*(?!\d)")
+_FIGURE = re.compile(r"(?<![A-Za-z0-9_.,/])(?<![A-Za-z]-)\d+(?:[.,]\d+)*(?!\d)")
 _POINTER_WORD = re.compile(
-    r"(?:note|item|class|ref|see|section|clause|table|page|no|api|asme|iso|en|din|bs|iec|ansi|nace|std)"
+    r"(?<![A-Za-z0-9])(?:note|item|class|ref|see|section|sec|clause|table|tab|page|no|para|paragraph|fig|figure"
+    r"|annex|appendix|sheet|dwg|drawing|spec|rev|revision|part|pt|api|asme|iso|en|din|bs|iec|ansi|nace|std)"
     r"[.:#]*\s*$",
     re.IGNORECASE,
 )

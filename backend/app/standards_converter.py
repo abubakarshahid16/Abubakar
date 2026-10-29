@@ -5,7 +5,7 @@ test. For every stored requirement of one standard the converter asks Claude Son
 `reasoning_provider.ClaudeProvider` -> `reader_transport`, every call reserved in `claude_spend` under the
 step `standards_convert:<standard>` with its own USD cap) for:
 
-  * does it apply to the equipment type (yes / no / depends, with the condition);
+  * (v2, order 286.1) NOT whether the sentence applies: that stays with the review's own scope gates;
   * ONE field of that type's own form (`rule_roles.form`, i.e. the pump form of #1352 - never a copy of it
     here), a comparator, a limit, a unit, and the exact clause words it rests on.
 
@@ -16,10 +16,15 @@ CODE THEN VERIFIES (`verify`); the model never writes a check:
   3. the unit is of the kind the field is (a pressure is not in minutes);
   4. the quote names the field (every content word of its canonical name is in the quote);
   5. the comparator is the one the quote's own words say ("shall not exceed" is <=, "at least" is >=).
+  6. a scope written AFTER the limit ("... 25 bar for gas service") is cut from the clause by code and kept as
+     the row's condition (order 289.2); the review's own condition gate settles it from the sheet, or leaves the
+     row to the engineer. Never dropped, never an unconditional limit.
 
 Verified = a CHECK. Anything else is UNPROVEN, and an unproven row may only say "engineer, please look":
-it carries no limit, no comparator and no verdict - there is no path from it to "meets". A "no" or a
-"depends" answer is the model's claim, stored unconfirmed; only a "yes" row is ever read by a review.
+it carries no limit, no comparator and no verdict - there is no path from it to "meets". A sentence the model
+finds no form box for is "no check" (never "not applicable": the converter does not judge applicability,
+order 286.1). A default or an assumption ("shall be assumed as", "taken as", "if not specified") is not a
+limit and stays unproven.
 
 WHAT GOES TO THE CLOUD: standards text only. The prompt is built from `standard_requirements` rows of
 documents classified COMPANY_STANDARD (clause and sentence), the system block from the type's field names.
@@ -54,6 +59,8 @@ from . import (
     rule_roles,
 )
 from .ai.json_reply import unfenced
+from .converter_gates import fold as _fold
+from .converter_gates import in_example, quote_unreadable
 from .reasoning_provider import ProviderRefused
 
 #: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. API and ASME: HOLD.
@@ -63,13 +70,38 @@ STEP_PREFIX = claude_spend.STANDARD_STEP_PREFIX
 #: for now); "claude" is the lane behind `claude_spend`, the approved-documents list and the egress flags.
 LANE_CLAUDE, LANE_LOCAL = "claude", "local"
 LANES = (LANE_LOCAL, LANE_CLAUDE)
-PROMPT_VERSION = "o270-convert-v1"
+PROMPT_VERSION = "o286-convert-v2"
 STATUS = "draft"
+#: The stored requirement types the converter asks about (order 295.7). A recommendation (advice, #1421), a
+#: definition and an applicability trigger are not rules with a limit: they are written as "no check" with the
+#: reason `type_not_convertible` and never sent to the model.
+CONVERTIBLE_TYPES = (
+    "statement",
+    "numeric_limit",
+    "cross_field_limit",
+    "range_limit",
+    "table_value",
+    "table_row",
+)
+#: A clause number the extractor did not really read. "1.0" is deliberately NOT here: it is a real clause number.
+PLACEHOLDER_CLAUSES = ("", "-", "n/a", "na", "none", "0", "0.0")
 #: Requirements per call.
 BATCH = 12
 #: Characters of a clause the model reads (and the quote is verified against).
 TEXT_CHARS = 1200
-APPLIES = ("yes", "no", "depends")
+#: Words that make a figure a DEFAULT or an assumption, not a limit ("NPSHA shall be assumed as 5.8 m when it is
+#: not specified"): a clause that holds one is never proven as a limit (s2's hand check of SAES-G-005, 286.3).
+DEFAULT_WORDS = (
+    "assum",
+    "taken as",
+    "taken to be",
+    "if not specified",
+    "when not specified",
+    "if no value is specified",
+    "in the absence of",
+    "by default",
+    "default",
+)
 #: The comparator the model may answer, and the words of a quote that make each one true.
 COMPARATORS = ("<=", ">=", "<", ">", "=")
 _CUES = {
@@ -113,15 +145,21 @@ _CUE_LIST = sorted(
 )
 #: The reason an answer stays unproven (counts only; never text).
 REASONS = (
-    "applies_unreadable",
+    "answer_unreadable",
     "no_field",
+    "default_not_limit",
+    "example_not_requirement",
+    "quote_unreadable",
+    "no_real_clause",
+    "type_not_convertible",
     "quote_not_in_clause",
     "number_not_in_quote",
     "unit_not_in_quote",
     "unit_not_of_field",
     "field_not_in_quote",
     "comparator_not_in_quote",
-    "condition_after_limit",
+    "number_and_unit_apart",
+    "two_conditions",
     "condition_not_in_clause",
     "reply_unreadable",
     "not_asked",
@@ -163,16 +201,18 @@ def system_text(equipment_type: str, dictionary: list[str]) -> str:
     """The stable block (cached): the instructions and the type's own numbered field list."""
     numbered = "\n".join(f"{n}: {name}" for n, name in enumerate(dictionary))
     return (
-        f"You read sentences of an engineering STANDARD. For each item decide whether the sentence is a "
-        f"requirement on a {equipment_type}, and if it states a numeric limit that a datasheet field of "
-        f"a {equipment_type} can be compared with, say which one.\n"
-        "Answer per item: i (the item number), applies (yes, no or depends), condition (the words that "
-        "say when it applies, or null), field (ONE number from the list below, or null), comparator "
+        f"You read sentences of an engineering STANDARD. For each item, if the sentence states a numeric "
+        f"limit that a datasheet field of a {equipment_type} can be compared with, say which one. Do NOT "
+        f"decide whether the sentence applies to a sheet: another step does that.\n"
+        "Answer per item: i (the item number), condition (the words of the sentence that say when it "
+        "holds, or null), field (ONE number from the list below, or null), comparator "
         "(<=, >=, <, > or =), limit (the number exactly as written in the sentence), unit (exactly as "
         "written), quote (the EXACT words of the sentence the check rests on, copied unchanged).\n"
         "Rules: choose a field only from the list; never invent a field, a number or a unit; the quote, "
         "the number and the unit must all appear in the sentence word for word; when the sentence has "
-        "no numeric limit for one of these fields answer field null. Unproven is a good answer.\n"
+        "no numeric limit for one of these fields answer field null; a default or an assumption (shall be "
+        "assumed as, taken as, if not specified) is not a limit, so answer field null. Unproven is a "
+        "good answer.\n"
         f"FIELDS OF THE {equipment_type.upper()} FORM:\n{numbered}"
     )
 
@@ -186,7 +226,6 @@ SCHEMA = {
                 "type": "object",
                 "properties": {
                     "i": {"type": "integer"},
-                    "applies": {"type": "string", "enum": list(APPLIES)},
                     "condition": {"type": ["string", "null"]},
                     "field": {"type": ["integer", "null"]},
                     "comparator": {"type": ["string", "null"]},
@@ -194,12 +233,32 @@ SCHEMA = {
                     "unit": {"type": ["string", "null"]},
                     "quote": {"type": ["string", "null"]},
                 },
-                "required": ["i", "applies"],
+                "required": ["i"],
             },
         }
     },
     "required": ["checks"],
 }
+
+
+def require_known_type(equipment_type: str) -> None:
+    """Refuse an equipment type that has no form of its own (s2's trap, 286.1): `rule_roles.form` would fall
+    back to the generic two-field list and the run would convert almost nothing without saying so."""
+    from . import datasheet_checks
+
+    rules = datasheet_checks.load_rules()
+    generic = (
+        datasheet_checks.mandatory_list_key(equipment_type, rules)
+        == datasheet_checks.GENERIC
+    )
+    if not equipment_type or (
+        generic and not datasheet_checks.checklist_for(equipment_type, rules)
+    ):
+        raise ValueError(
+            f"{equipment_type!r} is not an equipment type with a form of its own (only the generic "
+            'two-field list would be used); name a known type, e.g. "Centrifugal Pump" or '
+            '"Pressure Safety Valve"'
+        )
 
 
 def requirements_of(conn, document_id: str) -> list[dict]:
@@ -215,9 +274,11 @@ def requirements_of(conn, document_id: str) -> list[dict]:
     return [
         dict(r)
         for r in conn.execute(
-            "SELECT id, standard_document_id, clause, requirement_type, requirement_text, raw_value, raw_unit,"
-            " unit FROM standard_requirements WHERE standard_document_id = ? AND superseded_at IS NULL"
-            " AND requirement_text IS NOT NULL AND TRIM(requirement_text) <> '' ORDER BY id",
+            "SELECT r.id, r.standard_document_id, r.clause, r.requirement_type, r.requirement_text,"
+            " r.source_text, r.raw_value, r.raw_unit, r.unit, c.text AS chunk_text, c.section AS section"
+            " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
+            " WHERE r.standard_document_id = ? AND r.superseded_at IS NULL"
+            " AND r.requirement_text IS NOT NULL AND TRIM(r.requirement_text) <> '' ORDER BY r.id",
             (document_id,),
         )
     ]
@@ -246,10 +307,6 @@ def packet(batch: list[dict], system: str, step: str):
 
 
 # ------------------------------------------------------------------------------------------ the proof
-
-
-def _fold(text: str | None) -> str:
-    return " ".join((text or "").lower().split())
 
 
 def _has_figure(quote: str, figure: str) -> bool:
@@ -306,13 +363,15 @@ def comparators_said(quote: str) -> set[str]:
 _LOCATION_STARTS = ("at ", "measured at ")
 
 
-def limit_closes_sentence(sentence: str, quote: str, limit: str, unit: str) -> bool:
-    """Does the sentence end right after the limit's number and unit (a bracketed conversion and a
-    measuring location aside)? A condition written AFTER the number is not caught by the leading-condition
-    tests of `ai_requirements.verify_proposal`, so a scope that follows the limit must refuse the row here.
-    False when the number and unit do not stand together in the quote (nothing to measure the tail from)."""
-    s, q = _fold(sentence), _fold(quote)
-    at = s.find(q)
+def limit_scope(sentence: str, quote: str, limit: str, unit: str) -> str | None:
+    """The scope written AFTER the limit's number and unit, as the clause's own words ("for gas service"), cut by
+    code. "" when the sentence ends right after the limit (a leading bracketed conversion and a measuring
+    location aside); None when the number and unit do not stand together in the quote (nothing to measure the
+    tail from). A scope after the number is not caught by the leading-condition tests of
+    `ai_requirements.verify_proposal`, so it is kept as the row's CONDITION (order 289.2) and settled by the
+    review's own condition gate, never dropped (s3, #1412)."""
+    s_, q = _fold(sentence), _fold(quote)
+    at = s_.find(q)
     found = re.search(
         r"(?<![\w.])"
         + re.escape(limit.strip().lower())
@@ -322,10 +381,19 @@ def limit_closes_sentence(sentence: str, quote: str, limit: str, unit: str) -> b
         q,
     )
     if at < 0 or found is None:
-        return False
-    tail = re.split(r"[.;](?:\s|$)", s[at + found.end() :], maxsplit=1)[0]
-    tail = re.sub(r"\([^)]*\)", " ", tail).strip(" ,:-")
-    return not tail or tail.startswith(_LOCATION_STARTS)
+        return None
+    tail = re.split(r"[.;](?:\s|$)", s_[at + found.end() :], maxsplit=1)[0]
+    tail = re.sub(r"^\s*\([^)]*\)\s*", "", tail).strip(" ,:-")
+    bare = re.sub(r"\([^)]*\)", " ", tail).strip(" ,:-")
+    if not bare or bare.startswith(_LOCATION_STARTS):
+        return ""
+    return tail
+
+
+def limit_closes_sentence(sentence: str, quote: str, limit: str, unit: str) -> bool:
+    """Does the sentence end right after the limit's number and unit (a bracketed conversion and a
+    measuring location aside)? False when a scope follows, or when number and unit do not stand together."""
+    return limit_scope(sentence, quote, limit, unit) == ""
 
 
 def _comparator_says(quote: str, comparator: str) -> bool:
@@ -341,6 +409,9 @@ class Check:
     limit: str
     unit: str
     quote: str
+    #: A scope the clause itself writes (after the limit, or the model's leading condition found in the clause):
+    #: kept as text and settled by the review's own condition gate (order 289.2), never dropped.
+    condition: str | None = None
 
 
 def verify(
@@ -351,17 +422,15 @@ def verify(
     families: dict[str, tuple[str, ...]],
 ) -> tuple[str, str | None, Check | None]:
     """(status, reason, check) for ONE answer about ONE stored requirement. Code decides; the answer is a
-    claim. status: 'verified' (check set), 'unproven' (reason set) or 'not_applicable' (the model's claim)."""
-    applies = str(answer.get("applies") or "").lower()
-    if applies not in APPLIES:
-        return "unproven", "applies_unreadable", None
-    if applies == "no":
-        return "not_applicable", None, None
+    claim. status: 'verified' (check set), 'unproven' (reason set) or 'no_check' (the model found no form box
+    for the sentence: nothing to look at, and never "not applicable" - applicability is not decided here)."""
     text = _fold(_text(row))
     condition = (answer.get("condition") or "").strip()
-    if applies == "depends" and (not condition or _fold(condition) not in text):
+    if condition and _fold(condition) not in text:
         return "unproven", "condition_not_in_clause", None
     idx = answer.get("field")
+    if idx is None:
+        return "no_check", "no_field", None
     if (
         isinstance(idx, bool)
         or not isinstance(idx, int)
@@ -369,9 +438,23 @@ def verify(
     ):
         return "unproven", "no_field", None
     name = dictionary[idx]
+    if str(row.get("clause") or "").strip().lower() in PLACEHOLDER_CLAUSES:
+        return "unproven", "no_real_clause", None
+    if in_example(
+        row
+    ):  # a worked example illustrates; it states no requirement (order 295.7 b)
+        return "unproven", "example_not_requirement", None
     quote = " ".join(str(answer.get("quote") or "").split())
     if len(quote) < 8 or _fold(quote) not in text:
         return "unproven", "quote_not_in_clause", None
+    if quote_unreadable(
+        quote, str(row.get("source_text") or row.get("requirement_text") or "")
+    ):
+        return "unproven", "quote_unreadable", None
+    if any(
+        w in text for w in DEFAULT_WORDS
+    ):  # a default or an assumption is not a limit (286.3)
+        return "unproven", "default_not_limit", None
     limit, unit = (
         str(answer.get("limit") or "").strip(),
         str(answer.get("unit") or "").strip(),
@@ -380,8 +463,16 @@ def verify(
         return "unproven", "number_not_in_quote", None
     if not _has_unit(quote, unit):
         return "unproven", "unit_not_in_quote", None
-    if not limit_closes_sentence(text, quote, limit, unit):
-        return "unproven", "condition_after_limit", None
+    scope = limit_scope(text, quote, limit, unit)
+    if scope is None:
+        return "unproven", "number_and_unit_apart", None
+    if scope and condition and _fold(condition) != scope:
+        return (
+            "unproven",
+            "two_conditions",
+            None,
+        )  # a leading and a trailing scope that differ: engineer
+    condition = scope or condition
     if not set(families.get(name, ())) & field_vocabulary._unit_families(unit):
         return "unproven", "unit_not_of_field", None
     if not _names_field(quote, name):
@@ -389,7 +480,11 @@ def verify(
     comparator = str(answer.get("comparator") or "").strip()
     if comparator not in COMPARATORS or not _comparator_says(quote, comparator):
         return "unproven", "comparator_not_in_quote", None
-    return "verified", None, Check(roles[name], comparator, limit, unit, quote)
+    return (
+        "verified",
+        None,
+        Check(roles[name], comparator, limit, unit, quote, _fold(condition) or None),
+    )
 
 
 # ------------------------------------------------------------------------------------------- the run
@@ -408,20 +503,19 @@ class Result:
     usd: float = 0.0
     calls: int = 0
     unreadable_batches: int = 0
+    #: Rows of types the converter does not ask about (order 295.7), by type.
+    types_not_asked: dict = field(default_factory=dict)
 
     def counts(self) -> dict[str, int]:
         out = {
             "requirements": len(self.rows),
             "verified": 0,
             "unproven": 0,
-            "not_applicable": 0,
+            "no_check": 0,
             "not_asked": 0,
         }
         for r in self.rows:
             out[r["status"]] = out.get(r["status"], 0) + 1
-        out["applies_yes"] = sum(
-            1 for r in self.rows if r["status"] == "verified" and r["applies"] == "yes"
-        )
         return out
 
 
@@ -438,7 +532,7 @@ def _row(
         "requirement_type": src.get("requirement_type"),
         "text_sha256": rule_roles.text_hash(src.get("requirement_text")),
         "applies": applies,
-        "condition": condition,
+        "condition": check.condition if check and check.condition else condition,
         "status": status,
         "reason": reason,
         "field": check.field if check else None,
@@ -482,12 +576,11 @@ def _read_batch(
     for n, src in enumerate(chunk):
         got = answers.get(n)
         if got is None:
-            rows.append(_row(src, "unproven", "applies_unreadable", None, None, None))
+            rows.append(_row(src, "unproven", "answer_unreadable", None, None, None))
             continue
         status, reason, check = verify(got, src, dictionary, roles, families)
-        applies = str(got.get("applies") or "").lower() or None
         condition = (got.get("condition") or None) if status != "unproven" else None
-        rows.append(_row(src, status, reason, applies, condition, check))
+        rows.append(_row(src, status, reason, None, condition, check))
     return rows
 
 
@@ -512,9 +605,12 @@ def convert(
     claude = lane == LANE_CLAUDE
     if claude:
         require_family(standard)
+    require_known_type(equipment_type)
     rows = requirements_of(conn, document_id)
     if limit:
         rows = rows[:limit]
+    not_asked = [r for r in rows if r.get("requirement_type") not in CONVERTIBLE_TYPES]
+    rows = [r for r in rows if r.get("requirement_type") in CONVERTIBLE_TYPES]
     dictionary, roles, families = rule_roles.form(equipment_type)
     step = step_for(standard)
     system = system_text(equipment_type, dictionary)
@@ -544,6 +640,12 @@ def convert(
         out.calls += 1
         out.model = getattr(response, "model_tag", None) or out.model
         out.rows += _read_batch(response, chunk, dictionary, roles, families, out)
+    for r in (
+        not_asked
+    ):  # never sent to the model: no check, with the reason, counted by type
+        out.rows.append(_row(r, "no_check", "type_not_convertible", None, None, None))
+        kind = r.get("requirement_type") or "untyped"
+        out.types_not_asked[kind] = out.types_not_asked.get(kind, 0) + 1
     out.usd = round(claude_spend.spent(step) - before, 6) if claude else 0.0
     return out
 
@@ -606,6 +708,14 @@ def file_stem(result: Result) -> str:
     return f"{rule_roles.slug(result.equipment_type)}.{re.sub(r'[^A-Za-z0-9]+', '_', result.standard).strip('_')}"
 
 
+def _made_by(result: Result) -> str:
+    """Who converted it, as the run recorded it (order 283, rule C): the lane and the model actually used."""
+    model = result.model or "not reported"
+    if result.lane == LANE_LOCAL:
+        return f"on the LOCAL lane by the engine's model {model} (no Claude)"
+    return f"on the CLAUDE lane by the model {model}"
+
+
 def write(
     result: Result, out_dir: Path, *, form_sha: str, form_source: str = "#1352"
 ) -> dict[str, Path]:
@@ -619,8 +729,9 @@ def write(
     folder = refuse_out_dir(out_dir)
     folder.mkdir(parents=True, exist_ok=True)
     body = {
-        "_about": "Order 270.3: DRAFT checks converted from one standard by the cloud model, each proven by "
-        "code against the stored clause. Unproven rows say 'engineer, please look' and carry no limit. "
+        "_about": f"Order 270.3: DRAFT checks converted from one standard {_made_by(result)}, each proven by "
+        "code against the stored clause. Unproven rows say 'engineer, please look' and carry no limit; "
+        "'no_check' means no form box was found, not that the sentence does not apply. "
         "Holds clause quotes: never commit it.",
         "converter": True,
         "status": STATUS,
@@ -635,6 +746,7 @@ def write(
         else (f"refused: {result.refused}" if result.refused else "complete"),
         "usd_spent": result.usd,
         "calls": result.calls,
+        "types_not_asked": result.types_not_asked,
         "counts": result.counts(),
         "entries": result.rows,
     }

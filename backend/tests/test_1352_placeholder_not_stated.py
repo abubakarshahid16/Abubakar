@@ -145,6 +145,15 @@ def test_the_mandatory_field_path_keeps_a_figure_with_a_note_as_missing():
         "Rated flow * Item 2 TBA",
         "Set pressure * per API 526",
         "Rated flow * Class 300",
+        "Flow * para 4.2",
+        "Flow * Fig 3 TBA",
+        "Flow * per Annex 2",
+        "Flow * see Appendix 4",
+        "Flow * Sheet 2",
+        "Flow * dwg 1234",
+        "Flow * spec 12",
+        "Flow * Rev 2",
+        "Flow * KOC-ME-008 Pt 1",
     ],
 )
 def test_a_lone_star_between_a_label_and_a_unit_is_a_placeholder(printed):
@@ -165,6 +174,9 @@ def test_a_lone_star_between_a_label_and_a_unit_is_a_placeholder(printed):
         "RATED FLOW * 24.8 m3/h",
         "Set pressure * 10 barg",
         "Head 78 m *",
+        "Content * hydrogen 5 ppm",
+        "Flow * Golden 24 m3/h",
+        "Head * -5 m",
     ],
 )
 def test_a_star_that_is_not_standing_alone_or_follows_a_figure_is_not_a_placeholder(

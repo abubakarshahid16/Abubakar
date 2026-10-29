@@ -550,9 +550,8 @@ def reasoning_text(group: list[dict]) -> str:
 
 
 def _page_section(group: list[dict]) -> str:
-    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)"; a value looked
-    for and not found: "Not found on pages 1-5 - <field>" (order 228.4). Never the standard's
-    file name or the chunk's section heading (on a ruled form, another cell's text)."""
+    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)"; a field never read: "Not read
+    from the datasheet"; read elsewhere: where (orders 228.4, 307). Never the standard's file name or heading."""
     f = group[0]
     pages = sorted(
         {g.get("contractor_page") for g in group if g.get("contractor_page")}
@@ -564,6 +563,7 @@ def _page_section(group: list[dict]) -> str:
         _items(group),
         {g.get("document_id") for g in group},
         any(g.get("fact_id") for g in group),
+        _field_label(f),
     )
 
 

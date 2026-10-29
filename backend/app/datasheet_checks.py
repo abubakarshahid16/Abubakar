@@ -714,8 +714,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                         f"page{'s' if len(searched) > 1 else ''} {pages}: engineer to check.")
                 return {**r, "reader_gap": True, "pages": searched}
             r = res(MISSING_INFORMATION,
-                    f"{_pretty(field)} was not found in the fields read or in the text of "
-                    f"pages {_page_span(page_texts)}; the contractor is to provide it.")
+                    f"{_pretty(field)} was not read as a value, and no label for it was found in the text of pages "
+                    f"{_page_span(page_texts)} (searched by its name; the sheet may state it in other words); the contractor is to provide it.")
             return {**r, "text_searched": True}
         return res(NEEDS_ENGINEER_REVIEW,
                    _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
@@ -1148,7 +1148,8 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     `label` (rule_trust, #947; None with the switch off): applied to each
     result AFTER the choice of which results become rows, so a held pass
     does not turn into a row a plain pass never was."""
-    from . import card_trust, comparison, degraded_read, standard_clause_page
+    from . import card_trust, comparison, degraded_read, read_elsewhere
+    from . import standard_clause_page
     from . import review as review_mod
     written = []
     # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete, not written again (audit 2026-09-30).
@@ -1156,15 +1157,11 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
                  fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
                 for f in review_mod.rejected_in_run(review_run_id, ORIGIN)}
-    # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met
-    # checklist item (an R13 calculation included) is stored as a COMPLIANT
-    # finding with its item id, the fact, the page and the clause, so "Meets"
-    # is visible like any result. It is never a CRS comment (`crs_mapping`
-    # takes only breaches and gaps). Any OTHER check that held (a consistency
-    # pair, the revision block) still adds no row. "Does not apply" is not a
-    # result either (#746): the condition's reason is in the result, never a
-    # row. NOT CALCULATED is not a row either (R13): the inputs it lacked are
-    # asked for by their own `required` items.
+    # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met item (an R13 calculation included) is
+    # stored as a COMPLIANT finding with its item id, fact, page and clause, so "Meets" is visible like any result;
+    # never a CRS comment (`crs_mapping` takes only breaches and gaps). Any OTHER check that held adds no row.
+    # "Does not apply" and NOT CALCULATED are no rows either. 307.1: a value read for other tags is not "not read".
+    results = read_elsewhere.soften(results)
     for r in (x for x in degraded_read.hold(results, submittal_id) if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
         if label is not None:

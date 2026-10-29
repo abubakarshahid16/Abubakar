@@ -506,3 +506,126 @@ def test_a_row_that_is_not_verified_yes_changes_nothing_in_the_review(
     _on(cworld, monkeypatch)
     _rerun(cworld)
     assert _what_the_review_said(cworld["run"]) == off
+
+
+# ------------------------------------------------------------------ 8. order 286.1: v2 rows have no applicability
+
+
+def test_a_v2_row_without_applicability_is_read_unless_it_carries_a_condition(
+    cworld, monkeypatch, tmp_path
+):
+    _on(cworld, monkeypatch)
+    cworld["folder"] = _mirror(tmp_path / "v2", [_row(SENTENCE, applies=None)])
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    cworld["folder"] = _mirror(
+        tmp_path / "v2c", [_row(SENTENCE, applies=None, condition="for this service")]
+    )
+    _on(cworld, monkeypatch)
+    assert _rules(cworld) == {}
+
+
+def test_a_no_check_row_changes_nothing_in_the_review(cworld, monkeypatch, tmp_path):
+    _on(cworld, monkeypatch, dir_set=False)
+    _rerun(cworld)
+    off = _what_the_review_said(cworld["run"])
+    over = {
+        "status": "no_check",
+        "reason": "no_field",
+        "applies": None,
+        "field": None,
+        "limit": None,
+    }
+    cworld["folder"] = _mirror(tmp_path / "nc", [_row(SENTENCE, **over)])
+    _on(cworld, monkeypatch)
+    _rerun(cworld)
+    assert _what_the_review_said(cworld["run"]) == off
+
+
+# ------------------------------------------------------------------ 9. order 289.2: a scope after the limit is kept as the condition
+
+
+GAS = "The design pressure shall not exceed 16 barg for gas service."
+
+
+def _prove_family():
+    key = rule_trust.family_key(SPEC, PSV)
+    result = {"cases": 1, "correct": 1, "errors": [], "status": rule_trust.PROVEN}
+    rule_trust.save_proof(
+        key, result, model_id="claude-sonnet-5", standard_revision=None
+    )
+
+
+def test_a_scope_after_the_limit_is_read_as_the_rules_condition_when_the_row_stores_it(
+    cworld, monkeypatch, tmp_path
+):
+    _set_sentence(cworld["stmt"], GAS)
+    cworld["folder"] = _mirror(
+        tmp_path / "cond", [_row(GAS, applies=None, condition="for gas service")]
+    )
+    _on(cworld, monkeypatch)
+    rules = _rules(cworld)
+    assert list(rules) == [cworld["stmt"]]
+    assert rules[cworld["stmt"]]["condition"] == "for gas service"
+
+
+def test_a_stored_condition_that_is_not_the_scope_in_the_clause_is_refused(
+    cworld, monkeypatch, tmp_path
+):
+    _set_sentence(cworld["stmt"], GAS)
+    for condition in (None, "for liquid service", "for gas"):
+        cworld["folder"] = _mirror(
+            tmp_path / f"c{condition}", [_row(GAS, condition=condition)]
+        )
+        _on(cworld, monkeypatch)
+        assert _rules(cworld) == {}, condition
+
+
+def test_a_conditional_rule_the_sheet_cannot_settle_goes_to_the_engineer_never_a_pass(
+    cworld, monkeypatch, tmp_path
+):
+    """The sheet states 15 barg and says nothing about the service. Even with the family proven, the review's own
+    condition gate leaves the row to the engineer; without the scope the same sheet is a pass."""
+    _prove_family()
+    _set_sentence(cworld["stmt"], GAS)
+    cworld["folder"] = _mirror(
+        tmp_path / "gate", [_row(GAS, applies=None, condition="for gas service")]
+    )
+    _on(cworld, monkeypatch)
+    _rerun(cworld)
+    row = _findings(cworld["run"])[cworld["stmt"]]
+    assert row["compliance_status"] != "COMPLIANT"
+    assert row["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
+
+
+def test_only_a_verified_yes_row_a_v1_depends_row_is_not_read_even_with_its_condition_in_the_clause(
+    cworld, monkeypatch, tmp_path
+):
+    """A v1 file's "depends" row (the model said it holds only under a condition) is the model's claim about
+    applicability: never read, even when the condition it names is really in the clause and is the trailing
+    scope (the case where nothing else would stop it)."""
+    _set_sentence(cworld["stmt"], GAS)
+    cworld["folder"] = _mirror(
+        tmp_path / "dep",
+        [_row(GAS, applies="depends", condition="for gas service")],
+    )
+    _on(cworld, monkeypatch)
+    assert _rules(cworld) == {}
+
+
+def test_a_v1_file_and_a_v2_file_that_say_the_same_thing_both_stand(
+    cworld, monkeypatch, tmp_path
+):
+    """s3 on #1422: v1 rows have applies "yes", v2 rows none; the same limit in both is one agreeing answer, not
+    a disagreement that silently drops the rule."""
+    folder = _mirror(tmp_path / "old", [_row(SENTENCE)])
+    v2 = _mirror(tmp_path / "new", [_row(SENTENCE, applies=None)])
+    for f in v2.glob("*.json"):
+        (folder / "v2.json").write_text(f.read_text())
+    cworld["folder"] = folder
+    _on(cworld, monkeypatch)
+    assert list(_rules(cworld)) == [cworld["stmt"]]
+    body = json.loads((folder / "v2.json").read_text())
+    body["entries"][0]["limit"] = "10"  # a v2 file that disagrees: neither is used
+    (folder / "v2.json").write_text(json.dumps(body))
+    assert _rules(cworld) == {}

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from . import scope_ledger, table_gate
+from . import recommendations, scope_ledger, table_gate
 
 CHECKED = "checked"
 APPLIES_NOT_CHECKED = "applies_not_checked"
@@ -100,7 +100,12 @@ def build(
     for r in checked:
         group, words = scope_ledger.group_of(status_of.get(r.get("id")))
         put(group, requirement_key(r), "" if group == CHECKED else words)
+    # order 288.2: advice raised as a query is not a requirement, counted apart
+    queries = set()
     for item in not_checked:
+        if item.get("code") == recommendations.CODE:
+            queries.add(requirement_key(item["requirement"]))
+            continue
         put(APPLIES_NOT_CHECKED, requirement_key(item["requirement"]),
             reason_words(item.get("code"), item.get("detail")))
     for item in not_applied:
@@ -131,6 +136,7 @@ def build(
         "total": n_checked + n_not + n_na + n_unused,
         "applies_not_checked_reasons": listed(APPLIES_NOT_CHECKED),
         "does_not_apply_reasons": listed(DOES_NOT_APPLY),
+        "recommendation_queries": len(queries),
         "repeats_ignored": seen_rows - len(placed),
         "unchecked_share": (n_not / applies) if applies else None,
     }
