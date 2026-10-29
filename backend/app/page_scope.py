@@ -101,8 +101,18 @@ def _is_region_heading(
     return bool(qualifier) or line.strip().isupper()
 
 
-def _appendix_scope(match: re.Match) -> str:
-    qualifier = (match.group("q") or "").lower().replace(" ", "").replace("-", "")
+_QUALIFIER_ALONE = re.compile(r"^\s*(non-?\s?mandatory|mandatory)\s*$", re.IGNORECASE)
+
+
+def _appendix_scope(match: re.Match, previous: str = "") -> str:
+    """The scope the heading names. A qualifier alone on the line above ("MANDATORY" over "APPENDIX 18") counts."""
+    alone = _QUALIFIER_ALONE.match(previous)
+    qualifier = (
+        (match.group("q") or (alone.group(1) if alone else ""))
+        .lower()
+        .replace(" ", "")
+        .replace("-", "")
+    )
     if not qualifier:
         tail = _ANNEX_TAIL.search(match.group("rest") or "")
         qualifier = ((tail.group("q") or tail.group("q2")) if tail else "").lower()
@@ -154,7 +164,7 @@ def tag_pages(pages: dict[int, str]) -> dict[int, dict]:
             if appendix:
                 if content_before_heading and scope == MAIN:
                     mixed = True
-                scope = _appendix_scope(appendix)
+                scope = _appendix_scope(appendix, lines[i - 1] if i else "")
                 region, example = (
                     f"{appendix.group('kind').title()} {appendix.group('id')}",
                     False,
@@ -174,6 +184,8 @@ def tag_pages(pages: dict[int, str]) -> dict[int, dict]:
             else:
                 content_before_heading = True
                 continue
+            if not content_before_heading:
+                seen = []  # nothing but headers above it: the whole page is the new region
             seen.append((scope, region))
         strictest, strict_region = min(seen, key=lambda pair: _ORDER.index(pair[0]))
         out[number] = {
