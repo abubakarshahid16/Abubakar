@@ -106,11 +106,38 @@ def _near_misses(page_scope, pages: dict) -> collections.Counter:
     return out
 
 
+def _spans(page_scope, pages: dict, tags: dict) -> list[str]:
+    """Each run of pages that share a region: `label  first page  number of pages  scope  opener (mask, line index)`.
+    Labels are the tagger's own ("Part UG", "Appendix 18"), masks hide the rest of the line."""
+    out: list[str] = []
+    run: list = []
+    for number in sorted(tags):
+        key = (tags[number]["scope"], tags[number]["region"])
+        if run and run[-1][0] == key:
+            run[-1][2] += 1
+            continue
+        lines = [ln for ln in (pages.get(number) or "").splitlines() if ln.strip()]
+        opener = "-"
+        for i, why in sorted(_accepted(page_scope, lines).items()):
+            if why is None:
+                opener = f"{_mask(lines[i])!r} line {i}"
+                break
+        run.append([key, number, 1, opener])
+    for key, first, count, opener in run:
+        out.append(f"{key[1] or '-'} | {key[0]} | page {first} x{count} | {opener}")
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=None)
     parser.add_argument("--like", required=True)
     parser.add_argument("--pages", default="")
+    parser.add_argument(
+        "--spans",
+        action="store_true",
+        help="also print each region run: label, first page, pages, and the opener's mask and line position",
+    )
     parser.add_argument(
         "--shapes",
         action="store_true",
@@ -151,6 +178,9 @@ def main() -> int:
         print(
             "  pages with a worked example:", sum(t["example"] for t in tags.values())
         )
+        if args.spans:
+            for line in _spans(page_scope, pages, tags):
+                print("  span:", line)
         if args.shapes:
             for (mask, where), n in _region_openers(
                 page_scope, pages, tags

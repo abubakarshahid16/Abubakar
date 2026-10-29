@@ -308,3 +308,24 @@ def test_a_rejection_has_a_code():
     )
     ok = ps._APPENDIX.match("MANDATORY APPENDIX 3")
     assert ps.heading_rejection(ok, "MANDATORY APPENDIX 3", 0) is None
+
+
+def test_the_span_report_lists_each_region_run_with_its_opener_mask():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import page_scope_report as report
+
+    pages = {
+        1: "1 Scope\nbody",
+        2: "MANDATORY APPENDIX 3\nbody",
+        3: "more",
+        4: "PART UG GENERAL REQUIREMENTS\nbody",
+    }
+    spans = report._spans(ps, pages, ps.tag_pages(pages))
+    assert spans == [
+        "- | main_body | page 1 x1 | -",
+        "Appendix 3 | mandatory_appendix | page 2 x2 | 'MANDATORY APPENDIX 9' line 0",
+        "Part UG | main_body | page 4 x1 | 'PART AA AAAAAAA AAAAAAAAAAAA' line 0",
+    ]
