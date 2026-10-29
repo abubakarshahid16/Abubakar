@@ -25,7 +25,7 @@ def _get(client, run_id):
 
 def test_every_ledger_reason_has_one_pf4_state():
     assert set(scope_ledger.REASONS) <= set(cov.STATE_OF)
-    assert set(cov.STATE_OF.values()) <= {*cov.STATES, cov.DOES_NOT_APPLY}
+    assert set(cov.STATE_OF.values()) <= {*cov.STATES, cov.DOES_NOT_APPLY, cov.QUERY}
 
 
 def test_each_rule_is_in_exactly_one_state_out_of_the_applicable_ones():
