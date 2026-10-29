@@ -28,15 +28,23 @@ def test_a_closed_issue_is_done_an_open_one_is_open_and_the_share_has_its_denomi
     assert (c["done"], c["open"], c["total"], c["share"]) == (2, 2, 4, "2 of 4")
 
 
-def test_an_issue_closed_as_not_planned_is_neither_done_nor_open():
+def test_an_issue_closed_as_not_planned_or_a_duplicate_is_neither_done_nor_open():
     c = bpc.count_stage(
         [
             _issue(1, "closed", "not_planned"),
-            _issue(2, "closed", "completed"),
-            _issue(3),
+            _issue(2, "closed", "duplicate"),
+            _issue(3, "closed", "completed"),
+            _issue(4, "closed", None),
+            _issue(5, "closed", "a_reason_github_adds_later"),
+            _issue(6),
         ]
     )
-    assert (c["done"], c["open"], c["not_planned"], c["total"]) == (1, 1, 1, 2)
+    assert (c["done"], c["open"], c["closed_not_done"], c["total"]) == (2, 1, 3, 3)
+    assert c["closed_not_done_reasons"] == {
+        "not_planned": 1,
+        "duplicate": 1,
+        "a_reason_github_adds_later": 1,
+    }
 
 
 def test_a_stage_with_no_issues_has_no_share_not_zero_percent():

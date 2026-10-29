@@ -12,7 +12,8 @@ closed issue is a done task (the plan's own rule 10: an issue closes only with a
 
 Honesty lines (each one is a test):
   * a share is always written with its denominator ("12 of 41"), never alone;
-  * an issue closed as NOT PLANNED is listed apart and is neither done nor open;
+  * an issue closed as NOT PLANNED, as a DUPLICATE or for any reason not known here is listed apart and is neither
+    done nor open;
   * pull requests that share the milestone are not tasks and are never counted;
   * a stage whose count could not be read is listed as unread, never as zero;
   * the count says "closed", not "proven": GitHub cannot see the proof line, the closing comment holds it.
@@ -43,7 +44,8 @@ STAGES = (
     ("G", 53),
 )
 DEFAULT_REPO = "abubakarshahid16/Abubakar"
-NOT_PLANNED = "not_planned"
+#: GitHub closes an issue "completed" or, for one closed long ago, with no reason. Anything else is not done work.
+DONE_REASONS = ("completed", None, "")
 
 Runner = Callable[[list[str]], str]
 
@@ -78,23 +80,23 @@ def fetch_issues(repo: str, milestone: int, run: Runner = gh_runner) -> list[dic
 
 
 def count_stage(issues: list[dict]) -> dict:
-    """done / open / not planned for one stage's issues."""
-    done = sum(
-        1
-        for i in issues
-        if i.get("state") == "closed" and i.get("state_reason") != NOT_PLANNED
-    )
-    dropped = sum(
-        1
-        for i in issues
-        if i.get("state") == "closed" and i.get("state_reason") == NOT_PLANNED
-    )
+    """done / open / closed-without-doing-the-task for one stage's issues. Done = closed as completed (or closed
+    before GitHub kept a reason). Closed as not planned, as a duplicate or for any reason this code does not know
+    closes no task: listed apart, in neither count (cloud-2 on #1468: a duplicate is not done work)."""
+    closed = [i for i in issues if i.get("state") == "closed"]
+    done = sum(1 for i in closed if i.get("state_reason") in DONE_REASONS)
+    reasons: dict[str, int] = {}
+    for i in closed:
+        if i.get("state_reason") not in DONE_REASONS:
+            key = str(i.get("state_reason"))
+            reasons[key] = reasons.get(key, 0) + 1
     opened = sum(1 for i in issues if i.get("state") == "open")
     total = done + opened
     return {
         "done": done,
         "open": opened,
-        "not_planned": dropped,
+        "closed_not_done": sum(reasons.values()),
+        "closed_not_done_reasons": reasons,
         "total": total,
         "share": f"{done} of {total}" if total else None,
     }
@@ -122,7 +124,7 @@ def build(
         "counted_at": now.isoformat(timespec="seconds"),
         "source": f"GitHub, {repo}, milestones {STAGES[0][1]} to {STAGES[-1][1]} (PLAN ONE #805)",
         "boundary": (
-            "issues of the nine stage milestones; closed = done (not planned and pull requests excluded); "
+            "issues of the nine stage milestones; closed = done (closed as not planned, duplicate or an unknown reason, and pull requests, excluded); "
             "'closed' is not 'proven': the proof line is in each closing comment"
         ),
         "overall": {
