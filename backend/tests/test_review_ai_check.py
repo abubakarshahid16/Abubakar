@@ -375,7 +375,8 @@ def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world
     # order 139 part 2: "Priority" where "Severity" was
     assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Priority", "AI Review Comments",
                                crs_export.REASONING_COLUMN,  # R30: reasoning, internal only
-                               crs_export.TRUST_COLUMN]      # #947: rule trust last, internal only
+                               crs_export.TRUST_COLUMN,      # #947: rule trust, internal only
+                               crs_export.SUGGEST_COLUMN]    # 305.4: what the review suggests, last
     [row] = [r for r in view["rows"] if TEXT in r["ai_review_comment"]]
     assert TEXT not in row["comment"]
     # Honesty audit entry 71: "Comment By" is never blank - unconfirmed is a

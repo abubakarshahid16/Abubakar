@@ -119,6 +119,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_decider` | #892: who decided a finding (the confirmer, else the engineer who accepted it) for the CRS byline |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_no_field` | A library requirement no field on the sheet answers is one grouped engineer note per standard, never a contractor row (order 245) |
+| `crs_suggestion` | Order 305.4 part B: the CRS column "AI suggests (internal)" - Pass / Fail / Query with the value, the rule and the clause, from what the review already worked out (a held rule's own verdict); a suggestion beside the row, never the verdict; internal copy only |
 | `crs_page_words` | What the CRS Page/Section cell says: the datasheet page and field, or "Not found on pages 1-N" with at most three tags (order 228.4) |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |

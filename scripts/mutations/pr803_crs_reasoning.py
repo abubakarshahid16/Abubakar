@@ -16,9 +16,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='''            "reasoning": str(finding.get("reasoning") or ""),''',
              target=_T, keyword="issue_copy_never_carries_it", tags=("crs", "honesty")),
     Mutation(id="M803-02", phase=803, description="the issue copy gets the reasoning column",
-             # Re-anchored 2026-10-17 (#947 wiring, PR #985): the trust column joined the list.
-             path=_E, anchor="+ ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]\n                      if copy == COPY_INTERNAL else []),",
-             replacement="+ ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]\n                      if copy == COPY_INTERNAL else [REASONING_COLUMN]),",
+             # Re-anchored 305.4: the internal-only columns are one helper (`internal_cols`).
+             path=_E, anchor="    if copy != COPY_INTERNAL:\n        return []",
+             replacement="    if copy != COPY_INTERNAL:\n        return [REASONING_COLUMN]",
              target=_T, keyword="issue_copy_never_carries_it", tags=("crs", "honesty")),
     Mutation(id="M803-03", phase=803, description="the workbook drops the reasoning cell",
              # Re-anchored 2026-10-17 (#947 wiring, PR #985): the trust cell follows the reasoning cell.

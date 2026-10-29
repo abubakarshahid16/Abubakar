@@ -202,6 +202,13 @@ export function CrsPreviewSheet(
                   {row.rule_trust ?? ""}
                 </td>
               )}
+              {/* Order 305.4: the review's suggestion, beside the row and never the verdict; internal copy only. */}
+              {preview.columns.includes("AI suggests (internal)") && (
+                <td data-testid="crs-ai-suggests"
+                  className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-xs text-slateish-300">
+                  {row.ai_suggests ?? ""}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

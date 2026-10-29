@@ -26,6 +26,7 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from . import crs_suggestion
 from .crs_mapping import (
     PRIORITY_CARRIED_FORWARD,
     ROW_KIND_CARRIED_FORWARD,
@@ -34,6 +35,19 @@ from .crs_mapping import (
 )
 from .crs_mapping import row_has_no_issuable_text as _no_issuable_text
 from .crs_mapping import row_has_no_text as _no_text
+
+
+def internal_cols(copy: str) -> list[str]:
+    """The columns only the internal copy carries; the copy issued to the contractor has none of them."""
+    if copy != COPY_INTERNAL:
+        return []
+    return [AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN, SUGGEST_COLUMN]
+
+
+def _internal_only(finding: dict, key: str, copy: str) -> str:
+    """A cell of the internal copy: the finding's text, or nothing in the copy issued to the contractor."""
+    return str(finding.get(key) or "") if copy == COPY_INTERNAL else ""
+
 
 ARIAL = "Arial"
 THIN = Side(style="thin")
@@ -142,6 +156,8 @@ REASONING_COLUMN_WIDTH = 70.0
 #: it is the owner's call, not this file's.
 TRUST_COLUMN = "Rule trust (internal)"
 TRUST_COLUMN_WIDTH = 28.0
+#: Order 305.4: the review's Pass / Fail / Query suggestion beside the row, never the verdict; internal copy only.
+SUGGEST_COLUMN = crs_suggestion.COLUMN
 #: The two copies Export CRS offers. INTERNAL (the default) carries the AI
 #: column; ISSUE (to the contractor) drops it and every unconfirmed AI row,
 #: so only confirmed comments leave the building.
@@ -474,10 +490,9 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "rule_trust": (str(finding.get("rule_trust") or "")
                            if copy == COPY_INTERNAL else ""),
         })
-        # Order 139 part 2: the row's rank and this copy's word for it (spec
-        # f), and whether the caller sent no comment text (spec e; internal
-        # copy only - the issue copy never carries such a row).
+        # Order 139 part 2: the row's rank and this copy's word for it, and whether it had no comment text.
         rows[-1].update(_rank_cells(finding, copy), comment_missing=comment_missing)
+        rows[-1]["ai_suggests"] = _internal_only(finding, "ai_suggests", copy)
 
     return {
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
@@ -489,9 +504,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS) + [STANDARD_COLUMN, PRIORITY_COLUMN]
-                   + ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]
-                      if copy == COPY_INTERNAL else []),
+        "columns": [*HEADERS, STANDARD_COLUMN, PRIORITY_COLUMN, *internal_cols(copy)],
         "crs_copy": copy,
         "rows": rows,
         # Spec e: rows left off THIS copy because they had no comment text
@@ -599,6 +612,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
         ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
         ws.column_dimensions["L"].width = TRUST_COLUMN_WIDTH
+        ws.column_dimensions["M"].width = crs_suggestion.WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = _write(ws, row, col, value)
@@ -626,10 +640,8 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         put(COLUMN_HEADER_ROW, i, header,
             bold=True, center=True, wrap=True).border = BOX
 
-    # Data rows, from the row after the column headers.
-    # The sheet row is the entry's POSITION, never its Item No: a permanent
-    # number ("CRS-XYZ-004") is text, and even a numeric one need not match
-    # the row it lands on.
+    # Data rows, from the row after the column headers. The sheet row is the entry's POSITION, never its Item No
+    # (a permanent number is text and need not match the row it lands on).
     for position, entry in enumerate(view["rows"], start=1):
         row = COLUMN_HEADER_ROW + position
         comment = entry["comment"]
@@ -640,9 +652,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         if internal:
             values.extend([entry["ai_review_comment"], entry["reasoning"],
                            entry.get("rule_trust", "")])
+            values.append(entry["ai_suggests"])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9)))
+            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12, 13)), center=(i in (1, 9)))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill

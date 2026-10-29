@@ -2549,10 +2549,10 @@ class CrsPreviewRow(BaseModel):
     #: why), printed in the internal copy's last column "Reasoning (internal)".
     #: Always empty in the "Issue to contractor" copy.
     reasoning: str = ""
-    #: rule_trust (#947): who stands behind the rule the comment rests on, in
-    #: words ("automatic (proven rule)", ...); "" on an unlabelled row and in
-    #: the issue copy.
+    #: rule_trust (#947): who stands behind the rule, in words; "" on an unlabelled row and in the issue copy.
     rule_trust: str = ""
+    #: Order 305.4: the review's Pass / Fail / Query suggestion beside the row (never the verdict); "" in the issue copy.
+    ai_suggests: str = ""
 
 
 class CrsStandardRow(BaseModel):
