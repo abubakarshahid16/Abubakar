@@ -41,7 +41,7 @@ _ORDER = (SPECIAL, PART_UNKNOWN, MANDATORY, NONMANDATORY, APPENDIX, MAIN)
 _MAX_HEADING_WORDS = 14
 _APPENDIX = re.compile(
     r"^\s*(?:(?P<q>non-?\s?mandatory|mandatory|normative|informative)\s+)?"
-    r"(?P<kind>appendix|annex)\s+(?P<id>(?-i:[A-Z]{1,2}\d{0,2}|\d{1,3}|[IVX]{1,5}))\b(?P<rest>.*)$",
+    r"(?P<kind>appendix|annex)\s+(?P<id>(?-i:[A-Z]{1,3}(?:-[A-Z0-9]{1,2})?\d{0,2}|\d{1,3}|[IVX]{1,5}))\b(?P<rest>.*)$",
     re.IGNORECASE,
 )
 _ANNEX_TAIL = re.compile(
@@ -78,27 +78,35 @@ def _is_heading_line(line: str) -> bool:
     )
 
 
-def _is_region_heading(
+def heading_rejection(
     match: re.Match, line: str, position: int, previous: str = ""
-) -> bool:
-    """A line that matches a region pattern is a heading only when it is not a sentence that happens to start
-    with the word (a wrapped "Appendix E applies to ..."), not a contents entry, and, below the top of the page,
-    carries a strong mark (capitals, or the standard's own word normative / mandatory)."""
+) -> str | None:
+    """Why a line that matches a region pattern is NOT a heading, as a code, or None when it is one. A heading is not
+    a sentence that happens to start with the word (a wrapped "Appendix E applies to ..."), not a contents entry, and,
+    below the top of the page, carries a strong mark (capitals, or the standard's own word normative / mandatory)."""
     rest = (
         match.groupdict().get("rest") or match.groupdict().get("title") or ""
     ).strip()
     if _CONTENTS_ENTRY.search(rest):
-        return False
+        return "contents_entry"
     first = rest.lstrip("-\u2013\u2014:. ")[:1]
     if first and first.isalpha() and first.islower():
-        return False
+        return "lower_case_after_label"
     before = previous.rstrip()
     if len(before.split()) >= 5 and before[-1:] in ",abcdefghijklmnopqrstuvwxyz":
-        return False
+        return "follows_unfinished_sentence"
     if position < _TOP_LINES:
-        return True
+        return None
     qualifier = match.groupdict().get("q") or _ANNEX_TAIL.search(rest)
-    return bool(qualifier) or line.strip().isupper()
+    if qualifier or line.strip().isupper():
+        return None
+    return "weak_mark_low_on_page"
+
+
+def _is_region_heading(
+    match: re.Match, line: str, position: int, previous: str = ""
+) -> bool:
+    return heading_rejection(match, line, position, previous) is None
 
 
 _QUALIFIER_ALONE = re.compile(r"^\s*(non-?\s?mandatory|mandatory)\s*$", re.IGNORECASE)
