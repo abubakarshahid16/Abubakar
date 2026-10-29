@@ -178,3 +178,8 @@ def test_the_printout_is_counts_only_and_the_database_is_not_written(tmp_path, c
     assert path.read_bytes() == before
     with pytest.raises(SystemExit):
         cw.main(["--db", str(tmp_path / "missing.sqlite")])
+
+
+def test_a_very_short_sentence_proves_nothing():
+    out = cw.check([row("a", "Set pressure.", 1)], PAGES)
+    assert out["flags"] == [("a", cw.TOO_SHORT)]
