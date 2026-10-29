@@ -32,9 +32,13 @@ def test_a_number_is_not_the_front_of_a_longer_number():
     assert cc.printed_on("5.3", "5.3. Heading\n")
 
 
-def test_a_clause_on_the_next_page_counts_for_a_heading_that_ends_the_page():
-    out = cc.check([row("a", "5.4.2", page=1)], PAGES)
-    assert out["flags"] == [] and out["state"] == "passed"
+def test_a_heading_that_ends_the_previous_page_counts_one_on_the_next_page_does_not():
+    # the heading precedes its text: the rule is on page 2, its clause number ends page 1
+    pages = {1: "intro\n5.9 Nameplate", 2: "text of the rule", 3: "6.1 Other"}
+    assert cc.check([row("a", "5.9", page=2)], pages)["flags"] == []
+    assert cc.check([row("b", "6.1", page=2)], pages)["flags"] == [
+        ("b", cc.NOT_PRINTED)
+    ]
 
 
 def test_flags_are_named_not_printed_and_missing_pages():

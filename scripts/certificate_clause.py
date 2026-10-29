@@ -2,8 +2,8 @@
 standard's own numbering style.
 
 A rule's `clause` ("5.3.4", "UG-22") is a citation: a CRS row quotes it and an engineer looks it up. Two things
-make it worth quoting. (1) The number is PRINTED at the start of a line on the cited page (or the page after
-it: a clause whose heading ends one page and whose text starts the next). A number that is only inside a
+make it worth quoting. (1) The number is PRINTED at the start of a line on the cited page (or the page before
+it: a heading that ends one page, a rule whose text starts the next). A number that is only inside a
 sentence ("see 5.3") does not count. (2) It is written in the style the standard itself uses: the dominant
 shape among its stored clauses (`clause_numbering_report.style_of`), so a heading number taken off a numbered
 list or a page header ("2.", "1-1" in a decimal standard) is flagged. The style test needs a dominant style
@@ -104,7 +104,7 @@ def _reason(row: dict, pages: dict[int, str], style: str | None) -> str | None:
     if page is None or page not in pages:
         return NO_PAGE
     if not (
-        printed_on(clause, pages[page]) or printed_on(clause, pages.get(page + 1, ""))
+        printed_on(clause, pages[page]) or printed_on(clause, pages.get(page - 1, ""))
     ):
         return NOT_PRINTED
     if style is not None and numbering.style_of(clause) not in (style, "other"):
