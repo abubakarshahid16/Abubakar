@@ -40,6 +40,72 @@ def is_definitions_heading(section: str | None) -> bool:
     return bool(section and _DEFINITIONS_TITLE.match(section))
 
 
+class SectionRun:
+    """A run of chunks under one opening heading: it opens at a heading `opens` accepts and runs over the chunks
+    filed under that clause (3, 3.1, 3.2.1 ...), closing at the first chunk filed elsewhere. `number_of` reads a
+    clause number off a section title."""
+
+    def __init__(self, opens, number_of) -> None:
+        self.opens, self.number_of, self.on, self.clause = opens, number_of, False, None
+
+    def step(self, section: str | None) -> bool:
+        if self.opens(section):
+            self.on, self.clause = True, self.number_of(section)
+        elif self.on:
+            here = self.number_of(section)
+            self.on = (
+                here is None
+                if self.clause is None
+                else here is None
+                or here == self.clause
+                or here.startswith(self.clause + ".")
+            )
+        return self.on
+
+
+#: A references section: "2 References", "Normative references", "Saudi Aramco References", "Bibliography".
+#: Its text lists the documents the standard cites; it states no obligation of its own (order 267.1).
+#: Free leading words only with the plural "References" or "Bibliography" ("Saudi Aramco References"); the singular
+#: "Reference" only bare or after one of a few fixed words, so "Design Reference" or "Pressure Relief Valve Reference"
+#: (a numbered section with real rules) is not a references section.
+_REFERENCES_WORDS = (
+    r"(?:(?:[A-Za-z&]+\s+){0,3}(?:references|bibliography)"
+    r"|(?:(?:normative|informative|applicable|referenced?|company|industry)\s+)?reference"
+    r"|referenced\s+documents?|reference\s+documents?)"
+)
+_REFERENCES_TITLE = re.compile(
+    r"^\s*(?:\d+(?:\.\d+)*\.?\s+)?" + _REFERENCES_WORDS + r"\s*:?\s*$", re.IGNORECASE
+)
+_REFERENCES_START = re.compile(r"^\W*" + _REFERENCES_WORDS + r"\b", re.IGNORECASE)
+
+
+def is_references_heading(section: str | None) -> bool:
+    """True when a chunk's section title opens a references section (the whole title, not a clause ABOUT references)."""
+    return bool(section and _REFERENCES_TITLE.match(section))
+
+
+#: A standard identifier as a references list writes it: an upper-case body then a number ("SAEP-31", "SAMSS-044",
+#: "API 610", "ASME B31.3", "ISO 15156-3", "SAES-A-007"). Local on purpose: `standard_ids.parse_all` knows only the
+#: families in its vocabulary and finds one identifier in "SAEP-31 and SAMSS-044".
+_IDENTIFIER = re.compile(
+    r"\b[A-Z]{2,6}(?:[-\s][A-Z]{1,2})?[-\s]?\d{1,4}(?:[.\-]\d+)*[A-Z]?\b"
+)
+
+
+def is_reference_list_sentence(sentence: str) -> bool:
+    """True when a sentence is a references list run into one line: it starts with the references title, names
+    two or more standards, and the first of them follows the title at once. The list states which documents are
+    cited, not what anyone must do. "Reference conditions per API 610 and ASME B31.3 ..." is a sentence about
+    conditions, not a list."""
+    start = _REFERENCES_START.match(sentence or "")
+    if start is None or len(_IDENTIFIER.findall(sentence)) < 2:
+        return False
+    return (
+        _IDENTIFIER.match(sentence[start.end() :].lstrip(" :-\u2013\u2014\t"))
+        is not None
+    )
+
+
 _MODAL = r"(?:shall|must|should|may|will|can)"
 
 #: A sentence that only defines a word.
