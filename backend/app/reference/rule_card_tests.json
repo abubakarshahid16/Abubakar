@@ -300,6 +300,23 @@
      ]
     ],
     "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "set pressure",
+      "12",
+      "barg"
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
    }
   ],
   "PSV-25": [
@@ -344,6 +361,23 @@
      [
       "mawp",
       "13",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "mawp",
+      "12",
+      "barg"
+     ],
+     [
+      "design pressure",
+      "12",
       "barg"
      ]
     ],
@@ -396,6 +430,23 @@
      ]
     ],
     "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "cdtp",
+      "10",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
    }
   ],
   "PSV-31": [
@@ -440,6 +491,23 @@
      [
       "rated relieving capacity",
       "9400",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "9000",
+      "kg/h"
+     ],
+     [
+      "required capacity",
+      "9000",
       "kg/h"
      ]
     ],
@@ -507,6 +575,28 @@
      ]
     ],
     "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Fire",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "21",
+      "%"
+     ]
+    ],
+    "text": ""
    }
   ],
   "PSV-28": [
@@ -566,6 +656,28 @@
      [
       "over pressure",
       "8",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Blocked discharge",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
       "%"
      ]
     ],
@@ -633,6 +745,28 @@
      ]
     ],
     "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "10",
+      "%"
+     ]
+    ],
+    "text": ""
    }
   ],
   "PSV-32": [
@@ -674,6 +808,23 @@
     "name": "unclear",
     "expect": "NEEDS_ENGINEER_REVIEW",
     "facts": [],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1",
+      null
+     ]
+    ],
     "text": ""
    }
   ],
@@ -717,6 +868,23 @@
     "expect": "NEEDS_ENGINEER_REVIEW",
     "facts": [],
     "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "compressibility",
+      "0",
+      null
+     ]
+    ],
+    "text": ""
    }
   ],
   "PSV-34": [
@@ -758,6 +926,23 @@
     "name": "unclear",
     "expect": "NEEDS_ENGINEER_REVIEW",
     "facts": [],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "molecular weight",
+      "0",
+      null
+     ]
+    ],
     "text": ""
    }
   ],
@@ -803,6 +988,23 @@
      [
       "set pressure",
       "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "operating pressure",
+      "8",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "9",
       "barg"
      ]
     ],
@@ -866,6 +1068,28 @@
      [
       "set pressure",
       "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Thermal expansion",
+      null
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "13.2",
       "barg"
      ]
     ],
