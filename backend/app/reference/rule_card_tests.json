@@ -1,0 +1,1904 @@
+{
+ "Pressure Safety Valve": {
+  "PSV-11": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "9400",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "*",
+      null
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-19": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "molecular weight",
+      "18",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-20": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "compressibility",
+      "0.9",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-21": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-22": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "density",
+      "800",
+      "kg/m3"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-23": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "viscosity",
+      "2",
+      "cP"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-S09": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "sour service",
+      "Yes",
+      null
+     ],
+     [
+      "spring",
+      "Inconel X-750",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "MISSING_INFORMATION",
+    "facts": [
+     [
+      "sour service",
+      "Yes",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   }
+  ],
+  "PSV-24": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "set pressure",
+      "13",
+      "barg"
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "set pressure",
+      "12",
+      "barg"
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-25": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "mawp",
+      "13",
+      "barg"
+     ],
+     [
+      "design pressure",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "mawp",
+      "11",
+      "barg"
+     ],
+     [
+      "design pressure",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "mawp",
+      "13",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "mawp",
+      "12",
+      "barg"
+     ],
+     [
+      "design pressure",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-30": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "cdtp",
+      "9",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "cdtp",
+      "11",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "cdtp",
+      "9",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "cdtp",
+      "10",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-31": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "9400",
+      "kg/h"
+     ],
+     [
+      "required capacity",
+      "9000",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "8000",
+      "kg/h"
+     ],
+     [
+      "required capacity",
+      "9000",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "9400",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "rated relieving capacity",
+      "9000",
+      "kg/h"
+     ],
+     [
+      "required capacity",
+      "9000",
+      "kg/h"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-27": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Fire",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "20",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Fire",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "25",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "20",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Fire",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "21",
+      "%"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-28": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Blocked discharge",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "8",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Blocked discharge",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "12",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "8",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Blocked discharge",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-29": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "8",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "12",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "8",
+      "%"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "10",
+      "%"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-32": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "0.9",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1",
+      null
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-33": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "compressibility",
+      "0.9",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "compressibility",
+      "0",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "compressibility",
+      "0",
+      null
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-34": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "molecular weight",
+      "18",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "molecular weight",
+      "0",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "molecular weight",
+      "0",
+      null
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-S03": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "operating pressure",
+      "8",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "operating pressure",
+      "8",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "8.5",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "operating pressure",
+      "8",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "9",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-S04": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Thermal expansion",
+      null
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Thermal expansion",
+      null
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "14",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "mawp",
+      "12",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "12",
+      "barg"
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "at the limit",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "relief case",
+      "Thermal expansion",
+      null
+     ],
+     [
+      "mawp",
+      "12",
+      "barg"
+     ],
+     [
+      "set pressure",
+      "13.2",
+      "barg"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-S10": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "valve type",
+      "Bellows",
+      null
+     ],
+     [
+      "sour service",
+      "Yes",
+      null
+     ],
+     [
+      "bellows material",
+      "Alloy 625",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "valve type",
+      "Bellows",
+      null
+     ],
+     [
+      "sour service",
+      "Yes",
+      null
+     ],
+     [
+      "bellows material",
+      "Monel 400",
+      null
+     ]
+    ],
+    "text": ""
+   },
+   {
+    "name": "unclear",
+    "expect": "NEEDS_ENGINEER_REVIEW",
+    "facts": [
+     [
+      "bellows material",
+      "Alloy 625",
+      null
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-C01": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "required capacity",
+      "9400",
+      "kg/h"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "relieving temperature",
+      "120",
+      "C"
+     ],
+     [
+      "molecular weight",
+      "30.13",
+      null
+     ],
+     [
+      "compressibility",
+      "0.892",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "orifice area",
+      "1090.3",
+      "mm2"
+     ]
+    ],
+    "text": "",
+    "note": "independent: API 520-I SI eq. A = 13160 W/(C Kd P1 Kb Kc) sqrt(TZ/M), C = 520 sqrt(k(2/(k+1))^((k+1)/(k-1))) gives 1038.4 mm2 for these inputs"
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "required capacity",
+      "9400",
+      "kg/h"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "relieving temperature",
+      "120",
+      "C"
+     ],
+     [
+      "molecular weight",
+      "30.13",
+      null
+     ],
+     [
+      "compressibility",
+      "0.892",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "orifice area",
+      "934.6",
+      "mm2"
+     ]
+    ],
+    "text": "",
+    "note": "independent: API 520-I SI eq. A = 13160 W/(C Kd P1 Kb Kc) sqrt(TZ/M), C = 520 sqrt(k(2/(k+1))^((k+1)/(k-1))) gives 1038.4 mm2 for these inputs"
+   },
+   {
+    "name": "unclear",
+    "expect": "NOT_CALCULATED",
+    "facts": [
+     [
+      "required capacity",
+      "9400",
+      "kg/h"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "molecular weight",
+      "30.13",
+      null
+     ],
+     [
+      "compressibility",
+      "0.892",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "orifice area",
+      "1090.3",
+      "mm2"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-C02": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "required capacity",
+      "9400",
+      "kg/h"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "relieving temperature",
+      "120",
+      "C"
+     ],
+     [
+      "molecular weight",
+      "30.13",
+      null
+     ],
+     [
+      "compressibility",
+      "0.892",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "required area",
+      "1038.4",
+      "mm2"
+     ]
+    ],
+    "text": "",
+    "note": "independent: API 520-I SI eq. A = 13160 W/(C Kd P1 Kb Kc) sqrt(TZ/M), C = 520 sqrt(k(2/(k+1))^((k+1)/(k-1))) gives 1038.4 mm2 for these inputs; within the 2% rounding tolerance"
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "required capacity",
+      "9400",
+      "kg/h"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "relieving temperature",
+      "120",
+      "C"
+     ],
+     [
+      "molecular weight",
+      "30.13",
+      null
+     ],
+     [
+      "compressibility",
+      "0.892",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "required area",
+      "1007.2",
+      "mm2"
+     ]
+    ],
+    "text": "",
+    "note": "independent: API 520-I SI eq. A = 13160 W/(C Kd P1 Kb Kc) sqrt(TZ/M), C = 520 sqrt(k(2/(k+1))^((k+1)/(k-1))) gives 1038.4 mm2 for these inputs; 3% below, outside the 2% tolerance"
+   },
+   {
+    "name": "unclear",
+    "expect": "NOT_CALCULATED",
+    "facts": [
+     [
+      "required capacity",
+      "9400",
+      "kg/h"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "relieving temperature",
+      "120",
+      "C"
+     ],
+     [
+      "compressibility",
+      "0.892",
+      null
+     ],
+     [
+      "specific heat ratio",
+      "1.3",
+      null
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Gas",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "required area",
+      "1038.4",
+      "mm2"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-C03": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "required capacity",
+      "500",
+      "L/min"
+     ],
+     [
+      "density",
+      "800",
+      "kg/m3"
+     ],
+     [
+      "viscosity",
+      "1",
+      "cP"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "orifice area",
+      "317.8",
+      "mm2"
+     ]
+    ],
+    "text": "",
+    "note": "independent: API 520-I SI liquid eq. A = 11.78 Q/(Kd Kw Kc Kv) sqrt(G/(p1-p2)), Kd 0.65, gives 244.5 mm2 before Kv for these inputs"
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "required capacity",
+      "500",
+      "L/min"
+     ],
+     [
+      "density",
+      "800",
+      "kg/m3"
+     ],
+     [
+      "viscosity",
+      "1",
+      "cP"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "orifice area",
+      "195.6",
+      "mm2"
+     ]
+    ],
+    "text": "",
+    "note": "independent: API 520-I SI liquid eq. A = 11.78 Q/(Kd Kw Kc Kv) sqrt(G/(p1-p2)), Kd 0.65, gives 244.5 mm2 before Kv for these inputs"
+   },
+   {
+    "name": "unclear",
+    "expect": "NOT_CALCULATED",
+    "facts": [
+     [
+      "required capacity",
+      "500",
+      "L/min"
+     ],
+     [
+      "viscosity",
+      "1",
+      "cP"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "orifice area",
+      "317.8",
+      "mm2"
+     ]
+    ],
+    "text": ""
+   }
+  ],
+  "PSV-C04": [
+   {
+    "name": "meets",
+    "expect": "COMPLIANT",
+    "facts": [
+     [
+      "required capacity",
+      "500",
+      "L/min"
+     ],
+     [
+      "density",
+      "800",
+      "kg/m3"
+     ],
+     [
+      "viscosity",
+      "1",
+      "cP"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "required area",
+      "317.8",
+      "mm2"
+     ]
+    ],
+    "text": "",
+    "note": "independent: API 520-I SI liquid eq. A = 11.78 Q/(Kd Kw Kc Kv) sqrt(G/(p1-p2)), Kd 0.65, gives 244.5 mm2 before Kv for these inputs"
+   },
+   {
+    "name": "breaks",
+    "expect": "NON_COMPLIANT",
+    "facts": [
+     [
+      "required capacity",
+      "500",
+      "L/min"
+     ],
+     [
+      "density",
+      "800",
+      "kg/m3"
+     ],
+     [
+      "viscosity",
+      "1",
+      "cP"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "required area",
+      "195.6",
+      "mm2"
+     ]
+    ],
+    "text": "",
+    "note": "independent: API 520-I SI liquid eq. A = 11.78 Q/(Kd Kw Kc Kv) sqrt(G/(p1-p2)), Kd 0.65, gives 244.5 mm2 before Kv for these inputs"
+   },
+   {
+    "name": "unclear",
+    "expect": "NOT_CALCULATED",
+    "facts": [
+     [
+      "required capacity",
+      "500",
+      "L/min"
+     ],
+     [
+      "viscosity",
+      "1",
+      "cP"
+     ],
+     [
+      "set pressure",
+      "10",
+      "barg"
+     ],
+     [
+      "over pressure",
+      "10",
+      "%"
+     ],
+     [
+      "valve type",
+      "Conventional",
+      null
+     ],
+     [
+      "fluid phase",
+      "Liquid",
+      null
+     ],
+     [
+      "superimposed back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "built up back pressure",
+      "0",
+      "barg"
+     ],
+     [
+      "required area",
+      "317.8",
+      "mm2"
+     ]
+    ],
+    "text": ""
+   }
+  ]
+ },
+ "_definition_sections": {
+  "_about": "Order 298.1: the clause prefixes of a standard that are its Terms and definitions (read from the stored chunk titles, e.g. '3.16 design pressure', '3.20 inlet size). A card whose only source is such a clause cites a definition, not the clause that requires the value: it stays draft. Since order 301.1 no checklist card cites one; the rule stays so a new one cannot.",
+  "API 520-I": [
+   "3."
+  ]
+ }
+}
