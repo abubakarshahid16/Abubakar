@@ -44,9 +44,11 @@ def reviewed_entries(files: list[Path] | None = None) -> list[tuple[str, dict]]:
             or data.get("status") != standards_converter.STATUS
         ):
             continue
+        asked = bool(data.get("ask_twice"))  # 305.4: its verified rows were asked twice
         for e in data.get("entries", []):
             if (
                 e.get("status") == "verified"
+                and (e.get("asked_twice") is True or not asked)
                 # v2 (order 286.1): the converter no longer judges applicability, so a verified row has none
                 and e.get("applies") in ("yes", None)
                 and e.get("field")
