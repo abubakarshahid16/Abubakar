@@ -188,7 +188,13 @@ def test_check_labels_one_vocabulary():
     assert rt.check_label(_check(local=True)) == rt.UNPROVEN            # the local overlay
     # a consistency pair or a mandatory field: not a checklist item
     assert rt.check_label({"rule_id": "DS-C1", "status": rt.NON_COMPLIANT, "detail": "d"}) == rt.UNPROVEN
-    assert set(rt.TRUST_WORDS) == {rt.ENGINEER_CONFIRMED, rt.AUTO_PROVEN, rt.UNPROVEN}
+    # order 306.1 added TESTED_CARD on purpose: one table, four members
+    assert set(rt.TRUST_WORDS) == {
+        rt.ENGINEER_CONFIRMED,
+        rt.AUTO_PROVEN,
+        rt.TESTED_CARD,
+        rt.UNPROVEN,
+    }
 
 
 def test_label_check_is_off_by_default_and_holds_unproven_checks_when_on(monkeypatch):
