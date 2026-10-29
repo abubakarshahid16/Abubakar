@@ -65,6 +65,18 @@ def test_a_sentence_that_runs_over_a_page_break_is_proven_on_the_page_it_starts_
     assert cw.check([row("a", text, 2)], pages)["flags"] == [("a", cw.NOT_ON_PAGE)]
 
 
+def test_a_sentence_that_sits_only_on_the_next_page_is_not_proven_for_the_cited_page():
+    pages = {
+        1: fold("Some other text on the first page."),
+        2: fold(
+            "The vessel shall be designed for full vacuum at the stated temperature."
+        ),
+    }
+    text = "The vessel shall be designed for full vacuum at the stated temperature."
+    assert cw.check([row("a", text, 1)], pages)["flags"] == [("a", cw.NOT_ON_PAGE)]
+    assert cw.check([row("a", text, 2)], pages)["state"] == "passed"
+
+
 def test_a_rule_with_no_sentence_or_a_page_the_document_lacks_is_not_proven():
     out = cw.check(
         [
