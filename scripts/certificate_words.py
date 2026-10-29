@@ -35,11 +35,15 @@ from app import standards  # noqa: E402
 
 CHECK = "exact_words"
 #: Reasons a rule is not proven. Codes, never text.
-NOT_ON_PAGE, NO_PAGE, NO_SENTENCE = (
+NOT_ON_PAGE, NO_PAGE, NO_SENTENCE, TOO_SHORT = (
     "words_not_on_page",
     "page_not_in_document",
     "no_sentence",
+    "sentence_too_short_to_prove",
 )
+#: A stored sentence shorter than this (letters and digits only) would match almost anywhere on a page, so finding
+#: it proves nothing. A FIRST VALUE (cloud-3's suggestion on #1457), not measured.
+MIN_FOLDED_CHARS = 20
 #: A standard where more than this share of its rules is unproven FAILS the check; fewer is a named gap.
 #: A FIRST VALUE, not measured: the planner's number (cloud's plan item N). Zero unproven passes.
 FAIL_SHARE = 0.10
@@ -78,6 +82,8 @@ def _reason(row: dict, pages: dict[int, str]) -> str | None:
     probe = standards._fold_for_page(row.get("source_text") or "")
     if not probe:
         return NO_SENTENCE
+    if len(probe) < MIN_FOLDED_CHARS:
+        return TOO_SHORT
     page = row.get("page")
     if page is None or page not in pages:
         return NO_PAGE
