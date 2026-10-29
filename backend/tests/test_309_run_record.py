@@ -79,6 +79,7 @@ def test_a_text_value_named_like_a_secret_or_an_address_is_never_stored(monkeypa
         "ANSWER_AFFECTING_SETTINGS",
         ("answer_model", "ollama_url", "data_dir", "db_path"),
     )
+    monkeypatch.setattr(run_settings, "REVIEW_SWITCHES", ())
     stored, left_out = run_settings.snapshot()
     assert set(stored) == {"answer_model"} and left_out == 3
 
@@ -92,6 +93,7 @@ def test_a_number_is_stored_even_when_its_name_says_tokens_and_the_list_states_i
         "ANSWER_AFFECTING_SETTINGS",
         ("max_output_tokens", "answer_model", "ollama_url"),
     )
+    monkeypatch.setattr(run_settings, "REVIEW_SWITCHES", ())
     run_id, _job = p3._enqueue(world)
     got = run_settings.for_run(run_id)
     assert got["max_output_tokens"] == "1234"
@@ -163,3 +165,21 @@ def test_outside_a_review_nothing_is_recorded_and_the_answer_is_still_cached(
         db.connect().execute("SELECT COUNT(*) FROM review_run_cache_uses").fetchone()[0]
         == 0
     )
+
+
+def test_the_switches_that_decide_a_review_are_recorded_though_the_hash_ignores_them(
+    world, monkeypatch
+):
+    from app.config import ANSWER_AFFECTING_SETTINGS, Settings
+
+    assert all(name in Settings.model_fields for name in run_settings.REVIEW_SWITCHES)
+    assert not set(run_settings.REVIEW_SWITCHES) & set(ANSWER_AFFECTING_SETTINGS)
+    monkeypatch.setattr(settings, "tested_cards_decide_enabled", True)
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    on, _ = p3._enqueue(world)
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET status = 'failed' WHERE id = ?", (on,))
+    monkeypatch.setattr(settings, "tested_cards_decide_enabled", False)
+    off, _ = p3._enqueue(world)
+    assert run_settings.for_run(on)["tested_cards_decide_enabled"] == "True"
+    assert run_settings.for_run(off)["tested_cards_decide_enabled"] == "False"

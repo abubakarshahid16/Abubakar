@@ -24,6 +24,18 @@ _NEVER = re.compile(
 )
 MAX_VALUE_CHARS = 120
 NOT_STORED = "settings not stored"
+#: Switches that decide what a review says but that `config_version` does not hash (s2, 05:39: the owner turned three
+#: on and the hash still read the same). Recorded with the run so "which switches did THIS run have" has an answer;
+#: whether they should also change the hash is a separate decision (it would make every readiness check say
+#: "config changed" once).
+REVIEW_SWITCHES = (
+    "rule_auto_use_enabled",
+    "tested_cards_decide_enabled",
+    "recommendation_queries_enabled",
+    "geometry_reader_enabled",
+    "datasheet_reader_mode",
+    "match_ask_max_per_run",
+)
 
 
 def ensure_schema(conn=None) -> None:
@@ -39,7 +51,7 @@ def snapshot() -> tuple[dict[str, str], int]:
     """({setting name: value as text} of the allowed settings now, how many named settings were left out)."""
     out: dict[str, str] = {}
     left_out = 0
-    for name in sorted(ANSWER_AFFECTING_SETTINGS):
+    for name in sorted({*ANSWER_AFFECTING_SETTINGS, *REVIEW_SWITCHES}):
         value = getattr(settings, name, None)
         plain = isinstance(value, (bool, int, float)) or (
             isinstance(value, str) and not _NEVER.search(name)
