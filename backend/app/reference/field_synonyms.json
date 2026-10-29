@@ -33,7 +33,7 @@
     "required capacity": ["required relieving capacity", "req capacity", "reqd capacity"],
     "required area": ["required orifice area"],
     "density relieving": ["relieving density"],
-    "viscosity relieving": ["relieving viscosity"],
+    "viscosity relieving": ["relieving viscosity", "viscosity at relieving temperature", "viscosity at relieving temper", "viscosity at relieving temp"],
     "vapor density": ["vapour density"],
     "maximum operating pressure": ["max operating pressure"],
     "maximum allowable accumulated pressure": ["maap"],

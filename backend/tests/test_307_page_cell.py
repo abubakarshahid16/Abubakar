@@ -91,8 +91,8 @@ def test_a_blank_value_is_not_a_value_that_was_read():
 
 def test_a_probable_match_is_said_as_one():
     doc = _sheet(5)
-    _fact(doc, "viscosity at relieving temper", 4, "0.01")
-    cell = _cell(doc, "Viscosity relieving")
+    _fact(doc, "viscosity at inlet conditions", 4, "0.01")
+    cell = _cell(doc, "Viscosity inlet")
     assert (
         "A value that may be this field was read on page 4," in cell
         and "Not read" not in cell
