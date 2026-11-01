@@ -32,6 +32,7 @@ from . import (
     nothing_read,
     provenance,
     reread_for_standards,
+    review_progress,
     submittal_fill,
 )
 from .config import config_version, settings
@@ -126,7 +127,9 @@ def job_for_run(review_run_id: str) -> dict | None:
         "SELECT id, state, progress_done, progress_total, progress_label, cancel_requested"
         " FROM jobs WHERE review_run_id = ? ORDER BY started_at DESC LIMIT 1",
         (review_run_id,)).fetchone()
-    return dict(row) if row else None
+    job = dict(row) if row else None
+    block = review_progress.for_job(job) if job else None  # #1494, switch off: None
+    return {**job, "progress_detail": block} if block else job
 
 
 _CLAIMABLE = ("(state = 'queued' OR (state = 'retrying'"

@@ -3,7 +3,18 @@
 
 import type { AiCheckStatus, PageCoverage, RequirementSplit, RequirementsNotApplied, ReviewRunCompleteness, RunApplicability, RunCheckStatus, RunClauseCoverageSummary, StandardsChange, StatusCounts, TableValuesNotCompared } from "../types";
 
+/** What the progress block shows. A figure the row does not hold is null, never 0. Ages are seconds on the SERVER's clock, so the browser's clock never decides a stall. */
+export interface ReviewProgressDetail {
+  pages_done?: number | null;
+  pages_total?: number | null;
+  elapsed_seconds?: number | null;
+  idle_seconds?: number | null;
+  stall_amber_seconds: number;
+  stale: boolean;
+}
+
 export interface ReviewJobState {
+  progress_detail?: ReviewProgressDetail | null;
   id: string;
   state: string;
   progress_done?: number | null;
