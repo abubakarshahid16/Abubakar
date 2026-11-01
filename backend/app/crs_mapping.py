@@ -41,7 +41,7 @@ from . import (
 from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
-from . import paragraph_ids
+from . import paragraph_ids, procedure_text
 
 # isort: split
 from .crs_draft_lanes import (
@@ -124,26 +124,20 @@ _MISSING_INFORMATION = "MISSING_INFORMATION"
 _NOT_IN_DOCUMENT_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
 
 #: The leading token `comparison.REQUIRES_OTHER_DOCUMENT` embeds in
-#: `ai_rationale` on a NOT_IN_DOCUMENT_SCOPE finding (issue #163). Duplicated
-#: here as a literal for the same reason as `_MISSING_INFORMATION` above:
-#: reading a stable, documented piece of text is not re-deciding the verdict
-#: that produced it. A NOT_IN_DOCUMENT_SCOPE finding without this marker is
-#: left out of the summary count rather than guessed into one - #165 found
-#: none in three real runs, but a future branch of `comparison._reconcile`
-#: could add one, and this module must not assume every reason for that
-#: status is "needs another document".
+#: `ai_rationale` on a NOT_IN_DOCUMENT_SCOPE finding (issue #163), a literal as
+#: `_MISSING_INFORMATION` above is: reading stable text is not re-deciding the
+#: verdict. A NOT_IN_DOCUMENT_SCOPE finding without it is left out of the
+#: summary count rather than guessed into one (#165): this module must not
+#: assume every reason for that status is "needs another document".
 _REQUIRES_OTHER_DOCUMENT_MARKER = "requires_other_document"
 
-#: B3. The reason code `comparison.UNREAD_PAGES` leads `ai_rationale` with on a
-#: finding whose value could sit on a page not yet read into fields. Duplicated
-#: as a literal for the same reason as the two above. Such a finding is an
-#: instruction to the ENGINEER, never a comment to the contractor, so it never
-#: enters the CRS as its own row.
+#: B3. `comparison.UNREAD_PAGES` leads `ai_rationale` on a finding whose value
+#: could sit on a page not yet read into fields (a literal, as above): an
+#: instruction to the ENGINEER, never its own CRS row.
 _UNREAD_PAGES_MARKER = "UNREAD_PAGES"
 ROW_KIND_PAGES_NOT_READABLE = "pages_not_readable"
-#: Honesty audit entry 68: `comparison.PAGE_READER_ONLY` - the value was not
-#: found on a page only the geometry/vision reader read. Engineer work, like
-#: UNREAD_PAGES, so never an individual row to the contractor.
+#: Audit entry 68: `comparison.PAGE_READER_ONLY` - not found on a page only the
+#: geometry/vision reader read. Engineer work, like UNREAD_PAGES: never a row.
 _PAGE_READER_ONLY_MARKER = "PAGE_READER_ONLY"
 ROW_KIND_PAGE_READER_ONLY = "page_reader_only"
 
@@ -193,6 +187,7 @@ def _no_datasheet_field(finding: dict) -> bool:
         not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN, "chat")
         and not (finding.get("fact_id") or finding.get("contractor_page"))
         and not _unread(finding)
+        and not procedure_text.is_row(finding)
         and not _page_reader_only(finding)
         and not _confirmed(finding)
         and not finding.get("rule_said")
@@ -378,11 +373,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     apart from them, the statements no datasheet field was found for, which
     name no document (quick wins; they were counted as the first kind). Every
     count states its boundary: "of this run's requirements from <standard>".
-    Last, one note per requirement found NOT APPLICABLE because the
-    datasheet's own facts put it outside the requirement's condition, quoting
-    the condition and the value (and page) that decided it. Last of all,
-    rule_trust (#947): the fields no rule checked and the spot-check sample,
-    from the run's stored `outcome` (`rule_trust.review_notes`).
+    Then one note per requirement found NOT APPLICABLE because the datasheet's
+    own facts put it outside the requirement's condition (with the value and
+    page that decided it); last, rule_trust (#947) from the run's `outcome`.
     """
     notes: list[dict] = []
     for ref in missing_references:
@@ -434,6 +427,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
     notes.extend(crs_no_field.notes(findings))
+    notes.extend(procedure_text.notes(findings, _standard_reference))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -686,6 +680,8 @@ def engineer_comment_text(group: list[dict]) -> str:
         f"p.{_page_list(pages)}," if pages else "",
         field or "", f"({', '.join(tags)})" if tags else "") if p)
     lead = f"{ref}: {_requirement_words(f)}"
+    if words := procedure_text.crs_words(f, lead):  # #1476
+        return words
     if not (f.get("fact_id") or f.get("contractor_page")):
         # NOT FOUND IS NOT "NOT STATED" (honesty audit 50): what is known is
         # that no field READ from the sheet answered it, with the pages that
@@ -1112,6 +1108,7 @@ def _bucket_of(f: dict) -> str | None:
             not _unread(f)
             and not _page_reader_only(f)
             and not _no_datasheet_field(f)
+            and not procedure_text.is_unfound(f)
         ):
             return BUCKET_QUESTION
         return None

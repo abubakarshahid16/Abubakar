@@ -21,6 +21,7 @@ does not make one.
 | `api_docs_enabled` | `False` | permanent | | | Route docs off the developer machine only on purpose |
 | `ocr_use_cls` | `True` | permanent | | | OCR tuning measured in ADR-0005 |
 | `answer_model_allow_remote_host` | `False` | permanent | | | Egress gate for the local-model URL (rule 1) |
+| `procedure_path_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | Procedure submittals: a procedure-type requirement is checked against the submittal's own text (engineer row with a verified quote, or missing); never COMPLIANT (#1476) |
 | `ai_applicability_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | AI "does not apply" proposals per requirement |
 | `ai_division_scope_enabled` | `True` | rollout | 2026-10-20 | 2026-11-03 | Scope of a standard's division read from its own scope sentence (#1182); off, nothing changes; a part the model did not read is held for the engineer |
 | `scope_type_words_rule_enabled` | `False` | rollout | 2026-10-26 | 2026-11-09 | Draft (order 210 FIX 2): a part whose construction words are all in the sheet's equipment type or title applies without asking the model; OFF until the owner says yes |
