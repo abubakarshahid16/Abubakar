@@ -1012,7 +1012,7 @@ def _unit_follows(parts: list[str], index: int) -> bool:
 
 
 def _is_numeric_cell(text: str) -> bool:
-    return bool(_NUMERIC_CELL.match(text or ""))
+    return bool(numparse.lead_or(_NUMERIC_CELL, numparse.CELL_LEAD).match(text or ""))
 
 
 def _unit_in_label(label: str) -> tuple[str, str | None]:
@@ -2019,7 +2019,7 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
             return None, None, None
         # The FIRST system is the value; the second is its printed conversion.
         text = f"{dual['v1']} {dual['u1'].strip()}"
-    match = _VALUE_UNIT.match(text)
+    match = numparse.lead_or(_VALUE_UNIT, numparse.VALUE_UNIT_LEAD).match(text)
     if not match:
         return None, None, None
     value = match.group("value")

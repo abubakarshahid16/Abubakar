@@ -994,7 +994,7 @@ def parse_nominal(sentence: str) -> dict | None:
         return None
     # A second quantity in the sentence ("24 V DC at 50 Hz") is a second claim.
     if any(not match.start("value") <= m.start("value") < match.end("value")
-           for m in claims._MEASUREMENT.finditer(text)):
+           for m in numparse.with_leading_dot(claims._MEASUREMENT).finditer(text)):
         return None
     measurement = measure(raw_value, raw_unit)
     return {"operator": NOMINAL_OPERATOR, "raw_value": raw_value, "raw_unit": raw_unit,
