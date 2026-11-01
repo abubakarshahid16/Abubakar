@@ -180,7 +180,17 @@ When a mistake is called out on #692, add one line here in your next PR.
 
 ## Heavy checks: one lock, batched (#680)
 
-[continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: one lock, batched (#680), paragraph before the last sentence"]
+```text
+P1, the changed-test run, the mutation run and the AI task batch each need most
+of the machine's memory. They share ONE lock file, `D:\project\.heavy-job.lock`
+on the Windows PC (elsewhere the temp folder; `HEAVY_JOB_LOCK=<path>` moves it,
+`HEAVY_JOB_LOCK=off` disables it, CI does). It names owner, kind and start time;
+it is stale after 3 hours or when its process is gone. `run_p1.py`,
+`scripts/test_changed.py`, `scripts/mutation_check.py` and the AI batch
+(`backend/app/ai_task_runner.py`) take it themselves through
+`backend/app/heavy_lock.py`; a job waits up to 30 minutes
+(`HEAVY_JOB_WAIT_MINUTES`), then exits with code 75 and says who holds it.
+```
 Never write a second waiter.
 
 1. GitHub CI is the first gate for every PR.
@@ -188,7 +198,10 @@ Never write a second waiter.
    of green PRs, plus per PR only when it touches retrieval, answer, review or
    eval code.
 3. Every P1, test run and AI batch unloads its models at the end (#666).
-   [continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: numbered item 4 (mutation runs)"]
+```text
+4. Mutation runs are for changed danger-zone modules only (rule 6):
+   `python scripts/mutation_check.py --changed`, not the full registry.
+```
 
 ## Where to look
 

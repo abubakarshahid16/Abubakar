@@ -34,27 +34,6 @@ Passages moved verbatim out of `CLAUDE.md` (issue #1485) to keep it short. Nothi
   page images are now fetched with the header (`useAuthedImage`).
 ```
 
-## Heavy checks: one lock, batched (#680), paragraph before the last sentence
-
-```text
-P1, the changed-test run, the mutation run and the AI task batch each need most
-of the machine's memory. They share ONE lock file, `D:\project\.heavy-job.lock`
-on the Windows PC (elsewhere the temp folder; `HEAVY_JOB_LOCK=<path>` moves it,
-`HEAVY_JOB_LOCK=off` disables it, CI does). It names owner, kind and start time;
-it is stale after 3 hours or when its process is gone. `run_p1.py`,
-`scripts/test_changed.py`, `scripts/mutation_check.py` and the AI batch
-(`backend/app/ai_task_runner.py`) take it themselves through
-`backend/app/heavy_lock.py`; a job waits up to 30 minutes
-(`HEAVY_JOB_WAIT_MINUTES`), then exits with code 75 and says who holds it.
-```
-
-## Heavy checks: numbered item 4 (mutation runs)
-
-```text
-4. Mutation runs are for changed danger-zone modules only (rule 6):
-   `python scripts/mutation_check.py --changed`, not the full registry.
-```
-
 ## Where to look: rows for review score, playbooks, scored model tier
 
 ```text
