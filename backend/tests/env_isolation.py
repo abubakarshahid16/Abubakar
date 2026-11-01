@@ -248,6 +248,8 @@ EGRESS_SAFE: dict[str, object] = {
     "data_page_not_frontmatter_enabled": False,
     # --- local only, no model or socket: a drawing page with a header only is routed to recognition (off by default)
     "figure_page_ocr_enabled": False,
+    # --- local only, no model or socket: duty-point style column rows and stacked labels (#1478, off by default)
+    "page_column_rows_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     # --- local only, no model or socket: only the title block sets the equipment type (1 Nov, off by default)
     "equipment_from_title_block_enabled": False,
