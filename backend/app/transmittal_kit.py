@@ -659,6 +659,26 @@ def _named_ids() -> list[str]:
     return [i.strip() for i in raw.split(",") if i.strip()]
 
 
+def _held_notes(numbers: list[str], held: dict, excluded: list[str]) -> list[dict]:
+    notes = []
+    unmatched = [n for n in numbers if not held.get(n)]
+    if unmatched:
+        notes.append(
+            _note(
+                "not_held",
+                f"{len(unmatched)} of {len(numbers)} listed documents were not found among the documents you may read (matched by document number in the held document's title block; documents routed as transmittals are never taken as the held document); revision and sheets not compared for them",
+            )
+        )
+    if excluded:
+        notes.append(
+            _note(
+                "transmittal_not_holder",
+                f"{len(excluded)} document(s) you may read carry a listed number on page 1 but are routed as transmittals (confirmed or suggested), so they were not taken as the held document",
+            )
+        )
+    return notes
+
+
 def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
     pages = procedure_text.load_pages(document_id)
     if not any(text.strip() for _, text in pages):
@@ -699,21 +719,7 @@ def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
     excluded: list[str] = []
     held = holders(numbers, candidates, excluded) if numbers else {}
     rows += listed_rows(listed, held)
-    unmatched = [n for n in numbers if not held.get(n)]
-    if unmatched:
-        rows.append(
-            _note(
-                "not_held",
-                f"{len(unmatched)} of {len(numbers)} listed documents were not found among the documents you may read (matched by document number in the held document's title block; documents routed as transmittals are never taken as the held document); revision and sheets not compared for them",
-            )
-        )
-    if excluded:
-        rows.append(
-            _note(
-                "transmittal_not_holder",
-                f"{len(excluded)} document(s) you may read carry a listed number on page 1 but are routed as transmittals (confirmed or suggested), so they were not taken as the held document",
-            )
-        )
+    rows += _held_notes(numbers, held, excluded)
     if blocked:
         rows.append(
             _note(
