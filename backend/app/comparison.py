@@ -609,8 +609,7 @@ _HELD_ON_UNSURE_KIND = frozenset(
 )
 
 
-#: A rationale that already leads with its own machine reason ("unit_mismatch:",
-#: "LOW_TRUST_VALUE:"): an engineer question asked for that reason keeps it.
+#: A rationale that leads with its own machine reason ("unit_mismatch:") keeps it.
 _LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
 
 

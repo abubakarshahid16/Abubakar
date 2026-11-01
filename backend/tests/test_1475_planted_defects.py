@@ -624,7 +624,7 @@ def _sizing_sheet(orifice, **deferred):
         else f
         for f in GAS
     ]
-    return rows + [psv_fact("orifice area", *orifice)]
+    return [*rows, psv_fact("orifice area", *orifice)]
 
 
 def _c01(rows):
