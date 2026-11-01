@@ -33,6 +33,7 @@ gate without pulling in retrieval or the database.
 from __future__ import annotations
 
 import contextvars
+import functools
 import re
 import unicodedata
 from collections.abc import Iterator
@@ -350,6 +351,35 @@ def as_number(text: str | float | int | None) -> float | None:
 _SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
 
 
+#: Reads LEADING_DOT_DECIMAL_ENABLED; app.config sets it, so this module still
+#: imports nothing from the app. Unset (numparse used alone) means off.
+LEADING_DOT_SWITCH = None
+
+
+def leading_dot_enabled() -> bool:
+    """LEADING_DOT_DECIMAL_ENABLED (#1515, default off)."""
+    return LEADING_DOT_SWITCH is not None and bool(LEADING_DOT_SWITCH())
+
+
+_NUM_PART = r"[-+]?\d[\d.,\s]*"
+_NUM_PART_LEAD = r"[-+]?(?:\.\d+|\d[\d.,\s]*)"
+_VALUE = re.compile(r"(?P<cmp>[^\d]*?)\s*(?P<num>" + _NUM_PART + ")")
+_VALUE_LEAD = re.compile(r"(?P<cmp>[^\d]*?)\s*(?P<num>" + _NUM_PART_LEAD + ")")
+
+
+@functools.lru_cache(maxsize=8)
+def _leading_dot_pattern(pattern: re.Pattern) -> re.Pattern:
+    lead = pattern.pattern.replace("(?P<value>\\d", "(?P<value>\\.\\d+|\\d", 1)
+    return re.compile(lead)
+
+
+def with_leading_dot(pattern: re.Pattern) -> re.Pattern:
+    """`pattern` (a unit-measurement regex with a `value` group) also matching
+    a leading-dot value (".5 mm"), when LEADING_DOT_DECIMAL_ENABLED is on (#1515);
+    else `pattern` itself. A dot after a letter or digit stays blocked by its look-behind."""
+    return _leading_dot_pattern(pattern) if leading_dot_enabled() else pattern
+
+
 def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -> float | None:
     """Parse a written number. Anything unparseable or ambiguous is None,
     never a guess.
@@ -377,9 +407,18 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
     s = (value_str or "").strip()
     for c in MINUS_SIGNS:
         s = s.replace(c, "-")
-    m = re.fullmatch(r"(?P<cmp>[^\d]*?)\s*(?P<num>[-+]?\d[\d.,\s]*)", s)
+    lead_on = leading_dot_enabled()
+    m = (_VALUE_LEAD if lead_on else _VALUE).fullmatch(s)
     if not m:
         return None
+    if lead_on:
+        glued = s[: m.start("num")]
+        if m.group("num").lstrip("+-").startswith(".") and glued[-1:].isalnum():
+            m = _VALUE.fullmatch(s)  # "p.4": as before
+        elif glued.rstrip().endswith(".") and not glued.rstrip()[-2:-1].isalnum():
+            return None  # ".5.3", "...5": a stranded dot, the text cannot say
+        if not m:
+            return None
     prefix = s[:m.start("num")]
     stripped = prefix.rstrip()
     negative_dash = False
