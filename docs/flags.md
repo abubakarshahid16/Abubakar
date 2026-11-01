@@ -40,6 +40,7 @@ does not make one.
 | `crs_ai_wording_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI CRS wording |
 | `geometry_table_reader_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Geometry table reader |
 | `table_text_cells_enabled` | `False` | permanent | | | Record a standards-table cell that is text, not a number, as a requirement with no value (order 271.4 fix B). Set for a standards re-extraction; it adds rows to a standard that has such cells |
+| `page_read_by_reading_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | A page counts as read when a text or picture reading came back, apart from fields found; Word reaches the fact reader (#1473) |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |
@@ -57,3 +58,4 @@ does not make one.
 | `smtp_enabled` | `False` | permanent | | | Egress gate for SMTP (rule 1) |
 | `smtp_starttls` | `True` | permanent | | | TLS mode; exactly one is on (#440) |
 | `smtp_ssl` | `False` | permanent | | | TLS mode; exactly one is on (#440) |
+| `document_kind_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Document kind from title block and cover, no body-text equipment fallback for non-datasheets (#1474); off, nothing is stored and nothing changes |

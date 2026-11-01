@@ -5,6 +5,10 @@
   "min_margin": 2,
   "body_cue_cap": 3,
   "kinds": {
+    "specification": {"label": "Specification", "cues": []},
+    "transmittal": {"label": "Transmittal", "cues": []},
+    "contract": {"label": "Contract document", "cues": []},
+    "drawing": {"label": "Drawing", "cues": []},
     "datasheet": {
       "label": "Datasheet",
       "cues": [

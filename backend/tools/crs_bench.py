@@ -64,6 +64,12 @@ def _hits(findings: list[dict], matchers: list[dict]) -> list[dict]:
     return [f for f in findings if any(_matches(f, m) for m in matchers)]
 
 
+def _deferred_pass(finding: dict) -> bool:
+    return finding.get("compliance_status") == "COMPLIANT" and bool(
+        DEFERRED.search(finding.get("finding") or "")
+    )
+
+
 def _fold(text: str | None) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip().casefold()
 
@@ -132,7 +138,11 @@ def score(
     else:
         applies = len(in_scope)
     total = coverage.get("pages_total")
-    unread = coverage.get("pages_not_read_into_fields") or []
+    # #1473: with PAGE_READ_BY_READING_ENABLED the ledger names the pages no
+    # reading came back for; without it, the pages no field was read from.
+    unread = (
+        coverage.get("pages_not_read", coverage.get("pages_not_read_into_fields")) or []
+    )
 
     if kind is None:
         kind = system_kind(conn, doc)
@@ -150,8 +160,11 @@ def score(
         "wrong": len(wrong),
         "untrue": len(_hits(findings, case.get("untrue", []))),
         "irrelevant": len(_hits(findings, case.get("irrelevant", []))),
+        # D2 (owner): a value marked 'By Contractor'/TBA is a Query, so a Pass
+        # on one is not a decision the bench credits; it is shown on its own row.
         "checklist_decided": sum(
-            f.get("compliance_status") in DECIDED for f in checklist
+            f.get("compliance_status") in DECIDED and not _deferred_pass(f)
+            for f in checklist
         ),
         "checklist_total": len(checklist),
         "fails": sum(f.get("compliance_status") == "NON_COMPLIANT" for f in findings),
@@ -166,25 +179,28 @@ def score(
         "pages_total": total,
         "kind": kind,
         "kind_ok": kind == case.get("kind"),
-        "pass_on_deferred": sum(
-            f.get("compliance_status") == "COMPLIANT"
-            and bool(DEFERRED.search(f.get("finding") or ""))
-            for f in findings
-        ),
+        "pass_on_deferred": sum(_deferred_pass(f) for f in findings),
     }
 
 
 def system_kind(conn: sqlite3.Connection, doc: str) -> str:
-    """The kind the review routes on. Until #1474 there is one path: a document
-    with an equipment type is reviewed as that equipment's datasheet."""
+    """The kind the review routes on: the document's ONE stored kind (the
+    router's table `document_kinds`, which #1474's decider also writes), else
+    the equipment-type choice of today (any equipment type = datasheet)."""
+    try:
+        stored = conn.execute(
+            "SELECT kind FROM document_kinds WHERE document_id = ?", (doc,)
+        ).fetchone()
+    except sqlite3.OperationalError:  # a copy from before the router
+        stored = None
+    if stored is not None and stored["kind"]:
+        return stored["kind"]
     row = conn.execute(
-        "SELECT * FROM document_classification WHERE document_id = ?", (doc,)
+        "SELECT equipment_type FROM document_classification WHERE document_id = ?",
+        (doc,),
     ).fetchone()
     if row is None:
         return "unclassified"
-    keys = row.keys()
-    if "document_kind" in keys and row["document_kind"]:
-        return row["document_kind"]
     return "datasheet" if row["equipment_type"] else "unclassified"
 
 

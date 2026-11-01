@@ -5,7 +5,8 @@
    "run": "a5c45c82-063c-4ad3-9abb-e25f896dc391",
    "kind": "datasheet",
    "baseline": {
-    "checklist_decided": 28,
+    "checklist_decided": 22,
+    "checklist_decided_before_d2_rule": 28,
     "wrong": 0,
     "untrue": 5,
     "irrelevant": 1
@@ -42,7 +43,7 @@
    "wrong": 0,
    "untrue": 5,
    "irrelevant": 1,
-   "checklist_decided": 28,
+   "checklist_decided": 22,
    "checklist_total": 172,
    "fails": 0,
    "rules_decided": 0,
@@ -65,7 +66,7 @@
    "wrong": 0,
    "untrue": 5,
    "irrelevant": 0,
-   "checklist_decided": 28,
+   "checklist_decided": 22,
    "checklist_total": 172,
    "fails": 0,
    "rules_decided": 0,
