@@ -94,7 +94,17 @@ carries the client's name; only the owner can rename it.
 6. **Tests are non-negotiable and must not be vacuous.** Every change ships with
    a test that fails without it (check it once by hand: revert the fix, see the
    test fail). **Mutation entries are required only in the danger zone**, where a
-   [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 6 (continued)"]
+   wrong answer reaches an engineer, the live data, the network or the budget:
+   `comparison.py`, `numparse.py` and the unit code in `claims.py`,
+   `datasheet_checks.py` and `reference/datasheet_checks.json` (the #746
+   checklist), `crs_mapping.py`, `crs_export.py` and `crs_numbers.py`,
+   `live_guard.py`, `heavy_lock.py` and the live guards in
+   `scripts/rehearse_requirement_reextraction.py`, the four socket modules of
+   rule 1 (`market_transport.py`, `model_transport.py`, `reader_transport.py`,
+   `notifications.py`) and `claude_spend.py`. Everywhere else ordinary tests are
+   enough; do not add mutation entries. Existing entries stay and keep running.
+   Vacuous tests are this project's documented recurring defect
+   (`docs/status-honesty-audit.md`).
 7. **When something the user sees turns out false, record the retraction** in
    `docs/status-honesty-audit.md`: screen text, CRS wording, reports, exports,
    and claims made to the owner in issues or PRs. Internal refactors, test-only
@@ -114,7 +124,14 @@ carries the client's name; only the owner can rename it.
 13. **General fixes only, never per-layout** (owner order, 13 Oct 2026, #692).
     Never add code that recognises one datasheet's table shape, label
     spelling or layout; new layouts will keep arriving. Allowed: fixes true
-    [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 13 (continued)"]
+    for any document (number/unit/comparator meaning, silent-loss reporting,
+    verdict safety, output size, approved checklists, code quality). New
+    layouts are handled by one path: the reader fills the equipment type's
+    fixed field list with a page quote per value; code verifies the quote
+    and compares with the approved rule; what the reader misses goes to the
+    engineer or waits for a stronger reader. A reading fix is merged only if
+    it also helps, or does not hurt, sheets it was not built on (invented +
+    held-out totals).
 
 ## Mistakes not to repeat (26 Oct)
 
@@ -147,26 +164,18 @@ When a mistake is called out on #692, add one line here in your next PR.
 
 - Backend needs **Python 3.12 exactly**; `run.py` refuses others.
   [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: Cowork VM item (continued)"]
-- SQLite is **WAL mode**: the DB is three files (`.sqlite`, `-wal`, `-shm`).
-  Copying only one loses documents. Never open the live DB from the VM
-  (disk I/O error).
+  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: WAL item (continued)"]
   [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: only the server writes the live DB (continued)"]
-- Shell heredocs eat backslashes in regexes. Write Python patch scripts to a
-  file, or use quoted heredocs (`<<'EOF'`).
-- `AUTH_MODE=demo_required` is on. `<img src>` cannot send the bearer token —
-  page images are now fetched with the header (`useAuthedImage`).
+  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: heredoc and AUTH_MODE items"]
 
 ## Heavy checks: one lock, batched (#680)
 
 [continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: one lock, batched (#680), opening paragraph"]
 
 1. GitHub CI is the first gate for every PR.
-2. P1 on the PC runs ONCE per merge round on the merged result of a small batch
-   of green PRs, plus per PR only when it touches retrieval, answer, review or
-   eval code.
+   [continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: numbered item 2 (P1 batching)"]
 3. Every P1, test run and AI batch unloads its models at the end (#666).
-4. Mutation runs are for changed danger-zone modules only (rule 6):
-   `python scripts/mutation_check.py --changed`, not the full registry.
+   [continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: numbered item 4 (mutation runs)"]
 
 ## Where to look
 

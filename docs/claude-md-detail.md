@@ -2,20 +2,36 @@
 
 Passages moved verbatim out of `CLAUDE.md` (issue #1485) to keep it under 200 lines. Nothing here is changed; each block continues the rule or item named in its heading. Rules 1 to 5 and the #805 block were not moved.
 
-## Standing rule 6 (continued)
+## Tooling traps: WAL item (continued)
 
 ```text
-   wrong answer reaches an engineer, the live data, the network or the budget:
-   `comparison.py`, `numparse.py` and the unit code in `claims.py`,
-   `datasheet_checks.py` and `reference/datasheet_checks.json` (the #746
-   checklist), `crs_mapping.py`, `crs_export.py` and `crs_numbers.py`,
-   `live_guard.py`, `heavy_lock.py` and the live guards in
-   `scripts/rehearse_requirement_reextraction.py`, the four socket modules of
-   rule 1 (`market_transport.py`, `model_transport.py`, `reader_transport.py`,
-   `notifications.py`) and `claude_spend.py`. Everywhere else ordinary tests are
-   enough; do not add mutation entries. Existing entries stay and keep running.
-   Vacuous tests are this project's documented recurring defect
-   (`docs/status-honesty-audit.md`).
+- SQLite is **WAL mode**: the DB is three files (`.sqlite`, `-wal`, `-shm`).
+  Copying only one loses documents. Never open the live DB from the VM
+  (disk I/O error).
+```
+
+## Tooling traps: heredoc and AUTH_MODE items
+
+```text
+- Shell heredocs eat backslashes in regexes. Write Python patch scripts to a
+  file, or use quoted heredocs (`<<'EOF'`).
+- `AUTH_MODE=demo_required` is on. `<img src>` cannot send the bearer token —
+  page images are now fetched with the header (`useAuthedImage`).
+```
+
+## Heavy checks: numbered item 2 (P1 batching)
+
+```text
+2. P1 on the PC runs ONCE per merge round on the merged result of a small batch
+   of green PRs, plus per PR only when it touches retrieval, answer, review or
+   eval code.
+```
+
+## Heavy checks: numbered item 4 (mutation runs)
+
+```text
+4. Mutation runs are for changed danger-zone modules only (rule 6):
+   `python scripts/mutation_check.py --changed`, not the full registry.
 ```
 
 ## Standing rule 7 (continued)
@@ -41,19 +57,6 @@ Passages moved verbatim out of `CLAUDE.md` (issue #1485) to keep it under 200 li
     lives on the Analysis Hub. RAM/model/OCR/embeddings/latency/ingestion
     detail lives on System Health. Nothing else gets added to Dashboard
     without updating this rule first.
-```
-
-## Standing rule 13 (continued)
-
-```text
-    for any document (number/unit/comparator meaning, silent-loss reporting,
-    verdict safety, output size, approved checklists, code quality). New
-    layouts are handled by one path: the reader fills the equipment type's
-    fixed field list with a page quote per value; code verifies the quote
-    and compares with the approved rule; what the reader misses goes to the
-    engineer or waits for a stronger reader. A reading fix is merged only if
-    it also helps, or does not hurt, sheets it was not built on (invented +
-    held-out totals).
 ```
 
 ## Tooling traps: Cowork VM item (continued)
