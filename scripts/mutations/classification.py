@@ -143,9 +143,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="drop the 'nothing matched' guard, so a document with no "
                     "real evidence is no longer left NULL",
         path=APP / "classification.py",
-        anchor="    evidence = suggest_equipment_type(chunks)\n"
+        anchor="        evidence = _equipment_from_body(conn, document_id, kind_on)\n"
                "    if evidence is None:\n        return None",
-        replacement="    evidence = suggest_equipment_type(chunks)\n"
+        replacement="        evidence = _equipment_from_body(conn, document_id, kind_on)\n"
                     "    if False:\n        return None",
         target=_EQUIPMENT_TYPE_TEST,
         keyword="test_a_document_with_no_evidence_stays_unclassified",
