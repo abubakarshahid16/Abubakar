@@ -7,6 +7,9 @@ import type { AiCheckStatus, PageCoverage, RequirementSplit, RequirementsNotAppl
 export interface ReviewProgressDetail {
   pages_done?: number | null;
   pages_total?: number | null;
+  clauses_done?: number | null;
+  clauses_total?: number | null;
+  clauses_elapsed_seconds?: number | null;
   elapsed_seconds?: number | null;
   idle_seconds?: number | null;
   stall_amber_seconds: number;
