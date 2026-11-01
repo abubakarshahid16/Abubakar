@@ -193,25 +193,15 @@ _NUM = r"(\d[\d,]*(?:\.\d+)?)"
 #: is on (#1518); a stranded dot (".5.3") matches neither alternative.
 _NUM_LEAD = r"(\.\d+(?![.,]?\d)|\d[\d,]*(?:\.\d+)?)"
 _UNIT = r"([a-zA-Z°]+[a-zA-Z0-9/°]*)"
-
-
-def _bound_pattern(num: str) -> re.Pattern:
-    return re.compile(
-        r"^(?:(?:up\s*to|<=|≤|not\s+exceeding)\s*" + num + r"\s*" + _UNIT + r"?"
-        r"|(?:over|above|>|exceeding)\s*" + num + r"\s*" + _UNIT + r"?"
-        r"(?:\s*(?:up\s*to|to|and\s+up\s+to|-|–|and\s+not\s+exceeding)\s*" + num + r"\s*" + _UNIT + r"?)?)",
-        re.IGNORECASE)
-
-
-def _term_pattern(num: str) -> re.Pattern:
-    return re.compile(r"(?:" + num + r"\s*(?:x|×|\*|times)\s*)?(?P<sym>[A-Za-z][A-Za-z .]{0,40}?)"
-                      r"\s*(?:\+\s*" + num + r"\s*" + _UNIT + r"?)?\s*$", re.IGNORECASE)
-
-
-_BOUND = _bound_pattern(_NUM)
-_TERM = _term_pattern(_NUM)
-_BOUND_LEAD = _bound_pattern(_NUM_LEAD)
-_TERM_LEAD = _term_pattern(_NUM_LEAD)
+_BOUND = re.compile(
+    r"^(?:(?:up\s*to|<=|≤|not\s+exceeding)\s*" + _NUM + r"\s*" + _UNIT + r"?"
+    r"|(?:over|above|>|exceeding)\s*" + _NUM + r"\s*" + _UNIT + r"?"
+    r"(?:\s*(?:up\s*to|to|and\s+up\s+to|-|–|and\s+not\s+exceeding)\s*" + _NUM + r"\s*" + _UNIT + r"?)?)",
+    re.IGNORECASE)
+_TERM = re.compile(r"(?:" + _NUM + r"\s*(?:x|×|\*|times)\s*)?(?P<sym>[A-Za-z][A-Za-z .]{0,40}?)"
+                   r"\s*(?:\+\s*" + _NUM + r"\s*" + _UNIT + r"?)?\s*$", re.IGNORECASE)
+_BOUND_LEAD = re.compile(_BOUND.pattern.replace(_NUM, _NUM_LEAD), re.IGNORECASE)
+_TERM_LEAD = re.compile(_TERM.pattern.replace(_NUM, _NUM_LEAD), re.IGNORECASE)
 
 
 def _n(text: str) -> float:
