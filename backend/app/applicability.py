@@ -262,12 +262,12 @@ def is_materials_standard(entry_or_label: dict | str, table: dict | None = None)
 def _equipment_reading(document_id: str, allowed: frozenset[str]) -> tuple:
     """(equipment, source, doubt, facts): `subject_scope.read_equipment` on the
     submittal's own record and facts. Unsure (order 142): empty equipment."""
-    from . import classification, subject_scope
+    from . import classification, kind_rules, subject_scope
 
     facts = datasheets.list_facts(document_id, allowed_document_ids=allowed)
     record = classification.of_document(document_id) or {}
     reading = subject_scope.read_equipment(record, facts, subject_scope.vocabulary())
-    return set(reading[0]), reading[1], reading[2], facts
+    return kind_rules.reading_for(document_id, (set(reading[0]), reading[1], reading[2], facts))
 
 
 def governing_standards(submittal_document_id: str, library: list[dict],
@@ -1256,10 +1256,10 @@ def select(
     standard those sheets cite is absent, and a system that found some anyway
     would be lying.
     """
-    from . import equipment_subtype, standard_judgment
+    from . import equipment_subtype, kind_rules, standard_judgment
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
-    profile = _submittal_profile(submittal_document_id)
+    profile, kind_part = kind_rules.profile_part(submittal_document_id, library, allowed_document_ids)
     submittal_text = _submittal_text(submittal_document_id, allowed_document_ids)
     referenced = datasheets.referenced_standards(submittal_text)
 
@@ -1392,7 +1392,7 @@ def select(
         # whole library, unchanged).
         "scope_candidates_asked": len(scope_candidates),
         # #754 F5b: required vs cited, computed from the same library.
-        "standards_check": check,
+        "standards_check": kind_rules.attach(check, kind_part, selected),
         **completeness(selected, missing, submittal_document_id,
                        allowed_document_ids=allowed_document_ids),
     }
