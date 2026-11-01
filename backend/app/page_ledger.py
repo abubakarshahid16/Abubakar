@@ -649,11 +649,11 @@ def coverage(document_id: str) -> dict:
             else:
                 no_field.append(r["page_no"])
     sources = {r["facts_recorded_by"] for r in ledger if r["facts_recorded_by"]}
-    by_reading: dict = {}
+    by_reading: dict = intake.coverage_part(document_id)
     if settings.page_read_by_reading_enabled:
         # #1473: "read" (a reading came back) apart from "fields found".
         dropped = _pages_dropped_with_content(document_id)
-        by_reading = {
+        by_reading |= {
             "pages_read": [r["page_no"] for r in ledger if page_has_reading(r)],
             "pages_not_read": [r["page_no"] for r in ledger if not page_has_reading(r)],
             # Why each unread page is unread, in plain words (owner rule on
@@ -667,7 +667,7 @@ def coverage(document_id: str) -> dict:
             },
         }
     return {
-        **by_reading, **intake.coverage_part(document_id),
+        **by_reading,
         "pages_total": len(ledger),
         "native": count("native_status"),
         "ocr": count("ocr_status"),
