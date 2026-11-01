@@ -409,3 +409,122 @@ def test_a_number_found_only_in_the_body_is_not_the_documents_own_number():
     _doc("doc_body", ["\n".join(lines)], "datasheet", number="ABC-100-999")
     assert "ABC-100-001" in procedure_text.load_pages("doc_body")[0][1]
     assert transmittal_kit.holders(["ABC-100-001"], ["doc_body"]) == {"ABC-100-001": []}
+
+
+# ---------------------------------------------------------------- #1482 proof: nothing matched
+# A transmittal extracted as a PIPE table (one row per line, '|' between cells - a .docx table
+# reads this way) had no header field and no listed document read, so every required item was
+# "not transmitted", and each such row carried the LIST's quote as the transmittal's page 1.
+
+PIPE_HEADER = (
+    "DOCUMENT TRANSMITTAL\n"
+    "| Transmittal No. | TRN-0001 |\n"
+    "| Date | 01/02/2026 |\n"
+    "| From | Invented Contractor Ltd |\n"
+    "| To | Invented Owner Co |\n"
+    "| Purpose of issue | For review |\n"
+)
+PIPE_TABLE = (
+    "| No. | Document No. | Title | Rev. | Sheets |\n"
+    "| --- | --- | --- | --- | --- |\n"
+    "| 1 | ABC-100-001 | Pump datasheet | 3 | 2 |\n"
+    "| 2 | ABC-100-002 | Valve datasheet | 1 | 1 |\n"
+)
+
+
+def test_a_complete_pipe_table_transmittal_is_read_and_has_no_defect_rows(on):
+    _sub, run, scope = _world(header=PIPE_HEADER, table=PIPE_TABLE)
+    transmittal_kit.for_review(run, scope)
+    assert _defects(run) == []
+    assert not any(
+        "No table of listed" in n["note"] for n in spec_kit.notes(_rows(run))
+    )
+
+
+def test_the_planted_defects_of_a_pipe_table_transmittal_are_flagged(on):
+    header = PIPE_HEADER.replace("| Date | 01/02/2026 |", "| Date |  |").replace(
+        "| Purpose of issue | For review |", "| Purpose of issue | |"
+    )
+    table = PIPE_TABLE.replace(
+        "| Valve datasheet | 1 |", "| Valve datasheet | 2 |"
+    ).replace("| Pump datasheet | 3 | 2 |", "| Pump datasheet | 3 | 5 |")
+    _sub, run, scope = _world(header=header, table=table)
+    transmittal_kit.for_review(run, scope)
+    assert _items(run) == [
+        "header:date",
+        "header:purpose",
+        "revision:ABC-100-002",
+        "sheets:ABC-100-001",
+    ]
+    assert {r["compliance_status"] for r in _defects(run)} == {"NEEDS_ENGINEER_REVIEW"}
+    by = {r["requirement_id"].split(":", 2)[2]: r for r in _defects(run)}
+    assert "the label is on page 1 with no value" in by["header:date"]["finding"]
+
+
+def test_another_transmittal_listing_the_same_numbers_is_not_a_holder(on):
+    # an earlier transmittal lists the same numbers: it is not the held document
+    _doc("doc_tr_old", [HEADER + "\n" + TABLE], "transmittal", number="TRN-0000")
+    _sub, run, scope = _world(header=PIPE_HEADER, table=PIPE_TABLE)
+    assert transmittal_kit.holders(["ABC-100-001"], ["doc_tr_old", "doc_h1"]) == {
+        "ABC-100-001": ["doc_h1"]
+    }
+    transmittal_kit.for_review(run, scope | {"doc_tr_old"})
+    assert _defects(run) == []
+
+
+def test_a_listed_row_without_a_document_number_is_counted_in_a_note(on):
+    table = PIPE_TABLE + "| 3 | Invented procedure | Invented procedure | 0 | 4 |\n"
+    _sub, run, scope = _world(header=PIPE_HEADER, table=table)
+    transmittal_kit.for_review(run, scope)
+    texts = [n["note"] for n in spec_kit.notes(_rows(run))]
+    assert any(
+        "1 of 3 rows of the listed-documents table carry no document number" in t
+        for t in texts
+    )
+
+
+@pytest.mark.parametrize(
+    "line,value",
+    [
+        ("Revision: 3", "3"),
+        ("Rev. No. 3", "3"),
+        ("REV NO", None),
+        ("Revision By Date", None),
+        ("Revised for review", None),
+        ("Reviewed by invented", None),
+        ("Rev A", "A"),
+    ],
+)
+def test_a_revision_label_word_is_not_a_revision(line, value):
+    assert transmittal_kit._rev_value(line) == value
+
+
+def test_the_cover_revision_is_read_past_a_bare_rev_no_label(on):
+    _doc(
+        "doc_c",
+        ["Document No: ABC-100-001\nREV NO\nInvented cover\nRev. 2"],
+        "datasheet",
+        number="ABC-100-001",
+    )
+    assert transmittal_kit.cover_revision("doc_c")[0] == "2"
+
+
+def test_a_missing_required_item_cites_the_list_not_the_transmittal(on, monkeypatch):
+    _doc("doc_req", [REQUIRED_PAGE], "specification", number="REQ-1")
+    _sub, run, scope = _world(header=PIPE_HEADER, table=PIPE_TABLE, extra=("doc_req",))
+    monkeypatch.setattr(settings, "transmittal_required_list_document_ids", "doc_req")
+    transmittal_kit.for_review(run, scope)
+    assert _items(run) == [
+        "extra:ABC-100-002",
+        "not_transmitted:relief valve calculation",
+    ]
+    by = {r["requirement_id"].split(":", 2)[2]: r for r in _defects(run)}
+    missing = by["not_transmitted:relief valve calculation"]
+    assert missing["contractor_page"] is None
+    assert missing["contractor_evidence_text"] is None
+    assert "list doc_req page 1" in missing["finding"]
+    assert "Relief valve calculation" in missing["ai_rationale"]
+    assert missing["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
+    extra = by["extra:ABC-100-002"]
+    assert extra["contractor_page"] == 1
+    assert "ABC-100-002" in extra["contractor_evidence_text"]

@@ -60,7 +60,29 @@ _ROLES = (
     ("title", r"title|description|type|deliverable|\bname\b|\bdocument\b"),
 )
 _GAP = re.compile(r"\s{2,}|\t")
-_REV = re.compile(r"\brev(?:ision)?\.?\s*[:\-]?\s*([A-Za-z0-9]{1,4})\b", re.I)
+_RULE_CELL = re.compile(r":?-{3,}:?")
+_REV = re.compile(
+    r"\brev(?:ision)?(?![a-z])\.?\s*(?:(?:no|nr|number)\b\.?\s*)?[:\-]?\s*([A-Za-z0-9]{1,4})\b",
+    re.I,
+)
+# a word a revision LABEL is printed with ("Rev No", "Revision By"): never a revision value
+_REV_LABEL = frozenset(
+    {
+        "no",
+        "nr",
+        "num",
+        "by",
+        "date",
+        "desc",
+        "rev",
+        "for",
+        "of",
+        "the",
+        "and",
+        "chk",
+        "app",
+    }
+)
 _QUOTE = 300
 _TRAIL_DATE = re.compile(r"\s(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})$")
 
@@ -100,6 +122,22 @@ def _note(item: str, text: str) -> dict:
 # ---------------------------------------------------------------- reading
 
 
+def _cells(line: str) -> list[str]:
+    """One text line's cells. A line with a '|' is a pipe-delimited row (text extracted or
+    converted as a pipe table): split at every '|', the empty edges of a leading or trailing
+    '|' dropped and an empty interior cell KEPT, so a blank value stays in its column. Any
+    other line splits at wide gaps (two or more spaces, or a tab)."""
+    stripped = line.strip()
+    if "|" in stripped:
+        parts = [" ".join(c.split()) for c in stripped.split("|")]
+        if stripped.startswith("|"):
+            parts = parts[1:]
+        if stripped.endswith("|") and parts:
+            parts = parts[:-1]
+        return parts if any(parts) else []
+    return [c.strip() for c in _GAP.split(stripped) if c.strip()]
+
+
 def _grids(
     document_id: str, pages: list[tuple[int, str]]
 ) -> list[tuple[int, list[tuple[list[str], str]]]]:
@@ -127,7 +165,9 @@ def _grids(
                 out.append((page_no, [(row, " | ".join(row)) for row in grid]))
         block: list[tuple[list[str], str]] = []
         for line in [*text.splitlines(), ""]:
-            cells = [c.strip() for c in _GAP.split(line.strip()) if c.strip()]
+            cells = _cells(line)
+            if cells and all(_RULE_CELL.fullmatch(c) for c in cells if c):
+                continue  # a "|---|---|" rule line under a pipe table's header row
             if cells and (m := _TRAIL_DATE.search(cells[-1])) and m.start() > 0:
                 cells[-1:] = [cells[-1][: m.start()].strip(), m.group(1)]
             if len(cells) >= 2:
@@ -180,18 +220,32 @@ def header_fields(
     found = {}
     for key, _label, pattern in _HEADER_FIELDS:
         rx = re.compile(rf"^\s*(?:{pattern})\s*[:\-]\s*(.*)$", re.I)
+        cell = re.compile(rf"(?:{pattern})\s*[.:#\-]?", re.I)
         for page_no, text in pages:
             hit = next(
-                ((m, ln) for ln in text.splitlines() if (m := rx.match(ln))), None
+                (
+                    (value, ln)
+                    for ln in text.splitlines()
+                    if (value := _label_value(ln, rx, cell)) is not None
+                ),
+                None,
             )
             if hit:
-                found[key] = (
-                    hit[0].group(1).strip(),
-                    page_no,
-                    " ".join(hit[1].split()),
-                )
+                found[key] = (hit[0], page_no, " ".join(hit[1].split()))
                 break
     return found
+
+
+def _label_value(line: str, rx: re.Pattern, cell: re.Pattern) -> str | None:
+    """The value of a 'Label: value' line, or of a pipe row whose first cell is the label
+    alone ('| Label | value |'); "" for a label with no value, None when not a label line."""
+    if m := rx.match(line):
+        return m.group(1).strip()
+    if "|" in line:
+        cells = _cells(line)
+        if cells and cell.fullmatch(cells[0]):
+            return cells[1] if len(cells) > 1 else ""
+    return None
 
 
 def header_rows(pages) -> list[dict]:
@@ -252,7 +306,8 @@ def holders(numbers: list[str], candidates: list[str]) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {n: [] for n in numbers}
     for doc in candidates:
         wanted = [n for n in numbers if _has_number(first.get(doc, ""), n)]
-        if not wanted:
+        # another transmittal LISTS numbers; it never carries one as its own (#1482)
+        if not wanted or procedure_text.document_kind(doc) == KIND:
             continue
         pages = [{"page_no": p, "text": t} for p, t in procedure_text.load_pages(doc)]
         block = title_block_lines(pages)
@@ -265,15 +320,25 @@ def holders(numbers: list[str], candidates: list[str]) -> dict[str, list[str]]:
     return out
 
 
+def _rev_value(line: str) -> str | None:
+    """The first revision VALUE on a line; a label word after 'Rev' ("Rev No", "Revision
+    By") is not one."""
+    for m in _REV.finditer(line):
+        if m.group(1).lower() not in _REV_LABEL:
+            return m.group(1)
+    return None
+
+
 def cover_revision(document_id: str) -> tuple[str, int, str] | None:
+    """The revision on the held document's title block, else on its first page (the cover)."""
     from .classification import title_block_lines
 
-    pages = [
-        {"page_no": p, "text": t} for p, t in procedure_text.load_pages(document_id)
-    ]
-    for page_no, line in title_block_lines(pages):
-        if m := _REV.search(line):
-            return m.group(1), page_no, " ".join(line.split())
+    loaded = procedure_text.load_pages(document_id)
+    pages = [{"page_no": p, "text": t} for p, t in loaded]
+    cover = [(p, ln) for p, t in loaded[:1] for ln in t.splitlines()]
+    for page_no, line in [*title_block_lines(pages), *cover]:
+        if value := _rev_value(line):
+            return value, page_no, " ".join(line.split())
     return None
 
 
@@ -468,12 +533,15 @@ def required_rows(items: list[dict], listed: list[dict], boundary: str) -> list[
             _row(
                 f"not_transmitted:{key}",
                 f"The required item '{req['item']}' is transmitted.",
-                f"Required item '{req['item']}'{due} (required-submissions list page "
-                f"{req['page']}) is not on this transmittal: not transmitted - engineer to "
-                f"confirm whether due. {boundary}",
-                f'required item not listed on the transmittal: "{req["quote"]}"',
-                req["page"],
-                req["quote"],
+                f"Required item '{req['item']}'{due} (required-submissions list "
+                f"{req['document']} page {req['page']}) is not on this transmittal: not "
+                f"transmitted - engineer to confirm whether due. {boundary}",
+                f"required item not listed on the transmittal: list {req['document']} "
+                f'page {req["page"]}: "{req["quote"]}"',
+                # #1482: the quote is the LIST's text, on the list's page - it is not on the
+                # transmittal, so it is never stored as the transmittal's page and evidence
+                None,
+                None,
             )
         )
     used = set(cover.values())
@@ -521,12 +589,20 @@ def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
             )
         ]
     rows = header_rows(pages)
-    listed = [
+    table = [
         r
         for r in _read_tables(document_id, pages, ("docno",))
         if any(c in r["cells"] for c in ("rev", "sheets"))
-        and re.search(r"\d", r["cells"]["docno"])
     ]
+    listed = [r for r in table if re.search(r"\d", r["cells"]["docno"])]
+    if len(table) > len(listed):
+        rows.append(
+            _note(
+                "no_number",
+                f"{len(table) - len(listed)} of {len(table)} rows of the listed-documents table "
+                "carry no document number; not compared with held documents or the required list",
+            )
+        )
     if not listed:
         rows.append(
             _note(
