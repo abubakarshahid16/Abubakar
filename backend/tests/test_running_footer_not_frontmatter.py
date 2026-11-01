@@ -110,3 +110,33 @@ def test_on_a_credits_page_keeps_its_own_markers(on):
 
 def test_off_no_footer_lines_are_found(off):
     assert data_page.running_rights_lines(SHEET) == frozenset()
+
+
+#: A 7-line cover whose only front-matter marker is the running footer.
+TITLE_COVER = "\n".join(
+    [
+        "ACME PUMPS",
+        "Pump package datasheet",
+        "Station 7 duty pumps",
+        "Document 2024-118",
+        "Revision 0",
+        "Issued for review",
+        FOOTER,
+    ]
+)
+COVERED = _document(TITLE_COVER, SHEET_PAGE, CURVE_PAGE, SHEET_PAGE, CURVE_PAGE)
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_a_cover_with_the_footer_keeps_its_title_page_label(monkeypatch, switch):
+    monkeypatch.setattr(settings, "running_footer_not_frontmatter_enabled", switch)
+    kinds = chunker.classify_document_pages(COVERED, len(COVERED))
+    assert kinds[1] == chunker.TITLE_KIND
+
+
+def test_switching_on_changes_the_chunk_signature_off_leaves_it(monkeypatch):
+    monkeypatch.setattr(settings, "running_footer_not_frontmatter_enabled", False)
+    off = chunker._chunk_signature("sha", SHEET)
+    assert data_page.footer_signature() == ""
+    monkeypatch.setattr(settings, "running_footer_not_frontmatter_enabled", True)
+    assert chunker._chunk_signature("sha", SHEET) != off

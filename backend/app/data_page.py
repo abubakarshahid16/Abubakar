@@ -91,6 +91,32 @@ def marker_text(text: str, footer: frozenset[str]) -> str:
     )
 
 
+def footer_signature() -> str:
+    """Joins the chunk signature, so switching RUNNING_FOOTER_NOT_FRONTMATTER on
+    marks every document stale; off it adds nothing (signatures unchanged)."""
+    return "+running-footer" if settings.running_footer_not_frontmatter_enabled else ""
+
+
+def page_kind(text: str, page_no: int, total: int, footer: frozenset[str]) -> str:
+    """`chunker.classify_page` with the running footer left out. A page 1 that
+    was front matter only because of that footer and is a short title block
+    stays front matter, so `classify_document_pages` still labels it the title
+    page (title detection does not depend on the footer)."""
+    from . import unsupported_script as script
+    from .chunker import _is_title_page, classify_page
+
+    kind = script.kind(text) or classify_page(text, page_no, total, footer)
+    if (
+        footer
+        and page_no == 1
+        and kind == "prose"
+        and classify_page(text, page_no, total) == "frontmatter"
+        and _is_title_page(text, page_no)
+    ):
+        return "frontmatter"
+    return kind
+
+
 def body_or_data(text: str, lines: list[str]) -> bool:
     """True when the page is body text, or (switch on) a page of measured values."""
     from .chunker import count_clause_headings  # chunker imports this module

@@ -29,7 +29,7 @@ from . import fts_index, orphan_guard, states
 from . import unsupported_script as script
 from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
-from .data_page import body_or_data, marker_text, running_rights_lines
+from . import data_page
 from . import tables as tables_mod
 
 # ---------------------------------------------------------------- tokenizer
@@ -513,7 +513,7 @@ def classify_page(text: str, page_no: int, total_pages: int, footer=frozenset())
     ):
         return "frontmatter"
 
-    low = marker_text(text, footer)  # a running rights footer does not count
+    low = data_page.marker_text(text, footer)  # a running rights footer is not counted
     marker_hits = sum(1 for m in _FRONTMATTER_MARKERS if m in low)
     marker_hits += sum(1 for m in _AMBIGUOUS_FRONTMATTER_MARKERS if m in low)
 
@@ -530,7 +530,7 @@ def classify_page(text: str, page_no: int, total_pages: int, footer=frozenset())
     # Both halves are required. A contents page has headings without
     # sentences; a copyright page has sentences without numbered clauses. Only
     # body text has both.
-    marker_hits *= not body_or_data(text, lines)
+    marker_hits *= not data_page.body_or_data(text, lines)
 
     # Front matter markers are decisive wherever they appear.
     if marker_hits >= 2 or (marker_hits >= 1 and page_no <= max(12, total_pages * 0.05)):
@@ -679,10 +679,8 @@ def classify_document_pages(pages: list[tuple[int, str]], total_pages: int) -> d
     continued over pages, becomes `revision_history` (excluded, reason recorded);
     page 1, called front matter but a short title block, becomes `title_page`
     (one searchable chunk, so the document's own title and number are found)."""
-    footer = running_rights_lines(pages)
-    kinds = {
-        p: script.kind(t) or classify_page(t, p, total_pages, footer) for p, t in pages
-    }
+    footer = data_page.running_rights_lines(pages)
+    kinds = {p: data_page.page_kind(t, p, total_pages, footer) for p, t in pages}
     previous_history = False
     previous_no: int | None = None
     for pno, text in pages:
@@ -2744,7 +2742,7 @@ def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
     output would be identical, so the work can be skipped."""
     h = hashlib.sha256()
     h.update(doc_sha.encode())
-    h.update(CHUNKER_VERSION.encode())
+    h.update((CHUNKER_VERSION + data_page.footer_signature()).encode())
     h.update(str(len(pages)).encode())
     tables = page_tables or {}
     for pno, text in pages:
