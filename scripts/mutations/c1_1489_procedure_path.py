@@ -114,8 +114,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         11,
         "the run never reads the procedure pages",
         _C,
-        "        with procedure_text.reading(review_run_id):  # #1476\n",
-        "        with procedure_text.using(None):  # #1476\n",
+        "        procedure_text.reading(review_run_id),  # #1476\n",
+        "        procedure_text.using(None),  # #1476\n",
         "reads_the_procedure_pages",
     ),
     _m(

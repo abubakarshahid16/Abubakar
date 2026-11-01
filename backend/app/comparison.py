@@ -2294,12 +2294,14 @@ def run_comparison(
     parsing, the matcher) carries the submittal's fields and the applied
     standards' clause text - those documents and no others."""
     from . import claude_approved
-    with claude_approved.carrying(claude_approved.review_documents(review_run_id)):
-        with procedure_text.reading(review_run_id):  # #1476
-            return _run_comparison(
-                review_run_id, allowed_document_ids=allowed_document_ids, subject=subject,
-                reference_coverage=reference_coverage, model_opinions=model_opinions,
-                replace=replace, missing_references=missing_references)
+    with (
+        claude_approved.carrying(claude_approved.review_documents(review_run_id)),
+        procedure_text.reading(review_run_id),  # #1476
+    ):
+        return _run_comparison(
+            review_run_id, allowed_document_ids=allowed_document_ids, subject=subject,
+            reference_coverage=reference_coverage, model_opinions=model_opinions,
+            replace=replace, missing_references=missing_references)
 
 
 def _run_comparison(
