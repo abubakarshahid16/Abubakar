@@ -179,3 +179,117 @@ def test_run_unread_pages_from_a_real_ledger(monkeypatch):
     monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
     cov = page_ledger.coverage(_prose_doc(ocr_pending=2))
     assert page_ledger.run_unread_pages(cov) == [2]
+
+
+def _doc_with_contents_page() -> str:
+    """Three prose pages plus page 4, a contents page the indexer set aside."""
+    doc = _prose_doc()
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id,page_no,text,char_count,needs_ocr,batch_no)"
+            " VALUES (?,4,'1 Scope 3',9,0,0)",
+            (doc,),
+        )
+        conn.execute(
+            "INSERT INTO exclusions (document_id,scope,page_start,page_end,chunk_id,rule,"
+            "reason,text_sample,text_length,created_at,clause_headings)"
+            " VALUES (?,'page',4,4,NULL,'page_classified_toc','contents','x',9,?,0)",
+            (doc, NOW),
+        )
+    page_ledger.refresh(doc, as_submittal=True)
+    return doc
+
+
+def test_on_a_set_aside_contents_page_stays_unread_but_is_named(monkeypatch):
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
+    cov = page_ledger.coverage(_doc_with_contents_page())
+    assert cov["pages_read"] == [1, 2, 3]
+    assert cov["pages_not_read"] == [4]  # no reader ran: never counted read
+    assert cov["pages_not_read_why"] == {
+        "4": "excluded from the index on purpose (rule page_classified_toc)"
+    }
+
+
+def test_off_the_set_aside_key_is_absent(monkeypatch):
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", False)
+    cov = page_ledger.coverage(_doc_with_contents_page())
+    assert "pages_not_read_why" not in cov
+
+
+def test_the_crs_names_the_unread_page_and_why_and_the_summary_shows_not_read(
+    monkeypatch,
+):
+    from app import crs_mapping, page_not_read
+
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
+    cov = page_ledger.coverage(_doc_with_contents_page())
+    outcome = {"page_coverage": cov}
+    notes = crs_mapping.build_review_notes([], [], None, outcome)
+    named = [n for n in notes if n["note"] == page_not_read.NOTE_PAGE_NOT_READ]
+    assert len(named) == 1 and named[0]["count"] == 1
+    assert "Page 4 was not read" in named[0]["detail"]
+    assert (
+        "excluded from the index on purpose (rule page_classified_toc)"
+        in named[0]["detail"]
+    )
+    # the engineer's run summary lists it as not read, with the same words
+    assert page_ledger.run_unread_pages(cov) == [4]
+    assert page_ledger.run_unread_reasons(cov) == cov["pages_not_read_why"]
+    # a run stored without the switch adds no note
+    assert page_not_read.notes({"page_coverage": {}}) == []
+
+
+def test_unread_page_words_blank_image_and_a_plain_failure():
+    base = {
+        "index_status": "retrievable",
+        "index_reason": None,
+        "native_status": "text",
+        "ocr_status": "not_required",
+        "facts_reason": None,
+    }
+    from app import page_not_read
+
+    w = page_not_read.unread_page_words
+    assert w({**base, "native_status": "empty"}) == "blank page"
+    assert w({**base, "native_status": "needs_ocr", "ocr_status": "pending"}) == (
+        "image with no reading"
+    )
+    # content that simply failed is not excused by any of the three kinds
+    assert w({**base, "facts_reason": "the model failed"}) == "the model failed"
+
+
+def test_a_scan_whose_ocr_failed_is_never_called_blank():
+    # Review of #1519: an empty text layer with a failed OCR is content that
+    # failed, not a blank page.
+    from app import page_not_read
+
+    row = {
+        "index_status": "no_chunk",
+        "index_reason": "",
+        "native_status": "empty",
+        "ocr_status": "failed",
+        "facts_reason": None,
+    }
+    assert page_not_read.unread_page_words(row) == page_not_read.IMAGE_NO_READING
+    row["ocr_status"] = "not_required"
+    assert page_not_read.unread_page_words(row) == page_not_read.BLANK_PAGE
+
+
+def test_a_page_set_aside_although_it_holds_clause_text_is_not_excused(monkeypatch):
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
+    doc = _prose_doc()
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id,page_no,text,char_count,needs_ocr,batch_no)"
+            " VALUES (?,4,'8 Testing 8.1 The vessel shall be tested',40,0,0)",
+            (doc,),
+        )
+        conn.execute(
+            "INSERT INTO exclusions (document_id,scope,page_start,page_end,chunk_id,rule,"
+            "reason,text_sample,text_length,created_at,clause_headings)"
+            " VALUES (?,'page',4,4,NULL,'page_classified_front_matter','front','x',40,?,1)",
+            (doc, NOW),
+        )
+    page_ledger.refresh(doc, as_submittal=True)
+    why = page_ledger.coverage(doc)["pages_not_read_why"]["4"]
+    assert "on purpose" not in why and "not excused" in why
