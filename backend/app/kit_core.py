@@ -146,7 +146,10 @@ def register(kit: Kit) -> Kit:
 
 
 def _kits() -> list[Kit]:
-    from . import pump_kit, vessel_kit  # noqa: F401  (importing a kit module registers it)
+    from . import (  # noqa: F401  (importing a kit module registers it)
+        pump_kit,
+        vessel_kit,
+    )
 
     return KITS
 
