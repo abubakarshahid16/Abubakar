@@ -2473,9 +2473,15 @@ def _run_comparison(
     extra_not_applied.extend(partial["items"])
     # RULES BY EQUIPMENT SCOPE (switch): a rule for another equipment type or kind is counted, not checked.
     from . import equipment_scope
+
     es = equipment_scope.gate(
-        requirements, equipment=subject_scope.submittal_equipment(stored, facts, subject_scope.vocabulary())[0],
-        kind=equipment_scope.submittal_kind(submittal_id), standard_labels=standard_labels)
+        requirements,
+        equipment=subject_scope.submittal_equipment(
+            stored, facts, subject_scope.vocabulary()
+        )[0],
+        kind=equipment_scope.submittal_kind(submittal_id),
+        standard_labels=standard_labels,
+    )
     requirements = es["kept"]
     extra_not_applied.extend(es["items"])
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not

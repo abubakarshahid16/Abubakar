@@ -43,10 +43,14 @@ def submittal_kind(document_id: str | None) -> str | None:
     guess. None for a guess, `needs_engineer`, `unknown` or no row."""
     if not document_id:
         return None
-    row = connect().execute(
-        "SELECT kind, state, evidence FROM document_kinds WHERE document_id = ?",
-        (document_id,),
-    ).fetchone()
+    row = (
+        connect()
+        .execute(
+            "SELECT kind, state, evidence FROM document_kinds WHERE document_id = ?",
+            (document_id,),
+        )
+        .fetchone()
+    )
     if row is None or row["state"] == "needs_engineer":
         return None
     try:
@@ -66,7 +70,9 @@ def _kinds(value: object) -> set[str]:
     return {str(k).strip().lower() for k in items if str(k).strip()}
 
 
-def _own_types(requirement: dict, label: str, table: dict, vocab) -> tuple[set[str], str]:
+def _own_types(
+    requirement: dict, label: str, table: dict, vocab
+) -> tuple[set[str], str]:
     """(equipment types the rule is for, where that was read) or (empty, "")."""
     stored = vocab.equipment_in(requirement.get("equipment_type"))
     if stored:
@@ -113,10 +119,14 @@ def gate(
             names = sorted(types) if out_equipment else sorted(kinds)
             by_other[" / ".join(names)] = by_other.get(" / ".join(names), 0) + 1
             this = ", ".join(sorted(equipment)) if out_equipment else kind
-            items.append({
-                "requirement": r, "code": CODE,
-                "detail": f"for {' / '.join(names)} ({where or 'its stored document kind'}), "
-                          f"this submittal is {this}"})
+            items.append(
+                {
+                    "requirement": r,
+                    "code": CODE,
+                    "detail": f"for {' / '.join(names)} ({where or 'its stored document kind'}), "
+                    f"this submittal is {this}",
+                }
+            )
             continue
         if (types and not equipment) or (kinds and not kind):
             unsure += 1  # has a scope, but the submittal's own is not decided
@@ -128,13 +138,19 @@ def gate(
     note = None
     if left_out:
         groups = "; ".join(f"{n} apply to {k}" for k, n in sorted(by_other.items()))
-        note = (f"{left_out} rules left out: they apply to "
-                f"{', '.join(sorted(by_other))} ({groups}); counted of the {total} rules "
-                "of the standards in scope of this review")
+        note = (
+            f"{left_out} rules left out: they apply to "
+            f"{', '.join(sorted(by_other))} ({groups}); counted of the {total} rules "
+            "of the standards in scope of this review"
+        )
     summary = {
-        "considered": total, "left_out": left_out, "by_other_scope": by_other,
-        "kept_scope_unknown": unknown, "kept_submittal_scope_undecided": unsure,
-        "submittal_equipment": sorted(equipment), "submittal_kind": kind,
+        "considered": total,
+        "left_out": left_out,
+        "by_other_scope": by_other,
+        "kept_scope_unknown": unknown,
+        "kept_submittal_scope_undecided": unsure,
+        "submittal_equipment": sorted(equipment),
+        "submittal_kind": kind,
         "note": note,
         "boundary": "the rules of the standards in scope of this review",
     }
