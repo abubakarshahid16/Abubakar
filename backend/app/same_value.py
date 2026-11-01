@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 
+from .config import settings
 from .rule_eval import same_value_key
 
 #: Words that make a note a plain note. Deliberately short and closed: the
@@ -72,9 +73,38 @@ def _plain_note(before: str, after: str) -> bool:
     return all(word in NEUTRAL_WORDS for word in re.findall(r"[a-z]+", after.lower()))
 
 
+def _range_key(fact: dict) -> tuple | None:
+    """#1472: a printed RANGE ("4-28 cP", min and max stored, no single number) read twice,
+    one reading with a plain note and one without, is ONE value. None when the fact is not
+    a range or something other than a plain note is around it (then the cautious key)."""
+    low, high = fact.get("value_min"), fact.get("value_max")
+    if fact.get("raw_value") not in (None, "") or low is None or high is None:
+        return None
+    text = " ".join(str(fact.get("field_value") or "").split())
+    if _SYMBOLS.search(text) or _SIGNED.search(text):
+        return None
+    unit = str(fact.get("raw_unit") or "").strip()
+    rest = re.sub(r"\d[\d.,]*", " ", text)
+    if unit:
+        rest = re.sub(re.escape(unit), " ", rest, count=1, flags=re.I)
+    rest = re.sub(r"[-\u2212\u2013\u2014]|\bto\b", " ", rest, flags=re.I)
+    if not _plain_note("", rest):
+        return None
+    return (
+        "r",
+        round(float(low), 9),
+        round(float(high), 9),
+        " ".join(unit.lower().split()),
+    )
+
+
 def key(fact: dict) -> tuple:
     """Two facts with the same key are one value."""
     base = same_value_key(fact)
+    if base[0] == "t" and settings.datasheet_one_value_enabled:
+        ranged = _range_key(fact)
+        if ranged is not None:
+            return ranged
     if base[0] == "t":
         return base  # text values are already compared as text
     around = _around_the_number(fact)
