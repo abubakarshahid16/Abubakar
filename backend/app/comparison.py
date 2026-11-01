@@ -55,6 +55,8 @@ from pathlib import Path
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
+from .deferred_value import framing as _framing
+from .deferred_value import reason as _deferred_reason
 from .db import connect
 from .provenance import ai_quote_proved
 
@@ -541,8 +543,7 @@ def equipment_subject(classification: dict | None) -> str | None:
     return value or None
 
 
-#: The reason code on a breach held back because the datasheet VALUE it rests
-#: on is not yet trusted (audit 2026-09-30).
+#: The reason code on a breach held back: the datasheet VALUE is not yet trusted (2026-09-30).
 LOW_TRUST_VALUE = "LOW_TRUST_VALUE"
 #: `submittal_facts.validation_state` values that mean "not yet trusted":
 #: below the confidence threshold (the OCR fallback tier among them) and a
@@ -592,11 +593,11 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
     if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
         return verdict
     reason = low_trust_reason(fact)
-    if reason is None:
+    if reason is None and not (reason := _deferred_reason(fact)):
         return verdict
     return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
-        f"{LOW_TRUST_VALUE}: {reason}, so no verdict (neither compliant nor a "
-        f"breach) is stated until an engineer checks the value on the page; "
+        f"{_framing(reason)[0]}{reason}, so no verdict (neither compliant nor a "
+        f"breach) is stated{_framing(reason)[1]}; "
         f"the arithmetic on the value as read: "
         f"{verdict.get('rationale') or ''}")}
 
@@ -608,8 +609,7 @@ _HELD_ON_UNSURE_KIND = frozenset(
 )
 
 
-#: A rationale that already leads with its own machine reason ("unit_mismatch:",
-#: "LOW_TRUST_VALUE:"): an engineer question asked for that reason keeps it.
+#: A rationale that leads with its own machine reason ("unit_mismatch:") keeps it.
 _LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
 
 

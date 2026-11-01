@@ -36,6 +36,7 @@ from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, severity_rule
 from .checklist_scope import governs, standards
+from .deferred_value import hold_results
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
@@ -352,8 +353,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
             out.append(_result(rule["id"], COMPLIANT if ok else NON_COMPLIANT, rule["text"],
                                calc, left[0], rule["left"], tag))
     # ---- revision block: two or more of the revision table's own headings
-    # Two DISTINCT revision-table headings on one page (row_noise's markers,
-    # read line by line): the rule row_noise uses to recognise the block.
+    # Two DISTINCT revision-table headings on one page (row_noise's markers) make a block.
     from .row_noise import _REVISION_TABLE_MARKERS
     def _block(text: str) -> bool:
         lines = (text or "").splitlines()
@@ -375,7 +375,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                            ("A revision block was found." if has_block else
                             "No revision block was found on the datasheet pages read."),
                            None, "revision_block", None))
-    return out
+    return hold_results(out, facts, rules, wanted)
 
 
 # ---------------------------------------------------------------- #746 checklist
