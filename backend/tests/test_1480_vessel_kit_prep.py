@@ -167,7 +167,10 @@ def test_the_two_limit_cards_have_an_at_the_limit_and_a_unit_case():
         names = {t["name"] for t in _by_id()[card_id]["tests"]}
         assert "at the limit" in names
     names = {t["name"] for t in _by_id()["VSLD-05"]["tests"]}
-    assert {"a different unit above the limit", "a different unit below the limit"} <= names
+    assert {
+        "a different unit above the limit",
+        "a different unit below the limit",
+    } <= names
 
 
 def test_a_wrong_expectation_in_a_card_case_is_reported_as_a_failed_case():
@@ -279,7 +282,12 @@ PLANTED = [
         "VSLD-02",
         {"MISSING_INFORMATION"},
     ),
-    ("MDMT missing", _sheet(minimum_design_metal_temperature=None), "VSLD-03", {"MISSING_INFORMATION"}),
+    (
+        "MDMT missing",
+        _sheet(minimum_design_metal_temperature=None),
+        "VSLD-03",
+        {"MISSING_INFORMATION"},
+    ),
     (
         "joint efficiency missing",
         _sheet(joint_efficiency=None),
@@ -314,7 +322,11 @@ PLANTED = [
 
 #: Traps: inside the limit or exactly at it, each must read COMPLIANT.
 TRAPS = [
-    ("design pressure exactly 5% over", _sheet(design_pressure=("10.5", "barg")), "VSLD-05"),
+    (
+        "design pressure exactly 5% over",
+        _sheet(design_pressure=("10.5", "barg")),
+        "VSLD-05",
+    ),
     ("design pressure far above", _sheet(design_pressure=("20", "barg")), "VSLD-05"),
     (
         "design pressure above the limit, in MPa against kPa",
@@ -323,7 +335,11 @@ TRAPS = [
         ),
         "VSLD-05",
     ),
-    ("joint efficiency exactly 0.85", _sheet(joint_efficiency=("0.85", None)), "VSLD-04"),
+    (
+        "joint efficiency exactly 0.85",
+        _sheet(joint_efficiency=("0.85", None)),
+        "VSLD-04",
+    ),
     ("joint efficiency 1.0", _sheet(), "VSLD-04"),
     ("clean sheet, design pressure stated", _sheet(), "VSLD-01"),
 ]
@@ -399,7 +415,11 @@ def test_switch_on_only_the_cards_nothing_committed_already_asks_are_added(kit_o
     assert all(i["draft"] and i["kit"] == "vessel" for i in added)
     assert not [i for i in items if i.get("needs")]
     keys = [
-        (i["rule"]["kind"], i["rule"].get("field") or i["rule"].get("left"), i["rule"].get("right"))
+        (
+            i["rule"]["kind"],
+            i["rule"].get("field") or i["rule"].get("left"),
+            i["rule"].get("right"),
+        )
         for i in items
     ]
     assert len(keys) == len(set(keys))
@@ -409,17 +429,22 @@ def test_switch_on_other_equipment_types_are_unchanged(kit_on):
     rules = dc.load_rules()
     for key in ("Pressure Safety Valve", "Heat Exchanger", PUMP):
         assert vessel_kit.loader_items(key, rules["checklists"][key]["items"]) == []
-        assert kit_core.with_kit(key, rules["checklists"][key]["items"]) == rules[
-            "checklists"
-        ][key]["items"]
+        assert (
+            kit_core.with_kit(key, rules["checklists"][key]["items"])
+            == rules["checklists"][key]["items"]
+        )
 
 
 def test_switch_off_a_low_design_pressure_margin_is_not_judged_at_all():
     assert "VSLD-05" not in _live(_sheet(design_pressure=("10.4", "barg")))
 
 
-def test_switch_on_a_low_margin_and_a_low_joint_efficiency_fail_on_a_whole_sheet(kit_on):
-    out = _live(_sheet(design_pressure=("10.4", "barg"), joint_efficiency=("0.7", None)))
+def test_switch_on_a_low_margin_and_a_low_joint_efficiency_fail_on_a_whole_sheet(
+    kit_on,
+):
+    out = _live(
+        _sheet(design_pressure=("10.4", "barg"), joint_efficiency=("0.7", None))
+    )
     assert out["VSLD-05"]["rule_said"] == "NON_COMPLIANT"
     assert out["VSLD-04"]["rule_said"] == "NON_COMPLIANT"
     assert out["VSLD-05"]["draft"] is True
@@ -454,7 +479,9 @@ def test_a_kit_result_is_always_held_whatever_rule_auto_use_says(
     from app import rule_trust
 
     monkeypatch.setattr(settings, "rule_auto_use_enabled", auto_use)
-    out = _live(_sheet(design_pressure=("10.4", "barg"), joint_efficiency=("0.7", None)))
+    out = _live(
+        _sheet(design_pressure=("10.4", "barg"), joint_efficiency=("0.7", None))
+    )
     for rule_id in ("VSLD-04", "VSLD-05"):
         row = rule_trust.label_check(out[rule_id])
         assert row["status"] == "NEEDS_ENGINEER_REVIEW", rule_id
@@ -477,7 +504,9 @@ def test_a_signed_off_vessel_checklist_cannot_confirm_a_kit_card(kit_on, monkeyp
     facts = [_fact(n, v, u) for n, v, u in _sheet(design_pressure=("10.4", "barg"))]
     res = {
         r["rule_id"]: r
-        for r in dc.evaluate(facts, equipment_type=VESSEL, page_texts=PAGES, rules=rules)
+        for r in dc.evaluate(
+            facts, equipment_type=VESSEL, page_texts=PAGES, rules=rules
+        )
     }
     assert res["VSLD-05"]["draft"] is True and res["VSLD-05"]["local"] is True
     assert rule_trust.check_label(res["VSLD-05"]) != rule_trust.ENGINEER_CONFIRMED
@@ -507,7 +536,10 @@ def test_the_margin_text_states_the_factor_in_full_and_what_is_not_checked():
         for r in dc.evaluate(facts, equipment_type=VESSEL, page_texts=PAGES, rules=one)
     }
     assert "105% of" in res["VSLD-05"]["detail"]
-    assert "not at least" not in res["VSLD-05"]["detail"] or "105%" in res["VSLD-05"]["detail"]
+    assert (
+        "not at least" not in res["VSLD-05"]["detail"]
+        or "105%" in res["VSLD-05"]["detail"]
+    )
     text = _by_id()["VSLD-05"]["text"]
     assert "1.05 times" in text and "1.1" in text and "6,900 kPa" in text
     assert "normal and not the maximum" in text
@@ -523,7 +555,11 @@ def test_the_pump_kit_is_what_it_was_through_the_shared_mechanism():
         "not yet verified by an engineer"
     )
     report = pump_kit.kit_report()
-    assert (report["cards"], report["tested"], report["draft_needs_standard"]) == (19, 4, 15)
+    assert (report["cards"], report["tested"], report["draft_needs_standard"]) == (
+        19,
+        4,
+        15,
+    )
     assert [k.name for k in kit_core.KITS] == ["pump", "vessel"]
     assert pump_kit.rows is kit_core.rows and pump_kit.held is kit_core.held
 
@@ -534,11 +570,17 @@ def test_both_switches_on_each_kit_adds_only_its_own_cards(monkeypatch):
     rules = dc.load_rules()
     pump_ids = {i["id"] for i in dc.checklist_for(PUMP, rules)["items"]}
     vessel_ids = {i["id"] for i in dc.checklist_for(VESSEL, rules)["items"]}
-    assert {"PMPD-04", "PMPD-08"} <= pump_ids and not any(i.startswith("VSLD") for i in pump_ids)
-    assert {"VSLD-04", "VSLD-05"} <= vessel_ids and not any(i.startswith("PMPD") for i in vessel_ids)
+    assert {"PMPD-04", "PMPD-08"} <= pump_ids and not any(
+        i.startswith("VSLD") for i in pump_ids
+    )
+    assert {"VSLD-04", "VSLD-05"} <= vessel_ids and not any(
+        i.startswith("PMPD") for i in vessel_ids
+    )
 
 
-def test_a_pump_row_is_held_with_the_pump_words_and_a_vessel_row_with_the_vessel_words(monkeypatch):
+def test_a_pump_row_is_held_with_the_pump_words_and_a_vessel_row_with_the_vessel_words(
+    monkeypatch,
+):
     monkeypatch.setattr(settings, "vessel_kit_draft_enabled", True)
     monkeypatch.setattr(settings, "pump_kit_draft_enabled", True)
     result = {"status": "COMPLIANT", "text": "t", "detail": "d"}

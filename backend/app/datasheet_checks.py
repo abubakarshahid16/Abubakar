@@ -34,7 +34,16 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, kit_core, pump_kit, severity_rule, vessel_kit
+from . import (
+    absence,
+    blank_markers,
+    claims,
+    datasheet_roles,
+    kit_core,
+    pump_kit,  # noqa: F401  (importing a kit module registers it)
+    severity_rule,
+    vessel_kit,  # noqa: F401
+)
 from .checklist_scope import governs, standards
 from .deferred_value import hold_results
 from .same_value import key as _key
