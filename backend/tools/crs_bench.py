@@ -30,8 +30,10 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from app import deferred_pass
+
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
-DEFERRED = re.compile(r"\bby contractor\b|\btba\b|\bto be advised\b", re.I)
+DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
 
 
 MATCH_KEYS = ("origin", "status", "requirement_id", "match_method", "section")
@@ -64,10 +66,7 @@ def _hits(findings: list[dict], matchers: list[dict]) -> list[dict]:
     return [f for f in findings if any(_matches(f, m) for m in matchers)]
 
 
-def _deferred_pass(finding: dict) -> bool:
-    return finding.get("compliance_status") == "COMPLIANT" and bool(
-        DEFERRED.search(finding.get("finding") or "")
-    )
+_deferred_pass = deferred_pass.is_deferred_pass
 
 
 def _fold(text: str | None) -> str:
