@@ -129,8 +129,12 @@ def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
     for page_no, text in pages:
         for part in procedure_text._SENTENCE_END.split(text):
             folded = _fold(part)
-            if not folded or _LEADER.search(part) or not any(
-                all(word in folded for word in group) for group in item["terms"]
+            if (
+                not folded
+                or _LEADER.search(part)
+                or not any(
+                    all(word in folded for word in group) for group in item["terms"]
+                )
             ):
                 continue
             quote = " ".join(part.split())[:MAX_QUOTE]
