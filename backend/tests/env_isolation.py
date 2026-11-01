@@ -217,6 +217,8 @@ EGRESS_SAFE: dict[str, object] = {
     "spec_kit_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
+    # --- local only, no model or socket: a split abbreviation is joined; a unit left off one copy is one value (off by default)
+    "datasheet_label_match_enabled": False,
     # --- local only, no model or socket: a drawing is checked against a DRAFT must-contain list (#1484, off by default)
     "parked_kits_draft_enabled": False,
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)

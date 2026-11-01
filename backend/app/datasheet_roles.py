@@ -34,7 +34,22 @@ def role_of(
 ) -> str | None:
     """The first matching role, or the first one in `prefer` when several match."""
     found = roles_of(field_name, rules)
+    if not found:  # switch `datasheet_label_match_enabled`: a split abbreviation ("tube o d")
+        found = _joined_roles(field_name, rules)
     return next((r for r in found if r in prefer), found[0] if found else None)
+
+
+def _joined_roles(field_name: str, rules: dict) -> list[str]:
+    """The roles a name states once its split abbreviation is joined; [] with the switch off."""
+    from .config import settings
+
+    if not settings.datasheet_label_match_enabled:
+        return []
+    from .datasheet_checks import _fold
+    from .label_match import joined_letters
+
+    joined = joined_letters(_fold(field_name))
+    return roles_of(joined, rules) if joined != _fold(field_name) else []
 
 
 def wanted_roles(equipment_type: str | None, rules: dict) -> frozenset:
