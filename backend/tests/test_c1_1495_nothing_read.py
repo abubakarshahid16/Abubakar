@@ -45,27 +45,52 @@ def on(monkeypatch):
 
 
 def _unread(sub):
-    with db.connect() as conn:  # the file is missing and no page text came back
+    with db.connect() as conn:  # no page text came back
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (sub,))
 
 
-def test_missing_file_nothing_read_fails_the_run(on):
-    sub, scope = _world("x")
-    _unread(sub)
+def _file(sub, tmp_path, name="sub.pdf"):
+    f = tmp_path / name
+    f.write_bytes(b"x")
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?", (str(f), sub))
+
+
+def test_missing_file_with_chunks_and_ledger_still_fails(on):
+    # the proof run's real case: ingest left chunks, the file is gone
+    sub, scope = _world("Noise level 95 dB(A)")
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO page_ledger (document_id,page_no,native_status,ocr_status,"
+            "index_status,facts_status,facts_recorded_by,updated_at) VALUES (?,1,'text','none',"
+            "'indexed','no_facts','extraction','2026-11-01')",
+            (sub,),
+        )
     run_id, job_id, state = _go(sub, scope)
     assert state == "poisoned"
     run = _run_row(run_id)
     assert run["status"] == "failed"
     error = json.loads(run["outcome_json"])["error"]
-    assert "nothing read" in error and "0 values" in error
+    assert "stored file could not be found or opened" in error
     assert _job(job_id)["error_code"] == "NothingRead"
     assert p3._findings(run_id) == 0
 
 
-def test_prose_with_page_text_and_no_fields_is_not_failed(on):
+def test_file_present_but_no_text_is_retried_not_poisoned(on, tmp_path):
+    sub, scope = _world("x")
+    _file(sub, tmp_path)
+    _unread(sub)
+    _, job_id, state = _go(sub, scope)
+    assert state == "retrying"
+    assert "nothing read" in (_job(job_id)["error_message"] or "")
+
+
+@pytest.mark.parametrize("name", ["p.pdf", "p.docx"])
+def test_prose_with_page_text_and_no_fields_is_not_failed(on, tmp_path, name):
     sub, scope = _world(
         "Welding procedure: the operator shall clean the joint before welding."
     )
+    _file(sub, tmp_path, name)
     run_id, _, state = _go(sub, scope)
     assert state == "done"
     assert _run_row(run_id)["status"] == "completed"
@@ -88,8 +113,7 @@ def test_normal_datasheet_unchanged(on):
 
 
 def test_switch_off_is_unchanged():
-    sub, scope = _world("x")
-    _unread(sub)
+    sub, scope = _world("x")  # file missing, nothing read
     assert settings.nothing_read_fails_enabled is False
     run_id, _, state = _go(sub, scope)
     assert state == "done"

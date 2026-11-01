@@ -1,13 +1,13 @@
-"""The clause review's settings (#1477), a base of `config.Settings`.
+"""Settings kept out of `config.py` (it may only shrink): a base of `config.Settings`.
 
-Kept out of `config.py` so that file does not grow. The fields are read from the
+Clause review (#1477) and nothing-read (#1495) fields. They are read from the
 environment exactly like every other setting (`Settings` inherits them).
 """
 
 from pydantic import BaseModel, Field
 
 
-class ClauseReviewSettings(BaseModel):
+class SettingsExt(BaseModel):
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every

@@ -6,14 +6,29 @@ Own module so `review_jobs.run` and `submittal_review` do not grow.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
-from . import job_queue, page_ledger
+from . import job_queue, page_ledger, stored_paths
 from .config import settings
 from .db import connect
 
 
 class NothingRead(RuntimeError):
     """The review read nothing: no value, no page text, no page reading."""
+
+
+class StoredFileAbsent(NothingRead):
+    """The stored file is confirmed absent: a retry cannot help, fail at once."""
+
+
+def _pages(document_id: str) -> str:
+    row = (
+        connect()
+        .execute("SELECT page_count FROM documents WHERE id = ?", (document_id,))
+        .fetchone()
+    )
+    pages = (row["page_count"] if row else None) or 0
+    return f"{pages} page{'' if pages == 1 else 's'}"
 
 
 def reason(document_id: str) -> str | None:
@@ -32,6 +47,12 @@ def reason(document_id: str) -> str | None:
         (document_id,),
     ).fetchone():
         return None
+    path = stored_paths.of_document(document_id)
+    if not path or not Path(path).is_file():
+        raise StoredFileAbsent(
+            "nothing read: the stored file could not be found or opened "
+            f"({_pages(document_id)})"
+        )
     if conn.execute(
         "SELECT 1 FROM chunks WHERE document_id = ? AND TRIM(COALESCE(text, '')) != ''"
         " LIMIT 1",
@@ -40,13 +61,9 @@ def reason(document_id: str) -> str | None:
         return None
     if any(page_ledger.page_has_reading(r) for r in page_ledger.rows(document_id)):
         return None
-    row = conn.execute(
-        "SELECT page_count FROM documents WHERE id = ?", (document_id,)
-    ).fetchone()
-    pages = (row["page_count"] if row else None) or 0
-    plural = "" if pages == 1 else "s"
     return (
-        f"nothing read: the document could not be read ({pages} page{plural}, 0 values)"
+        "nothing read: the document could not be read "
+        f"({_pages(document_id)}, 0 values)"
     )
 
 

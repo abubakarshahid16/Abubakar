@@ -391,7 +391,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         # #791: the run's stored trace (reads only, never fails the run), then REVIEW_DEBUG prints it.
         review_trace.store(run_id, requester, timings)
         review_trace.emit(run_id, requester)
-    except nothing_read.NothingRead as exc:  # #1495
+    except nothing_read.StoredFileAbsent as exc:  # #1495
         return nothing_read.fail_run(job_id, run_id, exc)
     except _Cancelled:
         with conn:
