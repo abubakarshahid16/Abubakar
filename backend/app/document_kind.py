@@ -187,7 +187,10 @@ def _title_cue_hit(lines: Sequence[tuple[int, str]]) -> tuple[str, int, str] | N
         if not text or ":" in text or len(text.split()) > _TITLE_WORDS_MAX:
             continue
         for kind, pattern in _KIND_CUES:
-            if any(not _REFERENCE_AFTER.match(text, m.end()) for m in pattern.finditer(text)):
+            if any(
+                not _REFERENCE_AFTER.match(text, m.end())
+                for m in pattern.finditer(text)
+            ):
                 return kind, page, text
         if _STANDARD_LINE.match(text) or (
             _STANDARD_WORDS.search(text) and len(text.split()) <= 6
