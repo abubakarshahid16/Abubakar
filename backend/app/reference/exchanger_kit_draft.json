@@ -1,0 +1,811 @@
+{
+  "_about": "Heat exchanger kit PREPARATION (parked kit #1481, milestone 58), all DRAFT. Box list and draft rule cards for a shell-and-tube heat exchanger datasheet, built only from the standards the library already holds: SAES-E-004 (shell and tube exchangers). Every card is a draft: no engineer has signed it off, no real exchanger document has proved it. Read only when `exchanger_kit_draft_enabled` is on (off by default); every result is held for the engineer. Rule text is in our own words, never the standard's. Clause numbers and pages are as stored in the library and not verified. A card whose value no held clause requires stays draft 'needs ...' (order 301.1, A-1440). TEMA, API 660 and API 661 (the standards the committed checklist names) are NOT held, so no card cites them. The other held exchanger standards (SAES-E-006 double pipe and hairpin, SAES-E-007 air-cooled, SAES-E-014 plate and frame, SAES-E-015) are for other exchanger types and are not used here. ASME VIII-1 is held, but 0 of its 4,073 stored rules carry ASME's own clause numbers, so no card cites an ASME clause.",
+  "equipment_type": "Heat Exchanger",
+  "status": "DRAFT",
+  "standards_held": [
+    "SAES-E-004"
+  ],
+  "standards_not_held": [
+    "TEMA",
+    "API 660",
+    "API 661",
+    "IOGP S-614"
+  ],
+  "standards_held_unusable_for_citation": [
+    "ASME BPVC VIII-1 (clause numbers in the library are not ASME's own)"
+  ],
+  "clauses_verified": false,
+  "boxes": [
+    {
+      "role": "design_pressure",
+      "label": "Design pressure (shell side and tube side, each)",
+      "group": "Design basis"
+    },
+    {
+      "role": "design_temperature",
+      "label": "Design temperature (shell side and tube side, each)",
+      "group": "Design basis"
+    },
+    {
+      "role": "operating_pressure",
+      "label": "Normal and maximum operating pressure",
+      "group": "Design basis"
+    },
+    {
+      "role": "operating_temperature",
+      "label": "Operating temperature",
+      "group": "Design basis"
+    },
+    {
+      "role": "test_pressure",
+      "label": "Hydrostatic test pressure",
+      "group": "Design basis"
+    },
+    {
+      "role": "mdmt",
+      "label": "Minimum design metal temperature",
+      "group": "Design basis"
+    },
+    {
+      "role": "design_code",
+      "label": "Code of construction, division and edition",
+      "group": "Design basis"
+    },
+    {
+      "role": null,
+      "label": "External (vacuum) design pressure",
+      "group": "Design basis",
+      "note": "no role in the checker yet; SAES-E-004 7.2.4 to 7.2.6 name the external pressures"
+    },
+    {
+      "role": null,
+      "label": "Service (lethal, hydrogen, caustic, amine, utility, cyclic) and exchanger service (reboiler, condenser, cooler)",
+      "group": "Design basis",
+      "note": "no role in the checker yet; SAES-E-004 7.6.1 and 7.6.2 ask for both on the data sheet"
+    },
+    {
+      "role": null,
+      "label": "TEMA class",
+      "group": "Design basis",
+      "note": "no role in the checker yet (the committed tema_type role reads the TEMA type); SAES-E-004 7.5 names Class R"
+    },
+    {
+      "role": "tema_type",
+      "label": "TEMA type (front head, shell, rear head letters)",
+      "group": "Design basis"
+    },
+    {
+      "role": null,
+      "label": "Steam-out condition required",
+      "group": "Design basis",
+      "note": "no role in the checker yet; SAES-E-004 7.6.3"
+    },
+    {
+      "role": "heat_duty",
+      "label": "Heat duty",
+      "group": "Thermal and hydraulic"
+    },
+    {
+      "role": "heat_transfer_area",
+      "label": "Heat transfer area",
+      "group": "Thermal and hydraulic"
+    },
+    {
+      "role": "fouling_resistance",
+      "label": "Fouling resistance (shell side and tube side)",
+      "group": "Thermal and hydraulic"
+    },
+    {
+      "role": "exchanger_flow",
+      "label": "Shell-side and tube-side flow",
+      "group": "Thermal and hydraulic"
+    },
+    {
+      "role": "allowable_pressure_drop",
+      "label": "Allowable pressure drop (shell side and tube side)",
+      "group": "Thermal and hydraulic"
+    },
+    {
+      "role": null,
+      "label": "Calculated pressure drop, clean and fouled",
+      "group": "Thermal and hydraulic",
+      "note": "no role in the checker yet; SAES-E-004 6.2.7 asks for both on the data sheet"
+    },
+    {
+      "role": null,
+      "label": "Fluid physical properties and, where it applies, the condensing or boiling curves",
+      "group": "Thermal and hydraulic",
+      "note": "no role in the checker yet; SAES-E-004 6.2.14"
+    },
+    {
+      "role": null,
+      "label": "Flow arrangement sketch (shell side and tube side, stacking)",
+      "group": "Thermal and hydraulic",
+      "note": "no role in the checker yet; SAES-E-004 6.2.15 asks for a sketch on the data sheet"
+    },
+    {
+      "role": null,
+      "label": "Mean shell and tube wall temperatures (fixed tubesheet)",
+      "group": "Thermal and hydraulic",
+      "note": "no role in the checker yet; SAES-E-004 6.3.6"
+    },
+    {
+      "role": "tube_material",
+      "label": "Tube material",
+      "group": "Tubes"
+    },
+    {
+      "role": "tube_outside_diameter",
+      "label": "Tube outside diameter",
+      "group": "Tubes"
+    },
+    {
+      "role": "tube_wall_thickness",
+      "label": "Tube wall thickness (minimum or average, and gauge)",
+      "group": "Tubes"
+    },
+    {
+      "role": "tube_length",
+      "label": "Tube length",
+      "group": "Tubes"
+    },
+    {
+      "role": "tube_count",
+      "label": "Number of tubes",
+      "group": "Tubes"
+    },
+    {
+      "role": "tube_passes",
+      "label": "Number of tube passes",
+      "group": "Tubes"
+    },
+    {
+      "role": null,
+      "label": "Tube pitch and layout angle",
+      "group": "Tubes",
+      "note": "no role in the checker yet"
+    },
+    {
+      "role": null,
+      "label": "Tube-to-tubesheet joint (expanded, strength welded, seal welded)",
+      "group": "Tubes",
+      "note": "no role in the checker yet; SAES-E-004 7.12.1 and 7.12.2 decide it by service"
+    },
+    {
+      "role": "shell_material",
+      "label": "Shell material",
+      "group": "Shell and heads"
+    },
+    {
+      "role": "head_material",
+      "label": "Channel and head material",
+      "group": "Shell and heads"
+    },
+    {
+      "role": null,
+      "label": "Tubesheet material and baffle material",
+      "group": "Shell and heads",
+      "note": "no role in the checker yet; SAES-E-004 10.1.1 asks for the materials of construction"
+    },
+    {
+      "role": null,
+      "label": "Shell inside diameter and exchanger size",
+      "group": "Shell and heads",
+      "note": "no role in the checker yet"
+    },
+    {
+      "role": null,
+      "label": "Baffle type, cut and spacing",
+      "group": "Shell and heads",
+      "note": "no role in the checker yet"
+    },
+    {
+      "role": null,
+      "label": "Head type",
+      "group": "Shell and heads",
+      "note": "no role in the checker yet; SAES-E-004 7.9.1 asks for the types of heads on the data sheet"
+    },
+    {
+      "role": "corrosion_allowance",
+      "label": "Corrosion allowance (of the pressure components)",
+      "group": "Shell and heads"
+    },
+    {
+      "role": null,
+      "label": "Cladding or weld overlay (material, thickness)",
+      "group": "Shell and heads",
+      "note": "no role in the checker yet; SAES-E-004 7.8.2.1 and 7.8.2.2 set a minimum thickness"
+    },
+    {
+      "role": "joint_efficiency",
+      "label": "Weld joint efficiency",
+      "group": "Shell and heads"
+    },
+    {
+      "role": "radiography",
+      "label": "Extent of radiography",
+      "group": "Shell and heads"
+    },
+    {
+      "role": "pwht",
+      "label": "Post weld heat treatment",
+      "group": "Shell and heads"
+    },
+    {
+      "role": null,
+      "label": "Impact test requirement (test temperature, energy)",
+      "group": "Shell and heads",
+      "note": "no role in the checker yet; SAES-E-004 10.2.4 asks for both on the data sheet"
+    },
+    {
+      "role": null,
+      "label": "Nozzle and manway schedule (quantity, size, facing, pressure class)",
+      "group": "Connections and loads",
+      "note": "no role in the checker yet; SAES-E-004 8.1.1 and 8.2.1 ask for them on the data sheet"
+    },
+    {
+      "role": null,
+      "label": "Gasket type",
+      "group": "Connections and loads",
+      "note": "no role in the checker yet; SAES-E-004 8.4.1"
+    },
+    {
+      "role": null,
+      "label": "Support type, lug or saddle locations",
+      "group": "Connections and loads",
+      "note": "no role in the checker yet; SAES-E-004 9.1.1, 9.2.3 and 9.3.2"
+    },
+    {
+      "role": null,
+      "label": "Wind and earthquake design data",
+      "group": "Connections and loads",
+      "note": "no role in the checker yet; SAES-E-004 7.10.1"
+    },
+    {
+      "role": null,
+      "label": "Insulation and fireproofing (extent and design density)",
+      "group": "Connections and loads",
+      "note": "no role in the checker yet; SAES-E-004 7.10.7, 13.2 and 15.2"
+    },
+    {
+      "role": null,
+      "label": "Protective coating system",
+      "group": "Connections and loads",
+      "note": "no role in the checker yet; SAES-E-004 12.2"
+    },
+    {
+      "role": "empty_weight",
+      "label": "Empty weight",
+      "group": "Connections and loads"
+    },
+    {
+      "role": "operating_weight",
+      "label": "Operating weight",
+      "group": "Connections and loads"
+    }
+  ],
+  "cards": [
+    {
+      "id": "EXHD-01",
+      "draft": true,
+      "severity": "major",
+      "text": "The design code, with its division and edition, is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "7.1.2",
+        "page": 16
+      },
+      "rule": {
+        "kind": "required",
+        "field": "design_code"
+      }
+    },
+    {
+      "id": "EXHD-02",
+      "draft": true,
+      "severity": "major",
+      "text": "The minimum design metal temperature is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "7.4",
+        "page": 18
+      },
+      "rule": {
+        "kind": "required",
+        "field": "mdmt"
+      }
+    },
+    {
+      "id": "EXHD-03",
+      "draft": true,
+      "severity": "major",
+      "text": "The tube wall thickness is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "6.4.1",
+        "page": 16
+      },
+      "rule": {
+        "kind": "required",
+        "field": "tube_wall_thickness"
+      }
+    },
+    {
+      "id": "EXHD-04",
+      "draft": true,
+      "severity": "major",
+      "text": "The design pressure is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "7.2.2",
+        "page": 17
+      },
+      "rule": {
+        "kind": "required",
+        "field": "design_pressure"
+      }
+    },
+    {
+      "id": "EXHD-05",
+      "draft": true,
+      "severity": "major",
+      "text": "The operating pressure is stated on the data sheet (the clause asks for both the normal and the maximum one).",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "7.2.2",
+        "page": 17
+      },
+      "rule": {
+        "kind": "required",
+        "field": "operating_pressure"
+      }
+    },
+    {
+      "id": "EXHD-06",
+      "draft": true,
+      "severity": "major",
+      "text": "The minimum corrosion allowance of the pressure components is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "7.8.1.3",
+        "page": 20
+      },
+      "rule": {
+        "kind": "required",
+        "field": "corrosion_allowance"
+      }
+    },
+    {
+      "id": "EXHD-07",
+      "draft": true,
+      "severity": "major",
+      "text": "The shell material is stated on the data sheet (the materials of construction).",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "10.1.1",
+        "page": 30
+      },
+      "rule": {
+        "kind": "required",
+        "field": "shell_material"
+      }
+    },
+    {
+      "id": "EXHD-08",
+      "draft": true,
+      "severity": "major",
+      "text": "The tube material is stated on the data sheet (the materials of construction).",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "10.1.1",
+        "page": 30
+      },
+      "rule": {
+        "kind": "required",
+        "field": "tube_material"
+      }
+    },
+    {
+      "id": "EXHD-09",
+      "draft": true,
+      "severity": "critical",
+      "text": "The weld joint efficiency is at least 0.85 (85%). A figure printed as a percentage (70 or 85 %) is not judged: it is an engineer's question. Not checked: whether the exchanger is built to the Division 1 code this clause is written for.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "7.7",
+        "page": 19
+      },
+      "rule": {
+        "kind": "constant",
+        "field": "joint_efficiency",
+        "op": ">=",
+        "value": 0.85
+      },
+      "plausible": {
+        "min": 0.01,
+        "max": 1
+      },
+      "tests": [
+        {
+          "name": "meets",
+          "facts": [
+            [
+              "joint efficiency",
+              "1.0",
+              null
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "breaks",
+          "facts": [
+            [
+              "joint efficiency",
+              "0.7",
+              null
+            ]
+          ],
+          "expect": "NON_COMPLIANT"
+        },
+        {
+          "name": "at the limit",
+          "facts": [
+            [
+              "joint efficiency",
+              "0.85",
+              null
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "unclear",
+          "facts": [
+            [
+              "joint efficiency",
+              "*",
+              null
+            ]
+          ],
+          "expect": "MISSING_INFORMATION"
+        },
+        {
+          "name": "printed as a percentage",
+          "facts": [
+            [
+              "joint efficiency",
+              "70",
+              null
+            ]
+          ],
+          "expect": "NEEDS_ENGINEER_REVIEW"
+        },
+        {
+          "name": "printed as a percentage at the limit",
+          "facts": [
+            [
+              "joint efficiency",
+              "85",
+              "%"
+            ]
+          ],
+          "expect": "NEEDS_ENGINEER_REVIEW"
+        }
+      ]
+    },
+    {
+      "id": "EXHD-10",
+      "draft": true,
+      "severity": "critical",
+      "text": "The design pressure is at least 1.05 times the maximum operating pressure. Not checked: the larger factor of 1.1 (or the fixed offset of 15 psi) that the clause gives for a maximum operating pressure up to 6,900 kPa; the stored table text is garbled, so only the lowest factor in it is used. The check reads whichever operating pressure the sheet states, which may be the normal and not the maximum one. It reads one design pressure: the shell side and the tube side are each the clause's, so a sheet that prints two is an engineer's question.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "7.2.3",
+        "page": 17
+      },
+      "rule": {
+        "kind": "percent_of",
+        "field": "design_pressure",
+        "op": ">=",
+        "right": "operating_pressure",
+        "percent": 105
+      },
+      "tests": [
+        {
+          "name": "meets",
+          "facts": [
+            [
+              "design pressure",
+              "11",
+              "barg"
+            ],
+            [
+              "maximum operating pressure",
+              "10",
+              "barg"
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "breaks",
+          "facts": [
+            [
+              "design pressure",
+              "10.4",
+              "barg"
+            ],
+            [
+              "maximum operating pressure",
+              "10",
+              "barg"
+            ]
+          ],
+          "expect": "NON_COMPLIANT"
+        },
+        {
+          "name": "at the limit",
+          "facts": [
+            [
+              "design pressure",
+              "10.5",
+              "barg"
+            ],
+            [
+              "maximum operating pressure",
+              "10",
+              "barg"
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "unclear",
+          "facts": [
+            [
+              "design pressure",
+              "*",
+              null
+            ],
+            [
+              "maximum operating pressure",
+              "10",
+              "barg"
+            ]
+          ],
+          "expect": "MISSING_INFORMATION"
+        },
+        {
+          "name": "a different unit above the limit",
+          "facts": [
+            [
+              "design pressure",
+              "1.2",
+              "MPa"
+            ],
+            [
+              "maximum operating pressure",
+              "1100",
+              "kPa"
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "a different unit below the limit",
+          "facts": [
+            [
+              "design pressure",
+              "1.15",
+              "MPa"
+            ],
+            [
+              "maximum operating pressure",
+              "1100",
+              "kPa"
+            ]
+          ],
+          "expect": "NON_COMPLIANT"
+        }
+      ]
+    },
+    {
+      "id": "EXHD-11",
+      "draft": true,
+      "severity": "critical",
+      "text": "The design temperature is at least 28 C above the operating temperature (the clause says the maximum operating temperature on the PFD). The margin is a fixed 28 C, with no percentage part. Not checked: whether the sheet's operating temperature is the maximum one rather than the normal one. A sheet printed in Fahrenheit is not judged: it is an engineer's question.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "7.3",
+        "page": 18
+      },
+      "rule": {
+        "kind": "above_by",
+        "left": "design_temperature",
+        "right": "operating_temperature",
+        "percent": 0,
+        "at_least": 28,
+        "unit": "C"
+      },
+      "tests": [
+        {
+          "name": "meets",
+          "facts": [
+            [
+              "design temperature",
+              "190",
+              "C"
+            ],
+            [
+              "operating temperature",
+              "150",
+              "C"
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "breaks",
+          "facts": [
+            [
+              "design temperature",
+              "170",
+              "C"
+            ],
+            [
+              "operating temperature",
+              "150",
+              "C"
+            ]
+          ],
+          "expect": "NON_COMPLIANT"
+        },
+        {
+          "name": "at the limit",
+          "facts": [
+            [
+              "design temperature",
+              "178",
+              "C"
+            ],
+            [
+              "operating temperature",
+              "150",
+              "C"
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "unclear",
+          "facts": [
+            [
+              "design temperature",
+              "*",
+              null
+            ],
+            [
+              "operating temperature",
+              "150",
+              "C"
+            ]
+          ],
+          "expect": "MISSING_INFORMATION"
+        },
+        {
+          "name": "printed in Fahrenheit",
+          "facts": [
+            [
+              "design temperature",
+              "360",
+              "F"
+            ],
+            [
+              "operating temperature",
+              "300",
+              "F"
+            ]
+          ],
+          "expect": "NEEDS_ENGINEER_REVIEW"
+        }
+      ]
+    },
+    {
+      "id": "EXHD-12",
+      "draft": true,
+      "severity": "major",
+      "text": "The test pressure is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "9.5",
+        "page": 30
+      },
+      "rule": {
+        "kind": "required",
+        "field": "test_pressure"
+      },
+      "needs": "a clause that requires the test pressure to be stated (the cited clause only designs the supports for it; no SAES-E-004 clause asks for the value on the data sheet)"
+    },
+    {
+      "id": "EXHD-13",
+      "draft": true,
+      "severity": "major",
+      "text": "The fouling resistance is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "6.2.4",
+        "page": 13
+      },
+      "rule": {
+        "kind": "required",
+        "field": "fouling_resistance"
+      },
+      "needs": "a clause that requires the fouling resistance to be stated (the cited clause says where the value is chosen from, not that it is stated; the clause that gives a fixed value is only for two-pass shells and sea or well water)"
+    },
+    {
+      "id": "EXHD-14",
+      "draft": true,
+      "severity": "major",
+      "text": "The TEMA type is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "6.1.2",
+        "page": 12
+      },
+      "rule": {
+        "kind": "required",
+        "field": "tema_type"
+      },
+      "needs": "a clause that requires the type to be stated (the cited clause says the TEMA nomenclature is used when specifying exchangers, not that the type letters are printed on the data sheet); TEMA itself is not held"
+    },
+    {
+      "id": "EXHD-15",
+      "draft": true,
+      "severity": "major",
+      "text": "The allowable pressure drop is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "6.2.7",
+        "page": 13
+      },
+      "rule": {
+        "kind": "required",
+        "field": "allowable_pressure_drop"
+      },
+      "needs": "a clause that requires the ALLOWABLE pressure drop to be stated (the cited clause asks for the calculated pressure drop, clean and fouled, which is a different value)"
+    },
+    {
+      "id": "EXHD-16",
+      "draft": true,
+      "severity": "major",
+      "text": "The tube length is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "6.4.2",
+        "page": 16
+      },
+      "rule": {
+        "kind": "required",
+        "field": "tube_length"
+      },
+      "needs": "a clause that requires the tube length to be stated (the cited clause only prefers standard lengths; it does not ask for the value)"
+    },
+    {
+      "id": "EXHD-17",
+      "draft": true,
+      "severity": "major",
+      "text": "The heat duty is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-E-004",
+        "clause": "18.1",
+        "page": 35
+      },
+      "rule": {
+        "kind": "required",
+        "field": "heat_duty"
+      },
+      "needs": "a clause that names the heat duty (the cited clause says the data sheet holds all the information the manufacturer needs, without naming the duty)"
+    }
+  ]
+}

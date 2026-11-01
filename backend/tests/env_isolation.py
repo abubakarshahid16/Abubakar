@@ -223,6 +223,8 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_export_quality_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
     "vessel_kit_draft_enabled": False,
+    # --- local only, no model or socket: draft exchanger kit cards join the heat exchanger checklist (#1481, off by default)
+    "exchanger_kit_draft_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
