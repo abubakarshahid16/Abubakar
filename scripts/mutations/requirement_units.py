@@ -10,9 +10,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M865", phase=75, description="#193: application-rate units are unknown again, so fire-water limits lose their unit",
              path=APP / "claims.py", anchor='    "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,\n',
              replacement="", target=_T, keyword="printed_unit_is_kept", tags=("extraction",)),
+    # M866/M867 re-anchored 1 Nov 2026: since #725 F2 these units resolve through
+    # _REFERENCE_SUFFIX, so the unit-table line they used to edit was dead.
     Mutation(id="M866", phase=75, description="#193: absolute and gauge kPa/psi are unknown again",
-             # Re-anchored (2026-11-01): since #725 F2 these units resolve through
-             # _REFERENCE_SUFFIX, so the unit-table line it used to remove was dead.
              path=APP / "claims.py", anchor='    "kpag": ("kpa", "gauge"), "kpaa": ("kpa", "absolute"),\n',
              replacement="", target=_T, keyword="printed_unit_is_kept or absolute_and_gauge", tags=("extraction",)),
     Mutation(id="M867", phase=75, description="#193: absolute pressure converted like gauge - 13 psia compares with 13 psig",

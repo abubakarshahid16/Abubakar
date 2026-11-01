@@ -81,7 +81,10 @@ _KIND_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "procedure",
         re.compile(
-            r"\bprocedures?\b|\bmethod\s+statement\b|\bwork\s+instruction\b", re.I
+            r"\bprocedures?\b|\bmethod\s+statement\b|\bwork\s+instruction\b"
+            # #1476: a test plan says how a test is done (a plot plan is not one).
+            r"|\b(?:test(?:ing)?|inspection\s+and\s+test)\s+plans?\b",
+            re.I,
         ),
     ),
     ("transmittal", re.compile(r"\btransmittals?\b", re.I)),
@@ -170,7 +173,9 @@ def _type_code_hit(lines: Sequence[tuple[int, str]]) -> tuple[str, int, str] | N
 
 
 def _title_cue_hit(lines: Sequence[tuple[int, str]]) -> tuple[str, int, str] | None:
-    for page, line in lines:
+    # #1476: the earliest page first - a document names itself at its start, and
+    # an attachment deep inside (a safety data sheet on page 51) is not its title.
+    for page, line in sorted(lines, key=lambda pl: pl[0]):
         text = line.strip().strip("|").strip()
         if not text or ":" in text or len(text.split()) > _TITLE_WORDS_MAX:
             continue
