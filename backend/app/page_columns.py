@@ -28,7 +28,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any
 
-from . import numparse
+from . import claims, numparse
 from .config import settings
 
 #: A unit in square brackets, alone ("[l/s]") or glued to a name ("(NPSHR)[m]").
@@ -52,6 +52,9 @@ _FURNITURE = re.compile(
 _LOSSES: ContextVar[dict | None] = ContextVar("page_columns_losses", default=None)
 STACKED = "stacked label cells"
 SKIPPED = "value rows under a header line"
+UNIT_DIFFERS = "value rows whose unit in the cell differs from the header"
+#: A unit written beside a number in the cell is looked for this far (pt) to its right.
+UNIT_REACH = 40.0
 #: A data line is at most this many line heights below the line above it.
 MAX_LINE_GAP = 3.0
 #: Stacked labels: at least this many lines, each at most this many words.
@@ -162,6 +165,30 @@ def _under(
     return ({k: v[0] for k, v in per.items()} if clean else {}), touched, clean
 
 
+def _units_agree(
+    heads: list[dict[str, Any]], line: list[tuple], cells: dict[int, tuple]
+) -> bool:
+    """A unit written beside a number in its own cell must be the header's unit
+    (same spelling, folded). The header's unit is never attached to a cell that
+    states another; a number with no unit beside it takes the header's."""
+    for k, w in cells.items():
+        right = heads[k + 1]["x0"] if k + 1 < len(heads) else w[2] + UNIT_REACH
+        for u in sorted(line, key=lambda v: v[0]):
+            if u[0] < w[2] - 1 or u[0] >= min(right, w[2] + UNIT_REACH) or u is w:
+                continue
+            if _PLAIN_NUMBER.match(u[4]) or u[4].startswith("("):
+                continue
+            if claims.is_unit(u[4]):
+                same = claims.same_unit(
+                    claims.Measurement("", u[4], None, None, None),
+                    claims.Measurement("", heads[k]["unit"], None, None, None),
+                )
+                if not same:
+                    return False
+            break
+    return True
+
+
 def _is_measurement(line: list[tuple], cells: dict[int, tuple]) -> bool:
     """Not a date, page or sheet line, no year as a value, every value a number
     that `numparse` accepts."""
@@ -233,6 +260,9 @@ def head_rows(
             prev = nxt
             if not clean or not _is_measurement(nxt, cells):
                 _lose(SKIPPED)
+                continue
+            if not _units_agree(heads, nxt, cells):
+                _lose(UNIT_DIFFERS)
                 continue
             key = next(
                 (

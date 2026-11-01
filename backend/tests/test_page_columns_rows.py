@@ -99,6 +99,76 @@ def test_stacked_label_cells_are_counted_on_the_page(on, failures):
     assert failures == {1: {"column rows: 2 stacked label cells not read"}}
 
 
+def test_a_cell_unit_that_differs_from_the_header_gives_no_fact(on, failures):
+    page = _page(
+        [
+            (150, 100, "FLOW [l/s]"),
+            (230, 100, "HEAD [m]"),
+            (155, 115, "203"),
+            (180, 115, "m3/h"),
+            (232, 115, "14.5"),
+        ]
+    )
+    assert _pairs(page) == set()
+    assert failures == {
+        1: {
+            "column rows: 1 value rows whose unit in the cell differs from the header not read"
+        }
+    }
+
+
+def test_the_same_unit_in_the_cell_is_read(on):
+    page = _page(
+        [
+            (150, 100, "FLOW [l/s]"),
+            (230, 100, "HEAD [m]"),
+            (155, 115, "203"),
+            (180, 115, "l/s"),
+            (232, 115, "14.5"),
+        ]
+    )
+    assert _pairs(page) == {("FLOW", "203 l/s"), ("HEAD", "14.5 m")}
+
+
+def test_a_plain_number_takes_the_header_unit(on):
+    page = _page(
+        [
+            (150, 100, "FLOW [l/s]"),
+            (230, 100, "HEAD [m]"),
+            (155, 115, "203"),
+            (232, 115, "14.5"),
+        ]
+    )
+    assert _pairs(page) == {("FLOW", "203 l/s"), ("HEAD", "14.5 m")}
+
+
+def test_left_out_rows_reach_the_crs_note(on, failures):
+    from app import page_ledger, page_not_read
+
+    page = _page([*HEADS, (155, 115, "2026"), (232, 115, "12"), (322, 115, "3")])
+    _pairs(page)
+    page_columns.clean_cell("POWER FACTOR\nEFFICIENCY\nMOTOR DATA", str)
+    page_columns.flush_losses(1)
+    failed = {p: sorted(r) for p, r in failures.items()}
+    assert failed
+    pages = {"pages_total": 1, "pages_not_read_into_fields": []}
+    gaps = page_ledger.reading_gaps({"page_failures": failed}, pages)
+    notes = page_not_read.notes({"page_coverage": {"reading": gaps["reading"]}})
+    assert [n["note"] for n in notes] == [page_not_read.NOTE_PAGE_READ_IN_PART]
+    assert "page 1: column rows:" in notes[0]["detail"]
+    assert "value rows under a header line not read" in notes[0]["detail"]
+
+
+def test_no_note_when_the_gap_is_not_a_column_row_loss():
+    from app import page_not_read
+
+    failed = {"1": "a reader failed on this page (geometry)"}
+    assert (
+        page_not_read.notes({"page_coverage": {"reading": {"failed_pages": failed}}})
+        == []
+    )
+
+
 def test_nothing_is_recorded_when_nothing_was_left_out(on, failures):
     _pairs(_page([*HEADS, *TRUE_ROW]))
     assert failures == {}
