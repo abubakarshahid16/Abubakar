@@ -90,4 +90,4 @@ def test_a_title_on_the_title_page_still_counts():
         "WELDING PROCEDURE\n" + _filler("T"),
         _filler("B"),
     )
-    assert document_kind.decide_document_kind(pages).kind in ("procedure", "unknown")
+    assert document_kind.decide_document_kind(pages).kind == "procedure"

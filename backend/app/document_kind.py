@@ -116,11 +116,14 @@ _STANDARD_LINE = re.compile(
 )
 #: A kind word followed by number / no. / ref is a label naming ANOTHER
 #: document ("P&ID NUMBER", "Drawing No"), not this document's title.
-_REFERENCE_AFTER = re.compile(r"\s*(?:number|no\b\.?|nr\b\.?|ref\b\.?|reference)", re.I)
+_REFERENCE_AFTER = re.compile(
+    r"\s*(?:number\b|no\b\.?(?!-)|nr\b\.?|ref\b\.?(?!-)|reference\b)", re.I
+)
 _STANDARD_WORDS = re.compile(r"\bstandard\b", re.I)
 _CONTRACT_BODY = re.compile(r"\bthis\s+(?:contract|agreement)\b", re.I)
 _COVER_LINES = 25
 _COVER_PAGES = 2  # the cover and the title page
+_TITLE_PAGE_LINES = 5  # the top of the title page, not its body
 _TITLE_WORDS_MAX = 14
 
 
@@ -152,8 +155,9 @@ class DocumentKindEvidence:
 
 def _cover_lines(pages: Sequence[dict]) -> list[tuple[int, str]]:
     """The title block (as `title_block_lines`) on the cover and title pages
-    only, plus the first lines of page 1. Owner decision 1 Nov (#1476): a later
-    page - an attachment's own heading on page 51 - never decides the kind."""
+    only, plus the first lines of page 1 and the top lines of page 2 (the title
+    page). Owner decision 1 Nov (#1476): a later page - an attachment's own
+    heading on page 51 - never decides the kind."""
     ordered = sorted(pages, key=lambda p: p["page_no"])
     cover_pages = {p["page_no"] for p in ordered[:_COVER_PAGES]}
     out = [(pg, ln) for pg, ln in title_block_lines(pages) if pg in cover_pages]
@@ -165,6 +169,15 @@ def _cover_lines(pages: Sequence[dict]) -> list[tuple[int, str]]:
         for line in lines[:_COVER_LINES]:
             if (first["page_no"], line) not in out:
                 out.append((first["page_no"], line))
+    for title_page in ordered[1:_COVER_PAGES]:
+        lines = [
+            ln.strip()
+            for ln in (title_page.get("text") or "").splitlines()
+            if ln.strip()
+        ]
+        for line in lines[:_TITLE_PAGE_LINES]:
+            if (title_page["page_no"], line) not in out:
+                out.append((title_page["page_no"], line))
     return out
 
 

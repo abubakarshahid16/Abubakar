@@ -38,6 +38,10 @@ def test_the_real_title_still_wins_after_a_reference_label():
         ("PIPING AND INSTRUMENT DIAGRAM", "drawing"),
         ("HYDROTEST PROCEDURE", "procedure"),
         ("NUMBERING PROCEDURE", "procedure"),
+        ("SPECIFICATION NUMBERING", "specification"),
+        ("Datasheet No-Load Test", "datasheet"),
+        ("Procedure Numbered Steps", "procedure"),
+        ("Drawing Notes", "drawing"),
     ],
 )
 def test_ordinary_titles_are_unchanged(title, kind):
