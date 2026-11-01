@@ -101,17 +101,17 @@ def test_the_overpressure_and_back_pressure_percent_rules_at_the_limit(monkeypat
 )
 def test_hold_at_the_limit_follows_the_operator(monkeypatch, op, expected):
     monkeypatch.setattr(settings, "at_limit_precision_enabled", True)
-    assert dc._hold(op, 1155.0000000000002, 1155.0) is expected
-    assert dc._hold(op, 1154.9999999999998, 1155.0) is expected
+    assert dc._hold(op, 1155.0000000000002, 1155.0, dc._OPS) is expected
+    assert dc._hold(op, 1154.9999999999998, 1155.0, dc._OPS) is expected
 
 
 def test_hold_never_widens_the_limit(monkeypatch):
     monkeypatch.setattr(settings, "at_limit_precision_enabled", True)
-    assert dc._hold("<=", 1155.01, 1155.0) is False  # one printed digit over is over
-    assert dc._hold(">=", 1154.99, 1155.0) is False
+    assert dc._hold("<=", 1155.01, 1155.0, dc._OPS) is False  # one printed digit over is over
+    assert dc._hold(">=", 1154.99, 1155.0, dc._OPS) is False
     monkeypatch.setattr(settings, "at_limit_precision_enabled", False)
     assert (
-        dc._hold(">=", 1154.9999999999998, 1155.0) is False
+        dc._hold(">=", 1154.9999999999998, 1155.0, dc._OPS) is False
     )  # off: today's plain comparison
 
 
@@ -146,3 +146,14 @@ def test_the_pair_consistency_rules_use_the_same_comparison(monkeypatch, on, sta
 
     monkeypatch.setattr(dc, "_number", fake)
     assert run_checks(full_vessel())["DS-C1"]["status"] == status
+
+
+@pytest.mark.parametrize("on", [False, True])
+def test_a_slipped_operator_is_still_seen_at_the_limit(monkeypatch, on):
+    """The operator table is looked up at call time, switch on or off, so a boundary
+    slip in it ("at most" made "below") is not hidden by the at-limit equality."""
+    monkeypatch.setattr(settings, "at_limit_precision_enabled", on)
+    ops = dict(dc._OPS)
+    ops["<="] = ops["<"]
+    monkeypatch.setattr(dc, "_OPS", ops)
+    assert dc._hold("<=", 5.0, 5.0, dc._OPS) is False
