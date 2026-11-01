@@ -222,6 +222,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |
 | `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default. Also routes a parked KIND (`reference/kind_kits/`, drawing from SAES-A-202, #1484) behind `parked_kits_draft_enabled` |
 | `procedure_text` | A procedure submittal's own page text answers its requirements: engineer row with a verified quote, or missing; never compliant (#1476) |
+| `procedure_playbook_rows` | #1522 (b): a procedure's CRS rows from the matching review playbooks, as engineer rows (never compliant, no model), behind `procedure_playbook_rows_enabled` |
 | `progress` | What the machine is doing right now, recorded when it actually happens |
 | `provenance` | Which code read which input: provenance for extracted rows (issue #177) |
 | `quality` | Content-quality gate |

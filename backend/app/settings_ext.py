@@ -98,6 +98,12 @@ class SettingsExt(BaseModel):
     #: 'Safety report summary') still counts as present; not fixed here.
     #: Env: PLAYBOOK_SECTION_PRESENCE_ENABLED.
     playbook_section_presence_enabled: bool = False
+    #: #1522 (b) a review run of a document whose stored kind is `procedure` looks up the playbooks of
+    #: that kind whose title cue is in the procedure's cover lines and adds one CRS row per element as an
+    #: ENGINEER row (`procedure_playbook_rows`): never compliant, "found, engineer to confirm" with the page
+    #: quote, 'unclear'/'missing' say so, a standard not held is never met. None matched: no rows and one
+    #: review note. No model. OFF: the CRS is byte-identical. Env: PROCEDURE_PLAYBOOK_ROWS_ENABLED.
+    procedure_playbook_rows_enabled: bool = False
     #: #1481 heat exchanger kit PREPARATION (parked, milestone 58): append the DRAFT exchanger cards of
     #: `reference/exchanger_kit_draft.json` (the held standard SAES-E-004 requires the value, not already in the
     #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the
