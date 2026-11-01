@@ -40,6 +40,11 @@ class SettingsExt(BaseModel):
     #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
     #: OFF: nothing changes. Env: SPEC_KIT_ENABLED.
     spec_kit_enabled: bool = False
+    #: #1484 (parked kits, preparation): the same look-up routed by document KIND for a kind a held
+    #: standard covers (drawing, from SAES-A-202): a DRAFT must-contain list, no model, engineer
+    #: rows only. Transmittal (#1482) and contract (#1483) have no held standard and no kit.
+    #: OFF: nothing changes. Env: PARKED_KITS_DRAFT_ENABLED.
+    parked_kits_draft_enabled: bool = False
 
     #: #1474: the document KIND (router table `document_kinds`) chooses the rule set: a
     #: document whose kind is anything but datasheet gets no equipment datasheet checklist and

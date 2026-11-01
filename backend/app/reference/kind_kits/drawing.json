@@ -1,0 +1,257 @@
+{
+ "kind": "drawing",
+ "noun": "drawing",
+ "label": "DRAFT - an engineer approves each item before it is relied on",
+ "title": "Engineering drawing (title block, revision block, tags, lists, notes)",
+ "source": "SAES-A-202 Saudi Aramco Engineering Drawings, held in the library; its title block is Saudi Aramco's, so a contractor drawing in another title block may state the same in other words",
+ "items": [
+  {
+   "id": "revision_block",
+   "topic": "Revision block with date, description, job number and revision",
+   "terms": [
+    [
+     "revision",
+     "date",
+     "description"
+    ],
+    [
+     "rev",
+     "date",
+     "description"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-A-202",
+    "clause": "6.7.4",
+    "page": 19
+   }
+  },
+  {
+   "id": "job_order",
+   "topic": "Job Order / EWO number in the title block",
+   "terms": [
+    [
+     "job order"
+    ],
+    [
+     "engineering work order"
+    ],
+    [
+     "jo no"
+    ],
+    [
+     "ewo no"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-A-202",
+    "clause": "6.9",
+    "page": 20
+   }
+  },
+  {
+   "id": "drawing_index",
+   "topic": "Drawing index in the title block",
+   "terms": [
+    [
+     "drawing index"
+    ],
+    [
+     "dwg index"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-A-202",
+    "clause": "6.2.2",
+    "page": 14
+   }
+  },
+  {
+   "id": "drawing_type",
+   "topic": "Drawing type, entered on the first title line",
+   "terms": [
+    [
+     "drawing type"
+    ],
+    [
+     "dwg type"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-A-202",
+    "clause": "6.6.1",
+    "page": 17
+   }
+  },
+  {
+   "id": "plant_number",
+   "topic": "Plant number",
+   "terms": [
+    [
+     "plant no"
+    ],
+    [
+     "plant number"
+    ],
+    [
+     "plant code"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-A-202",
+    "clause": "6.8.2",
+    "page": 19
+   }
+  },
+  {
+   "id": "key_drawing_review",
+   "topic": "Review required box (key drawings)",
+   "terms": [
+    [
+     "review required"
+    ],
+    [
+     "key drawing"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-A-202",
+    "clause": "6.14",
+    "page": 21
+   }
+  },
+  {
+   "id": "design_certification",
+   "topic": "Design certification and revision validation boxes",
+   "terms": [
+    [
+     "design certification"
+    ],
+    [
+     "revision validation"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-A-202",
+    "clause": "6.15",
+    "page": 21
+   }
+  },
+  {
+   "id": "graphic_scale",
+   "topic": "Scale (scaled drawings only; P&ID, PFD, ILD, VOD and E1L are not scaled)",
+   "terms": [
+    [
+     "graphic scale"
+    ],
+    [
+     "line scale"
+    ],
+    [
+     "scale"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-A-202",
+    "clause": "6.16.1",
+    "page": 21
+   }
+  },
+  {
+   "id": "drawing_number",
+   "topic": "Drawing number",
+   "terms": [
+    [
+     "drawing no"
+    ],
+    [
+     "drawing number"
+    ],
+    [
+     "dwg no"
+    ],
+    [
+     "dwg. no"
+    ]
+   ],
+   "draft_reason": "SAES-A-202 6.4.1 (p14) describes the format of a drawing number and 6.4.2 says it is entered in the drawing; neither is a shall that a drawing carry it. DRAFT."
+  },
+  {
+   "id": "sheet_number",
+   "topic": "Sheet number",
+   "terms": [
+    [
+     "sheet no"
+    ],
+    [
+     "sheet number"
+    ],
+    [
+     "sheet"
+    ]
+   ],
+   "draft_reason": "SAES-A-202 6.5.1 (p15) describes the sheet number as three digits; it does not say a drawing must state it. DRAFT."
+  },
+  {
+   "id": "unit_number",
+   "topic": "Unit number",
+   "terms": [
+    [
+     "unit no"
+    ],
+    [
+     "unit number"
+    ]
+   ],
+   "draft_reason": "SAES-A-202 6.18 (p22) defines a unit number; no held clause requires a drawing to state it. DRAFT."
+  },
+  {
+   "id": "tag_numbers",
+   "topic": "Tag numbers of the equipment, instruments and lines shown",
+   "terms": [
+    [
+     "tag no"
+    ],
+    [
+     "tag number"
+    ],
+    [
+     "tag"
+    ]
+   ],
+   "draft_reason": "SAES-A-202 section 10 (p23-26) sets the FORMAT of a tag; no held clause requires a drawing to carry tags. DRAFT."
+  },
+  {
+   "id": "equipment_line_lists",
+   "topic": "Equipment list or line list",
+   "terms": [
+    [
+     "equipment list"
+    ],
+    [
+     "line list"
+    ],
+    [
+     "line designation table"
+    ]
+   ],
+   "draft_reason": "SAES-A-202 10.6.4 (p26) says line information is entered in the Line Designation Table, a separate document; no held clause requires a drawing to contain a list. DRAFT."
+  },
+  {
+   "id": "general_notes",
+   "topic": "General notes and reference drawings",
+   "terms": [
+    [
+     "general notes"
+    ],
+    [
+     "notes"
+    ],
+    [
+     "reference drawings"
+    ]
+   ],
+   "draft_reason": "SAES-A-202 6.17 (p22) says where reference drawings and notes are placed, not that a drawing must have them. DRAFT."
+  }
+ ]
+}
