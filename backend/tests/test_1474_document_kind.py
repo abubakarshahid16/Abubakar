@@ -24,63 +24,89 @@ def temp_db(tmp_path, monkeypatch):
 
 BODY_MENTION = (
     "5.2 The relief valve and the centrifugal compressor shall be checked "
-    "against the cause and effect chart before the study starts.")
+    "against the cause and effect chart before the study starts."
+)
 
 PROCEDURE_PAGE = (
     "ACME PLANT PROJECT\n999\nHAZARD STUDY PROCEDURE\nPAGE 1 OF 9\n"
-    "99999-00-HSE-PD-0001\nREV.: 00\n" + "\n".join(
-        f"Filler line {i}" for i in range(14)) + "\nPurpose and scope\n" + BODY_MENTION
-    + "\n" + "\n".join(f"Closing line {i}" for i in range(14)))
+    "99999-00-HSE-PD-0001\nREV.: 00\n"
+    + "\n".join(f"Filler line {i}" for i in range(14))
+    + "\nPurpose and scope\n"
+    + BODY_MENTION
+    + "\n"
+    + "\n".join(f"Closing line {i}" for i in range(14))
+)
 
 
-def _doc(doc_id, pages, *, role="CONTRACTOR_SUBMITTAL", with_row=True,
-         confirmed=False):
+def _doc(doc_id, pages, *, role="CONTRACTOR_SUBMITTAL", with_row=True, confirmed=False):
     conn = db.connect()
     with conn:
         conn.execute(
             "INSERT INTO documents (id, filename, sha256, size_bytes, stored_path,"
             " status, uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            (doc_id, f"{doc_id}.pdf", doc_id, 1, "x", "ready", "2026-11-01"))
+            (doc_id, f"{doc_id}.pdf", doc_id, 1, "x", "ready", "2026-11-01"),
+        )
         for n, text in enumerate(pages, start=1):
             conn.execute(
                 "INSERT INTO pages (document_id, page_no, text, char_count, batch_no)"
-                " VALUES (?,?,?,?,0)", (doc_id, n, text, len(text)))
+                " VALUES (?,?,?,?,0)",
+                (doc_id, n, text, len(text)),
+            )
             conn.execute(
                 "INSERT INTO chunks (id, document_id, filename, ordinal, page_start,"
                 " page_end, text, token_count, content_hash, retrievable)"
                 " VALUES (?,?,?,?,?,?,?,1,?,1)",
-                (f"{doc_id}_c{n}", doc_id, "f", n, n, n, text, f"{doc_id}{n}"))
+                (f"{doc_id}_c{n}", doc_id, "f", n, n, n, text, f"{doc_id}{n}"),
+            )
         if with_row:
             conn.execute(
                 "INSERT INTO document_classification (document_id, suggested_by,"
                 " document_role, confirmed_by) VALUES (?,?,?,?)",
-                (doc_id, "t", role, None))
+                (doc_id, "t", role, None),
+            )
             if confirmed:
-                conn.execute("INSERT INTO users (id, email, display_name, password_hash,"
-                             " created_at) VALUES ('u1','u@x.test','u','x','2026-11-01')")
-                conn.execute("UPDATE document_classification SET confirmed_by='u1'"
-                             " WHERE document_id=?", (doc_id,))
+                conn.execute(
+                    "INSERT INTO users (id, email, display_name, password_hash,"
+                    " created_at) VALUES ('u1','u@x.test','u','x','2026-11-01')"
+                )
+                conn.execute(
+                    "UPDATE document_classification SET confirmed_by='u1'"
+                    " WHERE document_id=?",
+                    (doc_id,),
+                )
 
 
 def _kind(doc_id):
-    row = db.connect().execute(
-        "SELECT document_kind, document_kind_evidence FROM document_classification"
-        " WHERE document_id = ?", (doc_id,)).fetchone()
-    return row["document_kind"], (json.loads(row["document_kind_evidence"])
-                                  if row["document_kind_evidence"] else None)
+    row = (
+        db.connect()
+        .execute(
+            "SELECT document_kind, document_kind_evidence FROM document_classification"
+            " WHERE document_id = ?",
+            (doc_id,),
+        )
+        .fetchone()
+    )
+    return row["document_kind"], (
+        json.loads(row["document_kind_evidence"])
+        if row["document_kind_evidence"]
+        else None
+    )
 
 
-@pytest.mark.parametrize("page,expected", [
-    ("PUMP DATA SHEET\nDoc. No.: AB-123-DS-0001\nTag 10-P-1", "datasheet"),
-    ("ACME PROJECT\nHAZARD STUDY PROCEDURE\nREV 00", "procedure"),
-    ("ACME PROJECT\nSPECIFICATION FOR PAINTING\nREV 00", "specification"),
-    ("DOCUMENT TRANSMITTAL\nTo: Company", "transmittal"),
-    ("SCHEDULE \"K\"\nINSURANCE REQUIREMENTS\n1.0 General", "contract"),
-    ("GENERAL ARRANGEMENT DRAWING\nSheet 1", "drawing"),
-    ("FRONT END ENGINEERING DESIGN\nBasis", "feed"),
-    ("ISO 99999-1\nSomething about valves", "standard"),
-    ("Some memo about nothing in particular.", "unknown"),
-])
+@pytest.mark.parametrize(
+    "page,expected",
+    [
+        ("PUMP DATA SHEET\nDoc. No.: AB-123-DS-0001\nTag 10-P-1", "datasheet"),
+        ("ACME PROJECT\nHAZARD STUDY PROCEDURE\nREV 00", "procedure"),
+        ("ACME PROJECT\nSPECIFICATION FOR PAINTING\nREV 00", "specification"),
+        ("DOCUMENT TRANSMITTAL\nTo: Company", "transmittal"),
+        ('SCHEDULE "K"\nINSURANCE REQUIREMENTS\n1.0 General', "contract"),
+        ("GENERAL ARRANGEMENT DRAWING\nSheet 1", "drawing"),
+        ("FRONT END ENGINEERING DESIGN\nBasis", "feed"),
+        ("ISO 99999-1\nSomething about valves", "standard"),
+        ("Some memo about nothing in particular.", "unknown"),
+    ],
+)
 def test_kind_from_the_title_block(page, expected):
     evidence = document_kind.decide_document_kind([{"page_no": 1, "text": page}])
     assert evidence.kind == expected
@@ -88,8 +114,10 @@ def test_kind_from_the_title_block(page, expected):
 
 
 def test_the_number_type_code_beats_a_datasheet_word_and_the_conflict_is_kept():
-    page = ("ACME PROJECT\nMECHANICAL DATASHEET\nSOME VESSEL\n"
-            "CONTRACTOR DOC NO: 99999-0001-SP-0810-0003\n")
+    page = (
+        "ACME PROJECT\nMECHANICAL DATASHEET\nSOME VESSEL\n"
+        "CONTRACTOR DOC NO: 99999-0001-SP-0810-0003\n"
+    )
     evidence = document_kind.decide_document_kind([{"page_no": 1, "text": page}])
     assert evidence.kind == "specification"
     assert evidence.method == "number_type_code"
@@ -99,14 +127,17 @@ def test_the_number_type_code_beats_a_datasheet_word_and_the_conflict_is_kept():
 
 def test_a_body_mention_of_equipment_never_decides_the_kind():
     evidence = document_kind.decide_document_kind(
-        [{"page_no": 1, "text": "Notes\n" + BODY_MENTION}])
+        [{"page_no": 1, "text": "Notes\n" + BODY_MENTION}]
+    )
     assert evidence.kind == "unknown"
 
 
 def test_a_label_naming_a_standard_is_not_the_title():
     page = "Design Standard: ISO 99999\nSome memo"
-    assert document_kind.decide_document_kind(
-        [{"page_no": 1, "text": page}]).kind == "unknown"
+    assert (
+        document_kind.decide_document_kind([{"page_no": 1, "text": page}]).kind
+        == "unknown"
+    )
 
 
 def test_a_contract_is_recognised_from_its_own_opening_words():
@@ -119,7 +150,10 @@ def test_a_title_naming_equipment_is_a_datasheet_guess():
     page = "ACME PLANT\nCENTRIFUGAL PUMP\nItem 10-P-1"
     evidence = document_kind.decide_document_kind([{"page_no": 1, "text": page}])
     assert (evidence.kind, evidence.method, evidence.guess) == (
-        "datasheet", "title_equipment", True)
+        "datasheet",
+        "title_equipment",
+        True,
+    )
 
 
 def test_switch_off_writes_nothing(monkeypatch):
@@ -157,9 +191,14 @@ def test_the_body_equipment_fallback_is_stopped_for_a_procedure(monkeypatch):
     monkeypatch.setattr(settings, "document_kind_enabled", True)
     _doc("d1", [PROCEDURE_PAGE])
     classification.classify_equipment_type_for_submittal("d1")
-    row = db.connect().execute(
-        "SELECT equipment_type, document_kind FROM document_classification"
-        " WHERE document_id='d1'").fetchone()
+    row = (
+        db.connect()
+        .execute(
+            "SELECT equipment_type, document_kind FROM document_classification"
+            " WHERE document_id='d1'"
+        )
+        .fetchone()
+    )
     assert row["document_kind"] == "procedure"
     assert row["equipment_type"] is None
 
@@ -168,9 +207,13 @@ def test_the_fallback_is_unchanged_with_the_switch_off(monkeypatch):
     monkeypatch.setattr(settings, "document_kind_enabled", False)
     _doc("d1", [PROCEDURE_PAGE])
     classification.classify_equipment_type_for_submittal("d1")
-    row = db.connect().execute(
-        "SELECT equipment_type FROM document_classification"
-        " WHERE document_id='d1'").fetchone()
+    row = (
+        db.connect()
+        .execute(
+            "SELECT equipment_type FROM document_classification WHERE document_id='d1'"
+        )
+        .fetchone()
+    )
     assert row["equipment_type"] is not None  # the old behaviour, kept off-switch
 
 
@@ -189,5 +232,8 @@ def test_counts_state_unknown_and_not_classified(monkeypatch):
     classification.classify_document_kind("d1")
     classification.classify_document_kind("d2")
     counts = document_kind.document_kind_counts()
-    assert counts == {"total": 3, "kinds": {"procedure": 1, "unknown": 1},
-                      "not_classified": 1}
+    assert counts == {
+        "total": 3,
+        "kinds": {"procedure": 1, "unknown": 1},
+        "not_classified": 1,
+    }

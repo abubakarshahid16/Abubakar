@@ -583,19 +583,31 @@ def _record_kind_first(document_id: str) -> bool:
     """#1474: with the switch on, record the kind first (a failure never blocks
     the equipment type) and say the switch is on."""
     from .config import settings
+
     if not settings.document_kind_enabled:
         return False
     try:
         classify_document_kind(document_id)
     except Exception as exc:  # noqa: BLE001
-        _log.warning("the document kind of %s was not written (%s)",
-                     document_id, type(exc).__name__)
+        _log.warning(
+            "the document kind of %s was not written (%s)",
+            document_id,
+            type(exc).__name__,
+        )
     return True
 
 
-def _is_datasheet(pages, role) -> bool:
+def _body_fallback_ok(kind_on: bool, pages, existing) -> bool:
+    """Body text may name the equipment only for a datasheet (switch on)."""
+    if not kind_on:
+        return True
     from . import document_kind
-    return document_kind.decide_document_kind(pages, document_role=role).kind == "datasheet"
+
+    role = existing["document_role"]
+    return (
+        document_kind.decide_document_kind(pages, document_role=role).kind
+        == "datasheet"
+    )
 
 
 def classify_equipment_type_for_submittal(
@@ -648,7 +660,7 @@ def classify_equipment_type_for_submittal(
         "SELECT page_no, text FROM pages WHERE document_id = ?"
         " ORDER BY page_no", (document_id,))]
     evidence = suggest_equipment_type_from_title(title_block_lines(pages))
-    if evidence is None and kind_on and not _is_datasheet(pages, existing["document_role"]):
+    if evidence is None and not _body_fallback_ok(kind_on, pages, existing):
         # #1474: a body sentence naming equipment does not make a procedure,
         # a specification or a contract an equipment datasheet.
         return None
@@ -682,6 +694,7 @@ def classify_equipment_type_for_submittal(
 def classify_document_kind(document_id: str):
     """#1474: decide and store the document's kind (see `document_kind`)."""
     from . import document_kind
+
     return document_kind.classify_document_kind(document_id)
 
 
