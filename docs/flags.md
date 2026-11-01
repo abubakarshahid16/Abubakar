@@ -43,6 +43,7 @@ does not make one.
 | `geometry_table_reader_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Geometry table reader |
 | `table_text_cells_enabled` | `False` | permanent | | | Record a standards-table cell that is text, not a number, as a requirement with no value (order 271.4 fix B). Set for a standards re-extraction; it adds rows to a standard that has such cells |
 | `page_read_by_reading_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | A page counts as read when a text or picture reading came back, apart from fields found; Word reaches the fact reader (#1473) |
+| `kind_chooses_rules_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards; unknown keeps today's path, marked (#1474) |
 | `nothing_read_fails_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | A review whose submittal has no fact and no page text or reading ends failed: nothing read (#1495) |
 | `pump_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft pump kit cards from held standards (SAES-G-005) join the Centrifugal Pump checklist; draft only, never decide; preparation for #1478, proof waits for 2 real pump documents |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |

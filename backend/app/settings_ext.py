@@ -35,6 +35,13 @@ class SettingsExt(BaseModel):
     #: label answers each text attribute it names. OFF: nothing changes.
     #: Env: DATASHEET_ONE_VALUE_ENABLED.
     datasheet_one_value_enabled: bool = False
+
+    #: #1474: the document KIND (router table `document_kinds`) chooses the rule set: a
+    #: document whose kind is anything but datasheet gets no equipment datasheet checklist and
+    #: no equipment-type standards, and its equipment type drives no review step (`kind_rules.py`).
+    #: unknown / undecided keeps today's behaviour, marked. OFF: nothing changes.
+    #: Env: KIND_CHOOSES_RULES_ENABLED.
+    kind_chooses_rules_enabled: bool = False
     #: #1478 pump kit PREPARATION: append the DRAFT pump cards of `reference/pump_kit_draft.json`
     #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
     #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.

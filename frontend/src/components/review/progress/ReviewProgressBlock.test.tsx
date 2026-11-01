@@ -49,6 +49,34 @@ describe("the time-left estimate", () => {
   });
 });
 
+describe("the clause step (#1494)", () => {
+  const clauses = (o: Partial<ReviewProgressDetail> = {}) =>
+    detail({ pages_done: null, pages_total: null, clauses_done: 11, clauses_total: 60,
+      clauses_elapsed_seconds: 330, ...o });
+  it("shows clauses checked over clauses total, and the bar from them", () => {
+    render(<ReviewProgressBlock job={job(clauses())} />);
+    expect(screen.getByTestId("review-progress-detail").textContent).toContain("11 of 60 clauses checked");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "18");
+    expect(screen.getByTestId("review-progress-detail").textContent).not.toContain("pages read");
+  });
+  it("estimate is labelled with its basis, from the clause step's own clock", () => {
+    expect(shown(clauses()).estimate)
+      .toBe("about 24 min left checking clauses (estimate, from the clauses done so far)");
+  });
+  it("estimate is hidden before 3 clauses, without a step clock, or without a total", () => {
+    expect(shown(clauses({ clauses_done: 2 })).estimate).toBeNull();
+    expect(shown(clauses({ clauses_elapsed_seconds: null })).estimate).toBeNull();
+    expect(shown(clauses({ clauses_total: null })).estimate).toBeNull();
+    expect(shown(clauses({ clauses_done: 60 })).estimate).toBeNull();
+  });
+  it("renders nothing for clauses when null, never 0", () => {
+    expect(shown(detail({ pages_done: null, pages_total: null })).clausesLine).toBeNull();
+  });
+  it("the stall light works in this step too", () => {
+    expect(shown(clauses({ idle_seconds: 200 })).stall?.level).toBe("amber");
+  });
+});
+
 describe("the stall light", () => {
   it("is off before the amber threshold, amber at it, red when stale", () => {
     expect(shown(detail({ idle_seconds: 119 })).stall).toBeNull();
