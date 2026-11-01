@@ -723,38 +723,6 @@ def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str
         review_run_id=review_run_id, replace=False)
 
 
-class NothingRead(RuntimeError):
-    """#1495: the review read nothing - no value, no page text, no page reading."""
-
-
-def nothing_read_reason(document_id: str) -> str | None:
-    """The plain reason when a submittal was read into NOTHING, else None.
-
-    Nothing read = no CURRENT fact AND no page came back with text or a
-    reading (no non-blank chunk, no ledger page with a reading). A document
-    whose pages were read but holds no datasheet field (procedure prose) is
-    not "nothing read": it is reviewed by its own path. General: it looks at
-    what came back, never at a layout.
-    """
-    from . import page_ledger
-
-    conn = connect()
-    if conn.execute(
-            "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ?"
-            " AND superseded_at IS NULL LIMIT 1", (document_id,)).fetchone():
-        return None
-    if conn.execute(
-            "SELECT 1 FROM chunks WHERE document_id = ? AND TRIM(COALESCE(text, '')) != ''"
-            " LIMIT 1", (document_id,)).fetchone():
-        return None
-    if any(page_ledger.page_has_reading(r) for r in page_ledger.rows(document_id)):
-        return None
-    row = conn.execute("SELECT page_count FROM documents WHERE id = ?", (document_id,)).fetchone()
-    pages = (row["page_count"] if row else None) or 0
-    return (f"nothing read: the document could not be read ({pages} page"
-            f"{'' if pages == 1 else 's'}, 0 values)")
-
-
 def _extract_facts_if_none(run_id: str, submittal_document_id: str,
                            allowed_document_ids: frozenset[str]) -> None:
     """B19: read the datasheet into facts, ONCE, before anything compares it.

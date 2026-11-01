@@ -757,11 +757,6 @@ class Settings(ClauseReviewSettings, BaseSettings):
     #: `pages_read` / `pages_not_read`), and a Word file reaches the fact reader
     #: through `word_flow`. OFF: nothing changes. Env: PAGE_READ_BY_READING_ENABLED.
     page_read_by_reading_enabled: bool = False
-    #: #1495: a review whose submittal has no current fact AND no page text or
-    #: page reading ends 'failed: nothing read', never 'completed' (rule 4).
-    #: A document whose pages were read but holds no datasheet field is NOT
-    #: failed. OFF: nothing changes. Env: NOTHING_READ_FAILS_ENABLED.
-    nothing_read_fails_enabled: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

@@ -202,6 +202,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ocr` | Step 2b - resumable page-batch recognition for scanned pages |
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
+| `nothing_read` | #1495: a review that read no value and no page text ends failed "nothing read" (switch off by default) |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
 | `pairing_head` | A field is a clause's field only when the label stands in the subject's head, not in a complement (audit C5) |
 | `pdf_flow` | #633 item 6: PDF text that wraps and continues on the next page, never dropped (layout only) |
