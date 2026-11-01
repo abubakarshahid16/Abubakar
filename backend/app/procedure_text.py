@@ -35,20 +35,23 @@ OWN_TEXT_EVIDENCE = frozenset({"procedure", "plan"})
 
 FOUND = "procedure_text_found"
 NOT_FOUND = "procedure_text_not_found"
+TOO_SHORT = "procedure_text_too_short"
 
 _STOP_TEXT = (
     "shall should must will would could may might can be been being is are was were have has had "
     "the and for with that this these those from into onto upon than then them they their there "
     "such any all each every other which where when while whose also only not nor but are its "
     "per via use used using ensure ensured provide provided make made need needed required "
-    "requirement requirements accordance applicable"
+    "requirement requirements accordance applicable maximum minimum material materials "
+    "design service section clause general"
 )
 _STOP = frozenset(_STOP_TEXT.split())
 _WORD = re.compile(r"[a-z][a-z0-9\-]{3,}")
 _SENTENCE_END = re.compile(r"(?<=[.;:!?])\s+|\n+")
 #: A passage must carry at least this share of the requirement's key words,
-#: and at least two of them (one when the requirement has only one).
+#: and at least MIN_HITS of them (all, when the requirement has fewer).
 MIN_SHARE = 0.6
+MIN_HITS = 3
 MAX_QUOTE = 400
 
 
@@ -66,29 +69,26 @@ def key_words(text: str | None) -> frozenset[str]:
 
 
 def document_kind(document_id: str) -> str | None:
-    """`document_classification.document_kind` when #1474's column exists, else None."""
-    conn = connect()
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(document_classification)")}
-    if "document_kind" not in cols:
+    """The router's kind (`document_kinds`, #1474/#1488): a confirmed kind, or a
+    suggestion. `needs_engineer`, no row or no kind = None: no procedure path."""
+    row = (
+        connect()
+        .execute(
+            "SELECT kind, state FROM document_kinds WHERE document_id = ?",
+            (document_id,),
+        )
+        .fetchone()
+    )
+    if row is None or row["state"] == "needs_engineer":
         return None
-    row = conn.execute(
-        "SELECT document_kind FROM document_classification WHERE document_id = ?",
-        (document_id,),
-    ).fetchone()
-    return ((row[0] or "").lower() or None) if row else None
+    return (row["kind"] or "").lower() or None
 
 
 def is_procedure_submittal(document_id: str | None) -> bool:
-    """True when the switch is on and the submittal is a procedure.
-
-    The column is read when it exists; until then an explicit id list
-    (`procedure_path_document_ids`) says so. NEVER guessed from the text."""
+    """True when the switch is on and the router says procedure or specification."""
     if not settings.procedure_path_enabled or not document_id:
         return False
-    listed = {
-        x.strip() for x in settings.procedure_path_document_ids.split(",") if x.strip()
-    }
-    return document_id in listed or document_kind(document_id) in PROCEDURE_KINDS
+    return document_kind(document_id) in PROCEDURE_KINDS
 
 
 def load_pages(document_id: str) -> list[tuple[int, str]]:
@@ -110,7 +110,7 @@ def find_passage(
     wanted = key_words(requirement_text)
     if not wanted:
         return None
-    need = max(1, min(2, len(wanted)))
+    need = max(1, min(MIN_HITS, len(wanted)))
     best: tuple[float, int, int, str] | None = None
     for page_no, text in pages:
         for part in _SENTENCE_END.split(text):
@@ -188,6 +188,14 @@ def route(requirement: dict, fact: dict | None) -> dict | None:
 def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
     """The row for a procedure requirement: an engineer's, or a blank. Never COMPLIANT."""
     text = requirement.get("source_text") or requirement.get("requirement_text")
+    if len(key_words(text)) < MIN_HITS:
+        return {
+            "limit": None,
+            "observed": None,
+            "exception_applied": None,
+            "status": "NEEDS_ENGINEER_REVIEW",
+            "rationale": f"{TOO_SHORT}: the requirement has too few distinguishing words to search this procedure for; engineer to check it",
+        }
     found = find_passage(text, pages)
     base = {"limit": None, "observed": None, "exception_applied": None}
     if found is None:
@@ -208,3 +216,14 @@ def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
             f"words, not a finding that the requirement is met; engineer to confirm"
         ),
     }
+
+
+def needs_page_qualifier(fact: dict | None, verdict: dict) -> bool:
+    """An absence from the datasheet fields is qualified by the pages read into
+    fields (B3). A procedure row is not: its search WAS the page text, and its
+    rationale says what was found or not found."""
+    return (
+        fact is None
+        and verdict.get("status") == "MISSING_INFORMATION"
+        and not (verdict.get("rationale") or "").startswith(NOT_FOUND)
+    )

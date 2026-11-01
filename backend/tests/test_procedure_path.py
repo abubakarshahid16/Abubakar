@@ -105,13 +105,33 @@ def test_a_datasheet_submittal_is_unchanged():
     assert comparison.compare(cert, None)["status"] == comparison.NOT_IN_DOCUMENT_SCOPE
 
 
-def test_the_switch_is_off_by_default_and_needs_a_kind(monkeypatch):
+def _kind(doc_id, kind, state="suggested"):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO documents (id,filename,sha256,size_bytes,stored_path,"
+            "status,page_count,uploaded_at) VALUES (?,?,?,1,?,'ready',1,'2026-11-01')",
+            (doc_id, doc_id + ".pdf", "sha-" + doc_id, doc_id + ".pdf"),
+        )
+        conn.execute(
+            "INSERT INTO document_kinds (document_id,kind,state,routed_at)"
+            " VALUES (?,?,?,'2026-11-01')",
+            (doc_id, kind, state),
+        )
+
+
+def test_the_switch_is_off_by_default_and_the_router_kind_decides(monkeypatch):
     assert settings.procedure_path_enabled is False
-    monkeypatch.setattr(settings, "procedure_path_document_ids", "doc1")
-    assert procedure_text.is_procedure_submittal("doc1") is False
+    _kind("d1", "procedure")
+    _kind("d2", "datasheet")
+    _kind("d3", "procedure", "needs_engineer")
+    _kind("d4", "specification", "confirmed")
+    assert procedure_text.is_procedure_submittal("d1") is False  # switch off
     monkeypatch.setattr(settings, "procedure_path_enabled", True)
-    assert procedure_text.is_procedure_submittal("doc1") is True
-    assert procedure_text.is_procedure_submittal("doc2") is False
+    assert procedure_text.is_procedure_submittal("d1") is True
+    assert procedure_text.is_procedure_submittal("d4") is True
+    assert procedure_text.is_procedure_submittal("d2") is False
+    assert procedure_text.is_procedure_submittal("d3") is False
+    assert procedure_text.is_procedure_submittal("no-row") is False
 
 
 def test_a_clause_that_only_asks_to_be_stated_on_the_datasheet_is_not_looked_up_in_the_text():
@@ -156,8 +176,8 @@ def test_the_run_reads_the_procedure_pages_only_when_on_and_listed_then_lets_go(
         assert procedure_text._PAGES.get() is None  # switch off
     monkeypatch.setattr(settings, "procedure_path_enabled", True)
     with procedure_text.reading(run):
-        assert procedure_text._PAGES.get() is None  # not listed, no kind
-    monkeypatch.setattr(settings, "procedure_path_document_ids", "docP")
+        assert procedure_text._PAGES.get() is None  # no router kind
+    _kind("docP", "procedure")
     with procedure_text.reading(run):
         assert procedure_text._PAGES.get() == PAGES
         verdict = comparison.compare(STATEMENT, None)
@@ -172,7 +192,7 @@ def test_the_run_reads_the_procedure_pages_only_when_on_and_listed_then_lets_go(
 def test_run_comparison_reads_the_procedure_pages_for_the_run(monkeypatch):
     run = _procedure_run()
     monkeypatch.setattr(settings, "procedure_path_enabled", True)
-    monkeypatch.setattr(settings, "procedure_path_document_ids", "docP")
+    _kind("docP", "procedure")
     seen = []
     monkeypatch.setattr(
         comparison,
@@ -182,3 +202,40 @@ def test_run_comparison_reads_the_procedure_pages_for_the_run(monkeypatch):
     comparison.run_comparison(run, allowed_document_ids=frozenset({"docP"}))
     assert seen == [PAGES]
     assert procedure_text._PAGES.get() is None
+
+
+def test_a_requirement_with_too_few_words_goes_to_the_engineer_not_to_a_guess():
+    short = {**STATEMENT, "requirement_text": "Maximum C.A. shall be 3.2 mm."}
+    short["source_text"] = short["requirement_text"]
+    pages = [(1, "Maximum operating pressure : 10 bar")]
+    with procedure_text.using(pages):
+        verdict = comparison.compare(short, None)
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "too few distinguishing words" in verdict["rationale"]
+
+
+def test_one_shared_word_is_not_a_passage():
+    text = "Rewelding shall be done only with the prior approval of the inspector."
+    req = {**STATEMENT, "requirement_text": text, "source_text": text}
+    pages = [(1, "Prior to start the inspector signs the log. Approval number 7.")]
+    with procedure_text.using(pages):
+        verdict = comparison.compare(req, None)
+    assert verdict["status"] == comparison.MISSING_INFORMATION
+
+
+def test_a_not_found_row_keeps_its_own_words_not_the_unread_pages_text():
+    """The datasheet page qualifier must not rewrite a procedure row."""
+    row = {"status": "MISSING_INFORMATION", "rationale": "procedure_text_not_found: x"}
+    assert procedure_text.needs_page_qualifier(None, row) is False
+    plain = {"status": "MISSING_INFORMATION", "rationale": "no field read"}
+    assert procedure_text.needs_page_qualifier(None, plain) is True
+    assert procedure_text.needs_page_qualifier({"a": 1}, plain) is False
+
+
+def test_two_of_three_words_is_not_enough_for_one_shared_word_rule():
+    text = "Rewelding inspector approval."
+    req = {**STATEMENT, "requirement_text": text, "source_text": text}
+    pages = [(1, "The inspector gave approval yesterday.")]
+    with procedure_text.using(pages):
+        verdict = comparison.compare(req, None)
+    assert verdict["status"] == comparison.MISSING_INFORMATION

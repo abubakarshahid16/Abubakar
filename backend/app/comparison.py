@@ -2776,7 +2776,7 @@ def _run_comparison(
             verdict = required_values.only_required_value(verdict, governing_requirement, purchaser_facts, sheet, fact, rule_verdict)  # #882
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
             # is only the contractor's omission if every page was read into fields.
-            if fact is None and verdict.get("status") == MISSING_INFORMATION:
+            if procedure_text.needs_page_qualifier(fact, verdict):  # #1476
                 # #450: A STEP THAT DID NOT COMPLETE IS NOT AN ABSENCE. When the
                 # pairing model failed or was refused, a rule refused the only
                 # candidate field, or a table rule could not be read, "no field

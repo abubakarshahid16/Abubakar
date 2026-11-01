@@ -746,7 +746,6 @@ class Settings(BaseSettings):
     #: Trade-off: a CRS template workbook is then indexed too. OFF. Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
     procedure_path_enabled: bool = False  # #1476, see procedure_text
-    procedure_path_document_ids: str = ""  # #1476, until #1474
     #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
     #: is accepted and indexed through the SAME pipeline as a PDF, read by
     #: `docx_reader` with its structure kept and cited by heading path and
