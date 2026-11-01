@@ -91,3 +91,15 @@ def test_a_title_on_the_title_page_still_counts():
         _filler("B"),
     )
     assert document_kind.decide_document_kind(pages).kind == "procedure"
+
+
+@pytest.mark.parametrize(
+    "page2",
+    [
+        "CONTENTS\n1 Scope\n2 Test Procedure\n3 Records",
+        "1 Scope\n2 Hydrotest Procedure\nNotes",
+    ],
+)
+def test_a_contents_line_on_the_title_page_does_not_name_the_document(page2):
+    pages = _pages("ACME PLANT\n" + _filler("Cover", 3), page2, _filler("B"))
+    assert document_kind.decide_document_kind(pages).kind == "unknown"

@@ -124,6 +124,8 @@ _CONTRACT_BODY = re.compile(r"\bthis\s+(?:contract|agreement)\b", re.I)
 _COVER_LINES = 25
 _COVER_PAGES = 2  # the cover and the title page
 _TITLE_PAGE_LINES = 5  # the top of the title page, not its body
+_CONTENTS_HEADING = re.compile(r"^\W*(?:table\s+of\s+)?contents\b", re.I)
+_NUMBERED_LINE = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s+\S")
 _TITLE_WORDS_MAX = 14
 
 
@@ -175,7 +177,11 @@ def _cover_lines(pages: Sequence[dict]) -> list[tuple[int, str]]:
             for ln in (title_page.get("text") or "").splitlines()
             if ln.strip()
         ]
+        if lines and _CONTENTS_HEADING.match(lines[0]):
+            continue  # a contents page lists other parts, it is not a title
         for line in lines[:_TITLE_PAGE_LINES]:
+            if _NUMBERED_LINE.match(line):
+                continue  # "2 Test Procedure": a contents or section line
             if (title_page["page_no"], line) not in out:
                 out.append((title_page["page_no"], line))
     return out
