@@ -547,8 +547,8 @@ def test_a_crs_row_names_the_standard_the_clause_and_the_requirement(on):
 def test_the_run_says_what_was_read_and_what_was_not_and_the_kind_state(
     on, monkeypatch
 ):
-    from app.api import run_summary
     from app import main as main_mod
+    from app.api import run_summary
 
     monkeypatch.setattr(settings, "clause_review_seconds_per_page", 50.0)
     _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS, REQ_GUIDE))
@@ -576,7 +576,7 @@ def test_the_run_says_what_was_read_and_what_was_not_and_the_kind_state(
         "5.3"
     ]
     # the CRS carries it as a note and the notice says the review is not complete
-    _rows_, meta, _n, _s = main_mod._crs_content(
+    _r, meta, _n, _s = main_mod._crs_content(
         run, access.unrestricted_scope(), "internal"
     )
     assert any(

@@ -279,6 +279,19 @@ def check_failed_status(name: str, reason: str) -> dict:
             "reason": why, "plain": f"{name} could not be checked: {why}."}
 
 
+def _unfinished(ai_status: dict | None, web_status: dict | None):
+    """(part, plain line) of each AI step that did not complete, and (#1477) of a
+    clause review that left clauses unread or rests on a guessed document kind."""
+    for key, status in (("ai_check", ai_status), ("web_check", web_status)):
+        if status and status.get("complete") is False:
+            yield key, str(status.get("plain") or f"{key} did not complete").strip()
+    clause = (ai_status or {}).get("clause_review") or {}
+    if clause.get("ran") and (
+        clause.get("not_read_count") or clause.get("kind_state") != "confirmed"
+    ):
+        yield "clause_review", str(clause["plain"])
+
+
 def unchecked_parts(*, run_status: str | None, outcome: dict | None,
                     partial_findings: int = 0,
                     ai_status: dict | None = None,
@@ -339,13 +352,8 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     # order 261.2: a page the AI could not read is a part that could not be trusted
     if degraded and degraded_read.is_part(degraded):
         add("degraded_read", degraded_read.line(degraded))
-    for key, status in (("ai_check", ai_status), ("web_check", web_status)):
-        if status and status.get("complete") is False:
-            add(key, str(status.get("plain") or f"{key} did not complete").strip())
-    clause = (ai_status or {}).get("clause_review") or {}
-    # #1477: a clause review that left clauses unread, or rests on a guessed kind
-    if clause.get("ran") and (clause.get("not_read_count") or clause.get("kind_state") != "confirmed"):
-        add("clause_review", str(clause["plain"]))
+    for key, plain in _unfinished(ai_status, web_status):
+        add(key, plain)
     # THE SHARE, WITH ITS DENOMINATOR, on every incomplete export.
     counts = outcome.get("unchecked_counts") or {}
     sentence = share_sentence(counts.get("not_compared", 0), counts.get("not_applied", 0),
