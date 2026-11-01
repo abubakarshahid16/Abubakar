@@ -185,6 +185,11 @@ class SettingsExt(BaseModel):
     #: it whole (none or several: refused, as before); accept checks it there again. No new model call.
     #: OFF: such a quote is refused (page uncertain). Env: AI_REQUIREMENT_QUOTE_PAGE_ENABLED.
     ai_requirement_quote_page_enabled: bool = False
+    #: #645 slice 4: a run of the extraction above reads only chunks this model has not read yet
+    #: (a chunk with an unread passage is read again), so runs walk the whole standard; the answer
+    #: says how many chunks are left. No new model call. OFF: the first chunks every run, as before.
+    #: Env: AI_REQUIREMENT_EXTRACTION_RESUME_ENABLED.
+    ai_requirement_extraction_resume_enabled: bool = False
     #: Owner decision 1 Nov (part of #1478): ONLY the title block (`classification.title_block_lines`) sets
     #: the equipment type; a section or panel heading in the page body never does (a pump sheet's 'MOTOR
     #: DATA' panel made it a Motor). None or two different types in the title block: the type is NULL,

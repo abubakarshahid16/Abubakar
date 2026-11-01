@@ -23,6 +23,14 @@ Ollama and nothing here imports `reader_transport`, whatever
     (none or several: refused, as before); accept checks it there again;
   * a quote an existing requirement already holds is not proposed again.
 
+Slice 4, behind `settings.ai_requirement_extraction_resume_enabled`: a run
+reads only chunks THIS model has not read yet (`ai_requirement_chunk_reads`),
+so the next run carries on where the last stopped instead of reading the same
+first chunks again; a chunk with a passage the model could not read is not
+marked and is read again. A different model reads every chunk afresh. The
+answer then says how many of the standard's chunks this model has still to
+read. OFF: the first `max_chunks` chunks, every run, as before.
+
 What passes is stored as a `statement` row for the quote plus a DRAFT in
 `clause_check_drafts`, the table the engineer's accept/reject (#869) already
 reads. The statement row is HELD (`superseded_at` = HELD, a value every reader
@@ -54,6 +62,10 @@ class ExtractionCounts(BaseModel):
     refused: dict[str, int]
     could_not_read: int
     model: str | None = None
+    #: slice 4, resume switch on only (else null): the standard's chunks, and
+    #: how many of them this model has still to read after this run
+    standard_chunks: int | None = None
+    not_yet_read: int | None = None
 
 
 NOT_A_SINGLE_LIMIT = "the requirement is not a single limit with a comparator"
@@ -226,6 +238,23 @@ def _take(conn, standard_document_id: str, chunk, item: dict, report: dict) -> N
             report["proposed"] += 1
 
 
+def _ensure_reads(conn) -> None:
+    with conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ai_requirement_chunk_reads ("
+            " chunk_id TEXT NOT NULL, standard_document_id TEXT NOT NULL,"
+            " model TEXT NOT NULL, read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+            " PRIMARY KEY (chunk_id, model))"
+        )
+
+
+#: chunks of a standard this model has not read whole yet (slice 4)
+_UNREAD = (
+    " FROM chunks WHERE document_id = ? AND id NOT IN (SELECT chunk_id"
+    " FROM ai_requirement_chunk_reads WHERE standard_document_id = ? AND model = ?)"
+)
+
+
 def extract_standard(
     standard_document_id: str,
     *,
@@ -248,6 +277,8 @@ def extract_standard(
         "refused": {},
         "could_not_read": 0,
         "model": None,
+        "standard_chunks": None,
+        "not_yet_read": None,
     }
     if (
         not settings.ai_requirement_extraction_enabled
@@ -255,14 +286,23 @@ def extract_standard(
     ):
         return report
     conn = connect()
-    chunks = conn.execute(
-        "SELECT id, page_start, page_end, text FROM chunks WHERE document_id = ?"
-        " ORDER BY ordinal LIMIT ?",
-        (standard_document_id, max(max_chunks, 0)),
-    ).fetchall()
-    air.ensure_schema()
     provider = provider or ai_task_runner.make_provider()
     report["model"] = getattr(provider, "requested_model", None)
+    resume = bool(settings.ai_requirement_extraction_resume_enabled)
+    reader = str(report["model"] or "")
+    if resume:
+        _ensure_reads(conn)
+        chunks = conn.execute(
+            "SELECT id, page_start, page_end, text" + _UNREAD + " ORDER BY ordinal LIMIT ?",
+            (standard_document_id, standard_document_id, reader, max(max_chunks, 0)),
+        ).fetchall()
+    else:
+        chunks = conn.execute(
+            "SELECT id, page_start, page_end, text FROM chunks WHERE document_id = ?"
+            " ORDER BY ordinal LIMIT ?",
+            (standard_document_id, max(max_chunks, 0)),
+        ).fetchall()
+    air.ensure_schema()
     with heavy_lock.held("ai_batch", owner="requirement extraction", wait_seconds=0):
         try:
             for chunk in chunks:
@@ -271,6 +311,21 @@ def extract_standard(
                 report["could_not_read"] += len(found["could_not_read"])
                 for item in found["requirements"]:
                     _take(conn, standard_document_id, chunk, item, report)
+                if resume and not found["could_not_read"]:
+                    with conn:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO ai_requirement_chunk_reads"
+                            " (chunk_id, standard_document_id, model) VALUES (?, ?, ?)",
+                            (chunk["id"], standard_document_id, reader),
+                        )
         finally:
             (unload or ai_task_runner._unload)(provider)
+    if resume:
+        report["standard_chunks"] = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (standard_document_id,)
+        ).fetchone()[0]
+        report["not_yet_read"] = conn.execute(
+            "SELECT COUNT(*)" + _UNREAD,
+            (standard_document_id, standard_document_id, reader),
+        ).fetchone()[0]
     return report
