@@ -33,6 +33,7 @@ from pathlib import Path
 
 from . import claims, procedure_text
 from .config import settings
+from .crs_draft_lanes import SPEC_LANE as LANE
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -144,7 +145,9 @@ def item_row(item: dict, pages: list[tuple[int, str]]) -> dict:
         "rationale": rationale,
         "page": found["page"] if found else None,
         "quote": found["quote"] if found else None,
-        "clause": f"{item['held']['standard']} {item['held']['clause']}" if item.get("held") else None,
+        "clause": f"{item['held']['standard']} {item['held']['clause']}"
+        if item.get("held")
+        else None,
     }
 
 
@@ -193,14 +196,21 @@ def matching_datasheets(spec_id: str, scope: frozenset[str]) -> list[str]:
         ).fetchone()
         if other is None:
             continue
-        same_number = number and number == re.sub(r"\s+", "", other["document_number"] or "").lower()
+        same_number = (
+            number
+            and number == re.sub(r"\s+", "", other["document_number"] or "").lower()
+        )
         if (same_number or tags & _tags(other["equipment_tags"])) and _facts(doc):
             found.append(doc)
     return found
 
 
 def _label_words(label: str) -> list[str]:
-    return [w for w in re.findall(r"[a-z]{3,}", label.lower()) if w not in {"the", "and", "for"}]
+    return [
+        w
+        for w in re.findall(r"[a-z]{3,}", label.lower())
+        if w not in {"the", "and", "for"}
+    ]
 
 
 def _differs(spec: claims.Measurement, sheet: claims.Measurement) -> bool | None:
@@ -208,7 +218,10 @@ def _differs(spec: claims.Measurement, sheet: claims.Measurement) -> bool | None
     gauge against absolute, a unit the unit code does not know)."""
     if spec.normalized_value is None or sheet.normalized_value is None:
         return None
-    if spec.normalized_unit != sheet.normalized_unit or spec.reference != sheet.reference:
+    if (
+        spec.normalized_unit != sheet.normalized_unit
+        or spec.reference != sheet.reference
+    ):
         return None
     s, d = spec.normalized_value, sheet.normalized_value
     if spec.comparator in (">=", "min", ">"):
@@ -219,7 +232,9 @@ def _differs(spec: claims.Measurement, sheet: claims.Measurement) -> bool | None
 
 
 def numeric_rows(
-    pages: list[tuple[int, str]], facts: list[dict], datasheet_name: str = "the datasheet"
+    pages: list[tuple[int, str]],
+    facts: list[dict],
+    datasheet_name: str = "the datasheet",
 ) -> list[dict]:
     """One row per datasheet fact whose label (all its words) a specification sentence also
     carries, with a number of the same quantity that differs. Each side's number is shown as
@@ -301,7 +316,8 @@ def for_review(review_run_id: str, scope: frozenset[str]) -> None:
         row = (
             connect()
             .execute(
-                "SELECT submittal_document_id FROM review_runs WHERE id = ?", (review_run_id,)
+                "SELECT submittal_document_id FROM review_runs WHERE id = ?",
+                (review_run_id,),
             )
             .fetchone()
         )
@@ -323,7 +339,7 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
             (review_run_id, ORIGIN),
         )
         for r in rows:
-            rv.create(
+            made = rv.create(
                 {
                     "document_id": doc,
                     "category": "technical_query",
@@ -346,6 +362,10 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
                 created_by=None,
                 conn=conn,
             )
+            conn.execute(
+                "UPDATE review_findings SET requirement_id = ? WHERE id = ?",
+                (f"{ORIGIN}:{r['item']}", made["id"]),
+            )
 
 
 # ---------------------------------------------------------------- CRS hooks
@@ -364,16 +384,20 @@ def is_unfound(finding: dict) -> bool:
     return is_row(finding) and _code(finding).startswith(NOT_FOUND)
 
 
-def notes(findings: list[dict], reference=None) -> list[dict]:
+def notes(findings: list[dict]) -> list[dict]:
     """ONE review note per run for the items no passage was found for."""
     rows = [f for f in findings if is_unfound(f)]
     if not rows:
         return []
     topics = [
-        (f.get("requirement") or "").removeprefix("A specification states: ").split(" (")[0]
+        (f.get("requirement") or "")
+        .removeprefix("A specification states: ")
+        .split(" (")[0]
         for f in rows
     ]
-    listed = "; ".join(topics[:8]) + (f"; and {len(topics) - 8} more" if len(topics) > 8 else "")
+    listed = "; ".join(topics[:8]) + (
+        f"; and {len(topics) - 8} more" if len(topics) > 8 else ""
+    )
     plural = "s" if len(rows) != 1 else ""
     return [
         {

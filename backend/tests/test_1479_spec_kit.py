@@ -57,13 +57,32 @@ def _doc(doc_id, pages, kind, *, number=None, tags=(), equipment="pressure vesse
         )
 
 
-def _datasheet(doc_id="doc_ds", *, number="DS-V100", tags=("V-100",), pressure="10", page=2):
-    _doc(doc_id, ["Datasheet V-100", "Pressure vessel data"], "datasheet", number=number, tags=tags)
+def _datasheet(
+    doc_id="doc_ds", *, number="DS-V100", tags=("V-100",), pressure="10", page=2
+):
+    _doc(
+        doc_id,
+        ["Datasheet V-100", "Pressure vessel data"],
+        "datasheet",
+        number=number,
+        tags=tags,
+    )
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO submittal_facts (id,submittal_document_id,field_name,field_label,field_value,"
             "raw_unit,unit,page,created_at,updated_at,is_blank) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
-            (f"f-{doc_id}", doc_id, "design_pressure", "Design pressure", pressure, "bar", "bar", page, NOW, NOW),
+            (
+                f"f-{doc_id}",
+                doc_id,
+                "design_pressure",
+                "Design pressure",
+                pressure,
+                "bar",
+                "bar",
+                page,
+                NOW,
+                NOW,
+            ),
         )
     return doc_id
 
@@ -95,7 +114,10 @@ def test_kits_name_held_and_draft_items_and_say_draft():
         for item in k["items"]:
             assert bool(item.get("held")) != bool(item.get("draft_reason")), item["id"]
             if item.get("held"):
-                assert item["held"]["standard"].startswith("SAES-") and item["held"]["page"] > 0
+                assert (
+                    item["held"]["standard"].startswith("SAES-")
+                    and item["held"]["page"] > 0
+                )
 
 
 def test_found_items_are_engineer_rows_with_page_and_a_verified_quote(on):
@@ -105,7 +127,10 @@ def test_found_items_are_engineer_rows_with_page_and_a_verified_quote(on):
     pressure = next(r for k, r in rows.items() if "Design pressure" in k)
     assert pressure["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
     assert pressure["contractor_page"] == 1
-    assert "covered on page 1" in pressure["finding"] and "engineer to confirm" in pressure["finding"]
+    assert (
+        "covered on page 1" in pressure["finding"]
+        and "engineer to confirm" in pressure["finding"]
+    )
     assert "SAES-D-001 cl. 6.2.2 (p.14)" in pressure["finding"]
     assert pressure["contractor_evidence_text"] in SPEC_PAGE1
     corrosion = next(r for k, r in rows.items() if "Corrosion" in k)
@@ -128,7 +153,9 @@ def test_items_not_found_are_counted_in_one_note_and_never_missing_information(o
     assert all(r["contractor_page"] is None for r in unfound)
     # the CRS: one note, no line per unfound item
     built = crs_mapping.build_crs_rows(rows, [], "spec.pdf")
-    assert len([b for b in built if b.get("row_kind") == "spec_kit"]) == len(rows) - len(unfound)
+    assert len([b for b in built if b.get("row_kind") == "spec_kit"]) == len(
+        rows
+    ) - len(unfound)
 
 
 def test_a_specification_is_never_compliant_or_missing_information(on):
@@ -141,10 +168,15 @@ def test_a_specification_is_never_compliant_or_missing_information(on):
 def test_numeric_mismatch_with_the_datasheet_is_a_row_with_both_pages(on):
     _sub, run, scope = _world(datasheet={"pressure": "10", "page": 2})
     spec_kit.for_review(run, scope)
-    mismatch = [r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)]
+    mismatch = [
+        r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)
+    ]
     assert len(mismatch) == 1
     text = mismatch[0]["finding"]
-    assert "specification says 12 bar (page 1)" in text and "datasheet says 10 bar (page 2)" in text
+    assert (
+        "specification says 12 bar (page 1)" in text
+        and "datasheet says 10 bar (page 2)" in text
+    )
     assert mismatch[0]["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
 
 
@@ -153,13 +185,17 @@ def test_the_same_value_in_another_unit_is_not_a_mismatch(on):
     pages = (SPEC_PAGE1.replace("12 bar", "1.2 MPa"), SPEC_PAGE2)
     _sub, run, scope = _world(pages=pages, datasheet={"pressure": "12"})
     spec_kit.for_review(run, scope)
-    assert [r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)] == []
+    assert [
+        r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)
+    ] == []
 
 
 def test_a_datasheet_is_matched_by_number_or_tag_only_and_inside_the_scope(on):
     sub, run, scope = _world(datasheet={"number": "DS-OTHER", "tags": ("P-9",)})
     spec_kit.for_review(run, scope)
-    assert [r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)] == []
+    assert [
+        r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)
+    ] == []
     assert spec_kit.matching_datasheets(sub, scope) == []
 
 
@@ -169,7 +205,9 @@ def test_a_matching_datasheet_outside_the_review_scope_is_not_looked_at(on):
     outside = scope - {"doc_ds"}
     assert spec_kit.matching_datasheets(sub, outside) == []
     spec_kit.for_review(run, outside)
-    assert [r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)] == []
+    assert [
+        r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)
+    ] == []
 
 
 def test_switch_off_changes_nothing():
@@ -199,7 +237,10 @@ def test_a_rerun_replaces_undecided_rows_and_not_an_engineers(on):
     first = len(_rows(run))
     decided = _rows(run)[0]["id"]
     with db.connect() as conn:
-        conn.execute("UPDATE review_findings SET engineer_comment = 'seen' WHERE id = ?", (decided,))
+        conn.execute(
+            "UPDATE review_findings SET engineer_comment = 'seen' WHERE id = ?",
+            (decided,),
+        )
     spec_kit.for_review(run, scope)
     ids = [r["id"] for r in _rows(run)]
     assert decided in ids and len(ids) == first + 1

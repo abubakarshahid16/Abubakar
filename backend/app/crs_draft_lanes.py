@@ -29,6 +29,11 @@ SPEC_UNCONFIRMED_COMMENT = (
     "engineer's decision - its words are in AI Review Comments. Not issued to the "
     "contractor until an engineer confirms it."
 )
+#: The waiting sentence of each non-AI draft origin; any other origin uses the AI's.
+UNCONFIRMED_COMMENTS = {
+    "web_standard_check": WEB_UNCONFIRMED_COMMENT,
+    "spec_kit": SPEC_UNCONFIRMED_COMMENT,
+}
 WAITING_COMMENTS = frozenset(
     {AI_UNCONFIRMED_COMMENT, WEB_UNCONFIRMED_COMMENT, SPEC_UNCONFIRMED_COMMENT}
 )

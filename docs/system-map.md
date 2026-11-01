@@ -209,6 +209,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `pageimage` | On-demand page rendering |
 | `passages` | Small-to-big: search small, show big |
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |
+| `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default |
 | `procedure_text` | A procedure submittal's own page text answers its requirements: engineer row with a verified quote, or missing; never compliant (#1476) |
 | `progress` | What the machine is doing right now, recorded when it actually happens |
 | `provenance` | Which code read which input: provenance for extracted rows (issue #177) |

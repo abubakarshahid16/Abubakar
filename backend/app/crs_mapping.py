@@ -47,11 +47,8 @@ from . import paragraph_ids, procedure_text, spec_kit
 from .crs_draft_lanes import (
     AI_UNCONFIRMED_COMMENT,
     CLAUSE_LANE,
-    SPEC_CONFIRMED_BY,
-    SPEC_LANE,
-    SPEC_UNCONFIRMED_COMMENT,
+    UNCONFIRMED_COMMENTS,
     WAITING_COMMENTS,
-    WEB_UNCONFIRMED_COMMENT,
 )
 from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
 from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
@@ -118,7 +115,7 @@ _DRAFT_LANES = {
     _AI_ORIGIN: (_AI_CONFIRMED_BY, _AI_UNCONFIRMED_BY, ROW_KIND_AI_ENGINEERING_CHECK),
     _WEB_ORIGIN: (_WEB_CONFIRMED_BY, _WEB_UNCONFIRMED_BY, ROW_KIND_WEB_STANDARD_CHECK),
     _CLAUSE_ORIGIN: CLAUSE_LANE,
-    spec_kit.ORIGIN: SPEC_LANE,  # #1479
+    spec_kit.ORIGIN: spec_kit.LANE,
 }
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
@@ -188,10 +185,11 @@ def _no_datasheet_field(finding: dict) -> bool:
     return (
         finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
         and finding.get("origin")
-        not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN, spec_kit.ORIGIN, "chat")
+        not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN, "chat")
         and not (finding.get("fact_id") or finding.get("contractor_page"))
         and not _unread(finding)
         and not procedure_text.is_row(finding)
+        and not spec_kit.is_row(finding)
         and not _page_reader_only(finding)
         and not _confirmed(finding)
         and not finding.get("rule_said")
@@ -237,9 +235,7 @@ def finding_comment_key(f: dict) -> str:
         return comment_key(
             origin, f.get("finding"), f.get("required_action"),
             f.get("contractor_page"), f.get("contractor_section"))
-    if origin == spec_kit.ORIGIN:  # the kit item, never the wording (#1479)
-        return comment_key(origin, f.get("requirement_source_text"))
-    if origin == _CLAUSE_ORIGIN:  # the requirement, never the wording: a re-run keeps the number
+    if origin in (_CLAUSE_ORIGIN, spec_kit.ORIGIN):  # the requirement, never the wording: a re-run keeps the number
         return comment_key(origin, f.get("standard_document_id"), f.get("requirement_id"))
     key = _group_key(f)
     if key[0] == "field":
@@ -271,7 +267,6 @@ _BYLINE_SHAPES = (
     re.compile("^(" + re.escape(_AI_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
     re.compile("^(" + re.escape(_WEB_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
     re.compile("^(" + re.escape(_CLAUSE_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
-    re.compile("^(" + re.escape(SPEC_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
     re.compile(r"^()(?P<who>.+?)( \(filed from chat\))$"),
 )
 
@@ -434,8 +429,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
     notes.extend(crs_no_field.notes(findings))
-    notes.extend(procedure_text.notes(findings, _standard_reference))
-    notes.extend(spec_kit.notes(findings))  # #1479
+    notes.extend(procedure_text.notes(findings, _standard_reference) + spec_kit.notes(findings))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -1090,13 +1084,11 @@ def _bucket_of(f: dict) -> str | None:
     rejected finding's comment key is the key of the row it would land on."""
     origin = f.get("origin")
     status = f.get("compliance_status")
-    if f.get("crs_skip"):
+    if f.get("crs_skip") or spec_kit.is_unfound(f):  # #1479: in ONE note, never a line
         return None
     if origin == "chat":
         return BUCKET_CHAT
-    if origin == spec_kit.ORIGIN:  # #1479: an item not found is in ONE note, never a line
-        return None if spec_kit.is_unfound(f) else BUCKET_AI
-    if origin in (_AI_ORIGIN, _CLAUSE_ORIGIN):
+    if origin in (_AI_ORIGIN, _CLAUSE_ORIGIN, spec_kit.ORIGIN):
         return BUCKET_AI
     if origin == _WEB_ORIGIN:
         return BUCKET_WEB
@@ -1622,13 +1614,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         confirmed_by_prefix, unconfirmed_by, row_kind = _DRAFT_LANES[origin]
         # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
         # says it awaits an engineer, the draft stays in "AI Review Comments".
-        unconfirmed_comment = (
-            WEB_UNCONFIRMED_COMMENT
-            if origin == _WEB_ORIGIN
-            else SPEC_UNCONFIRMED_COMMENT
-            if origin == spec_kit.ORIGIN
-            else AI_UNCONFIRMED_COMMENT
-        )
+        unconfirmed_comment = UNCONFIRMED_COMMENTS.get(origin, AI_UNCONFIRMED_COMMENT)
         rows.append(
             {
                 "finding_id": f.get("id") or "",
