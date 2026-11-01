@@ -275,8 +275,23 @@ def test_counts_give_unknown_and_its_rate_with_the_denominator(monkeypatch):
     classification.classify_document_kind("d2")
     assert document_kind.document_kind_counts() == {
         "total": 3,
+        "decided": 2,
         "kinds": {"procedure": 1},
         "unknown": 1,
         "not_classified": 1,
-        "unknown_rate": 0.3333,
+        "unknown_rate": 0.5,
     }
+
+
+def test_the_report_gives_two_numbers_each_with_its_boundary(monkeypatch):
+    monkeypatch.setattr(settings, "document_kind_enabled", True)
+    _doc("d1", [PROCEDURE_PAGE])
+    _doc("d2", ["A memo."])
+    for n in range(3, 11):
+        _doc(f"d{n}", ["Another memo."])
+    classification.classify_document_kind("d1")
+    classification.classify_document_kind("d2")
+    text = "\n".join(document_kind.rate_lines(document_kind.document_kind_counts()))
+    assert "unknown of documents with a kind decision: 1/2 = 50.0%" in text
+    assert "documents decided at all: 2/10" in text
+    assert "1/10" not in text  # the undecided are never in the unknown rate

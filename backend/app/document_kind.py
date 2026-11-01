@@ -406,14 +406,38 @@ def counts_from(conn, document_ids: Iterable[str] | None = None) -> dict:
             unknown += row["n"]
         else:
             kinds[row["kind"]] = row["n"]
-    total = sum(kinds.values()) + unknown + not_classified
+    decided = sum(kinds.values()) + unknown
+    total = decided + not_classified
     return {
         "total": total,
+        "decided": decided,
         "kinds": kinds,
         "unknown": unknown,
         "not_classified": not_classified,
-        "unknown_rate": round(unknown / total, 4) if total else None,
+        # unknown of the documents that HAVE a kind decision - the rate the 10%
+        # stop rule means. Documents never decided are not in it (see `decided`).
+        "unknown_rate": round(unknown / decided, 4) if decided else None,
     }
+
+
+def rate_lines(counts: dict) -> list[str]:
+    """The report: two numbers, each with its own boundary."""
+    decided, total, unknown = counts["decided"], counts["total"], counts["unknown"]
+    rate = counts["unknown_rate"]
+    lines = [f"documents: {total}"]
+    lines += [f"  {k}: {n}" for k, n in sorted(counts["kinds"].items())]
+    lines.append(f"  unknown (kind empty, engineer asked): {unknown}")
+    lines.append(f"  no kind decision yet: {counts['not_classified']}")
+    lines.append(
+        "unknown of documents with a kind decision: "
+        + (
+            "n/a (none decided)"
+            if rate is None
+            else f"{unknown}/{decided} = {rate:.1%}"
+        )
+    )
+    lines.append(f"documents decided at all: {decided}/{total}")
+    return lines
 
 
 def document_kind_counts(document_ids: Iterable[str] | None = None) -> dict:
