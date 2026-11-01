@@ -58,6 +58,15 @@ class SettingsExt(BaseModel):
     #: rows only. Transmittal (#1482) and contract (#1483) have no held standard and no kit.
     #: OFF: nothing changes. Env: PARKED_KITS_DRAFT_ENABLED.
     parked_kits_draft_enabled: bool = False
+    #: #1482 transmittal kit (`transmittal_kit.py`): for a transmittal, header fields not stated, its
+    #: table of listed documents read by code, the listed revision and sheet count compared with the
+    #: held document, and a required-submissions list named at run time (CLIENT DATA, read from the
+    #: local DB only). No model; engineer rows only, never a verdict. OFF: nothing changes.
+    #: Env: TRANSMITTAL_KIT_ENABLED.
+    transmittal_kit_enabled: bool = False
+    #: #1482: comma-separated ids of the held documents that are the required-submissions list;
+    #: empty skips that step with one note. Env: TRANSMITTAL_REQUIRED_LIST_DOCUMENT_IDS.
+    transmittal_required_list_document_ids: str = ""
 
     #: #1474: the document KIND (router table `document_kinds`) chooses the rule set: a
     #: document whose kind is anything but datasheet gets no equipment datasheet checklist and
