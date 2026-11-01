@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, kit_core, percent_kind, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
 from .at_limit import hold as _hold
 from .checklist_scope import governs, standards
 from .config import settings
@@ -42,6 +42,7 @@ from .datasheet_coverage import (
     coverage,  # noqa: F401  (moved out to keep this file shrinking)
 )
 from .deferred_value import hold_results, note_of
+from .percent_kind import doubt as _kind_doubt
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
@@ -719,7 +720,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'one of' if ok else 'not one of'}: {', '.join(rule['values'])}.{noted}",
                    fact)
-    if (doubt := percent_kind.doubt(fact, rule, _is_percent(fact))) is not None:  # #1512
+    if (doubt := _kind_doubt(fact, rule, _is_percent(fact))) is not None:  # #1512
         return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)
     if kind == "percent_of" and rule.get("stated_as_percent") and _is_percent(fact):
         # R13: a value stated AS a percentage ("back pressure 8 %") is compared as that.
@@ -919,7 +920,7 @@ def _is_percent(fact: dict) -> bool:
 def _overpressure_kpa(get, set_kpa_g: float, rules: dict) -> tuple[float, dict]:
     fact = _input(get, "overpressure")
     if _is_percent(fact):
-        if (doubt := percent_kind.doubt(fact)) is not None:  # #1512
+        if (doubt := _kind_doubt(fact)) is not None:  # #1512
             raise _NotCalculated(doubt)
         return set_kpa_g * _number_of(fact, "overpressure") / 100.0, fact
     return _converted(fact, "overpressure", "pressure_kpa", rules), fact

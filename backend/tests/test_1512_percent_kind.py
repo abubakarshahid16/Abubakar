@@ -96,6 +96,7 @@ def test_the_helper_is_silent_with_the_switch_off_or_on_a_non_percent_rule(monke
 
 def test_the_kind_doubt_helper(monkeypatch):
     set_switch(monkeypatch, True)
+
     def f(v):
         return {"raw_value": v}
 
