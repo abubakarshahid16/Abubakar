@@ -371,7 +371,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
 
         for line in split_lines(outcome.get("requirement_split") or requirement_split.from_counts(counts)):
             add("requirement_reasons", line, detail=True)
-    elif parts and not counts:
+    elif any(not p.get("detail") for p in parts) and not counts:
         add("unchecked_share", "The share of requirements not compared is not known: "
                                "this review did not reach the comparison.")
     return parts

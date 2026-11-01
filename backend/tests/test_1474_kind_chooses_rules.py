@@ -274,6 +274,20 @@ def test_the_crs_review_notes_carry_the_kind_line_on_the_internal_copy(world, on
     assert line in meta["unchecked_parts"]
 
 
+def test_a_kind_note_alone_does_not_invent_a_share_not_known_part():
+    outcome = {
+        "requirement_split": {
+            "kind_rules": {
+                "blocked": True,
+                "checklist": "Datasheet checklist not applied: the document is a procedure (confirmed).",
+            }
+        }
+    }
+    parts = absence.unchecked_parts(run_status="completed", outcome=outcome)
+    assert [p["part"] for p in parts] == ["document_kind"]
+    assert absence.notice_for(parts) == ""
+
+
 def test_a_datasheet_review_still_runs_the_checklist(world, on):
     rows, outcome = _review("datasheet")
     assert rows, "the PSV checklist still runs for a datasheet"
