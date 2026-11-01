@@ -233,3 +233,86 @@ def test_two_of_three_words_is_not_enough_for_one_shared_word_rule():
         verdict = comparison.compare(req, None)
     assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert "keyword search" in verdict["rationale"]
+
+
+def _crs_finding(requirement: dict, status: str, rationale: str) -> dict:
+    return {
+        "id": "pf1",
+        "compliance_status": status,
+        "origin": None,
+        "requirement_id": "r1",
+        "requirement_source_text": requirement["source_text"],
+        "requirement_limit": None,
+        "standard_document_id": "std-1",
+        "standard_name": "STD-100.pdf",
+        "standard_clause": "5.3",
+        "standard_page": 4,
+        "contractor_page": None,
+        "contractor_section": None,
+        "contractor_evidence_text": "",
+        "fact_id": None,
+        "crs_field_label": None,
+        "crs_is_blank": False,
+        "matched_phrase": None,
+        "equipment_tag": None,
+        "engineer_comment": None,
+        "confirmed_by": None,
+        "approval_status": "pending",
+        "ai_rationale": rationale,
+        "reason_code": comparison.reason_code_of(rationale),
+        "finding": rationale,
+        "required_action": "",
+        "severity": "minor",
+    }
+
+
+def test_a_found_and_a_not_found_row_reach_the_crs_with_their_words():
+    """From compare() through the CRS builder to the text the engineer reads."""
+    from app import crs_mapping
+
+    other = {
+        **STATEMENT,
+        "requirement_text": "Crane lifting plans must name the rigging inspector.",
+        "source_text": "Crane lifting plans must name the rigging inspector.",
+    }
+    findings = []
+    for i, req in enumerate((STATEMENT, other)):
+        with procedure_text.using(PAGES):
+            v = comparison.compare(req, None)
+        f = _crs_finding(req, v["status"], v["rationale"])
+        findings.append({**f, "id": f"pf{i}"})
+    assert [f["reason_code"] for f in findings] == [
+        "procedure_text_found",
+        "procedure_text_not_found",
+    ]
+    rows = crs_mapping.build_crs_rows(findings, [], "proc.pdf")
+    text = " ".join(str(r.get("comment")) for r in rows)
+    assert len(rows) == 2
+    assert "found on page 2" in text and "qualified before production welding" in text
+    assert "keyword search" in text
+    assert "Not answered by any field read from the datasheet" not in text
+
+
+def test_a_procedure_records_demand_is_another_document():
+    req = {
+        **STATEMENT,
+        "required_evidence_type": "procedure",
+        "requirement_text": "Welding procedure records shall be submitted.",
+        "source_text": "Welding procedure records shall be submitted.",
+    }
+    with procedure_text.using(PAGES):
+        assert (
+            comparison.compare(req, None)["status"] == comparison.NOT_IN_DOCUMENT_SCOPE
+        )
+
+
+def test_a_quote_not_in_the_stored_page_is_never_shown(monkeypatch):
+    monkeypatch.setattr(
+        procedure_text,
+        "find_passage",
+        lambda text, pages: {"page": 2, "quote": "words that are not on the page"},
+    )
+    with procedure_text.using(PAGES):
+        verdict = comparison.compare(STATEMENT, None)
+    assert "not on the page" not in verdict["rationale"]
+    assert "keyword search" in verdict["rationale"]

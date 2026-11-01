@@ -1602,6 +1602,7 @@ _REASON_CODES = (
     CONDITION_NOT_MET,
     "UNREAD_PAGES",
     "PAGE_READER_ONLY",
+    *procedure_text.REASON_CODES,  # #1476
     match_rules.QUANTITY_KIND_UNSURE,  # before its prefix, `quantity_kind`
     match_rules.QUANTITY_KIND,
 )

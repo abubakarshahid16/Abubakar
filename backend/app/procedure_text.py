@@ -38,6 +38,8 @@ OWN_TEXT_EVIDENCE = frozenset({"procedure", "plan"})
 FOUND = "procedure_text_found"
 NOT_FOUND = "procedure_text_not_found"
 TOO_SHORT = "procedure_text_too_short"
+#: Registered in `comparison._REASON_CODES`, so a finding stores one as its reason code.
+REASON_CODES = (FOUND, NOT_FOUND, TOO_SHORT)
 
 _STOP_TEXT = (
     "shall should must will would could may might can be been being is are was were have has had "
@@ -49,6 +51,12 @@ _STOP_TEXT = (
 )
 _STOP = frozenset(_STOP_TEXT.split())
 _WORD = re.compile(r"[a-z][a-z0-9\-]{3,}")
+#: "procedure records", "procedure report": a record or report ABOUT a procedure is
+#: another document, not the procedure (the #163 guard stays).
+_OTHER_EVIDENCE = re.compile(
+    r"\bprocedures?\b[^.;]{0,40}\b(?:records?|reports?|certificates?|calculations?|drawings?)\b",
+    re.IGNORECASE,
+)
 _SENTENCE_END = re.compile(r"(?<=[.;:!?])\s+|\n+")
 #: A passage must carry at least this share of the requirement's key words,
 #: and at least MIN_HITS of them (all, when the requirement has fewer).
@@ -126,10 +134,7 @@ def find_passage(
                 best = (share, hit, page_no, part.strip()[:MAX_QUOTE])
     if best is None:
         return None
-    page_no, quote = best[2], best[3]
-    if quote not in dict(pages)[page_no]:  # code, not the search, vouches for the quote
-        return None
-    return {"page": page_no, "quote": quote}
+    return {"page": best[2], "quote": best[3]}
 
 
 #: The pages of the procedure under review, set only for the length of one
@@ -176,8 +181,8 @@ def route(requirement: dict, fact: dict | None) -> dict | None:
     if pages is None:
         return None
     evidence = requirement.get("required_evidence_type")
-    own = evidence in OWN_TEXT_EVIDENCE
     text = requirement.get("source_text") or requirement.get("requirement_text")
+    own = evidence in OWN_TEXT_EVIDENCE and not _OTHER_EVIDENCE.search(text or "")
     statement = (
         fact is None
         and evidence in (None, requirements_3b.DATA_SHEET_EVIDENCE)
@@ -187,34 +192,40 @@ def route(requirement: dict, fact: dict | None) -> dict | None:
     return verdict(requirement, pages) if own or statement else None
 
 
+def _fold(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
 def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
     """The row for a procedure requirement: an engineer's, or a blank. Never COMPLIANT."""
     text = requirement.get("source_text") or requirement.get("requirement_text")
+    base = {"limit": None, "observed": None, "exception_applied": None}
+    engineer = {**base, "status": "NEEDS_ENGINEER_REVIEW"}
     if len(key_words(text)) < MIN_HITS:
         return {
-            "limit": None,
-            "observed": None,
-            "exception_applied": None,
-            "status": "NEEDS_ENGINEER_REVIEW",
-            "rationale": f"{TOO_SHORT}: the requirement has too few distinguishing words to search this procedure for; engineer to check it",
-        }
-    found = find_passage(text, pages)
-    base = {"limit": None, "observed": None, "exception_applied": None}
-    if found is None:
-        return {
-            **base,
-            "status": "NEEDS_ENGINEER_REVIEW",
+            **engineer,
             "rationale": (
-                f"{NOT_FOUND}: a keyword search of the document's pages found no passage "
-                f"for this requirement; engineer to check (the document may state it in other words)"
+                f"{TOO_SHORT}: the requirement has too few distinguishing words "
+                f"to search this procedure for; engineer to check it"
             ),
         }
-    quote = " ".join(found["quote"].split())
+    found = find_passage(text, pages)
+    quote = " ".join(found["quote"].split()) if found else ""
+    # Code vouches for the quote, from the stored page text, not from the search.
+    if not found or _fold(quote) not in _fold(dict(pages).get(found["page"], "")):
+        return {
+            **engineer,
+            "rationale": (
+                f"{NOT_FOUND}: a keyword search of the document's pages found no passage "
+                f"for this requirement; engineer to check "
+                f"(the document may state it in other words)"
+            ),
+        }
     return {
-        **base,
-        "status": "NEEDS_ENGINEER_REVIEW",
+        **engineer,
         "rationale": (
-            f'{FOUND}: found on page {found["page"]}: "{quote}" - this is the closest passage by its '
-            f"words, not a finding that the requirement is met; engineer to confirm"
+            f'{FOUND}: found on page {found["page"]}: "{quote}" - this is the closest '
+            f"passage by its words, not a finding that the requirement is met; "
+            f"engineer to confirm"
         ),
     }

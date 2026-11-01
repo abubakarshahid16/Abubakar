@@ -9,7 +9,8 @@ _T = "tests/test_procedure_path.py"
 _TAG = ("c1_1489", "procedure_path")
 _C = APP / "comparison.py"
 _P = APP / "procedure_text.py"
-_OWN = "    own = evidence in OWN_TEXT_EVIDENCE\n"
+_M = APP / "crs_mapping.py"
+_OWN = '    own = evidence in OWN_TEXT_EVIDENCE and not _OTHER_EVIDENCE.search(text or "")\n'
 _STATEMENT = (
     '        and requirement.get("requirement_type") == requirements_3b.STATEMENT\n'
 )
@@ -58,16 +59,16 @@ MUTATIONS: tuple[Mutation, ...] = (
         4,
         "a search that finds nothing asks the contractor to provide it again",
         _P,
-        '"NEEDS_ENGINEER_REVIEW",\n            "rationale": (\n                f"{NOT_FOUND}',
-        '"MISSING_INFORMATION",\n            "rationale": (\n                f"{NOT_FOUND}',
+        '            **engineer,\n            "rationale": (\n                f"{NOT_FOUND}',
+        '            **base,\n            "status": "MISSING_INFORMATION",\n            "rationale": (\n                f"{NOT_FOUND}',
         "nothing_found",
     ),
     _m(
         5,
         "a found passage becomes COMPLIANT",
         _P,
-        '\n        "status": "NEEDS_ENGINEER_REVIEW",\n        "rationale": (\n',
-        '\n        "status": "COMPLIANT",\n        "rationale": (\n',
+        '    return {\n        **engineer,\n        "rationale": (\n            f\'{FOUND}',
+        '    return {\n        **base,\n        "status": "COMPLIANT",\n        "rationale": (\n            f\'{FOUND}',
         "never_compliant or found_requirement",
     ),
     _m(
@@ -149,5 +150,45 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    need = max(1, min(MIN_HITS, len(wanted)))\n",
         "    need = 1\n",
         "two_of_three_words",
+    ),
+    _m(
+        17,
+        "a procedure row is left off the CRS as a note",
+        _M,
+        "        and not _procedure_row(finding)\n",
+        "",
+        "reach_the_crs",
+    ),
+    _m(
+        18,
+        "a procedure row prints the datasheet wording on the CRS",
+        _M,
+        "    if _procedure_row(f):  # #1476: what the search of the document's own text found\n",
+        "    if False:\n",
+        "reach_the_crs",
+    ),
+    _m(
+        19,
+        "the procedure reason codes are not registered",
+        _C,
+        "    *procedure_text.REASON_CODES,  # #1476\n",
+        "",
+        "reach_the_crs",
+    ),
+    _m(
+        20,
+        "a record about a procedure is checked against the procedure text",
+        _P,
+        '    own = evidence in OWN_TEXT_EVIDENCE and not _OTHER_EVIDENCE.search(text or "")\n',
+        "    own = evidence in OWN_TEXT_EVIDENCE\n",
+        "procedure_records",
+    ),
+    _m(
+        21,
+        "a quote that is not in the stored page is shown",
+        _P,
+        '    if not found or _fold(quote) not in _fold(dict(pages).get(found["page"], "")):\n',
+        "    if not found:\n",
+        "never_shown",
     ),
 )
