@@ -289,3 +289,30 @@ def test_the_wording_names_the_draft_checklist_never_approved(monkeypatch):
         "approved" not in r["comment"].replace("not yet engineer-approved", "")
         for r in rows
     )
+
+
+def test_the_heading_named_is_the_one_holding_the_section_not_the_first_on_the_page(
+    monkeypatch,
+):
+    _switches(monkeypatch)
+    doc = _doc("h1", HAZOP_SECTIONS)
+    nodes = _page_of(HAZOP_SECTIONS, CUT)
+    with db.connect() as conn:  # a PDF-like page: another section's chunk comes first
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,"
+            "text,token_count,content_hash,retrievable) VALUES (?,?,?,?,?,?,?,'prose',?,1,?,1)",
+            (
+                "h1-first",
+                doc,
+                "h1.pdf",
+                0,
+                nodes,
+                nodes,
+                "Preparation notes",
+                "Preparation notes\nThe drawings are issued.",
+                "h-h1-first",
+            ),
+        )
+    row = _row(_mine(_crs(_run(doc))[0]), ELEMENT)
+    assert f'section found at page {nodes} (heading "{CUT}")' in row["comment"]
+    assert "Preparation notes" not in row["comment"]

@@ -373,6 +373,9 @@ def checklist_words(playbook: Playbook) -> str:
 
 
 def _chunk_of(ev: dict, body: list[dict]) -> dict:
+    """The chunk that holds the passage (by ordinal; a PDF locator names only a page)."""
+    if ev.get("ordinal") is not None:
+        return next((c for c in body if c["ordinal"] == ev["ordinal"]), {})
     return next((c for c in body if _where(c) == ev["locator"]), {})
 
 
@@ -535,6 +538,7 @@ def _match(element: Element, body: list[dict]) -> dict:
         }
         if own_only:
             entry["own_section"] = own_section(element, chunk)
+            entry["ordinal"] = chunk.get("ordinal")  # the passage itself, not its page
         evidence.append(entry)
     all_groups = len(element.groups)
     # #1522: with the switch on, a passage is evidence of the element only when it is the
