@@ -223,6 +223,8 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_export_quality_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
     "vessel_kit_draft_enabled": False,
+    # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
+    "leading_dot_decimal_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
