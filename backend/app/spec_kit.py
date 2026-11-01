@@ -118,6 +118,10 @@ def _fold(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+#: a contents-page line ("Scope ........ 6"): a heading's address, not the clause itself
+_LEADER = re.compile(r"\.{4,}|(?:\.\s){4,}")
+
+
 def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
     """{page, quote} of the first passage holding every word of one of the item's word
     groups, or None. The quote is cut from the stored page text and checked to be in it."""
@@ -125,7 +129,7 @@ def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
     for page_no, text in pages:
         for part in procedure_text._SENTENCE_END.split(text):
             folded = _fold(part)
-            if not folded or not any(
+            if not folded or _LEADER.search(part) or not any(
                 all(word in folded for word in group) for group in item["terms"]
             ):
                 continue
