@@ -50,23 +50,6 @@
    }
   },
   {
-   "id": "drawing_index",
-   "topic": "Drawing index in the title block",
-   "terms": [
-    [
-     "drawing index"
-    ],
-    [
-     "dwg index"
-    ]
-   ],
-   "held": {
-    "standard": "SAES-A-202",
-    "clause": "6.2.2",
-    "page": 14
-   }
-  },
-  {
    "id": "drawing_type",
    "topic": "Drawing type, entered on the first title line",
    "terms": [
@@ -105,7 +88,7 @@
   },
   {
    "id": "key_drawing_review",
-   "topic": "Review required box (key drawings)",
+   "topic": "Review required box marked, for key drawings only (key drawing types per 6.13)",
    "terms": [
     [
      "review required"
@@ -122,7 +105,7 @@
   },
   {
    "id": "design_certification",
-   "topic": "Design certification and revision validation boxes",
+   "topic": "Design certification, key drawing review and revision validation boxes, filled in only as required (conditional, per SAEP-334 section 14)",
    "terms": [
     [
      "design certification"
@@ -139,7 +122,7 @@
   },
   {
    "id": "graphic_scale",
-   "topic": "Scale (scaled drawings only; P&ID, PFD, ILD, VOD and E1L are not scaled)",
+   "topic": "A line scale reference just over the title block, on scale drawings only (P&ID, PFD, ILD, VOD and E1L are not scaled)",
    "terms": [
     [
      "graphic scale"
@@ -156,6 +139,19 @@
     "clause": "6.16.1",
     "page": 21
    }
+  },
+  {
+   "id": "drawing_index",
+   "topic": "Drawing index in the title block",
+   "terms": [
+    [
+     "drawing index"
+    ],
+    [
+     "dwg index"
+    ]
+   ],
+   "draft_reason": "SAES-A-202 6.2.2 (p14) says the index is shown in the title block, but it is not stored as a requirement of the library and does not say shall (only 6.5.3.9 mentions an index); clause not verified as a requirement. DRAFT."
   },
   {
    "id": "drawing_number",

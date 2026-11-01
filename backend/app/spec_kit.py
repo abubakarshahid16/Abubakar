@@ -412,6 +412,9 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
     from . import review as rv
 
     conn = connect()
+    kind = procedure_text.document_kind(doc)
+    # a parked kind's rows carry the kind in their requirement id: the one place the noun is read from
+    prefix = f"{ORIGIN}:{kind}:" if kind in kind_kits() else f"{ORIGIN}:"
     with conn:
         conn.execute(
             "DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"
@@ -444,7 +447,7 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
             )
             conn.execute(
                 "UPDATE review_findings SET requirement_id = ? WHERE id = ?",
-                (f"{ORIGIN}:{r['item']}", made["id"]),
+                (f"{prefix}{r['item']}", made["id"]),
             )
 
 
@@ -464,12 +467,13 @@ def is_unfound(finding: dict) -> bool:
     return is_row(finding) and _code(finding).startswith((NOT_FOUND, NOT_RUN))
 
 
-_NOUN = re.compile(r"^A ([a-z]+) states: ")
-
-
 def noun_of(finding: dict) -> str:
-    found = _NOUN.match(finding.get("requirement") or "")
-    return found.group(1) if found else "specification"
+    """The noun of the document kind a kit row was written for ("specification" for the
+    discipline kits), from its requirement id `spec_kit:<kind>:<item>`."""
+    parts = str(finding.get("requirement_id") or "").split(":")
+    if len(parts) >= 3 and parts[0] == ORIGIN and parts[1] in kind_kits():
+        return kind_kits()[parts[1]]["noun"]
+    return "specification"
 
 
 def notes(findings: list[dict]) -> list[dict]:
@@ -485,7 +489,10 @@ def notes(findings: list[dict]) -> list[dict]:
     if not rows:
         return []
     noun = noun_of(rows[0])
-    topics = [_NOUN.sub("", f.get("requirement") or "").split(" (")[0] for f in rows]
+    lead = f"A {noun} states: "
+    topics = [
+        (f.get("requirement") or "").removeprefix(lead).split(" (")[0] for f in rows
+    ]
     listed = "; ".join(topics[:8]) + (
         f"; and {len(topics) - 8} more" if len(topics) > 8 else ""
     )

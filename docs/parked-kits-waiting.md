@@ -5,7 +5,7 @@ Rule 4: no requirement is invented. A kit item cites the held clause that REQUIR
 
 | Kind | Issue | Held standard that requires its content | Kit |
 |---|---|---|---|
-| Drawing | #1484 | SAES-A-202 (794 stored requirements; title block, revision block, scale, tags, drawing numbers) | Built, DRAFT: `reference/kind_kits/drawing.json`, 8 held items, 6 DRAFT items, behind `PARKED_KITS_DRAFT_ENABLED` (off) |
+| Drawing | #1484 | SAES-A-202 (794 stored requirements; title block, revision block, scale, tags, drawing numbers) | Built, DRAFT: `reference/kind_kits/drawing.json`, 7 held items, 7 DRAFT items, behind `PARKED_KITS_DRAFT_ENABLED` (off) |
 | Transmittal | #1482 | None. The only hits for "transmittal" are SAES-X-400 and SAES-X-700 (a QA checklist attached to the cover letter or transmittal sheet of a cathodic-protection or well-casing design package), and SAES-L-105, SAES-W-011, SAES-W-013 and SAES-M-100 (a passing word). No held clause says what a transmittal must contain. | Not built |
 | Contract | #1483 | None. The held Schedule G files (14, 14a to 14i) are contract forms with 0 stored requirements; no held standard requires content of a contract or schedule. | Not built |
 

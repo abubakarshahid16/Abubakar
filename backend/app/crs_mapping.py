@@ -1614,7 +1614,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f.get("contractor_section") or "") if p)
         confirmed = bool(crs_decider.decider(f))
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
-        confirmed_by_prefix, unconfirmed_by, row_kind, unconfirmed_comment = lane(f, _DRAFT_LANES)
+        confirmed_by_prefix, unconfirmed_by, row_kind, unconfirmed_comment = lane(
+            f, _DRAFT_LANES, spec_kit.noun_of(f)
+        )
         rows.append(
             {
                 "finding_id": f.get("id") or "",

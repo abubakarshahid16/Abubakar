@@ -58,7 +58,9 @@ def test_found_items_are_engineer_rows_with_page_and_a_verified_quote(on):
         job["contractor_page"] == 1 and job["contractor_evidence_text"] in DRAWING_PAGE1
     )
     assert "of the drawing; engineer to confirm" in job["finding"]
-    scale = next(r for k, r in rows.items() if k.startswith("A drawing states: Scale"))
+    scale = next(
+        r for k, r in rows.items() if k.startswith("A drawing states: A line scale")
+    )
     assert scale["contractor_page"] == 2
     assert "specification" not in job["finding"] + job["ai_rationale"]
 
@@ -213,3 +215,12 @@ def test_the_lane_words_of_every_kit_noun_are_known_to_the_waiting_set():
     for kit in spec_kit.kind_kits().values():
         assert kit["noun"] in lanes.KIND_NOUNS
         assert lanes.spec_lane_words(kit["noun"])[2] in lanes.WAITING_COMMENTS
+
+
+def test_conditional_clauses_say_so_and_an_unstored_clause_is_a_draft():
+    items = {i["id"]: i for i in spec_kit.kind_kits()["drawing"]["items"]}
+    assert "draft_reason" in items["drawing_index"]  # 6.2.2 is not a stored requirement
+    assert "clause not verified" in items["drawing_index"]["draft_reason"]
+    assert "only" in items["graphic_scale"]["topic"]  # 6.16.1: scale drawings only
+    assert "only" in items["key_drawing_review"]["topic"]  # 6.14: key drawings
+    assert "conditional" in items["design_certification"]["topic"]  # 6.15: as required
