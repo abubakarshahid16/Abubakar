@@ -36,9 +36,15 @@ def _unload_models() -> None:
         try:
             with model_transport.keep_alive_override(0):
                 model_transport.post_json(
-                    "/api/generate", {"model": model, "prompt": "", "stream": False}, timeout=30.0)
+                    "/api/generate",
+                    {"model": model, "prompt": "", "stream": False},
+                    timeout=30.0,
+                )
         except Exception as exc:  # noqa: BLE001 - unloading is a courtesy
-            print(f"model {model} could not be unloaded ({type(exc).__name__})", file=sys.stderr)
+            print(
+                f"model {model} could not be unloaded ({type(exc).__name__})",
+                file=sys.stderr,
+            )
 
 
 def run(path: Path, *, dry_run: bool, out: Path | None, say=print) -> dict:
@@ -50,26 +56,41 @@ def run(path: Path, *, dry_run: bool, out: Path | None, say=print) -> dict:
     conn.row_factory = sqlite3.Row
     cols = {r[1] for r in conn.execute("PRAGMA table_info(standard_requirements)")}
     if not dry_run and "equipment_scope_evidence" not in cols:
-        conn.execute("ALTER TABLE standard_requirements ADD COLUMN equipment_scope_evidence TEXT")
+        conn.execute(
+            "ALTER TABLE standard_requirements ADD COLUMN equipment_scope_evidence TEXT"
+        )
         cols.add("equipment_scope_evidence")
     has_evidence = "equipment_scope_evidence" in cols
     sections: dict[str, dict[str, str]] = {}
-    for r in conn.execute("SELECT DISTINCT document_id, section FROM chunks WHERE section IS NOT NULL"):
+    for r in conn.execute(
+        "SELECT DISTINCT document_id, section FROM chunks WHERE section IS NOT NULL"
+    ):
         sections.setdefault(r["document_id"], {})
     for doc in sections:
         sections[doc] = res.headings_from_sections(
-            r["section"] for r in conn.execute(
-                "SELECT DISTINCT section FROM chunks WHERE document_id = ?", (doc,)))
-    sql = ("SELECT r.id, r.standard_document_id, r.clause, r.page, r.requirement_text,"
-           " r.equipment_type, c.section AS chunk_section"
-           + (", r.equipment_scope_evidence" if has_evidence else ", NULL AS equipment_scope_evidence")
-           + " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
-           " WHERE r.superseded_at IS NULL")
+            r["section"]
+            for r in conn.execute(
+                "SELECT DISTINCT section FROM chunks WHERE document_id = ?", (doc,)
+            )
+        )
+    sql = (
+        "SELECT r.id, r.standard_document_id, r.clause, r.page, r.requirement_text,"
+        " r.equipment_type, c.section AS chunk_section"
+        + (
+            ", r.equipment_scope_evidence"
+            if has_evidence
+            else ", NULL AS equipment_scope_evidence"
+        )
+        + " FROM standard_requirements r LEFT JOIN chunks c ON c.id = r.chunk_id"
+        " WHERE r.superseded_at IS NULL"
+    )
     per_type: dict[str, int] = {}
     per_standard: dict[str, dict[str, int]] = {}
     unknown = multi = human_kept = written = 0
     for row in conn.execute(sql).fetchall():
-        std = per_standard.setdefault(row["standard_document_id"], {"rules": 0, "scoped": 0, "unknown": 0})
+        std = per_standard.setdefault(
+            row["standard_document_id"], {"rules": 0, "scoped": 0, "unknown": 0}
+        )
         std["rules"] += 1
         if row["equipment_type"] and not row["equipment_scope_evidence"]:
             human_kept += 1  # a person's value: never overwritten
@@ -89,17 +110,31 @@ def run(path: Path, *, dry_run: bool, out: Path | None, say=print) -> dict:
             fields = res.stored_fields(scope)
             conn.execute(
                 "UPDATE standard_requirements SET equipment_type = ?, equipment_scope_evidence = ?"
-                " WHERE id = ?", (fields.get("equipment_type"), fields.get("equipment_scope_evidence"), row["id"]))
+                " WHERE id = ?",
+                (
+                    fields.get("equipment_type"),
+                    fields.get("equipment_scope_evidence"),
+                    row["id"],
+                ),
+            )
             written += 1
     if not dry_run:
         conn.commit()
     conn.close()
     total = sum(s["rules"] for s in per_standard.values())
-    summary = {"dry_run": dry_run, "rules": total, "rules_scoped_to_type": dict(sorted(per_type.items())),
-               "unknown": unknown, "multi_type": multi, "kept_human_value": human_kept,
-               "rows_written": written, "model_pass": use_model, "per_standard": per_standard,
-               "note": "counts are of the active rules of the database given; a rule naming several "
-                       "types is counted under each"}
+    summary = {
+        "dry_run": dry_run,
+        "rules": total,
+        "rules_scoped_to_type": dict(sorted(per_type.items())),
+        "unknown": unknown,
+        "multi_type": multi,
+        "kept_human_value": human_kept,
+        "rows_written": written,
+        "model_pass": use_model,
+        "per_standard": per_standard,
+        "note": "counts are of the active rules of the database given; a rule naming several "
+        "types is counted under each",
+    }
     say(json.dumps({k: v for k, v in summary.items() if k != "per_standard"}, indent=1))
     if out:
         out.write_text(json.dumps(summary, indent=1), encoding="utf-8")
@@ -109,14 +144,21 @@ def run(path: Path, *, dry_run: bool, out: Path | None, say=print) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--db", type=Path, required=True, help="a COPY of the database")
-    ap.add_argument("--dry-run", action="store_true", help="count only; the file is not opened for writing")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="count only; the file is not opened for writing",
+    )
     ap.add_argument("--out", type=Path, help="write the JSON summary here")
     args = ap.parse_args(argv)
     from app import heavy_lock, live_guard
 
     path = args.db.resolve()
     if live_guard.is_live_shaped(path):
-        print("REFUSED: that path is shaped like the live database. Work on a copy.", file=sys.stderr)
+        print(
+            "REFUSED: that path is shaped like the live database. Work on a copy.",
+            file=sys.stderr,
+        )
         return 2
     if not path.is_file():
         print(f"no database at {path}", file=sys.stderr)

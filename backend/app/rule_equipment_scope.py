@@ -35,12 +35,18 @@ QUOTE_WORDS = 25
 _STRONG = re.compile(
     r"\b(?:applies to|apply to|applicable to|intended for|specific to|only for|"
     r"for use (?:in|on|with)|(?:when|where) (?:used|applied|installed) (?:in|on|for|with)|"
-    r"covers|requirements for|provisions for)\b", re.IGNORECASE)
+    r"covers|requirements for|provisions for)\b",
+    re.IGNORECASE,
+)
 _LEADING_FOR = re.compile(r"^\W*for\b", re.IGNORECASE)
 _STOP = re.compile(r"[.;:]|\b(?:shall|must|should|may|will)\b", re.IGNORECASE)
 _WINDOW_WORDS = 8
-_PREPOSITION = re.compile(r"\b(?:of|for|in|on|at|with|from|to|by|within|under)\b", re.IGNORECASE)
-_MODAL = re.compile(r"\b(?:shall|must|should|may|will|needs? to|is to|are to)\b", re.IGNORECASE)
+_PREPOSITION = re.compile(
+    r"\b(?:of|for|in|on|at|with|from|to|by|within|under)\b", re.IGNORECASE
+)
+_MODAL = re.compile(
+    r"\b(?:shall|must|should|may|will|needs? to|is to|are to)\b", re.IGNORECASE
+)
 
 
 def extract_enabled() -> bool:
@@ -83,7 +89,7 @@ def _scope_phrase(text: str, vocab) -> tuple[set[str], str]:
         window = _phrase_window(text, m.end())
         found = vocab.equipment_in(window)
         if found:
-            return found, _words(text[m.start(): m.end()] + " " + window)
+            return found, _words(text[m.start() : m.end()] + " " + window)
     lead = _LEADING_FOR.match(text)
     if lead:
         window = _phrase_window(text, lead.end())
@@ -93,7 +99,9 @@ def _scope_phrase(text: str, vocab) -> tuple[set[str], str]:
     return set(), ""
 
 
-def scope_of(requirement: dict, headings: dict[str, str] | None = None, vocab=None) -> dict:
+def scope_of(
+    requirement: dict, headings: dict[str, str] | None = None, vocab=None
+) -> dict:
     """{"types": sorted list (empty = unknown), "quote", "page", "method"}."""
     vocab = vocab or subject_scope.vocabulary()
     text = str(requirement.get("requirement_text") or "")
@@ -124,7 +132,9 @@ def scope_of(requirement: dict, headings: dict[str, str] | None = None, vocab=No
     return out(set(), "", UNKNOWN)
 
 
-def ask_local_model(requirement: dict, vocab=None, post: Callable | None = None) -> dict | None:
+def ask_local_model(
+    requirement: dict, vocab=None, post: Callable | None = None
+) -> dict | None:
     """OPTIONAL pass for a clause the code left unknown. Local Ollama only, through
     `model_transport`. Returns a scope dict (method local_model) or None. Code verifies:
     every type must be an equipment type of the vocabulary and the quote must be a run of
@@ -137,30 +147,84 @@ def ask_local_model(requirement: dict, vocab=None, post: Callable | None = None)
     allowed = sorted(t for t, k in vocab.kind.items() if k == subject_scope.EQUIPMENT)
     prompt = (
         "Which equipment type is this clause written for? Answer JSON "
-        '{"types": [...], "quote": "..."} with types only from ' + json.dumps(allowed)
-        + ' and quote copied word for word from the clause. If the clause names none, '
-        'answer {"types": [], "quote": ""}.\nClause: ' + text[:1500])
+        '{"types": [...], "quote": "..."} with types only from '
+        + json.dumps(allowed)
+        + " and quote copied word for word from the clause. If the clause names none, "
+        'answer {"types": [], "quote": ""}.\nClause: ' + text[:1500]
+    )
     send = post or model_transport.post_json
     try:
-        reply = send("/api/generate", {"model": settings.ai_task_model, "prompt": prompt,
-                                       "stream": False, "format": "json"}, timeout=120.0)
+        reply = send(
+            "/api/generate",
+            {
+                "model": settings.ai_task_model,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+            },
+            timeout=120.0,
+        )
         data = json.loads(reply.get("response") or "{}")
     except Exception:  # noqa: BLE001 - a model that fails leaves the clause unknown
         return None
     types = {str(t).strip().lower() for t in data.get("types") or []}
     quote = str(data.get("quote") or "").strip()
     folded = " ".join(text.lower().split())
-    if (not types or not types <= set(allowed) or not quote
-            or " ".join(quote.lower().split()) not in folded):
+    if (
+        not types
+        or not types <= set(allowed)
+        or not quote
+        or " ".join(quote.lower().split()) not in folded
+    ):
         return None
-    return {"types": sorted(types), "quote": _words(quote), "page": requirement.get("page"),
-            "method": MODEL}
+    return {
+        "types": sorted(types),
+        "quote": _words(quote),
+        "page": requirement.get("page"),
+        "method": MODEL,
+    }
 
 
 def stored_fields(scope: dict) -> dict:
     """The two columns for a derived scope; {} when unknown (the columns stay NULL)."""
     if not scope["types"]:
         return {}
-    return {"equipment_type": ", ".join(scope["types"]),
-            "equipment_scope_evidence": json.dumps(
-                {k: scope[k] for k in ("types", "quote", "page", "method")})}
+    return {
+        "equipment_type": ", ".join(scope["types"]),
+        "equipment_scope_evidence": json.dumps(
+            {k: scope[k] for k in ("types", "quote", "page", "method")}
+        ),
+    }
+
+
+def columns_of(structured: dict) -> dict:
+    """The two columns of a rule row, NULL when the extractor derived none."""
+    return {
+        "equipment_type": structured.get("equipment_type"),
+        "equipment_scope_evidence": structured.get("equipment_scope_evidence"),
+    }
+
+
+class _Off:
+    def fields(self, sentence, clause, chunk) -> dict:
+        return {}
+
+
+class _On(_Off):
+    def __init__(self, chunks) -> None:
+        self.headings = headings_from_sections(c["section"] for c in chunks)
+
+    def fields(self, sentence, clause, chunk) -> dict:
+        requirement = {
+            "requirement_text": sentence,
+            "clause": clause,
+            "chunk_section": chunk["section"],
+            "page": chunk["page_start"],
+        }
+        return stored_fields(scope_of(requirement, self.headings))
+
+
+def for_chunks(chunks):
+    """What extraction asks per sentence: `.fields(sentence, clause, chunk)`. With the
+    switch off it answers {} and reads nothing."""
+    return _On(chunks) if extract_enabled() else _Off()

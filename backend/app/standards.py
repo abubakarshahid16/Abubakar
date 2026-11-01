@@ -635,9 +635,9 @@ def create_requirement(
     for key in ("requirement_type", "field", "operator", "value", "unit",
                 "raw_value", "raw_unit", "condition", "exceptions",
                 "discipline", "table_row", "subject", "required_evidence_type",
-                "unit_from", "identity_key", "value_low", "value_high",
-                "equipment_type", "equipment_scope_evidence"):
+                "unit_from", "identity_key", "value_low", "value_high"):
         row[key] = structured.get(key)
+    row.update(rule_equipment_scope.columns_of(structured))
     row["evidence_pages"] = json.dumps(
         [{"page": row["page"], "chunk_id": chunk_id}]) if identity_key else None
     # #597 THE TEXT-QUALITY GATE, at the one place every extracted row passes.
@@ -927,8 +927,7 @@ def extract_requirements(
     inputs = provenance.input_hash(
         stored["sha256"] if stored else None, *(c["text"] for c in chunks))
 
-    scoper = (rule_equipment_scope.headings_from_sections(c["section"] for c in chunks)
-              if rule_equipment_scope.extract_enabled() else None)
+    scoper = rule_equipment_scope.for_chunks(chunks)
     run_id = new_extraction_run_id()
     #: #640 the ACTIVE unconfirmed sentence rows this run may re-produce, by
     #: (clause, sentence). Met again: kept (same id). Not met: superseded.
@@ -1053,10 +1052,7 @@ def extract_requirements(
                     "subject": subject_of(sentence),
                     "required_evidence_type": requirements_3b.required_evidence_type(sentence),
                     **(limit or {}),
-                    **(rule_equipment_scope.stored_fields(rule_equipment_scope.scope_of(
-                        {"requirement_text": sentence, "clause": clause,
-                         "chunk_section": chunk["section"], "page": chunk["page_start"]},
-                        scoper)) if scoper is not None else {}),
+                    **scoper.fields(sentence, clause, chunk),
                 }
                 category = "prohibition" if _PROHIBITION.search(sentence) else None
                 if key in reproducible:
