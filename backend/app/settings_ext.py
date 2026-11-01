@@ -84,6 +84,11 @@ class SettingsExt(BaseModel):
     #: or glued dot (".5.3", "x.5") is no value. OFF: ".30" reads as 30 and ".5 mm" is dropped,
     #: as before. Env: LEADING_DOT_DECIMAL_ENABLED.
     leading_dot_decimal_enabled: bool = False
+    #: Kit proof 1 Nov: a page whose lines are mostly measured values (a datasheet page) is never set
+    #: aside as book front matter because of a copyright footer, so the fact reader sees it. OFF: the
+    #: footer decides as before. Takes effect when a document is (re)chunked.
+    #: Env: DATA_PAGE_NOT_FRONTMATTER_ENABLED.
+    data_page_not_frontmatter_enabled: bool = False
     #: #1481 heat exchanger kit PREPARATION (parked, milestone 58): append the DRAFT exchanger cards of
     #: `reference/exchanger_kit_draft.json` (the held standard SAES-E-004 requires the value, not already in the
     #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the
