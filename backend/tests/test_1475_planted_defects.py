@@ -590,7 +590,7 @@ def test_compare_d2_on_a_value_marked_by_contractor_is_a_query_either_way(value,
         _datasheet_fact(value, "C", note="By Contractor"),
     )
     assert verdict["status"] == "NEEDS_ENGINEER_REVIEW"
-    assert deferred_value.DEFERRED_VALUE in verdict["rationale"]
+    assert "the contractor is to give the final value" in verdict["rationale"]
     assert verdict["limit"] and verdict["observed"]
 
 
@@ -659,10 +659,71 @@ def test_d2_the_held_comparison_rationale_leads_with_its_own_code(d2_on):
     verdict = comparison.compare(
         _requirement("<=", "100", "C"), _datasheet_fact("80", "C", note="By Contractor")
     )
-    assert verdict["rationale"].startswith("deferred_value: ")
+    assert "the contractor is to give the final value" in verdict["rationale"]
     assert "LOW_TRUST_VALUE" not in verdict["rationale"]
+    assert "checks the value on the page" not in verdict["rationale"]
 
 
 def test_code_for_pins_the_low_trust_spelling():
-    low = deferred_value.code_for("the value was read by OCR")
-    assert low == comparison.LOW_TRUST_VALUE + ": "
+    lead, tail = deferred_value.framing("the value was read by OCR")
+    assert lead == comparison.LOW_TRUST_VALUE + ": " and "checks the value" in tail
+
+
+# --------------------------------------------------------- a rule-evaluated row rests on its INPUT too
+
+
+def _rule_facts(design, note=None):
+    from tests.test_rule_eval import _fact as rfact
+
+    return [
+        rfact("maximum operating pressure", "1500 kPa", 1, note=None, value_note=note),
+        rfact("design pressure", f"{design} kPa", 1),
+    ]
+
+
+@pytest.mark.parametrize(
+    "design, said", [("1700", "COMPLIANT"), ("1600", "NON_COMPLIANT")]
+)
+def test_d2_a_rule_row_with_a_deferred_input_is_a_query_either_way(d2_on, design, said):
+    from app import rule_eval
+    from tests.test_rule_eval import _rule
+
+    clean, _ = rule_eval.judge(_rule(), _rule_facts(design))
+    assert clean["status"] == said
+    held, _ = rule_eval.judge(_rule(), _rule_facts(design, note="By Contractor"))
+    assert held["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert said in held["rationale"] and "By Contractor" in held["rationale"]
+
+
+def test_d2_off_a_rule_row_with_a_deferred_input_is_decided_as_before(monkeypatch):
+    from app import rule_eval
+    from tests.test_rule_eval import _rule
+
+    monkeypatch.setattr(settings, "deferred_value_is_query_enabled", False)
+    verdict, _ = rule_eval.judge(_rule(), _rule_facts("1700", note="By Contractor"))
+    assert verdict["status"] == "COMPLIANT"
+
+
+def test_the_calc_input_role_list_covers_every_role_the_formulas_read():
+    """Fails when a formula starts reading a role the D2 hold does not know."""
+    from tests.test_777_api520_calcs import GAS, LIQUID, RULES
+
+    seen = set()
+    for sheet in (GAS, LIQUID):
+        roles = {}
+        for f in sheet:
+            roles.setdefault(dc.role_of(f["field_name"], RULES), []).append(f)
+
+        def get(role, roles=roles):
+            seen.add(role)
+            return roles.get(role, [])
+
+        for name in sorted(dc.CALCULATIONS):
+            try:
+                dc.CALCULATIONS[name](get, RULES)
+            except Exception:  # noqa: BLE001 - a formula for the other phase may refuse its inputs
+                pass
+    assert seen, "the spy saw nothing"
+    assert seen <= deferred_value.CALC_INPUT_ROLES, sorted(
+        seen - deferred_value.CALC_INPUT_ROLES
+    )

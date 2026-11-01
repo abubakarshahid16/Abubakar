@@ -75,4 +75,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="sizing_calculation_on_a_deferred_input_is_a_query",
         tags=("honesty", "critical"),
     ),
+    Mutation(
+        id="M1490-07",
+        phase=1490,
+        description="a rule-evaluated standards row keeps its pass or fail when the rule's INPUT value is deferred",
+        path=APP / "rule_eval.py",
+        anchor="    return deferred_value.hold_input(verdict, inp), output\n",
+        replacement="    return verdict, output\n",
+        target=_T,
+        keyword="rule_row_with_a_deferred_input_is_a_query",
+        tags=("honesty", "critical"),
+    ),
 )

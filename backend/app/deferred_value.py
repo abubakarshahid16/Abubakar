@@ -32,22 +32,45 @@ def note_of(fact: dict | None) -> str | None:
     return note if note and blank_markers.names_a_marker(note) else None
 
 
+_FINAL_VALUE = "the contractor is to give the final value; engineer to confirm"
+
+
+def _words(note: str) -> str:
+    return f"the datasheet marks this value {note!r}; {_FINAL_VALUE}"
+
+
 def reason(fact: dict | None) -> str | None:
     """Why a decided verdict on this value must wait (switch ON), or None. Read by the comparison's existing
     hold (`comparison._hold_low_trust_breach`), which turns COMPLIANT and NON_COMPLIANT into a query that keeps
-    the arithmetic in the words. The words lead with their own code, `deferred_value`."""
+    the arithmetic in the words."""
     if not settings.deferred_value_is_query_enabled:
         return None
     note = note_of(fact)
-    if note is None:
-        return None
-    return f"{DEFERRED_VALUE}: the datasheet marks this value {note!r}, so it is deferred to the contractor"
+    return None if note is None else _words(note)
 
 
-def code_for(reason: str) -> str:
-    """The code that leads a held rationale: none for a deferred value (its words carry their own), else the
-    low-trust code `comparison.LOW_TRUST_VALUE` (a test pins the spelling)."""
-    return "" if reason.startswith(f"{DEFERRED_VALUE}: ") else "LOW_TRUST_VALUE: "
+def framing(reason: str) -> tuple[str, str]:
+    """(lead, tail) around a held rationale's reason: a deferred value has no code word and no "checks the
+    value on the page" (the page already says it is deferred); every other reason keeps the low-trust code
+    `comparison.LOW_TRUST_VALUE` (a test pins the spelling) and its tail."""
+    if _FINAL_VALUE in reason:
+        return "", ""
+    return "LOW_TRUST_VALUE: ", " until an engineer checks the value on the page"
+
+
+def hold_input(verdict: dict, fact: dict | None) -> dict:
+    """A rule-evaluated verdict (`rule_eval`) whose INPUT value is deferred: a query, either way (switch ON)."""
+    if verdict.get("status") not in _DECIDED:
+        return verdict
+    why = reason(fact)
+    if why is None:
+        return verdict
+    return {
+        **verdict,
+        "status": _QUERY,
+        "rationale": f"{why}, so no verdict is stated; the numbers read {verdict['status']}: "
+        f"{verdict.get('rationale') or ''}".strip(),
+    }
 
 
 #: The roles the sizing calculations (`datasheet_checks.CALCULATIONS`) read as inputs. A calculation resting
