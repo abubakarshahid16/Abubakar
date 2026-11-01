@@ -209,6 +209,8 @@ EGRESS_SAFE: dict[str, object] = {
     "procedure_path_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
     "clause_review_enabled": False,
+    # --- read-only display of the jobs row, no model or socket (#1494, off by default)
+    "review_progress_bar_enabled": False,
     # --- local only, no model or socket: a review that read nothing fails (#1495, off by default)
     "nothing_read_fails_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)

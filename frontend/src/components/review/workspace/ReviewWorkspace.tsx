@@ -45,6 +45,7 @@ import type { ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } f
 import { HowReviewedView } from "../../../views/HowReviewedView";
 import { progressLine, runStatusLabel } from "../reviewFormat";
 import { BehindTheScenes } from "../panels/BehindTheScenes";
+import { ReviewProgressBlock } from "../progress/ReviewProgressBlock";
 import { ReviewJobControl } from "../panels/ReviewJobControl";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
 import { useIssueGate } from "../crs/issueGate";
@@ -180,6 +181,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, befor
             {run.status === "queued" ? "Waiting to start"
               : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status)}
           </p>
+          <ReviewProgressBlock job={run.job} />
           <ReviewJobControl run={run} onChanged={onChanged} />
         </>
       ) : (

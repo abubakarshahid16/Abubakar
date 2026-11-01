@@ -63,3 +63,4 @@ does not make one.
 | `smtp_ssl` | `False` | permanent | | | TLS mode; exactly one is on (#440) |
 | `clause_review_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | AI clause review of a procedure or specification submittal (#1477): local model only, code-verified quotes, rows are suggestions for the engineer and never in a headline; off, nothing changes |
 | `document_kind_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Document kind from title block and cover, no body-text equipment fallback for non-datasheets (#1474); off, nothing is stored and nothing changes |
+| `review_progress_bar_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Progress block on a running review (#1494): pages done of total, elapsed time, labelled time-left estimate, stall light; read-only from the jobs row; off, the screen shows the step line as before; owner decides default on or remove |
