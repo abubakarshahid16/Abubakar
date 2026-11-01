@@ -19,6 +19,7 @@ def _sections(drop_team: bool):
         if title == "Study team":
             if drop_team:
                 continue
+            title = "Study team members"
         if title == "Analysis" and drop_team:
             text += " The chairman shall record each deviation, the scribe notes it and the team members agree the wording."
         out.append((title, text))
@@ -56,3 +57,71 @@ def test_a_section_heading_match_still_finds_its_evidence(tmp_path, monkeypatch)
     assert any(
         "chairs" in e["quote"] or "scribe" in e["quote"] for e in h02["evidence"]
     )
+
+
+def _element():
+    from app import playbooks
+
+    found, _ = playbooks.available()
+    return next(e for e in found["hazop_procedure"].elements if e.id == "H02")
+
+
+def _chunk(section, context, text):
+    return {
+        "section": section,
+        "context": context,
+        "text": section + "\n" + text,
+        "locator": "p1",
+        "page_start": 1,
+    }
+
+
+CHAIRMAN = "The chairman shall record each deviation, the scribe notes it and the team members agree."
+
+
+def test_a_parent_or_document_heading_does_not_make_a_methodology_paragraph_the_team_section(
+    monkeypatch,
+):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    body = [
+        _chunk("Methodology", "Study team members procedure > Methodology", CHAIRMAN)
+    ]
+    assert playbooks._match(_element(), body)["state"] == "unclear"
+
+
+def test_a_nearest_heading_naming_the_team_makes_it_present(monkeypatch):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    body = [
+        _chunk(
+            "Study team members", "HAZOP Study Procedure > Study team members", CHAIRMAN
+        )
+    ]
+    assert playbooks._match(_element(), body)["state"] == "present"
+
+
+def test_with_the_switch_off_the_evidence_is_the_old_dict(monkeypatch):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", False)
+    body = [
+        _chunk("Methodology", "Study team members procedure > Methodology", CHAIRMAN)
+    ]
+    found = playbooks._match(_element(), body)
+    assert found["state"] == "present"
+    assert found["evidence"] == [
+        {
+            "locator": "p1",
+            "quote": found["evidence"][0]["quote"],
+            "method": "cue_words",
+            "groups": [
+                "study leader",
+                "scribe or secretary",
+                "team members or disciplines",
+            ],
+            "in_text": True,
+        }
+    ]

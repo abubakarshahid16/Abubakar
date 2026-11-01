@@ -320,13 +320,12 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             "elements": results, "counts": counts, "ai": ai}
 
 
-def own_section(element: Element, heading: str) -> bool:
-    """#1522: does this heading name the element? A cue of any group, or a content word
-    of the element's own title, sits in the heading or section title."""
-    if any(_hits(phrases, heading) for _, phrases in element.groups):
-        return True
-    words = sorted(_content_words(element.title))
-    return bool(words) and bool(_hits(tuple(w + "*" for w in words), heading))
+def own_section(element: Element, chunk: dict) -> bool:
+    """#1522: does the passage's NEAREST heading (its own section title, else the last
+    heading of its chain; never a parent or document title) hold a cue of the element?"""
+    chain = [p for p in re.split(r"\s*>\s*", chunk.get("context") or "") if p]
+    nearest = (chunk.get("section") or "").strip() or (chain[-1] if chain else "")
+    return any(_hits(phrases, nearest) for _, phrases in element.groups)
 
 
 def _match(element: Element, body: list[dict]) -> dict:
@@ -334,6 +333,7 @@ def _match(element: Element, body: list[dict]) -> dict:
     group (and a quote can be cut from its own text); UNCLEAR when cues are
     found but never all together; MISSING when none is found."""
     evidence = []
+    own_only = settings.playbook_section_presence_enabled
     for chunk in body:
         text = _own_text(chunk)
         # Cues may sit in the heading too ("4.2 Study team"), but a heading alone
@@ -346,21 +346,20 @@ def _match(element: Element, body: list[dict]) -> dict:
         in_text = [label for label, phrases in element.groups if _hits(phrases, text)]
         quote = next((q for q in (_sentence(text, phrases) for label, phrases in element.groups
                                   if label in in_text) if q), None)
-        evidence.append(
-            {
-                "locator": _where(chunk),
-                "quote": quote,
-                "method": "cue_words",
-                "groups": hit_groups,
-                "in_text": bool(in_text),
-                "own_section": own_section(element, heading),
-            }
-        )
+        entry = {
+            "locator": _where(chunk),
+            "quote": quote,
+            "method": "cue_words",
+            "groups": hit_groups,
+            "in_text": bool(in_text),
+        }
+        if own_only:
+            entry["own_section"] = own_section(element, chunk)
+        evidence.append(entry)
     all_groups = len(element.groups)
     # #1522: with the switch on, a passage is evidence of the element only when it is the
     # element's OWN section (a cue in its heading or section title); a passing mention in
     # the body of another section is "unclear", an engineer row, never present.
-    own_only = settings.playbook_section_presence_enabled
     complete = [e for e in evidence if len(e["groups"]) == all_groups and e["in_text"] and e["quote"]]
     if own_only:
         complete = [e for e in complete if e["own_section"]]
