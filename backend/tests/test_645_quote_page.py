@@ -17,6 +17,7 @@ from app.db import connect
 from tests.test_645_chunk_extraction import TEXT, drafts, item, reply
 from tests.test_645_chunk_extraction import run as run_chunk
 from tests.test_645_table_comparators import MIN_MAX, raw_page, row_item
+from tests.test_645_table_comparators import run as run_one_page
 from tests.test_w5_677_scope_ledger import (  # noqa: F401 - fixture
     _doc,
     review_run,
@@ -162,6 +163,62 @@ def test_a_table_refusal_that_needs_no_page_keeps_its_own_reason(standard):
         {1: OTHER, 2: raw_page(MIN_MAX)},
     )
     assert report["refused"] == {air.OPERATOR_DISAGREED: 1}
+
+
+HEADER = raw_page(MIN_MAX.split("\n", 1)[0])
+SCATTERED = "Design pressure 1 is the case where 10 barg applies"
+
+
+def test_row_words_scattered_in_prose_after_the_header_are_not_the_row(standard):
+    """Review probe: page 1 holds the header, then prose with the row's words
+    spread out; the real row is on page 2 (no header there)."""
+    rows = raw_page(MIN_MAX.split("\n", 2)[2])
+    report = run(reply(row_item()), MIN_MAX, {1: HEADER + "\n" + SCATTERED, 2: rows})
+    assert report["proposed"] == 0 and arc.PAGE_UNCERTAIN in report["refused"]
+    assert drafts() == []
+
+
+def test_one_page_scattered_row_words_are_refused(standard):
+    """Slice 2's single-page path: the row's cells must stand together."""
+    report = run_one_page(
+        reply(row_item()), MIN_MAX, page_text=HEADER + "\n" + SCATTERED
+    )
+    assert report["proposed"] == 0 and report["refused"] == {art.CELLS_NOT_ON_PAGE: 1}
+
+
+def test_one_page_the_real_row_is_found_after_scattered_words(standard):
+    page = HEADER + "\n" + SCATTERED + "\n" + raw_page(MIN_MAX.split("\n", 2)[2])
+    report = run_one_page(reply(row_item()), MIN_MAX, page_text=page)
+    assert report["proposed"] == 2
+    [maximum] = [d for d in drafts() if d["operator"] == "<="]
+    assert maximum["quote"].split("\n")[-4:] == ["Design pressure", "1", "10", "barg"]
+
+
+def test_accept_refuses_a_table_draft_whose_row_is_now_scattered(standard):
+    run_one_page(reply(row_item()), MIN_MAX)
+    [maximum] = [d for d in drafts() if d["operator"] == "<="]
+    with connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = ? WHERE page_no = 1", (HEADER + "\n" + SCATTERED,)
+        )
+    with pytest.raises(air.DraftError, match="not on the page"):
+        accept(maximum["id"])
+
+
+def test_the_same_table_on_two_pages_is_refused(standard):
+    report = run(
+        reply(row_item()), MIN_MAX, {1: raw_page(MIN_MAX), 2: raw_page(MIN_MAX)}
+    )
+    assert report["proposed"] == 0 and report["refused"] == {arc.PAGE_UNCERTAIN: 1}
+
+
+def test_accept_refuses_a_sentence_now_on_two_pages_of_its_chunk(standard):
+    run(reply(item()), OTHER + "\n" + TEXT, {1: OTHER, 2: TEXT})
+    [draft] = drafts()
+    with connect() as conn:
+        conn.execute("UPDATE pages SET text = ? WHERE page_no = 1", (TEXT,))
+    with pytest.raises(air.DraftError, match=art.QUOTE_NOT_ON_PAGE):
+        accept(draft["id"])
 
 
 @pytest.mark.parametrize(

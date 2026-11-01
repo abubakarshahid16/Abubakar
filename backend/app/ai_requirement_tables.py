@@ -238,9 +238,10 @@ def _limits_of_row(item, table, line, cells, model_value, page_text):
         header_operator(h) for h in table["header"]
     )
     pieces = ([table["caption"]] if uses_caption else []) + [
-        c for ln in [*table["header_lines"], line] for c in _cells(ln) if c
+        c for ln in table["header_lines"] for c in _cells(ln) if c
     ]
-    found = locate_cells(pieces, page_text)
+    row_cells = [c for c in _cells(line) if c]
+    found = locate_cells(pieces + row_cells, page_text, run=len(row_cells))
     if found is None:
         return [], [CELLS_NOT_ON_PAGE]
     quote = "\n".join(found)  # the PAGE's own words, in reading order
@@ -269,24 +270,90 @@ def _limits_of_row(item, table, line, cells, model_value, page_text):
     return checks, refusals
 
 
-def locate_cells(cells: list[str], page_text: str | None) -> list[str] | None:
-    """Every cell found in `page_text` (whitespace and case folded, whole
-    words, in READING ORDER). Returns the page's own substrings, which is what
-    the engineer sees on the page, or None when any cell is missing."""
-    page = " ".join((page_text or "").split())
-    lower = page.lower()
-    if not page or not cells or len(lower) != len(page):
-        return None
+def _word_rx(cell: str) -> re.Pattern | None:
+    want = " ".join(cell.split()).lower()
+    return re.compile(r"(?<!\w)" + re.escape(want) + r"(?!\w)") if want else None
+
+
+def _run_at(cells: list[str], page: str, lower: str, pos: int) -> list[str] | None:
+    """`cells` as ONE run starting at `pos`: only whitespace between them."""
     out: list[str] = []
-    pos = 0
     for cell in cells:
-        want = " ".join(cell.split()).lower()
-        m = re.compile(r"(?<!\w)" + re.escape(want) + r"(?!\w)").search(lower, pos)
-        if not want or m is None:
+        rx = _word_rx(cell)
+        start = pos + 1 if lower[pos : pos + 1] == " " and out else pos
+        m = rx.match(lower, start) if rx else None
+        if m is None:
             return None
         out.append(page[m.start() : m.end()])
         pos = m.end()
     return out
+
+
+def locate_cells(
+    cells: list[str], page_text: str | None, run: int = 0
+) -> list[str] | None:
+    """Every cell found in `page_text` (whitespace and case folded, whole
+    words, in READING ORDER); the last `run` cells (the row's own) must be one
+    consecutive run with only whitespace between them, anywhere after the
+    cells before them. Returns the page's own substrings, which is what the
+    engineer sees on the page, or None when any cell is missing."""
+    page = " ".join((page_text or "").split())
+    lower = page.lower()
+    if not page or not cells or len(lower) != len(page):
+        return None
+    head, tail = (cells[:-run], cells[-run:]) if run else (cells, [])
+    out: list[str] = []
+    pos = 0
+    for cell in head:
+        rx = _word_rx(cell)
+        m = rx.search(lower, pos) if rx else None
+        if m is None:
+            return None
+        out.append(page[m.start() : m.end()])
+        pos = m.end()
+    if not tail:
+        return out
+    first = _word_rx(tail[0])
+    for m in first.finditer(lower, pos) if first else ():
+        found = _run_at(tail, page, lower, m.start())
+        if found is not None:
+            return out + found
+    return None
+
+
+def page_texts(conn, standard_document_id: str, chunk) -> dict[int, str]:
+    """{page: its own text} of every page the chunk spans."""
+    return {
+        r["page_no"]: r["text"] or ""
+        for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ?"
+            " AND page_no BETWEEN ? AND ? ORDER BY page_no",
+            (standard_document_id, chunk["page_start"], chunk["page_end"]),
+        )
+    }
+
+
+def quote_page(quote: str, texts: dict[int, str]) -> int | None:
+    """The ONE page whose own text holds the whole quote; None when no page
+    (the quote crosses a page break) or several do."""
+    hits = [no for no, text in texts.items() if quote_on_page(quote, text)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _row_run(conn, row, lines: list[str]) -> int:
+    """How many of the quote's last lines are the cells of one row of the
+    chunk's own tables (0: none is)."""
+    chunk = conn.execute(
+        "SELECT text FROM chunks WHERE id = ?", (row["chunk_id"],)
+    ).fetchone()
+    tail = [air._squash(ln) for ln in lines]
+    best = 0
+    for table in read_tables(chunk["text"] if chunk else ""):
+        for line, _cells_of in table["rows"]:
+            cells = [air._squash(c) for c in _cells(line) if c]
+            if cells and len(cells) <= len(tail) and tail[-len(cells) :] == cells:
+                best = max(best, len(cells))
+    return best
 
 
 def quote_on_page(quote: str, page_text: str | None) -> bool:
@@ -316,11 +383,17 @@ def recheck_on_page(conn, row) -> None:
         (row["standard_document_id"], row["page"]),
     ).fetchone()
     if req["extractor_version"] == QUOTE_PAGE_VERSION:
-        if not quote_on_page(row["quote"], page["text"] if page else None):
+        chunk = conn.execute(
+            "SELECT page_start, page_end FROM chunks WHERE id = ?", (row["chunk_id"],)
+        ).fetchone()
+        texts = page_texts(conn, row["standard_document_id"], chunk) if chunk else {}
+        if quote_page(row["quote"], texts) != row["page"]:
             raise air.DraftError("code refused the draft: " + QUOTE_NOT_ON_PAGE)
         return
     lines = (row["quote"] or "").split("\n")
-    if locate_cells(lines, page["text"] if page else None) != lines:
+    run = _row_run(conn, row, lines)
+    found = locate_cells(lines, page["text"] if page else None, run=run)
+    if not run or found != lines:
         raise air.DraftError("code refused the draft: " + CELLS_NOT_ON_PAGE)
 
 

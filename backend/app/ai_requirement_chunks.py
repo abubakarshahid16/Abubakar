@@ -115,22 +115,8 @@ def verify_item(item: dict, chunk_text: str) -> tuple[dict | None, str | None]:
     return check, None
 
 
-def _page_texts(conn, standard_document_id: str, chunk) -> dict[int, str]:
-    return {
-        r["page_no"]: r["text"] or ""
-        for r in conn.execute(
-            "SELECT page_no, text FROM pages WHERE document_id = ?"
-            " AND page_no BETWEEN ? AND ? ORDER BY page_no",
-            (standard_document_id, chunk["page_start"], chunk["page_end"]),
-        )
-    }
-
-
-def quote_page(quote: str, texts: dict[int, str]) -> int | None:
-    """The ONE page whose own text holds the whole quote; None when no page
-    (the quote crosses a page break) or several do."""
-    hits = [no for no, text in texts.items() if tables.quote_on_page(quote, text)]
-    return hits[0] if len(hits) == 1 else None
+quote_page = tables.quote_page
+_page_texts = tables.page_texts
 
 
 def _table_row(item: dict, chunk, texts: dict[int, str], resolve: bool):
