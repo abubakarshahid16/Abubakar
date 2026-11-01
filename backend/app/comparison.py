@@ -808,10 +808,11 @@ def _compare(requirement: dict, fact: dict | None, *,
     # exactly as B9 already routes a `statement` with no matching field -
     # this is the same claim ("this submittal type cannot answer it") for a
     # requirement that says so explicitly rather than by shape.
-    required_evidence = requirement.get("required_evidence_type")
     # #1476: a procedure's own text answers a "procedure"/"plan" demand (code finds, an engineer decides).
-    if procedure_pages is not None and required_evidence in procedure_text.OWN_TEXT_EVIDENCE:
+    if procedure_pages is not None and requirement.get(
+            "required_evidence_type") in procedure_text.OWN_TEXT_EVIDENCE:
         return procedure_text.verdict(requirement, procedure_pages)
+    required_evidence = requirement.get("required_evidence_type")
     if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:
         return {
             "status": NOT_IN_DOCUMENT_SCOPE,
