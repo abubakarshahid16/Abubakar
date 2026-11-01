@@ -72,3 +72,34 @@ def test_a_header_repeated_on_later_pages_does_not_beat_the_cover():
     pages = _pages(cover, *[attachment] * 6)
     e = document_kind.decide_document_kind(pages, document_role="CONTRACTOR_SUBMITTAL")
     assert (e.kind, e.page) == ("procedure", 1)
+
+
+def test_only_the_cover_and_title_pages_decide_the_kind():
+    # Owner decision 1 Nov (#1476): a heading repeated on later pages only (an
+    # attachment) never decides the kind, even when the cover names nothing.
+    cover = "ACME PIPELINE\nREV-2\n" + _filler("Cover", 4)
+    attachment = "Material Safety Data Sheet\n" + _filler("MSDS", 20)
+    pages = _pages(cover, _filler("Body"), *[attachment] * 6)
+    e = document_kind.decide_document_kind(pages, document_role="CONTRACTOR_SUBMITTAL")
+    assert e.kind == "unknown"  # the engineer is asked; no page-3+ guess
+
+
+def test_a_title_on_the_title_page_still_counts():
+    pages = _pages(
+        "ACME PIPELINE\n" + _filler("Cover", 3),
+        "WELDING PROCEDURE\n" + _filler("T"),
+        _filler("B"),
+    )
+    assert document_kind.decide_document_kind(pages).kind == "procedure"
+
+
+@pytest.mark.parametrize(
+    "page2",
+    [
+        "CONTENTS\n1 Scope\n2 Test Procedure\n3 Records",
+        "1 Scope\n2 Hydrotest Procedure\nNotes",
+    ],
+)
+def test_a_contents_line_on_the_title_page_does_not_name_the_document(page2):
+    pages = _pages("ACME PLANT\n" + _filler("Cover", 3), page2, _filler("B"))
+    assert document_kind.decide_document_kind(pages).kind == "unknown"
