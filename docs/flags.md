@@ -30,6 +30,7 @@ does not make one.
 | `ai_answer_reuse_enabled` | `True` | permanent | | | Reuse of a stored local AI answer to the exact same question (#1221, order 205). Off for the final test before anything goes to a client: every page is read fresh |
 | `ai_clause_checks_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI check proposals for undecided clauses (#645) |
 | `ai_requirement_extraction_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | The local model reads a held standard's chunks and proposes limits (drafts only) for text with no stored sentence; code verifies every field (#645) |
+| `ai_requirement_quote_page_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | #645 slice 3: a requirement quoted from a chunk across pages is cited to the one page whose own text holds it (none or several: refused); accept checks that page again; OFF, such a quote is refused |
 | `rule_auto_use_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Proven rule families used without an engineer |
 | `recommendation_queries_enabled` | `False` | rollout | 2026-10-28 | 2026-11-11 | A recommendation ("should") of a standard the datasheet names is raised as a query for the engineer (order 288.2); OFF, a review ignores recommendations |
 | `match_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI matcher (#794) |
@@ -47,6 +48,8 @@ does not make one.
 | `page_read_by_reading_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | A page counts as read when a text or picture reading came back, apart from fields found; Word reaches the fact reader (#1473) |
 | `kind_chooses_rules_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards; unknown keeps today's path, marked (#1474) |
 | `rules_by_equipment_scope_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | A rule written for another equipment type or document kind than the submittal's is left out of the review and counted in a note; unknown scope stays in (narrowing only) |
+| `rule_equipment_scope_extract_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Extraction stores each rule's equipment type read from its own clause wording or heading chain, with quote, page and method; unknown stays empty (local, no model) |
+| `rule_equipment_scope_model_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Re-extraction script only: a local-model pass (model_transport, local Ollama) for clauses the code left unknown; code verifies the quote |
 | `at_limit_precision_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | A value exactly at a percent or factor limit ("1.1 x MAWP", "10 % above") is at it in every unit, not just under it by float rounding; switch on promptly, it removes a possible wrong Fail (#1475) |
 | `percent_kind_check_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | A value printed under a % label with a fraction-sized number ("0.30 %") is never decided on the percent cards (PSV-27/28/29); it goes to the engineer; switch on promptly, it removes a possible wrong approval (#1512) |
 | `nothing_read_fails_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | A review whose submittal has no fact and no page text or reading ends failed: nothing read (#1495) |

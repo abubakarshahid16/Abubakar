@@ -153,6 +153,7 @@ EGRESS_SAFE: dict[str, object] = {
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,
     "ai_requirement_extraction_enabled": False,
+    "ai_requirement_quote_page_enabled": False,
     # #141: a local model call per division of a standard a review holds.
     "ai_division_scope_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
@@ -236,6 +237,10 @@ EGRESS_SAFE: dict[str, object] = {
     "kind_chooses_rules_enabled": False,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
     "rules_by_equipment_scope_enabled": False,
+    # --- local only, no model or socket: extraction stores each rule's equipment scope (off by default)
+    "rule_equipment_scope_extract_enabled": False,
+    # --- local model only (model_transport), re-extraction script only: scope for clauses the code left unknown (off by default)
+    "rule_equipment_scope_model_enabled": False,
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
     "pump_kit_draft_enabled": False,
     # --- local only, no model or socket: a value at a percent limit is at it in every unit (#1475, off by default)

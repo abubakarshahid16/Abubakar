@@ -84,6 +84,15 @@ class SettingsExt(BaseModel):
     #: kind than the submittal's is left out and counted in a note; unknown scope stays in. Narrowing
     #: only. OFF: nothing changes. Env: RULES_BY_EQUIPMENT_SCOPE_ENABLED.
     rules_by_equipment_scope_enabled: bool = False
+    #: Rule equipment scope on extraction (`rule_equipment_scope.py`): each extracted rule's
+    #: equipment type is read from its own clause wording or heading chain and stored in
+    #: `standard_requirements.equipment_type` with a quote, page and method; unknown stays empty.
+    #: Local only, no model, no socket. OFF: nothing changes. Env: RULE_EQUIPMENT_SCOPE_EXTRACT_ENABLED.
+    rule_equipment_scope_extract_enabled: bool = False
+    #: Optional local-model pass of `scripts/reextract_rule_equipment_scope.py` for clauses the code
+    #: left unknown (local Ollama via `model_transport` only, code verifies the quote). OFF.
+    #: Env: RULE_EQUIPMENT_SCOPE_MODEL_ENABLED.
+    rule_equipment_scope_model_enabled: bool = False
     #: #1478 pump kit PREPARATION: append the DRAFT pump cards of `reference/pump_kit_draft.json`
     #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
     #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.
@@ -172,6 +181,10 @@ class SettingsExt(BaseModel):
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
     ai_requirement_extraction_enabled: bool = False
+    #: #645 slice 3: a quote from a chunk ACROSS pages is cited to the one page whose own text holds
+    #: it whole (none or several: refused, as before); accept checks it there again. No new model call.
+    #: OFF: such a quote is refused (page uncertain). Env: AI_REQUIREMENT_QUOTE_PAGE_ENABLED.
+    ai_requirement_quote_page_enabled: bool = False
     #: Owner decision 1 Nov (part of #1478): ONLY the title block (`classification.title_block_lines`) sets
     #: the equipment type; a section or panel heading in the page body never does (a pump sheet's 'MOTOR
     #: DATA' panel made it a Motor). None or two different types in the title block: the type is NULL,
