@@ -58,7 +58,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
-from . import errors, pdf_guard, stored_paths
+from . import errors, figure_page, pdf_guard, stored_paths
 from .config import settings
 from .db import connect
 from .quality import normalise_text
@@ -196,11 +196,11 @@ def route_page(page, text: str) -> Route:
         images = errors.fell_back("ocr: no image info; not a scan", exc, [])
     image_area = _union_area(images)
     text_area = None
-    if page_area > 0 and image_area / page_area >= settings.ocr_image_coverage_min:
+    if page_area > 0 and image_area / page_area >= figure_page.measure_floor():
         blocks = [_clip(tuple(b[:4]), bounds) for b in page.get_text("blocks")
                   if len(b) > 6 and b[6] == 0 and str(b[4]).strip()]
         text_area = _union_area(blocks)
-    return route_decision(chars, page_area, image_area, text_area)
+    return figure_page.route(chars, page_area, image_area, text_area)
 
 
 # ------------------------------------------------------------------ merge

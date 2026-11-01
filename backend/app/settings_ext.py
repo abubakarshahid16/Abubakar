@@ -121,6 +121,13 @@ class SettingsExt(BaseModel):
     #: footer decides as before. Takes effect when a document is (re)chunked.
     #: Env: DATA_PAGE_NOT_FRONTMATTER_ENABLED.
     data_page_not_frontmatter_enabled: bool = False
+    #: 1 Nov proof of IOGP S-619 (public vessel spec): 25 of 85 pages are a drawing (one picture over
+    #: 47 % of the page) under a 100-150 character running header; the router needs 50 % coverage, so
+    #: they were never recognised and the chunker dropped them. ON: a page where one picture covers a
+    #: quarter and the text layer is furniture only (300 characters or less) goes to recognition.
+    #: OFF: unchanged. Takes effect on a new upload or `scripts/reroute_ocr.py`.
+    #: Env: FIGURE_PAGE_OCR_ENABLED.
+    figure_page_ocr_enabled: bool = False
     #: #1522 a playbook element (`playbooks._match`) is "present" only when the matching passage is
     #: the element's OWN section (a cue in its heading or section title); a passing mention in the
     #: body of another section becomes "unclear" (an engineer row), never "present". OFF: a passage
