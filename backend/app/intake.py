@@ -236,16 +236,9 @@ def _formula_gaps(path: str | os.PathLike) -> dict[int, int]:
     return gaps
 
 
-def read_sheet(path: str | os.PathLike) -> IntakeResult:
-    """One page per visible sheet; its cells are the page's table.
-
-    Nothing is lost without a reason: a hidden sheet, rows or columns past the
-    limit, a cut cell and a formula with no stored result each become a stored
-    reason on the page (or on the file, page 0, for a hidden sheet)."""
-    from . import datasheet_inputs
-
-    reading = datasheet_inputs.read_xlsx(path)
-    notes = list(reading.notes)
+def _sheet_reasons(path, reading) -> list[tuple[int, str, str]]:
+    """Stored reasons for what a workbook read left out (hidden, cut, uncached)."""
+    notes = reading.notes
     hidden = {int(m.group(1)) for n in notes if (m := _HIDDEN.search(n))}
     total = len(reading.pages) + len(hidden)
     # Pages are the visible sheets in workbook order.
@@ -293,6 +286,20 @@ def read_sheet(path: str | os.PathLike) -> IntakeResult:
                 f"{count} formula cell(s) with no stored result - not read",
             )
         )
+    return reasons
+
+
+def read_sheet(path: str | os.PathLike) -> IntakeResult:
+    """One page per visible sheet; its cells are the page's table.
+
+    Nothing is lost without a reason: a hidden sheet, rows or columns past the
+    limit, a cut cell and a formula with no stored result each become a stored
+    reason on the page (or on the file, page 0, for a hidden sheet)."""
+    from . import datasheet_inputs
+
+    reading = datasheet_inputs.read_xlsx(path)
+    notes = list(reading.notes)
+    reasons = _sheet_reasons(path, reading)
     partly = {}
     for page_no, _code, why in reasons:
         if page_no:
