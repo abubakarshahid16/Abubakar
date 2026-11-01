@@ -17,7 +17,6 @@ from tests.test_1477_clause_review import (  # noqa: F401 - fixtures
     Fake,
     _go,
     _world,
-    on,
 )
 from tests.test_1494_progress_detail import _job
 from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
@@ -26,6 +25,11 @@ ANSWERS = {
     "HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None},
     "recommend": {"answer": "no_evidence", "page": None, "quote": None},
 }
+
+
+@pytest.fixture
+def on(monkeypatch):
+    monkeypatch.setattr(settings, "clause_review_enabled", True)
 
 
 @pytest.fixture(autouse=True)
