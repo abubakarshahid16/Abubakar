@@ -49,6 +49,28 @@ def test_probe_separates_a_borderless_table_from_a_ruled_one(gap):
     assert gap.probe_page(ruled)["lines"] == 1
 
 
+def test_a_grid_drawn_as_one_path_is_not_asked_of_the_lines_finder(gap):
+    # the whole grid is one drawn path: fewer than MIN_TABLE_PATHS, yet the lines
+    # finder alone does find it. The probe must follow the extractor and count 0.
+    from app import extract
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    for i, row in enumerate(ROWS):
+        for j, cell in enumerate(row):
+            page.insert_text((60 + j * 150, 100 + i * 22), cell, fontsize=11)
+    shape = page.new_shape()
+    for i in range(len(ROWS) + 1):
+        shape.draw_line((50, 86 + i * 22), (500, 86 + i * 22))
+    for j in range(4):
+        shape.draw_line((50 + j * 150, 86), (50 + j * 150, 86 + len(ROWS) * 22))
+    shape.finish()
+    shape.commit()
+    assert len(page.get_drawings()) < extract.MIN_TABLE_PATHS
+    assert len(page.find_tables(strategy="lines").tables) == 1
+    assert gap.probe_page(page)["lines"] == 0
+
+
 def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.executescript(
