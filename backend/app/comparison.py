@@ -54,6 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
+from . import blank_markers
 from .config import settings
 from .db import connect
 from .provenance import ai_quote_proved
@@ -110,6 +111,8 @@ NAMED_VALUE = "named_value"
 #: condition was established as NOT holding by a datasheet fact (B24 and the
 #: condition reader in `conditions`). Read by `crs_mapping` as a literal.
 CONDITION_NOT_MET = "condition_not_met"
+#: #1475 (D2): the sheet prints "By Contractor" / "TBA" beside the value, so it is deferred.
+DEFERRED_VALUE = "deferred_value"
 
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
@@ -1160,6 +1163,18 @@ def _compare(requirement: dict, fact: dict | None, *,
         }
 
     status = COMPLIANT if verdict else NON_COMPLIANT
+    if settings.deferred_value_is_query_enabled and (deferred := blank_markers.deferred_note(fact)):
+        # #1475, owner decision D2: a value the sheet marks "By Contractor" / "TBA" is deferred. The numbers
+        # are shown, the status is the engineer's, never COMPLIANT and never NON_COMPLIANT.
+        return {
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (
+                f"{DEFERRED_VALUE}: the datasheet marks this value {deferred!r}, so it is deferred and not "
+                f"judged by code. The numbers read {status}; an engineer decides"),
+            "limit": _describe(limit, governing),
+            "observed": _describe(observed, fact),
+            "exception_applied": exception, **_cond,
+        }
     within = "within" if verdict else "outside"
     note = f"; {crossed.note}" if crossed is not None and crossed.note else ""
     if exception is not None:

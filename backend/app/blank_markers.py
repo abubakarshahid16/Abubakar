@@ -89,6 +89,14 @@ def names_a_marker(text: str | None) -> bool:
     return bool(_ANYWHERE.search(text or ""))
 
 
+def deferred_note(fact: dict | None) -> str | None:
+    """The phrase a sheet printed BESIDE a figure ("By Contractor", "TBA") when the fact states that figure
+    and the phrase is its note (#725 F3), else None. Owner decision D2 (#1475): such a value is deferred, so
+    a caller that has the switch on never decides it either way."""
+    note = " ".join(str((fact or {}).get("value_note") or "").split())
+    return note if note and names_a_marker(note) else None
+
+
 def is_marker(text: str | None) -> bool:
     """True when the whole of `text` is a printed "not provided" marker (not
     an empty cell): the geometry reader's question about a cell's residue."""

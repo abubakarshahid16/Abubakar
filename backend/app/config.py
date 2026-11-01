@@ -459,6 +459,12 @@ class Settings(BaseSettings):
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     tested_cards_decide_enabled: bool = False  # order 306.1
+    #: #1475 / owner decision D2: a value the sheet prints beside "By Contractor" / "TBA" / "to be advised"
+    #: (a figure with a note, #725 F3) is a deferred value, never COMPLIANT and never NON_COMPLIANT: it becomes
+    #: a question for the engineer (NEEDS_ENGINEER_REVIEW) in the datasheet checklist and in the standards
+    #: comparison. OFF by default: the owner switches it on after the bench shows 0 wrong verdicts.
+    #: Env: DEFERRED_VALUE_IS_QUERY_ENABLED.
+    deferred_value_is_query_enabled: bool = False
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md

@@ -199,6 +199,8 @@ EGRESS_SAFE: dict[str, object] = {
     "rule_auto_use_enabled": False,
     # --- local only, no model or socket: a recommendation is raised as a query (order 288.2, off by default)
     "recommendation_queries_enabled": False,
+    # --- local only, no model or socket: a value marked By Contractor / TBA is a query, never a verdict (#1475, D2, off by default)
+    "deferred_value_is_query_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
