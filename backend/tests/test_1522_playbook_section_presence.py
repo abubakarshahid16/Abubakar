@@ -179,3 +179,37 @@ def test_a_definitions_entry_is_still_present_with_the_switch_off(monkeypatch):
     monkeypatch.setattr(settings, "playbook_section_presence_enabled", False)
     body = [_chunk("Chairman", "Procedure > 2. Definitions > Chairman", CHAIRMAN)]
     assert playbooks._match(_element(), body)["state"] == "present"
+
+
+def test_a_roles_section_with_a_definitions_like_word_in_its_title_is_kept(monkeypatch):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    for ctx in (
+        "Roles and definitions > Chairman",
+        "Definitions of roles and responsibilities > Chairman",
+        "Study team > Abbreviations used > Chairman",
+        "Glossary of terms procedure > Chairman",
+        "Procedure > Terms of Reference > Chairman",
+    ):
+        body = [_chunk("Chairman", ctx, CHAIRMAN)]
+        assert playbooks._match(_element(), body)["state"] == "present", ctx
+    body = [
+        _chunk(
+            "Team members", "Procedure > Terms of Reference > Team members", CHAIRMAN
+        )
+    ]
+    assert playbooks._match(_element(), body)["state"] == "present"
+
+
+def test_a_plain_definitions_or_contents_parent_makes_its_entries_unclear(monkeypatch):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    for ctx in (
+        "Definitions > Chairman",
+        "3. Definitions > Chairman",
+        "Contents > Chairman",
+    ):
+        body = [_chunk("Chairman", ctx, CHAIRMAN)]
+        assert playbooks._match(_element(), body)["state"] == "unclear", ctx
