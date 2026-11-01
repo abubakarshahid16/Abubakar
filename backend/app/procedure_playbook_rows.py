@@ -13,7 +13,10 @@ What a row may say, and no more:
   * unclear / missing  -> says so (and which cues were not found).
   * could not be checked -> says so, with the reason.
   * standard_not_held  -> the playbook's own wording: the standard is not held, so
-                          the element is never met.
+                          the element is never met. With the presence switches on
+                          (`playbooks._section_without_standard`): "Section not found:
+                          ...; engineer to confirm", or the page and heading where the
+                          section was found, content not checked, engineer to confirm.
   * NEVER compliant. Every row is unconfirmed (`engineer_confirmed` False): it rides
     on the internal copy and is not on the contractor's copy until an engineer
     accepts it. No model is called (no proposer). The playbook's draft notice
@@ -140,7 +143,11 @@ def _comment(playbook: playbooks.Playbook, report: dict, entry: dict) -> str:
 
 
 def _row(playbook, report, entry, submittal_name: str) -> dict:
-    ev = (entry["evidence"] or [{}])[0] if entry["state"] == playbooks.PRESENT else {}
+    shown = (
+        entry["state"] == playbooks.PRESENT
+        or entry.get("section_state") == playbooks.PRESENT
+    )
+    ev = (entry["evidence"] or [{}])[0] if shown else {}
     return {
         "finding_id": "",
         "document_name": submittal_name,

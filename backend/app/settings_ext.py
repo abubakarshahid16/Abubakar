@@ -153,6 +153,18 @@ class SettingsExt(BaseModel):
     #: 'Safety report summary') still counts as present; not fixed here.
     #: Env: PLAYBOOK_SECTION_PRESENCE_ENABLED.
     playbook_section_presence_enabled: bool = False
+    #: Owner decision 1 Nov (#1522): with PLAYBOOK_SECTION_PRESENCE also on, a playbook element whose
+    #: standard is NOT held still gets the section-presence check. Missing: "Section not found: <element>.
+    #: Required by <standard clause> per the approved playbook; standard not held, its text is not quoted;
+    #: engineer to confirm." Found: the page and the section heading, content not checked, engineer to
+    #: confirm. Unclear stays unclear, and so does an element with no section of its own that one passage
+    #: elsewhere states in full (not proven absent: never "Section not found"). A document with no section
+    #: heading read (e.g. a PDF chunked without headings): could not be checked. The state stays
+    #: standard_not_held: never met, never compliant. LIMIT: a removed section whose content is still
+    #: stated in full elsewhere is "unclear", not "not found".
+    #: OFF (or presence off): "<standard> is not in the library" as before.
+    #: Env: PLAYBOOK_PRESENCE_WITHOUT_STANDARD_ENABLED.
+    playbook_presence_without_standard_enabled: bool = False
     #: #1522 (b) a review run of a document whose stored kind is `procedure` looks up the playbooks of
     #: that kind whose title cue is in the procedure's cover lines and adds one CRS row per element as an
     #: ENGINEER row (`procedure_playbook_rows`): never compliant, "found, engineer to confirm" with the page

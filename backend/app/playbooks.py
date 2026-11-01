@@ -18,6 +18,10 @@ Word file through the #668 reader, or a PDF) and reports, per element:
                        NEVER met: the clause could not be checked against its
                        text. Where the topic appears is listed as a pointer for
                        the engineer, not as a verdict.
+                       With PLAYBOOK_SECTION_PRESENCE and
+                       PLAYBOOK_PRESENCE_WITHOUT_STANDARD on, the section-presence
+                       check still runs (`section_state`): "Section not found: ..."
+                       or "section found at page N", always engineer to confirm.
 
 RULES THE LOADER ENFORCES (W5b-10, #547): a check without a clause citation is
 rejected by name; a playbook is a DRAFT until a named engineer and a date are
@@ -276,6 +280,12 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
                  "source": {"standard": element.standard, "clause": element.clause},
                  "standard_held": held, "state": None, "reason": None, "evidence": [],
                  "missing_cues": [], "found_at": []}
+        if not held and _presence_without_standard():
+            entry.update(
+                _section_without_standard(element, found, body, read_in_full, why_not)
+            )
+            results.append(entry)
+            continue
         if not held:
             entry["state"] = STANDARD_NOT_HELD
             entry["reason"] = (f"{element.standard} is not in the library, so this element cannot be checked "
@@ -318,6 +328,97 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             "document": {"id": document_id, "filename": filename, "read_in_full": read_in_full,
                          "passages_read": len(body), "not_read_reason": why_not},
             "elements": results, "counts": counts, "ai": ai}
+
+
+def _presence_without_standard() -> bool:
+    """Owner decision 1 Nov (#1522): presence is checked without the standard only
+    when BOTH switches are on."""
+    return bool(
+        settings.playbook_section_presence_enabled
+        and settings.playbook_presence_without_standard_enabled
+    )
+
+
+def _heading_of(chunk: dict) -> str:
+    """The passage's nearest heading, as written in the document."""
+    chain = [p for p in re.split(r"\s*>\s*", chunk.get("context") or "") if p]
+    return (
+        (chunk.get("section") or "").strip() or (chain[-1] if chain else "")
+    ).strip()
+
+
+def _place(ev: dict, body: list[dict]) -> str:
+    """'page N (heading "...")' of an evidence passage, the heading as written."""
+    chunk = next((c for c in body if _where(c) == ev["locator"]), {})
+    page, heading = chunk.get("page_start"), _heading_of(chunk)
+    named = f' (heading "{heading[:QUOTE_MAX]}")' if heading else ""
+    return (f"page {page}" if page else ev["locator"]) + named
+
+
+NO_HEADINGS = "no section heading was read from this document"
+
+
+def _headings_read(body: list[dict]) -> bool:
+    return any((c.get("section") or c.get("context") or "").strip() for c in body)
+
+
+def _section_without_standard(
+    element: Element,
+    found: dict,
+    body: list[dict],
+    read_in_full: bool,
+    why_not: str | None,
+) -> dict:
+    """The section-presence result of an element whose standard is NOT held. The state
+    stays STANDARD_NOT_HELD (never met, never compliant); `section_state` says:
+      present  a section of its own holds all of it: its page and heading
+      unclear  a section of its own holds part of it, OR no section of its own but one
+               passage elsewhere states all of it (not proven absent: never "not found")
+      missing  no section of its own and no passage stating all of it; passing mentions
+               stay pointers (`found_at`) -> "Section not found"
+      could_not_be_checked  not read in full, or no section heading read at all
+    """
+    std, ev = element.standard, found["evidence"]
+    out = {"state": STANDARD_NOT_HELD, "section_state": found["state"]}
+    out["found_at"] = [e["locator"] for e in ev[:3]]
+    out["missing_cues"] = found["missing_cues"]
+    not_quoted = f"{std} is not held, so its text is not quoted"
+    if found["state"] == PRESENT:
+        out["evidence"] = ev[:1]
+        out["reason"] = (
+            f"section found at {_place(ev[0], body)}; its content is not checked "
+            f"because {std} is not held; engineer to confirm"
+        )
+    elif not read_in_full or not _headings_read(body):
+        why = why_not if not read_in_full else NO_HEADINGS
+        out["section_state"] = COULD_NOT_BE_CHECKED
+        out["reason"] = (
+            f"{std} is not in the library, and the section could not be checked: "
+            f"{why}; this is not a finding that it is met"
+        )
+    elif found["state"] == UNCLEAR and found.get("own_section_found"):
+        lacks = found["own_lacks"]
+        out.update(evidence=ev[:3], missing_cues=lacks)
+        out["reason"] = (
+            "unclear: a section of its own was found, but only part of what this "
+            f"element expects: the section does not mention {', '.join(lacks)}; "
+            f"{not_quoted}; engineer to check"
+        )
+    elif found["state"] == UNCLEAR and found.get("stated_elsewhere"):
+        stated = found["stated_elsewhere"]
+        out["evidence"] = stated[:1]
+        out["reason"] = (
+            "unclear: no section of its own was found, but it is stated at "
+            f"{_place(stated[0], body)}; {not_quoted}; engineer to confirm"
+        )
+    else:
+        out["section_state"] = MISSING
+        out["reason"] = (
+            f"Section not found: {element.title}. Required by {std} {element.clause} "
+            "per the approved playbook; standard not held, its text is not quoted; "
+            "engineer to confirm"
+        )
+    return out
 
 
 _REFERENCE_HEADING = re.compile(
@@ -376,6 +477,7 @@ def _match(element: Element, body: list[dict]) -> dict:
     # element's OWN section (a cue in its heading or section title); a passing mention in
     # the body of another section is "unclear", an engineer row, never present.
     complete = [e for e in evidence if len(e["groups"]) == all_groups and e["in_text"] and e["quote"]]
+    stated = complete  # a passage stating all the element expects, wherever it sits
     if own_only:
         complete = [e for e in complete if e["own_section"]]
     if complete:
@@ -389,8 +491,20 @@ def _match(element: Element, body: list[dict]) -> dict:
                 if own_only and any(e["in_text"] for e in evidence)
                 else ["a statement in the text under the heading"]
             )
-        return {"state": UNCLEAR, "evidence": sorted(evidence, key=lambda e: -len(e["groups"]))[:3],
+        unclear = {"state": UNCLEAR, "evidence": sorted(evidence, key=lambda e: -len(e["groups"]))[:3],
                 "missing_cues": absent}
+        # owner decision 1 Nov: does ANY passage sit in a section of the element's own,
+        # and does one passage anywhere state all the element expects?
+        own = own_only and any(e["own_section"] for e in evidence)
+        unclear["own_section_found"] = own
+        unclear["stated_elsewhere"] = stated[:3]
+        if own:  # what the element's own section lacks (not the other passages)
+            mine = [e for e in evidence if e["own_section"]]
+            best = max(mine, key=lambda e: (len(e["groups"]), e["in_text"]))
+            lacks = [lbl for lbl, _ in element.groups if lbl not in best["groups"]]
+            text_too = "a statement in the text under the heading"
+            unclear["own_lacks"] = lacks or [text_too]
+        return unclear
     return {"state": MISSING, "evidence": [], "missing_cues": [label for label, _ in element.groups]}
 
 
