@@ -32,8 +32,9 @@ def measure_floor() -> float:
     return settings.ocr_image_coverage_min
 
 
-def is_figure_page(chars: int, coverage: float, image_area: float,
-                   text_area: float | None) -> bool:
+def is_figure_page(
+    chars: int, coverage: float, image_area: float, text_area: float | None
+) -> bool:
     """True when (switch on) a figure fills the page and the text is furniture."""
     if not settings.figure_page_ocr_enabled or image_area <= 0:
         return False

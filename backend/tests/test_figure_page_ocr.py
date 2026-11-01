@@ -16,8 +16,10 @@ from app.config import settings
 from app.quality import normalise_text
 
 HEADER = "Specification for Unfired Fusion Welded Pressure Vessels Page 47 of 82 IOGP S-619 April 2022 J.2 Vortex breaker"
-BODY = ("7.6 Weld inspection. Every butt weld shall be examined by radiography "
-        "and the report shall be filed before the vessel is released. ") * 12
+BODY = (
+    "7.6 Weld inspection. Every butt weld shall be examined by radiography "
+    "and the report shall be filed before the vessel is released. "
+) * 12
 
 
 def _picture() -> bytes:
@@ -86,4 +88,6 @@ def test_figure_with_a_lot_of_text_beside_it_is_not_routed(on):
 def test_pure_rule_boundaries(on):
     assert ocr.route_decision(250, 500000.0, 150000.0, 1000.0).code == "figure_page"
     assert ocr.route_decision(301, 500000.0, 150000.0, 1000.0).needs_ocr is False
-    assert ocr.route_decision(250, 500000.0, 100000.0, 1000.0).needs_ocr is False  # 20 %
+    assert (
+        ocr.route_decision(250, 500000.0, 100000.0, 1000.0).needs_ocr is False
+    )  # 20 %

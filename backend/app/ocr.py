@@ -160,9 +160,12 @@ def route_decision(chars: int, page_area: float, image_area: float,
     coverage = min(1.0, image_area / page_area)
     density = chars / (page_area / _SQ_INCH)
     if figure_page.is_figure_page(chars, coverage, image_area, text_area):
-        return Route(True, "figure_page",
-                     f"figure_page: a picture covers {coverage:.0%} of the page, "
-                     f"text layer {chars} characters (header or footer only)")
+        return Route(
+            True,
+            "figure_page",
+            f"figure_page: a picture covers {coverage:.0%} of the page, "
+            f"text layer {chars} characters (header or footer only)",
+        )
     if coverage < s.ocr_image_coverage_min:
         return Route(False, "text_layer",
                      f"text_layer: {chars} characters ({density:.1f}/sq in); "
