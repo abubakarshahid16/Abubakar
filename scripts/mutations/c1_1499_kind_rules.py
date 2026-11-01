@@ -1,4 +1,4 @@
-"""#1474 / PR 1498 the document kind chooses the rule set: each entry breaks one
+"""#1474 / PR 1499 the document kind chooses the rule set: each entry breaks one
 decision line; backend/tests/test_1474_kind_chooses_rules.py must notice."""
 
 from __future__ import annotations
@@ -6,15 +6,15 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _T = "tests/test_1474_kind_chooses_rules.py"
-_TAG = ("c1_1498", "kind_rules")
+_TAG = ("c1_1499", "kind_rules")
 _K = APP / "kind_rules.py"
 _A = APP / "applicability.py"
 
 
 def _m(n, desc, path, anchor, repl, kw):
     return Mutation(
-        id=f"M1498-{n:02d}",
-        phase=1498,
+        id=f"M1499-{n:02d}",
+        phase=1499,
         description=desc,
         path=path,
         anchor=anchor,
