@@ -64,10 +64,16 @@ def test_on_an_unsure_sheet_leaves_out_only_a_rule_about_none_of_its_readings(sc
     out = subject_scope.gate(REQS, classification=CLASSIFICATION, facts=SHEET)
     assert _ids(out["kept"]) == ["general", "hx", "vessel"]
     assert [i["requirement"]["id"] for i in out["not_applied_items"]] == ["psv"]
-    assert out["summary"]["submittal_equipment"] == ["heat exchanger", "pressure vessel"]
+    assert out["summary"]["submittal_equipment"] == [
+        "heat exchanger",
+        "pressure vessel",
+    ]
     # rule 4/7: the note no longer says "no requirement is ruled out"
     said = out["summary"]["equipment_unsure"]
-    assert "no requirement" not in said and "read as heat exchanger / pressure vessel" in said
+    assert (
+        "no requirement" not in said
+        and "read as heat exchanger / pressure vessel" in said
+    )
 
 
 def test_on_a_sheet_not_in_doubt_is_unchanged(scope_on):
@@ -75,7 +81,9 @@ def test_on_a_sheet_not_in_doubt_is_unchanged(scope_on):
     equipment, source, doubt = subject_scope.narrowing_equipment(
         CLASSIFICATION, plain, subject_scope.vocabulary()
     )
-    assert equipment == {"heat exchanger"} and doubt is None and source == "classification"
+    assert (
+        equipment == {"heat exchanger"} and doubt is None and source == "classification"
+    )
 
 
 def test_on_the_run_gate_leaves_out_a_scope_only_standard_of_another_type(scope_on):
@@ -108,7 +116,11 @@ TWINS = [
 
 def _unit_rows(facts):
     rows = dc.evaluate(facts, equipment_type=HEX, page_texts={1: "x"})
-    return [r for r in rows if r.get("rule_id") == "DS-U1" and r.get("role") == "corrosion_allowance"]
+    return [
+        r
+        for r in rows
+        if r.get("rule_id") == "DS-U1" and r.get("role") == "corrosion_allowance"
+    ]
 
 
 def test_off_the_unit_less_twin_still_needs_a_unit():

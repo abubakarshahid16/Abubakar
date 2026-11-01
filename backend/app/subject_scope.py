@@ -140,7 +140,9 @@ def narrowing_equipment(
 
     if not doubt or not settings.rules_by_equipment_scope_enabled:
         return equipment, source, doubt
-    every = set(doubt["named"]) | {t for code in doubt["declared"] for t in code["governs"]}
+    every = set(doubt["named"]) | {
+        t for code in doubt["declared"] for t in code["governs"]
+    }
     reason = doubt["reason"].split(" An engineer should confirm")[0] + (
         " An engineer should confirm the equipment type; until then it is read as "
         f"{' / '.join(sorted(every))}, and only a requirement about none of them is ruled "
