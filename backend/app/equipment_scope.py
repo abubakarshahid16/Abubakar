@@ -71,9 +71,7 @@ def _kinds(value: object) -> set[str]:
     return {str(k).strip().lower() for k in items if str(k).strip()}
 
 
-def _own_types(
-    requirement: dict, label: str, table: dict, vocab
-) -> tuple[set[str], str]:
+def _own_types(label: str, table: dict) -> tuple[set[str], str]:
     """(equipment types the rule is for, where that was read) or (empty, "").
     ONLY a standard written for one equipment family gives a scope. A rule's own
     stored type never drops it: a heat exchanger is built to a pressure-vessel
@@ -96,7 +94,6 @@ def gate(
     kind: str | None,
     standard_labels: dict[str, str],
     table: dict[str, list[str]] | None = None,
-    vocab=None,
 ) -> dict:
     """{"kept", "items", "summary"}. `equipment` is the submittal's equipment
     types as `subject_scope.read_equipment` reads them (empty = unknown or
@@ -104,7 +101,6 @@ def gate(
     reason; the summary counts with their boundary."""
     if not enabled():
         return {"kept": list(requirements), "items": [], "summary": None}
-    vocab = vocab or subject_scope.vocabulary()
     table = scope_only_table() if table is None else table
     kept: list[dict] = []
     items: list[dict] = []
@@ -112,7 +108,7 @@ def gate(
     unknown = unsure = 0
     for r in requirements:
         label = standard_labels.get(r.get("standard_document_id") or "", "")
-        types, where = _own_types(r, label, table, vocab)
+        types, where = _own_types(label, table)
         kinds = _kinds(r.get("document_kind"))
         out_equipment = bool(types and equipment and not (types & equipment))
         out_kind = bool(kinds and kind and kind not in kinds)

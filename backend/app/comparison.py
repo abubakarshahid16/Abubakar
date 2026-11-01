@@ -3994,6 +3994,8 @@ def match_by_model(requirement: dict, facts: list[dict], *,
     # THE BUDGET IS CHECKED AFTER THE CACHE. A question already answered costs
     # nothing, and refusing it once the budget ran out would make the result
     # depend on the order requirements happened to be iterated in.
+    if budget is not None and budget.exhausted():
+        return _none_match(MODEL_BUDGET)
     if budget is not None:
         budget.spend()
     first, reason = _ask_model_once(requirement, candidates)

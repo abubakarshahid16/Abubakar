@@ -86,8 +86,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         8,
         "the left-out count no longer reaches the run summary the engineer reads",
         APP / "absence.py",
-        "    parts.extend(equipment_scope.lines(outcome))\n",
-        "",
+        "    parts.extend(kind_rules.lines(outcome) + equipment_scope.lines(outcome))\n",
+        "    parts.extend(kind_rules.lines(outcome))\n",
         "run_summary_lines",
     ),
 )
