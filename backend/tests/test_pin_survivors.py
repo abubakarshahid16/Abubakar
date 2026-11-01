@@ -68,9 +68,17 @@ def test_verify_quote_refuses_ellipsis_even_if_substring_would_match():
     )
 
 
-def test_verify_quote_refuses_figures():
-    page = "Items 1234 5678 9012 3456 7890 1111 are listed."
-    assert not clause_review.verify_quote("1234 5678 9012 3456 7890 1111", page)
+def test_verify_quote_refuses_unicode_ellipsis_on_page():
+    page = "The HAZOP chair is appointed by the Safety Department… and has not worked."
+    assert not clause_review.verify_quote(
+        "The HAZOP chair is appointed by the Safety Department…", page
+    )
+
+
+def test_verify_quote_refuses_mostly_figures_with_enough_words():
+    # five letter-words pass the word count; only the letter-share rule can refuse this
+    quote = "ab cd ef gh ij 1234567890123456"
+    assert not clause_review.verify_quote(quote, f"Table: {quote} end.")
 
 
 def test_verify_quote_refuses_too_short_and_absent():
