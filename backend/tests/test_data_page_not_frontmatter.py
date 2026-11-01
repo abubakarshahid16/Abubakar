@@ -69,3 +69,27 @@ def test_on_labels_and_values_on_separate_lines_still_make_a_data_page(on):
         rows += [f"Field {i}", f"{10 + i}.5 bar", "", "-"]
     page = "PUMP DATA SHEET\n" + "\n".join(r for r in rows if r) + "\n" + FOOTER
     assert chunker.classify_page(page, 2, 5) != "frontmatter"
+
+
+EDITION_LIST = (
+    "Pump Handbook\n"
+    + FOOTER
+    + "\n"
+    + "\n".join(
+        f"{1980 + i} edition, {i % 9 + 1}rd printing, 12 Jan {1980 + i}"
+        for i in range(35)
+    )
+)
+CONTRIBUTORS = (
+    "List of Contributors\n"
+    + FOOTER
+    + "\n"
+    + "\n".join(
+        f"Dr A. Author {i}, Tel 555 01{i:02d} ext {i}, Rev {i}" for i in range(30)
+    )
+)
+
+
+@pytest.mark.parametrize("page", [EDITION_LIST, CONTRIBUTORS])
+def test_on_an_edition_list_or_contributor_page_stays_front_matter(on, page):
+    assert chunker.classify_page(page, 2, 300) == "frontmatter"

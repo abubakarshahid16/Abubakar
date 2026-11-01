@@ -15,20 +15,30 @@ import re
 from .config import settings
 from .quality import MIN_CLAUSE_WORDS, longest_clause
 
-# A line holding a number with a unit or a percent sign: "Rated flow : 210.0 l/s".
-_MEASURED_LINE = re.compile(
-    r"\d\s*(?:%|°\s*[CF]\b|[A-Za-zµ°]{1,6}(?:/[A-Za-z]{1,4})?\b)"
-)
+# A number and the token after it: "210.0 l/s", "82 %", "35 °C". The token
+# counts only when it is a unit `claims` knows, so "1980 edition", "12 Jan"
+# and "Rev 3" are not measurements (review of #1527).
+_VALUE_TOKEN = re.compile(r"\d\s*(%|°\s*[CF]\b|[A-Za-zµ°][A-Za-z0-9µ°/()]{0,9})")
 _MIN_MEASURED_LINES = 8
 #: Enough measured values for any page: a datasheet's text often puts each label
 #: and its value on separate lines, so the share alone undercounts it.
 _MANY_MEASURED_LINES = 20
 
 
+def _measured(line: str) -> bool:
+    from .claims import is_unit  # claims is heavy; only a marker page asks
+
+    for m in _VALUE_TOKEN.finditer(line):
+        token = m.group(1)
+        if token == "%" or token.startswith("°") or is_unit(token):
+            return True
+    return False
+
+
 def is_data_page(lines: list[str]) -> bool:
     """A page of measured values: 20 lines that hold one, or 8 that are a third
     of the page. A book's copyright page holds a handful at most."""
-    measured = sum(1 for line in lines if _MEASURED_LINE.search(line))
+    measured = sum(1 for line in lines if _measured(line))
     return measured >= _MANY_MEASURED_LINES or (
         measured >= _MIN_MEASURED_LINES and measured * 3 >= len(lines)
     )
