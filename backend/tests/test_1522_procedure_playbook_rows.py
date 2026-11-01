@@ -203,3 +203,16 @@ def test_the_playbook_is_chosen_by_its_title_cue_and_only_the_run_scope_is_read(
         seen[0][1] == frozenset({"p1", "std_iec615111"}) and seen[0][2] is None
     )  # the caller's scope, no model
     assert len(_mine(rows)) == len(playbooks.available()[0]["sil_procedure"].elements)
+
+
+def test_off_the_whole_crs_equals_the_crs_without_the_wiring(monkeypatch):
+    # #1528 review: compare the WHOLE CRS (rows and meta) with what it is when
+    # the playbook step is not wired at all, not only "no playbook rows".
+    run = _run(_doc("p1", HAZOP_SECTIONS))
+    rows_off, meta_off = _crs(run)
+    monkeypatch.setattr(
+        procedure_playbook_rows, "merge", lambda rows, *_a, **_k: (rows, [])
+    )
+    rows_unwired, meta_unwired = _crs(run)
+    assert rows_off == rows_unwired
+    assert meta_off == meta_unwired
