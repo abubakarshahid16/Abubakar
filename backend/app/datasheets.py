@@ -1012,9 +1012,7 @@ def _unit_follows(parts: list[str], index: int) -> bool:
 
 
 def _is_numeric_cell(text: str) -> bool:
-    return bool(
-        numparse.lead_or(_NUMERIC_CELL, numparse.NUMERIC_CELL_LEAD).match(text or "")
-    )
+    return bool(numparse.lead_or(_NUMERIC_CELL, numparse.CELL_LEAD).match(text or ""))
 
 
 def _unit_in_label(label: str) -> tuple[str, str | None]:
