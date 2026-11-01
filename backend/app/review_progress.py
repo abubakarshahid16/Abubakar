@@ -7,16 +7,20 @@ Read-only: no model call, no socket, no new table. Behind
 from __future__ import annotations
 
 import re
+import time
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
-from . import job_queue
+from . import job_progress, job_queue
 from .config import settings
 from .db import connect
 
 #: The label `review_jobs._page` writes: "reading the datasheet, page 7 of 69".
 _PAGE_LABEL = re.compile(r", page (\d+) of (\d+)$")
+
+#: The label `review_jobs._clause` writes: "checking clause 12 of 60".
+_CLAUSE_LABEL = re.compile(r"^checking clause (\d+) of (\d+)$")
 
 #: Job states in which the block is shown.
 ACTIVE_STATES = ("queued", "running", "retrying")
@@ -29,6 +33,9 @@ class ReviewProgressDetail(BaseModel):
 
     pages_done: int | None = None
     pages_total: int | None = None
+    clauses_done: int | None = None
+    clauses_total: int | None = None
+    clauses_elapsed_seconds: int | None = None
     elapsed_seconds: int | None = None
     idle_seconds: int | None = None
     stall_amber_seconds: int = 120
@@ -57,6 +64,16 @@ def detail(row: dict) -> dict:
     on_page = int(match.group(1)) if match else None
     total = int(match.group(2)) if match else None
     done = max(0, min(on_page - 1, total)) if total else None
+    # Same honest rule as pages: the clause review reports a clause when it
+    # STARTS it ("clause 12 of 60"), so 11 are done.
+    cm = _CLAUSE_LABEL.match(row.get("progress_label") or "")
+    c_on = int(cm.group(1)) if cm else None
+    c_total = int(cm.group(2)) if cm else None
+    c_done = max(0, min(c_on - 1, c_total)) if c_total else None
+    started = job_progress.CLAUSE_STARTED.get(row.get("id") or "")
+    c_elapsed = (
+        max(0, int(time.time() - started)) if started and c_done is not None else None
+    )
     ages = [
         seconds_since(row.get("updated_at")),
         seconds_since(row.get("claimed_at")),
@@ -66,6 +83,9 @@ def detail(row: dict) -> dict:
     return {
         "pages_done": done,
         "pages_total": total if done is not None else None,
+        "clauses_done": c_done,
+        "clauses_total": c_total if c_done is not None else None,
+        "clauses_elapsed_seconds": c_elapsed,
         "elapsed_seconds": seconds_since(row.get("started_at")),
         "idle_seconds": min(ages) if ages else None,
         "stall_amber_seconds": int(settings.review_progress_stall_amber_s),
