@@ -210,7 +210,7 @@ def test_no_route_to_claude_under_any_reasoning_provider(
 def test_an_accepted_draft_becomes_a_confirmed_limit(standard):
     run(reply(item()))
     [draft] = drafts()
-    done = arc.decide(
+    done = air.decide_draft(
         draft["id"],
         decision="accept",
         allowed_document_ids=frozenset({"std"}),
@@ -321,7 +321,7 @@ def test_a_held_draft_changes_no_review_until_the_engineer_accepts(
     assert report["proposed"] == 1
     assert ledger() == before  # held: no finding, count or note moves
     [draft] = drafts()
-    done = arc.decide(
+    done = air.decide_draft(
         draft["id"], decision="accept", allowed_document_ids=scope, actor={"id": None}
     )
     after_rows, _ = ledger()
@@ -342,7 +342,7 @@ def test_a_rejected_held_draft_stays_out_of_every_review(request, monkeypatch):
         unload=lambda provider: None,
     )
     [draft] = drafts()
-    arc.decide(
+    air.decide_draft(
         draft["id"], decision="reject", allowed_document_ids=scope, actor={"id": None}
     )
     row = (
@@ -354,3 +354,34 @@ def test_a_rejected_held_draft_stays_out_of_every_review(request, monkeypatch):
         .fetchone()
     )
     assert row["superseded_at"] == arc.HELD
+
+
+def test_a_failure_during_accept_leaves_the_row_held_and_no_decision(
+    standard, monkeypatch
+):
+    from app import standards
+
+    run(reply(item()))
+    [draft] = drafts()
+
+    def boom(**kwargs):
+        raise RuntimeError("crash")
+
+    monkeypatch.setattr(standards, "create_requirement", boom)
+    with pytest.raises(RuntimeError):
+        air.decide_draft(
+            draft["id"],
+            decision="accept",
+            allowed_document_ids=frozenset({"std"}),
+            actor={"id": None},
+        )
+    row = (
+        connect()
+        .execute(
+            "SELECT superseded_at FROM standard_requirements WHERE id = ?",
+            (draft["requirement_id"],),
+        )
+        .fetchone()
+    )
+    assert row["superseded_at"] == arc.HELD
+    assert drafts()[0]["status"] == "draft"

@@ -24,8 +24,8 @@ What passes is stored as a `statement` row for the quote plus a DRAFT in
 `clause_check_drafts`, the table the engineer's accept/reject (#869) already
 reads. The statement row is HELD (`superseded_at` = HELD, a value every reader
 and `auto_use_rules` already exclude) until the engineer accepts, so no review,
-count, CRS note or automatic rule sees it before then; `decide` releases it on
-accept. Nothing here is a verdict. OFF unless
+count, CRS note or automatic rule sees it before then; `ai_requirements.decide_draft` accepts a
+HELD row inside its own one transaction. Nothing here is a verdict. OFF unless
 `settings.ai_requirement_extraction_enabled`. Counts only; never a quote.
 """
 
@@ -43,7 +43,7 @@ COMPARATOR_NOT_STATED = "the quote states no comparator, so it stays unknown"
 PAGE_UNCERTAIN = "the chunk spans pages, so the quote's page is not certain"
 ALREADY_HELD = "an existing requirement already holds these words"
 #: `superseded_at` of a row waiting for the engineer's decision on its draft.
-HELD = "held:ai_requirement_extraction"
+HELD = air.HELD
 _SINGLE = {"<=", "<", ">=", ">", "="}
 _PIECES = re.compile(r"(?<=[.;])\s+|\n+")
 
@@ -194,42 +194,3 @@ def extract_standard(
         finally:
             (unload or ai_task_runner._unload)(provider)
     return report
-
-
-def decide(
-    draft_id: str,
-    *,
-    decision: str,
-    allowed_document_ids: frozenset[str],
-    actor: dict | None = None,
-) -> dict:
-    """`ai_requirements.decide_draft`, plus the release of a HELD row on accept
-    (the draft's sentence row is made live for the moment code verifies and
-    versions it; if code refuses, it is held again). A reject leaves it held."""
-    from .db import connect
-
-    conn = connect()
-    row = air._draft(conn, draft_id, allowed_document_ids)
-    held = row["superseded_at"] == HELD and decision == "accept"
-    if held:
-        with conn:
-            conn.execute(
-                "UPDATE standard_requirements SET superseded_at = NULL WHERE id = ?",
-                (row["requirement_id"],),
-            )
-    try:
-        return air.decide_draft(
-            draft_id,
-            decision=decision,
-            allowed_document_ids=allowed_document_ids,
-            actor=actor,
-        )
-    except Exception:
-        if held:
-            with conn:
-                conn.execute(
-                    "UPDATE standard_requirements SET superseded_at = ? WHERE id = ?"
-                    " AND superseded_at IS NULL",
-                    (HELD, row["requirement_id"]),
-                )
-        raise

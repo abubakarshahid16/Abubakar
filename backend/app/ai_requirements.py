@@ -62,6 +62,9 @@ from .config import settings
 #: sentence never crosses it (#644 decision b).
 MAX_WORDS = 280
 
+#: `superseded_at` of a sentence row held out of reviews until its draft is decided.
+HELD = "held:ai_requirement_extraction"
+
 OPERATORS = ["<=", "<", ">=", ">", "=", "range", "none"]
 
 SCHEMA = {
@@ -969,7 +972,7 @@ def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozense
         return {"id": draft_id, "decision": "reject", "status": REJECTED,
                 "new_requirement_id": None}
 
-    if row["superseded_at"] or row["requirement_type"] != STATEMENT:
+    if row["superseded_at"] not in (None, HELD) or row["requirement_type"] != STATEMENT:
         raise DraftError("the clause sentence has changed since this draft was proposed")
     sentence = row["source_text"] or row["requirement_text"] or ""
     limit = limit_from_draft(row, sentence)

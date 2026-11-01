@@ -467,9 +467,9 @@ def decide_clause_check(
     Accept is verified by code again and VERSIONED: a new confirmed numeric
     limit is written and the sentence row is superseded, not deleted. A draft
     the caller may not read is 404, like every route."""
-    from .. import ai_requirement_chunks, ai_requirements
+    from .. import ai_requirements
     try:
-        return ai_requirement_chunks.decide(
+        return ai_requirements.decide_draft(
             draft_id, decision=body.decision,
             allowed_document_ids=scope.allowed_document_ids, actor=actor)
     except ai_requirements.DraftError as exc:
