@@ -46,6 +46,7 @@ does not make one.
 | `at_limit_precision_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | A value exactly at a percent or factor limit ("1.1 x MAWP", "10 % above") is at it in every unit, not just under it by float rounding; switch on promptly, it removes a possible wrong Fail (#1475) |
 | `nothing_read_fails_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | A review whose submittal has no fact and no page text or reading ends failed: nothing read (#1495) |
 | `pump_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft pump kit cards from held standards (SAES-G-005) join the Centrifugal Pump checklist; draft only, never decide; preparation for #1478, proof waits for 2 real pump documents |
+| `vessel_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft vessel kit cards from held standards (SAES-D-001) join the Pressure Vessel checklist; every row held for the engineer, never decides; preparation for the parked vessel kit (#1480), proof waits for 2 real vessel documents |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |
