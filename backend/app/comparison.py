@@ -52,9 +52,10 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, closing_noun, conditions, datasheets, deferred_value, errors, field_copies, field_links, match_rules, method_notes, numparse,
+from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
+from .deferred_value import reason as _deferred_reason
 from .db import connect
 from .provenance import ai_quote_proved
 
@@ -541,8 +542,7 @@ def equipment_subject(classification: dict | None) -> str | None:
     return value or None
 
 
-#: The reason code on a breach held back because the datasheet VALUE it rests
-#: on is not yet trusted (audit 2026-09-30).
+#: The reason code on a breach held back: the datasheet VALUE is not yet trusted (2026-09-30).
 LOW_TRUST_VALUE = "LOW_TRUST_VALUE"
 #: `submittal_facts.validation_state` values that mean "not yet trusted":
 #: below the confidence threshold (the OCR fallback tier among them) and a
@@ -591,8 +591,8 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
     question, missing information) passes unchanged."""
     if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
         return verdict
-    reason = low_trust_reason(fact) or deferred_value.reason(fact)
-    if reason is None:
+    reason = low_trust_reason(fact)
+    if reason is None and not (reason := _deferred_reason(fact)):
         return verdict
     return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
         f"{LOW_TRUST_VALUE}: {reason}, so no verdict (neither compliant nor a "

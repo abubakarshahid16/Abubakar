@@ -458,7 +458,7 @@ class Settings(BaseSettings):
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     tested_cards_decide_enabled: bool = False  # order 306.1
-    deferred_value_is_query_enabled: bool = False  # #1475 D2: By Contractor/TBA value is a query (off)
+    deferred_value_is_query_enabled: bool = False  # D2, #1475
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md
