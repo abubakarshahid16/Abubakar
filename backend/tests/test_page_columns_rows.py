@@ -159,6 +159,26 @@ def test_left_out_rows_reach_the_crs_note(on, failures):
     assert "value rows under a header line not read" in notes[0]["detail"]
 
 
+def test_a_page_already_not_read_is_not_also_read_in_part():
+    from app import page_not_read
+
+    cov = {
+        "pages_not_read_why": {"1": "no reading came back for this page"},
+        "reading": {
+            "failed_pages": {
+                "1": "a reader failed on this page (column rows: 1 stacked label cells not read)"
+            }
+        },
+    }
+    notes = page_not_read.notes({"page_coverage": cov})
+    assert [n["note"] for n in notes] == [page_not_read.NOTE_PAGE_NOT_READ]
+    cov["reading"]["failed_pages"]["2"] = (
+        "a reader failed on this page (column rows: 1 stacked label cells not read)"
+    )
+    notes = page_not_read.notes({"page_coverage": cov})
+    assert [n["detail"].startswith("page 2") for n in notes[1:]] == [True]
+
+
 def test_no_note_when_the_gap_is_not_a_column_row_loss():
     from app import page_not_read
 

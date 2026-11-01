@@ -46,10 +46,11 @@ def partly_read(outcome: dict | None) -> dict[str, str]:
     cells or rows out of; from the run's reading gaps (`failed_pages`)."""
     cov = (outcome or {}).get("page_coverage") or {}
     failed = (cov.get("reading") or {}).get("failed_pages") or {}
+    unread = {str(p) for p in cov.get("pages_not_read_why") or {}}
     return {
         str(p): w[w.index(_PART_MARK) :].rstrip(") ")
         for p, w in failed.items()
-        if _PART_MARK in str(w)
+        if _PART_MARK in str(w) and str(p) not in unread
     }
 
 
