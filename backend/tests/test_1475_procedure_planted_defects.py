@@ -14,7 +14,7 @@ What the current code can honestly do with a procedure (CLAUDE.md rule 4, top ru
 
 Planted defect types: (a) a required section missing, (b) a step that contradicts the requirement, (c) a number
 that breaks a requirement, (d) a control: satisfied, must not read missing or compliant. Every planted defect
-must surface to the engineer. Two gaps are pinned as strict xfail with their reason (a finding, not weakened).
+must surface to the engineer. The two numeric gaps this set found are closed by #1476 (numeric limits take the procedure path).
 
 Every document and requirement below is INVENTED (rule 13): no real standard or procedure text.
 """
@@ -354,25 +354,13 @@ def test_the_switch_off_state_is_the_old_wrong_path_so_the_set_is_not_vacuous():
         assert verdict["status"] == comparison.NOT_IN_DOCUMENT_SCOPE
 
 
-_NUMERIC_GAP = (
-    "GAP (#1475 finding): a procedure requirement that the extractor classifies as numeric_limit "
-    "(at most / at least N units) has no datasheet fact, so the procedure path does not route it "
-    "(`procedure_text.route` takes only procedure/plan evidence or an unmatched statement) and "
-    "`comparison.compare` returns MISSING_INFORMATION 'no field read from the submittal'. A procedure that "
-    "says 12 hours against an 8 hour limit is not shown to the engineer with its page and quote, and a "
-    "satisfied numeric requirement reads 'missing' too. No code path compares a procedure's numbers with a "
-    "requirement."
-)
-
-
 @pytest.mark.parametrize("clause", ["W4", "W5"])
 def test_numeric_requirements_classify_as_numeric_limit_today(clause):
-    """Pins the premise of the gap, so a changed classifier cannot silently make the xfail meaningless."""
+    """Pins the premise of the gap, so a changed classifier cannot silently make the numeric tests below meaningless."""
     text = next(t for c, t, *_ in NUMERIC if c == clause)
     assert _req(text, clause)["requirement_type"] == "numeric_limit"
 
 
-@pytest.mark.xfail(strict=True, reason=_NUMERIC_GAP)
 @pytest.mark.parametrize("clause", ["W4"])
 def test_a_numeric_limit_the_procedure_breaks_surfaces_to_the_engineer_with_its_quote(
     clause,
@@ -383,9 +371,14 @@ def test_a_numeric_limit_the_procedure_breaks_surfaces_to_the_engineer_with_its_
         verdict = comparison.compare(_req(text, clause), None)
     assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert f"found on page {page}:" in verdict["rationale"]
+    # the code states the two numbers in words and does not judge them
+    assert (
+        "the procedure states 12 hours; the requirement is at most 8 hours"
+        in (verdict["rationale"])
+    )
+    assert "engineer to confirm" in verdict["rationale"]
 
 
-@pytest.mark.xfail(strict=True, reason=_NUMERIC_GAP)
 def test_a_satisfied_numeric_control_is_not_read_as_missing():
     """(d) numeric control (12 hours against a 12 hour limit): must not read MISSING_INFORMATION."""
     _c, text, *_ = next(row for row in NUMERIC if row[0] == "W5")

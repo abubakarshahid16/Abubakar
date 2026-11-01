@@ -135,6 +135,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `own_value_limit` | A reference that states its own value ("the vessel MAWP of 12 barg") is a plain limit of that value |
 | `severity_rule` | One rule for a severity word: a failed requirement is never minor |
 | `datasheet_roles` | Which role a datasheet field name states when it fits several: the one the sheet's equipment type checks (#900) |
+| `datasheet_coverage` | The reader-coverage line of a datasheet review: checklist fields read, and on the sheet but not read |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |

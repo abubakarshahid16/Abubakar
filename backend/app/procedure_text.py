@@ -26,7 +26,7 @@ import contextvars
 import re
 from contextlib import contextmanager
 
-from . import field_links, requirements_3b
+from . import claims, field_links, requirements_3b
 from .config import settings
 from .db import connect
 
@@ -189,11 +189,57 @@ def route(requirement: dict, fact: dict | None) -> dict | None:
         and requirement.get("requirement_type") == requirements_3b.STATEMENT
         and not field_links.asks_only_to_be_stated(text)
     )
-    return verdict(requirement, pages) if own or statement else None
+    # #1476: a numeric limit has no datasheet fact on a procedure; its subject is looked up in the
+    # page text like a statement (it used to fall to MISSING_INFORMATION in comparison.compare: the
+    # CRS asked the contractor for what the procedure states). Nothing is compared into a verdict.
+    numeric = (
+        fact is None
+        and evidence in {None, requirements_3b.DATA_SHEET_EVIDENCE}
+        and requirement.get("requirement_type") == "numeric_limit"
+    )
+    return verdict(requirement, pages) if own or statement or numeric else None
 
 
 def _fold(text: str) -> str:
     return " ".join(text.lower().split())
+
+
+_OPERATOR_WORDS = {
+    "<=": "at most",
+    "<": "less than",
+    ">=": "at least",
+    ">": "more than",
+    "=": "exactly",
+    "==": "exactly",
+}
+
+
+def comparison_words(requirement: dict, quote: str) -> str:
+    """The numbers of a numeric requirement and its quoted sentence, in words, or "".
+
+    Only when the requirement states a value and unit, and EXACTLY ONE measurement of the same
+    quantity (the project's unit code, read only) is in the quoted sentence. Never a verdict:
+    the engineer decides whether the procedure meets the limit."""
+    raw_value, raw_unit = requirement.get("raw_value"), requirement.get("raw_unit")
+    if requirement.get("requirement_type") != "numeric_limit" or not (
+        raw_value and raw_unit
+    ):
+        return ""
+    same = [
+        m
+        for m in claims.extract_measurements(quote)
+        if claims.same_quantity(raw_unit, m.raw_unit)
+    ]
+    if len(same) != 1:
+        return ""
+    bound = _OPERATOR_WORDS.get(requirement.get("operator") or "")
+    if not bound:
+        return ""
+    limit = f"{bound} {raw_value} {raw_unit}"
+    return (
+        f"the procedure states {same[0].raw_value} {same[0].raw_unit}; "
+        f"the requirement is {limit}; "
+    )
 
 
 def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
@@ -226,7 +272,7 @@ def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
         "rationale": (
             f'{FOUND}: found on page {found["page"]}: "{quote}" - this is the closest '
             f"passage by its words, not a finding that the requirement is met; "
-            f"engineer to confirm"
+            f"{comparison_words(requirement, quote)}engineer to confirm"
         ),
     }
 
