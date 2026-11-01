@@ -192,7 +192,9 @@ def test_counts_follow_the_counting_rule(run_id):
     m = _score(run_id, case)
     assert m["untrue"] == 2
     assert m["wrong"] == 1  # a decided row the truth names
-    assert m["checklist_decided"] - base["checklist_decided"] == 2
+    assert (
+        m["checklist_decided"] - base["checklist_decided"] == 1
+    )  # the By Contractor Pass is not credited (D2)
     assert m["checklist_total"] - base["checklist_total"] == 4
     assert (
         m["pass_on_deferred"] - base["pass_on_deferred"] == 1
@@ -347,3 +349,18 @@ def test_stored_is_compared_with_stored_when_no_replay_ran():
     before = [{"case": case, "stored": _m(irrelevant=1), "replay": _m(irrelevant=0)}]
     now = [{"case": case, "stored": _m(irrelevant=1)}]
     assert crs_bench.gate(now, before) == []
+
+
+def test_a_pass_on_a_deferred_value_is_not_credited_as_decided(run_id):
+    base = _score(run_id, {"kind": "datasheet"})
+    _add(
+        run_id,
+        "COMPLIANT",
+        origin="datasheet_check",
+        section="Viscosity",
+        finding="0.01cP By Contractor is stated",
+    )
+    m = _score(run_id, {"kind": "datasheet"})
+    assert m["checklist_decided"] == base["checklist_decided"]
+    assert m["checklist_total"] == base["checklist_total"] + 1
+    assert m["pass_on_deferred"] == base["pass_on_deferred"] + 1

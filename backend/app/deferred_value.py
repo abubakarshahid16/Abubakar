@@ -35,13 +35,39 @@ def note_of(fact: dict | None) -> str | None:
 def reason(fact: dict | None) -> str | None:
     """Why a decided verdict on this value must wait (switch ON), or None. Read by the comparison's existing
     hold (`comparison._hold_low_trust_breach`), which turns COMPLIANT and NON_COMPLIANT into a query that keeps
-    the arithmetic in the words."""
+    the arithmetic in the words. The words lead with their own code, `deferred_value`."""
     if not settings.deferred_value_is_query_enabled:
         return None
     note = note_of(fact)
     if note is None:
         return None
-    return f"{DEFERRED_VALUE}: the datasheet marks this value {note!r}, so it is a deferred value"
+    return f"{DEFERRED_VALUE}: the datasheet marks this value {note!r}, so it is deferred to the contractor"
+
+
+def code_for(reason: str) -> str:
+    """The code that leads a held rationale: none for a deferred value (its words carry their own), else the
+    low-trust code `comparison.LOW_TRUST_VALUE` (a test pins the spelling)."""
+    return "" if reason.startswith(f"{DEFERRED_VALUE}: ") else "LOW_TRUST_VALUE: "
+
+
+#: The roles the sizing calculations (`datasheet_checks.CALCULATIONS`) read as inputs. A calculation resting
+#: on a deferred input is not final either (#1475, D2).
+CALC_INPUT_ROLES = frozenset(
+    {
+        "required_capacity",
+        "set_pressure",
+        "relieving_temperature",
+        "molecular_weight",
+        "compressibility",
+        "specific_heat_ratio",
+        "density_relieving",
+        "viscosity_relieving",
+        "overpressure",
+        "superimposed_back_pressure",
+        "built_up_back_pressure",
+        "valve_type",
+    }
+)
 
 
 def _right_roles(rules: dict) -> dict[str, str]:
@@ -86,6 +112,16 @@ def hold_results(
             right
             and (noted.get((r.get("equipment_tag"), right)) or noted.get((None, right)))
         )
+        if not note and r.get("calc"):
+            note = next(
+                (
+                    n
+                    for (tag, role), n in noted.items()
+                    if role in CALC_INPUT_ROLES
+                    and tag in (r.get("equipment_tag"), None)
+                ),
+                None,
+            )
         if not note:
             out.append(r)
             continue

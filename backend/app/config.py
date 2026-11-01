@@ -748,15 +748,15 @@ class Settings(BaseSettings):
     #: Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
     #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
-    #: is accepted and indexed through the SAME pipeline as a PDF (pages,
-    #: chunks, search, citations, requirements, reviews), read by
-    #: `docx_reader` with its structure kept (heading levels, list numbers,
-    #: tables, headers and footers, tracked changes) and cited by heading path
-    #: and paragraph ("4.2 > para 3") because a Word file has no fixed pages.
-    #: OFF: a .docx is refused unless DATASHEET_OFFICE_INPUT is on. ON by
-    #: default since the tests in test_w5b_525_docx.py pass.
-    #: Env: DOCX_INPUT_ENABLED.
+    #: is accepted and indexed through the SAME pipeline as a PDF, read by
+    #: `docx_reader` with its structure kept and cited by heading path and
+    #: paragraph. OFF: refused unless DATASHEET_OFFICE_INPUT is on. Env: DOCX_INPUT_ENABLED.
     docx_input_enabled: bool = True
+    #: #1473: a page counts as READ when a recorded text or picture reading came
+    #: back for it, apart from "fields found" (`page_ledger.coverage` adds
+    #: `pages_read` / `pages_not_read`), and a Word file reaches the fact reader
+    #: through `word_flow`. OFF: nothing changes. Env: PAGE_READ_BY_READING_ENABLED.
+    page_read_by_reading_enabled: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

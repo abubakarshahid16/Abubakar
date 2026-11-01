@@ -64,4 +64,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="plain_note_that_is_not_a_deferral",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M1490-06",
+        phase=1490,
+        description="a sizing calculation resting on a deferred input keeps its pass or fail",
+        path=_DV,
+        anchor='        if not note and r.get("calc"):\n',
+        replacement="        if False:\n",
+        target=_T,
+        keyword="sizing_calculation_on_a_deferred_input_is_a_query",
+        tags=("honesty", "critical"),
+    ),
 )

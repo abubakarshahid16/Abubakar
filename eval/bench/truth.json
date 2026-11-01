@@ -4,19 +4,19 @@
   "counting_rule": [
     "wrong verdicts: a finding the code decided (COMPLIANT or NON_COMPLIANT) that a truth 'wrong' matcher names. Hard stop above 0.",
     "untrue lines / irrelevant lines: findings a truth matcher names, counted once per finding (one finding = one CRS line).",
-    "checklist decided: datasheet_check findings COMPLIANT or NON_COMPLIANT, of all datasheet_check findings.",
+    "checklist decided: datasheet_check findings COMPLIANT or NON_COMPLIANT, of all datasheet_check findings; a Pass on a deferred value (D2) is not credited as a decision.",
     "standard rules decided: distinct requirement_ids whose finding is COMPLIANT or NON_COMPLIANT, of the rules that apply as the run states them (requirement_split: checked + applies_not_checked, the headline boundary); when a run has no split, of distinct requirement_ids not sent to NOT_IN_DOCUMENT_SCOPE.",
     "verified-quote rate: findings carrying a contractor quote and page whose quote is found, whitespace- and case-folded, in that page's stored text.",
     "pages read: ledger pages not listed in pages_not_read_into_fields, of ledger pages (the code's current meaning of 'read').",
     "kind recognised: the kind the code would route on (today: any equipment type = datasheet) equals the truth kind.",
-    "pass on a contractor-deferred value (D2): COMPLIANT findings whose wording says 'By Contractor' or 'TBA'. Owner decision D2: these are Query. Shown, not yet counted as wrong."
+    "pass on a contractor-deferred value (D2): COMPLIANT findings whose wording says 'By Contractor' or 'TBA'. Owner decision D2: these are Query. Shown on its own row, gated (a rise is red), not credited as decided, not yet counted as wrong verdicts."
   ],
   "cases": [
     {
       "name": "I-06 (PSV datasheet)",
       "run": "a5c45c82-063c-4ad3-9abb-e25f896dc391",
       "kind": "datasheet",
-      "baseline": {"checklist_decided": 28, "wrong": 0, "untrue": 5, "irrelevant": 1},
+      "baseline": {"checklist_decided": 22, "checklist_decided_before_d2_rule": 28, "wrong": 0, "untrue": 5, "irrelevant": 1},
       "untrue": [
         {"origin": "datasheet_check", "section": "Inlet rating", "status": "MISSING_INFORMATION",
          "why": "rating is in the combined size/rating/connection line (planner check 29 Oct 02:55 PKT, row 11; 29 Oct night: 4 rows, one per tag)"},

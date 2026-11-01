@@ -55,6 +55,7 @@ from pathlib import Path
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
+from .deferred_value import code_for as _code_for
 from .deferred_value import reason as _deferred_reason
 from .db import connect
 from .provenance import ai_quote_proved
@@ -595,7 +596,7 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
     if reason is None and not (reason := _deferred_reason(fact)):
         return verdict
     return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
-        f"{LOW_TRUST_VALUE}: {reason}, so no verdict (neither compliant nor a "
+        f"{_code_for(reason)}{reason}, so no verdict (neither compliant nor a "
         f"breach) is stated until an engineer checks the value on the page; "
         f"the arithmetic on the value as read: "
         f"{verdict.get('rationale') or ''}")}

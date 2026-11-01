@@ -604,3 +604,65 @@ def test_compare_d2_on_leaves_an_unmarked_value_decided(d2_on):
         comparison.compare(requirement, _datasheet_fact("80", "C"))["status"]
         == "COMPLIANT"
     )
+
+
+# --------------------------------------------------------- sizing calculations rest on their inputs
+
+
+def _sizing_sheet(orifice, **deferred):
+    from tests.test_746_relief_valve_checklist import fact as psv_fact
+    from tests.test_777_api520_calcs import GAS
+
+    rows = [
+        psv_fact(
+            f["field_name"],
+            f["field_value"].split(" ")[0],
+            f["raw_unit"],
+            note=deferred[f["field_name"]],
+        )
+        if f["field_name"] in deferred
+        else f
+        for f in GAS
+    ]
+    return rows + [psv_fact("orifice area", *orifice)]
+
+
+def _c01(rows):
+    found = dc.evaluate(rows, equipment_type=PSV, page_texts={1: "x"})
+    return next(r for r in found if r["rule_id"] == "PSV-C01")
+
+
+def test_d2_off_a_sizing_calculation_on_a_deferred_input_is_decided_as_before(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "deferred_value_is_query_enabled", False)
+    sheet = _sizing_sheet(("6.38", "in2"), **{"set pressure": "By Contractor"})
+    assert _c01(sheet)["status"] == "COMPLIANT"
+
+
+@pytest.mark.parametrize(
+    "orifice, said", [(("6.38", "in2"), "COMPLIANT"), (("1", "in2"), "NON_COMPLIANT")]
+)
+def test_d2_a_sizing_calculation_on_a_deferred_input_is_a_query_either_way(
+    d2_on, orifice, said
+):
+    assert _c01(_sizing_sheet(orifice))["status"] == said
+    held = _c01(_sizing_sheet(orifice, **{"set pressure": "By Contractor"}))
+    assert held["status"] == "NEEDS_ENGINEER_REVIEW" and said in held["detail"]
+
+
+def test_d2_a_sizing_calculation_with_no_deferred_input_is_unchanged(d2_on):
+    assert _c01(_sizing_sheet(("6.38", "in2")))["status"] == "COMPLIANT"
+
+
+def test_d2_the_held_comparison_rationale_leads_with_its_own_code(d2_on):
+    verdict = comparison.compare(
+        _requirement("<=", "100", "C"), _datasheet_fact("80", "C", note="By Contractor")
+    )
+    assert verdict["rationale"].startswith("deferred_value: ")
+    assert "LOW_TRUST_VALUE" not in verdict["rationale"]
+
+
+def test_code_for_pins_the_low_trust_spelling():
+    low = deferred_value.code_for("the value was read by OCR")
+    assert low == comparison.LOW_TRUST_VALUE + ": "

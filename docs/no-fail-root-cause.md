@@ -61,7 +61,7 @@ I-06 has 6 COMPLIANT checklist rows (set pressure 4, viscosity at relieving temp
 * `blank_markers.fact_is_placeholder(fact, figure_wins=True)` then says it is not a placeholder (`datasheet_checks.py:731`), and the check judges the figure: "is stated" or the arithmetic (`:746-831`), printing the note in its sentence (`:738`).
 * The standards comparison does the same: it compares the figure and only appends the note (`comparison.py:1185`).
 
-Fix, behind `deferred_value_is_query_enabled` (OFF by default, env `DEFERRED_VALUE_IS_QUERY_ENABLED`): a deferred value is NEEDS_ENGINEER_REVIEW in both places, whether the numbers read pass or breach, and also when the deferred value is the right-hand side of a check or one side of a self-check pair. Not covered: sizing calculations (`evaluate_calc`), which do not decide.
+Fix, behind `deferred_value_is_query_enabled` (OFF by default, env `DEFERRED_VALUE_IS_QUERY_ENABLED`): a deferred value is NEEDS_ENGINEER_REVIEW in both places, whether the numbers read pass or breach, and also when the deferred value is the right-hand side of a check or one side of a self-check pair. A sizing calculation (`evaluate_calc`, which can return COMPLIANT or NON_COMPLIANT) rests on its input facts, so a deferred input among the roles it reads (`deferred_value.CALC_INPUT_ROLES`) makes its result a query too.
 
 ## Bench, before and after the switch (counts)
 

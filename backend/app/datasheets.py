@@ -3316,7 +3316,7 @@ def extract_facts(
     office-input extraction method set for its length (DATASHEET_OFFICE_INPUT
     seam; off, or for a PDF, this is exactly the call it wraps)."""
     method = None
-    if settings.datasheet_office_input:
+    if settings.datasheet_office_input or settings.page_read_by_reading_enabled:
         path = stored_paths.of_document(document_id)
         if path and datasheet_inputs.is_office_input(path):
             method = datasheet_inputs.extraction_method(path)

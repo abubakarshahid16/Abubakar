@@ -201,6 +201,8 @@ EGRESS_SAFE: dict[str, object] = {
     "recommendation_queries_enabled": False,
     # --- local only, no model or socket: a value marked By Contractor / TBA is a query, never a verdict (#1475, D2, off by default)
     "deferred_value_is_query_enabled": False,
+    # --- local only, no model or socket: a page is read when a reading came back (#1473, off by default)
+    "page_read_by_reading_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
