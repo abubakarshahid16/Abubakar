@@ -53,3 +53,7 @@ def test_absolute_and_gauge_pressures_never_compare_as_one_unit():
     assert claims._compatible(psia, psig) is None
     assert not claims.same_unit(psia, psig)
     assert claims.unit_dimension("kPag") == claims.unit_dimension("psia") == "pressure"
+    # kPa carries its reference too (M866 removes it from _REFERENCE_SUFFIX).
+    kpag, kpaa = claims.normalise("100", "kPag"), claims.normalise("100", "kPaa")
+    assert (kpag.reference, kpaa.reference) == ("gauge", "absolute")
+    assert claims._compatible(kpag, kpaa) is None
