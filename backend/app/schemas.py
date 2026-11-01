@@ -2753,7 +2753,18 @@ class CompanyStandardConfirmed(BaseModel):
     confirmed: bool
 
 
+class ReviewProgressDetail(BaseModel):
+    """#1494: the progress block of a running review (switch off: absent)."""
+    pages_done: int | None = None
+    pages_total: int | None = None
+    elapsed_seconds: int | None = None
+    idle_seconds: int | None = None
+    stall_amber_seconds: int = 120
+    stale: bool = False
+
+
 class ReviewJobState(BaseModel):
+    progress_detail: ReviewProgressDetail | None = None
     id: str
     state: str
     progress_done: int | None = None

@@ -1252,6 +1252,16 @@ class Settings(ClauseReviewSettings, BaseSettings):
     #: is recorded on the run (a warning), never a failed review.
     #: Env: REVIEW_AI_CHECK_ENABLED (false turns it off).
     review_ai_check_enabled: bool = True
+    #: #1494 (owner, 1 Nov 2026): the running review's progress block - pages
+    #: done of pages total, elapsed time, a labelled time-left estimate and a
+    #: stall light - computed from the existing `jobs` row, read-only. OFF: the
+    #: job carries no `progress_detail` and the screen shows the old step line.
+    #: Env: REVIEW_PROGRESS_BAR_ENABLED.
+    review_progress_bar_enabled: bool = False
+    #: Seconds without any progress or heartbeat before the stall light turns
+    #: amber. Red is job_queue's own stale rule (CLAIM_STALE_SECONDS).
+    #: Env: REVIEW_PROGRESS_STALL_AMBER_S.
+    review_progress_stall_amber_s: int = 120
     #: Seconds one LOCAL-model call of the AI engineering check may take before
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.

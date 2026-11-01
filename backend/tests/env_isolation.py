@@ -207,6 +207,8 @@ EGRESS_SAFE: dict[str, object] = {
     "page_read_by_reading_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
     "clause_review_enabled": False,
+    # --- read-only display of the jobs row, no model or socket (#1494, off by default)
+    "review_progress_bar_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,

@@ -3,7 +3,18 @@
 
 import type { AiCheckStatus, PageCoverage, RequirementSplit, RequirementsNotApplied, ReviewRunCompleteness, RunApplicability, RunCheckStatus, RunClauseCoverageSummary, StandardsChange, StatusCounts, TableValuesNotCompared } from "../types";
 
+/** #1494: the progress block of a running review (switch off: absent). */
+export interface ReviewProgressDetail {
+  pages_done?: number | null;
+  pages_total?: number | null;
+  elapsed_seconds?: number | null;
+  idle_seconds?: number | null;
+  stall_amber_seconds: number;
+  stale: boolean;
+}
+
 export interface ReviewJobState {
+  progress_detail?: ReviewProgressDetail | null;
   id: string;
   state: string;
   progress_done?: number | null;
