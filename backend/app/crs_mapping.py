@@ -44,8 +44,8 @@ from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 from . import paragraph_ids, procedure_text, spec_kit
 
 # isort: split
-from .crs_draft_lanes import CLAUSE_LANE, UNCONFIRMED_COMMENTS, WAITING_COMMENTS
 from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
+from .crs_draft_lanes import CLAUSE_LANE, UNCONFIRMED_COMMENTS, WAITING_COMMENTS
 from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")

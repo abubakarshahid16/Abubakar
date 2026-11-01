@@ -34,7 +34,10 @@ SPEC_UNCONFIRMED_COMMENT = (
 #: The waiting sentence of each draft origin; any origin not named uses the AI's.
 UNCONFIRMED_COMMENTS = defaultdict(
     lambda: AI_UNCONFIRMED_COMMENT,
-    {"web_standard_check": WEB_UNCONFIRMED_COMMENT, "spec_kit": SPEC_UNCONFIRMED_COMMENT},
+    {
+        "web_standard_check": WEB_UNCONFIRMED_COMMENT,
+        "spec_kit": SPEC_UNCONFIRMED_COMMENT,
+    },
 )
 WAITING_COMMENTS = frozenset(
     {AI_UNCONFIRMED_COMMENT, WEB_UNCONFIRMED_COMMENT, SPEC_UNCONFIRMED_COMMENT}
