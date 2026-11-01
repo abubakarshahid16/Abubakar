@@ -26,12 +26,12 @@ export function ReviewProgressBlock({ job }: { job: ReviewRunSummary["job"] }) {
     <div className="space-y-1" data-testid="review-progress-block">
       {s.percent !== null && (
         <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.percent}
-          aria-label={s.pagesLine ?? "pages read"} className="h-2 w-full rounded bg-slateish-500">
+          aria-label={s.pagesLine ?? s.clausesLine ?? "progress"} className="h-2 w-full rounded bg-slateish-500">
           <div className="h-2 rounded bg-accent-500" style={{ width: `${s.percent}%` }} />
         </div>
       )}
       <p className="text-xs text-slateish-300" data-testid="review-progress-detail">
-        {[s.pagesLine, s.percent !== null ? `${s.percent}%` : null, s.elapsed, s.estimate]
+        {[s.pagesLine, s.clausesLine, s.percent !== null ? `${s.percent}%` : null, s.elapsed, s.estimate]
           .filter((x): x is string => x !== null).join(" · ")}
       </p>
       {s.stall && (
