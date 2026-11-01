@@ -531,7 +531,10 @@ def run_unread_pages(
     page number, and the gate must never drop a page it asked for before.
     Sorted, no duplicates. Pure: reads nothing."""
     cov = page_coverage if isinstance(page_coverage, dict) else {}
-    pages = {int(p) for p in cov.get("pages_not_read_into_fields") or []}
+    # #1473: a run stored with the page-read switch on names the pages no
+    # reading came back for (`pages_not_read`); older runs, the fields rule.
+    unread_key = "pages_not_read" if "pages_not_read" in cov else "pages_not_read_into_fields"
+    pages = {int(p) for p in cov.get(unread_key) or []}
     pages |= {int(p) for p in cov.get("pages_ai_not_read") or []}
     if isinstance(reader, dict):
         timed_out = {int(p) for p in reader.get("timed_out") or []}
@@ -632,7 +635,15 @@ def coverage(document_id: str) -> dict:
             else:
                 no_field.append(r["page_no"])
     sources = {r["facts_recorded_by"] for r in ledger if r["facts_recorded_by"]}
+    by_reading: dict = {}
+    if settings.page_read_by_reading_enabled:
+        # #1473: "read" (a reading came back) apart from "fields found".
+        by_reading = {
+            "pages_read": [r["page_no"] for r in ledger if page_has_reading(r)],
+            "pages_not_read": [r["page_no"] for r in ledger if not page_has_reading(r)],
+        }
     return {
+        **by_reading,
         "pages_total": len(ledger),
         "native": count("native_status"),
         "ocr": count("ocr_status"),
@@ -649,6 +660,18 @@ def coverage(document_id: str) -> dict:
         "facts_source": (sources.pop() if len(sources) == 1
                          else "mixed" if sources else None),
     }
+
+
+def page_has_reading(row: dict) -> bool:
+    """#1473: did a text or picture reading come back for this page, whether or
+    not it held a datasheet field? True when the page has a usable text layer
+    (native text, or finished OCR) and the readers ran on it: fields found, or
+    none found. A page the file could not be read for (`unreadable`), that
+    extraction never reached, or that has no usable text stays unread. Says
+    nothing about fields: `pages_not_read_into_fields` is unchanged."""
+    if row["facts_status"] not in ("facts", READ_NO_FIELD, "no_facts"):
+        return False
+    return row["native_status"] == "text" or row["ocr_status"] == "done"
 
 
 def _page_reader_only(document_id: str, fact_pages: list[int]) -> list[int]:

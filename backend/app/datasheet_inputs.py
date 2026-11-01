@@ -573,7 +573,8 @@ def page_texts(path: str | os.PathLike, *, document_id: str | None = None,
 
 @lru_cache(maxsize=8)
 def _cached_office(path: str, mtime_ns: int, size: int) -> tuple[tuple[PageText, ...], tuple[str, ...]]:
-    reading = read(path)
+    from . import word_flow
+    reading = word_flow.reading(path) if word_flow.applies(path) else read(path)
     return tuple(reading.pages), tuple(reading.notes)
 
 
@@ -761,13 +762,12 @@ def _kind_cached(path: str, mtime_ns: int, size: int) -> str | None:
 
 
 def is_office_input(path: str | None) -> bool:
-    """True when DATASHEET_OFFICE_INPUT is on AND `path` is a workbook or Word
-    document. The one question every PyMuPDF reader of a datasheet asks
-    before opening the file: MuPDF opens an .xlsx too, and reads it badly
-    (numbers without their labels), so an office file must never reach it."""
+    """True when DATASHEET_OFFICE_INPUT is on (or, #1473, `word_flow` applies)
+    AND `path` is a workbook or Word file; such a file never reaches MuPDF."""
+    from . import word_flow
     from .config import settings
 
-    if not path or not settings.datasheet_office_input:
+    if not path or not (settings.datasheet_office_input or word_flow.applies(path)):
         return False
     try:
         st = os.stat(path)

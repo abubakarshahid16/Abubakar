@@ -127,7 +127,11 @@ def score(
     else:
         applies = len(in_scope)
     total = coverage.get("pages_total")
-    unread = coverage.get("pages_not_read_into_fields") or []
+    # #1473: with PAGE_READ_BY_READING_ENABLED the ledger names the pages no
+    # reading came back for; without it, the pages no field was read from.
+    unread = (
+        coverage.get("pages_not_read", coverage.get("pages_not_read_into_fields")) or []
+    )
 
     if kind is None:
         kind = system_kind(conn, doc)
