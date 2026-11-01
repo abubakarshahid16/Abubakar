@@ -41,3 +41,25 @@ def is_figure_page(
     if coverage < FIGURE_COVERAGE_MIN or chars > FIGURE_MAX_CHARS:
         return False
     return (text_area or 0.0) / image_area < FIGURE_MAX_TEXT_TO_IMAGE
+
+
+def route(chars: int, page_area: float, image_area: float, text_area: float | None):
+    """`ocr.route_decision`, except a figure page with furniture text goes to recognition."""
+    from .ocr import Route, route_decision  # ocr imports this module
+
+    coverage = min(1.0, image_area / page_area) if page_area > 0 else 0.0
+    below_scan = (
+        coverage < settings.ocr_image_coverage_min
+    )  # above it, the scan rule decides
+    if (
+        below_scan
+        and chars >= settings.ocr_min_usable_chars
+        and is_figure_page(chars, coverage, image_area, text_area)
+    ):
+        return Route(
+            True,
+            "figure_page",
+            f"figure_page: a picture covers {coverage:.0%} of the page, "
+            f"text layer {chars} characters (header or footer only)",
+        )
+    return route_decision(chars, page_area, image_area, text_area)

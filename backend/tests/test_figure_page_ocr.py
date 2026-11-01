@@ -11,7 +11,7 @@ from __future__ import annotations
 import pymupdf
 import pytest
 
-from app import ocr
+from app import figure_page, ocr
 from app.config import settings
 from app.quality import normalise_text
 
@@ -81,13 +81,11 @@ def test_small_logo_is_not_a_figure(on):
 
 def test_figure_with_a_lot_of_text_beside_it_is_not_routed(on):
     """Few characters is not enough: the text blocks must be a sliver of the picture."""
-    s = ocr.route_decision(250, 500000.0, 150000.0, 60000.0)
+    s = figure_page.route(250, 500000.0, 150000.0, 60000.0)
     assert s.needs_ocr is False
 
 
 def test_pure_rule_boundaries(on):
-    assert ocr.route_decision(250, 500000.0, 150000.0, 1000.0).code == "figure_page"
-    assert ocr.route_decision(301, 500000.0, 150000.0, 1000.0).needs_ocr is False
-    assert (
-        ocr.route_decision(250, 500000.0, 100000.0, 1000.0).needs_ocr is False
-    )  # 20 %
+    assert figure_page.route(250, 500000.0, 150000.0, 1000.0).code == "figure_page"
+    assert figure_page.route(301, 500000.0, 150000.0, 1000.0).needs_ocr is False
+    assert figure_page.route(250, 500000.0, 100000.0, 1000.0).needs_ocr is False  # 20 %

@@ -159,13 +159,6 @@ def route_decision(chars: int, page_area: float, image_area: float,
                      f"text_layer: {chars} characters; page has no area")
     coverage = min(1.0, image_area / page_area)
     density = chars / (page_area / _SQ_INCH)
-    if figure_page.is_figure_page(chars, coverage, image_area, text_area):
-        return Route(
-            True,
-            "figure_page",
-            f"figure_page: a picture covers {coverage:.0%} of the page, "
-            f"text layer {chars} characters (header or footer only)",
-        )
     if coverage < s.ocr_image_coverage_min:
         return Route(False, "text_layer",
                      f"text_layer: {chars} characters ({density:.1f}/sq in); "
@@ -207,7 +200,7 @@ def route_page(page, text: str) -> Route:
         blocks = [_clip(tuple(b[:4]), bounds) for b in page.get_text("blocks")
                   if len(b) > 6 and b[6] == 0 and str(b[4]).strip()]
         text_area = _union_area(blocks)
-    return route_decision(chars, page_area, image_area, text_area)
+    return figure_page.route(chars, page_area, image_area, text_area)
 
 
 # ------------------------------------------------------------------ merge
