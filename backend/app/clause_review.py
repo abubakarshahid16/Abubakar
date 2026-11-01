@@ -54,7 +54,7 @@ from pathlib import Path
 from . import scope_quote
 from .config import settings
 from .crs_draft_lanes import CLAUSE_ORIGIN
-from .db import add_column_if_missing, connect
+from .db import connect
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +76,8 @@ NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
 #: The words on the row (rule 4: a guess is shown as a guess).
 TEXT_VERIFIED = "AI suggestion, engineer to confirm"
 TEXT_NO_EVIDENCE = (
-    "The AI found no passage for this requirement; engineer to check the document."
+    f"The AI read the {PASSAGES} most relevant passages of the document and found none "
+    "that addresses this requirement; engineer to check (it may be stated in other words)."
 )
 TEXT_UNVERIFIED = (
     "The AI named a passage on page {page}, but its quote could not be verified in the "
@@ -85,7 +86,6 @@ TEXT_UNVERIFIED = (
 TEXT_UNREADABLE = (
     "The AI's answer for this requirement could not be read; engineer to check."
 )
-ACTION = "Engineer to check the document against this requirement."
 LABEL = "AI clause review - engineer to confirm"
 
 SCHEMA = {
@@ -415,24 +415,32 @@ def _classify(
 # ----------------------------------------------------------------- the rows
 
 
+def _asked(requirement: dict) -> str:
+    """The requirement in a few words, so the row names what was asked."""
+    words = " ".join(str(requirement["requirement_text"]).split())
+    return (
+        'Requirement: "' + (words if len(words) <= 220 else words[:217] + "...") + '". '
+    )
+
+
 def _row_text(
-    outcome: str, page: int | None, quote: str | None
+    outcome: str, page: int | None, quote: str | None, requirement: dict
 ) -> tuple[str, str | None]:
     """(the finding words, the page it may cite). A page is cited only for a
     verified quote: an unverified page is not evidence of anything."""
+    asked = _asked(requirement)
     if outcome == "verified":
         return (
-            f'{TEXT_VERIFIED}: the document may address this requirement on page {page}: "{quote}"',
+            f"{TEXT_VERIFIED}. {asked}The document may address it on page {page}: "
+            f'"{quote}"',
             page,
         )
     if outcome == "no_evidence":
-        return (TEXT_NO_EVIDENCE, None)
+        return (asked + TEXT_NO_EVIDENCE, None)
     if outcome == "unverified":
-        return (
-            TEXT_UNVERIFIED.format(page=page if page is not None else "(not given)"),
-            None,
-        )
-    return (TEXT_UNREADABLE, None)
+        shown = page if page is not None else "(not given)"
+        return (asked + TEXT_UNVERIFIED.format(page=shown), None)
+    return (asked + TEXT_UNREADABLE, None)
 
 
 def _store_row(
@@ -447,7 +455,7 @@ def _store_row(
 ) -> None:
     from . import review as rv
 
-    text, cite_page = _row_text(outcome, page, quote)
+    text, cite_page = _row_text(outcome, page, quote, requirement)
     rationale = f"{LABEL}. Written by {engine}{' (stored answer)' if cached else ''}, prompt {PROMPT_VERSION}."
     conn = connect()
     with conn:
@@ -471,7 +479,7 @@ def _store_row(
                 "confidence": "low",
                 "requirement": requirement["requirement_text"][:4000],
                 "finding": text,
-                "required_action": ACTION,
+                "required_action": "",
                 "status": "open",
                 "approval_status": "pending",
                 "review_run_id": review_run_id,
@@ -504,36 +512,54 @@ _CACHE_TABLE = """CREATE TABLE IF NOT EXISTS clause_review_cache (
 
 
 def ensure_schema(conn=None) -> None:
-    """The stored-answer table and the run's own outcome column, created on first
-    use (like `field_naming`'s table), never by an edit of the shared schema.
-    Key = sha256(the text the model saw, requirement id and words, model, prompt
-    version); `answer` is the model's raw JSON, verified again on every use."""
-    conn = conn or connect()
-    conn.execute(_CACHE_TABLE)
-    add_column_if_missing(conn, "review_runs", "clause_review_status", "TEXT")
+    """The stored-answer table, created on first use (like `field_naming`'s
+    table), never by an edit of the shared schema. Key = sha256(the text the
+    model saw, requirement id and words, model, prompt version); `answer` is the
+    model's raw JSON, verified again on every use."""
+    (conn or connect()).execute(_CACHE_TABLE)
+
+
+#: Where the run's own outcome is kept: under this key of `review_runs.ai_check_status`,
+#: the AI steps' record every screen and the CRS already read (`ai_check_status`).
+STATUS_KEY = "clause_review"
+_PLAIN_MARK = " AI clause review "
+
+
+def _stored_ai_status(conn, review_run_id: str) -> dict:
+    row = conn.execute(
+        "SELECT ai_check_status FROM review_runs WHERE id = ?", (review_run_id,)
+    ).fetchone()
+    try:
+        data = json.loads(row[0]) if row and row[0] else {}
+    except (TypeError, ValueError):
+        data = {}
+    return data if isinstance(data, dict) else {}
 
 
 def _store_status(review_run_id: str, status: dict) -> None:
+    """Keep the outcome under `ai_check_status[STATUS_KEY]` and its plain sentence
+    at the end of that status' `plain` (so every screen that prints it shows it).
+    When the AI engineering check did not run, the record says so (it is true)."""
     conn = connect()
-    ensure_schema(conn)
+    data = _stored_ai_status(conn, review_run_id)
+    if not data:
+        data = {
+            "ran": False,
+            "reason": "the AI engineering check was not run on this review",
+        }
+    base = str(data.get("plain") or "").split(_PLAIN_MARK)[0].strip()
+    data[STATUS_KEY] = status
+    data["plain"] = (base + " " + status["plain"]).strip()
     with conn:
         conn.execute(
-            "UPDATE review_runs SET clause_review_status = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(status), _now(), review_run_id),
+            "UPDATE review_runs SET ai_check_status = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(data), _now(), review_run_id),
         )
 
 
 def status_of(review_run_id: str) -> dict | None:
     """The run's stored clause review outcome (counts and names, never text); None if it never ran."""
-    conn = connect()
-    ensure_schema(conn)
-    row = conn.execute(
-        "SELECT clause_review_status FROM review_runs WHERE id = ?", (review_run_id,)
-    ).fetchone()
-    try:
-        return json.loads(row[0]) if row and row[0] else None
-    except (TypeError, ValueError):
-        return None
+    return _stored_ai_status(connect(), review_run_id).get(STATUS_KEY)
 
 
 def without_rows(findings: list[dict]) -> list[dict]:
@@ -636,12 +662,26 @@ def _finish_status(review_run_id: str, status: dict, elapsed: float) -> dict:
     status["elapsed_seconds"] = round(elapsed, 1)
     status["minutes_per_page"] = round(elapsed / 60 / max(1, status["pages"]), 3)
     status["not_reviewed_count"] = len(status["not_reviewed"])
-    stopped = f" - {status['stopped']}" if status["stopped"] else ""
+    read = sum(
+        status[k] for k in ("verified", "no_evidence", "unverified", "unreadable")
+    )
+    left = len(status["not_reviewed"]) + len(status["failed"])
+    why = f" ({status['stopped']})" if status["stopped"] else ""
+    named = [*status["not_reviewed"], *status["failed"]]
+    listed = (
+        f": {', '.join(named[:10])}{' ...' if len(named) > 10 else ''}" if named else ""
+    )
+    kind = f"document kind '{status['kind']}'" + (
+        ""
+        if status["kind_state"] == "confirmed"
+        else f" ({status['kind_state']}, not confirmed)"
+    )
+    status["not_read_count"] = left
     status["plain"] = (
-        f"AI clause review (suggestions, engineer to confirm): {status['verified']} with a verified quote, "
-        f"{status['no_evidence']} with no passage found, {status['unverified']} with a quote that could not be "
-        f"verified, {status['unreadable']} unreadable; {status['not_reviewed_count']} requirement(s) "
-        f"not reviewed{stopped}."
+        f"AI clause review (suggestions only, engineer to confirm): {read} of {status['requirements']} "
+        f"requirement(s) read - {status['verified']} with a verified quote, {status['no_evidence']} "
+        f"with no passage found, {status['unverified']} with a quote that could not be verified, "
+        f"{status['unreadable']} unreadable; {left} not reviewed{why}{listed}; {kind}."
     )
     _store_status(review_run_id, status)
     return status

@@ -1630,7 +1630,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     else unconfirmed_by
                 ),
                 "ai_review_comment": "" if confirmed else text,
-                "standard_reference": relates
+                "standard_reference": _standard_reference(f)
+                if origin == _CLAUSE_ORIGIN
+                else relates
                 if origin == _AI_ORIGIN and not f.get("engineer_comment")
                 else "",
                 "row_kind": row_kind,

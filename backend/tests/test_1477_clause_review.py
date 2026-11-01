@@ -230,7 +230,7 @@ def test_no_evidence_is_an_engineer_row_never_missing_information(on):
     assert status["no_evidence"] == 1
     assert row["compliance_status"] == "NEEDS_ENGINEER_REVIEW" != "MISSING_INFORMATION"
     assert (
-        row["finding"] == clause_review.TEXT_NO_EVIDENCE
+        row["finding"].endswith(clause_review.TEXT_NO_EVIDENCE)
         and row["contractor_page"] is None
     )
 
@@ -239,7 +239,9 @@ def test_an_unreadable_answer_is_an_engineer_row(on):
     _sub, run, scope = _world()
     status = _go(run, scope, Fake({"HAZOP chair": "this is not json"}))
     [row] = _rows(run)
-    assert status["unreadable"] == 1 and row["finding"] == clause_review.TEXT_UNREADABLE
+    assert status["unreadable"] == 1 and row["finding"].endswith(
+        clause_review.TEXT_UNREADABLE
+    )
 
 
 def test_the_ai_can_never_make_a_row_compliant(on):
@@ -478,7 +480,7 @@ def test_an_engineers_decision_on_a_row_survives_a_rerun(on):
     )
     [after] = _rows(run)
     assert after["id"] == row["id"] and after["engineer_comment"] == "checked on site"
-    assert after["finding"] == clause_review.TEXT_NO_EVIDENCE
+    assert after["finding"].endswith(clause_review.TEXT_NO_EVIDENCE)
 
 
 def test_the_review_job_runs_it_after_the_other_checks_only_when_on(monkeypatch):
@@ -506,3 +508,105 @@ def test_a_failure_of_the_review_never_fails_the_job(on, monkeypatch):
     clause_review.for_review(run, scope)
     assert "RuntimeError" in clause_review.status_of(run)["plain"]
     assert "secret" not in clause_review.status_of(run)["plain"]
+
+
+def test_a_crs_row_names_the_standard_the_clause_and_the_requirement(on):
+    from app import main as main_mod
+
+    _sub, run, scope = _world((REQ_CHAIR, REQ_GUIDE))
+    fake = Fake(
+        {
+            "HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR},
+            "guide words": {"answer": "no_evidence", "page": None, "quote": None},
+        }
+    )
+    _go(run, scope, fake)
+    rows, _m, _n, _s = main_mod._crs_content(
+        run, access.unrestricted_scope(), "internal"
+    )
+    by_clause = {
+        r["standard_reference"]: r for r in rows if r["row_kind"] == "clause_review"
+    }
+    assert set(by_clause) == {"std cl. 5.1", "std cl. 5.2"} or all(
+        "5.1" in k or "5.2" in k for k in by_clause
+    )
+    found = next(r for k, r in by_clause.items() if "5.1" in k)
+    none = next(r for k, r in by_clause.items() if "5.2" in k)
+    assert "std" in found["standard_reference"]
+    assert (
+        REQ_CHAIR in found["ai_review_comment"]
+        and GOOD_CHAIR in found["ai_review_comment"]
+    )
+    assert found["page_section"] == "p.1"
+    text = none["ai_review_comment"]
+    assert REQ_GUIDE in text and "read the 4 most relevant passages" in text
+    assert "may be stated in other words" in text
+    assert text.lower().count("engineer to check") == 1  # said once, not twice
+
+
+def test_the_run_says_what_was_read_and_what_was_not_and_the_kind_state(
+    on, monkeypatch
+):
+    from app.api import run_summary
+    from app import main as main_mod
+
+    monkeypatch.setattr(settings, "clause_review_seconds_per_page", 50.0)
+    _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS, REQ_GUIDE))
+    with db.connect() as conn:
+        conn.execute("UPDATE document_kinds SET state = 'suggested'")
+    clock = Clock()
+    fake = Fake(
+        {
+            k: {"answer": "no_evidence", "page": None, "quote": None}
+            for k in ("HAZOP chair", "tracked to closure", "guide words")
+        },
+        clock,
+        step=60.0,
+    )
+    status = _go(run, scope, fake, clock=clock)
+    plain = status["plain"]
+    assert "2 of 3 requirement(s) read" in plain and "1 not reviewed" in plain
+    assert "time budget" in plain and "5.3" in plain
+    assert "suggested, not confirmed" in plain
+    # the run summary's AI status carries it, top level and nested
+    ai = run_summary.ai_engineering_check_mod.ai_check_status(
+        run, allowed_document_ids=scope
+    )
+    assert ai["plain"].endswith(plain) and ai["clause_review"]["not_reviewed"] == [
+        "5.3"
+    ]
+    # the CRS carries it as a note and the notice says the review is not complete
+    _rows_, meta, _n, _s = main_mod._crs_content(
+        run, access.unrestricted_scope(), "internal"
+    )
+    assert any(
+        plain in n["detail"] for n in meta["review_notes"] if n["note"] == "Not checked"
+    )
+    assert "REVIEW INCOMPLETE" in meta["incomplete_notice"]
+
+
+def test_a_complete_read_of_a_confirmed_kind_is_no_incomplete_part_but_a_guessed_kind_is(
+    on,
+):
+    from app import absence
+
+    _sub, run, scope = _world()
+    _go(
+        run,
+        scope,
+        Fake({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}}),
+    )
+    ai = clause_review._stored_ai_status(db.connect(), run)
+    assert "1 of 1 requirement(s) read" in ai["clause_review"]["plain"]
+    assert (
+        absence.unchecked_parts(run_status="completed", outcome={}, ai_status=ai) == []
+    )
+    with db.connect() as conn:
+        conn.execute("UPDATE document_kinds SET state = 'suggested'")
+    _go(run, scope, Fake({}))
+    ai = clause_review._stored_ai_status(db.connect(), run)
+    parts = absence.unchecked_parts(run_status="completed", outcome={}, ai_status=ai)
+    [part] = [p for p in parts if p["part"] == "clause_review"]
+    assert (
+        part["part"] == "clause_review" and "suggested, not confirmed" in part["line"]
+    )
