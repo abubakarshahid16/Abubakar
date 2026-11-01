@@ -58,9 +58,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the CRS says nothing about the requirements it could not "
                     "check, reading as if none existed (B3)",
         path=APP / "crs_mapping.py",
-        # Re-anchored 2026-09-26 (order 2f): a Review note now.
-        anchor="    if unread:\n",
-        replacement="    if False:\n",
+        # Re-anchored 2026-09-26 (order 2f): a Review note now. Re-anchored
+        # (#1550): the switch-off branch is the `elif`.
+        anchor="    elif unread:\n",
+        replacement="    elif False:\n",
         target="tests/test_b3_crs_unread_pages.py",
         keyword="one_review_note_not_74",
         tags=("honesty",),

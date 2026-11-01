@@ -56,9 +56,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="honesty: the readiness payload drops the page "
                          "ledger's own reason for each unread page",
              # Re-anchored 2026-10-17 (#1017): the payload's page numbers moved to
-             # `page_ledger.readiness_pages`, read only.
+             # `page_ledger.readiness_pages`, read only. Re-anchored (#1550): the
+             # reasons are read into `why` first (the page-read switch's own).
              path=_MAIN.parent / "page_ledger.py",
-             anchor='        "unread_page_reasons": cov.get("not_read_reasons") or {},\n',
+             anchor='        "unread_page_reasons": why or {},\n',
              replacement='        "unread_page_reasons": {},\n',
              target=_T, keyword="unread_page_carries_its_own_reason",
              tags=("honesty", "critical")),
