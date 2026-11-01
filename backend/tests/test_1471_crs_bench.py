@@ -333,3 +333,17 @@ def test_run_bench_itself_refuses_a_live_shaped_path(monkeypatch):
     monkeypatch.setattr(live_guard, "is_live_shaped", lambda _p: True)
     with pytest.raises(PermissionError):
         crs_bench.run_bench(Path("x.sqlite"), {"cases": []})
+
+
+def test_different_settings_are_not_compared_they_are_red():
+    case = {"name": "t", "run": "r"}
+    before = [{"case": case, "config": "aaaa", "stored": _m()}]
+    now = [{"case": case, "config": "bbbb", "stored": _m(checklist_decided=99)}]
+    assert any("settings differ" in r for r in crs_bench.gate(now, before))
+
+
+def test_stored_is_compared_with_stored_when_no_replay_ran():
+    case = {"name": "t", "run": "r"}
+    before = [{"case": case, "stored": _m(irrelevant=1), "replay": _m(irrelevant=0)}]
+    now = [{"case": case, "stored": _m(irrelevant=1)}]
+    assert crs_bench.gate(now, before) == []

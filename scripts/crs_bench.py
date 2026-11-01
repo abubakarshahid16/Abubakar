@@ -30,6 +30,30 @@ LIVE = REPO / "backend" / "data" / "rag_intelligence.sqlite"
 TRUTH = REPO / "eval" / "bench" / "truth.json"
 
 
+def _settings_file(given: str | None) -> Path | None:
+    """The .env to load when this checkout has none (a git worktree)."""
+    if given:
+        return Path(given)
+    if (REPO / "backend" / ".env").exists():
+        return None  # the app reads it itself
+    import subprocess
+
+    common = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(REPO),
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    main_env = Path(common).parent / "backend" / ".env" if common else None
+    return main_env if main_env and main_env.exists() else None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -45,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
         help="score the stored runs only; no replay",
     )
     ap.add_argument("--title", default="CRS bench")
+    ap.add_argument(
+        "--settings-from",
+        help="the backend/.env whose switches the replay uses (default: this"
+        " checkout's, else the main checkout's when run in a git worktree)",
+    )
     args = ap.parse_args(argv)
     db = Path(args.db).resolve()
     if db == LIVE.resolve() or live_guard.is_live_shaped(db):
@@ -56,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     if not db.exists():
         print(f"refused: {db} does not exist")
         return 2
+    env = _settings_file(args.settings_from)
+    if env is not None:
+        crs_bench.use_settings_of(env)
     truth = json.loads(Path(args.truth).read_text())
     baseline = json.loads(Path(args.baseline).read_text()) if args.baseline else None
     results = crs_bench.run_bench(db, truth, do_replay=not args.stored_only)

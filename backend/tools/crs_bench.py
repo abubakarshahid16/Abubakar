@@ -365,6 +365,28 @@ def stored_crs_lines(db_path: Path, run_id: str) -> int | None:
         return None
 
 
+# ----------------------------------------------------------------- settings
+
+
+def use_settings_of(env_file: Path) -> None:
+    """Load the answer-affecting switches from `env_file` into the running
+    settings, in process only (nothing is printed). A git worktree has no
+    backend/.env (git-ignored), so without this a replay there runs on the
+    defaults and is not comparable with one run from the main checkout."""
+    from app.config import Settings, settings
+
+    fresh = Settings(_env_file=env_file)
+    for name in type(settings).model_fields:
+        setattr(settings, name, getattr(fresh, name))
+
+
+def fingerprint() -> str:
+    """`config.config_version()`: the hash of the answer-affecting settings."""
+    from app import config
+
+    return config.config_version()
+
+
 # ----------------------------------------------------------------- the table
 
 
@@ -383,7 +405,11 @@ def run_bench(db_path: Path, truth: dict, *, do_replay: bool = True) -> list[dic
     raw = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         for case in truth["cases"]:
-            entry = {"case": case, "stored": score(raw, case["run"], case)}
+            entry = {
+                "case": case,
+                "config": fingerprint(),
+                "stored": score(raw, case["run"], case),
+            }
             entry["stored"]["crs_lines"] = stored_crs_lines(db_path, case["run"])
             if do_replay:
                 entry["replay"] = replay(db_path, case)
@@ -431,11 +457,17 @@ def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
                 reasons.append(
                     f"{name}: {r[column]['wrong']} wrong verdict(s) ({column})"
                 )
-        now = r.get("replay") or r["stored"]
         b = base.get(r["case"]["run"])
         if not b:
             continue
-        then = b.get("replay") or b["stored"]
+        if b.get("config") and r.get("config") and b["config"] != r["config"]:
+            reasons.append(
+                f"{name}: settings differ from the baseline's"
+                f" ({b['config']} vs {r['config']}); not comparable"
+            )
+            continue
+        column = "replay" if r.get("replay") and b.get("replay") else "stored"
+        now, then = r[column], b[column]
         for key in HIGHER_IS_WORSE:
             if then.get(key) is not None and now.get(key) is None:
                 reasons.append(f"{name}: {key} {then[key]} -> blank")
