@@ -237,6 +237,10 @@ RAW_WRITERS_ALLOWED = {
     "reader_score_standard.py": "writes only its own backup-API copy",
     "mutation_check.py": "the matches are mutation anchor strings, not connections",
     "check_app_starts.py": "writes only the database in its own new temp folder",
+    "reextract_rule_equipment_scope.py": (
+        "refuses a live-shaped path (live_guard.is_live_shaped);"
+        " writes only the copy it is given"
+    ),
 }
 
 
