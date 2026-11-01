@@ -48,11 +48,21 @@ def _has_unit(fact: dict) -> bool:
     return bool(str(fact.get("raw_unit") or "").strip())
 
 
+def _plain(fact: dict) -> bool:
+    """True when nothing around the printed number changes its meaning (same test as `same_value`)."""
+    from .same_value import _around_the_number, _plain_note
+
+    around = _around_the_number(fact)
+    return around is not None and _plain_note(*around)
+
+
 def drop_unit_less_twins(found: list[dict]) -> list[dict]:
     """`found` without the readings that carry no unit where readings with a unit state the same number.
     Unchanged when no such pair exists or the united readings do not all agree on number and unit."""
     united = [f for f in found if _has_unit(f) and _number(f) is not None]
     bare = [f for f in found if not _has_unit(f)]
+    if not all(_plain(f) for f in bare):  # "max 650", "not 650": a bound or negation is another value
+        return found
     if not united or not bare or len(united) + len(bare) != len(found):
         return found
     units = {" ".join(str(f["raw_unit"]).lower().split()) for f in united}

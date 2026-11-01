@@ -111,3 +111,28 @@ def test_a_unit_less_reading_alone_is_kept():
     only = [fact("x", "4")]
     assert drop_unit_less_twins(only) == only
     assert drop_unit_less_twins([]) == []
+
+
+@pytest.mark.parametrize("text", ["max 650", "not 650", "min 650"])
+def test_on_a_bound_or_negation_without_a_unit_stays_a_second_value(on, text):
+    bare = fact("design temperature", "650", page=1)
+    bare["field_value"] = text
+    row = _row([bare, fact("design temperature", "650.", "F", page=5)], "HEX-04")
+    assert row["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "two different values" in row["detail"]
+
+
+def test_on_the_stated_design_temperature_reaches_the_engineer_as_stated_only(on):
+    rows = dc.evaluate(
+        [
+            fact("design temperature", "650", page=1),
+            fact("design temperature", "650.", "F", page=5),
+        ],
+        equipment_type=HEX,
+        page_texts={1: "x"},
+    )
+    row = next(r for r in rows if r.get("rule_id") == "HEX-04")
+    assert row["status"] == "COMPLIANT"
+    assert "650. F (page 5) is stated." in row["detail"]
+    assert "meets" not in row["detail"] and "not " not in row["detail"]
+    assert row["draft"] is True  # a draft checklist: the engineer still signs it off

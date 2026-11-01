@@ -65,6 +65,17 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAG,
     ),
     Mutation(
+        id="M1533-07",
+        phase=1533,
+        description='a unit-less "max 650" / "not 650" is dropped as a twin of "650 F" (a conflict hidden)',
+        path=APP / "label_match.py",
+        anchor="    if not all(_plain(f) for f in bare):",
+        replacement="    if False:",
+        target=_T,
+        keyword="bound_or_negation_without_a_unit",
+        tags=_TAG,
+    ),
+    Mutation(
         id="M1533-06",
         phase=1533,
         description="the unit-less twin merge runs with the switch off (live reviews change)",
