@@ -4,14 +4,7 @@
       "Read(/backend/.env)",
       "Edit(/backend/.env)",
       "Read(**/backend/.env)",
-      "Edit(**/backend/.env)",
-      "Edit(/backend/data/rag_intelligence.sqlite*)",
-      "Edit(**/backend/data/rag_intelligence.sqlite*)",
-      "Bash(rm *rag_intelligence.sqlite*)",
-      "Bash(mv *rag_intelligence.sqlite*)",
-      "Bash(cp * *backend/data/rag_intelligence.sqlite*)",
-      "Bash(sqlite3 *backend/data/rag_intelligence.sqlite)",
-      "Bash(cp *backend/.env *)"
+      "Edit(**/backend/.env)"
     ]
   },
   "hooks": {
@@ -25,11 +18,6 @@
           }
         ]
       }
-    ]
-  },
-  "worktree": {
-    "symlinkDirectories": [
-      "backend/models"
     ]
   }
 }
