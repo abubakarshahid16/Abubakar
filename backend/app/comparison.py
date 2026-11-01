@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import kind_rules, procedure_text
+from . import equipment_scope as eqs, kind_rules, procedure_text
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -2463,14 +2463,11 @@ def _run_comparison(
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
     # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a
-    # relief valve: its relief-device rules only). See `subject_scope.partial_gate`.
-    partial = subject_scope.partial_gate(
-        requirements,
-        equipment=subject_scope.submittal_equipment(stored, facts, subject_scope.vocabulary())[0],
-        standard_labels=standard_labels,
-        partial_standards=applicability_mod.governing_table()["partial_standards"])
-    requirements = partial["kept"]
-    extra_not_applied.extend(partial["items"])
+    # relief valve: its relief-device rules only). See `subject_scope.partial_gate` (in `eqs.gate_for_run`
+    # with the rules-by-equipment-scope gate).
+    requirements, es = eqs.gate_for_run(
+        requirements, stored, facts, submittal_id, standard_labels, extra_not_applied
+    )
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
     # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
     from . import ai_applicability as ai_div
@@ -3013,7 +3010,7 @@ def _run_comparison(
     )
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
-    split = {**split, **kind_rules.split_part(kn, checklist_note)}
+    split = {**split, **kind_rules.split_part(kn, checklist_note), **eqs.split_part(es)}
     if cited_scope["summary"]:  # #139: standards cited only for named clauses
         split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:
