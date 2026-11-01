@@ -213,6 +213,8 @@ EGRESS_SAFE: dict[str, object] = {
     "review_progress_bar_enabled": False,
     # --- local only, no model or socket: a review that read nothing fails (#1495, off by default)
     "nothing_read_fails_enabled": False,
+    # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
+    "pump_kit_draft_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
