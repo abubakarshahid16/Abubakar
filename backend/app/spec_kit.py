@@ -33,13 +33,14 @@ from pathlib import Path
 
 from . import claims, procedure_text
 from .config import settings
-from .crs_draft_lanes import SPEC_LANE as LANE
+from .crs_draft_lanes import SPEC_LANE
 from .db import connect
 
 log = logging.getLogger(__name__)
 
 KIT_DIR = Path(__file__).parent / "reference" / "spec_kit"
 ORIGIN = "spec_kit"
+LANE = SPEC_LANE
 KIND = "specification"
 
 FOUND = "spec_kit_found"

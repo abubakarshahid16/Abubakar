@@ -235,7 +235,7 @@ def finding_comment_key(f: dict) -> str:
         return comment_key(
             origin, f.get("finding"), f.get("required_action"),
             f.get("contractor_page"), f.get("contractor_section"))
-    if origin in (_CLAUSE_ORIGIN, spec_kit.ORIGIN):  # the requirement, never the wording: a re-run keeps the number
+    if origin in (_CLAUSE_ORIGIN, spec_kit.ORIGIN):  # the requirement: a re-run keeps the number
         return comment_key(origin, f.get("standard_document_id"), f.get("requirement_id"))
     key = _group_key(f)
     if key[0] == "field":
@@ -428,8 +428,8 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "check each against the datasheet, or the document "
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
-    notes.extend(crs_no_field.notes(findings))
-    notes.extend(procedure_text.notes(findings, _standard_reference) + spec_kit.notes(findings))
+    notes.extend(crs_no_field.notes(findings) + spec_kit.notes(findings))
+    notes.extend(procedure_text.notes(findings, _standard_reference))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -1084,12 +1084,12 @@ def _bucket_of(f: dict) -> str | None:
     rejected finding's comment key is the key of the row it would land on."""
     origin = f.get("origin")
     status = f.get("compliance_status")
-    if f.get("crs_skip") or spec_kit.is_unfound(f):  # #1479: in ONE note, never a line
+    if f.get("crs_skip"):
         return None
     if origin == "chat":
         return BUCKET_CHAT
     if origin in (_AI_ORIGIN, _CLAUSE_ORIGIN, spec_kit.ORIGIN):
-        return BUCKET_AI
+        return None if spec_kit.is_unfound(f) else BUCKET_AI
     if origin == _WEB_ORIGIN:
         return BUCKET_WEB
     if origin == _DATASHEET_ORIGIN:
