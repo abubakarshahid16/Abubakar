@@ -43,7 +43,7 @@ COMPARATOR_NOT_STATED = "the quote states no comparator, so it stays unknown"
 PAGE_UNCERTAIN = "the chunk spans pages, so the quote's page is not certain"
 ALREADY_HELD = "an existing requirement already holds these words"
 #: `superseded_at` of a row waiting for the engineer's decision on its draft.
-HELD = air.HELD
+HELD = "held:ai_requirement_extraction"  # the same literal as `ai_requirements._draft`
 _SINGLE = {"<=", "<", ">=", ">", "="}
 _PIECES = re.compile(r"(?<=[.;])\s+|\n+")
 
