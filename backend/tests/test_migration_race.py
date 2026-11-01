@@ -147,6 +147,46 @@ def test_an_unrelated_operational_error_still_raises():
         db.add_column_if_missing(conn, "t", "extra", "NOT A REAL TYPE(")
 
 
+class _OtherConnectionAltersFirst:
+    """A connection whose first ALTER loses the race: a SECOND connection to
+    the same file adds the same column after this one read `PRAGMA
+    table_info` and before its own ALTER runs. SQLite then answers this one
+    with `duplicate column name`, the exact error the race produced."""
+
+    def __init__(self, conn, other):
+        self._conn, self._other, self.raced = conn, other, False
+
+    def execute(self, sql, *args):
+        if sql.startswith("ALTER TABLE") and not self.raced:
+            self.raced = True
+            self._other.execute(sql)
+            self._other.commit()
+        return self._conn.execute(sql, *args)
+
+
+def test_two_threads_can_migrate_when_the_other_alter_lands_first(tmp_path):
+    """THE MUTATION TARGET (M196, issue #1555). The thread race above no
+    longer reaches `duplicate column name`: `schema_once` and the migration
+    lock serialise migrators in one process, so that test passes with the
+    guard removed. This drives the duplicate path deterministically with two
+    real connections to one file - the second-process case the lock does
+    not cover - and the loser must accept the column, not raise."""
+    path = tmp_path / "two.sqlite"
+    first = sqlite3.connect(path)
+    second = sqlite3.connect(path)
+    try:
+        first.execute("CREATE TABLE t_dup (id TEXT)")
+        first.commit()
+        loser = _OtherConnectionAltersFirst(first, second)
+
+        assert db.add_column_if_missing(loser, "t_dup", "extra", "TEXT") is False
+        assert loser.raced, "the duplicate path was never reached"
+        assert db.columns_of(first, "t_dup") == {"id", "extra"}
+    finally:
+        first.close()
+        second.close()
+
+
 class _SchemaChangedOnce:
     """A connection whose first ALTER fails as SQLite fails it when another
     connection changed the schema between prepare and step."""
