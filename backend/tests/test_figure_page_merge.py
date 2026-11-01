@@ -14,7 +14,9 @@ import pytest
 
 from app import ocr, pageimage
 
-HEADER = "Specification for Invented Vessels Page 47 of 82 Doc ZZ-100 J.2 Vortex breaker"
+HEADER = (
+    "Specification for Invented Vessels Page 47 of 82 Doc ZZ-100 J.2 Vortex breaker"
+)
 FOOTER = "Issued April 2022 Rev 3"
 NATIVE = [(40.0, 100.0, HEADER), (1500.0, 100.0, FOOTER)]
 
@@ -54,7 +56,10 @@ def test_a_recognised_line_the_text_layer_already_says_is_not_added(monkeypatch)
     text = _run(
         monkeypatch,
         NATIVE,
-        [(40.0, "Specification for Invented Vessels"), (400.0, "Nozzle N1 flange 150 RF")],
+        [
+            (40.0, "Specification for Invented Vessels"),
+            (400.0, "Nozzle N1 flange 150 RF"),
+        ],
     )
     assert text.splitlines().count(HEADER) == 1
     assert "Specification for Invented Vessels" not in text.splitlines()
@@ -63,7 +68,9 @@ def test_a_recognised_line_the_text_layer_already_says_is_not_added(monkeypatch)
 
 def test_a_misread_copy_of_a_native_line_is_not_added(monkeypatch):
     misread = HEADER.replace("Vessels", "Vessels.").replace("Doc", "Dcc")
-    text = _run(monkeypatch, NATIVE, [(42.0, misread), (400.0, "Nozzle N1 flange 150 RF")])
+    text = _run(
+        monkeypatch, NATIVE, [(42.0, misread), (400.0, "Nozzle N1 flange 150 RF")]
+    )
     assert misread not in text.splitlines()
     assert text.splitlines().count(HEADER) == 1
 
@@ -89,5 +96,7 @@ def test_merge_never_drops_a_native_line():
 
 @pytest.mark.parametrize("n", [0, 3])
 def test_added_count_matches_new_lines(n):
-    rec = [(300.0 + 100 * i, 100.0, f"Label number {i} on the drawing") for i in range(n)]
+    rec = [
+        (300.0 + 100 * i, 100.0, f"Label number {i} on the drawing") for i in range(n)
+    ]
     assert ocr.merge_page_text(NATIVE, rec)[1] == n
