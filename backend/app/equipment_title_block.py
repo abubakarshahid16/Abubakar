@@ -25,19 +25,28 @@ METHOD = "engineer_to_confirm"
 _SHEET_WORDS = re.compile(
     r"data[\s\-]*sheet|specification|^\s*(?:document\s+)?title\s*:", re.I
 )
-#: A line that CITES another document ("Ref. specification: Electric Motors", "Applicable
-#: specification: ...", "Refer to ...", "In accordance with ..."): it names that document's
-#: subject, never a second type of this sheet.
-_CITATION = re.compile(
+#: A title line that starts with a reference word, or is a "specification:" label ("Ref.
+#: specification: Electric Motors", "Applicable specification: ..."). It cites another
+#: document, so it names that document's subject, never a second type of this sheet -
+#: unless it names a data sheet (#1552): "APPLICABLE TO: COMPRESSOR DATA SHEET" and
+#: "Ref. API 610 Motor data sheet" are a second type.
+_REFERENCE = re.compile(
     r"^\s*(?:ref(?:erence)?s?\b|refer\b|see\b|(?:as\s+)?per\b|in\s+accordance\b"
     r"|according\s+to\b|applicable\b)|\bspecifications?\s*(?:no\.?|number)?\s*:",
     re.I,
 )
+_DATA_SHEET = re.compile(r"data[\s\-]*sheet", re.I)
+
+
+def _citation(line: str) -> bool:
+    """A reference line that names no data sheet. Only lines `_SHEET_WORDS` matched get
+    here, so what is dropped is a reference line naming a specification."""
+    return bool(_REFERENCE.search(line)) and not _DATA_SHEET.search(line)
 
 
 def _sheet_line(line: str) -> bool:
     """A title line that may name a second type of THIS sheet."""
-    return bool(_SHEET_WORDS.search(line)) and not _CITATION.search(line)
+    return bool(_SHEET_WORDS.search(line)) and not _citation(line)
 
 
 @dataclass
