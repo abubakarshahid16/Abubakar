@@ -87,6 +87,8 @@ def test_whole_mode_never_routes_to_claude(on, whole, monkeypatch):
             made.append(1)
 
     monkeypatch.setattr(rp, "OllamaProvider", Local)
-    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: pytest.fail("may be Claude"))
+    monkeypatch.setattr(
+        rp, "get_provider", lambda *a, **k: pytest.fail("may be Claude")
+    )
     monkeypatch.setattr(rp, "ClaudeProvider", lambda *a, **k: pytest.fail("Claude"))
     assert clause_review.run(run, allowed_document_ids=scope)["ran"] and made
