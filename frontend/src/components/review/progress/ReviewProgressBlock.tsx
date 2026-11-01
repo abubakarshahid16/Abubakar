@@ -26,7 +26,7 @@ export function ReviewProgressBlock({ job }: { job: ReviewRunSummary["job"] }) {
     <div className="space-y-1" data-testid="review-progress-block">
       {s.percent !== null && (
         <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.percent}
-          aria-label={s.pagesLine ?? "pages read"} className="h-2 w-full rounded bg-slateish-700">
+          aria-label={s.pagesLine ?? "pages read"} className="h-2 w-full rounded bg-slateish-500">
           <div className="h-2 rounded bg-accent-500" style={{ width: `${s.percent}%` }} />
         </div>
       )}
