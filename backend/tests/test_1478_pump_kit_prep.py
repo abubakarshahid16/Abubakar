@@ -101,19 +101,26 @@ def test_a_card_a_held_standard_requires_cites_it_with_a_clause_number_and_page(
 def test_a_value_no_held_standard_requires_stays_draft_needs_a_standard():
     needy = [c for c in pump_kit.cards() if c.get("needs")]
     assert needy
-    assert {c["source"]["standard"] for c in needy} == {"API 610"}
+    not_held = [c for c in needy if c["source"]["standard"] == "API 610"]
+    wrong_clause = [c for c in needy if c["source"]["standard"] == "SAES-G-005"]
+    assert len(not_held) == 11 and len(wrong_clause) == 4
     assert "API 610" in pump_kit._data()["standards_not_held"]
-    for card in needy:
+    for card in not_held:
         run = pump_kit.run_kit_card(card)
         assert run["status"] == "draft"
         assert run["why"] == "needs a standard we do not hold"
+    # A-1440: a clause that only uses the value does not require stating it
+    for card in wrong_clause:
+        run = pump_kit.run_kit_card(card)
+        assert run["status"] == "draft"
+        assert "the cited clause does not" in run["why"]
 
 
 def test_the_report_counts_tested_and_draft_needs_standard():
     report = pump_kit.kit_report()
     assert report["cards"] == 19
-    assert report["tested"] == 8
-    assert report["draft_needs_standard"] == 11
+    assert report["tested"] == 4
+    assert report["draft_needs_standard"] == 15
     assert report["draft_other"] == []
     assert report["boxes"] == len(pump_kit.boxes())
 
@@ -347,15 +354,15 @@ def test_switch_on_a_low_npsh_margin_and_a_low_test_pressure_fail_on_a_whole_she
     kit_on,
 ):
     out = _live(_sheet(npsh_available=("4.5", "m"), hydrotest_pressure=("1500", "kPa")))
-    assert out["PMPD-04"]["status"] == "NON_COMPLIANT"
-    assert out["PMPD-08"]["status"] == "NON_COMPLIANT"
+    assert out["PMPD-04"]["rule_said"] == "NON_COMPLIANT"
+    assert out["PMPD-08"]["rule_said"] == "NON_COMPLIANT"
     assert (
         out["PMPD-04"]["draft"] is True and out["PMPD-04"]["standard"] == "SAES-G-005"
     )
     assert out["PMPD-04"]["clause"] == "4.3.2"
     clean = _live(BASE)
-    assert clean["PMPD-04"]["status"] == "COMPLIANT"
-    assert clean["PMPD-08"]["status"] == "COMPLIANT"
+    assert clean["PMPD-04"]["rule_said"] == "COMPLIANT"
+    assert clean["PMPD-08"]["rule_said"] == "COMPLIANT"
 
 
 def test_a_kit_card_never_decides_even_with_tested_cards_deciding(kit_on, monkeypatch):
@@ -370,3 +377,114 @@ def test_the_committed_checklists_and_their_card_report_are_untouched():
     report = rule_cards.report()
     assert report[PUMP]["cards"] == 17
     assert "PMPD-04" not in str(report)
+
+
+# ------------------------------------------- held for the engineer, always
+
+
+@pytest.mark.parametrize("auto_use", [False, True])
+def test_a_kit_result_is_always_held_whatever_rule_auto_use_says(
+    kit_on, monkeypatch, auto_use
+):
+    from app import rule_trust
+
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", auto_use)
+    out = _live(_sheet(npsh_available=("4.5", "m"), hydrotest_pressure=("1723", "kPa")))
+    for rule_id in ("PMPD-04", "PMPD-08"):
+        row = rule_trust.label_check(out[rule_id])
+        assert row["status"] == "NEEDS_ENGINEER_REVIEW", rule_id
+        assert row["rule_said"] == "NON_COMPLIANT"
+        assert row["detail"].startswith("The numbers read:")
+        assert (
+            "not at least" in row["detail"] or "not at least" in out[rule_id]["detail"]
+        )
+    clean = _live(BASE)
+    for rule_id in ("PMPD-04", "PMPD-08"):
+        row = rule_trust.label_check(clean[rule_id])
+        assert (
+            row["status"] == "NEEDS_ENGINEER_REVIEW" and row["rule_said"] == "COMPLIANT"
+        )
+
+
+def test_a_signed_off_pump_checklist_cannot_confirm_a_kit_card(kit_on, monkeypatch):
+    from app import rule_trust
+
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    rules = dc.load_rules()
+    rules["checklists"][PUMP]["sign_off"] = {"status": "signed"}
+    facts = [_fact(n, v, u) for n, v, u in _sheet(npsh_available=("4.5", "m"))]
+    res = {
+        r["rule_id"]: r
+        for r in dc.evaluate(facts, equipment_type=PUMP, page_texts=PAGES, rules=rules)
+    }
+    assert res["PMPD-04"]["draft"] is True and res["PMPD-04"]["local"] is True
+    assert rule_trust.check_label(res["PMPD-04"]) != rule_trust.ENGINEER_CONFIRMED
+    assert rule_trust.label_check(res["PMPD-04"])["status"] == "NEEDS_ENGINEER_REVIEW"
+    # a committed item of the same signed checklist is confirmed as before
+    assert rule_trust.check_label(res["PMP-01"]) == rule_trust.ENGINEER_CONFIRMED
+
+
+def test_a_kit_row_says_it_is_a_draft_with_unverified_clauses(kit_on):
+    out = _live(_sheet(npsh_available=("4.5", "m")))
+    assert pump_kit.KIT_WORDS in out["PMPD-04"]["text"]
+    assert "not yet verified" in out["PMPD-04"]["text"]
+    assert dc.DRAFT_MARK in out["PMPD-04"]["text"]
+    assert pump_kit._data()["clauses_verified"] is False
+
+
+def test_the_npsh_text_states_the_margin_and_the_cards_state_what_they_do_not_check():
+    # MUST 2: the right-hand side is never printed without its margin
+    one = {
+        **dc.load_rules(),
+        "checklists": {
+            PUMP: {"items": [_by_id()["PMPD-04"]], "sign_off": {"status": "draft"}}
+        },
+    }
+    facts = [_fact(n, v, u) for n, v, u in _sheet(npsh_available=("4.5", "m"))]
+    res = {
+        r["rule_id"]: r
+        for r in dc.evaluate(facts, equipment_type=PUMP, page_texts=PAGES, rules=one)
+    }
+    assert "plus the greater of 0% or 1 m" in res["PMPD-04"]["detail"]
+    assert "not at least" in res["PMPD-04"]["detail"]
+    assert "firewater" in _by_id()["PMPD-04"]["text"]
+    assert "1.5 times shutoff" in _by_id()["PMPD-08"]["text"]
+
+
+def test_a_relief_valve_margin_text_also_states_its_margin():
+    sheet = [
+        ("set pressure", "10", "barg"),
+        ("operating pressure", "9.5", "barg"),
+    ]
+    facts = [_fact(n, v, u) for n, v, u in sheet]
+    res = {
+        r["rule_id"]: r
+        for r in dc.evaluate(
+            facts, equipment_type="Pressure Safety Valve", page_texts=PAGES
+        )
+    }
+    assert "plus the greater of 10% or 100 kPa" in res["PSV-S03"]["detail"]
+
+
+def test_a_percent_rule_text_is_unchanged():
+    sheet = [("built up back pressure", "8", "%"), ("set pressure", "10", "barg")]
+    facts = [
+        _fact(n, v, u) for n, v, u in sheet + [("valve type", "conventional", None)]
+    ]
+    res = {
+        r["rule_id"]: r
+        for r in dc.evaluate(
+            facts, equipment_type="Pressure Safety Valve", page_texts=PAGES
+        )
+    }
+    assert "10% of" in res["PSV-29"]["detail"]
+
+
+def test_the_standards_own_unit_for_the_test_pressure_is_not_a_fail():
+    for value, unit, ok in (
+        ("250", "psi", True),
+        ("1724", "kPa", True),
+        ("1723", "kPa", False),
+    ):
+        got = _kit_status(_by_id()["PMPD-08"], _sheet(hydrotest_pressure=(value, unit)))
+        assert got == ("COMPLIANT" if ok else "NON_COMPLIANT"), (value, unit)

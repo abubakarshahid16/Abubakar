@@ -58,7 +58,7 @@ def loader_items(key: str, existing: list[dict]) -> list[dict]:
             continue
         if any(_same_rule(card["rule"], e["rule"]) for e in [*existing, *out]):
             continue
-        out.append({**card, "kit": "pump"})
+        out.append({**card, "kit": "pump", "local": True})
     return out
 
 
@@ -125,3 +125,47 @@ def rule_cards_needs() -> str:
     from . import rule_cards
 
     return rule_cards.NEEDS
+
+
+KIT_WORDS = (
+    "DRAFT pump kit card: the clause number is as stored in the library and "
+    "not yet verified by an engineer"
+)
+
+
+def held(result: dict, item: dict) -> dict:
+    """A kit card's result is ALWAYS held for the engineer, whatever `rule_auto_use_enabled` says: status
+    NEEDS_ENGINEER_REVIEW, the computed status kept as `rule_said` and the numbers kept in the text. It is
+    forced draft and local, so a later sign-off of the pump checklist cannot make it ENGINEER_CONFIRMED."""
+    if not item.get("kit"):
+        return result
+    out = {**result, "draft": True, "local": True, "kit": "pump"}
+    out["text"] = f"{result['text']} [{KIT_WORDS}]"
+    if result["status"] in ("COMPLIANT", "NON_COMPLIANT"):
+        out["status"] = "NEEDS_ENGINEER_REVIEW"
+        out["rule_said"] = result["status"]
+        out["detail"] = (
+            f"The numbers read: {result['detail']} (held for the engineer: draft kit card)"
+        )
+    return out
+
+
+def rows(checklist, roles, common, tag, rules, page_texts) -> list[dict]:
+    """The checklist's results for one tag, kit cards held (see `held`)."""
+    from .datasheet_checks import evaluate_item
+
+    return [
+        held(
+            evaluate_item(
+                item,
+                roles,
+                common,
+                tag,
+                rules,
+                draft=checklist["draft"],
+                page_texts=page_texts,
+            ),
+            item,
+        )
+        for item in checklist["items"]
+    ]

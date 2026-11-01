@@ -366,9 +366,9 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
         for tag, roles in by_tag.items():
             if tag is None and tagged:
                 continue    # the common section counts for every tag (above)
-            for item in checklist["items"]:
-                out.append(evaluate_item(item, roles, common if tag is not None else {},
-                                         tag, rules, draft=checklist["draft"], page_texts=page_texts))
+            out += pump_kit.rows(
+                checklist, roles, common if tag is not None else {}, tag, rules, page_texts
+            )
     if page_texts and equipment_type:
         out.append(_result("DS-R1", COMPLIANT if has_block else MISSING_INFORMATION,
                            "A datasheet carries a revision block.",
@@ -793,7 +793,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         if kind == "above_by":
             right_words = (f"{_label(other, rule['right']).lower()} {_said(other)} (page {other.get('page')}) "
                            f"plus the greater of {rule['percent']}% or {rule['at_least']} {rule['unit']}")
-        right_words = ((f"{rule['percent']}% of " if kind == "percent_of" else "")
+        right_words = right_words if kind == "above_by" else ((f"{rule['percent']}% of " if kind == "percent_of" else "")
                        + f"{_label(other, rule['right']).lower()} {_said(other)} (page {other.get('page')})")
     if (left is None or right is None or left[1] != right[1]
             or (left[2] and right[2] and left[2] != right[2])):
