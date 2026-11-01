@@ -318,7 +318,7 @@ def _docx_rows(path: str) -> list[tuple] | None:
             for i, text in enumerate(structure.pages, start=1)]
 
 
-def _non_pdf_rows(path: str) -> tuple[list[tuple] | None, bool]:
+def _non_pdf_rows(path: str, doc_id: str | None = None) -> tuple[list[tuple] | None, bool]:
     """(rows, flow) for a workbook or Word document; (None, False) for a PDF.
 
     ONE_INTAKE_ENABLED: `intake.read` decides, and refuses what it cannot read
@@ -334,6 +334,8 @@ def _non_pdf_rows(path: str) -> tuple[list[tuple] | None, bool]:
         if intake.detect(path) == intake.KIND_PDF:
             return None, False
         result = intake.read(path)
+        if doc_id:  # what was not read, or only partly, is stored with the document
+            intake.store(doc_id, result)
         return intake.as_rows(result), result.flow
     docx_rows = (_docx_rows(path)
                  if settings.docx_input_enabled and not settings.datasheet_office_input else None)
@@ -439,7 +441,7 @@ def extract_document(doc_id: str, progress=None) -> dict:
                 "seconds": 0.0, "pages_per_sec": None, "resumed_from_batch": 0,
                 "error": "stored file is missing"}
 
-    office_rows, flow = _non_pdf_rows(pdf_path)
+    office_rows, flow = _non_pdf_rows(pdf_path, doc_id)
     if flow:
         with conn:
             conn.execute("UPDATE documents SET pagination = 'flow' WHERE id = ?", (doc_id,))

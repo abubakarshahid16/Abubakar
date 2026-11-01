@@ -93,6 +93,18 @@ def _pages(doc_id):
     ]
 
 
+def _index_xlsx(path, name):
+    """Upload a workbook as an indexed document and extract it through intake."""
+    settings.datasheet_office_input = (
+        True  # so upload indexes it (restored by the fixture)
+    )
+    doc_id = _upload(path, name)
+    settings.datasheet_office_input = False
+    settings.one_intake_enabled = True
+    extract.extract_document(doc_id)
+    return doc_id
+
+
 def _ledger(doc_id):
     page_ledger.refresh(doc_id)
     return [
@@ -183,14 +195,58 @@ def test_xlsx_one_page_per_visible_sheet_with_reason_for_the_empty_one(tmp_path)
     assert any("hidden sheet 3 skipped" in n for n in result.notes)
 
 
-def test_xlsx_with_no_visible_sheet_is_reported_not_silent(tmp_path):
+def test_a_hidden_first_sheet_is_listed_and_the_visible_one_is_still_read(tmp_path):
     wb = openpyxl.Workbook()
-    wb.create_sheet("Second")
-    wb.active.sheet_state = "hidden"
+    wb.create_sheet("Second").append(["Item", "1"])
+    wb.worksheets[0].sheet_state = "hidden"
+    wb.active = 1
     wb.save(tmp_path / "g.xlsx")
     result = intake.read(tmp_path / "g.xlsx")
-    assert result.pages and result.pages[0].source == intake.SOURCE_SHEET
-    assert any("hidden sheet 1 skipped" in n for n in result.notes)
+    assert [p.page_no for p in result.pages] == [1] and "Item" in result.pages[0].text
+    assert (
+        0,
+        "hidden_sheet",
+        "not read: hidden sheet 1 (workbook position)",
+    ) in result.reasons
+
+
+def test_a_hidden_sheet_is_stored_as_a_reason_of_the_document(tmp_path):
+    doc_id = _index_xlsx(_xlsx(tmp_path / "gh.xlsx"), "gh.xlsx")
+    stored = {(r["page_no"], r["code"]) for r in intake.reasons_for(doc_id)}
+    assert (0, "hidden_sheet") in stored and (2, "page_not_read") in stored
+
+
+def test_a_sheet_past_the_row_limit_is_partly_read_with_the_reason_stored(tmp_path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for i in range(5200):
+        ws.append([f"row {i}", i])
+    wb.save(tmp_path / "big.xlsx")
+    result = intake.read(tmp_path / "big.xlsx")
+    page = result.pages[0]
+    assert page.not_read_reason.startswith("partly read:")
+    assert "rows after row 5000 not read: row limit 5000" in page.not_read_reason
+    assert "row 4999" in page.text and "row 5100" not in page.text
+    doc_id = _index_xlsx(tmp_path / "big.xlsx", "big.xlsx")
+    stored = {r["code"]: r for r in intake.reasons_for(doc_id)}
+    assert stored["row_limit"]["page_no"] == 1
+
+
+def test_a_formula_with_no_stored_result_is_counted_not_dropped(tmp_path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Total", "=1+2"])
+    ws.append(["Plain", 7])
+    ws.append(["Other", "=A2&B2"])
+    wb.save(tmp_path / "fx.xlsx")
+    result = intake.read(tmp_path / "fx.xlsx")
+    assert (
+        1,
+        "formula_no_result",
+        "2 formula cell(s) with no stored result - not read",
+    ) in (result.reasons)
+    assert "formula cell(s) with no stored result" in result.pages[0].not_read_reason
+    assert "Plain" in result.pages[0].text
 
 
 def test_xlsx_is_indexed_by_extraction_only_when_the_switch_is_on(
@@ -213,13 +269,12 @@ def test_xlsx_is_indexed_by_extraction_only_when_the_switch_is_on(
 
 
 @pytest.mark.parametrize("fmt,name", [("PNG", "i.png"), ("JPEG", "i.jpg")])
-def test_image_is_one_page_waiting_for_ocr_with_its_reason(tmp_path, fmt, name):
-    result = intake.read(_png(tmp_path / name, fmt))
-    assert result.kind == intake.KIND_IMAGE and len(result.pages) == 1
-    page = result.pages[0]
-    assert (page.source, page.needs_ocr, page.text) == (intake.SOURCE_IMAGE, True, "")
-    assert page.not_read_reason == intake.WHY_IMAGE
-    assert intake.as_rows(result)[0][2] is True
+def test_a_valid_image_is_refused_this_slice_with_the_reason(tmp_path, fmt, name):
+    assert intake.detect(_png(tmp_path / name, fmt)) == intake.KIND_IMAGE
+    with pytest.raises(intake.IntakeRefused) as err:
+        intake.read(tmp_path / name)
+    assert err.value.code == "image_not_read_yet"
+    assert "next slice" in err.value.message
 
 
 def test_a_broken_image_is_refused_with_a_reason(tmp_path):
@@ -294,3 +349,35 @@ def test_extraction_with_the_switch_on_raises_the_refusal_not_an_empty_document(
         extract.extract_document("doc_k")
     assert err.value.code == "unsupported_type"
     assert _pages("doc_k") == []
+
+
+def test_the_worker_records_the_refusal_code_and_sentence_on_document_and_job(tmp_path):
+    from app import ingest
+
+    f = tmp_path / ("m" * 64 + ".pdf")
+    f.write_bytes(_png(tmp_path / "pic.png").read_bytes())
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO documents (id, filename, sha256, size_bytes, stored_path, status,"
+            " uploaded_at, priority) VALUES ('doc_m', 'm.pdf', ?, 3, ?, 'extracting', 'now', 0)",
+            ("m" * 64, str(f)),
+        )
+        conn.execute(
+            "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at, priority)"
+            " VALUES ('job_m', 'doc_m', 'extract', 'running', 'now', 'now', 0)"
+        )
+    settings.one_intake_enabled = True
+    ingest.IngestionWorker().process("doc_m")
+    doc = conn.execute(
+        "SELECT status, error_code, error_message FROM documents"
+    ).fetchone()
+    job = conn.execute(
+        "SELECT error_code, error_message FROM jobs WHERE id = 'job_m'"
+    ).fetchone()
+    assert doc["status"] == "failed" and doc["error_code"] == "image_not_read_yet"
+    assert "next slice" in doc["error_message"]
+    assert (job["error_code"], job["error_message"]) == (
+        doc["error_code"],
+        doc["error_message"],
+    )

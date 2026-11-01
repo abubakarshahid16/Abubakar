@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import acronyms as acronyms_mod
-from . import doc_router, errors, job_queue, page_ledger, states
+from . import doc_router, errors, intake, job_queue, page_ledger, states
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
@@ -605,12 +605,12 @@ class IngestionWorker(ReviewDrain):
             self.last_error = errors.record_failure(
                 exc, code=errors.INTERNAL, document_id=doc_id, stage="process"
             )
-            safe_message = self.last_error["message"]
+            code, safe_message = intake.refusal_of(exc, errors.INTERNAL, self.last_error["message"])
             with conn:
                 conn.execute(
                     "UPDATE documents SET status = ?, error_code = ?, error_message = ?"
                     " WHERE id = ?",
-                    (states.FAILED, errors.INTERNAL, safe_message, doc_id),
+                    (states.FAILED, code, safe_message, doc_id),
                 )
                 # RETRIED, THEN POISONED (#177) - on the document's INGESTION
                 # job only. This used to mark every job row of the document
@@ -628,7 +628,7 @@ class IngestionWorker(ReviewDrain):
                     " ORDER BY started_at DESC LIMIT 1", (doc_id,)).fetchone()
                 if job is not None:
                     result["job_state"] = job_queue.fail(
-                        conn, job["id"], code=errors.INTERNAL, message=safe_message)
+                        conn, job["id"], code=code, message=safe_message)
             result["error"] = self.last_error
             return result
 

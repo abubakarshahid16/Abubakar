@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .config import settings
@@ -25,16 +26,9 @@ from .quality import normalise_text
 log = logging.getLogger(__name__)
 
 KIND_PDF, KIND_WORD, KIND_SHEET, KIND_IMAGE = "pdf", "word", "xlsx", "image"
-SOURCE_NATIVE, SOURCE_OCR, SOURCE_WORD, SOURCE_SHEET, SOURCE_IMAGE = (
-    "native",
-    "ocr",
-    "word",
-    "sheet",
-    "image",
-)
+SOURCE_NATIVE, SOURCE_OCR, SOURCE_WORD, SOURCE_SHEET = "native", "ocr", "word", "sheet"
 
 WHY_SCANNED = "no usable text layer (a scan or a blank page), waiting for OCR"
-WHY_IMAGE = "image file: waiting for OCR, no text read yet"
 WHY_BLANK_PDF = "blank page: no text layer and no picture"
 WHY_EMPTY_SHEET = "empty sheet: no cell holds a value"
 WHY_EMPTY_WORD = "empty page: no text in this part of the document"
@@ -72,6 +66,8 @@ class IntakeResult:
     notes: list[str] = field(default_factory=list)
     #: Word: pages are reading units, not print pages (documents.pagination = 'flow').
     flow: bool = False
+    #: (page_no, code, sentence) for what was only partly read or skipped; page_no 0 = the whole file.
+    reasons: list[tuple[int, str, str]] = field(default_factory=list)
 
     def not_read(self) -> dict[int, str]:
         return {p.page_no: p.not_read_reason for p in self.pages if p.not_read_reason}
@@ -120,7 +116,7 @@ def detect(path: str | os.PathLike) -> str:
 
 def _reason(source: str, text: str, needs_ocr: bool) -> str | None:
     if needs_ocr:
-        return WHY_IMAGE if source == SOURCE_IMAGE else WHY_SCANNED
+        return WHY_SCANNED
     if text.strip():
         return None
     return {SOURCE_SHEET: WHY_EMPTY_SHEET, SOURCE_WORD: WHY_EMPTY_WORD}.get(
@@ -194,31 +190,149 @@ def read_word(path: str | os.PathLike) -> IntakeResult:
     )
 
 
+_CUT_ROWS = re.compile(r"sheet (\d+) cut at (\d+) rows")
+_CUT_COLS = re.compile(r"sheet (\d+) cut at (\d+) columns")
+_CUT_CELL = re.compile(r"sheet (\d+): a cell cut at (\d+) characters")
+_HIDDEN = re.compile(r"hidden sheet (\d+) skipped")
+
+
+def _formula_gaps(path: str | os.PathLike) -> dict[int, int]:
+    """Per workbook sheet position: formula cells whose result was never stored.
+
+    `data_only=True` shows such a cell as empty; this counts them so they are named."""
+    import openpyxl
+
+    from . import datasheet_inputs as di
+
+    gaps: dict[int, int] = {}
+    kw = {"read_only": True, "keep_links": False}
+    wf = openpyxl.load_workbook(path, data_only=False, **kw)
+    wv = openpyxl.load_workbook(path, data_only=True, **kw)
+    try:
+        for i, (sf, sv) in enumerate(
+            zip(wf.worksheets, wv.worksheets, strict=False), start=1
+        ):
+            if getattr(sf, "sheet_state", "visible") != "visible":
+                continue
+            n = 0
+            rows = zip(
+                sf.iter_rows(values_only=True),
+                sv.iter_rows(values_only=True),
+                strict=False,
+            )
+            for r, (rf, rv) in enumerate(rows, start=1):
+                if r > di.MAX_SHEET_ROWS:
+                    break
+                n += sum(
+                    1
+                    for f, v in zip(rf[: di.MAX_SHEET_COLS], rv, strict=False)
+                    if isinstance(f, str) and f.startswith("=") and v is None
+                )
+            if n:
+                gaps[i] = n
+    finally:
+        wf.close()
+        wv.close()
+    return gaps
+
+
 def read_sheet(path: str | os.PathLike) -> IntakeResult:
-    """One page per visible sheet; its cells are the page's table."""
+    """One page per visible sheet; its cells are the page's table.
+
+    Nothing is lost without a reason: a hidden sheet, rows or columns past the
+    limit, a cut cell and a formula with no stored result each become a stored
+    reason on the page (or on the file, page 0, for a hidden sheet)."""
     from . import datasheet_inputs
 
     reading = datasheet_inputs.read_xlsx(path)
+    notes = list(reading.notes)
+    hidden = {int(m.group(1)) for n in notes if (m := _HIDDEN.search(n))}
+    total = len(reading.pages) + len(hidden)
+    # Pages are the visible sheets in workbook order.
+    visible = [i for i in range(1, total + 1) if i not in hidden]
+    page_of = {
+        pos: page.page_no for pos, page in zip(visible, reading.pages, strict=False)
+    }
+    reasons: list[tuple[int, str, str]] = [
+        (0, "hidden_sheet", f"not read: hidden sheet {i} (workbook position)")
+        for i in sorted(hidden)
+    ]
+    cells: dict[int, int] = {}
+    for n in notes:
+        if m := _CUT_ROWS.search(n):
+            reasons.append(
+                (
+                    page_of[int(m[1])],
+                    "row_limit",
+                    f"rows after row {m[2]} not read: row limit {m[2]}",
+                )
+            )
+        elif m := _CUT_COLS.search(n):
+            reasons.append(
+                (
+                    page_of[int(m[1])],
+                    "column_limit",
+                    f"columns after column {m[2]} not read: column limit {m[2]}",
+                )
+            )
+        elif m := _CUT_CELL.search(n):
+            cells[page_of[int(m[1])]] = cells.get(page_of[int(m[1])], 0) + 1
+    for page_no, count in cells.items():
+        reasons.append(
+            (
+                page_no,
+                "cell_limit",
+                f"{count} cell(s) cut at the character limit: the rest is not read",
+            )
+        )
+    for pos, count in _formula_gaps(path).items():
+        reasons.append(
+            (
+                page_of[pos],
+                "formula_no_result",
+                f"{count} formula cell(s) with no stored result - not read",
+            )
+        )
+    partly = {}
+    for page_no, _code, why in reasons:
+        if page_no:
+            partly.setdefault(page_no, []).append(why)
     pages = []
     for p in reading.pages:
         text = normalise_text(p.text)
-        pages.append(
-            _page(
-                p.page_no,
-                text,
-                SOURCE_SHEET,
-                datasheet_inputs.tables_json(p, text),
-                empty=not p.rows,
-            )
+        page = _page(
+            p.page_no,
+            text,
+            SOURCE_SHEET,
+            datasheet_inputs.tables_json(p, text),
+            empty=not p.rows,
         )
-    notes = list(reading.notes)
+        if (
+            p.page_no in partly
+        ):  # partly read: still a reading, with what is missing named
+            why = "; ".join(partly[p.page_no])
+            page = replace(
+                page,
+                not_read_reason=(
+                    page.not_read_reason + "; "
+                    if page.not_read_reason
+                    else "partly read: "
+                )
+                + why,
+            )
+        pages.append(page)
     if not pages:
-        notes.append("no visible sheet to read")
-    return IntakeResult(KIND_SHEET, pages, notes)
+        reasons.append(
+            (0, "no_visible_sheet", "not read: the workbook has no visible sheet")
+        )
+    return IntakeResult(KIND_SHEET, pages, notes, reasons=reasons)
 
 
 def read_image(path: str | os.PathLike) -> IntakeResult:
-    """A PNG or JPEG is ONE page that needs OCR. Not recognised here."""
+    """A PNG or JPEG is recognised as an image and REFUSED in this slice, with the reason.
+
+    The OCR stage renders pages of a stored PDF only, so an image page could
+    be neither read nor explained; accepting it is the next slice."""
     from PIL import Image
 
     try:
@@ -234,8 +348,10 @@ def read_image(path: str | os.PathLike) -> IntakeResult:
         raise IntakeRefused(
             "image_too_large", f"The image is {w}x{h} pixels, over the limit."
         )
-    return IntakeResult(
-        KIND_IMAGE, [_page(1, "", SOURCE_IMAGE, needs_ocr=True, route="image_file")]
+    raise IntakeRefused(
+        "image_not_read_yet",
+        "Image files (PNG, JPEG) are not read yet: the OCR stage reads PDF pages only. "
+        "Put the picture in a PDF. Reading images is the next slice of #525.",
     )
 
 
@@ -266,3 +382,59 @@ def as_rows(result: IntakeResult) -> list[tuple]:
         (p.page_no, p.text, p.needs_ocr, p.equation_heavy, p.ocr_route, p.tables_json)
         for p in result.pages
     ]
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS intake_reasons (
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    page_no     INTEGER NOT NULL,
+    code        TEXT NOT NULL,
+    reason      TEXT NOT NULL,
+    PRIMARY KEY (document_id, page_no, code)
+)
+"""
+
+
+def store(doc_id: str, result: IntakeResult) -> int:
+    """Keep what was not read (or only partly) where the document record can show it.
+
+    Page 0 is the whole file. Replaces any earlier rows of this document, so a
+    re-run states the same reasons once. Counts and positions only, no text."""
+    from .db import connect
+
+    rows = {(n, c, w) for n, c, w in result.reasons}
+    rows |= {(n, "page_not_read", w) for n, w in result.not_read().items()}
+    conn = connect()
+    with conn:
+        conn.execute(_SCHEMA)
+        conn.execute("DELETE FROM intake_reasons WHERE document_id = ?", (doc_id,))
+        conn.executemany(
+            "INSERT OR REPLACE INTO intake_reasons (document_id, page_no, code, reason)"
+            " VALUES (?, ?, ?, ?)",
+            [(doc_id, n, c, w) for n, c, w in sorted(rows)],
+        )
+    return len(rows)
+
+
+def reasons_for(doc_id: str) -> list[dict]:
+    """The stored reasons of a document, page by page (page 0 = the whole file)."""
+    from .db import connect
+
+    conn = connect()
+    conn.execute(_SCHEMA)
+    return [
+        dict(r)
+        for r in conn.execute(
+            "SELECT page_no, code, reason FROM intake_reasons WHERE document_id = ?"
+            " ORDER BY page_no, code",
+            (doc_id,),
+        )
+    ]
+
+
+def refusal_of(exc: BaseException, code: str, message: str) -> tuple[str, str]:
+    """(code, sentence) to record for a failed document: the refusal's own when
+    intake refused the file, else the ones given."""
+    if isinstance(exc, IntakeRefused):
+        return exc.code, exc.message
+    return code, message
