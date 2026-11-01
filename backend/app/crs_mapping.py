@@ -373,11 +373,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     apart from them, the statements no datasheet field was found for, which
     name no document (quick wins; they were counted as the first kind). Every
     count states its boundary: "of this run's requirements from <standard>".
-    Last, one note per requirement found NOT APPLICABLE because the
-    datasheet's own facts put it outside the requirement's condition, quoting
-    the condition and the value (and page) that decided it. Last of all,
-    rule_trust (#947): the fields no rule checked and the spot-check sample,
-    from the run's stored `outcome` (`rule_trust.review_notes`).
+    Then one note per requirement found NOT APPLICABLE because the datasheet's
+    own facts put it outside the requirement's condition (with the value and
+    page that decided it); last, rule_trust (#947) from the run's `outcome`.
     """
     notes: list[dict] = []
     for ref in missing_references:
