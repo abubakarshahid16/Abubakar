@@ -89,6 +89,15 @@ class SettingsExt(BaseModel):
     #: footer decides as before. Takes effect when a document is (re)chunked.
     #: Env: DATA_PAGE_NOT_FRONTMATTER_ENABLED.
     data_page_not_frontmatter_enabled: bool = False
+    #: #1522 a playbook element (`playbooks._match`) is "present" only when the matching passage is
+    #: the element's OWN section (a cue in its heading or section title); a passing mention in the
+    #: body of another section becomes "unclear" (an engineer row), never "present". OFF: a passage
+    #: holding a cue of every group is present wherever it sits, as before.
+    #: LIMITS: a heading counts only if it holds one of the element's cues; e.g. 'Study Team' alone is
+    #: unclear (recall lost on purpose). A loose heading holding a generic cue ('Participants',
+    #: 'Safety report summary') still counts as present; not fixed here.
+    #: Env: PLAYBOOK_SECTION_PRESENCE_ENABLED.
+    playbook_section_presence_enabled: bool = False
     #: #1481 heat exchanger kit PREPARATION (parked, milestone 58): append the DRAFT exchanger cards of
     #: `reference/exchanger_kit_draft.json` (the held standard SAES-E-004 requires the value, not already in the
     #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the

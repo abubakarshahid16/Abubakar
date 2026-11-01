@@ -35,6 +35,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .config import settings
 from .db import connect
 
 FORMAT = "review-playbook/1"
@@ -319,11 +320,20 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             "elements": results, "counts": counts, "ai": ai}
 
 
+def own_section(element: Element, chunk: dict) -> bool:
+    """#1522: does the passage's NEAREST heading (its own section title, else the last
+    heading of its chain; never a parent or document title) hold a cue of the element?"""
+    chain = [p for p in re.split(r"\s*>\s*", chunk.get("context") or "") if p]
+    nearest = (chunk.get("section") or "").strip() or (chain[-1] if chain else "")
+    return any(_hits(phrases, nearest) for _, phrases in element.groups)
+
+
 def _match(element: Element, body: list[dict]) -> dict:
     """Deterministic matching. PRESENT when one passage holds a cue of EVERY
     group (and a quote can be cut from its own text); UNCLEAR when cues are
     found but never all together; MISSING when none is found."""
     evidence = []
+    own_only = settings.playbook_section_presence_enabled
     for chunk in body:
         text = _own_text(chunk)
         # Cues may sit in the heading too ("4.2 Study team"), but a heading alone
@@ -336,17 +346,34 @@ def _match(element: Element, body: list[dict]) -> dict:
         in_text = [label for label, phrases in element.groups if _hits(phrases, text)]
         quote = next((q for q in (_sentence(text, phrases) for label, phrases in element.groups
                                   if label in in_text) if q), None)
-        evidence.append({"locator": _where(chunk), "quote": quote, "method": "cue_words",
-                         "groups": hit_groups, "in_text": bool(in_text)})
+        entry = {
+            "locator": _where(chunk),
+            "quote": quote,
+            "method": "cue_words",
+            "groups": hit_groups,
+            "in_text": bool(in_text),
+        }
+        if own_only:
+            entry["own_section"] = own_section(element, chunk)
+        evidence.append(entry)
     all_groups = len(element.groups)
+    # #1522: with the switch on, a passage is evidence of the element only when it is the
+    # element's OWN section (a cue in its heading or section title); a passing mention in
+    # the body of another section is "unclear", an engineer row, never present.
     complete = [e for e in evidence if len(e["groups"]) == all_groups and e["in_text"] and e["quote"]]
+    if own_only:
+        complete = [e for e in complete if e["own_section"]]
     if complete:
         return {"state": PRESENT, "evidence": complete, "missing_cues": []}
     if evidence:
         best = max(evidence, key=lambda e: (len(e["groups"]), e["in_text"]))
         absent = [label for label, _ in element.groups if label not in best["groups"]]
         if not absent:
-            absent = ["a statement in the text under the heading"]
+            absent = (
+                ["a heading or section of its own for this element"]
+                if own_only and any(e["in_text"] for e in evidence)
+                else ["a statement in the text under the heading"]
+            )
         return {"state": UNCLEAR, "evidence": sorted(evidence, key=lambda e: -len(e["groups"]))[:3],
                 "missing_cues": absent}
     return {"state": MISSING, "evidence": [], "missing_cues": [label for label, _ in element.groups]}
