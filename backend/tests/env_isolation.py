@@ -196,6 +196,8 @@ EGRESS_SAFE: dict[str, object] = {
     "table_text_cells_enabled": False,
     # --- local only: reads an uploaded Word file with the standard library
     "docx_input_enabled": True,
+    # --- local only, no model or socket: one intake layer for every file type (off by default)
+    "one_intake_enabled": False,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,
@@ -251,6 +253,8 @@ EGRESS_SAFE: dict[str, object] = {
     "figure_page_ocr_enabled": False,
     # --- local only, no model or socket: duty-point style column rows and stacked labels (#1478, off by default)
     "page_column_rows_enabled": False,
+    # --- local only, no model or socket: only the title block sets the equipment type (1 Nov, off by default)
+    "equipment_from_title_block_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: a procedure's CRS gets its playbook rows as engineer rows (#1522 b, off by default)

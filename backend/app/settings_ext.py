@@ -163,6 +163,11 @@ class SettingsExt(BaseModel):
     #: Folder the audit files go under (`<date>-<run id>/`). Empty = `~/project/mirror/proof`.
     #: Env: REVIEW_AUDIT_DIR.
     review_audit_dir: str = ""
+    #: One intake layer (W5b-01, #525, part 1): extraction reads every file through `intake.read` (PDF and
+    #: Word as today; Excel one page per visible sheet; an image one page waiting for OCR) and a file it
+    #: cannot read is refused with a reason. Local only, no model, no socket. OFF: nothing changes.
+    #: Env: ONE_INTAKE_ENABLED.
+    one_intake_enabled: bool = False
     #: #645 slice 3 (`ai_requirement_chunks.py`): the LOCAL model reads a held standard chunks
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
@@ -171,3 +176,9 @@ class SettingsExt(BaseModel):
     #: it whole (none or several: refused, as before); accept checks it there again. No new model call.
     #: OFF: such a quote is refused (page uncertain). Env: AI_REQUIREMENT_QUOTE_PAGE_ENABLED.
     ai_requirement_quote_page_enabled: bool = False
+    #: Owner decision 1 Nov (part of #1478): ONLY the title block (`classification.title_block_lines`) sets
+    #: the equipment type; a section or panel heading in the page body never does (a pump sheet's 'MOTOR
+    #: DATA' panel made it a Motor). None or two different types in the title block: the type is NULL,
+    #: marked 'engineer to confirm', with a Review note; no checklist is chosen. OFF: unchanged.
+    #: Env: EQUIPMENT_FROM_TITLE_BLOCK_ENABLED.
+    equipment_from_title_block_enabled: bool = False
