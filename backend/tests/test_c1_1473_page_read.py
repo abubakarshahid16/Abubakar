@@ -216,13 +216,13 @@ def test_off_the_set_aside_key_is_absent(monkeypatch):
 
 
 def test_the_crs_names_the_unread_page_and_why_and_the_summary_shows_not_read(monkeypatch):
-    from app import crs_mapping
+    from app import crs_mapping, page_not_read
 
     monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
     cov = page_ledger.coverage(_doc_with_contents_page())
     outcome = {"page_coverage": cov}
-    notes = crs_mapping.build_review_notes([], [], None, outcome)
-    named = [n for n in notes if n["note"] == crs_mapping.NOTE_PAGE_NOT_READ]
+    notes = page_not_read.notes(outcome)
+    named = [n for n in notes if n["note"] == page_not_read.NOTE_PAGE_NOT_READ]
     assert len(named) == 1 and named[0]["count"] == 1
     assert "Page 4 was not read" in named[0]["detail"]
     assert "excluded from the index on purpose (rule page_classified_toc)" in named[0]["detail"]
@@ -230,14 +230,15 @@ def test_the_crs_names_the_unread_page_and_why_and_the_summary_shows_not_read(mo
     assert page_ledger.run_unread_pages(cov) == [4]
     assert page_ledger.run_unread_reasons(cov) == cov["pages_not_read_why"]
     # a run stored without the switch adds no note
-    assert not [n for n in crs_mapping.build_review_notes([], [], None, {"page_coverage": {}})
-                if n["note"] == crs_mapping.NOTE_PAGE_NOT_READ]
+    assert page_not_read.notes({"page_coverage": {}}) == []
 
 
 def test_unread_page_words_blank_image_and_a_plain_failure():
     base = {"index_status": "retrievable", "index_reason": None, "native_status": "text",
             "ocr_status": "not_required", "facts_reason": None}
-    w = page_ledger.unread_page_words
+    from app import page_not_read
+
+    w = page_not_read.unread_page_words
     assert w({**base, "native_status": "empty"}) == "blank page"
     assert w({**base, "native_status": "needs_ocr", "ocr_status": "pending"}) == (
         "image with no reading")

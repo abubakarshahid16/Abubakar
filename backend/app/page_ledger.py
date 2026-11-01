@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from . import cover_page, errors, unsupported_script
+from . import cover_page, errors, page_not_read, unsupported_script
 from .config import settings
 from .db import connect
 
@@ -646,7 +646,7 @@ def coverage(document_id: str) -> dict:
             # Why each unread page is unread, in plain words (owner rule on
             # #1473): the page stays NOT READ, it is only named.
             "pages_not_read_why": {
-                str(r["page_no"]): unread_page_words(r)
+                str(r["page_no"]): page_not_read.unread_page_words(r)
                 for r in ledger if not page_has_reading(r)
             },
         }
@@ -668,26 +668,6 @@ def coverage(document_id: str) -> dict:
         "facts_source": (sources.pop() if len(sources) == 1
                          else "mixed" if sources else None),
     }
-
-
-BLANK_PAGE = "blank page"
-IMAGE_NO_READING = "image with no reading"
-
-
-def unread_page_words(row: dict) -> str:
-    """#1473: the plain reason a page has no reading, one of three kinds the
-    owner accepts - blank page, image with no reading, excluded from the index
-    on purpose (with the rule) - or the recorded reason when it is none of
-    them: a page with content that simply failed is never given a kind that
-    excuses it."""
-    reason = str(row["index_reason"] or "")
-    if row["index_status"] == "excluded" and reason.startswith("page_classified_"):
-        return f"excluded from the index on purpose (rule {reason.split(',')[0]})"
-    if row["native_status"] == "empty":
-        return BLANK_PAGE
-    if row["native_status"] == "needs_ocr" or row["ocr_status"] in ("pending", "failed"):
-        return IMAGE_NO_READING
-    return str(row["facts_reason"] or "no reading came back for this page")
 
 
 def page_has_reading(row: dict) -> bool:

@@ -336,8 +336,6 @@ def _subject_key(f: dict) -> str:
 #: The "Review notes" sheet (owner order 2f): the engineer's internal list.
 NOTE_MISSING_STANDARD = "Standard not in your library - upload required"
 NOTE_UNREAD_PAGES = "Pages not yet readable - engineer to check"
-#: #1473: named per page, with the plain reason, when the page-read switch was on.
-NOTE_PAGE_NOT_READ = "Page not read - no reading came back"
 NOTE_PAGE_READER = "Value not found by the page reader - engineer to check the page"
 NOTE_OTHER_DOCUMENT = "Requires another document"
 #: CRS quick wins: a statement no datasheet field was found for. NOT "requires
@@ -438,27 +436,10 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                           "standard": ref, "count": None,
                           "detail": (f"{_clause_sentence(f, 160)}. Not checked: "
                                      f"{_reason_words(f)}")})
-    notes.extend(_page_not_read_notes(outcome))
     if outcome is not None:
         from .clause_coverage import outcome_notes
         notes.extend(outcome_notes(outcome, findings))
     return notes
-
-
-def _page_not_read_notes(outcome: dict | None) -> list[dict]:
-    """#1473: one note naming the pages no reading came back for, each with its
-    reason in plain words. Only a run stored with PAGE_READ_BY_READING_ENABLED
-    carries `pages_not_read_why`; older runs add nothing. The pages stay unread."""
-    why = ((outcome or {}).get("page_coverage") or {}).get("pages_not_read_why") or {}
-    if not why:
-        return []
-    order = sorted(why, key=lambda p: int(p))
-    pages = _page_list([int(p) for p in order])
-    plural = len(order) != 1
-    return [{"note": NOTE_PAGE_NOT_READ, "standard": "", "count": len(order),
-             "detail": (f"Page{'s' if plural else ''} {pages} "
-                        f"{'were' if plural else 'was'} not read: "
-                        + "; ".join(f"page {p}: {why[p]}" for p in order) + ".")}]
 
 
 def _field_not_identified_notes(findings: list[dict]) -> list[dict]:

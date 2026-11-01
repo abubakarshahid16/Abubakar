@@ -212,6 +212,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `exchanger_kit` | #1481 preparation (parked kit, milestone 58): box list and DRAFT heat exchanger cards from the held standard SAES-E-004, read only behind `exchanger_kit_draft_enabled` (off by default); every row held, never decide |
 | `nothing_read` | #1495: a review that read no value and no page text ends failed "nothing read" (switch off by default) |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
+| `page_not_read` | Why a page has no reading in plain words, and the CRS note that names it (#1473) |
 | `pairing_head` | A field is a clause's field only when the label stands in the subject's head, not in a complement (audit C5) |
 | `pdf_flow` | #633 item 6: PDF text that wraps and continues on the next page, never dropped (layout only) |
 | `pageimage` | On-demand page rendering |
