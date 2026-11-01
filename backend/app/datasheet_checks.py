@@ -634,10 +634,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     unknown = None    # the first condition the sheet does not state, if any
     for condition in conditions:
         cond_fact, why = _one(get(condition["role"]))
-        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot
-        # be wrong whatever the condition ("the molecular weight is stated",
-        # "k is above 1"): an unknown condition does not stop them. Any other
-        # item with an unknown condition is an engineer's question.
+        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot be wrong whatever the
+        # condition ("k is above 1"). Any other item with an unknown condition is an engineer's question.
         if cond_fact is None:
             if rule["kind"] == "calc":
                 # R13: which formula applies is not known; the phase item asks.
