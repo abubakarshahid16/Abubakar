@@ -316,6 +316,39 @@ def _mark(
         )
 
 
+def _chunks_to_read(conn, keys, standard_document_id: str, max_chunks: int):
+    """The chunks this run reads: with read marks (`keys`), those this model
+    and task version have neither read whole nor given up on; else the first."""
+    if keys:
+        ensure_reads_schema()
+        return conn.execute(
+            "SELECT id, page_start, page_end, text"
+            + _UNREAD
+            + " ORDER BY ordinal LIMIT ?",
+            (*keys, max(max_chunks, 0)),
+        ).fetchall()
+    return conn.execute(
+        "SELECT id, page_start, page_end, text FROM chunks WHERE document_id = ?"
+        " ORDER BY ordinal LIMIT ?",
+        (standard_document_id, max(max_chunks, 0)),
+    ).fetchall()
+
+
+def _resume_counts(conn, keys, report: dict) -> None:
+    """Of THIS standard's chunks, FOR THIS model and task version: how many are
+    left and how many were given up. A standard with no chunks: null, never
+    "0 of 0 left"."""
+    total = conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (keys[0],)
+    ).fetchone()[0]
+    if total:
+        report["standard_chunks"] = total
+        report["not_yet_read"] = conn.execute(
+            "SELECT COUNT(*)" + _UNREAD, keys
+        ).fetchone()[0]
+        report["gave_up"] = conn.execute(_GAVE_UP, keys).fetchone()[0]
+
+
 def extract_standard(
     standard_document_id: str,
     *,
@@ -361,20 +394,9 @@ def extract_standard(
         _task_version(),
         MAX_ATTEMPTS,
     )
-    if resume:
-        ensure_reads_schema()
-        chunks = conn.execute(
-            "SELECT id, page_start, page_end, text"
-            + _UNREAD
-            + " ORDER BY ordinal LIMIT ?",
-            (*keys, max(max_chunks, 0)),
-        ).fetchall()
-    else:
-        chunks = conn.execute(
-            "SELECT id, page_start, page_end, text FROM chunks WHERE document_id = ?"
-            " ORDER BY ordinal LIMIT ?",
-            (standard_document_id, max(max_chunks, 0)),
-        ).fetchall()
+    chunks = _chunks_to_read(
+        conn, keys if resume else None, standard_document_id, max_chunks
+    )
     air.ensure_schema()
     with heavy_lock.held("ai_batch", owner="requirement extraction", wait_seconds=0):
         try:
@@ -394,15 +416,6 @@ def extract_standard(
                     )
         finally:
             (unload or ai_task_runner._unload)(provider)
-    total = 0
     if resume:
-        total = conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (standard_document_id,)
-        ).fetchone()[0]
-    if total:  # a standard with no chunks: null, never "0 of 0 left"
-        report["standard_chunks"] = total
-        report["not_yet_read"] = conn.execute(
-            "SELECT COUNT(*)" + _UNREAD, keys
-        ).fetchone()[0]
-        report["gave_up"] = conn.execute(_GAVE_UP, keys).fetchone()[0]
+        _resume_counts(conn, keys, report)
     return report
