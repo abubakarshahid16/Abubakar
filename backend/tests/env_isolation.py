@@ -199,6 +199,8 @@ EGRESS_SAFE: dict[str, object] = {
     "rule_auto_use_enabled": False,
     # --- local only, no model or socket: a recommendation is raised as a query (order 288.2, off by default)
     "recommendation_queries_enabled": False,
+    # --- local only, no model or socket: a page is read when a reading came back (#1473, off by default)
+    "page_read_by_reading_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
