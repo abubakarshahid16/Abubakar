@@ -716,12 +716,35 @@ def _finish_status(review_run_id: str, status: dict, elapsed: float) -> dict:
         else f" ({status['kind_state']}, not confirmed)"
     )
     status["not_read_count"] = left
+    if status.get("whole_document"):
+        # Rule 4: every count with its denominator; not reviewed is never a pass.
+        stop = (
+            f" ({status['stopped']})"
+            if status["stopped"] and status["not_reviewed"]
+            else ""
+        )
+        first = (
+            f"; first not reviewed: {', '.join(status['not_reviewed'][:10])}"
+            if status["not_reviewed"]
+            else ""
+        )
+        fail = (
+            f"; {len(status['failed'])} failed (no answer): {', '.join(status['failed'][:10])}"
+            if status["failed"]
+            else ""
+        )
+        status["whole_document_note"] = (
+            f"{read} of {status['requirements']} requirements reviewed; "
+            f"{len(status['not_reviewed'])} not reviewed{stop}{first}{fail}"
+        )
     status["plain"] = (
         f"AI clause review (suggestions only, engineer to confirm): {read} of {status['requirements']} "
         f"requirement(s) read - {status['verified']} with a verified quote, {status['no_evidence']} "
         f"with no passage found, {status['unverified']} with a quote that could not be verified, "
         f"{status['unreadable']} unreadable; {left} not reviewed{why}{listed}; {kind}."
     )
+    if status.get("whole_document_note"):
+        status["plain"] += f" {status['whole_document_note']}."
     _store_status(review_run_id, status)
     return status
 
@@ -757,16 +780,27 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
     model = str(getattr(provider, "requested_model", None) or "local")
     pages = page_texts(submittal)
     readable = [p for p, t in pages.items() if t.strip()]
+    whole = bool(settings.clause_review_whole_document_enabled)
     budget_s = max(1, len(readable)) * float(settings.clause_review_seconds_per_page)
+    if whole:
+        # Whole-document mode: ONE time budget for the run replaces the count cap.
+        budget_s = float(settings.clause_review_time_budget_s)
     wanted = requirements_for(review_run_id, allowed_document_ids)
     cap = int(settings.clause_review_max_requirements)
+    if whole or cap <= 0:
+        cap = len(wanted)  # no count cap; the time budget is the bound
     status = _start_status(kind, state, model, len(readable), budget_s, len(wanted))
+    status["whole_document"] = whole
     started, engine = clock(), model
     total = min(len(wanted), cap)
     for index, req in enumerate(wanted[:cap]):
         if clock() - started >= budget_s:
             status["not_reviewed"] = [_label(r) for r in wanted[index:cap]]
-            status["stopped"] = "the time budget for this document was spent"
+            status["stopped"] = (
+                f"time budget of {round(budget_s)} s reached"
+                if whole
+                else "the time budget for this document was spent"
+            )
             break
         # #1494: display only, "checking clause N of M"
         job_progress.clause(index + 1, total)
