@@ -149,3 +149,8 @@ class SettingsExt(BaseModel):
     #: Folder the audit files go under (`<date>-<run id>/`). Empty = `~/project/mirror/proof`.
     #: Env: REVIEW_AUDIT_DIR.
     review_audit_dir: str = ""
+    #: One intake layer (W5b-01, #525, part 1): extraction reads every file through `intake.read` (PDF and
+    #: Word as today; Excel one page per visible sheet; an image one page waiting for OCR) and a file it
+    #: cannot read is refused with a reason. Local only, no model, no socket. OFF: nothing changes.
+    #: Env: ONE_INTAKE_ENABLED.
+    one_intake_enabled: bool = False

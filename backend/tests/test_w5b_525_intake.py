@@ -3,7 +3,10 @@
 per visible sheet, an image is one page waiting for OCR, and what cannot be read
 is refused or named with a reason. INVENTED files, generated here.
 """
+
 from __future__ import annotations
+
+from pathlib import Path
 
 import openpyxl
 import pymupdf
@@ -46,8 +49,11 @@ def _pdf(path, texts=("\n".join(LONG), "", "\n".join(LONG))):
 
 
 def _word(path):
-    body = (d.para("Piping", style="Heading1") + d.para(SENT)
-            + d.table([["Size", "Rating"], ["1", "150"], ["2", "300"]]))
+    body = (
+        d.para("Piping", style="Heading1")
+        + d.para(SENT)
+        + d.table([["Size", "Rating"], ["1", "150"], ["2", "300"]])
+    )
     return d.build(path, body)
 
 
@@ -71,22 +77,28 @@ def _png(path, fmt="PNG"):
 
 
 def _upload(path, name):
-    with open(path, "rb") as fh:
+    with Path(path).open("rb") as fh:
         row, _job, _dup = upload.ingest(fh, name)
     return row["id"]
 
 
 def _pages(doc_id):
-    return [tuple(r) for r in db.connect().execute(
-        "SELECT page_no, text, char_count, needs_ocr, equation_heavy, batch_no, ocr_route,"
-        " ocr_route_version, tables_json FROM pages WHERE document_id = ? ORDER BY page_no",
-        (doc_id,))]
+    return [
+        tuple(r)
+        for r in db.connect().execute(
+            "SELECT page_no, text, char_count, needs_ocr, equation_heavy, batch_no, ocr_route,"
+            " ocr_route_version, tables_json FROM pages WHERE document_id = ? ORDER BY page_no",
+            (doc_id,),
+        )
+    ]
 
 
 def _ledger(doc_id):
     page_ledger.refresh(doc_id)
-    return [{k: v for k, v in dict(r).items() if k not in ("updated_at", "created_at")}
-            for r in page_ledger.rows(doc_id)]
+    return [
+        {k: v for k, v in dict(r).items() if k not in ("updated_at", "created_at")}
+        for r in page_ledger.rows(doc_id)
+    ]
 
 
 def _run(path, name, switch):
@@ -97,12 +109,16 @@ def _run(path, name, switch):
     settings.one_intake_enabled = switch
     doc_id = _upload(path, name)
     extract.extract_document(doc_id)
-    pagination = db.connect().execute(
-        "SELECT pagination FROM documents WHERE id = ?", (doc_id,)).fetchone()[0]
+    pagination = (
+        db.connect()
+        .execute("SELECT pagination FROM documents WHERE id = ?", (doc_id,))
+        .fetchone()[0]
+    )
     return _pages(doc_id), _ledger(doc_id), pagination
 
 
 # ------------------------------------------------------- switch off / identical
+
 
 def test_switch_defaults_off():
     from app.config import Settings
@@ -140,6 +156,7 @@ def test_intake_pdf_rows_equal_extract_batch(tmp_path):
 
 # ----------------------------------------------------------- reasons per page
 
+
 def test_blank_pdf_page_states_why_and_text_pages_do_not(tmp_path):
     result = intake.read(_pdf(tmp_path / "d.pdf"))
     assert result.not_read() == {2: intake.WHY_SCANNED}
@@ -154,6 +171,7 @@ def test_word_page_source_and_flow(tmp_path):
 
 
 # ------------------------------------------------------------------- Excel
+
 
 def test_xlsx_one_page_per_visible_sheet_with_reason_for_the_empty_one(tmp_path):
     result = intake.read(_xlsx(tmp_path / "f.xlsx"))
@@ -175,9 +193,13 @@ def test_xlsx_with_no_visible_sheet_is_reported_not_silent(tmp_path):
     assert any("hidden sheet 1 skipped" in n for n in result.notes)
 
 
-def test_xlsx_is_indexed_by_extraction_only_when_the_switch_is_on(tmp_path, monkeypatch):
+def test_xlsx_is_indexed_by_extraction_only_when_the_switch_is_on(
+    tmp_path, monkeypatch
+):
     path = _xlsx(tmp_path / "h.xlsx")
-    monkeypatch.setattr(settings, "datasheet_office_input", True)  # so upload indexes it
+    monkeypatch.setattr(
+        settings, "datasheet_office_input", True
+    )  # so upload indexes it
     doc_id = _upload(path, "h.xlsx")
     monkeypatch.setattr(settings, "datasheet_office_input", False)
     settings.one_intake_enabled = True
@@ -188,6 +210,7 @@ def test_xlsx_is_indexed_by_extraction_only_when_the_switch_is_on(tmp_path, monk
 
 
 # ------------------------------------------------------------------- images
+
 
 @pytest.mark.parametrize("fmt,name", [("PNG", "i.png"), ("JPEG", "i.jpg")])
 def test_image_is_one_page_waiting_for_ocr_with_its_reason(tmp_path, fmt, name):
@@ -209,12 +232,18 @@ def test_a_broken_image_is_refused_with_a_reason(tmp_path):
 
 # ------------------------------------------------------------------ refusals
 
-@pytest.mark.parametrize("content,code", [
-    (b"just some text", "unsupported_type"),
-    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1rest", "unsupported_office"),
-    (b"PK\x03\x04 broken", "corrupt_zip"),
-])
-def test_unsupported_files_are_refused_with_a_code_and_a_sentence(tmp_path, content, code):
+
+@pytest.mark.parametrize(
+    "content,code",
+    [
+        (b"just some text", "unsupported_type"),
+        (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1rest", "unsupported_office"),
+        (b"PK\x03\x04 broken", "corrupt_zip"),
+    ],
+)
+def test_unsupported_files_are_refused_with_a_code_and_a_sentence(
+    tmp_path, content, code
+):
     f = tmp_path / "x.bin"
     f.write_bytes(content)
     with pytest.raises(intake.IntakeRefused) as err:
@@ -225,7 +254,10 @@ def test_unsupported_files_are_refused_with_a_code_and_a_sentence(tmp_path, cont
 def test_pptx_and_unknown_zips_are_refused(tmp_path):
     import zipfile
 
-    for entry, code in (("ppt/presentation.xml", "unsupported_office"), ("a.txt", "unsupported_zip")):
+    for entry, code in (
+        ("ppt/presentation.xml", "unsupported_office"),
+        ("a.txt", "unsupported_zip"),
+    ):
         f = tmp_path / (code + entry.replace("/", "_") + ".zip")
         with zipfile.ZipFile(f, "w") as zf:
             zf.writestr(entry, "x")
@@ -241,7 +273,9 @@ def test_word_is_refused_with_a_reason_when_word_input_is_off(tmp_path, monkeypa
     assert err.value.code == "word_not_enabled"
 
 
-def test_extraction_with_the_switch_on_raises_the_refusal_not_an_empty_document(tmp_path):
+def test_extraction_with_the_switch_on_raises_the_refusal_not_an_empty_document(
+    tmp_path,
+):
     f = tmp_path / ("k" * 64 + ".pdf")
     f.write_bytes(b"plain text pretending to be a pdf")
     conn = db.connect()
@@ -249,13 +283,14 @@ def test_extraction_with_the_switch_on_raises_the_refusal_not_an_empty_document(
         conn.execute(
             "INSERT INTO documents (id, filename, sha256, size_bytes, stored_path, status,"
             " uploaded_at, priority) VALUES ('doc_k', 'k.pdf', ?, 3, ?, 'queued', 'now', 0)",
-            ("k" * 64, str(f)))
+            ("k" * 64, str(f)),
+        )
         conn.execute(
             "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at, priority)"
-            " VALUES ('job_k', 'doc_k', 'extract', 'running', 'now', 'now', 0)")
+            " VALUES ('job_k', 'doc_k', 'extract', 'running', 'now', 'now', 0)"
+        )
     settings.one_intake_enabled = True
     with pytest.raises(intake.IntakeRefused) as err:
         extract.extract_document("doc_k")
     assert err.value.code == "unsupported_type"
     assert _pages("doc_k") == []
-
