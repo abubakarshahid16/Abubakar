@@ -385,9 +385,37 @@ def required_items(list_ids: list[str]) -> list[dict]:
 
 
 _GENERIC = frozenset(
-    "a an and for of the to in on report reports datasheet datasheets data sheet sheets "
-    "document documents drawing drawings calculation calculations list schedule submission "
-    "submissions drg dwg doc".split()
+    {
+        "a",
+        "an",
+        "and",
+        "for",
+        "of",
+        "the",
+        "to",
+        "in",
+        "on",
+        "report",
+        "reports",
+        "datasheet",
+        "datasheets",
+        "data",
+        "sheet",
+        "sheets",
+        "document",
+        "documents",
+        "drawing",
+        "drawings",
+        "calculation",
+        "calculations",
+        "list",
+        "schedule",
+        "submission",
+        "submissions",
+        "drg",
+        "dwg",
+        "doc",
+    }
 )
 _OTHER_REF = re.compile(
     r"supersed|replac|cancel|reference|\bref\b|\bsee\b|related", re.I
