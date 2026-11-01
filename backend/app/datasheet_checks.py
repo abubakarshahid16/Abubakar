@@ -31,11 +31,11 @@ code; never by a model).
 from __future__ import annotations
 
 import json
-import math
 import re
 from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
+from .at_limit import hold as _hold
 from .checklist_scope import governs, standards
 from .deferred_value import hold_results
 from .same_value import key as _key
@@ -53,26 +53,6 @@ NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
 
 _OPS = {">=": lambda a, b: a >= b, ">": lambda a, b: a > b,
         "<=": lambda a, b: a <= b, "<": lambda a, b: a < b}
-#: A limit worked out with a factor or a percentage ("1.1 x the MAWP", "10 % above") is
-#: compared with the unit conversion's float noise removed: two numbers that agree to 1e-9
-#: of their size are the same number (a printed figure never carries nine digits), so a
-#: value exactly AT the limit is at it in every unit.
-AT_LIMIT_REL_TOL = 1e-9
-
-
-def _hold(op: str, left: float, right: float) -> bool:
-    """`left op right`; switch on (AT_LIMIT_PRECISION_ENABLED) a value at the limit to
-    within float noise counts as equal, so it passes `<=`/`>=` and fails `<`/`>`.
-    Off: today's plain float comparison."""
-    from .config import settings
-
-    if settings.at_limit_precision_enabled and math.isclose(
-        left, right, rel_tol=AT_LIMIT_REL_TOL, abs_tol=0.0
-    ):
-        return op in (">=", "<=")
-    return _OPS[op](left, right)
-
-
 _OP_WORDS = {">=": "at least", ">": "above", "<=": "at most", "<": "below"}
 _GAUGE = re.compile(r"(g|\(g\)|gauge)$")
 _ABSOLUTE = re.compile(r"(a|\(a\)|abs)$")
