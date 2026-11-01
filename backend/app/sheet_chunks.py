@@ -53,7 +53,7 @@ def structured(doc) -> Callable[[], list[Block]] | None:
     from . import docx_chunks, docx_reader, stored_paths
 
     path = stored_paths.local(doc["stored_path"])
-    if "pagination" in doc.keys() and doc["pagination"] == "flow":
+    if dict(doc).get("pagination") == "flow":
         return lambda: docx_chunks.build_chunks(docx_reader.read_structure(path))
     return (lambda: build_chunks(path)) if applies(path) else None
 

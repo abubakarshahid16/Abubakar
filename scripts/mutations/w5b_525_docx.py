@@ -56,7 +56,7 @@ MUTATIONS: tuple[Mutation, ...] = (
        '            "locator": p.get("locator"),\n', '            "locator": None,\n', "cited_by_its_locator"),
     # Re-anchored 2026-11-01 (#525 slice 2): the Word test moved into `sheet_chunks.structured`.
     _m(4116, "every document is treated as a Word document", "sheet_chunks.py",
-       '    if "pagination" in doc.keys() and doc["pagination"] == "flow":\n',
+       '    if dict(doc).get("pagination") == "flow":\n',
        "    if True:\n", "pdf_of_the_same_content"),
     _m(4117, "the table of contents is read as body text", R, "        if _is_toc(styles, style_id):\n",
        "        if False:\n", "comments_and_the_table_of_contents"),
