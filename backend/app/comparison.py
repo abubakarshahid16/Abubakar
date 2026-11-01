@@ -52,7 +52,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
+from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, intake, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from . import equipment_scope as eqs, kind_rules, procedure_text
 from .config import settings
@@ -1941,7 +1941,7 @@ def _pages_part(page_coverage: dict | None) -> str:
     total = (page_coverage or {}).get("pages_total")
     if not total:
         return ""
-    read = len((page_coverage or {}).get("fact_pages") or [])
+    read = intake.pages_read_count(page_coverage)
     return f" on {read} of {total} page{'s' if total != 1 else ''}"
 
 

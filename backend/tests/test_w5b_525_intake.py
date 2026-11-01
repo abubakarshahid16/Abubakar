@@ -320,6 +320,31 @@ def test_a_partly_read_sheet_is_counted_apart_from_the_fully_read_ones(
     assert split["pages_read"] == [2]
 
 
+def test_partly_read_every_summary_of_pages_read_agrees(tmp_path, monkeypatch):
+    from app import comparison, review_trace
+
+    doc_id = _index_xlsx(_big_hidden_workbook(tmp_path / "agree.xlsx"), "agree.xlsx")
+    page_ledger.refresh(doc_id)
+    conn = db.connect()
+    with conn:  # both sheets carry facts, as a datasheet read would leave them
+        conn.execute(
+            "UPDATE page_ledger SET facts_status = 'facts', facts_recorded_by = 'extraction'"
+            " WHERE document_id = ?",
+            (doc_id,),
+        )
+    cov = page_ledger.coverage(doc_id)
+    assert cov["fact_pages"] == [1, 2] and list(cov["pages_partly_read"]) == ["1"]
+    strip = page_ledger.readiness_pages(doc_id)
+    assert strip["pages_read"] == 1 and strip["pages_partly_read"] == ["1"]
+    assert strip["pages_total"] == 2
+    assert comparison._pages_part(cov) == " on 1 of 2 pages"
+    assert "read into fields 1" in review_trace._read_step(cov, [])["summary"]
+    settings.one_intake_enabled = False  # switch off: every summary counts as before
+    off = page_ledger.coverage(doc_id)
+    assert page_ledger.readiness_pages(doc_id)["pages_read"] == 2
+    assert comparison._pages_part(off) == " on 2 of 2 pages"
+
+
 def test_switch_off_leaves_pages_read_alone(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
     doc_id = _index_xlsx(_big_hidden_workbook(tmp_path / "soff.xlsx"), "soff.xlsx")

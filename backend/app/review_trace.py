@@ -93,7 +93,7 @@ def _short(text: object, n: int = 70) -> str:
 
 def _read_step(pages: dict, facts: list[dict]) -> dict:
     """Step 1 READ, with what intake left out (ONE_INTAKE_ENABLED) named beside the counts."""
-    from . import page_not_read
+    from . import intake, page_not_read
 
     by_page_reader = pages.get("pages_read_only_by_page_reader") or []
     partly = pages.get("pages_partly_read") or {}
@@ -102,7 +102,7 @@ def _read_step(pages: dict, facts: list[dict]) -> dict:
     blank = sum(1 for f in facts if f.get("is_blank"))
     return _step(
         "READ",
-        f"pages {pages.get('pages_total')} | read into fields {len(pages.get('fact_pages') or [])}"
+        f"pages {pages.get('pages_total')} | read into fields {intake.pages_read_count(pages)}"
         + (f", backup reader only {len(by_page_reader)} (p{', p'.join(map(str, by_page_reader))})"
            if by_page_reader else "")
         + f" | values {len(facts)} from {len(fields)} fields | blank {blank}"

@@ -475,6 +475,23 @@ def coverage_part(document_id: str) -> dict:
     }
 
 
+def partly_part(coverage: dict) -> dict:
+    """`pages_partly_read` for a summary, only when a page was read in part."""
+    partly = coverage.get("pages_partly_read")
+    return {"pages_partly_read": sorted(partly, key=int)} if partly else {}
+
+
+def pages_read_count(coverage: dict | None) -> int:
+    """Pages read into fields, NOT counting a page intake read only in part.
+
+    The one count every summary of "pages read" uses (coverage consumers, the
+    readiness strip, the CRS sentence, the review trace), so they cannot drift.
+    Switch off, or nothing partly read: len(fact_pages) as before."""
+    cov = coverage or {}
+    partly = cov.get("pages_partly_read") or {}
+    return sum(1 for p in cov.get("fact_pages") or [] if str(p) not in partly)
+
+
 def split_partly(coverage: dict) -> dict:
     """A page intake read only in part is not fully read: it leaves `pages_read`
     (and `pages_not_read`, a reading did come back) for `pages_partly_read`, with

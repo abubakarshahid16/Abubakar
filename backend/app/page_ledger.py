@@ -790,8 +790,8 @@ def readiness_pages(document_id: str) -> dict:
     ledger_state = state(document_id)
     cov = coverage(document_id) if ledger_state == CURRENT else {}
     return {
-        "pages_total": cov.get("pages_total"),
-        "pages_read": len(cov.get("fact_pages") or []) if ledger_state == CURRENT else None,
+        "pages_total": cov.get("pages_total"), **intake.partly_part(cov),
+        "pages_read": intake.pages_read_count(cov) if ledger_state == CURRENT else None,
         "pages_read_no_field": cov.get("pages_read_no_field") or [],
         "unread_pages": cov.get("pages_not_read_into_fields") or [],
         "unread_page_reasons": cov.get("not_read_reasons") or {},
