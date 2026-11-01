@@ -467,9 +467,9 @@ def decide_clause_check(
     Accept is verified by code again and VERSIONED: a new confirmed numeric
     limit is written and the sentence row is superseded, not deleted. A draft
     the caller may not read is 404, like every route."""
-    from .. import ai_requirements
+    from .. import ai_requirement_chunks, ai_requirements
     try:
-        return ai_requirements.decide_draft(
+        return ai_requirement_chunks.decide(
             draft_id, decision=body.decision,
             allowed_document_ids=scope.allowed_document_ids, actor=actor)
     except ai_requirements.DraftError as exc:
@@ -491,15 +491,23 @@ def extract_clause_checks(
 ):
     """#645 slice 3: the LOCAL model reads this standard's chunks and proposes
     limits; code verifies every field; drafts only. ADMIN. Off unless
-    `ai_requirement_extraction_enabled`. Counts only in the answer."""
-    from .. import ai_requirement_chunks
+    `ai_requirement_extraction_enabled`. Counts only in the answer.
+
+    SYNCHRONOUS: the request returns when the (at most 20) chunks are read,
+    holding the heavy-job lock; if another heavy job holds it, 409 at once."""
+    from .. import ai_requirement_chunks, heavy_lock
     from .. import standards as standards_mod
 
-    report = ai_requirement_chunks.extract_standard(
-        document_id,
-        allowed_document_ids=scope.allowed_document_ids,
-        max_chunks=max_chunks,
-    )
+    try:
+        report = ai_requirement_chunks.extract_standard(
+            document_id,
+            allowed_document_ids=scope.allowed_document_ids,
+            max_chunks=max_chunks,
+        )
+    except heavy_lock.HeavyJobBusy as exc:
+        raise HTTPException(
+            status_code=409, detail="another heavy job is running"
+        ) from exc
     standards_mod._audit(
         "standard.clause_check_extract",
         actor,
