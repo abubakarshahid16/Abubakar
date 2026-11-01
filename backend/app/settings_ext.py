@@ -57,6 +57,13 @@ class SettingsExt(BaseModel):
     #: to the engineer with the reason. The owner should switch this on promptly: it removes a possible
     #: wrong approval. OFF: nothing changes. Env: PERCENT_KIND_CHECK_ENABLED.
     percent_kind_check_enabled: bool = False
+    #: #1503 CRS EXPORT QUALITY (`crs_export_quality.py`): one row per section + clause, no
+    #: empty rows, a page or "page not found (reason)" on every row, comments at most 350
+    #: characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks,
+    #: the standards sheet without "Considered, not applied", "not in your library" by kind,
+    #: Priority from the fixed list. EXPORT ONLY: no verdict, status or finding changes.
+    #: OFF: nothing changes. Env: CRS_EXPORT_QUALITY_ENABLED.
+    crs_export_quality_enabled: bool = False
     #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
     #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
