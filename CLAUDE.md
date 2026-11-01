@@ -12,6 +12,19 @@
 > replacing an AI step with a rules-only path, needs the owner's written
 > approval on #692.
 
+## Where we are (facts only; the live state is in the files named here)
+
+- Live state, read first: `~/project/planner/WHERE-WE-ARE.md` (rewritten daily), then the day's `mirror/daily/<date>.md`.
+- The plan: #805 (PLAN ONE, plan change 9 applied); Cycle 1 is milestone 56, Cycle 2 is milestone 57, Parking is milestone 58.
+- Cycle 1 runs 1 to 8 Nov 2026 (build); Cycle 2 runs 9 to 15 Nov 2026 (prove on real documents).
+- The done-gate is the bench: `scripts/crs_bench.py`. It decides "done", not a builder's say-so.
+- The measure is standard rules decided Pass/Fail by code on real documents with 0 wrong verdicts; query/engineer rows do not count.
+- Design: recognise kind, read every page, find rules, AI review clause by clause, code verifies every quote, kit checks decide, engineer approves.
+- A fix is general, never per-layout (rule 13); the converter's Claude lane stays off (rule 1).
+- Moved long passages of this file: `docs/claude-md-detail.md`.
+- The current defect list: `docs/code-review/README.md`; recorded false claims: `docs/status-honesty-audit.md`.
+- When this header and the planner file differ, the planner file and #805 win.
+
 Read this first, every session. It is short on purpose; the long version is
 `docs/HANDOVER.md`, and the current defect list is `docs/code-review/README.md`.
 
@@ -81,40 +94,17 @@ carries the client's name; only the owner can rename it.
 6. **Tests are non-negotiable and must not be vacuous.** Every change ships with
    a test that fails without it (check it once by hand: revert the fix, see the
    test fail). **Mutation entries are required only in the danger zone**, where a
-   wrong answer reaches an engineer, the live data, the network or the budget:
-   `comparison.py`, `numparse.py` and the unit code in `claims.py`,
-   `datasheet_checks.py` and `reference/datasheet_checks.json` (the #746
-   checklist), `crs_mapping.py`, `crs_export.py` and `crs_numbers.py`,
-   `live_guard.py`, `heavy_lock.py` and the live guards in
-   `scripts/rehearse_requirement_reextraction.py`, the four socket modules of
-   rule 1 (`market_transport.py`, `model_transport.py`, `reader_transport.py`,
-   `notifications.py`) and `claude_spend.py`. Everywhere else ordinary tests are
-   enough; do not add mutation entries. Existing entries stay and keep running.
-   Vacuous tests are this project's documented recurring defect
-   (`docs/status-honesty-audit.md`).
+   [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 6 (continued)"]
 7. **When something the user sees turns out false, record the retraction** in
    `docs/status-honesty-audit.md`: screen text, CRS wording, reports, exports,
    and claims made to the owner in issues or PRs. Internal refactors, test-only
-   changes and renamed helpers get no entry. Name a new entry after its PR:
-   `- **A-<PR number> - ...**` (a second one in the same PR: `A-<PR number>b`).
-   Existing numbered entries stay as they are. Several findings in
-   `docs/code-review/` belong there.
+   [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 7 (continued)"]
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
    another). Before closing a fix, grep for the claim.
 9. **"Super user"** is a display label only; the internal identifier stays `admin`.
 10. **Dashboard stays a focused operational dashboard, not a metrics dump.**
-    As of the AI Submittal Review workflow (2026-09), this no longer means
-    "no new tiles" literally - it means no UNNECESSARY tiles. Exactly four
-    primary cards: Contractor Submittals, Active Standards, Reviews in
-    Progress, Needs Attention. One `Upload Datasheet and Run AI Review`
-    button. One compact Recent Reviews table. One warning banner shown only
-    when there is a real issue (low memory, failed OCR, missing standards).
-    Standards Readiness detail lives on the Standards Library page. Recent
-    Intelligence Work (comprehensive analyses, gap analyses, market results)
-    lives on the Analysis Hub. RAM/model/OCR/embeddings/latency/ingestion
-    detail lives on System Health. Nothing else gets added to Dashboard
-    without updating this rule first.
+    [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 10 (continued)"]
 11. Merge commits, not squash. Conventional prefixes (`feat:`, `fix:`, `test:`,
     `docs:`). Issues, milestones, PRs with `Closes #N`. Free tools only.
 12. **IDs are named after the PR, never "the next free number".** Mutation ids:
@@ -124,14 +114,7 @@ carries the client's name; only the owner can rename it.
 13. **General fixes only, never per-layout** (owner order, 13 Oct 2026, #692).
     Never add code that recognises one datasheet's table shape, label
     spelling or layout; new layouts will keep arriving. Allowed: fixes true
-    for any document (number/unit/comparator meaning, silent-loss reporting,
-    verdict safety, output size, approved checklists, code quality). New
-    layouts are handled by one path: the reader fills the equipment type's
-    fixed field list with a page quote per value; code verifies the quote
-    and compares with the approved rule; what the reader misses goes to the
-    engineer or waits for a stronger reader. A reading fix is merged only if
-    it also helps, or does not hurt, sheets it was not built on (invented +
-    held-out totals).
+    [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 13 (continued)"]
 
 ## Mistakes not to repeat (26 Oct)
 
@@ -163,23 +146,11 @@ When a mistake is called out on #692, add one line here in your next PR.
 ## Tooling traps that have already bitten
 
 - Backend needs **Python 3.12 exactly**; `run.py` refuses others.
-- The Cowork device shell is a **Linux VM** bridged to the Windows folder:
-  Python 3.10, cannot reach Windows localhost, **cannot run the backend suite**.
-  `npx`/`npm` from that VM installs **Linux** native binaries into
-  `node_modules` and breaks `npm run dev` on Windows (happened once — fixed
-  with `npm install lightningcss-win32-x64-msvc@1.32.0`). Do not run npm/npx
-  against the repo from the VM. `node node_modules/typescript/bin/tsc` is safe.
+  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: Cowork VM item (continued)"]
 - SQLite is **WAL mode**: the DB is three files (`.sqlite`, `-wal`, `-shm`).
   Copying only one loses documents. Never open the live DB from the VM
   (disk I/O error).
-- **Only the server writes the live DB.** Start it with `python run.py` (it
-  marks the process; uvicorn directly would be refused its own database).
-  Any other process that must write `backend/data/rag_intelligence.sqlite`
-  calls `app.live_guard.prepare_live_write(path, reason=...)`, which takes a
-  verified online backup and runs a restore drill first; `db.connect()`
-  refuses otherwise. Read-only work: `sqlite3 "file:...?mode=ro"`, or
-  `live_guard.diagnostic_copy()`. A script run from a git worktree once wrote
-  the main checkout's live DB (2026-09-24) - this is why.
+  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: only the server writes the live DB (continued)"]
 - Shell heredocs eat backslashes in regexes. Write Python patch scripts to a
   file, or use quoted heredocs (`<<'EOF'`).
 - `AUTH_MODE=demo_required` is on. `<img src>` cannot send the bearer token —
@@ -187,16 +158,7 @@ When a mistake is called out on #692, add one line here in your next PR.
 
 ## Heavy checks: one lock, batched (#680)
 
-P1, the changed-test run, the mutation run and the AI task batch each need most
-of the machine's memory. They share ONE lock file, `D:\project\.heavy-job.lock`
-on the Windows PC (elsewhere the temp folder; `HEAVY_JOB_LOCK=<path>` moves it,
-`HEAVY_JOB_LOCK=off` disables it, CI does). It names owner, kind and start time;
-it is stale after 3 hours or when its process is gone. `run_p1.py`,
-`scripts/test_changed.py`, `scripts/mutation_check.py` and the AI batch
-(`backend/app/ai_task_runner.py`) take it themselves through
-`backend/app/heavy_lock.py`; a job waits up to 30 minutes
-(`HEAVY_JOB_WAIT_MINUTES`), then exits with code 75 and says who holds it.
-Never write a second waiter.
+[continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: one lock, batched (#680), opening paragraph"]
 
 1. GitHub CI is the first gate for every PR.
 2. P1 on the PC runs ONCE per merge round on the merged result of a small batch
