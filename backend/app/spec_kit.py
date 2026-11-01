@@ -477,15 +477,15 @@ def notes(findings: list[dict]) -> list[dict]:
     not_run = [f for f in findings if is_row(f) and _code(f).startswith(NOT_RUN)]
     if not_run:
         said = str(not_run[0].get("ai_rationale") or "")
-        text = said.split(": ", 1)[1] if said.startswith(NOT_RUN + ": ") else NOT_RUN_NOTE
+        text = (
+            said.split(": ", 1)[1] if said.startswith(NOT_RUN + ": ") else NOT_RUN_NOTE
+        )
         return [{"note": text, "standard": "", "count": 1, "detail": text + "."}]
     rows = [f for f in findings if is_unfound(f)]
     if not rows:
         return []
     noun = _noun(rows[0])
-    topics = [
-        _NOUN.sub("", f.get("requirement") or "").split(" (")[0] for f in rows
-    ]
+    topics = [_NOUN.sub("", f.get("requirement") or "").split(" (")[0] for f in rows]
     listed = "; ".join(topics[:8]) + (
         f"; and {len(topics) - 8} more" if len(topics) > 8 else ""
     )

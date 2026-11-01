@@ -35,7 +35,9 @@ def test_the_drawing_kit_names_held_and_draft_items_and_cites_a_held_clause():
     kit = spec_kit.kind_kits()["drawing"]
     held, draft = spec_kit.held_count(kit)
     assert "DRAFT" in kit["label"] and held >= 5 and draft >= 4
-    assert set(spec_kit.kind_kits()) == {"drawing"}  # transmittal, contract: no held standard
+    assert set(spec_kit.kind_kits()) == {
+        "drawing"
+    }  # transmittal, contract: no held standard
     for item in kit["items"]:
         assert bool(item.get("held")) != bool(item.get("draft_reason")), item["id"]
         if item.get("held"):
@@ -52,7 +54,9 @@ def test_found_items_are_engineer_rows_with_page_and_a_verified_quote(on):
     assert job["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
     assert job["requirement"].startswith("A drawing states: ")
     assert "SAES-A-202 cl. 6.9 (p.20)" in job["requirement"]
-    assert job["contractor_page"] == 1 and job["contractor_evidence_text"] in DRAWING_PAGE1
+    assert (
+        job["contractor_page"] == 1 and job["contractor_evidence_text"] in DRAWING_PAGE1
+    )
     assert "of the drawing; engineer to confirm" in job["finding"]
     scale = next(r for k, r in rows.items() if k.startswith("A drawing states: Scale"))
     assert scale["contractor_page"] == 2
@@ -73,9 +77,9 @@ def test_items_not_found_are_one_counted_note_and_never_missing_information(on):
     assert "of the drawing must-contain list (a DRAFT list)" in notes[0]["detail"]
     assert "A drawing states" not in notes[0]["detail"]
     built = crs_mapping.build_crs_rows(rows, [], "dwg.pdf")
-    assert len([b for b in built if b.get("row_kind") == "spec_kit"]) == len(rows) - len(
-        unfound
-    )
+    assert len([b for b in built if b.get("row_kind") == "spec_kit"]) == len(
+        rows
+    ) - len(unfound)
 
 
 def test_a_drawing_is_never_compliant_or_missing_information(on):
@@ -91,7 +95,10 @@ def test_a_drawing_with_no_stored_page_text_is_not_run_and_says_so_in_one_note(o
     rows = _rows(run)
     assert len(rows) == 1 and rows[0]["ai_rationale"].startswith(spec_kit.NOT_RUN)
     notes = spec_kit.notes(rows)
-    assert len(notes) == 1 and "Drawing kit not run: no page text is stored" in notes[0]["note"]
+    assert (
+        len(notes) == 1
+        and "Drawing kit not run: no page text is stored" in notes[0]["note"]
+    )
     assert spec_kit.NOT_RUN_NOTE not in notes[0]["note"]
     built = crs_mapping.build_crs_rows(rows, [], "dwg.pdf")
     assert [b for b in built if b.get("row_kind") == "spec_kit"] == []
@@ -127,14 +134,21 @@ def test_a_kind_without_a_kit_is_not_run(on, kind):
 
 def test_the_specification_kit_is_unchanged(monkeypatch):
     monkeypatch.setattr(settings, "spec_kit_enabled", True)
-    _sub, run, scope = _world(kind="specification", pages=("Design pressure shall be 12 bar.",))
+    _sub, run, scope = _world(
+        kind="specification", pages=("Design pressure shall be 12 bar.",)
+    )
     assert spec_kit.applies(_sub)
     spec_kit.for_review(run, scope)
     rows = _rows(run)
-    assert rows and all(r["requirement"].startswith("A specification states: ") for r in rows)
+    assert rows and all(
+        r["requirement"].startswith("A specification states: ") for r in rows
+    )
     notes = spec_kit.notes(rows)
     assert notes[0]["note"] == spec_kit.NOTE
-    assert "items of the specification must-contain list (a DRAFT list)" in notes[0]["detail"]
+    assert (
+        "items of the specification must-contain list (a DRAFT list)"
+        in notes[0]["detail"]
+    )
     assert spec_kit.item_row(
         spec_kit.kits()["pressure_vessel"]["items"][0], [(1, "x")]
     )["finding"].endswith("engineer to check.")
