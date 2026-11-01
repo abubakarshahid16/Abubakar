@@ -52,6 +52,14 @@ def line_shape(line: str) -> str:
 def is_blank_form(lines: Sequence[tuple[int, str]]) -> bool:
     shapes = [line_shape(line) for _, line in lines]
     labels, values = shapes.count("label"), shapes.count("value")
+    # Text order varies: labels in one block, values in another, or a bare value
+    # line after its "Label:" line. A cell-less line with a figure or in mixed
+    # case is value evidence too (a capitals-only line is a heading or a label).
+    values += sum(
+        1
+        for (_, line), shape in zip(lines, shapes, strict=True)
+        if shape == "other" and _is_value(line.strip().strip("|").strip())
+    )
     return labels >= MIN_LABEL_LINES and values <= labels * _VALUE_SHARE
 
 
