@@ -46,6 +46,12 @@ class SettingsExt(BaseModel):
     #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
     #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.
     pump_kit_draft_enabled: bool = False
+    #: #1475 finding: a value exactly AT a percent / factor limit ("1.05 x operating pressure",
+    #: "10 % above", "110 % of the MAWP") can read just under it in some units by float rounding and
+    #: fail wrongly. ON: the limit comparison ignores float noise (1e-9 relative), never wider.
+    #: The owner should switch this on promptly: it removes a possible wrong Fail. OFF: nothing
+    #: changes. Env: AT_LIMIT_PRECISION_ENABLED.
+    at_limit_precision_enabled: bool = False
     #: #1503 CRS EXPORT QUALITY (`crs_export_quality.py`): one row per section + clause, no
     #: empty rows, a page or "page not found (reason)" on every row, comments at most 350
     #: characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks,
