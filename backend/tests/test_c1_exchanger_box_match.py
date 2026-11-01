@@ -52,7 +52,9 @@ def test_on_a_split_abbreviation_is_the_tube_outside_diameter(on):
     assert "(page 4)" in row["detail"]
 
 
-@pytest.mark.parametrize("name", ["tube i d", "shell o d", "o d", "tube p d", "x tube o d", "tube o d n"])
+@pytest.mark.parametrize(
+    "name", ["tube i d", "shell o d", "o d", "tube p d", "x tube o d", "tube o d n"]
+)
 def test_on_an_unrelated_label_never_matches(on, name):
     row = _row([fact(name, "1.", "in", page=4)], "HEX-11")
     assert row["status"] == "MISSING_INFORMATION"
@@ -64,15 +66,25 @@ def test_on_a_blank_under_the_joined_label_is_missing_not_stated(on):
 
 
 def test_off_a_unit_left_off_one_copy_is_two_values():
-    row = _row([fact("corrosion allowance", "0.0625", page=1), fact("corrosion allowance", "0.0625", "in", page=5)],
-               "HEX-08")
+    row = _row(
+        [
+            fact("corrosion allowance", "0.0625", page=1),
+            fact("corrosion allowance", "0.0625", "in", page=5),
+        ],
+        "HEX-08",
+    )
     assert row["status"] == "NEEDS_ENGINEER_REVIEW"
     assert "two different values" in row["detail"]
 
 
 def test_on_a_unit_left_off_one_copy_is_one_value(on):
-    row = _row([fact("corrosion allowance", "0.0625", page=1), fact("corrosion allowance", "0.0625", "in", page=5)],
-               "HEX-08")
+    row = _row(
+        [
+            fact("corrosion allowance", "0.0625", page=1),
+            fact("corrosion allowance", "0.0625", "in", page=5),
+        ],
+        "HEX-08",
+    )
     assert row["status"] == "COMPLIANT"
     assert "in" in row["detail"]
 

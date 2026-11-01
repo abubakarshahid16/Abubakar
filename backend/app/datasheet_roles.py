@@ -34,7 +34,8 @@ def role_of(
 ) -> str | None:
     """The first matching role, or the first one in `prefer` when several match."""
     found = roles_of(field_name, rules)
-    if not found:  # switch `datasheet_label_match_enabled`: a split abbreviation ("tube o d")
+    # switch `datasheet_label_match_enabled`: a split abbreviation ("tube o d")
+    if not found:
         found = _joined_roles(field_name, rules)
     return next((r for r in found if r in prefer), found[0] if found else None)
 
