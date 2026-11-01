@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import clause_review
+from app import clause_review, db
 from app import reasoning_provider as rp
 from app.config import settings
 from tests.test_1477_clause_review import (  # noqa: F401 - fixtures
@@ -71,7 +71,8 @@ def test_cache_hits_do_not_consume_the_budget(on, whole, monkeypatch):
     _sub, run, scope = _world(_reqs(10))
     clock = Clock()
     _go(run, scope, Fake(ANS, clock, step=10.0), clock=clock)  # fills the cache
-    second, clock2 = Fake(ANS, clock, step=10.0), Clock()
+    clock2 = Clock()
+    second = Fake(ANS, clock2, step=10.0)
     status = _go(run, scope, second, clock=clock2)
     assert second.packets == [] and status["cache_hits"] == 10
     assert clock2.t == 0.0 and status["not_reviewed"] == []
@@ -93,3 +94,33 @@ def test_whole_mode_never_routes_to_claude(on, whole, monkeypatch):
     )
     monkeypatch.setattr(rp, "ClaudeProvider", lambda *a, **k: pytest.fail("Claude"))
     assert clause_review.run(run, allowed_document_ids=scope)["ran"] and made
+
+
+def test_after_the_budget_a_cached_requirement_is_still_reviewed(
+    on, whole, monkeypatch
+):
+    sub, run, scope = _world(_reqs(4))
+    monkeypatch.setattr(settings, "clause_review_time_budget_s", 20.0)
+    clock = Clock()
+    _go(run, scope, Fake(ANS, clock, step=10.0), clock=clock)  # caches 5.1 and 5.2
+    # forget 5.1: it is uncached and first in line; 5.2 stays cached and comes later
+    pages = clause_review.page_texts(sub)
+    first = clause_review.requirements_for(run, scope)[0]
+    passages = clause_review.retrieve(sub, first["requirement_text"], pages)
+    key = clause_review.cache_key(passages, first, "fake-local")
+    with db.connect() as conn:
+        conn.execute("DELETE FROM clause_review_cache WHERE key = ?", (key,))
+        conn.execute(
+            "DELETE FROM review_findings WHERE origin = ?", (clause_review.ORIGIN,)
+        )
+    monkeypatch.setattr(settings, "clause_review_time_budget_s", 10.0)
+    clock2 = Clock()
+    second = Fake(ANS, clock2, step=10.0)
+    status = _go(run, scope, second, clock=clock2)
+    # 5.1 uses the whole budget (one call); 5.2 is cached, 5.3 and 5.4 are not
+    assert len(second.packets) == 1 and status["cache_hits"] == 1
+    assert sorted(r["standard_clause"] for r in _rows(run)) == ["5.1", "5.2"]
+    assert status["whole_document_note"] == (
+        "2 of 4 requirements reviewed; 2 not reviewed (time budget of 10 s reached); "
+        "first not reviewed: 5.3, 5.4"
+    )

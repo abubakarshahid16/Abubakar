@@ -639,9 +639,12 @@ def for_review(review_run_id: str, scope: frozenset[str]) -> None:
 
 
 _FAILED = object()
+_SKIPPED = object()
 
 
-def _answer(provider, key, kind, req, passages, status, submittal, model):
+def _answer(
+    provider, key, kind, req, passages, status, submittal, model, cache_only=False
+):
     """(the parsed answer or None, was it stored, the engine) for one requirement.
     A stored answer makes no model call; a cut-off or schema-breaking reply is no answer."""
     from . import reasoning_provider as rp
@@ -654,6 +657,10 @@ def _answer(provider, key, kind, req, passages, status, submittal, model):
     if stored is not None:
         status["cache_hits"] += 1
         return _parse(stored["answer"]), True, None
+    if (
+        cache_only
+    ):  # whole-document mode, budget spent: a stored answer costs no model time
+        return _SKIPPED, False, None
     packet = rp.Packet(
         prompt=build_prompt(kind, req, passages),
         system=SYSTEM,
@@ -748,14 +755,13 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
     started, engine = clock(), model
     total = min(len(wanted), cap)
     for index, req in enumerate(wanted[:cap]):
-        if clock() - started >= budget_s:
+        spent = clock() - started >= budget_s
+        if spent and not whole:
             status["not_reviewed"] = [_label(r) for r in wanted[index:cap]]
-            status["stopped"] = (
-                f"time budget of {round(budget_s)} s reached"
-                if whole
-                else "the time budget for this document was spent"
-            )
+            status["stopped"] = "the time budget for this document was spent"
             break
+        if spent:
+            status["stopped"] = f"time budget of {round(budget_s)} s reached"
         # #1494: display only, "checking clause N of M"
         job_progress.clause(index + 1, total)
         passages = retrieve(submittal, req["requirement_text"], pages)
@@ -768,7 +774,11 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
             status,
             submittal,
             model,
+            cache_only=spent,
         )
+        if answer is _SKIPPED:  # budget spent and nothing stored: not reviewed
+            status["not_reviewed"].append(_label(req))
+            continue
         if answer is _FAILED:
             status["failed"].append(_label(req))
             continue
