@@ -768,7 +768,8 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
             status["not_reviewed"] = [_label(r) for r in wanted[index:cap]]
             status["stopped"] = "the time budget for this document was spent"
             break
-        job_progress.clause(index + 1, total)  # #1494: display only, "checking clause N of M"
+        # #1494: display only, "checking clause N of M"
+        job_progress.clause(index + 1, total)
         passages = retrieve(submittal, req["requirement_text"], pages)
         answer, cached, called_engine = _answer(
             provider,

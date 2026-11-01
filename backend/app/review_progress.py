@@ -71,7 +71,9 @@ def detail(row: dict) -> dict:
     c_total = int(cm.group(2)) if cm else None
     c_done = max(0, min(c_on - 1, c_total)) if c_total else None
     started = job_progress.CLAUSE_STARTED.get(row.get("id") or "")
-    c_elapsed = max(0, int(time.time() - started)) if started and c_done is not None else None
+    c_elapsed = (
+        max(0, int(time.time() - started)) if started and c_done is not None else None
+    )
     ages = [
         seconds_since(row.get("updated_at")),
         seconds_since(row.get("claimed_at")),

@@ -38,13 +38,17 @@ def test_the_clause_review_reports_each_clause_before_it_works_on_it(on):
     _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS))
     seen = []
     fake = Fake(ANSWERS)
-    with job_progress.reporting_clauses(lambda n, t: seen.append((n, t, len(fake.packets)))):
+    with job_progress.reporting_clauses(
+        lambda n, t: seen.append((n, t, len(fake.packets)))
+    ):
         _go(run, scope, fake)
     # (clause, of, model calls made so far): reported BEFORE its own call
     assert seen == [(1, 2, 0), (2, 2, 1)]
 
 
-def test_the_total_is_the_number_that_will_be_reviewed_not_the_cap_overflow(on, monkeypatch):
+def test_the_total_is_the_number_that_will_be_reviewed_not_the_cap_overflow(
+    on, monkeypatch
+):
     monkeypatch.setattr(settings, "clause_review_max_requirements", 1)
     _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS))
     seen = []
@@ -79,7 +83,9 @@ def test_the_job_label_is_numbers_only_and_the_clause_clock_starts_at_clause_one
     assert label == "checking clause 1 of 60"
     started = job_progress.CLAUSE_STARTED["j1"]
     review_jobs._clause(conn, "j1", 2, 60)
-    assert job_progress.CLAUSE_STARTED["j1"] == started  # only clause 1 starts the clock
+    assert (
+        job_progress.CLAUSE_STARTED["j1"] == started
+    )  # only clause 1 starts the clock
 
 
 def test_clauses_done_are_finished_clauses_and_pages_are_null(monkeypatch):
@@ -88,7 +94,9 @@ def test_clauses_done_are_finished_clauses_and_pages_are_null(monkeypatch):
     d = review_jobs.job_for_run(run_id)["progress_detail"]
     assert (d["clauses_done"], d["clauses_total"]) == (11, 60)
     assert d["pages_done"] is None and d["pages_total"] is None
-    assert d["clauses_elapsed_seconds"] is None  # no clause clock held: no estimate basis
+    assert (
+        d["clauses_elapsed_seconds"] is None
+    )  # no clause clock held: no estimate basis
 
 
 def test_in_the_reading_step_clauses_are_null_never_zero(monkeypatch):
