@@ -27,6 +27,7 @@ import type { DocumentRecord, ReviewFinding, ReviewRunSummary, ReviewRunTierSumm
 import { downloadCrs } from "../components/review/downloadCrs";
 import { progressLine, runStatusLabel } from "../components/review/reviewFormat";
 import type { StandardsState } from "../components/review/panels/BehindTheScenes";
+import { ReviewProgressBlock } from "../components/review/progress/ReviewProgressBlock";
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
 import { BeforeYouSign } from "../components/review/crs/BeforeYouSign";
 import { signLeft, useIssueGate } from "../components/review/crs/issueGate";
@@ -156,6 +157,7 @@ function RunNotReady({ run, active, onBack, onChanged }: { run: ReviewRunSummary
             {run.status === "queued" ? "Waiting to start"
               : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status)}
           </p>
+          <ReviewProgressBlock job={run.job} />
           <ReviewJobControl run={run} onChanged={onChanged} />
         </>
       ) : (
