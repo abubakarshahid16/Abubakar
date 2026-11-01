@@ -33,13 +33,14 @@ from __future__ import annotations
 
 import re
 
+from . import ai_requirement_tables as tables
 from . import ai_requirements as air
 from . import ai_task_runner, heavy_lock
 from .config import settings
 
 NOT_A_SINGLE_LIMIT = "the requirement is not a single limit with a comparator"
 MODEL_FLAGGED = "code's reading and the model's disagree"
-COMPARATOR_NOT_STATED = "the quote states no comparator, so it stays unknown"
+COMPARATOR_NOT_STATED = tables.COMPARATOR_NOT_STATED
 PAGE_UNCERTAIN = "the chunk spans pages, so the quote's page is not certain"
 ALREADY_HELD = "an existing requirement already holds these words"
 #: `superseded_at` of a row waiting for the engineer's decision on its draft.
@@ -135,6 +136,32 @@ def _store(conn, standard_document_id: str, chunk, check: dict, model) -> None:
         )
 
 
+def _take(conn, standard_document_id: str, chunk, item: dict, report: dict) -> None:
+    """Verify one extracted item and store what passes. A row of a headed
+    table whose column header states the direction (slice 2) is read by
+    `ai_requirement_tables`; every other item takes the sentence path."""
+    row = tables.read_row(item, chunk["text"])
+    if row is not None:
+        checks, refusals = row
+        for why in refusals:
+            _refuse(report, why)
+        duplicate = tables.already_drafted
+    else:
+        check, why = verify_item(item, chunk["text"])
+        checks = [check] if check else []
+        duplicate = lambda c, s, ck: _held(c, s, ck["quote"])  # noqa: E731
+        if check is None:
+            _refuse(report, why)
+    for check in checks:
+        if chunk["page_start"] != chunk["page_end"]:
+            _refuse(report, PAGE_UNCERTAIN)
+        elif duplicate(conn, standard_document_id, check):
+            _refuse(report, ALREADY_HELD)
+        else:
+            _store(conn, standard_document_id, chunk, check, report["model"])
+            report["proposed"] += 1
+
+
 def extract_standard(
     standard_document_id: str,
     *,
@@ -179,18 +206,7 @@ def extract_standard(
                 found = air.extract(chunk["text"], provider=provider)
                 report["could_not_read"] += len(found["could_not_read"])
                 for item in found["requirements"]:
-                    check, why = verify_item(item, chunk["text"])
-                    if check is None:
-                        _refuse(report, why)
-                    elif chunk["page_start"] != chunk["page_end"]:
-                        _refuse(report, PAGE_UNCERTAIN)
-                    elif _held(conn, standard_document_id, check["quote"]):
-                        _refuse(report, ALREADY_HELD)
-                    else:
-                        _store(
-                            conn, standard_document_id, chunk, check, report["model"]
-                        )
-                        report["proposed"] += 1
+                    _take(conn, standard_document_id, chunk, item, report)
         finally:
             (unload or ai_task_runner._unload)(provider)
     return report
