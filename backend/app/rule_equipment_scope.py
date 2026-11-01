@@ -23,6 +23,8 @@ import json
 import re
 from collections.abc import Callable, Iterable
 
+import httpx
+
 from . import subject_scope
 
 UNKNOWN = "unknown"
@@ -165,7 +167,13 @@ def ask_local_model(
             timeout=120.0,
         )
         data = json.loads(reply.get("response") or "{}")
-    except Exception:  # noqa: BLE001 - a model that fails leaves the clause unknown
+    except (
+        httpx.HTTPError,
+        OSError,
+        ValueError,
+        AttributeError,
+        TypeError,
+    ):  # a failed model leaves it unknown
         return None
     types = {str(t).strip().lower() for t in data.get("types") or []}
     quote = str(data.get("quote") or "").strip()
@@ -197,17 +205,35 @@ def stored_fields(scope: dict) -> dict:
     }
 
 
-def columns_of(structured: dict) -> dict:
-    """The two columns of a rule row, NULL when the extractor derived none."""
-    return {
-        "equipment_type": structured.get("equipment_type"),
-        "equipment_scope_evidence": structured.get("equipment_scope_evidence"),
-    }
+def store(row: dict, fields: dict) -> dict:
+    """Write the two scope columns of a just-created rule row (nothing when `fields` is
+    empty, so a switch-off run never touches the column). Returns the row."""
+    if fields:
+        from .db import add_column_if_missing, connect
+
+        conn = connect()
+        add_column_if_missing(
+            conn, "standard_requirements", "equipment_scope_evidence", "TEXT"
+        )
+        with conn:
+            conn.execute(
+                "UPDATE standard_requirements SET equipment_type = ?, equipment_scope_evidence = ?"
+                " WHERE id = ?",
+                (
+                    fields["equipment_type"],
+                    fields["equipment_scope_evidence"],
+                    row["id"],
+                ),
+            )
+    return row
 
 
 class _Off:
-    def fields(self, sentence, clause, chunk) -> dict:
+    def fields(self, *_sentence_clause_chunk) -> dict:
         return {}
+
+    def store(self, row: dict, *sentence_clause_chunk) -> dict:
+        return store(row, self.fields(*sentence_clause_chunk))
 
 
 class _On(_Off):

@@ -637,7 +637,6 @@ def create_requirement(
                 "discipline", "table_row", "subject", "required_evidence_type",
                 "unit_from", "identity_key", "value_low", "value_high"):
         row[key] = structured.get(key)
-    row.update(rule_equipment_scope.columns_of(structured))
     row["evidence_pages"] = json.dumps(
         [{"page": row["page"], "chunk_id": chunk_id}]) if identity_key else None
     # #597 THE TEXT-QUALITY GATE, at the one place every extracted row passes.
@@ -664,7 +663,7 @@ def create_requirement(
                 table_row, subject, required_evidence_type,
                 extractor_version, input_hash,
                 identity_key, evidence_pages, unit_from, quality_reason,
-                extraction_run_id, equipment_type, equipment_scope_evidence)
+                extraction_run_id)
                VALUES (:id, :standard_document_id, :clause, :page, :chunk_id,
                        :requirement_text, :source_text, :category,
                        :extraction_method, :confidence, :created_at,
@@ -676,8 +675,7 @@ def create_requirement(
                        :required_evidence_type,
                        :extractor_version, :input_hash,
                        :identity_key, :evidence_pages, :unit_from,
-                       :quality_reason, :extraction_run_id,
-                       :equipment_type, :equipment_scope_evidence)""", row)
+                       :quality_reason, :extraction_run_id)""", row)
     row["upserted"] = "created"
     return row
 
@@ -927,8 +925,7 @@ def extract_requirements(
     inputs = provenance.input_hash(
         stored["sha256"] if stored else None, *(c["text"] for c in chunks))
 
-    scoper = rule_equipment_scope.for_chunks(chunks)
-    run_id = new_extraction_run_id()
+    run_id, scoper = new_extraction_run_id(), rule_equipment_scope.for_chunks(chunks)
     #: #640 the ACTIVE unconfirmed sentence rows this run may re-produce, by
     #: (clause, sentence). Met again: kept (same id). Not met: superseded.
     reproducible: dict[tuple[str | None, str], str] = {}
@@ -1052,7 +1049,6 @@ def extract_requirements(
                     "subject": subject_of(sentence),
                     "required_evidence_type": requirements_3b.required_evidence_type(sentence),
                     **(limit or {}),
-                    **scoper.fields(sentence, clause, chunk),
                 }
                 category = "prohibition" if _PROHIBITION.search(sentence) else None
                 if key in reproducible:
@@ -1072,7 +1068,7 @@ def extract_requirements(
                         low_confidence += 1
                     continue
                 try:
-                    create_requirement(
+                    created = create_requirement(
                         standard_document_id=document_id,
                         chunk_id=chunk["id"],
                         structured=structured,
@@ -1095,9 +1091,9 @@ def extract_requirements(
                     # A chunk that vanished between the read and the write. Skipped
                     # rather than written without a resolving citation.
                     continue
+                scoper.store(created, sentence, clause, chunk)
                 written += 1
-                if confidence < VERIFICATION_THRESHOLD:
-                    low_confidence += 1
+                low_confidence += confidence < VERIFICATION_THRESHOLD
 
     superseded = _supersede(
         document_id, [i for i in reproducible.values() if i not in kept],

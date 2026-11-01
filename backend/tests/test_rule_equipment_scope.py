@@ -2,7 +2,7 @@
 stays unknown; the switch off writes nothing; the re-extraction script works on copies
 only, under the heavy lock. Invented standards and rules only."""
 
-# ruff: noqa: F811, I001
+# ruff: noqa: I001
 from __future__ import annotations
 
 import hashlib
@@ -92,20 +92,19 @@ def test_a_mid_sentence_for_does_not_set_a_scope():
     )
 
 
+def _says(types, quote):
+    def post(path, body, timeout):
+        return {"response": json.dumps({"types": types, "quote": quote})}
+
+    return post
+
+
 def test_local_model_answer_is_verified_by_code():
     text = "Seals fitted on the unit of the process string shall be double."
-    ok = lambda p, b, timeout: {
-        "response": json.dumps({"types": ["pump"], "quote": "Seals fitted on the unit"})
-    }
-    assert res.ask_local_model(_r(text), post=ok)["types"] == ["pump"]
-    invented_quote = lambda p, b, timeout: {
-        "response": json.dumps({"types": ["pump"], "quote": "pump seals"})
-    }
-    assert res.ask_local_model(_r(text), post=invented_quote) is None
-    unknown_type = lambda p, b, timeout: {
-        "response": json.dumps({"types": ["widget"], "quote": "Seals fitted"})
-    }
-    assert res.ask_local_model(_r(text), post=unknown_type) is None
+    ok = res.ask_local_model(_r(text), post=_says(["pump"], "Seals fitted on the unit"))
+    assert ok["types"] == ["pump"] and ok["method"] == res.MODEL
+    assert res.ask_local_model(_r(text), post=_says(["pump"], "pump seals")) is None
+    assert res.ask_local_model(_r(text), post=_says(["widget"], "Seals fitted")) is None
 
 
 # ------------------------------------------------------------ extraction wiring
@@ -140,14 +139,6 @@ def test_extraction_writes_scope_only_when_the_switch_is_on(monkeypatch):
         > 0
     )
     assert set(_equipment_types().values()) == {None}
-    assert (
-        db.connect()
-        .execute(
-            "SELECT COUNT(*) FROM standard_requirements WHERE equipment_scope_evidence IS NOT NULL"
-        )
-        .fetchone()[0]
-        == 0
-    )
 
 
 def test_extraction_stores_scope_with_evidence_when_on(monkeypatch):

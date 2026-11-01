@@ -23,6 +23,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import httpx
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
@@ -40,7 +42,7 @@ def _unload_models() -> None:
                     {"model": model, "prompt": "", "stream": False},
                     timeout=30.0,
                 )
-        except Exception as exc:  # noqa: BLE001 - unloading is a courtesy
+        except (httpx.HTTPError, OSError) as exc:  # unloading is a courtesy
             print(
                 f"model {model} could not be unloaded ({type(exc).__name__})",
                 file=sys.stderr,

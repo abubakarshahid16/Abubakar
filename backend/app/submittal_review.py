@@ -253,9 +253,6 @@ def ensure_schema() -> None:
             # The extraction run that wrote (or last re-produced) the row.
             # NULL on rows written before the column existed - not guessed.
             ("extraction_run_id", "TEXT"),
-            # Where `equipment_type` was read (JSON: types, quote, page, method) by
-            # `rule_equipment_scope`; NULL when no extractor derived it.
-            ("equipment_scope_evidence", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
