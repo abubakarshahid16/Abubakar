@@ -33,10 +33,25 @@ from __future__ import annotations
 
 import re
 
+from pydantic import BaseModel
+
 from . import ai_requirement_tables as tables
 from . import ai_requirements as air
 from . import ai_task_runner, heavy_lock
 from .config import settings
+
+
+class ExtractionCounts(BaseModel):
+    """The counts-only answer of the extract route (never a quote). Kept here,
+    not in `schemas.py`, which may only shrink."""
+
+    enabled: bool
+    chunks: int
+    proposed: int
+    refused: dict[str, int]
+    could_not_read: int
+    model: str | None = None
+
 
 NOT_A_SINGLE_LIMIT = "the requirement is not a single limit with a comparator"
 MODEL_FLAGGED = "code's reading and the model's disagree"

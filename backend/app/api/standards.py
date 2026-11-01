@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from .. import access, errors, schemas
+from .. import access, ai_requirement_chunks, errors, schemas
 from .. import admin as admin_mod
 from .. import job_queue as job_queue_mod
 from .. import okf as okf_mod
@@ -481,6 +481,7 @@ def decide_clause_check(
 
 @router.post(
     "/api/standards/{document_id}/clause-checks/extract",
+    response_model=ai_requirement_chunks.ExtractionCounts,
     responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
 )
 def extract_clause_checks(
@@ -495,7 +496,7 @@ def extract_clause_checks(
 
     SYNCHRONOUS: the request returns when the (at most 20) chunks are read,
     holding the heavy-job lock; if another heavy job holds it, 409 at once."""
-    from .. import ai_requirement_chunks, heavy_lock
+    from .. import heavy_lock
     from .. import standards as standards_mod
 
     try:
