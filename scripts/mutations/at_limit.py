@@ -11,8 +11,8 @@ _TAGS = ("honesty", "critical")
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
-        id="M1510-01",
-        phase=1510,
+        id="M1511-01",
+        phase=1511,
         description="above-by limit compared with plain floats again",
         path=_M,
         anchor='        ok = _hold(">=", left[0], right[0] + margin)\n',
@@ -22,8 +22,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1510-02",
-        phase=1510,
+        id="M1511-02",
+        phase=1511,
         description="percent-of limit compared with plain floats again",
         path=_M,
         anchor='    ok = _hold(rule["op"], left[0], right[0] * factor)\n',
@@ -33,8 +33,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1510-03",
-        phase=1510,
+        id="M1511-03",
+        phase=1511,
         description="the at-limit tolerance is widened beyond rounding",
         path=_A,
         anchor="AT_LIMIT_REL_TOL = 1e-9\n",
@@ -44,8 +44,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1510-04",
-        phase=1510,
+        id="M1511-04",
+        phase=1511,
         description="a value at a strict limit (> or <) passes",
         path=_A,
         anchor='        return op in (">=", "<=")\n',
@@ -55,8 +55,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1510-05",
-        phase=1510,
+        id="M1511-05",
+        phase=1511,
         description="the at-limit switch is ignored (always on)",
         path=_A,
         anchor="    if settings.at_limit_precision_enabled and math.isclose(",
