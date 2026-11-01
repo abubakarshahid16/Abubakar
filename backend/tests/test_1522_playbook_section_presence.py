@@ -125,3 +125,14 @@ def test_with_the_switch_off_the_evidence_is_the_old_dict(monkeypatch):
             "in_text": True,
         }
     ]
+
+
+def test_known_limit_a_heading_without_an_element_cue_is_unclear_not_present(
+    monkeypatch,
+):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    for heading in ("Study Team", "Team and roles"):
+        body = [_chunk(heading, "HAZOP Study Procedure > " + heading, CHAIRMAN)]
+        assert playbooks._match(_element(), body)["state"] == "unclear", heading
