@@ -36,7 +36,6 @@ from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import orphan_guard
 from . import page_ledger as page_ledger_mod
-from . import page_not_read as page_not_read_mod
 from . import fts_index as keyword_mod
 from . import metrics as metrics_mod
 from . import answer as answer_mod
@@ -2955,7 +2954,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
-        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + page_not_read_mod.notes(outcome) + [
+        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
             {"note": part["note"], "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
