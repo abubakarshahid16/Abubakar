@@ -29,6 +29,7 @@ OTHER_ORIGINS = (
     "ai_engineering_check",
     "web_standard_check",
     "clause_review",
+    "spec_kit",
     "chat",
 )
 _MISSING = "MISSING_INFORMATION"

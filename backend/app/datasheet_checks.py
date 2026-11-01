@@ -353,7 +353,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                        "pressure basis"),
                                    left[0], rule["left"], tag))
                 continue
-            ok = _hold(rule["op"], a[0], b[0])
+            ok = _hold(rule["op"], a[0], b[0], _OPS)
             calc = (f"{_label(left[0], rule['left'])} {_said(left[0])} (page {left[0].get('page')}) is "
                     f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {_label(right[0], rule['right']).lower()} "
                     f"{_said(right[0])} (page {right[0].get('page')}).")
@@ -727,7 +727,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         stated = _number_of_or_none(fact)
         if stated is None:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(f"'{_said(fact)}' is not a number"), fact)
-        ok = _hold(rule["op"], stated, float(rule["percent"]))
+        ok = _hold(rule["op"], stated, float(rule["percent"]), _OPS)
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['percent']}% of the "
                    f"{_pretty(rule['right']).lower()}.{noted}", fact)
@@ -744,7 +744,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(
                 f"{exc.reason}, so the percentage was not worked out"), fact)
         percent = amount / ref_kpa * 100.0
-        ok = _hold(rule["op"], percent, float(rule["value"]))
+        ok = _hold(rule["op"], percent, float(rule["value"]), _OPS)
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {percent:.1f}% of {_quoted(ref_fact, reference)}, which is "
                    f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['value']}%.{noted}", fact)
@@ -787,10 +787,10 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(
                 "the required margin is not on the same scale as the two values"), fact)
         margin = max(right[0] * float(rule["percent"]) / 100.0, floor[0])
-        ok = _hold(">=", left[0], right[0] + margin)
+        ok = _hold(">=", left[0], right[0] + margin, _OPS)
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'' if ok else 'not '}at least {right_words}.{noted}", fact)
-    ok = _hold(rule["op"], left[0], right[0] * factor)
+    ok = _hold(rule["op"], left[0], right[0] * factor, _OPS)
     return res(COMPLIANT if ok else NON_COMPLIANT,
                f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {right_words}.{noted}", fact)
 

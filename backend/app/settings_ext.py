@@ -30,6 +30,11 @@ class SettingsExt(BaseModel):
     #: completed. Pages read with no datasheet field are NOT failed. OFF: nothing
     #: changes. Env: NOTHING_READ_FAILS_ENABLED.
     nothing_read_fails_enabled: bool = False
+    #: #1479 specification kit (preparation, `spec_kit.py`): a DRAFT must-contain list per
+    #: discipline looked up in a specification's own pages, no model; numeric limits
+    #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
+    #: OFF: nothing changes. Env: SPEC_KIT_ENABLED.
+    spec_kit_enabled: bool = False
     #: #1472 (kept here so `config.py` does not grow): the datasheet checks read ONE value where
     #: a sheet prints a range twice (a plain note on one reading), and a combined "a / b / c"
     #: label answers each text attribute it names. OFF: nothing changes.
@@ -69,3 +74,8 @@ class SettingsExt(BaseModel):
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
     #: row held for the engineer. OFF: nothing changes. Env: VESSEL_KIT_DRAFT_ENABLED.
     vessel_kit_draft_enabled: bool = False
+    #: #1481 heat exchanger kit PREPARATION (parked, milestone 58): append the DRAFT exchanger cards of
+    #: `reference/exchanger_kit_draft.json` (the held standard SAES-E-004 requires the value, not already in the
+    #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the
+    #: engineer. OFF: nothing changes. Env: EXCHANGER_KIT_DRAFT_ENABLED.
+    exchanger_kit_draft_enabled: bool = False

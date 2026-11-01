@@ -44,7 +44,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T2, keyword="every_condition_in_a_list", tags=("checklist", "critical")),
     Mutation(id="M6508", phase=6508, description="the set pressure needs no margin above the operating pressure",
              path=APP / "datasheet_checks.py",
-             anchor="        ok = _hold(\">=\", left[0], right[0] + margin)\n",
+             anchor="        ok = _hold(\">=\", left[0], right[0] + margin, _OPS)\n",
              replacement="        ok = left[0] >= right[0]\n",
              target=_T2, keyword="greater_of_a_percent", tags=("checklist",)),
     Mutation(id="M6509", phase=6509, description="a governed standard's unmatched table cells are not covered",

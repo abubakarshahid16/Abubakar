@@ -210,6 +210,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `percent_kind` | #1512: a value printed under a % label with a fraction-sized number ("0.30 %") is not decided on a percent card, it goes to the engineer; behind `percent_kind_check_enabled` (off by default); local only, no model or socket |
 | `kit_core` | The shared mechanism of an equipment kit (#1478, #1480): data file, loader hook, tests, the held-for-the-engineer rule for every kit row; local only |
 | `vessel_kit` | #1480 preparation (parked kit, milestone 58): box list and DRAFT vessel cards from held standards (SAES-D-001), read only behind `vessel_kit_draft_enabled` (off by default); every row held, never decide |
+| `exchanger_kit` | #1481 preparation (parked kit, milestone 58): box list and DRAFT heat exchanger cards from the held standard SAES-E-004, read only behind `exchanger_kit_draft_enabled` (off by default); every row held, never decide |
 | `nothing_read` | #1495: a review that read no value and no page text ends failed "nothing read" (switch off by default) |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
 | `pairing_head` | A field is a clause's field only when the label stands in the subject's head, not in a complement (audit C5) |
@@ -217,6 +218,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `pageimage` | On-demand page rendering |
 | `passages` | Small-to-big: search small, show big |
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |
+| `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default |
 | `procedure_text` | A procedure submittal's own page text answers its requirements: engineer row with a verified quote, or missing; never compliant (#1476) |
 | `progress` | What the machine is doing right now, recorded when it actually happens |
 | `provenance` | Which code read which input: provenance for extracted rows (issue #177) |

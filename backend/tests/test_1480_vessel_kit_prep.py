@@ -568,7 +568,7 @@ def test_the_pump_kit_is_what_it_was_through_the_shared_mechanism():
         4,
         15,
     )
-    assert [k.name for k in kit_core.KITS] == ["pump", "vessel"]
+    assert {k.name for k in kit_core.KITS} >= {"pump", "vessel"}
     assert pump_kit.rows is kit_core.rows and pump_kit.held is kit_core.held
 
 

@@ -17,20 +17,15 @@ from .config import settings
 
 AT_LIMIT_REL_TOL = 1e-9
 
-_OPS = {
-    ">=": lambda a, b: a >= b,
-    ">": lambda a, b: a > b,
-    "<=": lambda a, b: a <= b,
-    "<": lambda a, b: a < b,
-}
 
-
-def hold(op: str, left: float, right: float) -> bool:
-    """`left op right`. Switch on (AT_LIMIT_PRECISION_ENABLED), a value at the
-    limit to within float noise counts as equal: it passes `<=` / `>=` and fails
-    `<` / `>`. Off: today's plain float comparison."""
+def hold(op: str, left: float, right: float, ops: dict) -> bool:
+    """`left op right`, with the caller's operator table `ops` looked up at call
+    time (so a slip in that table is still seen). Switch on
+    (AT_LIMIT_PRECISION_ENABLED), a value at the limit to within float noise is
+    compared as equal to it, through the same operator: it passes `<=` / `>=` and
+    fails `<` / `>`. Off: today's plain comparison."""
     if settings.at_limit_precision_enabled and math.isclose(
         left, right, rel_tol=AT_LIMIT_REL_TOL, abs_tol=0.0
     ):
-        return op in (">=", "<=")
-    return _OPS[op](left, right)
+        return ops[op](right, right)
+    return ops[op](left, right)
