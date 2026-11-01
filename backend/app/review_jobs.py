@@ -361,6 +361,10 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
         with _phase(conn, job_id, 0, heartbeat, timings, "read"):
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
+            if settings.nothing_read_fails_enabled:
+                why = submittal_review.nothing_read_reason(submittal)
+                if why:
+                    raise submittal_review.NothingRead(why)
         with _phase(conn, job_id, 1, heartbeat, timings, "standards"):
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
@@ -406,6 +410,17 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
                          (job_queue.CANCELLED, _now(), job_id))
             job_queue.audit(conn, "job.cancelled", job_id, detail=f"run={run_id} while running")
         return job_queue.CANCELLED
+    except submittal_review.NothingRead as exc:
+        # #1495: a retry reads the same nothing - fail at once, say why, number no CRS row.
+        with conn:
+            conn.execute("UPDATE jobs SET state = ?, next_attempt_at = NULL, error_code = ?,"
+                         " error_message = ?, updated_at = ? WHERE id = ?",
+                         (job_queue.POISONED, "NothingRead", str(exc), _now(), job_id))
+            job_queue.audit(conn, "job.poisoned", job_id, detail="error=NothingRead")
+            conn.execute("UPDATE review_runs SET status = 'failed', outcome_json = ?,"
+                         " updated_at = ? WHERE id = ?",
+                         (json.dumps({"error": str(exc)}), _now(), run_id))
+        return job_queue.POISONED
     except Exception as exc:  # noqa: BLE001 - a failed review must not kill the worker
         safe = errors.record_failure(exc, document_id=submittal, stage=STAGE)
         with conn:
