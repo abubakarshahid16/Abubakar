@@ -21,6 +21,8 @@ import json
 import logging
 from pathlib import Path
 
+from . import kind_rules
+
 _log = logging.getLogger(__name__)
 
 ANSWERED = "answered"
@@ -311,7 +313,8 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         # `detail` lines explain another part (the reasons behind the unchecked
         # share); they are listed on the internal copy and are not counted as
         # parts that could not be checked.
-        parts.append({"part": part, "line": line, **({"detail": True} if detail else {})})
+        extra = {"detail": True} if detail else {}
+        parts.append({"part": part, "line": line, "note": "Not checked", **extra})
 
     if run_status != "completed":
         why = (outcome.get("error") or "").strip().rstrip(".")
@@ -329,6 +332,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         add("datasheet_check_not_run",
             "The datasheet revision-block check could not be checked: "
             + str(outcome["datasheet_check_not_run"]) + ".")
+    parts.extend(kind_rules.lines(outcome))
     stds = outcome.get("standards_not_checked") or []
     if stds:
         add("standards_not_checked",
@@ -367,7 +371,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
 
         for line in split_lines(outcome.get("requirement_split") or requirement_split.from_counts(counts)):
             add("requirement_reasons", line, detail=True)
-    elif parts and not counts:
+    elif any(not p.get("detail") for p in parts) and not counts:
         add("unchecked_share", "The share of requirements not compared is not known: "
                                "this review did not reach the comparison.")
     return parts
@@ -375,9 +379,9 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
 
 def notice_for(parts: list[dict]) -> str:
     """The one line a sheet prints when something could not be checked."""
+    parts = [p for p in parts if not p.get("detail")]
     if not parts:
         return ""
-    parts = [p for p in parts if not p.get("detail")]
     notice = (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
               "- this sheet is not a complete review.")
     # The unchecked share, with its denominator, is part of the notice on every
