@@ -99,3 +99,36 @@ def combined_roles(label: str, rules: dict, wanted: frozenset) -> list[str]:
         if len(ends) == 1 and ends[0] not in found:
             found.append(ends[0])
     return found
+
+
+def add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
+    """#1472 (switch `datasheet_one_value_enabled`): a combined label ("a / rating / c")
+    answers the text attribute it names, for a tag with no value of its own under that
+    role. The copy carries `combined_label`; `combined_result` never decides on it."""
+    from .config import settings
+
+    if not settings.datasheet_one_value_enabled:
+        return
+    shared = by_tag.get(None, {})
+    for fact in facts:
+        label = str(fact.get("field_label") or fact.get("field_name") or "")
+        for role in combined_roles(label, rules, wanted):
+            mine = by_tag.setdefault(fact.get("equipment_tag"), {})
+            if not mine.get(role) and not shared.get(role):
+                mine.setdefault(role, []).append({**fact, "combined_label": label})
+
+
+def combined_result(fact: dict, field: str, res):
+    """The row for a value that sits inside a combined line: code cannot say which part
+    is this field's, so it is an engineer's question (a blank line is judged before this)."""
+    from .datasheet_checks import NEEDS_ENGINEER_REVIEW, _label, _pretty, _said, _sentence
+
+    return res(
+        NEEDS_ENGINEER_REVIEW,
+        _sentence(
+            f"the {_pretty(field).lower()} is given inside the combined line "
+            f"'{_label(fact, field)}' (page {fact.get('page')}): '{_said(fact)}'; "
+            "engineer to check that part"
+        ),
+        fact,
+    )
