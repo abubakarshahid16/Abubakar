@@ -418,8 +418,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
     if key not in table:
         return None
     entry = table[key]
-    items = list(entry.get("items", [])) + _local_items(key)
-    items += pump_kit.loader_items(key, items)
+    items = (b := list(entry.get("items", [])) + _local_items(key)) + pump_kit.loader_items(key, b)
     for item in items:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
