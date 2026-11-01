@@ -118,8 +118,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         12,
         "the switch-off client workbook gets the AI column width",
         _E,
-        '    if internal or view.get("export_quality"):  # switch off: as it was\n',
-        "    if True:  # switch off: as it was\n",
+        '    if internal or view.get("export_quality"):  # off: as it was\n',
+        "    if True:  # off: as it was\n",
         "switch_off_workbook",
     ),
     _m(
