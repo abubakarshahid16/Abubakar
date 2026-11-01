@@ -1235,33 +1235,26 @@ class Settings(ClauseReviewSettings, BaseSettings):
     #: The local engine's history budget. Its 4096-token window must hold the
     #: EVIDENCE first; memory never pushes a retrieved passage out.
     chat_history_local_token_budget: int = 600
-    #: Chat redesign PR 6: the "Web" switch in the chat composer. OFF BY
-    #: DEFAULT, and on its own it sends nothing: a chat web search also needs
-    #: the market lane's two egress flags (`market_live_enabled`,
-    #: `market_allow_public_egress`) and goes through that lane's whitelist,
-    #: host allowlist, rate limit and audit. FROM `.env` ONLY.
+    #: Chat redesign PR 6: the "Web" switch in the chat composer. OFF BY DEFAULT, and on
+    #: its own it sends nothing: a chat web search also needs the market lane's two
+    #: egress flags (`market_live_enabled`, `market_allow_public_egress`) and goes
+    #: through that lane's whitelist, host allowlist, rate limit and audit. FROM `.env`
+    #: ONLY.
     chat_web_enabled: bool = False
     #: Owner order 2026-09-26 (2d): the AI engineering check - Claude reads the
     #: datasheet and drafts observations a reviewer would raise, each gated
-    #: (ai_engineering_check.accept) and stored as a pending, unconfirmed draft
-    #: that never counts in the review code. ON BY DEFAULT since R26 step 7
-    #: (#763, owner rule "AI-first", 11 Oct): it runs on the configured model -
-    #: the Claude lane when it is on (REASONING_PROVIDER=claude, both
-    #: STANDARDS_READER_* egress flags and a key, within the USD caps), else the
-    #: LOCAL model, which sends nothing off the machine. A slow or failed call
-    #: is recorded on the run (a warning), never a failed review.
+    #: (ai_engineering_check.accept) and stored as a pending, unconfirmed draft that
+    #: never counts in the review code. ON BY DEFAULT since R26 step 7 (#763, owner rule
+    #: "AI-first", 11 Oct): it runs on the configured model - the Claude lane when it is
+    #: on (REASONING_PROVIDER=claude, both STANDARDS_READER_* egress flags and a key,
+    #: within the USD caps), else the LOCAL model, which sends nothing off the machine.
+    #: A slow or failed call is recorded on the run (a warning), never a failed review.
     #: Env: REVIEW_AI_CHECK_ENABLED (false turns it off).
     review_ai_check_enabled: bool = True
-    #: #1494 (owner, 1 Nov 2026): the running review's progress block - pages
-    #: done of pages total, elapsed time, a labelled time-left estimate and a
-    #: stall light - computed from the existing `jobs` row, read-only. OFF: the
-    #: job carries no `progress_detail` and the screen shows the old step line.
-    #: Env: REVIEW_PROGRESS_BAR_ENABLED.
+    #: #1494: progress block of a running review (reads the jobs row only); off: no
+    #: `progress_detail`. Env: REVIEW_PROGRESS_BAR_ENABLED.
     review_progress_bar_enabled: bool = False
-    #: Seconds without any progress or heartbeat before the stall light turns
-    #: amber. Red is job_queue's own stale rule (CLAIM_STALE_SECONDS).
-    #: Env: REVIEW_PROGRESS_STALL_AMBER_S.
-    review_progress_stall_amber_s: int = 120
+    review_progress_stall_amber_s: int = 120  # env REVIEW_PROGRESS_STALL_AMBER_S
     #: Seconds one LOCAL-model call of the AI engineering check may take before
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.

@@ -1,9 +1,8 @@
 """Typed response models.
 
-Every 200 was documented as `string` and every error as "Undocumented", which
-means the frontend types were guesses. The UI is generated against this
-contract, so an untyped contract is a UI that cannot be trusted to match the
-API.
+Every 200 was documented as `string` and every error as "Undocumented", which means the
+frontend types were guesses. The UI is generated against this contract, so an untyped
+contract is a UI that cannot be trusted to match the API.
 """
 
 from __future__ import annotations
@@ -13,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .paging import ListPage
+from .review_progress import ReviewProgressDetail
 
 DocStatus = Literal[
     "queued",
@@ -23,8 +23,8 @@ DocStatus = Literal[
     "ready",
     "no_searchable_content",
     #: A workbook: stored and previewable, deliberately never indexed. See
-    #: `states.STORED_NOT_INDEXED` for why this is its own state rather than a
-    #: document that failed to extract.
+    #: `states.STORED_NOT_INDEXED` for why this is its own state rather than a document
+    #: that failed to extract.
     "stored_not_indexed",
     "failed",
 ]
@@ -2751,16 +2751,6 @@ class CompanyStandardConfirmed(BaseModel):
     document_id: str
     #: true when this call confirmed it; false when it already was
     confirmed: bool
-
-
-class ReviewProgressDetail(BaseModel):
-    """#1494: the progress block of a running review (switch off: absent)."""
-    pages_done: int | None = None
-    pages_total: int | None = None
-    elapsed_seconds: int | None = None
-    idle_seconds: int | None = None
-    stall_amber_seconds: int = 120
-    stale: bool = False
 
 
 class ReviewJobState(BaseModel):

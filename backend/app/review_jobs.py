@@ -22,9 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import json
-import re
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (
@@ -33,6 +31,7 @@ from . import (
     job_queue,
     provenance,
     reread_for_standards,
+    review_progress,
     submittal_fill,
 )
 from .config import config_version, settings
@@ -122,58 +121,14 @@ def last_run_versions(review_run_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-_PAGE_LABEL = re.compile(r", page (\d+) of (\d+)$")
-
-
-def _seconds_since(stamp: str | None) -> int | None:
-    """Whole seconds since an ISO stamp; None when absent or unreadable (never 0)."""
-    if not stamp:
-        return None
-    try:
-        then = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return max(0, int((datetime.now(timezone.utc) - then).total_seconds()))
-
-
-def progress_detail(row: dict) -> dict:
-    """#1494: what the progress block shows, from the job row alone.
-
-    `pages_done` counts FINISHED pages: the reader reports a page when it
-    STARTS it ("page 7 of 69"), so 6 are done. `pages_*` are None outside the
-    reading step. Ages are seconds on the server's clock, so the browser's
-    clock never decides a stall. `idle_seconds` is the time since the job last
-    moved (progress line or worker claim); `stale` is job_queue's own rule."""
-    match = _PAGE_LABEL.search(row.get("progress_label") or "")
-    total = int(match.group(2)) if match else None
-    on_page = int(match.group(1)) if match else None
-    pages_done = max(0, min(on_page - 1, total)) if match and total else None
-    idle = [a for a in (_seconds_since(row.get("updated_at")),
-                        _seconds_since(row.get("claimed_at"))) if a is not None]
-    claim_age = _seconds_since(row.get("claimed_at"))
-    return {
-        "pages_done": pages_done,
-        "pages_total": total if pages_done is not None else None,
-        "elapsed_seconds": _seconds_since(row.get("started_at")),
-        "idle_seconds": min(idle) if idle else None,
-        "stall_amber_seconds": int(settings.review_progress_stall_amber_s),
-        "stale": claim_age is not None and claim_age >= job_queue.CLAIM_STALE_SECONDS,
-    }
-
-
 def job_for_run(review_run_id: str) -> dict | None:
     row = connect().execute(
-        "SELECT id, state, progress_done, progress_total, progress_label, cancel_requested,"
-        " started_at, updated_at, claimed_at"
+        "SELECT id, state, progress_done, progress_total, progress_label, cancel_requested"
         " FROM jobs WHERE review_run_id = ? ORDER BY started_at DESC LIMIT 1",
         (review_run_id,)).fetchone()
-    if not row:
-        return None
-    job = dict(row)
-    times = {k: job.pop(k) for k in ("started_at", "updated_at", "claimed_at")}
-    if settings.review_progress_bar_enabled and job["state"] in ("queued", "running", "retrying"):
-        job["progress_detail"] = progress_detail({**job, **times})
-    return job
+    job = dict(row) if row else None
+    block = review_progress.for_job(job) if job else None  # #1494, switch off: None
+    return {**job, "progress_detail": block} if block else job
 
 
 _CLAIMABLE = ("(state = 'queued' OR (state = 'retrying'"

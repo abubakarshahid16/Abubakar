@@ -3,7 +3,7 @@
 
 import type { AiCheckStatus, PageCoverage, RequirementSplit, RequirementsNotApplied, ReviewRunCompleteness, RunApplicability, RunCheckStatus, RunClauseCoverageSummary, StandardsChange, StatusCounts, TableValuesNotCompared } from "../types";
 
-/** #1494: the progress block of a running review (switch off: absent). */
+/** What the progress block shows. A figure the row does not hold is null, never 0. Ages are seconds on the SERVER's clock, so the browser's clock never decides a stall. */
 export interface ReviewProgressDetail {
   pages_done?: number | null;
   pages_total?: number | null;

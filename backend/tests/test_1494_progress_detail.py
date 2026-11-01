@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app import db, job_queue, review_jobs
 from app.config import settings
-from tests.test_crs_endpoint import NOW, _run, _submittal, temp_db  # noqa: F401 - fixture
+from tests.test_crs_endpoint import (  # noqa: F401 - fixture
+    NOW,
+    _run,
+    _submittal,
+    temp_db,
+)
 
 
 def _stamp(seconds_ago: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat(
-        timespec="seconds").replace("+00:00", "Z")
+    return (
+        (datetime.now(UTC) - timedelta(seconds=seconds_ago))
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def _job(label: str, *, started=600, updated=30, claimed=30, state="running"):
@@ -22,7 +30,16 @@ def _job(label: str, *, started=600, updated=30, claimed=30, state="running"):
             "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at, claimed_at,"
             " review_run_id, progress_done, progress_total, progress_label)"
             " VALUES ('j1', ?, 'review', ?, ?, ?, ?, ?, 0, 3, ?)",
-            (doc, state, _stamp(started), _stamp(updated), _stamp(claimed), run_id, label))
+            (
+                doc,
+                state,
+                _stamp(started),
+                _stamp(updated),
+                _stamp(claimed),
+                run_id,
+                label,
+            ),
+        )
     return run_id
 
 
@@ -50,8 +67,11 @@ def test_outside_the_reading_step_pages_are_null_never_zero(monkeypatch):
 
 def test_stale_follows_the_job_queue_rule_and_idle_is_the_newest_movement(monkeypatch):
     monkeypatch.setattr(settings, "review_progress_bar_enabled", True)
-    run_id = _job("reading the datasheet, page 2 of 9", updated=400,
-                  claimed=job_queue.CLAIM_STALE_SECONDS + 60)
+    run_id = _job(
+        "reading the datasheet, page 2 of 9",
+        updated=400,
+        claimed=job_queue.CLAIM_STALE_SECONDS + 60,
+    )
     d = review_jobs.job_for_run(run_id)["progress_detail"]
     assert d["stale"] is True
     assert 395 <= d["idle_seconds"] <= 410
