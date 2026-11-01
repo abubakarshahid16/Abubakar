@@ -35,6 +35,11 @@ class SettingsExt(BaseModel):
     #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
     #: OFF: nothing changes. Env: SPEC_KIT_ENABLED.
     spec_kit_enabled: bool = False
+    #: #1472 (kept here so `config.py` does not grow): the datasheet checks read ONE value where
+    #: a sheet prints a range twice (a plain note on one reading), and a combined "a / b / c"
+    #: label answers each text attribute it names. OFF: nothing changes.
+    #: Env: DATASHEET_ONE_VALUE_ENABLED.
+    datasheet_one_value_enabled: bool = False
 
     #: #1474: the document KIND (router table `document_kinds`) chooses the rule set: a
     #: document whose kind is anything but datasheet gets no equipment datasheet checklist and
@@ -46,3 +51,20 @@ class SettingsExt(BaseModel):
     #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
     #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.
     pump_kit_draft_enabled: bool = False
+    #: #1503 CRS EXPORT QUALITY (`crs_export_quality.py`): one row per section + clause, no
+    #: empty rows, a page or "page not found (reason)" on every row, comments at most 350
+    #: characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks,
+    #: the standards sheet without "Considered, not applied", "not in your library" by kind,
+    #: Priority from the fixed list. EXPORT ONLY: no verdict, status or finding changes.
+    #: OFF: nothing changes. Env: CRS_EXPORT_QUALITY_ENABLED.
+    crs_export_quality_enabled: bool = False
+    #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
+    #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
+    #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
+    #: row held for the engineer. OFF: nothing changes. Env: VESSEL_KIT_DRAFT_ENABLED.
+    vessel_kit_draft_enabled: bool = False
+    #: #1481 heat exchanger kit PREPARATION (parked, milestone 58): append the DRAFT exchanger cards of
+    #: `reference/exchanger_kit_draft.json` (the held standard SAES-E-004 requires the value, not already in the
+    #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the
+    #: engineer. OFF: nothing changes. Env: EXCHANGER_KIT_DRAFT_ENABLED.
+    exchanger_kit_draft_enabled: bool = False

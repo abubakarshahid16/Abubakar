@@ -34,9 +34,13 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, pump_kit, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
 from .checklist_scope import governs, standards
-from .deferred_value import hold_results
+from .config import settings
+from .datasheet_coverage import (
+    coverage,  # noqa: F401  (moved out to keep this file shrinking)
+)
+from .deferred_value import hold_results, note_of
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
@@ -234,6 +238,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
             qualified.setdefault(fact.get("equipment_tag"), {}).setdefault(under, []).append(fact)
     if not by_tag:
         by_tag[None] = {}
+    datasheet_roles.add_combined(facts, by_tag, rules, wanted)
     out: list[dict] = []
     # GENERIC_FALLBACK (2026-09-27): `equipment_type` is unknown/unconfirmed
     # on almost every submittal today (nothing wrote it before B9, and B9's
@@ -366,7 +371,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
         for tag, roles in by_tag.items():
             if tag is None and tagged:
                 continue    # the common section counts for every tag (above)
-            out += pump_kit.rows(
+            out += kit_core.rows(
                 checklist, roles, common if tag is not None else {}, tag, rules, page_texts
             )
     if page_texts and equipment_type:
@@ -418,7 +423,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
     if key not in table:
         return None
     entry = table[key]
-    items = pump_kit.with_kit(key, list(entry.get("items", [])) + _local_items(key))
+    items = kit_core.with_kit(key, list(entry.get("items", [])) + _local_items(key))
     for item in items:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
@@ -519,35 +524,11 @@ def _one(found: list[dict]) -> tuple[dict | None, str | None]:
         return None, "absent"
     if len({_key(f) for f in found}) != 1:
         return None, "two different values"
+    if settings.datasheet_one_value_enabled:
+        # #1472: merged readings keep a deferral note if ANY of them has one (D2 holds it).
+        return next((f for f in found if note_of(f)), found[0]), None
     return found[0], None
 
-
-
-def coverage(results: list[dict]) -> dict | None:
-    """The reader-coverage line of a review (planner 2026-10-10, roadmap R11):
-    of the checklist's fields (each field once, across tags), how many were
-    READ as a fact, and how many are on the sheet but were NOT read (a reader
-    gap, with the pages): the to-do list for the datasheet reader. None when
-    the review ran no checklist."""
-    # A calculation compares a field the `required` items already count; it
-    # is not a field of its own (R13), so the reader-coverage line is unchanged.
-    items = [r for r in results if r.get("checklist") and not r.get("calc")]
-    if not items:
-        return None
-    fields: dict[str, str] = {}
-    gap_pages: dict[str, set] = {}
-    for r in items:
-        role = r.get("role") or ""
-        state = "read" if r.get("fact_id") else ("gap" if r.get("reader_gap") else "absent")
-        # a field read for one tag counts as read; a gap only if never read
-        if fields.get(role) != "read":
-            fields[role] = "read" if state == "read" else (fields.get(role) if fields.get(role) == "gap" else state)
-        if r.get("reader_gap"):
-            gap_pages.setdefault(role, set()).update(r.get("pages") or [])
-    gaps = sorted(f for f, st in fields.items() if st == "gap")
-    return {"fields": len(fields), "read": sum(1 for st in fields.values() if st == "read"),
-            "on_sheet_not_read": len(gaps),
-            "gap_pages": sorted({p for f in gaps for p in gap_pages.get(f, ())})}
 
 
 def _page_span(page_texts: dict[int, str] | None) -> str:
@@ -653,10 +634,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     unknown = None    # the first condition the sheet does not state, if any
     for condition in conditions:
         cond_fact, why = _one(get(condition["role"]))
-        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot
-        # be wrong whatever the condition ("the molecular weight is stated",
-        # "k is above 1"): an unknown condition does not stop them. Any other
-        # item with an unknown condition is an engineer's question.
+        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot be wrong whatever the
+        # condition ("k is above 1"). Any other item with an unknown condition is an engineer's question.
         if cond_fact is None:
             if rule["kind"] == "calc":
                 # R13: which formula applies is not known; the phase item asks.
@@ -724,6 +703,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(MISSING_INFORMATION,
                    f"{_label(fact, field)} is marked '{_said(fact) or fact.get('blank_marker')}' "
                    f"on page {fact.get('page')}; the contractor is to provide the value.", fact)
+    if fact.get("combined_label"):
+        return datasheet_roles.combined_result(fact, field, res)
     if (doubt := implausible(fact, field, rules)) is not None:
         # R12 (#776): an impossible value is never "stated" or compared.
         return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)

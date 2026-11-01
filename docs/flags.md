@@ -22,6 +22,7 @@ does not make one.
 | `ocr_use_cls` | `True` | permanent | | | OCR tuning measured in ADR-0005 |
 | `answer_model_allow_remote_host` | `False` | permanent | | | Egress gate for the local-model URL (rule 1) |
 | `procedure_path_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | Procedure submittals: a procedure-type requirement is checked against the submittal's own text (engineer row with a verified quote, or missing); never COMPLIANT (#1476) |
+| `datasheet_one_value_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | Datasheet checks: a range printed twice (a plain note on one reading) is one value, not "two different values"; a combined "a / rating / c" label answers the text attribute it names (an engineer question or the blank marker, never COMPLIANT) (#1472) |
 | `ai_applicability_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | AI "does not apply" proposals per requirement |
 | `ai_division_scope_enabled` | `True` | rollout | 2026-10-20 | 2026-11-03 | Scope of a standard's division read from its own scope sentence (#1182); off, nothing changes; a part the model did not read is held for the engineer |
 | `scope_type_words_rule_enabled` | `False` | rollout | 2026-10-26 | 2026-11-09 | Draft (order 210 FIX 2): a part whose construction words are all in the sheet's equipment type or title applies without asking the model; OFF until the owner says yes |
@@ -45,6 +46,9 @@ does not make one.
 | `kind_chooses_rules_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards; unknown keeps today's path, marked (#1474) |
 | `nothing_read_fails_enabled` | `False` | rollout | 2026-11-01 | 2026-11-14 | A review whose submittal has no fact and no page text or reading ends failed: nothing read (#1495) |
 | `pump_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft pump kit cards from held standards (SAES-G-005) join the Centrifugal Pump checklist; draft only, never decide; preparation for #1478, proof waits for 2 real pump documents |
+| `crs_export_quality_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | CRS export quality (#1503): one row per section + clause, no empty rows, page or "page not found" on every row, comments at most 350 characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks, trimmed standards sheet, Priority from a fixed list; export only, no verdict changes |
+| `vessel_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft vessel kit cards from held standards (SAES-D-001) join the Pressure Vessel checklist; every row held for the engineer, never decides; preparation for the parked vessel kit (#1480), proof waits for 2 real vessel documents |
+| `exchanger_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft exchanger kit cards from the held standard SAES-E-004 join the Heat Exchanger checklist; every row held for the engineer, never decides; preparation for the parked exchanger kit (#1481), proof waits for 2 real exchanger documents |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |

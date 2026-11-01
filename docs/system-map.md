@@ -98,6 +98,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `coverage` | Which documents the question was about, and which of them the answer used |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
+| `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
 | `crs_machine_words` | Order 152.2: finds machine wording (code names, model/engine names, internal phrases) in the contractor copy's machine-written cells; the issue gate refuses it |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
@@ -134,6 +135,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `own_value_limit` | A reference that states its own value ("the vessel MAWP of 12 barg") is a plain limit of that value |
 | `severity_rule` | One rule for a severity word: a failed requirement is never minor |
 | `datasheet_roles` | Which role a datasheet field name states when it fits several: the one the sheet's equipment type checks (#900) |
+| `datasheet_coverage` | The reader-coverage line of a datasheet review: checklist fields read, and on the sheet but not read |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
@@ -203,7 +205,10 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ocr` | Step 2b - resumable page-batch recognition for scanned pages |
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
-| `pump_kit` | #1478 preparation: box list and DRAFT pump cards from held standards, read only behind `pump_kit_draft_enabled` (off by default); never decide |
+| `pump_kit` | #1478 preparation: the pump kit's name, data file and public names over `kit_core`; box list and DRAFT pump cards from held standards, read only behind `pump_kit_draft_enabled` (off by default); never decide |
+| `kit_core` | The shared mechanism of an equipment kit (#1478, #1480): data file, loader hook, tests, the held-for-the-engineer rule for every kit row; local only |
+| `vessel_kit` | #1480 preparation (parked kit, milestone 58): box list and DRAFT vessel cards from held standards (SAES-D-001), read only behind `vessel_kit_draft_enabled` (off by default); every row held, never decide |
+| `exchanger_kit` | #1481 preparation (parked kit, milestone 58): box list and DRAFT heat exchanger cards from the held standard SAES-E-004, read only behind `exchanger_kit_draft_enabled` (off by default); every row held, never decide |
 | `nothing_read` | #1495: a review that read no value and no page text ends failed "nothing read" (switch off by default) |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
 | `pairing_head` | A field is a clause's field only when the label stands in the subject's head, not in a complement (audit C5) |
