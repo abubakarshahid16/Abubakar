@@ -11,11 +11,13 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=APP / "claims.py", anchor='    "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,\n',
              replacement="", target=_T, keyword="printed_unit_is_kept", tags=("extraction",)),
     Mutation(id="M866", phase=75, description="#193: absolute and gauge kPa/psi are unknown again",
-             path=APP / "claims.py", anchor='    "psia": "pressure", "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",\n',
+             # Re-anchored (2026-11-01): since #725 F2 these units resolve through
+             # _REFERENCE_SUFFIX, so the unit-table line it used to remove was dead.
+             path=APP / "claims.py", anchor='    "kpag": ("kpa", "gauge"), "kpaa": ("kpa", "absolute"),\n',
              replacement="", target=_T, keyword="printed_unit_is_kept or absolute_and_gauge", tags=("extraction",)),
     Mutation(id="M867", phase=75, description="#193: absolute pressure converted like gauge - 13 psia compares with 13 psig",
-             path=APP / "claims.py", anchor='    "psia": "pressure", "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",\n',
-             replacement='    "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",\n',
+             path=APP / "claims.py", anchor='    "psig": ("psi", "gauge"), "psia": ("psi", "absolute"),\n',
+             replacement='    "psig": ("psi", "gauge"), "psia": ("psi", "gauge"),\n',
              target=_T, keyword="absolute_and_gauge", tags=("honesty",)),
     Mutation(id="M868", phase=75, description="#193: a unit glued to its conversion '(20,000' is thrown away",
              path=APP / "requirements_3b.py",
