@@ -56,10 +56,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         4,
-        "nothing found no longer says contractor to show where",
+        "a search that finds nothing asks the contractor to provide it again",
         _P,
-        '"status": "MISSING_INFORMATION"',
-        '"status": "NEEDS_ENGINEER_REVIEW"',
+        '"NEEDS_ENGINEER_REVIEW",\n            "rationale": (\n                f"{NOT_FOUND}',
+        '"MISSING_INFORMATION",\n            "rationale": (\n                f"{NOT_FOUND}',
         "nothing_found",
     ),
     _m(
@@ -133,14 +133,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         '    if row is None or row["state"] == "needs_engineer":\n',
         "    if row is None:\n",
         "router_kind_decides",
-    ),
-    _m(
-        14,
-        "a procedure row is rewritten by the unread-pages qualifier again",
-        _P,
-        '        and not (verdict.get("rationale") or "").startswith(NOT_FOUND)\n',
-        "",
-        "keeps_its_own_words",
     ),
     _m(
         15,

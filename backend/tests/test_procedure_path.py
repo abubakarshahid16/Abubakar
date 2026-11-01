@@ -62,8 +62,9 @@ def test_nothing_found_is_missing_information_for_the_contractor():
     }
     with procedure_text.using(PAGES):
         verdict = comparison.compare(other, None)
-    assert verdict["status"] == comparison.MISSING_INFORMATION
-    assert "contractor to show where" in verdict["rationale"]
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "keyword search" in verdict["rationale"]
+    assert "engineer to check" in verdict["rationale"]
 
 
 def test_a_text_match_is_never_compliant():
@@ -220,16 +221,8 @@ def test_one_shared_word_is_not_a_passage():
     pages = [(1, "Prior to start the inspector signs the log. Approval number 7.")]
     with procedure_text.using(pages):
         verdict = comparison.compare(req, None)
-    assert verdict["status"] == comparison.MISSING_INFORMATION
-
-
-def test_a_not_found_row_keeps_its_own_words_not_the_unread_pages_text():
-    """The datasheet page qualifier must not rewrite a procedure row."""
-    row = {"status": "MISSING_INFORMATION", "rationale": "procedure_text_not_found: x"}
-    assert procedure_text.needs_page_qualifier(None, row) is False
-    plain = {"status": "MISSING_INFORMATION", "rationale": "no field read"}
-    assert procedure_text.needs_page_qualifier(None, plain) is True
-    assert procedure_text.needs_page_qualifier({"a": 1}, plain) is False
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "keyword search" in verdict["rationale"]
 
 
 def test_two_of_three_words_is_not_enough_for_one_shared_word_rule():
@@ -238,4 +231,5 @@ def test_two_of_three_words_is_not_enough_for_one_shared_word_rule():
     pages = [(1, "The inspector gave approval yesterday.")]
     with procedure_text.using(pages):
         verdict = comparison.compare(req, None)
-    assert verdict["status"] == comparison.MISSING_INFORMATION
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "keyword search" in verdict["rationale"]

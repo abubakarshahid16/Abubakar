@@ -11,7 +11,9 @@ What code may say, and no more:
                 confirm". The quote is cut from the stored page text and checked
                 to be a real substring of it. Finding the subject's words is not
                 proof the procedure MEETS the requirement.
-  * nothing  -> MISSING_INFORMATION: "no passage found; contractor to show where".
+  * nothing  -> NEEDS_ENGINEER_REVIEW: "a keyword search found no passage; engineer to
+                check". Never MISSING_INFORMATION: a keyword search that finds
+                nothing says what it searched, not that the document lacks it.
   * NEVER COMPLIANT from a text match. No model is called (the AI clause
     review is #1477).
 
@@ -201,10 +203,10 @@ def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
     if found is None:
         return {
             **base,
-            "status": "MISSING_INFORMATION",
+            "status": "NEEDS_ENGINEER_REVIEW",
             "rationale": (
-                f"{NOT_FOUND}: no passage of this procedure was found for the requirement; "
-                f"contractor to show where it is addressed"
+                f"{NOT_FOUND}: a keyword search of the document's pages found no passage "
+                f"for this requirement; engineer to check (the document may state it in other words)"
             ),
         }
     quote = " ".join(found["quote"].split())
@@ -216,14 +218,3 @@ def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
             f"words, not a finding that the requirement is met; engineer to confirm"
         ),
     }
-
-
-def needs_page_qualifier(fact: dict | None, verdict: dict) -> bool:
-    """An absence from the datasheet fields is qualified by the pages read into
-    fields (B3). A procedure row is not: its search WAS the page text, and its
-    rationale says what was found or not found."""
-    return (
-        fact is None
-        and verdict.get("status") == "MISSING_INFORMATION"
-        and not (verdict.get("rationale") or "").startswith(NOT_FOUND)
-    )
