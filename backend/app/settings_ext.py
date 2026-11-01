@@ -128,6 +128,13 @@ class SettingsExt(BaseModel):
     #: OFF: unchanged. Takes effect on a new upload or `scripts/reroute_ocr.py`.
     #: Env: FIGURE_PAGE_OCR_ENABLED.
     figure_page_ocr_enabled: bool = False
+    #: 1 Nov proof of a public filled pump sheet (#1478): the duty-point table (a header line of names with
+    #: bracketed units, lines of numbers under it) gave no fact, and three stacked label lines in one table cell
+    #: were joined into one jumbled label. ON: a header line of unit-bearing names with numbers under it gives one
+    #: label/value per number (row number kept when several rows); a cell of three or more short capitals-only
+    #: label lines is unreadable (no row keyed from it). OFF: unchanged. Plain code, no model.
+    #: Takes effect on the next extraction. Env: PAGE_COLUMN_ROWS_ENABLED.
+    page_column_rows_enabled: bool = False
     #: #1522 a playbook element (`playbooks._match`) is "present" only when the matching passage is
     #: the element's OWN section (a cue in its heading or section title); a passing mention in the
     #: body of another section becomes "unclear" (an engineer row), never "present". OFF: a passage
@@ -161,3 +168,7 @@ class SettingsExt(BaseModel):
     #: cannot read is refused with a reason. Local only, no model, no socket. OFF: nothing changes.
     #: Env: ONE_INTAKE_ENABLED.
     one_intake_enabled: bool = False
+    #: #645 slice 3 (`ai_requirement_chunks.py`): the LOCAL model reads a held standard chunks
+    #: and proposes single limits; code verifies every field; drafts only.
+    #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
+    ai_requirement_extraction_enabled: bool = False

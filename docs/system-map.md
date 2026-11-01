@@ -35,6 +35,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_check_drafts` | The AI checks' drafts keep no status, are counted as "AI observations (draft, no verdict)", and an exact repeat is marked |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
+| `ai_requirement_chunks` | #645 slice 3: the local model reads a held standard's chunks (tables too) and proposes single limits; code verifies quote, value, unit, comparator and condition; kept as DRAFTS (statement row + `clause_check_drafts`); off by default (`ai_requirement_extraction_enabled`) |
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
 | `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
@@ -181,6 +182,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
 | `geometry_blank_cells` | An empty ruled cell beside a label is a blank only when the geometry proves it (order 228.9) |
 | `geometry_index_cells` | A side-by-side numbered form is read as two lists; a lone index number is never an answer (order 228.9b) |
+| `page_columns` | A header line of unit-bearing names over lines of numbers gives label/value rows; stacked label lines in a cell are never joined (#1478, off by default) |
 | `glossary` | Engineering synonyms: the words people type -> the words documents print |
 | `held_standards` | Marks and counts the standards a review held for the engineer (equipment type unsure), with the caller's boundary |
 | `heavy_lock` | One lock for the heavy jobs on a machine (#680) |

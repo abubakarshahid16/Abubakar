@@ -840,7 +840,7 @@ def list_drafts(*, allowed_document_ids: frozenset[str], status: str = DRAFT,
 def _draft(conn, draft_id: str, allowed_document_ids: frozenset[str]):
     row = conn.execute(
         "SELECT d.*, r.standard_document_id, r.chunk_id, r.clause, r.page, r.requirement_text,"
-        " r.source_text, r.requirement_type, r.superseded_at"
+        " r.source_text, r.requirement_type, NULLIF(r.superseded_at, 'held:ai_requirement_extraction') AS superseded_at"
         " FROM clause_check_drafts d JOIN standard_requirements r ON r.id = d.requirement_id"
         " WHERE d.id = ?", (draft_id,)).fetchone()
     # "not found" is the same answer as "not yours"

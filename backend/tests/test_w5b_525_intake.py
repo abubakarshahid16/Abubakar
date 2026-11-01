@@ -532,3 +532,20 @@ def test_the_worker_records_the_refusal_code_and_sentence_on_document_and_job(tm
         doc["error_code"],
         doc["error_message"],
     )
+
+
+def test_the_intake_note_sits_beside_the_unread_and_read_in_part_notes():
+    """Merge with #1478: an outcome carrying all three gaps gets all three notes."""
+    from app import page_not_read
+
+    cov = {
+        "pages_not_read_why": {"2": "an image with no reading"},
+        "reading": {"failed_pages": {"3": "(column rows: 2 cells left out)"}},
+        "intake_reasons": {"0": ["not read: hidden sheet 3 (workbook position)"]},
+    }
+    got = [n["note"] for n in page_not_read.notes({"page_coverage": cov})]
+    assert got == [
+        page_not_read.NOTE_PAGE_NOT_READ,
+        page_not_read.NOTE_PAGE_READ_IN_PART,
+        page_not_read.NOTE_FILE_PARTLY_READ,
+    ]

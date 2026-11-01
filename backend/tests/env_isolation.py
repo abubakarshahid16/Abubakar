@@ -152,6 +152,7 @@ EGRESS_SAFE: dict[str, object] = {
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,
+    "ai_requirement_extraction_enabled": False,
     # #141: a local model call per division of a standard a review holds.
     "ai_division_scope_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
@@ -249,6 +250,8 @@ EGRESS_SAFE: dict[str, object] = {
     "data_page_not_frontmatter_enabled": False,
     # --- local only, no model or socket: a drawing page with a header only is routed to recognition (off by default)
     "figure_page_ocr_enabled": False,
+    # --- local only, no model or socket: duty-point style column rows and stacked labels (#1478, off by default)
+    "page_column_rows_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: a procedure's CRS gets its playbook rows as engineer rows (#1522 b, off by default)
