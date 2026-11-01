@@ -18,7 +18,7 @@ Nothing here reads or writes document text.
 
 from __future__ import annotations
 
-from . import crs_mapping, crs_wording
+from . import crs_draft_lanes, crs_mapping, crs_wording
 
 AI_DRAFT_NOTE = "Written by the AI (see the comment)"
 KEPT = "Plain wording kept: "
@@ -43,7 +43,7 @@ _GENERIC = "the AI's wording did not pass the check"
 _AI_KINDS = (
     crs_mapping.ROW_KIND_AI_ENGINEERING_CHECK,
     crs_mapping.ROW_KIND_WEB_STANDARD_CHECK,
-    crs_mapping.ROW_KIND_CLAUSE_REVIEW,
+    crs_draft_lanes.ROW_KIND_CLAUSE_REVIEW,
 )
 
 

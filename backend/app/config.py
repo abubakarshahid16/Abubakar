@@ -160,8 +160,7 @@ def check_model_url(
 
     host = (parts.hostname or "").lower()
     if not host:
-        raise ModelHostRefused(
-            "answer model URL names no host; refusing to guess one")
+        raise ModelHostRefused("answer model URL names no host; refusing to guess one")
 
     # Credentials in the URL are refused rather than stripped. A value shaped
     # like `http://user:pass@host` is either an accident or a proxy nobody

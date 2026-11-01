@@ -47,7 +47,6 @@ from . import paragraph_ids
 from .crs_draft_lanes import (
     AI_UNCONFIRMED_COMMENT,
     CLAUSE_LANE,
-    ROW_KIND_CLAUSE_REVIEW,
     WAITING_COMMENTS,
     WEB_UNCONFIRMED_COMMENT,
 )

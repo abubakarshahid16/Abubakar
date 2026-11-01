@@ -52,8 +52,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import scope_quote
-from .crs_draft_lanes import CLAUSE_ORIGIN
 from .config import settings
+from .crs_draft_lanes import CLAUSE_ORIGIN
 from .db import add_column_if_missing, connect
 
 log = logging.getLogger(__name__)
