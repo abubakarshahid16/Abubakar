@@ -65,11 +65,42 @@ class LiveWriteClearance:
     manifest_path: str
 
 
+def known_live_files() -> tuple[Path, ...]:
+    """This checkout's live database and, from a git worktree, the main one's.
+
+    Only their paths: nothing here opens them.
+    """
+    from .config import BACKEND_DIR, shared_backend_dir
+    backends = (BACKEND_DIR, shared_backend_dir())
+    return tuple(dict.fromkeys(b / "data" / "rag_intelligence.sqlite" for b in backends))
+
+
+def _same_file_as_a_live_one(p: Path) -> bool:
+    """#1557: a hard link has its own name, so only the inode tells."""
+    if not p.exists():
+        return False
+    for live in known_live_files():
+        try:
+            if live.exists() and os.path.samefile(p, live):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def is_live_shaped(path: str | os.PathLike) -> bool:
-    """Any checkout's live database, by the shape of its path."""
+    """Any checkout's live database, by the shape of its path or by its inode.
+
+    #1557: names are compared case-folded (macOS's disk is case-insensitive,
+    so `Backend/Data/RAG_Intelligence.sqlite` IS the live file), and a hard
+    link to a known live file under another name counts too.
+    """
     p = Path(path).resolve()
-    return (p.name == "rag_intelligence.sqlite" and p.parent.name == "data"
-            and p.parent.parent.name == "backend")
+    if (p.name.casefold() == "rag_intelligence.sqlite"
+            and p.parent.name.casefold() == "data"
+            and p.parent.parent.name.casefold() == "backend"):
+        return True
+    return _same_file_as_a_live_one(p)
 
 
 def default_backup_dir(db_path: str | os.PathLike) -> Path:
