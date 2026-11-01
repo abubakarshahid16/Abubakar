@@ -62,6 +62,11 @@ def loader_items(key: str, existing: list[dict]) -> list[dict]:
     return out
 
 
+def with_kit(key: str, items: list[dict]) -> list[dict]:
+    """`items` plus the draft kit cards (none while the switch is off)."""
+    return items + loader_items(key, items)
+
+
 def _cases(card: dict) -> list[dict]:
     from . import rule_cards
 
