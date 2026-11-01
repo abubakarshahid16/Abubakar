@@ -20,6 +20,7 @@ from . import applicability as applicability_mod, cited_edition as cited_edition
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
 from . import crs_export as crs_export_mod
+from . import crs_export_quality as crs_export_quality_mod
 from . import crs_ai_cell as crs_ai_cell_mod
 from . import crs_issue as crs_issue_mod
 from . import crs_carry as crs_carry_mod
@@ -2951,6 +2952,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
             else ""),
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
+        # #1503: the export-quality switch, read here so the builder stays pure.
+        "export_quality": bool(settings.crs_export_quality_enabled),
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
@@ -3023,7 +3026,10 @@ def _crs_standards(review_run_id: str, submittal_id: str,
         })
     for ref in _missing_references(submittal_id, allowed):
         # 2g: plain words on the sheet the engineer and client read.
-        out.append({"standard": ref, "status": crs_export_mod.STATUS_NOT_IN_LIBRARY,
+        out.append({"standard": ref,
+                    "status": (crs_export_quality_mod.not_in_library_status(ref)
+                               if settings.crs_export_quality_enabled
+                               else crs_export_mod.STATUS_NOT_IN_LIBRARY),
                     "method": "referenced",
                     "reason": "cited by the submittal and not held locally; "
                               "its requirements were not checked",

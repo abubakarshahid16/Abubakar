@@ -34,3 +34,10 @@ class SettingsExt(BaseModel):
     #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
     #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.
     pump_kit_draft_enabled: bool = False
+    #: #1503 CRS EXPORT QUALITY (`crs_export_quality.py`): one row per section + clause, no
+    #: empty rows, a page or "page not found (reason)" on every row, comments at most 350
+    #: characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks,
+    #: the standards sheet without "Considered, not applied", "not in your library" by kind,
+    #: Priority from the fixed list. EXPORT ONLY: no verdict, status or finding changes.
+    #: OFF: nothing changes. Env: CRS_EXPORT_QUALITY_ENABLED.
+    crs_export_quality_enabled: bool = False

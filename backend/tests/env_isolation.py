@@ -215,6 +215,8 @@ EGRESS_SAFE: dict[str, object] = {
     "nothing_read_fails_enabled": False,
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
     "pump_kit_draft_enabled": False,
+    # --- local only, no model or socket: CRS export quality, export only (#1503, off by default)
+    "crs_export_quality_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
