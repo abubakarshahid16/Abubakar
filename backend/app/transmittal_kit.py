@@ -417,6 +417,7 @@ _GENERIC = frozenset(
         "doc",
     }
 )
+_STOP = frozenset({"a", "an", "and", "for", "of", "the", "to", "in", "on", "with"})
 _OTHER_REF = re.compile(
     r"supersed|replac|cancel|reference|\bref\b|\bsee\b|related", re.I
 )
@@ -427,11 +428,13 @@ def _content(text: str) -> frozenset[str]:
 
 
 def _covers(required: dict, entry: dict) -> bool:
-    """A listed document covers a required item only when every CONTENT word of the item (generic
-    words such as report, datasheet, drawing, calculation left out) is in the listed title. A
-    generic title or a document number never covers anything; unsure means not covered."""
-    need = _content(required["item"])
-    return bool(need) and need <= _content(entry["cells"].get("title", ""))
+    """A listed document covers a required item only when every word of the item except stop
+    words (the, of, for ...) is in the listed title - type words such as datasheet or report
+    count, so 'Pump datasheet' needs both. Extra words on the listed side are ignored. An item
+    of generic words only, a document number or a generic title never covers; unsure = not."""
+    need = _words(required["item"]) - _STOP
+    # an item of generic words only ("Datasheet") says nothing specific: never covered
+    return bool(need - _GENERIC) and need <= _words(entry["cells"].get("title", ""))
 
 
 def _exact(required: dict, entry: dict) -> bool:

@@ -391,3 +391,21 @@ def test_spec_kit_stores_at_most_one_not_run_row_per_run(on, monkeypatch):
     not_run = [r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.NOT_RUN)]
     assert len(not_run) == 1
     assert len(spec_kit.notes(_rows(run))) == 1
+
+
+def test_a_type_word_of_the_required_item_must_be_in_the_listed_title():
+    item = _req("Pump datasheet")
+    assert not transmittal_kit._covers(item, _entry("X", "Pump"))
+    assert transmittal_kit._covers(item, _entry("X", "Pump Datasheet Rev 2"))
+    assert transmittal_kit._covers(
+        _req("Index of the pumps"), _entry("X", "Index pumps")
+    )
+
+
+def test_a_number_found_only_in_the_body_is_not_the_documents_own_number():
+    # the number is on page 1 (the cheap filter passes) but outside the title block
+    lines = ["Cover", "Invented title"] + [f"body {i}" for i in range(40)]
+    lines += ["calculation per ABC-100-001"] + [f"tail {i}" for i in range(40)]
+    _doc("doc_body", ["\n".join(lines)], "datasheet", number="ABC-100-999")
+    assert "ABC-100-001" in procedure_text.load_pages("doc_body")[0][1]
+    assert transmittal_kit.holders(["ABC-100-001"], ["doc_body"]) == {"ABC-100-001": []}
