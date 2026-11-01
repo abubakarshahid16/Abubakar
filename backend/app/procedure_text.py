@@ -229,3 +229,25 @@ def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
             f"engineer to confirm"
         ),
     }
+
+
+def is_row(finding: dict) -> bool:
+    """A finding this path wrote (its reason code, or the words a legacy row leads with)."""
+    code = finding.get("reason_code") or (finding.get("ai_rationale") or "")
+    return str(code).startswith(REASON_CODES)
+
+
+def crs_words(finding: dict, lead: str) -> str | None:
+    """The CRS comment of a procedure row, or None for any other finding. It says what
+    the search of the document's own text found, never "not answered by the datasheet"."""
+    if not is_row(finding):
+        return None
+    said = (finding.get("ai_rationale") or "").partition(": ")[2].strip()
+    if (finding.get("reason_code") or finding.get("ai_rationale") or "").startswith(
+        FOUND
+    ):
+        return f"{lead} {said} Engineer to confirm."
+    return (
+        f"{lead} {said} Clarification requested: please indicate where this "
+        f"document addresses the requirement."
+    )

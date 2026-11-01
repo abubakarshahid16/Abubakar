@@ -41,7 +41,7 @@ from . import (
 from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
-from . import paragraph_ids
+from . import paragraph_ids, procedure_text
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -118,16 +118,13 @@ _NOT_IN_DOCUMENT_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
 #: status is "needs another document".
 _REQUIRES_OTHER_DOCUMENT_MARKER = "requires_other_document"
 
-#: B3. The reason code `comparison.UNREAD_PAGES` leads `ai_rationale` with on a
-#: finding whose value could sit on a page not yet read into fields. Duplicated
-#: as a literal for the same reason as the two above. Such a finding is an
-#: instruction to the ENGINEER, never a comment to the contractor, so it never
-#: enters the CRS as its own row.
+#: B3. `comparison.UNREAD_PAGES` leads `ai_rationale` on a finding whose value
+#: could sit on a page not yet read into fields (a literal, as above): an
+#: instruction to the ENGINEER, never its own CRS row.
 _UNREAD_PAGES_MARKER = "UNREAD_PAGES"
 ROW_KIND_PAGES_NOT_READABLE = "pages_not_readable"
-#: Honesty audit entry 68: `comparison.PAGE_READER_ONLY` - the value was not
-#: found on a page only the geometry/vision reader read. Engineer work, like
-#: UNREAD_PAGES, so never an individual row to the contractor.
+#: Audit entry 68: `comparison.PAGE_READER_ONLY` - not found on a page only the
+#: geometry/vision reader read. Engineer work, like UNREAD_PAGES: never a row.
 _PAGE_READER_ONLY_MARKER = "PAGE_READER_ONLY"
 ROW_KIND_PAGE_READER_ONLY = "page_reader_only"
 
@@ -135,12 +132,7 @@ ROW_KIND_PAGE_READER_ONLY = "page_reader_only"
 _page_list = crs_blank_fields.page_list
 
 
-#: #1476: `procedure_text`'s three reason codes (literals, as above): a procedure
-#: submittal's own text was searched for the requirement. These rows have no
-#: datasheet field by design; they are CRS lines, not notes.
-_PROCEDURE_MARKERS = ("procedure_text_found", "procedure_text_not_found", "procedure_text_too_short")
-_LEGACY_MARKERS = (_REQUIRES_OTHER_DOCUMENT_MARKER, _UNREAD_PAGES_MARKER, _PAGE_READER_ONLY_MARKER,
-                   *_PROCEDURE_MARKERS)
+_LEGACY_MARKERS = (_REQUIRES_OTHER_DOCUMENT_MARKER, _UNREAD_PAGES_MARKER, _PAGE_READER_ONLY_MARKER)
 
 
 def _reason(finding: dict) -> str | None:
@@ -168,10 +160,6 @@ def _page_reader_only(finding: dict) -> bool:
             and _reason(finding) == _PAGE_READER_ONLY_MARKER)
 
 
-def _procedure_row(finding: dict) -> bool:
-    return _reason(finding) in _PROCEDURE_MARKERS
-
-
 def _no_datasheet_field(finding: dict) -> bool:
     """#139: a standard's question with NO datasheet field behind it - no
     value read and no datasheet page (a tie between fields, a pairing step that
@@ -186,7 +174,7 @@ def _no_datasheet_field(finding: dict) -> bool:
         not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, "chat")
         and not (finding.get("fact_id") or finding.get("contractor_page"))
         and not _unread(finding)
-        and not _procedure_row(finding)
+        and not procedure_text.is_row(finding)
         and not _page_reader_only(finding)
         and not _confirmed(finding)
         and not finding.get("rule_said")
@@ -677,12 +665,8 @@ def engineer_comment_text(group: list[dict]) -> str:
         f"p.{_page_list(pages)}," if pages else "",
         field or "", f"({', '.join(tags)})" if tags else "") if p)
     lead = f"{ref}: {_requirement_words(f)}"
-    if _procedure_row(f):  # #1476: what the search of the document's own text found
-        said = (f.get("ai_rationale") or "").partition(": ")[2].strip()
-        found = _reason(f) == _PROCEDURE_MARKERS[0]
-        return f"{lead} {said} " + (
-            "Engineer to confirm." if found else
-            "Clarification requested: please indicate where this document addresses the requirement.")
+    if words := procedure_text.crs_words(f, lead):  # #1476
+        return words
     if not (f.get("fact_id") or f.get("contractor_page")):
         # NOT FOUND IS NOT "NOT STATED" (honesty audit 50): what is known is
         # that no field READ from the sheet answered it, with the pages that
