@@ -56,3 +56,19 @@ def test_a_test_plan_is_a_procedure(title):
 def test_a_plot_plan_is_not_made_a_procedure():
     e = document_kind.decide_document_kind(_pages("PLOT PLAN\n" + _filler("Cover")))
     assert e.kind != "procedure"
+
+
+def test_a_header_repeated_on_later_pages_does_not_beat_the_cover():
+    # The real shape: an attachment's own heading repeats at the top of each of
+    # its pages, so it lands in the title block; the cover's title is a line
+    # further down page 1. Without the page order the attachment wins.
+    cover = (
+        "ACME PIPELINE\nREV-2\n"
+        + _filler("Cover", 4)
+        + "\nHydrostatic Test Plan\n"
+        + _filler("More")
+    )
+    attachment = "Material Safety Data Sheet\n" + _filler("MSDS", 20)
+    pages = _pages(cover, *[attachment] * 6)
+    e = document_kind.decide_document_kind(pages, document_role="CONTRACTOR_SUBMITTAL")
+    assert (e.kind, e.page) == ("procedure", 1)
