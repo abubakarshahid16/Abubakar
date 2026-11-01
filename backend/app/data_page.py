@@ -11,6 +11,7 @@ reader never saw them.
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 from .config import settings
 from .quality import MIN_CLAUSE_WORDS, longest_clause
@@ -41,6 +42,52 @@ def is_data_page(lines: list[str]) -> bool:
     measured = sum(1 for line in lines if _measured(line))
     return measured >= _MANY_MEASURED_LINES or (
         measured >= _MIN_MEASURED_LINES and measured * 3 >= len(lines)
+    )
+
+
+#: A rights line on at least this many pages is the document's running footer.
+RUNNING_RIGHTS_MIN_PAGES = 3
+
+
+def running_rights_lines(pages: list[tuple[int, str]]) -> frozenset[str]:
+    """Normalised lines carrying a front-matter marker that repeat on three or
+    more pages (RUNNING_FOOTER_NOT_FRONTMATTER_ENABLED; off: empty).
+
+    Kit proof 1 Nov (#1478): a vendor's 5-page pump sheet printed one
+    "Copyright ... All rights reserved." footer on pages 2-5; that one line is
+    two markers, so its two performance-curve pages were set aside as book
+    front matter and the fact reader never saw them. A book's credits page is
+    one page and keeps its own markers (ISBN, editors, its own rights
+    sentence) when the repeated footer is left out; only the repeated line
+    stops counting.
+    """
+    if not settings.running_footer_not_frontmatter_enabled:
+        return frozenset()
+    from .chunker import (
+        _AMBIGUOUS_FRONTMATTER_MARKERS,
+        _FRONTMATTER_MARKERS,
+        normalise_line,
+    )
+
+    markers = (*_FRONTMATTER_MARKERS, *_AMBIGUOUS_FRONTMATTER_MARKERS)
+    seen: Counter[str] = Counter()
+    for _page_no, text in pages:
+        norms = {normalise_line(line) for line in text.splitlines()}
+        seen.update(
+            n for n in norms if n and len(n) <= 120 and any(m in n for m in markers)
+        )
+    return frozenset(n for n, c in seen.items() if c >= RUNNING_RIGHTS_MIN_PAGES)
+
+
+def marker_text(text: str, footer: frozenset[str]) -> str:
+    """The page's text, lower case, that front-matter markers are looked for in:
+    without the document's running rights footer (`running_rights_lines`)."""
+    if not footer:
+        return text.lower()
+    from .chunker import normalise_line
+
+    return "\n".join(
+        ln for ln in text.lower().splitlines() if normalise_line(ln) not in footer
     )
 
 

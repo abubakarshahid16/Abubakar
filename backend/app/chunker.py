@@ -29,7 +29,7 @@ from . import fts_index, orphan_guard, states
 from . import unsupported_script as script
 from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
-from .data_page import body_or_data
+from .data_page import body_or_data, marker_text, running_rights_lines
 from . import tables as tables_mod
 
 # ---------------------------------------------------------------- tokenizer
@@ -484,7 +484,7 @@ def count_clause_headings(text: str) -> int:
     return found
 
 
-def classify_page(text: str, page_no: int, total_pages: int) -> str:
+def classify_page(text: str, page_no: int, total_pages: int, footer=frozenset()) -> str:
     """Classify a page as prose / toc / frontmatter / index / references.
 
     Contents and index pages are dense keyword lists with no content. Indexed
@@ -513,7 +513,7 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
     ):
         return "frontmatter"
 
-    low = text.lower()
+    low = marker_text(text, footer)  # a running rights footer does not count
     marker_hits = sum(1 for m in _FRONTMATTER_MARKERS if m in low)
     marker_hits += sum(1 for m in _AMBIGUOUS_FRONTMATTER_MARKERS if m in low)
 
@@ -674,16 +674,15 @@ def _is_title_page(text: str, page_no: int) -> bool:
 
 
 def classify_document_pages(pages: list[tuple[int, str]], total_pages: int) -> dict[int, str]:
-    """`classify_page` for every page, then the two judgements that need the
-    document: a change table continuing over several pages, and the title page.
-
-    * a page that is a change table (see is_change_table_page) becomes
-      `revision_history` - excluded from search with its reason recorded;
-    * page 1, when `classify_page` called it front matter and it is a short
-      title block, becomes `title_page` - one searchable chunk, so a
-      document's own title and number can be found inside the document.
-    """
-    kinds = {p: script.kind(t) or classify_page(t, p, total_pages) for p, t in pages}
+    """`classify_page` for every page (a running rights footer not counted, see
+    `running_rights_lines`), then: a change table page (is_change_table_page), also
+    continued over pages, becomes `revision_history` (excluded, reason recorded);
+    page 1, called front matter but a short title block, becomes `title_page`
+    (one searchable chunk, so the document's own title and number are found)."""
+    footer = running_rights_lines(pages)
+    kinds = {
+        p: script.kind(t) or classify_page(t, p, total_pages, footer) for p, t in pages
+    }
     previous_history = False
     previous_no: int | None = None
     for pno, text in pages:
