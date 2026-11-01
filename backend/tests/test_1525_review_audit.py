@@ -27,9 +27,10 @@ from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
 
 
 @pytest.fixture
-def audit_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "review_audit_dir", str(tmp_path / "proof"))
-    return tmp_path / "proof"
+def audit_dir(tmp_path_factory, monkeypatch):
+    out = tmp_path_factory.mktemp("proof_out")  # a sibling of the data folder, not inside it
+    monkeypatch.setattr(settings, "review_audit_dir", str(out))
+    return out.resolve()
 
 
 def _scope(world):
@@ -185,6 +186,61 @@ def test_a_failure_writing_the_audit_never_breaks_the_review(
 
 def test_the_audit_holds_no_page_text_beyond_stored_quotes(world, audit_dir):
     run_id = _review(world)
-    md = review_audit.render_markdown(review_audit.build(run_id, _scope(world)))
+    audit = review_audit.build(run_id, _scope(world))
+    md = review_audit.render_markdown(audit)
     assert "Pump shall comply with API 610" not in md
     assert "Equipment noise level shall not exceed" not in md
+    # the stored quote IS shown: the probe sees a snippet when one is stored
+    shown = [r["value_read"] for r in audit["rules"]["rows"] if r["value_read"]]
+    assert shown and all(v in md for v in shown)
+    audit["rules"]["rows"][0]["value_read"] = "Pump shall comply with API 610"
+    assert "Pump shall comply with API 610" in review_audit.render_markdown(audit)
+
+
+def test_a_draft_count_the_run_did_not_store_is_not_recorded_never_zero(
+    world, audit_dir
+):
+    run_id = _review(world)
+    audit = review_audit.build(run_id, _scope(world))
+    assert audit["gates"]["recorded"]["draft_checklist_results"] is None
+    md = review_audit.render_markdown(audit)
+    assert "draft_checklist_results: not recorded" in md
+
+
+def test_applied_count_is_what_is_listed_and_states_its_boundary(world, audit_dir):
+    run_id = _review(world)
+    sub_only = access.AccessScope(
+        user_id=None, allowed_document_ids=frozenset({world["sub"]})
+    )
+    std = review_audit.build(run_id, sub_only)["standards"]
+    assert std["applied_count"] == len(std["applied"]) == 0
+    full = review_audit.build(run_id, _scope(world))
+    assert full["standards"]["applied_count"] == len(full["standards"]["applied"])
+    assert "of standards you may read" in review_audit.render_markdown(full)
+
+
+def test_an_audit_dir_inside_the_repo_or_data_folder_falls_back(tmp_path, monkeypatch):
+    default = review_audit.Path("~/project/mirror/proof").expanduser()
+    inside_repo = review_audit.Path(review_audit.__file__).resolve().parents[2] / "x"
+    monkeypatch.setattr(settings, "review_audit_dir", str(inside_repo))
+    assert review_audit.audit_root() == default
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    monkeypatch.setattr(settings, "review_audit_dir", str(tmp_path / "data" / "out"))
+    assert review_audit.audit_root() == default
+    monkeypatch.setattr(settings, "review_audit_dir", str(tmp_path / "elsewhere"))
+    assert review_audit.audit_root() == (tmp_path / "elsewhere").resolve()
+
+
+def test_the_audit_folder_is_kept_in_the_runs_stored_trace(
+    world, audit_dir, monkeypatch
+):
+    monkeypatch.setattr(settings, "review_audit_report_enabled", True)
+    run_id = _review(world)
+    row = (
+        connect()
+        .execute(
+            "SELECT trace FROM review_run_traces WHERE review_run_id = ?", (run_id,)
+        )
+        .fetchone()
+    )
+    assert json.loads(row["trace"])["audit_path"] == str(_files(audit_dir)[0].parent)

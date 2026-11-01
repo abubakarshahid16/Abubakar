@@ -51,7 +51,20 @@ _FAILED_NO_WORSE = (
 
 def audit_root() -> Path:
     """`REVIEW_AUDIT_DIR`, else `~/project/mirror/proof`."""
-    return Path(settings.review_audit_dir or "~/project/mirror/proof").expanduser()
+    default = Path("~/project/mirror/proof").expanduser()
+    if not settings.review_audit_dir:
+        return default
+    chosen = Path(settings.review_audit_dir).expanduser().resolve()
+    for fenced in (
+        Path(__file__).resolve().parents[2],
+        Path(settings.data_dir).resolve(),
+    ):
+        if chosen == fenced or fenced in chosen.parents:
+            logging.getLogger(__name__).warning(
+                "REVIEW_AUDIT_DIR is inside the repository or the data folder; using the default"
+            )
+            return default
+    return chosen
 
 
 def _pkt(stamp: str | None) -> str | None:
@@ -204,7 +217,8 @@ def _standards_section(run_id: str, steps: dict, allowed) -> dict:
         )
     ]
     return {
-        "applied_count": steps["STANDARDS"]["counts"]["chosen"],
+        "applied_count": len(applied),
+        "applied_boundary": "of standards you may read",
         "applied": applied,
         "applied_by_method": dict(Counter(a["method"] for a in applied)),
         "considered_not_applied_count": considered[0] if considered else None,
@@ -294,11 +308,7 @@ def _gates_section(outcome: dict, steps: dict) -> dict:
     return {
         "recorded": {
             "clause_coverage_adds_up": clause.get("adds_up") if clause else None,
-            "draft_checklist_results": draft
-            if draft
-            else 0
-            if steps["CHECKLIST"]["counts"]
-            else None,
+            "draft_checklist_results": draft,
         },
         "not_recorded_on_the_run": [
             "wrong",
@@ -431,7 +441,7 @@ def _md_standards(audit: dict) -> list[str]:
     std = audit["standards"]
     return [
         "## 3. Standards",
-        f"- applied: {std['applied_count']} ({', '.join(f'{k} {v}' for k, v in std['applied_by_method'].items()) or 'no method recorded'})",
+        f"- applied: {std['applied_count']} {std['applied_boundary']} ({', '.join(f'{k} {v}' for k, v in std['applied_by_method'].items()) or 'no method recorded'})",
         *[f"  - {a['filename']} ({a['method']})" for a in std["applied"]],
         f"- considered, not applied: {_v(std['considered_not_applied_count'])}",
         f"- cited, not in library: {std['cited_not_in_library_count']} "
@@ -541,6 +551,25 @@ def _cell(value) -> str:
     )
 
 
+def _record_path(review_run_id: str, folder: Path) -> None:
+    """Keep the audit folder in the run's stored trace (`audit_path`), if it has one."""
+    from .db import connect
+
+    conn = connect()
+    row = conn.execute(
+        "SELECT trace FROM review_run_traces WHERE review_run_id = ?", (review_run_id,)
+    ).fetchone()
+    if row is None:
+        return
+    trace = _loads(row["trace"])
+    trace["audit_path"] = str(folder)
+    with conn:
+        conn.execute(
+            "UPDATE review_run_traces SET trace = ? WHERE review_run_id = ?",
+            (json.dumps(trace), review_run_id),
+        )
+
+
 def write(review_run_id: str, scope, timings: dict | None = None) -> Path | None:
     """Write AUDIT.md and AUDIT.json for the run; None when the switch is off or
     anything failed (never raises: an audit never breaks or changes a review)."""
@@ -555,6 +584,7 @@ def write(review_run_id: str, scope, timings: dict | None = None) -> Path | None
         (folder / "AUDIT.json").write_text(
             json.dumps(audit, indent=2, default=str), encoding="utf-8"
         )
+        _record_path(review_run_id, folder)
         logging.getLogger(__name__).info(
             "review audit written for run %s", review_run_id
         )
