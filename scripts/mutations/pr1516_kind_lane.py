@@ -63,7 +63,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         5,
         "a parked kind's rows are stored without their kind in the requirement id",
         _S,
-        '    prefix = f"{ORIGIN}:{kind}:" if kind in kind_kits() else f"{ORIGIN}:"\n',
+        "    prefix = (\n"
+        '        f"{ORIGIN}:{kind}:"\n'
+        "        if kind in kind_kits() or kind in KIND_NOUNS\n"
+        '        else f"{ORIGIN}:"\n'
+        "    )\n",
         '    prefix = f"{ORIGIN}:"\n',
         "byline_and_waiting_comment_say_drawing",
     ),

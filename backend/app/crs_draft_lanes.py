@@ -54,7 +54,7 @@ SPEC_UNCONFIRMED_BY = "Specification check (DRAFT list) - engineer to confirm"
 SPEC_LANE = (SPEC_CONFIRMED_BY, SPEC_UNCONFIRMED_BY, ROW_KIND_SPEC_KIT)
 
 #: #1484: the nouns of the parked kinds that reuse the specification lane (`spec_kit` kind kits).
-KIND_NOUNS = ("drawing",)
+KIND_NOUNS = ("drawing", "transmittal")
 
 
 def spec_lane_words(noun: str = "specification") -> tuple[str, str, str]:
