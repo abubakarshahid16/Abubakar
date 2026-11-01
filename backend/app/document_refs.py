@@ -70,7 +70,9 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
     ("document_subjects", "document_id"): (FK_CASCADE, "metadata about this document"),
     ("exclusions", "document_id"): (FK_CASCADE, "records of this document's dropped text"),
     ("intake_reasons", "document_id"): (
-        FK_CASCADE, "what intake left out of this file, and why (#525)"),
+        FK_CASCADE,
+        "what intake left out of this file, and why (#525)",
+    ),
     ("jobs", "document_id"): (FK_CASCADE, "processing state of this document"),
     ("page_ledger", "document_id"): (FK_CASCADE, "per-page account of this document"),
     ("page_ocr", "document_id"): (FK_CASCADE, "OCR text of this document"),
