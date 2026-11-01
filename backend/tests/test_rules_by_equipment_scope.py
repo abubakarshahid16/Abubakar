@@ -23,7 +23,6 @@ LABELS = {
 TABLE = {
     "pump": ["API 610"],
     "heat exchanger": ["API 660"],
-    "pressure vessel": ["ASME VIII"],
 }
 
 
@@ -57,14 +56,24 @@ def test_exchanger_keeps_exchanger_general_and_unknown_drops_pump_and_vessel(on)
         _r("gen", "std_gen"),  # no known scope: stays in
         _r("pump", "std_pump"),
         _r("ves", "std_vessel"),
+        _r("own_vessel", "std_gen", equipment_type="pressure vessel"),
         _r("own_pump", "std_gen", equipment_type="centrifugal pump"),  # stored type
         _r(
             "own_unclear", "std_gen", equipment_type="gizmo"
         ),  # unreadable type: unknown
     ]
     out = _gate(reqs)
-    assert _ids(out["kept"]) == ["gen", "hx", "own_unclear"]
-    assert _ids([i["requirement"] for i in out["items"]]) == ["own_pump", "pump", "ves"]
+    # a vessel rule (by its standard or its own stored type) stays: an exchanger is built to a
+    # vessel code; a rule's own stored type never drops it
+    assert _ids(out["kept"]) == [
+        "gen",
+        "hx",
+        "own_pump",
+        "own_unclear",
+        "own_vessel",
+        "ves",
+    ]
+    assert _ids([i["requirement"] for i in out["items"]]) == ["pump"]
     assert {i["code"] for i in out["items"]} == {"other_equipment_scope"}
 
 
@@ -77,10 +86,10 @@ def test_note_counts_and_boundary(on):
         _r("h", "std_hx"),
     ]
     s = _gate(reqs)["summary"]
-    assert s["considered"] == 5 and s["left_out"] == 3
-    assert s["by_other_scope"] == {"pump": 2, "pressure vessel": 1}
-    assert s["kept_scope_unknown"] == 1
-    assert s["note"].startswith("3 rules left out: they apply to pressure vessel, pump")
+    assert s["considered"] == 5 and s["left_out"] == 2
+    assert s["by_other_scope"] == {"pump": 2}
+    assert s["kept_scope_unknown"] == 2
+    assert s["note"].startswith("2 rules left out: they apply to pump")
     assert "of the 5 rules of the standards in scope" in s["note"]
 
 
@@ -88,7 +97,7 @@ def test_unknown_or_unsure_submittal_equipment_drops_nothing(on):
     reqs = [_r("pump", "std_pump"), _r("ves", "std_vessel")]
     out = _gate(reqs, equipment=())
     assert _ids(out["kept"]) == ["pump", "ves"] and out["items"] == []
-    assert out["summary"]["kept_submittal_scope_undecided"] == 2
+    assert out["summary"]["kept_submittal_scope_undecided"] == 1
     assert out["summary"]["note"] is None
 
 
@@ -239,3 +248,20 @@ def test_review_switch_off_does_not_leave_it_out(review_storage, monkeypatch):
     result, stored, rid = _review("Heat Exchanger", "API-610.pdf")
     assert stored[rid]["reason_code"] != "other_equipment_scope"
     assert "equipment_scope" not in result["requirement_split"]
+
+
+def test_the_count_and_its_boundary_reach_the_run_summary_lines(on):
+    from app import absence
+
+    out = _gate([_r("p1", "std_pump"), _r("g", "std_gen")])
+    outcome = {"requirement_split": equipment_scope.split_part(out)}
+    (line,) = equipment_scope.lines(outcome)
+    assert "1 rules left out: they apply to pump" in line["line"]
+    assert "of the 2 rules of the standards in scope" in line["line"]
+    assert equipment_scope.lines({"requirement_split": {}}) == []
+    assert equipment_scope.lines(None) == []
+    # wired into the summary the engineer reads, as kind_rules is
+    parts = absence.unchecked_parts(run_status="completed", outcome=outcome)
+    assert any(
+        p.get("part") == "equipment_scope" and p["line"] == line["line"] for p in parts
+    )

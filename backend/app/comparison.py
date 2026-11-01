@@ -2463,15 +2463,8 @@ def _run_comparison(
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
     # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a
-    # relief valve: its relief-device rules only). See `subject_scope.partial_gate`.
-    partial = subject_scope.partial_gate(
-        requirements,
-        equipment=subject_scope.submittal_equipment(stored, facts, subject_scope.vocabulary())[0],
-        standard_labels=standard_labels,
-        partial_standards=applicability_mod.governing_table()["partial_standards"])
-    requirements = partial["kept"]
-    extra_not_applied.extend(partial["items"])
-    # RULES BY EQUIPMENT SCOPE (switch): a rule for another equipment type or kind is counted.
+    # relief valve: its relief-device rules only). See `subject_scope.partial_gate` (in `eqs.gate_for_run`
+    # with the rules-by-equipment-scope gate).
     requirements, es = eqs.gate_for_run(
         requirements, stored, facts, submittal_id, standard_labels, extra_not_applied
     )
@@ -2499,10 +2492,14 @@ def _run_comparison(
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
-    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this type has a
-    # review checklist, the requirements of a standard the checklist CITES (`source.standard`) are not
-    # checked one by one: its items are. AFTER the applicability gates: a clause that does not apply
-    # keeps that stronger decision; only what still applies is "not used". Other standards unchanged.
+    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this submittal's
+    # equipment type has a review checklist, the library requirements of a standard the checklist CITES
+    # are not checked one by one: the checklist items are. They stay quotable. GUARD: only standards
+    # named in the checklist's own `source.standard` (`checklist_sources`); any other applicable
+    # standard keeps the normal path, and a type with no checklist is unchanged. AFTER the applicability gates
+    # (subject, service and clause conditions, AI): a clause that does not
+    # apply keeps that stronger, reasoned decision; only what still applies -
+    # the kept requirements and the table cells no field answered - is "not used".
     covered_items: list[dict] = []
     checklist_note = None
     from . import checklist_scope
@@ -3997,8 +3994,6 @@ def match_by_model(requirement: dict, facts: list[dict], *,
     # THE BUDGET IS CHECKED AFTER THE CACHE. A question already answered costs
     # nothing, and refusing it once the budget ran out would make the result
     # depend on the order requirements happened to be iterated in.
-    if budget is not None and budget.exhausted():
-        return _none_match(MODEL_BUDGET)
     if budget is not None:
         budget.spend()
     first, reason = _ask_model_once(requirement, candidates)

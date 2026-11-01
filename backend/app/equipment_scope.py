@@ -2,10 +2,11 @@
 kind is left out of a review, counted, never silently dropped.
 
 Behind `settings.rules_by_equipment_scope_enabled`, OFF by default. A rule has a
-scope when (a) its stored `equipment_type` names equipment, or (b) its standard is
-listed under `scope_only_standards` in `reference/governing_standards.json` (a
-standard written for one equipment type only, e.g. a pump standard), or (c) it
-carries a `document_kind` naming the kinds it is for. A rule with no known scope
+scope when (a) its standard is listed under `scope_only_standards` in
+`reference/governing_standards.json` (a standard written for one equipment type
+only, e.g. a pump standard), or (b) it carries a `document_kind` naming the
+kinds it is for. A rule's own stored equipment type never drops it (a component
+is built to its parent's code). A rule with no known scope
 stays in, and so does every rule when the submittal's own equipment type or kind
 is unknown, unsure or a guess (rule 4: a guess stays a guess). This only NARROWS
 the set the review already holds (rule 5); it adds nothing and reads no other
@@ -73,10 +74,10 @@ def _kinds(value: object) -> set[str]:
 def _own_types(
     requirement: dict, label: str, table: dict, vocab
 ) -> tuple[set[str], str]:
-    """(equipment types the rule is for, where that was read) or (empty, "")."""
-    stored = vocab.equipment_in(requirement.get("equipment_type"))
-    if stored:
-        return stored, "the rule's stored equipment type"
+    """(equipment types the rule is for, where that was read) or (empty, "").
+    ONLY a standard written for one equipment family gives a scope. A rule's own
+    stored type never drops it: a heat exchanger is built to a pressure-vessel
+    code, and hiding an applicable requirement is worse than noise."""
     if label:
         types = {
             kind
@@ -163,17 +164,43 @@ def split_part(result: dict | None) -> dict:
     return {"equipment_scope": summary} if summary else {}
 
 
+def lines(outcome: dict | None) -> list[dict]:
+    """The count with its boundary, for the run summary and the CRS notes."""
+    note = (
+        ((outcome or {}).get("requirement_split") or {}).get("equipment_scope") or {}
+    ).get("note")
+    if not note:
+        return []
+    return [
+        {
+            "part": "equipment_scope",
+            "line": note,
+            "detail": True,
+            "note": "Rules by equipment",
+        }
+    ]
+
+
 def gate_for_run(
     requirements, stored, facts, submittal_id, standard_labels, not_applied
 ):
-    """The review's one call: reads the submittal's equipment and kind, gates
-    `requirements`, appends the left-out items to `not_applied`. Returns
-    (kept, result); result is what `split_part` stores."""
+    """The review's one call: `subject_scope.partial_gate`, then the scope gate.
+    Adds both gates' left-out items to `not_applied`. Returns (kept, result);
+    result is what `split_part` stores."""
+    from . import applicability
+
     equipment = subject_scope.submittal_equipment(
         stored, facts, subject_scope.vocabulary()
     )[0]
-    result = gate(
+    partial = subject_scope.partial_gate(
         requirements,
+        equipment=equipment,
+        standard_labels=standard_labels,
+        partial_standards=applicability.governing_table()["partial_standards"],
+    )
+    not_applied.extend(partial["items"])
+    result = gate(
+        partial["kept"],
         equipment=equipment,
         kind=submittal_kind(submittal_id),
         standard_labels=standard_labels,

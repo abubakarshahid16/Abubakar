@@ -74,4 +74,20 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    _unused, es = eqs.gate_for_run(\n",
         "review_leaves_out",
     ),
+    _m(
+        7,
+        "every standard is treated as written for one equipment family, so a vessel code is dropped",
+        _E,
+        "            if any(standard_ids.same_standard(label, c) for c in codes)\n",
+        "            if True\n",
+        "exchanger_keeps",
+    ),
+    _m(
+        8,
+        "the left-out count no longer reaches the run summary the engineer reads",
+        APP / "absence.py",
+        "    parts.extend(equipment_scope.lines(outcome))\n",
+        "",
+        "run_summary_lines",
+    ),
 )

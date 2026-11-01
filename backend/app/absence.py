@@ -21,7 +21,7 @@ import json
 import logging
 from pathlib import Path
 
-from . import kind_rules
+from . import equipment_scope, kind_rules
 
 _log = logging.getLogger(__name__)
 
@@ -333,6 +333,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
             "The datasheet revision-block check could not be checked: "
             + str(outcome["datasheet_check_not_run"]) + ".")
     parts.extend(kind_rules.lines(outcome))
+    parts.extend(equipment_scope.lines(outcome))
     stds = outcome.get("standards_not_checked") or []
     if stds:
         add("standards_not_checked",
