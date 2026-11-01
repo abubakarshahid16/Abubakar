@@ -136,6 +136,21 @@ def test_a_reference_line_citing_a_motor_specification_is_not_a_second_type(on):
     assert _run("d1")["equipment_type"] == "Centrifugal Pump"
 
 
+@pytest.mark.parametrize(
+    "second",
+    ["APPLICABLE TO: COMPRESSOR DATA SHEET", "PUMP / MOTOR DATA SHEET per API 610"],
+)
+def test_a_reference_word_line_naming_another_data_sheet_is_still_a_second_type(
+    on, second
+):
+    """#1552: a reference word drops a line only when it cites a document; a line
+    naming another equipment's data sheet is a second type of this title block."""
+    _doc("d1", _page(["CENTRIFUGAL PUMP DATA SHEET", second, "Doc 1", "Rev 0", "x"]))
+    row = _run("d1")
+    assert row["equipment_type"] is None
+    assert json.loads(row["equipment_type_evidence"])["reason"] == "ambiguous"
+
+
 @pytest.mark.parametrize("switch", [True, False])
 def test_the_form_reader_takes_no_type_from_the_body_with_the_switch_on(
     monkeypatch, switch
