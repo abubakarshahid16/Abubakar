@@ -159,6 +159,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
+| `intake` | One intake layer (#525, ONE_INTAKE_ENABLED): PDF, Word, Excel and image files read into one page shape; every unread page or refused file states its reason |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |

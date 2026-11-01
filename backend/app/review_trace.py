@@ -91,6 +91,33 @@ def _short(text: object, n: int = 70) -> str:
     return s if len(s) <= n else s[: n - 1] + "..."
 
 
+def _read_step(pages: dict, facts: list[dict]) -> dict:
+    """Step 1 READ, with what intake left out (ONE_INTAKE_ENABLED) named beside the counts."""
+    from . import intake, page_not_read
+
+    by_page_reader = pages.get("pages_read_only_by_page_reader") or []
+    partly = pages.get("pages_partly_read") or {}
+    partly_note = page_not_read.notes({"page_coverage": pages})  # the note the CRS carries
+    fields = {f.get("field_label") or f.get("field_name") for f in facts}
+    blank = sum(1 for f in facts if f.get("is_blank"))
+    return _step(
+        "READ",
+        f"pages {pages.get('pages_total')} | read into fields {intake.pages_read_count(pages)}"
+        + (f", backup reader only {len(by_page_reader)} (p{', p'.join(map(str, by_page_reader))})"
+           if by_page_reader else "")
+        + f" | values {len(facts)} from {len(fields)} fields | blank {blank}"
+        + (f" | partly read {len(partly)}" if partly else ""),
+        warning=("no value read" if not facts else
+                 "a page was read only by the backup page reader" if by_page_reader else
+                 "part of the file was not read (see the CRS note)" if partly_note else None),
+        counts={"pages": pages.get("pages_total"), "values": len(facts), "fields": len(fields),
+                "blank": blank, "backup_reader_pages": len(by_page_reader),
+                "partly_read_pages": len(partly)},
+        items=[n["detail"] for n in partly_note]
+        + [f"p{f.get('page')} {_short(f.get('field_label') or f.get('field_name'), 40)} = "
+           f"{_short(f.get('raw_value') or f.get('field_value'), 40)}" for f in facts])
+
+
 def build(review_run_id: str, scope) -> dict:
     """The ten step records of a finished run, read from what it stored."""
     from . import comparison, datasheets, page_ledger, submittal_review
@@ -110,21 +137,8 @@ def build(review_run_id: str, scope) -> dict:
 
     # 1 READ
     pages = page_ledger.coverage(sub)
-    by_page_reader = pages.get("pages_read_only_by_page_reader") or []
-    fields = {f.get("field_label") or f.get("field_name") for f in facts}
     blank = sum(1 for f in facts if f.get("is_blank"))
-    steps.append(_step(
-        "READ",
-        f"pages {pages.get('pages_total')} | read into fields {len(pages.get('fact_pages') or [])}"
-        + (f", backup reader only {len(by_page_reader)} (p{', p'.join(map(str, by_page_reader))})"
-           if by_page_reader else "")
-        + f" | values {len(facts)} from {len(fields)} fields | blank {blank}",
-        warning=("no value read" if not facts else
-                 "a page was read only by the backup page reader" if by_page_reader else None),
-        counts={"pages": pages.get("pages_total"), "values": len(facts), "fields": len(fields),
-                "blank": blank, "backup_reader_pages": len(by_page_reader)},
-        items=[f"p{f.get('page')} {_short(f.get('field_label') or f.get('field_name'), 40)} = "
-               f"{_short(f.get('raw_value') or f.get('field_value'), 40)}" for f in facts]))
+    steps.append(_read_step(pages, facts))
     # 2 CLEAN
     converted = sum(1 for f in facts if f.get("normalized_value") is not None
                     and (f.get("normalized_unit") or "") != (f.get("raw_unit") or f.get("unit") or ""))

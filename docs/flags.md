@@ -56,6 +56,7 @@ does not make one.
 | `exchanger_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft exchanger kit cards from the held standard SAES-E-004 join the Heat Exchanger checklist; every row held for the engineer, never decides; preparation for the parked exchanger kit (#1481), proof waits for 2 real exchanger documents |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
+| `one_intake_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | One intake layer: PDF, Word, Excel (a page per sheet) and images read into one page shape, every unread page or refused file states its reason (#525 part 1) |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |
 | `onnx_cpu_arena_rerank` | `True` | permanent | | | Machine-specific memory tuning |
 | `onnx_cpu_arena_embed` | `False` | permanent | | | Machine-specific memory tuning |
