@@ -580,14 +580,25 @@ def _audit_equipment_type_change(document_id: str, *, old_value: str | None,
 
 
 def _record_kind_first(document_id: str) -> bool:
-    """#1474: with the switch on, record the kind first (a failure never blocks
-    the equipment type) and say the switch is on."""
+    """#1474: with the switch on, record the kind of a CONTRACTOR_SUBMITTAL
+    first (a failure never blocks the equipment type) and say the switch is on.
+    Other roles (standards included) are left alone here."""
     from .config import settings
 
     if not settings.document_kind_enabled:
         return False
     try:
-        classify_document_kind(document_id)
+        role = (
+            connect()
+            .execute(
+                "SELECT document_role FROM document_classification"
+                " WHERE document_id = ?",
+                (document_id,),
+            )
+            .fetchone()
+        )
+        if role is not None and role["document_role"] == "CONTRACTOR_SUBMITTAL":
+            classify_document_kind(document_id)
     except Exception as exc:  # noqa: BLE001
         _log.warning(
             "the document kind of %s was not written (%s)",
@@ -597,17 +608,33 @@ def _record_kind_first(document_id: str) -> bool:
     return True
 
 
-def _body_fallback_ok(kind_on: bool, pages, existing) -> bool:
-    """Body text may name the equipment only for a datasheet (switch on)."""
+def _body_fallback_ok(kind_on: bool, pages, document_id: str, role) -> bool:
+    """Body text may name the equipment only for a datasheet, or when the kind
+    is unknown (then marked a guess). Switch off: as before."""
     if not kind_on:
         return True
     from . import document_kind
 
-    role = existing["document_role"]
-    return (
-        document_kind.decide_document_kind(pages, document_role=role).kind
-        == "datasheet"
-    )
+    return document_kind.body_equipment_allowed(pages, document_id, role)
+
+
+def _equipment_from_body(conn, document_id: str, kind_on: bool):
+    """The old chunk-text fallback; with the switch on, an unknown kind that
+    got its equipment from here is marked a guess and an engineer is asked."""
+    chunks = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT page_start, ordinal, text FROM chunks"
+            " WHERE document_id = ? AND retrievable = 1",
+            (document_id,),
+        )
+    ]
+    evidence = suggest_equipment_type(chunks)
+    if evidence is not None and kind_on:
+        from . import document_kind
+
+        document_kind.mark_equipment_guessed_from_body(document_id)
+    return evidence
 
 
 def classify_equipment_type_for_submittal(
@@ -660,15 +687,13 @@ def classify_equipment_type_for_submittal(
         "SELECT page_no, text FROM pages WHERE document_id = ?"
         " ORDER BY page_no", (document_id,))]
     evidence = suggest_equipment_type_from_title(title_block_lines(pages))
-    if evidence is None and not _body_fallback_ok(kind_on, pages, existing):
+    role = existing["document_role"]
+    if evidence is None and not _body_fallback_ok(kind_on, pages, document_id, role):
         # #1474: a body sentence naming equipment does not make a procedure,
         # a specification or a contract an equipment datasheet.
         return None
     if evidence is None:
-        chunks = [dict(r) for r in conn.execute(
-            "SELECT page_start, ordinal, text FROM chunks"
-            " WHERE document_id = ? AND retrievable = 1", (document_id,))]
-        evidence = suggest_equipment_type(chunks)
+        evidence = _equipment_from_body(conn, document_id, kind_on)
     if evidence is None:
         return None
 

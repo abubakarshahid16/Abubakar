@@ -258,30 +258,38 @@ def decide_document_kind(
     return make("unknown", None, None, "no_cue", None, guess=True)
 
 
-def classify_document_kind(document_id: str) -> DocumentKindEvidence | None:
-    """Decide and store `document_kind` + its evidence for ONE document.
+def stored_kind(document_id: str):
+    """`(kind, state)` the ONE kind table (`document_kinds`, the router's) holds
+    for the document, or None."""
+    row = (
+        connect()
+        .execute(
+            "SELECT kind, state FROM document_kinds WHERE document_id = ?",
+            (document_id,),
+        )
+        .fetchone()
+    )
+    return None if row is None else (row["kind"], row["state"])
 
-    Returns None and writes nothing when the switch is off or a person has
-    confirmed the classification. A document with no classification row gets
-    one (suggested_by names this classifier; nothing is confirmed)."""
+
+def classify_document_kind(document_id: str) -> DocumentKindEvidence | None:
+    """Decide the document's kind and store it in the router's table.
+
+    ONE kind per document: this is a second suggester for `doc_router`'s table
+    `document_kinds`, never a second store. A kind an engineer confirmed (there)
+    is never touched. A kind found is a SUGGESTION (state `suggested`, `guess`
+    in the evidence says how sure); nothing found stores no kind and the state
+    `needs_engineer`. Returns None, writing nothing, when the switch is off or
+    the kind is confirmed."""
+    from . import doc_router
     from .config import settings
 
     if not settings.document_kind_enabled:
         return None
-    from .db import add_column_if_missing
-
-    conn = connect()
-    # A database copy read outside the server (the CRS bench) has not been
-    # through `init_db`; the two columns are added the same way it adds them.
-    for column in ("document_kind", "document_kind_evidence"):
-        add_column_if_missing(conn, "document_classification", column, "TEXT")
-    existing = conn.execute(
-        "SELECT document_role, confirmed_by FROM document_classification"
-        " WHERE document_id = ?",
-        (document_id,),
-    ).fetchone()
-    if existing is not None and existing["confirmed_by"] is not None:
+    existing = stored_kind(document_id)
+    if existing is not None and existing[1] == doc_router.STATE_CONFIRMED:
         return None
+    conn = connect()
     pages = [
         dict(r)
         for r in conn.execute(
@@ -289,51 +297,124 @@ def classify_document_kind(document_id: str) -> DocumentKindEvidence | None:
             (document_id,),
         )
     ]
+    role = conn.execute(
+        "SELECT document_role FROM document_classification WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
     evidence = decide_document_kind(
-        pages, document_role=existing["document_role"] if existing else None
+        pages, document_role=role["document_role"] if role else None
     )
-    payload = json.dumps(evidence.as_dict())
-    with conn:
-        if existing is None:
-            conn.execute(
-                "INSERT INTO document_classification (document_id, suggested_by,"
-                " document_kind, document_kind_evidence) VALUES (?,?,?,?)",
-                (document_id, "document_kind_classifier", evidence.kind, payload),
-            )
-        else:
-            conn.execute(
-                "UPDATE document_classification SET document_kind = ?,"
-                " document_kind_evidence = ? WHERE document_id = ?",
-                (evidence.kind, payload, document_id),
-            )
+    known = evidence.kind != "unknown"
+    _write(
+        document_id,
+        evidence.kind if known else None,
+        doc_router.STATE_SUGGESTED if known else doc_router.STATE_NEEDS_ENGINEER,
+        {"decider": "document_kind", **evidence.as_dict()},
+    )
     return evidence
 
 
-def document_kind_counts(document_ids: Iterable[str] | None = None) -> dict:
-    """Documents per kind. `not_classified` counts documents with no kind
-    stored, `unknown` those the classifier read and could not name - so the
-    share sent to general review is countable, with its denominator."""
+def _write(document_id: str, kind, state: str, evidence: dict) -> None:
+    from . import doc_router
+
     conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO document_kinds (document_id, kind, state, evidence,"
+            " router_version, routed_at) VALUES (?,?,?,?,?,?)"
+            " ON CONFLICT(document_id) DO UPDATE SET kind = excluded.kind,"
+            " state = excluded.state, evidence = excluded.evidence,"
+            " router_version = excluded.router_version,"
+            " routed_at = excluded.routed_at WHERE document_kinds.state != 'confirmed'",
+            (
+                document_id,
+                kind,
+                state,
+                json.dumps(evidence),
+                str(doc_router.vocabulary().get("router_version", "1")),
+                doc_router._now(),
+            ),
+        )
+
+
+def mark_equipment_guessed_from_body(document_id: str) -> None:
+    """The kind is unknown and the equipment type came from body text: say so
+    on the kind record (state stays `needs_engineer`), so the engineer is asked
+    to confirm the kind and the equipment is shown as a guess."""
+    from . import doc_router
+
+    row = (
+        connect()
+        .execute(
+            "SELECT kind, state, evidence FROM document_kinds WHERE document_id = ?",
+            (document_id,),
+        )
+        .fetchone()
+    )
+    if (
+        row is None
+        or row["kind"] is not None
+        or row["state"] == doc_router.STATE_CONFIRMED
+    ):
+        return
+    try:
+        evidence = json.loads(row["evidence"] or "{}")
+    except ValueError:
+        evidence = {}
+    evidence["equipment_guessed_from_body"] = True
+    _write(document_id, None, doc_router.STATE_NEEDS_ENGINEER, evidence)
+
+
+def body_equipment_allowed(pages: Sequence[dict], document_id: str, role) -> bool:
+    """May body text name the equipment? Only for a datasheet, or - marked a
+    guess, engineer asked - when the kind could not be told. A kind an engineer
+    confirmed decides; otherwise the title block and cover decide."""
+    stored = stored_kind(document_id)
+    if stored is not None and stored[1] == "confirmed":
+        return stored[0] == "datasheet"
+    kind = decide_document_kind(pages, document_role=role).kind
+    return kind in ("datasheet", "unknown")
+
+
+def counts_from(conn, document_ids: Iterable[str] | None = None) -> dict:
+    """Documents per kind in the ONE kind table, from any connection. `unknown`
+    = kind empty and an engineer asked (this decider's answer and the router's
+    alike); `not_classified` = no record. `unknown_rate` has its denominator."""
     ids = None if document_ids is None else list(document_ids)
     if ids is not None and not ids:
-        return {"total": 0, "kinds": {}, "not_classified": 0}
+        return {
+            "total": 0,
+            "kinds": {},
+            "unknown": 0,
+            "not_classified": 0,
+            "unknown_rate": None,
+        }
     where, params = "", []
     if ids is not None:
         where, params = f" WHERE d.id IN ({','.join('?' * len(ids))})", ids
     kinds: dict[str, int] = {}
-    not_classified = 0
+    unknown = not_classified = 0
     for row in conn.execute(
-        "SELECT c.document_kind AS k, COUNT(*) AS n FROM documents d"
-        " LEFT JOIN document_classification c ON c.document_id = d.id"
-        f"{where} GROUP BY c.document_kind",
+        "SELECT k.kind AS kind, k.document_id AS rid, COUNT(*) AS n FROM documents d"
+        f" LEFT JOIN document_kinds k ON k.document_id = d.id{where}"
+        " GROUP BY k.kind, (k.document_id IS NULL)",
         params,
     ):
-        if row["k"] is None:
+        if row["rid"] is None:
             not_classified += row["n"]
+        elif row["kind"] is None:
+            unknown += row["n"]
         else:
-            kinds[row["k"]] = row["n"]
+            kinds[row["kind"]] = row["n"]
+    total = sum(kinds.values()) + unknown + not_classified
     return {
-        "total": sum(kinds.values()) + not_classified,
+        "total": total,
         "kinds": kinds,
+        "unknown": unknown,
         "not_classified": not_classified,
+        "unknown_rate": round(unknown / total, 4) if total else None,
     }
+
+
+def document_kind_counts(document_ids: Iterable[str] | None = None) -> dict:
+    return counts_from(connect(), document_ids)
