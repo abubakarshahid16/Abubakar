@@ -647,7 +647,8 @@ def coverage(document_id: str) -> dict:
             # #1473): the page stays NOT READ, it is only named.
             "pages_not_read_why": {
                 str(r["page_no"]): page_not_read.unread_page_words(r)
-                for r in ledger if not page_has_reading(r)
+                for r in ledger
+                if not page_has_reading(r)
             },
         }
     return {

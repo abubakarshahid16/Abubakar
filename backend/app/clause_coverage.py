@@ -159,8 +159,8 @@ def outcome_notes(outcome: dict, findings: list[dict]) -> list[dict]:
     if outcome:
         from .rule_trust import review_notes as trust_notes
         notes.extend(trust_notes(outcome, findings))
-    notes.extend(review_notes(outcome))
     notes.extend(page_not_read.notes(outcome))  # #1473
+    notes.extend(review_notes(outcome))
     return notes
 
 
