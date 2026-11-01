@@ -28,7 +28,6 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from . import crs_export_quality as quality
 from .crs_mapping import (
-    NOTE_MISSING_STANDARD,
     PRIORITY_CARRIED_FORWARD,
     ROW_KIND_CARRIED_FORWARD,
     ROW_KIND_SAFETY_TICK,
@@ -378,13 +377,11 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     if copy not in COPIES:
         raise ValueError(f"unknown CRS copy {copy!r}")
 
-    # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED. Read
-    # on the caller's text, before the "Ref:" line is added (that line alone
-    # is not a comment). The issue copy leaves such a row out and COUNTS it
-    # (`rows_withheld_no_text`), never silently; the internal copy prints
-    # EMPTY_COMMENT_TEXT in its place and marks the row `comment_missing`. A
-    # waiting sentence with no draft beside it is no text either
-    # (`crs_mapping.row_has_no_text`, #1178 review).
+    # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED (read
+    # before the "Ref:" line is added). The issue copy leaves it out and counts
+    # it (`rows_withheld_no_text`); the internal copy prints EMPTY_COMMENT_TEXT
+    # and marks `comment_missing`. A waiting sentence with no draft beside it
+    # is no text (`crs_mapping.row_has_no_text`, #1178 review).
     withheld_no_text = 0
     if copy == COPY_ISSUE:
         # ISSUE TO CONTRACTOR: ENGINEER-CONFIRMED ROWS ONLY (CRS quick wins,
@@ -408,14 +405,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         withheld_no_text = sum(1 for f in findings if _no_issuable_text(f))
         findings = [f for f in findings if not _no_issuable_text(f)]
 
-    # #1503 (CRS_EXPORT_QUALITY_ENABLED): rows with no comment are dropped and
-    # counted, a later draft on the same section + clause joins the first row.
-    export_quality = bool(meta.get("export_quality"))
-    dropped_no_comment = merged_rows = 0
-    if export_quality:
-        if copy == COPY_INTERNAL:
-            findings, dropped_no_comment = quality.drop_no_comment(findings, _no_text)
-        findings, merged_rows = quality.merge_duplicates(findings)
+    qon = bool(meta.get("export_quality", quality.enabled()))  # #1503
+    findings, dropped, merged = quality.prepare(findings, copy, _no_text, qon)
 
     rows = []
     seen: set[str] = set()
@@ -497,75 +488,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # copy only - the issue copy never carries such a row).
         rows[-1].update(_rank_cells(finding, copy), comment_missing=comment_missing)
 
-    overflowed = False
-    unproven_flagged: set[str] = set()
-    if export_quality:
-        for entry in rows:
-            for field in ("comment", "ai_review_comment"):
-                entry[field], gone = quality.strip_unproven_flag(entry[field])
-                if gone:
-                    unproven_flagged.add(entry["row_ref"])
-            entry["page_section"] = quality.page_cell(
-                entry["page_section"], entry.get("row_kind") or "")
-            entry["priority_label"] = quality.priority_label(entry.get("priority"))
-            if entry["comment_missing"]:
-                continue
-            prefix = ""
-            first, _, tail = entry["comment"].partition("\n")
-            if first.startswith(f"{ROW_REF_LABEL}: ") and entry["row_ref"] in first and tail:
-                prefix = first + "\n"
-            head, rest = quality.split_comment(
-                entry["comment"][len(prefix):], quality.COMMENT_LIMIT - len(prefix))
-            if rest:
-                entry["comment"] = prefix + head
-                entry["ai_review_comment"] = quality.move_overflow(
-                    entry["ai_review_comment"], rest)
-                overflowed = True
-
-    applicable = [
-        {"standard": str(s.get("standard") or ""),
-         "status": str(s.get("status") or ""),
-         "method": str(s.get("method") or ""),
-         "reason": str(s.get("reason") or ""),
-         "evidence": str(s.get("evidence") or "")}
-        for s in (meta.get("applicable_standards") or [])]
-    considered: list[dict] = []
-    review_notes = ([
-        {"note": str(n.get("note") or ""), "standard": str(n.get("standard") or ""),
-         "count": n.get("count"), "detail": str(n.get("detail") or "")}
-        for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else [])
-    internal_sheet: dict = {}
-    if export_quality:
-        applicable, considered = quality.split_standards(applicable, STATUS_CONSIDERED)
-        if copy == COPY_INTERNAL:
-            review_notes = [
-                {**n, "note": quality.not_in_library_note(n["standard"], n["note"])
-                 if n["note"] == NOTE_MISSING_STANDARD else n["note"]}
-                for n in review_notes]
-            if dropped_no_comment:
-                review_notes.append({"note": "Rows dropped: no comment", "standard": "",
-                                     "count": dropped_no_comment,
-                                     "detail": "rows with no comment text are not exported"})
-            if merged_rows:
-                review_notes.append({"note": "Rows merged into an earlier row", "standard": "",
-                                     "count": merged_rows,
-                                     "detail": "same document, section and standard clause"})
-            if considered:
-                review_notes.append({"note": "Standards considered, not applied", "standard": "",
-                                     "count": len(considered),
-                                     "detail": "listed on the Internal sheet"})
-            internal_sheet = {
-                "rows": [{"item_no": e["item_no"], "row_ref": e["row_ref"],
-                          "reasoning": e["reasoning"],
-                          "rule_trust": e["rule_trust"] + (
-                              f" - {quality.UNPROVEN_REASON}"
-                              if e["row_ref"] in unproven_flagged else "")}
-                         for e in rows if e["reasoning"] or e["rule_trust"]
-                         or e["row_ref"] in unproven_flagged],
-                "considered": considered,
-            }
-
-    return {
+    view = {
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
         "title": "\n ".join(p for p in (company, project) if p).rstrip(),
         # #633 item 7: "REVIEW INCOMPLETE: run <status> - ..." on row 1; "" for a completed run.
@@ -576,13 +499,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
         "columns": list(HEADERS) + [STANDARD_COLUMN, PRIORITY_COLUMN]
-                   + ([AI_COLUMN] if export_quality and (copy == COPY_INTERNAL or overflowed)
-                      else [AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]
-                      if copy == COPY_INTERNAL and not export_quality else []),
-        "export_quality": export_quality,
-        "internal_sheet": internal_sheet,
-        "rows_dropped_no_comment": dropped_no_comment,
-        "rows_merged": merged_rows,
+                   + ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]
+                      if copy == COPY_INTERNAL else []),
         "crs_copy": copy,
         "rows": rows,
         # Spec e: rows left off THIS copy because they had no comment text
@@ -611,10 +529,20 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # included and the cited ones not held (MISSING_LOCALLY). Drawn on a
         # sheet of its own so the client's seven-column comment sheet is
         # unchanged.
-        "applicable_standards": applicable,
+        "applicable_standards": [
+            {"standard": str(s.get("standard") or ""),
+             "status": str(s.get("status") or ""),
+             "method": str(s.get("method") or ""),
+             "reason": str(s.get("reason") or ""),
+             "evidence": str(s.get("evidence") or "")}
+            for s in (meta.get("applicable_standards") or [])],
         # 2f: internal notes, internal copy only.
-        "review_notes": review_notes,
+        "review_notes": ([
+            {"note": str(n.get("note") or ""), "standard": str(n.get("standard") or ""),
+             "count": n.get("count"), "detail": str(n.get("detail") or "")}
+            for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
     }
+    return quality.finish(view, dropped, merged) if qon else view
 
 
 def safe_cell_text(value):
@@ -677,14 +605,8 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     internal = view["crs_copy"] == COPY_INTERNAL
     ws.column_dimensions["H"].width = STANDARD_COLUMN_WIDTH
     ws.column_dimensions["I"].width = PRIORITY_COLUMN_WIDTH
-    # #1503: with the switch on, Reasoning and Rule trust are on the Internal
-    # sheet; the AI column stays (and the contractor copy has it only when a
-    # comment's overflow moved there).
-    quality_on = view["export_quality"]
-    with_ai = AI_COLUMN in view["columns"]
-    if with_ai:
-        ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
-    if internal and not quality_on:
+    ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
+    if internal:
         ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
         ws.column_dimensions["L"].width = TRUST_COLUMN_WIDTH
 
@@ -725,10 +647,8 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"],
                   entry["standard_reference"], entry.get("priority_label", "")]
-        if quality_on:
-            if with_ai:
-                values.append(entry["ai_review_comment"])
-        elif internal:
+        values.extend(quality.tail_cells(view, entry))  # #1503
+        if internal and not view.get("export_quality"):
             values.extend([entry["ai_review_comment"], entry["reasoning"],
                            entry.get("rule_trust", "")])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
@@ -740,11 +660,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.row_dimensions[row].height = max(
             15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
 
-    # THE REPLY CONVENTION, ON THE SHEET ITSELF. A tip on every Contractor's
-    # Response cell asks for one of the four response codes first, which is
-    # what the reply import reads (`crs_numbers.parse_response`). A prompt,
-    # not a restriction: any text is still accepted, and a reply without a
-    # code imports with no code rather than being refused or guessed.
+    # THE REPLY CONVENTION, ON THE SHEET ITSELF: a tip on every Contractor's
+    # Response cell asks for a response code first (`crs_numbers.parse_response`
+    # reads it). A prompt, not a restriction: any text is accepted.
     if view["rows"]:
         from openpyxl.worksheet.datavalidation import DataValidation
         tip = DataValidation(type="textLength", operator="greaterThanOrEqual",
@@ -755,12 +673,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         tip.add(f"F{first}:F{COLUMN_HEADER_ROW + len(view['rows'])}")
         ws.add_data_validation(tip)
 
-    # Recommended review code, when the caller supplies one: a bold merged
-    # summary row two rows below the table, so the seven-column layout the
-    # client's template defines is untouched. The reason renders beside it
-    # verbatim - a code with no reason is an opinion, not a review.
-    # #633: the incomplete-review notice sits directly under the table, above
-    # the code, so a reader sees it before anything that reads as a result.
+    # Recommended review code, when supplied: a bold merged summary row two
+    # rows below the table (the template's seven columns are untouched), its
+    # reason beside it verbatim. #633: the incomplete-review notice sits
+    # directly under the table, above the code.
     if view["incomplete_notice"]:
         notice_row = COLUMN_HEADER_ROW + len(view["rows"]) + 1
         ws.merge_cells(start_row=notice_row, start_column=1, end_row=notice_row,
@@ -809,29 +725,8 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         for col, width in zip("ABCD", (44, 30, 8, 90)):
             notes_sheet.column_dimensions[col].width = width
 
-    # #1503: the engineer's own sheet - the reasoning and rule trust behind each
-    # row, and the standards considered and not applied. Internal copy only.
-    if internal and quality_on:
-        sheet = wb.create_sheet(INTERNAL_SHEET)
-        inner = view["internal_sheet"]
-        r = 1
-        for col, header in enumerate(INTERNAL_ROW_COLUMNS, start=1):
-            _write(sheet, r, col, header).font = Font(bold=True)
-        for entry in inner.get("rows", []):
-            r += 1
-            for col, key in enumerate(("item_no", "row_ref", "reasoning", "rule_trust"), start=1):
-                _write(sheet, r, col, entry[key]).alignment = \
-                    Alignment(wrap_text=True, vertical="top")
-        r += 2
-        for col, header in enumerate(INTERNAL_CONSIDERED_COLUMNS, start=1):
-            _write(sheet, r, col, header).font = Font(bold=True)
-        for entry in inner.get("considered", []):
-            r += 1
-            for col, key in enumerate(("standard", "status", "method", "reason"), start=1):
-                _write(sheet, r, col, entry[key]).alignment = \
-                    Alignment(wrap_text=True, vertical="top")
-        for col, width in zip("ABCD", (30, 22, 70, 70)):
-            sheet.column_dimensions[col].width = width
+    if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
+        quality.write_internal_sheet(wb, view["internal_sheet"], _write)
 
     buffer = BytesIO()
     wb.save(buffer)

@@ -31,8 +31,13 @@ from __future__ import annotations
 
 import re
 
+from openpyxl.styles import Alignment, Font
+
+from .config import settings
+from .crs_mapping import NOTE_MISSING_STANDARD
 from .rule_trust import UNPROVEN_REASON
 
+AI_COLUMN = "AI Review Comments"  # crs_export.AI_COLUMN
 COMMENT_LIMIT = 350
 
 # ----------------------------------------------------------------- priority
@@ -57,7 +62,11 @@ def priority_label(priority) -> str:
     """The fixed-list word for a rank. A rank outside 1-3 (an engineer's own
     comment, a carried-forward one, or none) is for a human to look at: it
     prints "Engineer to check", never a blank and never "None"."""
-    rank = priority if isinstance(priority, int) and not isinstance(priority, bool) else None
+    rank = (
+        priority
+        if isinstance(priority, int) and not isinstance(priority, bool)
+        else None
+    )
     return _BY_RANK.get(rank, PRIORITY_ENGINEER_TO_CHECK)
 
 
@@ -116,7 +125,11 @@ REASON_NOT_READ = "not read"
 REASON_NOT_IDENTIFIED = "not identified"
 REASON_OTHER_DOCUMENT = "needs other document"
 #: row kinds whose page lives in a document the library does not hold
-_OTHER_DOCUMENT_KINDS = ("standard_not_cited", "requires_other_document", "missing_reference")
+_OTHER_DOCUMENT_KINDS = (
+    "standard_not_cited",
+    "requires_other_document",
+    "missing_reference",
+)
 
 
 def has_page(page_section: str) -> bool:
@@ -244,12 +257,169 @@ def drop_no_comment(rows: list[dict], has_no_text) -> tuple[list[dict], int]:
     """Rule 2 (internal copy; the contractor copy already withholds these).
     A row an engineer confirmed is kept: its number was issued, and the issue
     gate asks the engineer to write it again."""
-    kept = [r for r in rows if r.get("engineer_confirmed") is True or not has_no_text(r)]
+    kept = [
+        r for r in rows if r.get("engineer_confirmed") is True or not has_no_text(r)
+    ]
     return kept, len(rows) - len(kept)
 
 
-def split_standards(standards: list[dict], considered_status: str) -> tuple[list[dict], list[dict]]:
+def split_standards(
+    standards: list[dict], considered_status: str
+) -> tuple[list[dict], list[dict]]:
     """Rule 5: (applied + not in library, considered not applied)."""
     shown = [s for s in standards if s.get("status") != considered_status]
     held_back = [s for s in standards if s.get("status") == considered_status]
     return shown, held_back
+
+
+# ----------------------------------------------------------------- the view
+
+
+def enabled() -> bool:
+    """CRS_EXPORT_QUALITY_ENABLED (default off); a caller may override it in
+    `meta["export_quality"]`."""
+    return bool(settings.crs_export_quality_enabled)
+
+
+def prepare(
+    findings: list[dict], internal: bool, has_no_text
+) -> tuple[list[dict], int, int]:
+    """Rules 2 and 1, before the rows are built: (rows, dropped, merged)."""
+    dropped = 0
+    if internal:
+        findings, dropped = drop_no_comment(findings, has_no_text)
+    findings, merged = merge_duplicates(findings)
+    return findings, dropped, merged
+
+
+def _note(note: str, count: int, detail: str) -> dict:
+    return {"note": note, "standard": "", "count": count, "detail": detail}
+
+
+def finish(view: dict, dropped: int, merged: int) -> dict:
+    """Rules 3 to 7 on the view `build_crs_view` made (switch on only)."""
+    from . import crs_export as ce
+
+    internal = view["crs_copy"] == ce.COPY_INTERNAL
+    flagged: set[str] = set()
+    overflowed = False
+    for entry in view["rows"]:
+        for field in ("comment", "ai_review_comment"):
+            entry[field], gone = strip_unproven_flag(entry[field])
+            if gone:
+                flagged.add(entry["row_ref"])
+        entry["page_section"] = page_cell(
+            entry["page_section"], entry.get("row_kind") or ""
+        )
+        entry["priority_label"] = priority_label(entry.get("priority"))
+        if entry["comment_missing"]:
+            continue
+        first, _, tail = entry["comment"].partition("\n")
+        prefix = (
+            first + "\n" if first.startswith(f"{ce.ROW_REF_LABEL}: ") and tail else ""
+        )
+        head, rest = split_comment(
+            entry["comment"][len(prefix) :], COMMENT_LIMIT - len(prefix)
+        )
+        if rest:
+            entry["comment"] = prefix + head
+            entry["ai_review_comment"] = move_overflow(entry["ai_review_comment"], rest)
+            overflowed = True
+    standards, considered = split_standards(
+        view["applicable_standards"], ce.STATUS_CONSIDERED
+    )
+    for s in standards:
+        if s["status"] == ce.STATUS_NOT_IN_LIBRARY:
+            s["status"] = not_in_library_status(s["standard"])
+    notes, inner = view["review_notes"], {}
+    if internal:
+        notes = [
+            {**n, "note": not_in_library_note(n["standard"], n["note"])}
+            if n["note"] == NOTE_MISSING_STANDARD
+            else n
+            for n in notes
+        ]
+        if dropped:
+            notes.append(
+                _note(
+                    "Rows dropped: no comment",
+                    dropped,
+                    "rows with no comment text are not exported",
+                )
+            )
+        if merged:
+            notes.append(
+                _note(
+                    "Rows merged into an earlier row",
+                    merged,
+                    "same document, section and standard clause",
+                )
+            )
+        if considered:
+            notes.append(
+                _note(
+                    "Standards considered, not applied",
+                    len(considered),
+                    "listed on the Internal sheet",
+                )
+            )
+        inner = {
+            "rows": [
+                {
+                    "item_no": e["item_no"],
+                    "row_ref": e["row_ref"],
+                    "reasoning": e["reasoning"],
+                    "rule_trust": e["rule_trust"]
+                    + (f" - {UNPROVEN_REASON}" if e["row_ref"] in flagged else ""),
+                }
+                for e in view["rows"]
+                if e["reasoning"] or e["rule_trust"] or e["row_ref"] in flagged
+            ],
+            "considered": considered,
+        }
+    base = view["columns"][: len(ce.HEADERS) + 2]
+    view.update(
+        columns=base + ([ce.AI_COLUMN] if internal or overflowed else []),
+        applicable_standards=standards,
+        review_notes=notes,
+        export_quality=True,
+        internal_sheet=inner,
+        rows_dropped_no_comment=dropped,
+        rows_merged=merged,
+    )
+    return view
+
+
+def tail_cells(view: dict, entry: dict) -> list:
+    """The cells after Priority on a row: the AI column when this copy has it
+    (switch on only; off, the caller's own three columns apply)."""
+    if not view.get("export_quality"):
+        return []
+    return [entry["ai_review_comment"]] if view["columns"][-1] == AI_COLUMN else []
+
+
+def write_internal_sheet(wb, inner: dict, write) -> None:
+    """The Internal sheet: the reasoning and rule trust behind each row, then
+    the standards considered and not applied. `write` is `crs_export._write`."""
+    from . import crs_export as ce
+
+    sheet = wb.create_sheet(ce.INTERNAL_SHEET)
+    wrap = Alignment(wrap_text=True, vertical="top")
+    r = 1
+    for col, header in enumerate(ce.INTERNAL_ROW_COLUMNS, start=1):
+        write(sheet, r, col, header).font = Font(bold=True)
+    for entry in inner.get("rows", []):
+        r += 1
+        for col, key in enumerate(
+            ("item_no", "row_ref", "reasoning", "rule_trust"), start=1
+        ):
+            write(sheet, r, col, entry[key]).alignment = wrap
+    r += 2
+    for col, header in enumerate(ce.INTERNAL_CONSIDERED_COLUMNS, start=1):
+        write(sheet, r, col, header).font = Font(bold=True)
+    for entry in inner.get("considered", []):
+        r += 1
+        for col, key in enumerate(("standard", "status", "method", "reason"), start=1):
+            write(sheet, r, col, entry[key]).alignment = wrap
+    for col, width in zip("ABCD", (30, 22, 70, 70), strict=True):
+        sheet.column_dimensions[col].width = width

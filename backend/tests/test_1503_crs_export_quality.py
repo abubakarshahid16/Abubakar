@@ -3,16 +3,18 @@ with the switch ON, and the switch OFF leaves the sheet as it was.
 
 Invented rows only; no document text.
 """
+
 from __future__ import annotations
 
 import io
 
 import openpyxl
 
-from app import crs_export, crs_export_quality as q
+from app import crs_export
+from app import crs_export_quality as q
 
 ON = {"review_run_id": "run-1", "export_quality": True}
-OFF = {"review_run_id": "run-1"}
+OFF = {"review_run_id": "run-1", "export_quality": False}
 
 
 def row(comment="Datasheet check: Set pressure is above the limit.", **kw):
@@ -45,10 +47,17 @@ def sheet(rows, meta=ON, copy="internal"):
 
 
 def test_a_later_draft_on_the_same_section_and_clause_joins_the_first_row():
-    rows = [row("First finding."), row("Second finding.", priority=2), row("Other", page_section="p.3 - X")]
+    rows = [
+        row("First finding."),
+        row("Second finding.", priority=2),
+        row("Other", page_section="p.3 - X"),
+    ]
     v = view(rows)
     assert len(v["rows"]) == 2
-    assert "First finding." in v["rows"][0]["comment"] and "Second finding." in v["rows"][0]["comment"]
+    assert (
+        "First finding." in v["rows"][0]["comment"]
+        and "Second finding." in v["rows"][0]["comment"]
+    )
     assert v["rows"][0]["priority_label"] == "Missing value"  # the stronger rank wins
     assert v["rows_merged"] == 1
     off = view(rows, OFF)
@@ -56,11 +65,17 @@ def test_a_later_draft_on_the_same_section_and_clause_joins_the_first_row():
 
 
 def test_a_numbered_issued_a_tick_and_a_carried_comment_are_never_merged():
-    issued = [row("A", crs_ref="CRS-X-001", crs_status="Open"), row("B", crs_ref="CRS-X-002", crs_status="Open")]
+    issued = [
+        row("A", crs_ref="CRS-X-001", crs_status="Open"),
+        row("B", crs_ref="CRS-X-002", crs_status="Open"),
+    ]
     assert len(view(issued)["rows"]) == 2
     ticks = [row("A", row_kind="safety_tick"), row("B", row_kind="safety_tick")]
     assert len(view(ticks)["rows"]) == 2
-    carried = [row("A", row_kind="carried_forward"), row("B", row_kind="carried_forward")]
+    carried = [
+        row("A", row_kind="carried_forward"),
+        row("B", row_kind="carried_forward"),
+    ]
     assert len(view(carried)["rows"]) == 2
 
 
@@ -76,9 +91,15 @@ def test_a_row_with_no_comment_is_dropped_and_counted_in_the_review_notes():
     rows = [row("A comment."), row("", page_section="p.4 - Y")]
     v = view(rows)
     assert len(v["rows"]) == 1
-    assert {"note": "Rows dropped: no comment", "standard": "", "count": 1,
-            "detail": "rows with no comment text are not exported"} in v["review_notes"]
-    assert len(view(rows, OFF)["rows"]) == 2  # off: printed with the placeholder as before
+    assert {
+        "note": "Rows dropped: no comment",
+        "standard": "",
+        "count": 1,
+        "detail": "rows with no comment text are not exported",
+    } in v["review_notes"]
+    assert (
+        len(view(rows, OFF)["rows"]) == 2
+    )  # off: printed with the placeholder as before
 
 
 # 3 -----------------------------------------------------------------------
@@ -86,8 +107,17 @@ def test_a_row_with_no_comment_is_dropped_and_counted_in_the_review_notes():
 
 def test_every_row_names_a_page_or_says_page_not_found_with_a_reason():
     rows = [
-        row("a", page_section="Not read from the datasheet (5 pages) - Cdtp", standard_reference="A 1"),
-        row("b", page_section="", row_kind="standard_not_cited", standard_reference="B 1"),
+        row(
+            "a",
+            page_section="Not read from the datasheet (5 pages) - Cdtp",
+            standard_reference="A 1",
+        ),
+        row(
+            "b",
+            page_section="",
+            row_kind="standard_not_cited",
+            standard_reference="B 1",
+        ),
         row("c", page_section="Rated capacity", standard_reference="C 1"),
         row("d", page_section="p.1 - Fluid", standard_reference="D 1"),
     ]
@@ -109,24 +139,40 @@ def test_a_long_comment_is_cut_at_350_and_the_rest_goes_to_the_ai_column():
     assert len(entry["comment"]) <= 350
     assert text.startswith(entry["comment"])
     rest = entry["ai_review_comment"].split("Continued from the comment: ", 1)[1]
-    assert (entry["comment"] + " " + rest).split() == text.split()  # nothing lost, nothing added
+    assert (
+        entry["comment"] + " " + rest
+    ).split() == text.split()  # nothing lost, nothing added
     assert len(view([row(text)], OFF)["rows"][0]["comment"]) > 350
 
 
 def test_the_client_copy_has_no_internal_sheet_and_no_internal_words():
-    rows = [row("Finding. (the rule is not yet proven: it is neither engineer-approved nor an AI-compiled "
-                "rule whose family is proven on an answer key and passes code's second check; an "
-                "engineer decides)", engineer_confirmed=True)]
+    rows = [
+        row(
+            "Finding. (the rule is not yet proven: it is neither engineer-approved nor an AI-compiled "
+            "rule whose family is proven on an answer key and passes code's second check; an "
+            "engineer decides)",
+            engineer_confirmed=True,
+        )
+    ]
     client = sheet(rows, copy="issue")
     assert "Internal" not in client.sheetnames
-    cells = " ".join(str(c.value or "") for ws in client.worksheets for r in ws.iter_rows() for c in r).lower()
+    cells = " ".join(
+        str(c.value or "")
+        for ws in client.worksheets
+        for r in ws.iter_rows()
+        for c in r
+    ).lower()
     for phrase in ("not yet proven", "reasoning (internal)", "rule trust (internal)"):
         assert phrase not in cells
     internal = sheet(rows)
     assert "Internal" in internal.sheetnames
-    inner = " ".join(str(c.value or "") for r in internal["Internal"].iter_rows() for c in r)
+    inner = " ".join(
+        str(c.value or "") for r in internal["Internal"].iter_rows() for c in r
+    )
     assert "Read: Set pressure" in inner and "not yet proven" in inner
-    main = " ".join(str(c.value or "") for r in internal["CRS"].iter_rows() for c in r).lower()
+    main = " ".join(
+        str(c.value or "") for r in internal["CRS"].iter_rows() for c in r
+    ).lower()
     assert "not yet proven" not in main and "reasoning (internal)" not in main
 
 
@@ -142,27 +188,59 @@ def test_the_client_copy_gets_the_ai_column_only_when_a_comment_overflowed():
 
 
 STANDARDS = [
-    {"standard": "SAES-A-1", "status": crs_export.STATUS_APPLIED, "method": "m", "reason": "r", "evidence": ""},
-    {"standard": "SAES-B-1", "status": crs_export.STATUS_CONSIDERED, "method": "m", "reason": "r", "evidence": ""},
-    {"standard": "IEC 61511", "status": q.not_in_library_status("IEC 61511"), "method": "", "reason": "", "evidence": ""},
+    {
+        "standard": "SAES-A-1",
+        "status": crs_export.STATUS_APPLIED,
+        "method": "m",
+        "reason": "r",
+        "evidence": "",
+    },
+    {
+        "standard": "SAES-B-1",
+        "status": crs_export.STATUS_CONSIDERED,
+        "method": "m",
+        "reason": "r",
+        "evidence": "",
+    },
+    {
+        "standard": "IEC 61511",
+        "status": q.not_in_library_status("IEC 61511"),
+        "method": "",
+        "reason": "",
+        "evidence": "",
+    },
 ]
 
 
 def test_the_standards_sheet_lists_applied_and_not_in_library_only():
     meta = {**ON, "applicable_standards": STANDARDS}
     v = view([row()], meta)
-    assert [s["standard"] for s in v["applicable_standards"]] == ["SAES-A-1", "IEC 61511"]
+    assert [s["standard"] for s in v["applicable_standards"]] == [
+        "SAES-A-1",
+        "IEC 61511",
+    ]
     wb = sheet([row()], meta)
     shown = [r[0].value for r in wb["Applicable standards"].iter_rows(min_row=2)]
     assert shown == ["SAES-A-1", "IEC 61511"]
     inner = [r[0].value for r in wb["Internal"].iter_rows() if r[0].value]
     assert "SAES-B-1" in inner
-    assert any(n["note"] == "Standards considered, not applied" and n["count"] == 1
-               for n in v["review_notes"])
-    assert len(view([row()], {**OFF, "applicable_standards": STANDARDS})["applicable_standards"]) == 3
+    assert any(
+        n["note"] == "Standards considered, not applied" and n["count"] == 1
+        for n in v["review_notes"]
+    )
+    assert (
+        len(
+            view([row()], {**OFF, "applicable_standards": STANDARDS})[
+                "applicable_standards"
+            ]
+        )
+        == 3
+    )
     client = sheet([row(engineer_confirmed=True)], meta, copy="issue")
     assert "Internal" not in client.sheetnames
-    assert [r[0].value for r in client["Applicable standards"].iter_rows(min_row=2)] == ["SAES-A-1", "IEC 61511"]
+    assert [
+        r[0].value for r in client["Applicable standards"].iter_rows(min_row=2)
+    ] == ["SAES-A-1", "IEC 61511"]
 
 
 def test_not_in_library_is_split_by_a_prefix_table_not_by_document():
@@ -175,7 +253,9 @@ def test_not_in_library_is_split_by_a_prefix_table_not_by_document():
     assert q.standard_kind("ASME B16.20") == q.KIND_MATERIAL
     assert q.standard_kind("ASME SA-516") == q.KIND_MATERIAL
     assert q.standard_kind("32-SAMSS-004") == q.KIND_PURCHASING
-    assert q.standard_kind("never seen XYZ 9") == q.KIND_DESIGN  # unknown keeps "upload required"
+    assert (
+        q.standard_kind("never seen XYZ 9") == q.KIND_DESIGN
+    )  # unknown keeps "upload required"
     assert "upload required" in q.not_in_library_status("IEC 61511")
     assert "upload" not in q.not_in_library_status("ASTM A193")
     assert "upload" not in q.not_in_library_status("01-SAMSS-016")
@@ -185,11 +265,20 @@ def test_not_in_library_is_split_by_a_prefix_table_not_by_document():
 
 
 def test_priority_is_only_ever_one_of_the_fixed_words():
-    ranks = {1: "Fail", 2: "Missing value", 3: "Engineer to check",
-             4: "Engineer to check", 5: "Engineer to check", None: "Engineer to check"}
+    ranks = {
+        1: "Fail",
+        2: "Missing value",
+        3: "Engineer to check",
+        4: "Engineer to check",
+        5: "Engineer to check",
+        None: "Engineer to check",
+    }
     for rank, word in ranks.items():
         assert q.priority_label(rank) == word
-    rows = [row(f"c{i}", page_section=f"p.{i} - f", priority=p) for i, p in enumerate([1, 2, 3, 4, None])]
+    rows = [
+        row(f"c{i}", page_section=f"p.{i} - f", priority=p)
+        for i, p in enumerate([1, 2, 3, 4, None])
+    ]
     labels = [r["priority_label"] for r in view(rows)["rows"]]
     assert set(labels) <= set(q.PRIORITY_WORDS)
     off = [r["priority_label"] for r in view(rows, OFF)["rows"]]
@@ -199,8 +288,12 @@ def test_priority_is_only_ever_one_of_the_fixed_words():
 def test_switch_off_leaves_the_sheet_as_it_was():
     rows = [row("A"), row("B")]
     v = view(rows, OFF)
-    assert len(v["rows"]) == 2 and v["export_quality"] is False
-    assert v["columns"][-3:] == [crs_export.AI_COLUMN, crs_export.REASONING_COLUMN, crs_export.TRUST_COLUMN]
+    assert len(v["rows"]) == 2 and v.get("export_quality", False) is False
+    assert v["columns"][-3:] == [
+        crs_export.AI_COLUMN,
+        crs_export.REASONING_COLUMN,
+        crs_export.TRUST_COLUMN,
+    ]
     assert "Internal" not in sheet(rows, OFF).sheetnames
 
 
@@ -208,3 +301,7 @@ def test_the_setting_is_off_by_default():
     from app.config import Settings
 
     assert Settings.model_fields["crs_export_quality_enabled"].default is False
+
+
+def test_the_ai_column_name_has_one_meaning():
+    assert q.AI_COLUMN == crs_export.AI_COLUMN

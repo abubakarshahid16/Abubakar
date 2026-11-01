@@ -59,11 +59,18 @@ def measure(workbook_path: Path) -> dict:
     col = {name: i for i, name in enumerate(header) if name}
     rows = []
     r = crs_export.FIRST_DATA_ROW
-    while ws.cell(row=r, column=2).value not in (None, ""):  # the notice and code rows have no document name
+    while ws.cell(row=r, column=2).value not in (
+        None,
+        "",
+    ):  # the notice and code rows have no document name
         rows.append([c.value or "" for c in ws[r]])
         r += 1
     key = [
-        (row[col["Document Name"]], row[col["Page No./Section"]], row[col["Standard Reference"]])
+        (
+            row[col["Document Name"]],
+            row[col["Page No./Section"]],
+            row[col["Standard Reference"]],
+        )
         for row in rows
     ]
     counted = collections.Counter(key)
@@ -71,7 +78,9 @@ def measure(workbook_path: Path) -> dict:
     pages = [str(row[col["Page No./Section"]]) for row in rows]
     words = 0
     for sheet in wb.worksheets:
-        if sheet.title == "Internal":  # the engineer's own sheet; the client copy has none
+        if (
+            sheet.title == "Internal"
+        ):  # the engineer's own sheet; the client copy has none
             continue
         for cells in sheet.iter_rows(values_only=True):
             for value in cells:
@@ -88,7 +97,9 @@ def measure(workbook_path: Path) -> dict:
         "duplicate_rows": sum(n for k, n in counted.items() if n > 1 and k[2]),
         "empty_rows": sum(1 for c in comments if not c.strip() or PLACEHOLDER in c),
         "no_page": sum(
-            1 for p in pages if not _PAGE.search(p) and not p.startswith("page not found (")
+            1
+            for p in pages
+            if not _PAGE.search(p) and not p.startswith("page not found (")
         ),
         "internal_words": words,
         "over_350": sum(1 for c in comments if len(c) > 350),
@@ -111,7 +122,9 @@ def export_all(db_path: Path, runs: dict[str, str], out: Path) -> list[dict]:
     out.mkdir(parents=True, exist_ok=True)
     results = []
     with crs_bench._on_copy(db_path), crs_bench._models_refused([0]):
-        ids = frozenset(r["id"] for r in db.connect().execute("SELECT id FROM documents"))
+        ids = frozenset(
+            r["id"] for r in db.connect().execute("SELECT id FROM documents")
+        )
         scope = access.AccessScope(user_id="crs-quality", allowed_document_ids=ids)
         saved = settings.crs_export_quality_enabled
         try:
@@ -127,8 +140,12 @@ def export_all(db_path: Path, runs: dict[str, str], out: Path) -> list[dict]:
                         path = out / f"{label}_{copy}_{'on' if on else 'off'}.xlsx"
                         path.write_bytes(data)
                         results.append(
-                            {"run": label, "copy": copy, "switch": "on" if on else "off",
-                             **measure(path)}
+                            {
+                                "run": label,
+                                "copy": copy,
+                                "switch": "on" if on else "off",
+                                **measure(path),
+                            }
                         )
         finally:
             settings.crs_export_quality_enabled = saved
@@ -136,19 +153,33 @@ def export_all(db_path: Path, runs: dict[str, str], out: Path) -> list[dict]:
 
 
 def table(results: list[dict]) -> str:
-    cols = ("rows", "duplicate_rows", "empty_rows", "no_page", "internal_words",
-            "over_350", "considered_rows", "bad_priority")
-    lines = ["| run | copy | switch | " + " | ".join(cols) + " |",
-             "|---|---|---|" + "---|" * len(cols)]
+    cols = (
+        "rows",
+        "duplicate_rows",
+        "empty_rows",
+        "no_page",
+        "internal_words",
+        "over_350",
+        "considered_rows",
+        "bad_priority",
+    )
+    lines = [
+        "| run | copy | switch | " + " | ".join(cols) + " |",
+        "|---|---|---|" + "---|" * len(cols),
+    ]
     for r in results:
-        lines.append(f"| {r['run']} | {r['copy']} | {r['switch']} | "
-                     + " | ".join(str(r[c]) for c in cols) + " |")
+        lines.append(
+            f"| {r['run']} | {r['copy']} | {r['switch']} | "
+            + " | ".join(str(r[c]) for c in cols)
+            + " |"
+        )
     return "\n".join(lines)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--db", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--json", action="store_true")
@@ -156,7 +187,9 @@ def main() -> int:
     args = parser.parse_args()
     out = Path(args.out).resolve()
     if REPO in (out, *out.parents):
-        print("refused: the workbooks hold document text; --out must be outside the repository")
+        print(
+            "refused: the workbooks hold document text; --out must be outside the repository"
+        )
         return 2
     runs = {}
     for item in args.runs:
