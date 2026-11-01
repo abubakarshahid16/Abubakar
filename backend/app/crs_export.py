@@ -602,6 +602,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     if internal:
         ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
         ws.column_dimensions["L"].width = TRUST_COLUMN_WIDTH
+
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = _write(ws, row, col, value)
         cell.font = Font(name=ARIAL, bold=bold, size=size)
@@ -623,7 +624,6 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         put(row, 1, field["label"], bold=True)
         put(row, 3, field["value"])
 
-    # Column headers, directly under the header block.
     for i, header in enumerate(view["columns"], start=1):
         put(COLUMN_HEADER_ROW, i, header,
             bold=True, center=True, wrap=True).border = BOX
