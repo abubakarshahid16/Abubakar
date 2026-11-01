@@ -293,11 +293,11 @@ def test_a_busy_heavy_lock_is_refused_at_once_and_reads_nothing(standard, monkey
 
 
 def test_a_held_draft_changes_no_review_until_the_engineer_accepts(
-    review_run, monkeypatch
+    request, monkeypatch
 ):
     from app import comparison, scope_ledger
 
-    run_id, _ids, scope = review_run
+    run_id, _ids, scope = request.getfixturevalue("review_run")
     monkeypatch.setattr(settings, "ai_requirement_extraction_enabled", True)
     monkeypatch.setattr(settings, "ai_answer_reuse_enabled", False)
 
@@ -329,8 +329,8 @@ def test_a_held_draft_changes_no_review_until_the_engineer_accepts(
     assert len(after_rows) == len(before[0]) + 1
 
 
-def test_a_rejected_held_draft_stays_out_of_every_review(review_run, monkeypatch):
-    _run_id, _ids, scope = review_run
+def test_a_rejected_held_draft_stays_out_of_every_review(request, monkeypatch):
+    _run_id, _ids, scope = request.getfixturevalue("review_run")
     monkeypatch.setattr(settings, "ai_requirement_extraction_enabled", True)
     monkeypatch.setattr(settings, "ai_answer_reuse_enabled", False)
     _chunk("c9", "spec", TEXT)
