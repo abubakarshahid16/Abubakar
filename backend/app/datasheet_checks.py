@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, pump_kit, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
 from .checklist_scope import governs, standards
 from .deferred_value import hold_results
 from .same_value import key as _key
@@ -366,7 +366,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
         for tag, roles in by_tag.items():
             if tag is None and tagged:
                 continue    # the common section counts for every tag (above)
-            out += pump_kit.rows(
+            out += kit_core.rows(
                 checklist, roles, common if tag is not None else {}, tag, rules, page_texts
             )
     if page_texts and equipment_type:
@@ -418,7 +418,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
     if key not in table:
         return None
     entry = table[key]
-    items = pump_kit.with_kit(key, list(entry.get("items", [])) + _local_items(key))
+    items = kit_core.with_kit(key, list(entry.get("items", [])) + _local_items(key))
     for item in items:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
