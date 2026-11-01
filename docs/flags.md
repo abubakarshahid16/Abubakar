@@ -56,3 +56,4 @@ does not make one.
 | `smtp_enabled` | `False` | permanent | | | Egress gate for SMTP (rule 1) |
 | `smtp_starttls` | `True` | permanent | | | TLS mode; exactly one is on (#440) |
 | `smtp_ssl` | `False` | permanent | | | TLS mode; exactly one is on (#440) |
+| `document_kind_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Document kind from title block and cover, no body-text equipment fallback for non-datasheets (#1474); off, nothing is stored and nothing changes |

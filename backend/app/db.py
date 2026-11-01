@@ -1285,6 +1285,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
             # existing row gains NULL, meaning no classifier wrote any of
             # its fields - which is true of every row written before it.
             "field_evidence",
+            # #1474: what KIND of document this is (datasheet, procedure, ...)
+            # and the quote/page it was read from. Nullable: NULL = not decided.
+            "document_kind", "document_kind_evidence",
         ):
             if _column not in classification_cols:
                 conn.execute(
