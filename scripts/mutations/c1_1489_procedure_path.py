@@ -211,8 +211,16 @@ MUTATIONS: tuple[Mutation, ...] = (
         24,
         "a found row loses its contractor page",
         _P,
-        "    return int(match.group(1)) if match else None\n",
-        "    return None\n",
+        "    if match:\n        return int(match.group(1))\n",
+        "    if False:\n        return int(match.group(1))\n",
         "one_counted_note",
+    ),
+    _m(
+        25,
+        "a found row takes its fact's page, not the page of its quote",
+        _P,
+        "    if match:\n        return int(match.group(1))\n",
+        "    if match and not fact:\n        return int(match.group(1))\n",
+        "page_of_its_quote",
     ),
 )

@@ -252,11 +252,12 @@ def is_unfound(finding: dict) -> bool:
 
 
 def page_of(fact: dict | None, rationale: str | None) -> int | None:
-    """The contractor page of a finding: the fact's, else the page a found row quotes."""
-    if fact:
-        return fact.get("page")
+    """The contractor page of a finding. A found row's page is the page its quote was
+    verified on (what its text says); only another finding takes the fact's page."""
     match = re.match(rf"{FOUND}: found on page (\d+):", rationale or "")
-    return int(match.group(1)) if match else None
+    if match:
+        return int(match.group(1))
+    return fact.get("page") if fact else None
 
 
 def notes(findings: list[dict], reference) -> list[dict]:

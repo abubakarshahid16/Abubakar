@@ -339,3 +339,16 @@ def test_a_found_row_stored_without_a_page_is_still_a_crs_line():
     f = _crs_finding(STATEMENT, v["status"], v["rationale"])
     assert f["contractor_page"] is None
     assert len(crs_mapping.build_crs_rows([f], [], "proc.pdf")) == 1
+
+
+def test_a_found_row_carries_the_page_of_its_quote_not_its_facts_page():
+    pages = [
+        (3, "Welders shall be qualified before production welding begins."),
+        (9, "Unrelated text about crane plans."),
+    ]
+    req = {**STATEMENT, "required_evidence_type": "procedure"}
+    with procedure_text.using(pages):
+        v = comparison.compare(req, {"page": 9, "is_blank": 0})
+    assert "found on page 3" in v["rationale"]
+    assert procedure_text.page_of({"page": 9}, v["rationale"]) == 3
+    assert procedure_text.page_of({"page": 9}, "other") == 9
