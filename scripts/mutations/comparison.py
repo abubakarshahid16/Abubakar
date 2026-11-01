@@ -914,9 +914,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M452", phase=57,
         description="an unread page no longer blocks the omission claim (B3)",
         path=APP / "comparison.py",
-        # Re-anchored (#1550): the branch first chooses its words.
-        anchor="    if unread:\n        # #1550: with PAGE_READ_BY_READING_ENABLED",
-        replacement="    if False:\n        # #1550: with PAGE_READ_BY_READING_ENABLED",
+        anchor="    if unread:\n        return {**verdict, \"status\": NEEDS_ENGINEER_REVIEW,",
+        replacement="    if False:\n        return {**verdict, \"status\": NEEDS_ENGINEER_REVIEW,",
         target=_B3_TEST, keyword="not_called_the_contractors_omission",
         tags=("honesty", "critical"),
     ),

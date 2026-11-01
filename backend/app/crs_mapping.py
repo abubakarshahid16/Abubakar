@@ -41,7 +41,7 @@ from . import (
 from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
-from . import paragraph_ids, procedure_text, spec_kit
+from . import page_not_read, paragraph_ids, procedure_text, spec_kit
 
 # isort: split
 from .crs_draft_lanes import (  # noqa: F401
@@ -340,10 +340,6 @@ def _subject_key(f: dict) -> str:
 #: The "Review notes" sheet (owner order 2f): the engineer's internal list.
 NOTE_MISSING_STANDARD = "Standard not in your library - upload required"
 NOTE_UNREAD_PAGES = "Pages not yet readable - engineer to check"
-#: #1550: the same note for a run stored with PAGE_READ_BY_READING_ENABLED,
-#: where "not read" means no reading came back: these pages were read, and no
-#: datasheet field was taken from them - never called "not read".
-NOTE_NO_FIELD_PAGES = "No datasheet field taken from some pages - engineer to check"
 NOTE_PAGE_READER = "Value not found by the page reader - engineer to check the page"
 NOTE_OTHER_DOCUMENT = "Requires another document"
 #: CRS quick wins: a statement no datasheet field was found for. NOT "requires
@@ -374,16 +370,14 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                        outcome: dict | None = None) -> list[dict]:
     """The engineer's internal notes for one run - never a contractor comment.
 
-    One row per cited standard not held; one row for the pages not read into
-    fields; one for values the page reader did not find; and the requirements
-    that name their own evidence (a certificate, procedure, drawing) GROUPED
-    BY STANDARD with a count each, not one row per requirement (2e) - and,
-    apart from them, the statements no datasheet field was found for, which
-    name no document (quick wins; they were counted as the first kind). Every
-    count states its boundary: "of this run's requirements from <standard>".
-    Then one note per requirement found NOT APPLICABLE because the datasheet's
-    own facts put it outside the requirement's condition (with the value and
-    page that decided it); last, rule_trust (#947) from the run's `outcome`.
+    One row per cited standard not held; one for the pages no field was taken
+    from (#1550: never "not read" with the page-read switch on); one for values
+    the page reader did not find; the requirements naming their own evidence
+    (a certificate, procedure, drawing) GROUPED BY STANDARD with a count each
+    (2e) and, apart, the statements no datasheet field was found for (they name
+    no document). Every count states its boundary ("of this run's requirements
+    from <standard>"). Then one note per requirement NOT APPLICABLE by its own
+    condition (with the value and page); last, rule_trust (#947) from `outcome`.
     """
     notes: list[dict] = []
     for ref in missing_references:
@@ -391,26 +385,8 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                       "detail": (f"Cited by this submittal and not in the standards "
                                  f"library; its requirements were not checked.")})
     unread = [f for f in findings if _unread(f)]
-    if unread and "pages_not_read" in ((outcome or {}).get("page_coverage") or {}):
-        pages = _page_list(unread_pages or [])
-        notes.append(
-            {
-                "note": NOTE_NO_FIELD_PAGES,
-                "standard": "",
-                "count": len(unread),
-                "detail": (
-                    f"{len(unread)} requirement{'s' if len(unread) != 1 else ''} "
-                    "could not be checked because no datasheet field was taken "
-                    "from "
-                    + (
-                        f"page{'s' if len(unread_pages or []) != 1 else ''} {pages}"
-                        if pages
-                        else "some pages"
-                    )
-                    + " of this submittal; the values may be there."
-                ),
-            }
-        )
+    if unread and (note := page_not_read.field_note(outcome, unread, unread_pages)):
+        notes.append(note)  # #1550: the page-read switch's own words
     elif unread:
         pages = _page_list(unread_pages or [])
         notes.append({"note": NOTE_UNREAD_PAGES, "standard": "", "count": len(unread),

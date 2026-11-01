@@ -15,8 +15,8 @@ from app import (
     comparison,
     crs_mapping,
     export_status,
-    main,
     page_ledger,
+    page_not_read,
 )
 from app.config import settings
 from tests.test_c1_1473_page_read import _prose_doc, temp_storage  # noqa: F401
@@ -69,13 +69,9 @@ def test_export_lines_say_not_read_not_into_fields_when_on():
 
 
 def test_crs_header_counts_the_issue_gate_list_when_on():
-    note = main._crs_header_note(
-        {"status": "failed"}, {"page_coverage": ON}, [1, 2, 3], []
-    )
+    note = export_status.run_header_note("failed", {"page_coverage": ON}, [1, 2, 3], [])
     assert "Unread pages: 1 page(s) not read (2)" in note
-    off = main._crs_header_note(
-        {"status": "failed"}, {"page_coverage": OFF}, [1, 2, 3], []
-    )
+    off = export_status.run_header_note("failed", {"page_coverage": OFF}, [1, 2, 3], [])
     assert "Unread pages: 3 page(s) not read into fields (1, 2, 3)" in off
 
 
@@ -140,7 +136,7 @@ def test_crs_review_note_says_no_field_taken_when_on():
         [_unread_finding()], [], [1, 2, 3], {"page_coverage": ON}
     )
     note = next(n for n in notes if n["count"] == 1)
-    assert note["note"] == crs_mapping.NOTE_NO_FIELD_PAGES
+    assert note["note"] == page_not_read.NOTE_NO_FIELD_PAGES
     assert "no datasheet field was taken from pages 1-3" in note["detail"]
     assert "not yet read" not in note["detail"]
 

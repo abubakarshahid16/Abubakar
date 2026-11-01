@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import equipment_scope as eqs, intake, kind_rules, procedure_text
+from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -1740,25 +1740,13 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
             f"{UNREAD_PAGES}: no page of this submittal is accounted for, so an "
             "omission cannot be stated; an engineer must check the document")}
     if unread:
-        # #1550: with PAGE_READ_BY_READING_ENABLED "not read" means no reading
-        # came back; these pages are said as no field taken, never "not read".
-        unread_words = (
-            "had no datasheet field taken from them"
-            if "pages_not_read" in pages
-            else "were not read into fields"
-        )
-        return {
-            **verdict,
-            "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": (
-                f"{UNREAD_PAGES}: no value for this requirement was found in the "
-                f"fields read from {where} of {total}; "
-                f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
-                f"{unread_words}, so the value may be there. An engineer "
-                "must check those pages before this becomes a comment to the "
-                "contractor"
-            ),
-        }
+        return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
+            f"{UNREAD_PAGES}: no value for this requirement was found in the "
+            f"fields read from {where} of {total}; "
+            f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
+            f"{page_not_read.no_field_words(pages)}, so the value may be there. "  # 1550
+            "An engineer must check those pages before this becomes a comment to "
+            "the contractor")}
     page_reader_only = pages.get("pages_read_only_by_page_reader") or []
     if page_reader_only:
         # Owner decision 2026-09-26 (honesty audit entry 68): these pages are

@@ -116,3 +116,78 @@ def _unread_note(outcome: dict | None) -> list[dict]:
             "detail": detail,
         }
     ]
+
+
+# #1550: ONE meaning of "not read" with PAGE_READ_BY_READING_ENABLED - no reading
+# came back for the page, the count the CRS footer and the issue gate use. A read
+# page no datasheet field was taken from is said as that, never "not read".
+NOTE_NO_FIELD_PAGES = "No datasheet field taken from some pages - engineer to check"
+
+
+def by_reading(page_coverage: dict | None) -> bool:
+    """Was this page coverage stored with PAGE_READ_BY_READING_ENABLED?"""
+    return "pages_not_read" in (page_coverage or {})
+
+
+def no_field_words(page_coverage: dict | None) -> str:
+    """How a finding's rationale says `pages_not_read_into_fields`."""
+    if by_reading(page_coverage):
+        return "had no datasheet field taken from them"
+    return "were not read into fields"
+
+
+def field_note(outcome: dict | None, unread: list, pages: list | None) -> dict | None:
+    """The Review note for the `unread` findings (no value, a page no field was
+    taken from) of a run stored with the switch on; None with it off, where
+    `crs_mapping` keeps its own note."""
+    if not by_reading((outcome or {}).get("page_coverage")):
+        return None
+    pages = pages or []
+    n = len(unread)
+    where = f"page{'s' if len(pages) != 1 else ''} {page_list(pages)}"
+    return {
+        "note": NOTE_NO_FIELD_PAGES,
+        "standard": "",
+        "count": n,
+        "detail": f"{n} requirement{'s' if n != 1 else ''} could not be checked "
+        f"because no datasheet field was taken from {where if pages else 'some pages'} "
+        "of this submittal; the values may be there.",
+    }
+
+
+def unchecked_page_parts(cov: dict) -> list[tuple[str, str]]:
+    """The page parts of `absence.unchecked_parts`, as (part, line). Switch off:
+    the fields list, "not read into fields", as before."""
+    fields = cov.get("pages_not_read_into_fields") or []
+    could_not = "values on them could not be checked."
+    if not by_reading(cov):
+        line = f"{len(fields)} page(s) of this submittal were not read into fields"
+        return [("unread_pages", f"{line}; {could_not}")] if fields else []
+    not_read = cov.get("pages_not_read") or []
+    no_field = [p for p in fields if p not in set(not_read)]
+    out = []
+    if not_read:
+        line = f"{len(not_read)} page(s) of this submittal were not read; {could_not}"
+        out.append(("unread_pages", line))
+    if no_field:
+        line = (
+            f"{len(no_field)} page(s) of this submittal were read, but no datasheet "
+            f"field was taken from them; {could_not}"
+        )
+        out.append(("no_field_pages", line))
+    return out
+
+
+def readiness_part(cov: dict, into_fields: int, current: bool) -> dict:
+    """The readiness strip's page numbers (`page_ledger.readiness_pages`): pages
+    read, unread pages and why. Switch off: pages read into fields, as before.
+    `current` False: the ledger may not be counted on - no number (null, never 0)."""
+    read = cov.get("pages_read")
+    count = len(read) if read is not None else into_fields
+    unread = cov.get("pages_not_read", cov.get("pages_not_read_into_fields"))
+    why = cov.get("pages_not_read_why", cov.get("not_read_reasons"))
+    return {
+        "pages_read": count if current else None,
+        "unread_pages": unread or [],
+        "unread_page_reasons": why or {},
+    }

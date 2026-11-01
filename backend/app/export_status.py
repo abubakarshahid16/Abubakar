@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 
-from . import page_ledger
+from . import page_ledger, page_not_read
 from .config import settings
 from .db import connect
 
@@ -102,25 +102,17 @@ def _listed(values: list, label: str, unit: str) -> str:
     return f"{label}: {len(items)} {unit}" + (f" ({shown})" if items else "")
 
 
-#: #1550: the unit when "read" means a reading came back for the page.
-NOT_READ_BY_READING = "page(s) not read"
-
-
 def unread_pages_line(
     pages: list, known: bool = True, note: str | None = None, by_reading: bool = False
 ) -> str:
     """The unread pages, as the readiness strip counts them. `known` is False
     when the page ledger cannot be counted on: then the line says the count is
     not known rather than printing 0 for "nobody looked". `by_reading` (#1550):
-    the pages are the ones no reading came back for, so they are "not read",
-    never "not read into fields"."""
+    the pages no reading came back for - "not read", never "into fields"."""
     if not known:
         return "Unread pages: not known" + (f" - {note}" if note else "")
-    return _listed(
-        pages,
-        "Unread pages",
-        NOT_READ_BY_READING if by_reading else "page(s) not read into fields",
-    )
+    unit = "page(s) not read" + ("" if by_reading else " into fields")
+    return _listed(pages, "Unread pages", unit)
 
 
 def missing_standards_line(missing: list[str]) -> str:
@@ -167,8 +159,20 @@ def crs_header_note(
         return ""
     return (
         f"REVIEW INCOMPLETE: run {status or 'unknown'} - {_reason(reason)}. "
-        f"{unread_pages_line(unread, by_reading=by_reading)}. {missing_standards_line(missing)}."
+        f"{unread_pages_line(unread, by_reading=by_reading)}. "
+        f"{missing_standards_line(missing)}."
     )
+
+
+def run_header_note(status: str | None, outcome: dict, unread: list, missing: list[str]) -> str:
+    """`crs_header_note` for a stored run. #1550: a run stored with
+    PAGE_READ_BY_READING_ENABLED counts its unread pages as the issue gate and
+    the CRS footer do (`page_ledger.run_unread_pages`), not the fields list."""
+    cov = outcome.get("page_coverage") or {}
+    on = page_not_read.by_reading(cov)
+    if on:
+        unread = page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome))
+    return crs_header_note(status, outcome.get("error"), unread, missing, by_reading=on)
 
 
 def equipment_notes(submittal_id: str) -> list[dict]:

@@ -789,19 +789,12 @@ def readiness_pages(document_id: str) -> dict:
     """
     ledger_state = state(document_id)
     cov = coverage(document_id) if ledger_state == CURRENT else {}
-    # #1550: with PAGE_READ_BY_READING_ENABLED, "read" means a reading came
-    # back (`pages_read` / `pages_not_read`), the meaning the CRS footer and
-    # the issue gate count - never the fields list beside them.
-    read = cov.get("pages_read")
-    count = len(read) if read is not None else intake.pages_read_count(cov)
-    unread = cov.get("pages_not_read", cov.get("pages_not_read_into_fields"))
-    why = cov.get("pages_not_read_why", cov.get("not_read_reasons"))
     return {
         "pages_total": cov.get("pages_total"), **intake.partly_part(cov),
-        "pages_read": count if ledger_state == CURRENT else None,
         "pages_read_no_field": cov.get("pages_read_no_field") or [],
-        "unread_pages": unread or [],
-        "unread_page_reasons": why or {},
+        **page_not_read.readiness_part(
+            cov, intake.pages_read_count(cov), ledger_state == CURRENT
+        ),
         "ledger_state": ledger_state,
         "ledger_note": STATE_NOTES.get(ledger_state),
     }
