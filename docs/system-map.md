@@ -151,6 +151,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `doc_router` | The document-type router (W5b-02, #526) |
 | `document_kind` | The kind of a document (datasheet, procedure, specification, contract...) from its title block and cover (#1474) |
 | `kind_rules` | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards (#1474) |
+| `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
