@@ -73,7 +73,9 @@ Fix, behind `deferred_value_is_query_enabled` (OFF by default, env `DEFERRED_VAL
 | Fail rows, all five runs | 0 | 0 |
 | every other line | unchanged | unchanged |
 
-The bench gate prints "checklist_decided 28 -> 22" for the switch-on run: those are the 6 deferred passes that became questions, the intended effect. A line of M-03 (`quotes_verified` 15 -> 11) is already red on the unchanged code with this database copy.
+Default switches (`RULE_AUTO_USE_ENABLED=false`, `TESTED_CARDS_DECIDE_ENABLED=false`, which is what a worktree without `backend/.env` runs): I-06 decides 75 of 172 with 17 Pass on By Contractor; with the D2 switch on, 58 decided and 0 such Pass (0 wrong verdicts). The difference between 75 and 28 is `rule_auto_use_enabled`: with it ON every checklist item that is not a tested relief-valve card is held as UNPROVEN (`rule_trust.py:357`, `check_label` `:320`), 47 held rows on I-06, all of them would-be passes. `tested_cards_decide_enabled` then lets the tested relief-valve cards decide (the 28).
+
+On the owner's switches the bench gate prints "checklist_decided 28 -> 22" for the switch-on run: those are the 6 deferred passes that became questions, the intended effect. With the switch off the bench gate is GREEN (unchanged code).
 
 ## Not proven
 
