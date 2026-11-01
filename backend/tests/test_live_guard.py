@@ -21,7 +21,8 @@ Proved here against real SQLite files laid out like a checkout
   - the backfill and resetdoc commands go through it; and no script in
     scripts/ opens a raw read-write connection outside it.
 
-Mutations: M466-M471, `python scripts/mutation_check.py --only M466 M467 M468 M469 M470 M471`.
+Mutations: M466-M471, `python scripts/mutation_check.py --only M466 M467 M468 M469 M470 M471`;
+#1557 (case-different path, hard link): M1561-01..03.
 """
 from __future__ import annotations
 
