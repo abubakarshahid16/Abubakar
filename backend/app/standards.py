@@ -48,7 +48,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from . import chunker, claims, classification, orphan_guard, provenance, requirement_quality, requirements_3b
-from . import recommendations, submittal_review, table_cells
+from . import recommendations, rule_equipment_scope, submittal_review, table_cells
 from .config import settings
 from . import tables as tables_mod
 from .db import connect
@@ -925,7 +925,7 @@ def extract_requirements(
     inputs = provenance.input_hash(
         stored["sha256"] if stored else None, *(c["text"] for c in chunks))
 
-    run_id = new_extraction_run_id()
+    run_id, scoper = new_extraction_run_id(), rule_equipment_scope.for_chunks(chunks)
     #: #640 the ACTIVE unconfirmed sentence rows this run may re-produce, by
     #: (clause, sentence). Met again: kept (same id). Not met: superseded.
     reproducible: dict[tuple[str | None, str], str] = {}
@@ -1068,7 +1068,7 @@ def extract_requirements(
                         low_confidence += 1
                     continue
                 try:
-                    create_requirement(
+                    created = create_requirement(
                         standard_document_id=document_id,
                         chunk_id=chunk["id"],
                         structured=structured,
@@ -1091,10 +1091,10 @@ def extract_requirements(
                     # A chunk that vanished between the read and the write. Skipped
                     # rather than written without a resolving citation.
                     continue
+                scoper.store(created, sentence, clause, chunk)
                 written += 1
                 if confidence < VERIFICATION_THRESHOLD:
                     low_confidence += 1
-
     superseded = _supersede(
         document_id, [i for i in reproducible.values() if i not in kept],
         run_id, action="re_extraction")

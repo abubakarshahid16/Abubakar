@@ -236,6 +236,10 @@ EGRESS_SAFE: dict[str, object] = {
     "kind_chooses_rules_enabled": False,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
     "rules_by_equipment_scope_enabled": False,
+    # --- local only, no model or socket: extraction stores each rule's equipment scope (off by default)
+    "rule_equipment_scope_extract_enabled": False,
+    # --- local model only (model_transport), re-extraction script only: scope for clauses the code left unknown (off by default)
+    "rule_equipment_scope_model_enabled": False,
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
     "pump_kit_draft_enabled": False,
     # --- local only, no model or socket: a value at a percent limit is at it in every unit (#1475, off by default)

@@ -41,6 +41,7 @@ A switch is any `*_enabled` flag, or `*_provider` / `*_reader` / `*_engine` sett
 | `geometry_reader_enabled` | `False` | Claude API (vision) | The geometry reader's form path and the vision reader for pages no text reader can read | Text readers only |
 | `vision_reader_engine` | `ollama` | Claude API (vision) | Which engine the page-image reader uses under `REASONING_PROVIDER=per_task` (#830). `claude`: page images of approved datasheets go to the Claude API (both egress flags and a key). `ollama` (default): none, since the local model reads no images; `geometry_reader_enabled` alone sends no image under `per_task` | No page image leaves under `per_task` |
 | `geometry_table_reader_enabled` | `True` | No model (code) | The geometry reader's table path, cell by cell. Listed because it shares the reader family; it calls no AI | The rule readers alone |
+| `rule_equipment_scope_model_enabled` | `False` | Local model (`model_transport`, local Ollama only; `ai_task_model`) | Only in `scripts/reextract_rule_equipment_scope.py`, run on a COPY of the database: for a rule clause the code left unknown, proposes which equipment type the clause is written for, with a quote; code keeps only types from the equipment vocabulary and a quote that is a run of the clause's own words; the model is unloaded at the end. Never the Claude API | Code reads each rule's scope from its own clause and headings only; what it cannot read stays unknown |
 
 **Done when:** this register is committed, the owner signs it once (a comment "approved" on #806), and the CI check passes.
 
