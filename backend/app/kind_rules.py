@@ -132,7 +132,7 @@ def gate(note: dict | None, scope, *args) -> list:
     return [] if note and note["blocked"] else scope.evaluate(*args)
 
 
-def profile(document_id: str, library: list[dict], allowed) -> tuple[dict, tuple]:
+def profile(document_id: str, allowed) -> tuple[dict, tuple]:
     """`(profile, part)` for `applicability.select`. A non-datasheet kind: the
     profile carries no equipment type, and `part` keeps the standards the type
     WOULD have chosen, each with the reason. Unknown kind: unchanged, marked."""
@@ -142,6 +142,7 @@ def profile(document_id: str, library: list[dict], allowed) -> tuple[dict, tuple
     reason = standards_exclusion(document_id)
     if reason is None:
         return profile, (None, unknown_mark(document_id))
+    library = ap._library(allowed)
     would = ap._match_attribute(library, profile, "equipment_type", ap.METHOD_EQUIPMENT)
     token = _IGNORE.set(True)
     try:

@@ -1259,7 +1259,7 @@ def select(
     from . import equipment_subtype, kind_rules, standard_judgment
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
-    profile, kind_part = kind_rules.profile(submittal_document_id, library, allowed_document_ids)
+    profile, kind_part = kind_rules.profile(submittal_document_id, allowed_document_ids)
     submittal_text = _submittal_text(submittal_document_id, allowed_document_ids)
     referenced = datasheets.referenced_standards(submittal_text)
 
