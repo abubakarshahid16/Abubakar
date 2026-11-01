@@ -11,13 +11,13 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from .blank_form import is_blank_form, line_shape
 from .classification import (
     _SPACE,
     _now,
     suggest_equipment_type_from_title,
     title_block_lines,
 )
-from .blank_form import is_blank_form, line_shape
 from .db import connect
 
 # ------------------------------------------------------- document kind (#1474)
