@@ -1,3 +1,4 @@
+# ruff: noqa: F811
 """#1477: whole-document clause review - the count cap lifted, one time budget instead.
 
 Fake model and fake clock: no socket, no real model. Invented documents only.
@@ -10,7 +11,6 @@ import pytest
 from app import clause_review
 from app import reasoning_provider as rp
 from app.config import settings
-from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
 from tests.test_1477_clause_review import (  # noqa: F401 - fixtures
     Clock,
     Fake,
@@ -20,6 +20,7 @@ from tests.test_1477_clause_review import (  # noqa: F401 - fixtures
     _world,
     on,
 )
+from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
 
 ANS = {"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}}
 
