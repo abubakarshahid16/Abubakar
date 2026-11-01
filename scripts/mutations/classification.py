@@ -143,9 +143,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="drop the 'nothing matched' guard, so a document with no "
                     "real evidence is no longer left NULL",
         path=APP / "classification.py",
-        anchor="        evidence = _equipment_from_body(conn, document_id, kind_on)\n"
+        anchor='        conn, document_id, pages, kind_on, existing["document_role"])\n'
                "    if evidence is None:\n        return None",
-        replacement="        evidence = _equipment_from_body(conn, document_id, kind_on)\n"
+        replacement='        conn, document_id, pages, kind_on, existing["document_role"])\n'
                     "    if False:\n        return None",
         target=_EQUIPMENT_TYPE_TEST,
         keyword="test_a_document_with_no_evidence_stays_unclassified",
@@ -301,8 +301,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M461", phase=57,
         description="PUT #183 BACK: the equipment classifier reads retrievable "
                     "chunks only, so a stripped title block is never evidence",
-        path=APP / "classification.py",
-        anchor="    evidence = suggest_equipment_type_from_title(title_block_lines(pages))\n",
+        path=APP / "equipment_title_block.py",
+        anchor="    evidence = c.suggest_equipment_type_from_title(c.title_block_lines(pages))\n",
         replacement="    evidence = None\n",
         target="tests/test_183_title_block.py",
         keyword="chunker_stripped or reprinted_header",

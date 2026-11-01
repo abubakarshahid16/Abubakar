@@ -58,7 +58,7 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
-from . import playbooks as playbooks_mod, procedure_playbook_rows as ppr_mod
+from . import equipment_title_block as etb_mod, playbooks as playbooks_mod, procedure_playbook_rows as ppr_mod
 from . import requirement_split as requirement_split_mod
 from . import auth as auth_mod, auth_session as auth_session_mod
 from . import errors
@@ -2965,7 +2965,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
-    meta["review_notes"] += pb_notes
+    meta["review_notes"] += pb_notes + etb_mod.for_submittal(submittal_id)
     return rows, meta, submittal_name, stamp
 
 

@@ -82,6 +82,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `answer_prompts` | Wording variants of the local answer prompt, off by default; measured by `eval/answer_quality/` (order 189) |
 | `citations` | Shared [S#] citation-marker syntax, used by both answer.py and synthesis.py |
 | `cited_edition` | R7 (#771): a note when the edition year a submittal prints after a standard differs from the held library copy's, never silently the same |
+| `equipment_title_block` | Owner decision 1 Nov (#1478): only the title block sets the equipment type; none or two types there = empty, marked engineer to confirm, with a Review note. Switch `equipment_from_title_block_enabled`, off by default |
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
