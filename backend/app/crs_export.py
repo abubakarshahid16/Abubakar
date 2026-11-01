@@ -26,6 +26,7 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from . import crs_export_quality as quality
 from .crs_mapping import (
     PRIORITY_CARRIED_FORWARD,
     ROW_KIND_CARRIED_FORWARD,
@@ -359,26 +360,21 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     company = meta.get("company_name", default_company())
     project = meta.get("project", "")
 
-    # Item numbers are assigned HERE, not taken from the caller, so they are
-    # always 1..N with no gaps whatever the caller sends - and the preview
-    # numbers the rows the way the workbook does, not the way a browser
-    # happens to iterate.
-    # The per-row system-generated number. Minted HERE, in the one builder
-    # both renderings read, so the .xlsx the client receives and the preview
-    # on screen quote the same reference for the same comment - and so a
-    # re-export of this run quotes it again rather than issuing a new one.
+    # Item numbers are assigned HERE, always 1..N with no gaps whatever the
+    # caller sends, so the preview numbers rows the way the workbook does. The
+    # per-row reference is minted HERE too, in the one builder both renderings
+    # read: the .xlsx and the preview quote the same reference for the same
+    # comment, and a re-export of this run quotes it again.
     run_id = meta.get("review_run_id", "")
     copy = meta.get("copy") or COPY_INTERNAL
     if copy not in COPIES:
         raise ValueError(f"unknown CRS copy {copy!r}")
 
-    # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED. Read
-    # on the caller's text, before the "Ref:" line is added (that line alone
-    # is not a comment). The issue copy leaves such a row out and COUNTS it
-    # (`rows_withheld_no_text`), never silently; the internal copy prints
-    # EMPTY_COMMENT_TEXT in its place and marks the row `comment_missing`. A
-    # waiting sentence with no draft beside it is no text either
-    # (`crs_mapping.row_has_no_text`, #1178 review).
+    # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED (read
+    # before the "Ref:" line is added). The issue copy leaves it out and counts
+    # it (`rows_withheld_no_text`); the internal copy prints EMPTY_COMMENT_TEXT
+    # and marks `comment_missing`. A waiting sentence with no draft beside it
+    # is no text (`crs_mapping.row_has_no_text`, #1178 review).
     withheld_no_text = 0
     if copy == COPY_ISSUE:
         # ISSUE TO CONTRACTOR: ENGINEER-CONFIRMED ROWS ONLY (CRS quick wins,
@@ -401,6 +397,9 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
                     and f.get("row_kind") != ROW_KIND_SAFETY_TICK]
         withheld_no_text = sum(1 for f in findings if _no_issuable_text(f))
         findings = [f for f in findings if not _no_issuable_text(f)]
+
+    qon = bool(meta.get("export_quality", quality.enabled()))  # #1503
+    findings, dropped, merged = quality.prepare(findings, copy, _no_text, qon)
 
     rows = []
     seen: set[str] = set()
@@ -482,7 +481,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # copy only - the issue copy never carries such a row).
         rows[-1].update(_rank_cells(finding, copy), comment_missing=comment_missing)
 
-    return {
+    view = {
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
         "title": "\n ".join(p for p in (company, project) if p).rstrip(),
         # #633 item 7: "REVIEW INCOMPLETE: run <status> - ..." on row 1; "" for a completed run.
@@ -536,6 +535,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
              "count": n.get("count"), "detail": str(n.get("detail") or "")}
             for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
     }
+    return quality.finish(view, dropped, merged) if qon else view
 
 
 def safe_cell_text(value):
@@ -598,8 +598,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     internal = view["crs_copy"] == COPY_INTERNAL
     ws.column_dimensions["H"].width = STANDARD_COLUMN_WIDTH
     ws.column_dimensions["I"].width = PRIORITY_COLUMN_WIDTH
-    if internal:
+    if internal or view.get("export_quality"):  # off: as it was
         ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
+    if internal:
         ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
         ws.column_dimensions["L"].width = TRUST_COLUMN_WIDTH
 
@@ -624,7 +625,6 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         put(row, 1, field["label"], bold=True)
         put(row, 3, field["value"])
 
-    # Column headers, directly under the header block.
     for i, header in enumerate(view["columns"], start=1):
         put(COLUMN_HEADER_ROW, i, header,
             bold=True, center=True, wrap=True).border = BOX
@@ -643,6 +643,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         if internal:
             values.extend([entry["ai_review_comment"], entry["reasoning"],
                            entry.get("rule_trust", "")])
+        values[9:] = quality.tail_cells(view, entry, values[9:])  # #1503
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
             cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9)))
@@ -652,11 +653,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.row_dimensions[row].height = max(
             15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
 
-    # THE REPLY CONVENTION, ON THE SHEET ITSELF. A tip on every Contractor's
-    # Response cell asks for one of the four response codes first, which is
-    # what the reply import reads (`crs_numbers.parse_response`). A prompt,
-    # not a restriction: any text is still accepted, and a reply without a
-    # code imports with no code rather than being refused or guessed.
+    # THE REPLY CONVENTION, ON THE SHEET ITSELF: a tip on every Contractor's
+    # Response cell asks for a response code first (`crs_numbers.parse_response`
+    # reads it). A prompt, not a restriction: any text is accepted.
     if view["rows"]:
         from openpyxl.worksheet.datavalidation import DataValidation
         tip = DataValidation(type="textLength", operator="greaterThanOrEqual",
@@ -667,12 +666,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         tip.add(f"F{first}:F{COLUMN_HEADER_ROW + len(view['rows'])}")
         ws.add_data_validation(tip)
 
-    # Recommended review code, when the caller supplies one: a bold merged
-    # summary row two rows below the table, so the seven-column layout the
-    # client's template defines is untouched. The reason renders beside it
-    # verbatim - a code with no reason is an opinion, not a review.
-    # #633: the incomplete-review notice sits directly under the table, above
-    # the code, so a reader sees it before anything that reads as a result.
+    # Recommended review code, when supplied: a bold merged summary row two
+    # rows below the table (the template's seven columns are untouched), its
+    # reason beside it verbatim. #633: the incomplete-review notice sits
+    # directly under the table, above the code.
     if view["incomplete_notice"]:
         notice_row = COLUMN_HEADER_ROW + len(view["rows"]) + 1
         ws.merge_cells(start_row=notice_row, start_column=1, end_row=notice_row,
@@ -720,6 +717,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                     Alignment(wrap_text=True, vertical="top")
         for col, width in zip("ABCD", (44, 30, 8, 90)):
             notes_sheet.column_dimensions[col].width = width
+
+    if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
+        quality.write_internal_sheet(wb, view["internal_sheet"], _write)
 
     buffer = BytesIO()
     wb.save(buffer)

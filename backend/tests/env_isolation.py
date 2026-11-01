@@ -223,6 +223,8 @@ EGRESS_SAFE: dict[str, object] = {
     "kind_chooses_rules_enabled": False,
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
     "pump_kit_draft_enabled": False,
+    # --- local only, no model or socket: CRS export quality, export only (#1503, off by default)
+    "crs_export_quality_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
     "vessel_kit_draft_enabled": False,
 }
