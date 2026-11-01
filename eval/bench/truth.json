@@ -1,0 +1,64 @@
+{
+  "format": "crs-bench/1",
+  "note": "Truth for scripts/crs_bench.py (#1471). Ids, checklist field names and standard clause ids only - no document text. A label is added only from a recorded hand check; the source of each is named.",
+  "counting_rule": [
+    "wrong verdicts: a finding the code decided (COMPLIANT or NON_COMPLIANT) that a truth 'wrong' matcher names. Hard stop above 0.",
+    "untrue lines / irrelevant lines: findings a truth matcher names, counted once per finding (one finding = one CRS line).",
+    "checklist decided: datasheet_check findings COMPLIANT or NON_COMPLIANT, of all datasheet_check findings.",
+    "standard rules decided: findings with a requirement_id that are COMPLIANT or NON_COMPLIANT, of distinct requirement_ids not sent to NOT_IN_DOCUMENT_SCOPE.",
+    "verified-quote rate: findings carrying a contractor quote and page whose quote is found, whitespace- and case-folded, in that page's stored text.",
+    "pages read: ledger pages not listed in pages_not_read_into_fields, of ledger pages (the code's current meaning of 'read').",
+    "kind recognised: the kind the code would route on (today: any equipment type = datasheet) equals the truth kind.",
+    "pass on a contractor-deferred value (D2): COMPLIANT findings whose wording says 'By Contractor' or 'TBA'. Owner decision D2: these are Query. Shown, not yet counted as wrong."
+  ],
+  "cases": [
+    {
+      "name": "I-06 (PSV datasheet)",
+      "run": "a5c45c82-063c-4ad3-9abb-e25f896dc391",
+      "kind": "datasheet",
+      "baseline": {"checklist_decided": 28, "wrong": 0, "untrue": 5, "irrelevant": 1},
+      "untrue": [
+        {"origin": "datasheet_check", "section": "Inlet rating", "status": "MISSING_INFORMATION",
+         "why": "rating is in the combined size/rating/connection line (planner check 29 Oct 02:55 PKT, row 11; 29 Oct night: 4 rows, one per tag)"},
+        {"origin": "datasheet_check", "section": "Viscosity relieving", "status": "NEEDS_ENGINEER_REVIEW",
+         "why": "row says viscosity not given; it is given (planner 29 Oct night: viscosity p3/p4)"}
+      ],
+      "irrelevant": [
+        {"requirement_id": "9deaa571-a372-416c-a76e-7b8f6737ce87", "match_method": "model",
+         "why": "CRS line 041: ASME VIII steam-valve clause paired with design pressure by the AI matcher (planner 29 Oct night)"}
+      ],
+      "wrong": []
+    },
+    {
+      "name": "HAZOP procedure (PDF)",
+      "run": "10f84aa7-6b5b-4e17-92bb-86049d991965",
+      "kind": "procedure",
+      "untrue": [], "irrelevant": [
+        {"origin": "datasheet_check", "why": "PSV datasheet checklist applied to a procedure (planner audit 31 Oct)"}
+      ],
+      "wrong": []
+    },
+    {
+      "name": "HAZOP procedure (Word)",
+      "run": "47f71615-8728-417a-8ecd-cc1ea4c9c4e1",
+      "kind": "procedure",
+      "baseline": {"pages_read": 0, "pages_total": 25},
+      "untrue": [], "irrelevant": [
+        {"origin": "datasheet_check", "why": "compressor datasheet checklist applied to a procedure (planner audit 31 Oct)"}
+      ],
+      "wrong": []
+    },
+    {
+      "name": "M-03 (pump datasheet)",
+      "run": "ea26f990-0e5d-47e9-9277-6558f9554d2f",
+      "kind": "datasheet",
+      "untrue": [], "irrelevant": [], "wrong": []
+    },
+    {
+      "name": "216400C (specification)",
+      "run": "b0d5067b-8cfc-4cfd-bd5a-be0941b4a87f",
+      "kind": "specification",
+      "untrue": [], "irrelevant": [], "wrong": []
+    }
+  ]
+}
