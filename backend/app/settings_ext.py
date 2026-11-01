@@ -79,6 +79,11 @@ class SettingsExt(BaseModel):
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
     #: row held for the engineer. OFF: nothing changes. Env: VESSEL_KIT_DRAFT_ENABLED.
     vessel_kit_draft_enabled: bool = False
+    #: #1515 a number written without its leading zero (".30", "-.5") is the decimal it is, in
+    #: `numparse.parse_value` and in `claims.extract_measurements` (".5 mm" was dropped); a stranded
+    #: or glued dot (".5.3", "x.5") is no value. OFF: ".30" reads as 30 and ".5 mm" is dropped,
+    #: as before. Env: LEADING_DOT_DECIMAL_ENABLED.
+    leading_dot_decimal_enabled: bool = False
     #: #1481 heat exchanger kit PREPARATION (parked, milestone 58): append the DRAFT exchanger cards of
     #: `reference/exchanger_kit_draft.json` (the held standard SAES-E-004 requires the value, not already in the
     #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the
