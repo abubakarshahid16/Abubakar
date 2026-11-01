@@ -445,6 +445,11 @@ class Settings(SettingsExt, BaseSettings):
     #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True
     ai_clause_checks_max_per_run: int = 20
+    #: #645 slice 3: the local model reads a held standard's chunks (tables too)
+    #: and proposes a limit for text the requirement parser stored no sentence
+    #: for; code verifies every field and keeps what passes as a DRAFT
+    #: (`ai_requirement_chunks.py`). OFF: nothing is read or stored.
+    ai_requirement_extraction_enabled: bool = False
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
     #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment
     #: type) has been PROVEN on an answer key of at least `rule_proof_min_cases` cases with no error (rule

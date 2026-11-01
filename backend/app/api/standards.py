@@ -479,6 +479,26 @@ def decide_clause_check(
             str(exc))) from exc
 
 
+@router.post("/api/standards/{document_id}/clause-checks/extract",
+             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def extract_clause_checks(
+    document_id: str,
+    max_chunks: int = Query(5, ge=1, le=20),
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """#645 slice 3: the LOCAL model reads this standard's chunks and proposes
+    limits; code verifies every field; drafts only. ADMIN. Off unless
+    `ai_requirement_extraction_enabled`. Counts only in the answer."""
+    from .. import ai_requirement_chunks
+    from .. import standards as standards_mod
+    report = ai_requirement_chunks.extract_standard(
+        document_id, allowed_document_ids=scope.allowed_document_ids, max_chunks=max_chunks)
+    standards_mod._audit("standard.clause_check_extract", actor, document_id,
+                         detail=f"chunks={report['chunks']} proposed={report['proposed']}")
+    return report
+
+
 @router.post("/api/standards/{document_id}/requirements/extract-async",
              response_model=schemas.ExtractionJob,
              responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
