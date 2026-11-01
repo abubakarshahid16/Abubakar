@@ -30,7 +30,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import deferred_pass
+from app import crs_decider, deferred_pass
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
@@ -202,6 +202,7 @@ SRC_CHECKLIST = (
 SRC_PLAYBOOK = (
     "playbook rows - present / missing / unclear (engineer rows, not decisions)"
 )
+SRC_TICK = "safety tick rows - engineer to tick"
 _NO_FINDING = "CRS rows with no finding - "
 #: DECISION: a source whose rows may decide. ENGINEER: rows that are engineer
 #: rows by construction (kit_core.held, spec_kit._store, transmittal_kit), so a
@@ -212,6 +213,10 @@ DECISION, ENGINEER = "decision", "engineer"
 #: own action on one is not the code's verdict).
 DRAFT = "draft"
 DRAFT_ORIGINS = ("ai_engineering_check", "web_standard_check", "clause_review", "chat")
+#: A COMPLIANT finding shown for an engineer's tick (`show_for_engineer_tick`):
+#: crs_mapping prints it as a `safety_tick` row the engineer must tick, so it is
+#: an engineer row, not a decision the bench credits.
+TICK = "tick"
 
 SOURCE_RULE = [
     "Rows below the headline (informational; one source per row, never added"
@@ -224,7 +229,11 @@ SOURCE_RULE = [
     "'decided - findings from <origin> (no stored rule linked)': every other"
     " finding source, decided of its rows; D2 not credited.",
     "'engineer rows - <origin> (drafts, not decisions)': the AI engineering"
-    " check, the web standards check, the clause review and chat comments.",
+    " check, the web standards check, the clause review and chat comments;"
+    " 'draft rows with a code verdict' counts those carrying COMPLIANT or"
+    " NON_COMPLIANT that no engineer confirmed (shown, not gated).",
+    f"'{SRC_TICK}': COMPLIANT findings shown for an engineer's tick (a"
+    " safety_tick CRS row). Not credited as decided anywhere below the headline.",
     "'kit rows - <kit> (engineer rows)': rows a kit made (pump, vessel, exchanger"
     " draft cards on the checklist; the specification, parked-kind and"
     " transmittal kits). Never decisions: a kit row carrying a verdict is shown"
@@ -253,7 +262,7 @@ def _kits() -> list[tuple[str, str]]:
 
 
 def finding_source(f: dict, rule_ids: set[str], kits) -> tuple[str, str]:
-    """(row label, DECISION or ENGINEER) for one stored finding: where it was made."""
+    """(row label, its type) for one stored finding: where it was made."""
     from app import spec_kit
 
     origin = f.get("origin")
@@ -262,6 +271,15 @@ def finding_source(f: dict, rule_ids: set[str], kits) -> tuple[str, str]:
         for name, words in kits:
             if words and words in text:
                 return f"kit rows - {name} (engineer rows)", ENGINEER
+    if (
+        origin not in DRAFT_ORIGINS
+        and origin != spec_kit.ORIGIN
+        and f.get("show_for_engineer_tick")
+        and f.get("compliance_status") == "COMPLIANT"
+    ):
+        # crs_mapping makes it a safety_tick row the engineer must tick: not decided
+        return SRC_TICK, TICK
+    if origin == "datasheet_check":
         return SRC_CHECKLIST, DECISION
     if origin == spec_kit.ORIGIN:
         code = str(f.get("reason_code") or f.get("ai_rationale") or "")
@@ -292,7 +310,9 @@ def finding_sources(conn: sqlite3.Connection, findings: list[dict]) -> dict:
         )
         slot["rows"] += 1
         if f.get("compliance_status") in DECIDED:
-            slot["verdicts"] += 1
+            # a draft an engineer confirmed may rightly carry a status: not the code's
+            if kind != DRAFT or not crs_decider.decider(f):
+                slot["verdicts"] += 1
             if not _deferred_pass(f):
                 slot["decided"] += 1
     return out
@@ -330,7 +350,7 @@ def _source_order(label: str) -> tuple:
         rank = 1
     elif label.startswith("decided -"):
         rank = 2
-    elif label.startswith("engineer rows"):
+    elif label.startswith("engineer rows") or label == SRC_TICK:
         rank = 3
     elif label.startswith("kit rows"):
         rank = 4
@@ -355,10 +375,15 @@ def _source_cell(m: dict, label: str) -> str:
         return "0/0" if label.startswith("decided -") else "0"
     if slot["type"] == DECISION:
         return _frac(slot["decided"], slot["rows"])
-    if slot["type"] in (ENGINEER, DRAFT):
+    if slot["type"] == ENGINEER:
         bad = slot["verdicts"]
         return str(slot["rows"]) + (
             f" ({bad} with a verdict - must be 0)" if bad else ""
+        )
+    if slot["type"] == DRAFT:
+        bad = slot["verdicts"]
+        return str(slot["rows"]) + (
+            f" ({bad} draft rows with a code verdict)" if bad else ""
         )
     if slot["type"] == "playbook":
         text = f"{slot['present']} / {slot['missing']} / {slot['unclear']}"

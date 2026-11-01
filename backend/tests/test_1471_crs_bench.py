@@ -604,6 +604,29 @@ HEADLINE = [
 ]
 
 
+FROZEN_HEADLINE = [
+    "| wrong verdicts (hard stop > 0) | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |",
+    "| untrue lines | 5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |",
+    "| irrelevant lines | 1 | 0 | 45 | 45 | 4 | 4 | 0 | 0 | 0 | 0 |",
+    "| checklist decided | 22/172 | 22/172 | 0/45 | 0/45 | 0/4 | 0/4 | 3/20 | 0/20"
+    " | 0/3 | 0/3 |",
+    "| standard rules decided | 0/186 | 0/186 | 0/295 | 0/295 | 0/274 | 0/274"
+    " | 0/376 | 0/376 | 0/4964 | 0/5051 |",
+    "| Fail rows | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |",
+    "| sent to 'needs another document' | 45 | 45 | 274 | 274 | 266 | 265 | 259"
+    " | 259 | 2161 | 1328 |",
+    "| verified-quote rate | 109/113 | 108/112 | 2/2 | 2/2 | 0/0 | 0/0 | 17/19"
+    " | 15/17 | 27/27 | 6/6 |",
+    "| pages read | 5/5 | 5/5 | 50/69 | 50/69 | 0/25 | 0/25 | 7/7 | 7/7 | 11/11"
+    " | 11/11 |",
+    "| kind recognised | yes (datasheet) | yes (datasheet) | NO (datasheet)"
+    " | NO (datasheet) | yes (procedure) | yes (procedure) | yes (datasheet)"
+    " | yes (datasheet) | NO (datasheet) | NO (datasheet) |",
+    "| Pass on 'By Contractor'/TBA (D2) | 6 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |",
+    "| CRS lines | 82 | 75 | 50 | 49 | 4 | 4 | 37 | 26 | 13 | 3 |",
+]
+
+
 def test_the_headline_rows_and_gate_on_the_saved_runs_are_unchanged():
     saved = json.loads((REPO / "eval" / "bench" / "baseline.json").read_text())
     assert [label for label, _ in crs_bench.ROWS] == HEADLINE
@@ -611,11 +634,9 @@ def test_the_headline_rows_and_gate_on_the_saved_runs_are_unchanged():
     text = crs_bench.render_markdown(saved, {"counting_rule": []}, title="t")
     lines = text.splitlines()
     head = next(i for i, ln in enumerate(lines) if ln.startswith("| measure |"))
-    for i, (label, fn) in enumerate(crs_bench.ROWS):
-        cells = []
-        for r in saved:
-            cells += [fn(r["stored"]), fn(r["replay"])]
-        assert lines[head + 2 + i] == f"| {label} | " + " | ".join(cells) + " |"
+    # Frozen from main's render (before #1566) of the same baseline.json: a
+    # headline number that moves fails here, whatever ROWS now computes.
+    assert lines[head + 2 : head + 2 + len(HEADLINE)] == FROZEN_HEADLINE
     # the new rows follow the headline, blank for results saved before them
     first_new = lines[head + 2 + len(HEADLINE)]
     assert first_new.startswith(f"| {crs_bench.SRC_RULE} |")
@@ -647,3 +668,34 @@ def test_draft_lane_rows_are_engineer_rows_never_counted_as_decisions(run_id):
         assert slot["type"] == crs_bench.DRAFT and slot["rows"] == 1
         assert slot["decided"] == 0
     assert not any(k.startswith("decided - findings from") for k in m["sources"])
+
+
+def _set(fid, **cols):
+    with db.connect() as conn:
+        for col, value in cols.items():
+            conn.execute(
+                f"UPDATE review_findings SET {col} = ? WHERE id = ?", (value, fid)
+            )
+
+
+def test_a_compliant_shown_for_a_tick_is_a_safety_tick_row_not_decided(run_id):
+    base = _score(run_id, {"kind": "datasheet"})
+    fid = _add_row(run_id, "COMPLIANT", origin="datasheet_check")
+    _set(fid, show_for_engineer_tick=1)
+    m = _score(run_id, {"kind": "datasheet"})
+    tick = m["sources"][crs_bench.SRC_TICK]
+    assert tick["rows"] == 1 and tick["type"] == crs_bench.TICK
+    assert _src(m, crs_bench.SRC_CHECKLIST) == _src(base, crs_bench.SRC_CHECKLIST)
+    assert crs_bench._source_cell(m, crs_bench.SRC_TICK) == "1"
+
+
+def test_draft_rows_count_only_unconfirmed_code_verdicts(run_id):
+    label = "engineer rows - clause_review (drafts, not decisions)"
+    _add_row(run_id, "NON_COMPLIANT", origin="clause_review")
+    confirmed = _add_row(run_id, "COMPLIANT", origin="clause_review")
+    _set(confirmed, confirmed_by="eng-1")
+    m = _score(run_id, {"kind": "datasheet"})
+    assert m["sources"][label]["verdicts"] == 1  # the confirmed one is the engineer's
+    assert crs_bench._source_cell(m, label) == "2 (1 draft rows with a code verdict)"
+    case = {"name": "t", "run": run_id}
+    assert not any(label in r for r in crs_bench.gate([{"case": case, "stored": m}]))
