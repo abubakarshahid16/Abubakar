@@ -53,15 +53,17 @@ def test_found_states_both_numbers_and_stays_an_engineer_row():
 def test_unit_code_is_used_minutes_against_hours_is_the_same_quantity():
     text = "Each permit shall be valid for a single shift of at least 90 minutes."
     why = _go(text)["rationale"]
-    assert "the procedure states 12 hours; the requirement is at least 90 minutes" in why
+    assert (
+        "the procedure states 12 hours; the requirement is at least 90 minutes" in why
+    )
 
 
 def test_two_same_quantity_numbers_in_the_quote_are_not_compared():
     pages = [(1, "Gauges are checked every 6 months and re-certified every 24 months.")]
     with procedure_text.using(pages):
-        why = comparison.compare(_req("Gauges shall be checked every 3 months at most."), None)[
-            "rationale"
-        ]
+        why = comparison.compare(
+            _req("Gauges shall be checked every 3 months at most."), None
+        )["rationale"]
     assert "found on page 1:" in why and "the procedure states" not in why
 
 
@@ -89,7 +91,9 @@ def test_never_compliant_or_failed():
 def test_datasheet_submittal_is_unchanged():
     """No procedure pages: the old verdict (no fact -> MISSING_INFORMATION)."""
     text = "Each hot work permit shall be valid for a maximum of 8 hours."
-    assert comparison.compare(_req(text), None)["status"] == comparison.MISSING_INFORMATION
+    assert (
+        comparison.compare(_req(text), None)["status"] == comparison.MISSING_INFORMATION
+    )
 
 
 def test_a_numeric_limit_that_names_another_document_is_not_routed():

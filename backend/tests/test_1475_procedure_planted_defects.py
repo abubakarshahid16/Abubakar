@@ -372,8 +372,9 @@ def test_a_numeric_limit_the_procedure_breaks_surfaces_to_the_engineer_with_its_
     assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert f"found on page {page}:" in verdict["rationale"]
     # the code states the two numbers in words and does not judge them
-    assert "the procedure states 12 hours; the requirement is at most 8 hours" in (
-        verdict["rationale"]
+    assert (
+        "the procedure states 12 hours; the requirement is at most 8 hours"
+        in (verdict["rationale"])
     )
     assert "engineer to confirm" in verdict["rationale"]
 

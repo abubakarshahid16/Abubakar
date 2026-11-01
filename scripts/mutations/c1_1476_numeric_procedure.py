@@ -42,7 +42,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         3,
         "a numeric limit that demands a certificate or drawing is checked against the procedure text",
-        '    numeric = (\n        fact is None\n        and evidence in {None, requirements_3b.DATA_SHEET_EVIDENCE}\n',
+        "    numeric = (\n        fact is None\n        and evidence in {None, requirements_3b.DATA_SHEET_EVIDENCE}\n",
         "    numeric = (\n        fact is None\n        and True\n",
         "names_another_document",
     ),
