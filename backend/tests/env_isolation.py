@@ -221,6 +221,8 @@ EGRESS_SAFE: dict[str, object] = {
     "pump_kit_draft_enabled": False,
     # --- local only, no model or socket: a value at a percent limit is at it in every unit (#1475, off by default)
     "at_limit_precision_enabled": False,
+    # --- local only, no model or socket: CRS export quality, export only (#1503, off by default)
+    "crs_export_quality_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
     "vessel_kit_draft_enabled": False,
 }
