@@ -18,7 +18,6 @@ from .config import settings
 AT_LIMIT_REL_TOL = 1e-9
 
 
-
 def hold(op: str, left: float, right: float, ops: dict) -> bool:
     """`left op right`, with the caller's operator table `ops` looked up at call
     time (so a slip in that table is still seen). Switch on

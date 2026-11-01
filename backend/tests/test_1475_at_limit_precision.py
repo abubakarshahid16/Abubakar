@@ -107,7 +107,9 @@ def test_hold_at_the_limit_follows_the_operator(monkeypatch, op, expected):
 
 def test_hold_never_widens_the_limit(monkeypatch):
     monkeypatch.setattr(settings, "at_limit_precision_enabled", True)
-    assert dc._hold("<=", 1155.01, 1155.0, dc._OPS) is False  # one printed digit over is over
+    assert (
+        dc._hold("<=", 1155.01, 1155.0, dc._OPS) is False
+    )  # one printed digit over is over
     assert dc._hold(">=", 1154.99, 1155.0, dc._OPS) is False
     monkeypatch.setattr(settings, "at_limit_precision_enabled", False)
     assert (
