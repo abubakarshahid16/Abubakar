@@ -167,3 +167,7 @@ class SettingsExt(BaseModel):
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
     ai_requirement_extraction_enabled: bool = False
+    #: #645 slice 3: a quote from a chunk ACROSS pages is cited to the one page whose own text holds
+    #: it whole (none or several: refused, as before); accept checks it there again. No new model call.
+    #: OFF: such a quote is refused (page uncertain). Env: AI_REQUIREMENT_QUOTE_PAGE_ENABLED.
+    ai_requirement_quote_page_enabled: bool = False

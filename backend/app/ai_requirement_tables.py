@@ -44,6 +44,10 @@ COMPARATOR_NOT_STATED = "the quote states no comparator, so it stays unknown"
 CELLS_NOT_ON_PAGE = "a header or row cell is not on the page, in reading order"
 #: `standard_requirements.extractor_version` of a statement stored by this module.
 TABLE_VERSION = "ai_requirement_tables:1"
+#: ... of a sentence whose page code chose inside a chunk across pages (#645
+#: slice 3, `ai_requirement_chunks.quote_page`); accept checks it there again.
+QUOTE_PAGE_VERSION = "ai_requirement_chunks:page:1"
+QUOTE_NOT_ON_PAGE = "the quote is not on its page"
 _HEADER_WORDS = 4
 _VERBS = frozenset(
     {"shall", "must", "should", "will", "may", "can", "be", "is", "are", "was"}
@@ -285,19 +289,33 @@ def locate_cells(cells: list[str], page_text: str | None) -> list[str] | None:
     return out
 
 
+def quote_on_page(quote: str, page_text: str | None) -> bool:
+    """The whole quote stands in the page's own text (whitespace and case
+    folded, whole words)."""
+    want, page = air._squash(quote), air._squash(page_text)
+    rx = r"(?<!\w)" + re.escape(want) + r"(?!\w)"
+    return bool(want) and re.search(rx, page) is not None
+
+
 def recheck_on_page(conn, row) -> None:
     """At accept: a table draft's quote is still on its page, line by line in
-    reading order. Raises `DraftError`. Drafts of other modules are skipped."""
+    reading order; a sentence whose page code chose (slice 3) still stands
+    whole on that page. Raises `DraftError`. Drafts of other modules are
+    skipped."""
     req = conn.execute(
         "SELECT extractor_version FROM standard_requirements WHERE id = ?",
         (row["requirement_id"],),
     ).fetchone()
-    if req is None or req["extractor_version"] != TABLE_VERSION:
+    if req is None or req["extractor_version"] not in {TABLE_VERSION, QUOTE_PAGE_VERSION}:
         return
     page = conn.execute(
         "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
         (row["standard_document_id"], row["page"]),
     ).fetchone()
+    if req["extractor_version"] == QUOTE_PAGE_VERSION:
+        if not quote_on_page(row["quote"], page["text"] if page else None):
+            raise air.DraftError("code refused the draft: " + QUOTE_NOT_ON_PAGE)
+        return
     lines = (row["quote"] or "").split("\n")
     if locate_cells(lines, page["text"] if page else None) != lines:
         raise air.DraftError("code refused the draft: " + CELLS_NOT_ON_PAGE)

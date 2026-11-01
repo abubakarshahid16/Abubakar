@@ -17,7 +17,10 @@ Ollama and nothing here imports `reader_transport`, whatever
     unknown and the row is refused and counted;
   * a conditional sentence with no condition is refused;
   * the quote must sit on ONE page (a chunk across pages is refused: a
-    citation to the wrong page is worse than none);
+    citation to the wrong page is worse than none). Slice 3, behind
+    `settings.ai_requirement_quote_page_enabled`: the page of such a chunk
+    whose OWN text holds the whole quote is the page, when exactly one does
+    (none or several: refused, as before); accept checks it there again;
   * a quote an existing requirement already holds is not proposed again.
 
 What passes is stored as a `statement` row for the quote plus a DRAFT in
@@ -112,12 +115,50 @@ def verify_item(item: dict, chunk_text: str) -> tuple[dict | None, str | None]:
     return check, None
 
 
+def _page_texts(conn, standard_document_id: str, chunk) -> dict[int, str]:
+    return {
+        r["page_no"]: r["text"] or ""
+        for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ?"
+            " AND page_no BETWEEN ? AND ? ORDER BY page_no",
+            (standard_document_id, chunk["page_start"], chunk["page_end"]),
+        )
+    }
+
+
+def quote_page(quote: str, texts: dict[int, str]) -> int | None:
+    """The ONE page whose own text holds the whole quote; None when no page
+    (the quote crosses a page break) or several do."""
+    hits = [no for no, text in texts.items() if tables.quote_on_page(quote, text)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _table_row(item: dict, chunk, texts: dict[int, str], resolve: bool):
+    """`tables.read_row` with the page its quote is on: (checks, refusals,
+    page) or None (not a table row). `resolve` off: the chunk's first page,
+    as before. On (a chunk across pages): the ONE page that holds every cell
+    of the quote in reading order; none or several: refused, page uncertain."""
+    first = chunk["page_start"]
+    if not resolve:
+        row = tables.read_row(item, chunk["text"], texts.get(first))
+        return None if row is None else (*row, first)
+    base = tables.read_row(item, chunk["text"], None)  # the page plays no part in None
+    if base is None or base[1] != [tables.CELLS_NOT_ON_PAGE]:
+        return None if base is None else (*base, first)
+    found = [(no, tables.read_row(item, chunk["text"], text)) for no, text in texts.items()]
+    on = [(no, row) for no, row in found if tables.CELLS_NOT_ON_PAGE not in row[1]]
+    if len(on) != 1:
+        return [], [PAGE_UNCERTAIN], None
+    no, (checks, refusals) = on[0]
+    return checks, refusals, no
+
+
 def _refuse(report: dict, why: str) -> None:
     report["refused"][why] = report["refused"].get(why, 0) + 1
 
 
 def _store(
-    conn, standard_document_id: str, chunk, check: dict, model, version=None
+    conn, standard_document_id: str, chunk, check: dict, model, version, page
 ) -> None:
     from . import standards
 
@@ -127,7 +168,7 @@ def _store(
         requirement_text=check["quote"],
         source_text=check["quote"],
         clause=None,
-        page=chunk["page_start"],
+        page=page,
         extraction_method="extracted",
         extractor_version=version,
         structured={"requirement_type": air.STATEMENT},
@@ -157,25 +198,30 @@ def _store(
 def _take(conn, standard_document_id: str, chunk, item: dict, report: dict) -> None:
     """Verify one extracted item and store what passes. A row of a headed
     table whose column header states the direction (slice 2) is read by
-    `ai_requirement_tables`; every other item takes the sentence path."""
-    page = conn.execute(
-        "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
-        (standard_document_id, chunk["page_start"]),
-    ).fetchone()
-    row = tables.read_row(item, chunk["text"], page["text"] if page else None)
+    `ai_requirement_tables`; every other item takes the sentence path. A chunk
+    across pages: refused, or (slice 3, switch on) cited to the one page whose
+    own text holds the quote."""
+    split = chunk["page_start"] != chunk["page_end"]
+    resolve = split and bool(settings.ai_requirement_quote_page_enabled)
+    texts = _page_texts(conn, standard_document_id, chunk)
+    row = _table_row(item, chunk, texts, resolve)
     if row is not None:
-        checks, refusals = row
+        checks, refusals, page = row
         for why in refusals:
             _refuse(report, why)
         duplicate = tables.already_drafted
+        version = tables.TABLE_VERSION
     else:
         check, why = verify_item(item, chunk["text"])
         checks = [check] if check else []
         duplicate = lambda c, s, ck: _held(c, s, ck["quote"])  # noqa: E731
         if check is None:
             _refuse(report, why)
+        page = quote_page(check["quote"], texts) if check and resolve else None
+        version = tables.QUOTE_PAGE_VERSION if page is not None else None
+        page = page if resolve else chunk["page_start"]
     for check in checks:
-        if chunk["page_start"] != chunk["page_end"]:
+        if page is None or (split and not resolve):
             _refuse(report, PAGE_UNCERTAIN)
         elif duplicate(conn, standard_document_id, check):
             _refuse(report, ALREADY_HELD)
@@ -186,7 +232,8 @@ def _take(conn, standard_document_id: str, chunk, item: dict, report: dict) -> N
                 chunk,
                 check,
                 report["model"],
-                tables.TABLE_VERSION if row is not None else None,
+                version,
+                page,
             )
             report["proposed"] += 1
 

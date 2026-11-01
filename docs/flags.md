@@ -30,6 +30,7 @@ does not make one.
 | `ai_answer_reuse_enabled` | `True` | permanent | | | Reuse of a stored local AI answer to the exact same question (#1221, order 205). Off for the final test before anything goes to a client: every page is read fresh |
 | `ai_clause_checks_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI check proposals for undecided clauses (#645) |
 | `ai_requirement_extraction_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | The local model reads a held standard's chunks and proposes limits (drafts only) for text with no stored sentence; code verifies every field (#645) |
+| `ai_requirement_quote_page_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | #645 slice 3: a requirement quoted from a chunk across pages is cited to the one page whose own text holds it (none or several: refused); accept checks that page again; OFF, such a quote is refused |
 | `rule_auto_use_enabled` | `False` | rollout | 2026-10-17 | 2026-10-31 | Proven rule families used without an engineer |
 | `recommendation_queries_enabled` | `False` | rollout | 2026-10-28 | 2026-11-11 | A recommendation ("should") of a standard the datasheet names is raised as a query for the engineer (order 288.2); OFF, a review ignores recommendations |
 | `match_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | AI matcher (#794) |
