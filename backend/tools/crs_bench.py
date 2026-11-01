@@ -184,16 +184,23 @@ def score(
 
 
 def system_kind(conn: sqlite3.Connection, doc: str) -> str:
-    """The kind the review routes on. Until #1474 there is one path: a document
-    with an equipment type is reviewed as that equipment's datasheet."""
+    """The kind the review routes on: the document's ONE stored kind (the
+    router's table `document_kinds`, which #1474's decider also writes), else
+    the equipment-type choice of today (any equipment type = datasheet)."""
+    try:
+        stored = conn.execute(
+            "SELECT kind FROM document_kinds WHERE document_id = ?", (doc,)
+        ).fetchone()
+    except sqlite3.OperationalError:  # a copy from before the router
+        stored = None
+    if stored is not None and stored["kind"]:
+        return stored["kind"]
     row = conn.execute(
-        "SELECT * FROM document_classification WHERE document_id = ?", (doc,)
+        "SELECT equipment_type FROM document_classification WHERE document_id = ?",
+        (doc,),
     ).fetchone()
     if row is None:
         return "unclassified"
-    keys = row.keys()
-    if "document_kind" in keys and row["document_kind"]:
-        return row["document_kind"]
     return "datasheet" if row["equipment_type"] else "unclassified"
 
 
