@@ -136,3 +136,40 @@ def test_known_limit_a_heading_without_an_element_cue_is_unclear_not_present(
     for heading in ("Study Team", "Team and roles"):
         body = [_chunk(heading, "HAZOP Study Procedure > " + heading, CHAIRMAN)]
         assert playbooks._match(_element(), body)["state"] == "unclear", heading
+
+
+def test_a_definitions_entry_is_not_the_team_section(monkeypatch):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    for entry in ("Chairman", "Team members", "Scribe"):
+        body = [_chunk(entry, "Procedure > 2. Definitions > " + entry, CHAIRMAN)]
+        assert playbooks._match(_element(), body)["state"] == "unclear", entry
+    body = [_chunk("Abbreviations and definitions", "Procedure", CHAIRMAN)]
+    assert playbooks._match(_element(), body)["state"] == "unclear"
+
+
+def test_a_report_contents_list_item_is_not_the_team_section(monkeypatch):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    body = [_chunk("Team members", "Procedure > Report contents > Team members", CHAIRMAN)]
+    assert playbooks._match(_element(), body)["state"] == "unclear"
+    body = [_chunk("Table of contents", "Procedure", CHAIRMAN)]
+    assert playbooks._match(_element(), body)["state"] == "unclear"
+
+
+def test_a_real_team_section_under_a_numbered_parent_is_still_present(monkeypatch):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    body = [_chunk("HAZOP team members", "Procedure > 4. Study > HAZOP team members", CHAIRMAN)]
+    assert playbooks._match(_element(), body)["state"] == "present"
+
+
+def test_a_definitions_entry_is_still_present_with_the_switch_off(monkeypatch):
+    from app import playbooks
+
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", False)
+    body = [_chunk("Chairman", "Procedure > 2. Definitions > Chairman", CHAIRMAN)]
+    assert playbooks._match(_element(), body)["state"] == "present"
