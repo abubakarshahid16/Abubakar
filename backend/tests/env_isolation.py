@@ -215,6 +215,8 @@ EGRESS_SAFE: dict[str, object] = {
     "nothing_read_fails_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
+    # --- local only, no model or socket: a specification is checked against a must-contain list (#1479, off by default)
+    "spec_kit_enabled": False,
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)

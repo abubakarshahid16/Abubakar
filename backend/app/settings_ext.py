@@ -35,6 +35,11 @@ class SettingsExt(BaseModel):
     #: label answers each text attribute it names. OFF: nothing changes.
     #: Env: DATASHEET_ONE_VALUE_ENABLED.
     datasheet_one_value_enabled: bool = False
+    #: #1479 specification kit (preparation, `spec_kit.py`): a DRAFT must-contain list per
+    #: discipline looked up in a specification's own pages, no model; numeric limits
+    #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
+    #: OFF: nothing changes. Env: SPEC_KIT_ENABLED.
+    spec_kit_enabled: bool = False
 
     #: #1474: the document KIND (router table `document_kinds`) chooses the rule set: a
     #: document whose kind is anything but datasheet gets no equipment datasheet checklist and

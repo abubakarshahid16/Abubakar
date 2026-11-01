@@ -1,0 +1,161 @@
+{
+ "discipline": "welding",
+ "label": "DRAFT - an engineer approves each item before it is relied on",
+ "title": "Welding specification",
+ "identify": [
+  "welding",
+  "weld"
+ ],
+ "items": [
+  {
+   "id": "wps_pqr",
+   "topic": "Welding procedure specifications and qualification records",
+   "terms": [
+    [
+     "wps"
+    ],
+    [
+     "pqr"
+    ],
+    [
+     "welding procedure"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-W-011",
+    "clause": "7.1.2",
+    "page": 17
+   }
+  },
+  {
+   "id": "procedure_package",
+   "topic": "Procedure package submitted for approval before work",
+   "terms": [
+    [
+     "procedure",
+     "approval"
+    ],
+    [
+     "procedure",
+     "submitted"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-W-011",
+    "clause": "7.1.1",
+    "page": 16
+   }
+  },
+  {
+   "id": "consumables",
+   "topic": "Welding consumables and their approval",
+   "terms": [
+    [
+     "consumable"
+    ],
+    [
+     "electrode"
+    ],
+    [
+     "filler"
+    ]
+   ],
+   "draft_reason": "SAES-W-011 6.1 (p12) is a conformance rule for consumables. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "sour_service_pwht",
+   "topic": "Post-weld heat treatment (sour service)",
+   "terms": [
+    [
+     "post weld"
+    ],
+    [
+     "postweld"
+    ],
+    [
+     "pwht"
+    ]
+   ],
+   "draft_reason": "SAES-W-011 6.6.5 (p15) is a prohibition for one steel, not a statement to make. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "welder_qualification",
+   "topic": "Welder and operator qualification",
+   "terms": [
+    [
+     "welder",
+     "qualif"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "nde",
+   "topic": "Non-destructive examination of welds",
+   "terms": [
+    [
+     "radiograph"
+    ],
+    [
+     "nde"
+    ],
+    [
+     "non-destructive"
+    ],
+    [
+     "nondestructive"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "preheat",
+   "topic": "Preheat and interpass temperature",
+   "terms": [
+    [
+     "preheat"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "scope",
+   "topic": "Scope and purpose of the specification",
+   "terms": [
+    [
+     "scope"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "documentation",
+   "topic": "Documentation and deliverables the supplier submits",
+   "terms": [
+    [
+     "documentation"
+    ],
+    [
+     "deliverable"
+    ],
+    [
+     "data book"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "inspection_testing",
+   "topic": "Inspection and testing requirements",
+   "terms": [
+    [
+     "inspection"
+    ],
+    [
+     "testing"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  }
+ ]
+}
