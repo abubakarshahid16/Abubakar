@@ -1,0 +1,107 @@
+{
+  "_about": "#1478 pump kit PREPARATION, all DRAFT. Box list and draft rule cards for a centrifugal pump datasheet, built only from the standards the library already holds. Every card is a draft: no engineer has signed it off, no real pump document has proved it. Read only when `pump_kit_draft_enabled` is on (off by default). Rule text is in our own words, never the standard's. Cards whose value no held standard requires stay draft 'needs a standard we do not hold' (order 301.1).",
+  "equipment_type": "Centrifugal Pump",
+  "status": "DRAFT",
+  "standards_held": ["SAES-G-005"],
+  "standards_not_held": ["API 610", "ISO 13709", "API 682", "ASME B73.1", "ISO 5199"],
+  "clauses_verified": false,
+  "boxes": [
+    {"role": "rated_flow", "label": "Rated flow", "group": "Performance"},
+    {"role": "rated_head", "label": "Rated differential head", "group": "Performance"},
+    {"role": "min_flow", "label": "Minimum continuous flow", "group": "Performance"},
+    {"role": "max_flow", "label": "Maximum flow", "group": "Performance"},
+    {"role": "npsh_available", "label": "NPSH available", "group": "Performance"},
+    {"role": "npsh_required", "label": "NPSH required", "group": "Performance"},
+    {"role": "rated_speed", "label": "Rated speed", "group": "Performance"},
+    {"role": "absorbed_power", "label": "Absorbed power at rated point", "group": "Performance"},
+    {"role": null, "label": "Efficiency at rated point", "group": "Performance", "note": "no role in the checker yet"},
+    {"role": "design_pressure", "label": "Design pressure", "group": "Conditions"},
+    {"role": "design_temperature", "label": "Design temperature", "group": "Conditions"},
+    {"role": "operating_temperature", "label": "Operating temperature", "group": "Conditions"},
+    {"role": "test_pressure", "label": "Hydrostatic test pressure", "group": "Conditions"},
+    {"role": "casing_material", "label": "Casing material", "group": "Construction"},
+    {"role": "impeller_material", "label": "Impeller material", "group": "Construction"},
+    {"role": "shaft_material", "label": "Shaft material", "group": "Construction"},
+    {"role": "seal_type", "label": "Mechanical seal type", "group": "Construction"},
+    {"role": "seal_plan", "label": "Seal flush plan", "group": "Construction"},
+    {"role": "bearing_type", "label": "Bearing type", "group": "Construction"},
+    {"role": null, "label": "Pump type (API 610 designation, such as OH2 or BB1)", "group": "Construction", "note": "no role in the checker yet"},
+    {"role": null, "label": "Suction and discharge nozzle size", "group": "Connections", "note": "no role in the checker yet"},
+    {"role": null, "label": "Suction and discharge nozzle rating", "group": "Connections", "note": "no role in the checker yet"},
+    {"role": "driver_rating", "label": "Driver rating", "group": "Driver"},
+    {"role": null, "label": "Driver type", "group": "Driver", "note": "no role in the checker yet"}
+  ],
+  "cards": [
+    {
+      "id": "PMPD-01", "draft": true, "severity": "major",
+      "text": "The rated flow is stated.",
+      "source": {"standard": "SAES-G-005", "clause": "4.3.7", "page": 16},
+      "rule": {"kind": "required", "field": "rated_flow"}
+    },
+    {
+      "id": "PMPD-02", "draft": true, "severity": "major",
+      "text": "The NPSH available is stated.",
+      "source": {"standard": "SAES-G-005", "clause": "4.2.1", "page": 13},
+      "rule": {"kind": "required", "field": "npsh_available"}
+    },
+    {
+      "id": "PMPD-03", "draft": true, "severity": "major",
+      "text": "The NPSH required (NPSH3) is stated.",
+      "source": {"standard": "SAES-G-005", "clause": "4.3.2", "page": 15},
+      "rule": {"kind": "required", "field": "npsh_required"}
+    },
+    {
+      "id": "PMPD-04", "draft": true, "severity": "critical",
+      "text": "At the rated flow, the NPSH available exceeds the NPSH required by at least 1 m.",
+      "source": {"standard": "SAES-G-005", "clause": "4.3.2", "page": 15},
+      "rule": {"kind": "above_by", "left": "npsh_available", "right": "npsh_required", "percent": 0, "at_least": 1, "unit": "m"},
+      "tests": [
+        {"name": "meets", "facts": [["NPSH available", "6", "m"], ["NPSH required", "4", "m"]], "expect": "COMPLIANT"},
+        {"name": "breaks", "facts": [["NPSH available", "4.5", "m"], ["NPSH required", "4", "m"]], "expect": "NON_COMPLIANT"},
+        {"name": "at the limit", "facts": [["NPSH available", "5", "m"], ["NPSH required", "4", "m"]], "expect": "COMPLIANT"},
+        {"name": "unclear", "facts": [["NPSH available", "*", null], ["NPSH required", "4", "m"]], "expect": "MISSING_INFORMATION"}
+      ]
+    },
+    {
+      "id": "PMPD-05", "draft": true, "severity": "major",
+      "text": "The pump power at the rated point is stated.",
+      "source": {"standard": "SAES-G-005", "clause": "6.7.4", "page": 29},
+      "rule": {"kind": "required", "field": "absorbed_power"}
+    },
+    {
+      "id": "PMPD-06", "draft": true, "severity": "major",
+      "text": "The mechanical seal type is stated.",
+      "source": {"standard": "SAES-G-005", "clause": "4.5.1.1", "page": 18},
+      "rule": {"kind": "required", "field": "seal_type"}
+    },
+    {
+      "id": "PMPD-07", "draft": true, "severity": "major",
+      "text": "The seal flush plan is stated.",
+      "source": {"standard": "SAES-G-005", "clause": "4.5.2", "page": 19},
+      "rule": {"kind": "required", "field": "seal_plan"}
+    },
+    {
+      "id": "PMPD-08", "draft": true, "severity": "major",
+      "text": "The hydrostatic test pressure is at least 1724 kPa gauge.",
+      "source": {"standard": "SAES-G-005", "clause": "6.7.4", "page": 29},
+      "rule": {"kind": "constant", "field": "test_pressure", "op": ">=", "value": 1724, "unit": "kPa"},
+      "tests": [
+        {"name": "meets", "facts": [["hydrotest pressure", "3000", "kPa"]], "expect": "COMPLIANT"},
+        {"name": "breaks", "facts": [["hydrotest pressure", "1500", "kPa"]], "expect": "NON_COMPLIANT"},
+        {"name": "at the limit", "facts": [["hydrotest pressure", "1724", "kPa"]], "expect": "COMPLIANT"},
+        {"name": "unclear", "facts": [["hydrotest pressure", "*", null]], "expect": "MISSING_INFORMATION"}
+      ]
+    },
+    {"id": "PMPD-N01", "draft": true, "severity": "major", "text": "The rated differential head is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "rated_head"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N02", "draft": true, "severity": "major", "text": "The rated speed is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "rated_speed"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N03", "draft": true, "severity": "major", "text": "The minimum continuous flow is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "min_flow"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N04", "draft": true, "severity": "major", "text": "The driver rating is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "driver_rating"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N05", "draft": true, "severity": "major", "text": "The design pressure is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "design_pressure"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N06", "draft": true, "severity": "major", "text": "The design temperature is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "design_temperature"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N07", "draft": true, "severity": "major", "text": "The operating temperature is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "operating_temperature"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N08", "draft": true, "severity": "major", "text": "The casing material is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "casing_material"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N09", "draft": true, "severity": "major", "text": "The impeller material is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "impeller_material"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N10", "draft": true, "severity": "major", "text": "The shaft material is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "shaft_material"}, "needs": "a standard we do not hold"},
+    {"id": "PMPD-N11", "draft": true, "severity": "major", "text": "The bearing type is stated.", "source": {"standard": "API 610", "clause": "not held"}, "rule": {"kind": "required", "field": "bearing_type"}, "needs": "a standard we do not hold"}
+  ]
+}

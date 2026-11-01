@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, pump_kit, severity_rule
 from .checklist_scope import governs, standards
 from .deferred_value import hold_results
 from .same_value import key as _key
@@ -419,6 +419,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
         return None
     entry = table[key]
     items = list(entry.get("items", [])) + _local_items(key)
+    items += pump_kit.loader_items(key, items)
     for item in items:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
