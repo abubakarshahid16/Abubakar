@@ -543,9 +543,13 @@ def test_the_intake_note_sits_beside_the_unread_and_read_in_part_notes():
         "reading": {"failed_pages": {"3": "(column rows: 2 cells left out)"}},
         "intake_reasons": {"0": ["not read: hidden sheet 3 (workbook position)"]},
     }
-    got = [n["note"] for n in page_not_read.notes({"page_coverage": cov})]
-    assert got == [
+    out = page_not_read.notes({"page_coverage": cov})
+    assert [n["note"] for n in out] == [
         page_not_read.NOTE_PAGE_NOT_READ,
         page_not_read.NOTE_PAGE_READ_IN_PART,
         page_not_read.NOTE_FILE_PARTLY_READ,
     ]
+    unread, part, intake = (n["detail"] for n in out)
+    assert "page 2: an image with no reading" in unread
+    assert "page 3: column rows: 2 cells left out" in part
+    assert "the file: not read: hidden sheet 3 (workbook position)" in intake
