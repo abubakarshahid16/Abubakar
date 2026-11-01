@@ -269,7 +269,9 @@ def test_the_crs_row_one_counts_the_reading_of_a_run_stored_with_the_switch(worl
             "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
             (json.dumps({"error": "x", "page_coverage": ON_COVERAGE}), run_id),
         )
-    _rows, meta, _name, _stamp = main_mod._crs_content(run_id, world["access"], "internal")
+    _rows, meta, _name, _stamp = main_mod._crs_content(
+        run_id, world["access"], "internal"
+    )
     assert "Unread pages: 1 page(s) not read (2)." in meta["run_status_note"]
     assert "into fields" not in meta["run_status_note"]
 
@@ -287,7 +289,11 @@ def test_the_pdf_header_says_the_switchs_meaning(world, monkeypatch, on, words):
     monkeypatch.setattr(
         ledger,
         "readiness_pages",
-        lambda _d: {"unread_pages": [2], "ledger_state": ledger.CURRENT, "ledger_note": None},
+        lambda _d: {
+            "unread_pages": [2],
+            "ledger_state": ledger.CURRENT,
+            "ledger_note": None,
+        },
     )
     _run, lines = export_status.pdf_header_lines(world["sub"], world["scope"])
     assert words in lines
