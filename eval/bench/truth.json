@@ -5,7 +5,7 @@
     "wrong verdicts: a finding the code decided (COMPLIANT or NON_COMPLIANT) that a truth 'wrong' matcher names. Hard stop above 0.",
     "untrue lines / irrelevant lines: findings a truth matcher names, counted once per finding (one finding = one CRS line).",
     "checklist decided: datasheet_check findings COMPLIANT or NON_COMPLIANT, of all datasheet_check findings.",
-    "standard rules decided: findings with a requirement_id that are COMPLIANT or NON_COMPLIANT, of distinct requirement_ids not sent to NOT_IN_DOCUMENT_SCOPE.",
+    "standard rules decided: distinct requirement_ids whose finding is COMPLIANT or NON_COMPLIANT, of the rules that apply as the run states them (requirement_split: checked + applies_not_checked, the headline boundary); when a run has no split, of distinct requirement_ids not sent to NOT_IN_DOCUMENT_SCOPE.",
     "verified-quote rate: findings carrying a contractor quote and page whose quote is found, whitespace- and case-folded, in that page's stored text.",
     "pages read: ledger pages not listed in pages_not_read_into_fields, of ledger pages (the code's current meaning of 'read').",
     "kind recognised: the kind the code would route on (today: any equipment type = datasheet) equals the truth kind.",
