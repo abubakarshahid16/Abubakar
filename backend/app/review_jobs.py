@@ -299,24 +299,13 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         _record_check_failure(run_id, "ai_check_status", "AI engineering check", exc)
 
 
-def _clause_review(run_id: str, scope: frozenset[str]) -> None:
-    """#1477: the AI clause review of a procedure or specification, AFTER the
-    comparison, only with its switch on and a qualifying document kind. Local
-    model only; suggestions for the engineer, never a verdict. A failure here
-    never fails the review: it is logged by kind (never text) and recorded."""
-    if not settings.clause_review_enabled:
-        return
+def _checks(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
+    """The review's optional checks, after the comparison. None fails the review."""
     from . import clause_review
-    try:
-        clause_review.run(run_id, allowed_document_ids=scope)
-    except Exception as exc:  # noqa: BLE001 - suggestions are optional; the review stands
-        import logging
-        logging.getLogger(__name__).warning("clause review skipped: %s", type(exc).__name__)
-        try:
-            clause_review._store_status(run_id, {
-                "ran": False, "plain": f"AI clause review could not run ({type(exc).__name__})"})
-        except Exception:  # noqa: BLE001 - recording must not fail the review either
-            pass
+
+    _ai_check(run_id, scope, missing)
+    _web_check(run_id, scope, missing)
+    clause_review.for_review(run_id, scope)
 
 
 def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
@@ -385,9 +374,8 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             company_standard_confirm.record_on_run(run_id, held)
         _label(conn, job_id, FINISHING)
         with _phase(conn, job_id, None, heartbeat, timings, "checks"):
-            _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
-            _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
-            _clause_review(run_id, scope)
+            missing = [m["identifier"] for m in selection["missing_references"]]
+            _checks(run_id, scope, missing)
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
         # R15 (#779): every CRS row of the finished run gets its permanent number
         # (drafts not issued), then R26 step 8 (#763): the model words each CRS

@@ -19,7 +19,6 @@ from . import scan_quality
 from . import applicability as applicability_mod, cited_edition as cited_edition_mod
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
-from . import clause_review as clause_review_mod
 from . import crs_export as crs_export_mod
 from . import crs_ai_cell as crs_ai_cell_mod
 from . import crs_issue as crs_issue_mod
@@ -1284,8 +1283,8 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
     total = drafts = 0
     for row in connect().execute(
             f"SELECT compliance_status, {ai_check_drafts_mod.DRAFT_SQL} AS draft, COUNT(*) AS n FROM"
-            " review_findings WHERE review_run_id = ? AND origin IS NOT ?"
-            " GROUP BY compliance_status, draft", (run_id, clause_review_mod.ORIGIN)):
+            " review_findings WHERE review_run_id = ? AND origin IS NOT 'clause_review'"
+            " GROUP BY compliance_status, draft", (run_id,)):
         total += row["n"]
         if (status := row["compliance_status"]) is not None:
             by_status[status] = by_status.get(status, 0) + row["n"]

@@ -70,14 +70,11 @@ _AI_ORIGIN = "ai_engineering_check"
 ROW_KIND_DATASHEET_CHECK = "datasheet_check"
 _DATASHEET_ORIGIN = "datasheet_check"
 _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
-#: #1477: a clause review item (`clause_review.py`, `origin = 'clause_review'`): the
-#: local model's reading of one requirement against a procedure or specification,
-#: with a quote the code found on the page. Never a verdict; rides in "AI Review
-#: Comments" like kind C until an engineer confirms it, off the sheet if rejected.
+#: #1477: a clause review item (`clause_review.py`): never a verdict; rides in "AI
+#: Review Comments" like kind C until an engineer confirms it, off the sheet if rejected.
 ROW_KIND_CLAUSE_REVIEW = "clause_review"
 _CLAUSE_ORIGIN = "clause_review"
 _CLAUSE_CONFIRMED_BY = "AI clause review, confirmed by "
-_CLAUSE_UNCONFIRMED_BY = "AI clause review - engineer to confirm"
 #: Owner order 2d-2: a public-web standards check item (kind D,
 #: `origin = 'web_standard_check'`). Same confirm-or-off-the-sheet rule as
 #: kind C - unconfirmed rides in "AI Review Comments", confirmed moves to
@@ -108,6 +105,16 @@ _WEB_CONFIRMED_BY = "Web check, confirmed by "
 #: yet confirmed"; these say so.
 _AI_UNCONFIRMED_BY = "AI - engineer to confirm"
 _WEB_UNCONFIRMED_BY = "Web check - engineer to confirm"
+#: The one-row draft origins: (confirmed byline, unconfirmed byline, row kind).
+_DRAFT_LANES = {
+    _AI_ORIGIN: (_AI_CONFIRMED_BY, _AI_UNCONFIRMED_BY, ROW_KIND_AI_ENGINEERING_CHECK),
+    _WEB_ORIGIN: (_WEB_CONFIRMED_BY, _WEB_UNCONFIRMED_BY, ROW_KIND_WEB_STANDARD_CHECK),
+    _CLAUSE_ORIGIN: (
+        _CLAUSE_CONFIRMED_BY,
+        "AI clause review - engineer to confirm",
+        ROW_KIND_CLAUSE_REVIEW,
+    ),
+}
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
 #: literal, not imported from `comparison`, because this module stays pure
@@ -233,7 +240,10 @@ def finding_comment_key(f: dict) -> str:
     if origin == _CLAUSE_ORIGIN:
         # the requirement, never the wording: a re-run keeps the row's number
         return comment_key(
-            origin, f.get("standard_document_id"), f.get("requirement_id") or f.get("standard_clause"))
+            origin,
+            f.get("standard_document_id"),
+            f.get("requirement_id") or f.get("standard_clause"),
+        )
     key = _group_key(f)
     if key[0] == "field":
         return field_comment_key(key[1], key[2])
@@ -1606,10 +1616,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     # a verdict; a draft in its own column until an engineer confirms it.
     for f in _one_row_findings(items, BUCKET_AI, BUCKET_WEB):
         origin = f.get("origin")
-        if (origin not in (_AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN)
-                or f.get("approval_status") == "rejected"):
+        if origin not in _DRAFT_LANES or f.get("approval_status") == "rejected":
             continue
-        relates = ""
         text = f.get("engineer_comment") or _finding_text(f)
         if origin == _AI_ORIGIN:
             relates = _ai_relates_to(f)
@@ -1626,16 +1634,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
         confirmed = bool(crs_decider.decider(f))
-        confirmed_by_prefix = {
-            _AI_ORIGIN: _AI_CONFIRMED_BY, _CLAUSE_ORIGIN: _CLAUSE_CONFIRMED_BY,
-        }.get(origin, _WEB_CONFIRMED_BY)
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
-        unconfirmed_by = {
-            _AI_ORIGIN: _AI_UNCONFIRMED_BY, _CLAUSE_ORIGIN: _CLAUSE_UNCONFIRMED_BY,
-        }.get(origin, _WEB_UNCONFIRMED_BY)
-        row_kind = {
-            _AI_ORIGIN: ROW_KIND_AI_ENGINEERING_CHECK, _CLAUSE_ORIGIN: ROW_KIND_CLAUSE_REVIEW,
-        }.get(origin, ROW_KIND_WEB_STANDARD_CHECK)
+        confirmed_by_prefix, unconfirmed_by, row_kind = _DRAFT_LANES[origin]
         # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
         # says it awaits an engineer, the draft stays in "AI Review Comments".
         unconfirmed_comment = (

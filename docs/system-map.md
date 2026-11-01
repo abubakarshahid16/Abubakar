@@ -111,6 +111,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `model_metrics` | #503: per-model latency and error counts of the local model calls a review run makes, stored per run and model with the date (counts and seconds only) |
 | `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
+| `clause_review` | #1477: AI clause review of a procedure or specification: one requirement at a time against 4 small passages, local model only, every quote verified on the stored page text, never a verdict (engineer to confirm), cached, time-budgeted; off by default |
 | `clause_check_rank` | Order 235 item 1: which clause sentences get the per-run clause-check budget (fields the sheet states, then a safety clause, then standards it cites, then figures) and each standard's share |
 | `crash_log` | Order 252: a native crash (bus error, segfault) leaves the stack of every thread in `<data>/logs/native-crash.log` |
 | `pdf_guard` | Order 252: one process-wide re-entrant lock around short PyMuPDF blocks (MuPDF is not thread-safe) |

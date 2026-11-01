@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from app import access, clause_review, db, review_jobs, standards
+from app import access, clause_review, db, standards
 from app import reasoning_provider as rp
 from app.config import settings
 from tests.test_b3_page_ledger import NOW, _review, temp_storage  # noqa: F401 - autouse
@@ -24,8 +24,12 @@ PAGE2 = (
     "date, and the register is reviewed monthly until all actions are closed."
 )
 REQ_CHAIR = "The HAZOP chair shall be independent of the design team."
-REQ_ACTIONS = "Recommendations shall be tracked to closure with a named owner and a due date."
-REQ_GUIDE = "Every node shall be studied with the guide words no, more, less and reverse."
+REQ_ACTIONS = (
+    "Recommendations shall be tracked to closure with a named owner and a due date."
+)
+REQ_GUIDE = (
+    "Every node shall be studied with the guide words no, more, less and reverse."
+)
 GOOD_CHAIR = "The HAZOP chair is appointed by the Safety Department and has not worked on the design of the unit under study."
 
 
@@ -39,17 +43,34 @@ def _procedure(doc_id="doc_proc", kind="procedure", pages=(PAGE1, PAGE2)) -> str
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)"
-            " VALUES (?,?,?,1,'x','ready',?,?)", (doc_id, f"{doc_id}.pdf", f"sha-{doc_id}", len(pages), NOW))
+            " VALUES (?,?,?,1,'x','ready',?,?)",
+            (doc_id, f"{doc_id}.pdf", f"sha-{doc_id}", len(pages), NOW),
+        )
         for n, text in enumerate(pages, start=1):
-            conn.execute("INSERT INTO pages (document_id,page_no,text,char_count,needs_ocr,batch_no)"
-                         " VALUES (?,?,?,?,0,0)", (doc_id, n, text, len(text)))
+            conn.execute(
+                "INSERT INTO pages (document_id,page_no,text,char_count,needs_ocr,batch_no)"
+                " VALUES (?,?,?,?,0,0)",
+                (doc_id, n, text, len(text)),
+            )
             conn.execute(
                 "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,"
                 "token_count,content_hash,retrievable) VALUES (?,?,?,?,?,?,NULL,'prose',?,1,?,1)",
-                (f"{doc_id}-c{n}", doc_id, f"{doc_id}.pdf", n, n, n, text, f"h-{doc_id}-{n}"))
+                (
+                    f"{doc_id}-c{n}",
+                    doc_id,
+                    f"{doc_id}.pdf",
+                    n,
+                    n,
+                    n,
+                    text,
+                    f"h-{doc_id}-{n}",
+                ),
+            )
         if kind:
-            conn.execute("INSERT INTO document_kinds (document_id,kind,state,routed_at) VALUES (?,?,?,?)",
-                         (doc_id, kind, "confirmed", NOW))
+            conn.execute(
+                "INSERT INTO document_kinds (document_id,kind,state,routed_at) VALUES (?,?,?,?)",
+                (doc_id, kind, "confirmed", NOW),
+            )
     return doc_id
 
 
@@ -61,8 +82,13 @@ def _world(requirements=(REQ_CHAIR,), kind="procedure"):
         conn.execute("DELETE FROM standard_requirements")
     for i, text in enumerate(requirements, start=1):
         standards.create_requirement(
-            standard_document_id="doc_std", chunk_id="sc", clause=f"5.{i}", page=1,
-            requirement_text=text, source_text=text)
+            standard_document_id="doc_std",
+            chunk_id="sc",
+            clause=f"5.{i}",
+            page=1,
+            requirement_text=text,
+            source_text=text,
+        )
     return sub, run, scope
 
 
@@ -81,9 +107,15 @@ class Fake:
         asked = packet.prompt.split("NOW THE REAL QUESTION.")[1]
         reply = next(v for k, v in self.answers.items() if k in asked)
         text = reply if isinstance(reply, str) else json.dumps(reply)
-        return rp.Response(text=text, provider=rp.OLLAMA, model_tag="fake-local:1", digest="d",
-                           finish_reason="stop", prompt_sha256=packet.sha256,
-                           schema_errors=rp.schema_errors(text, packet.json_schema))
+        return rp.Response(
+            text=text,
+            provider=rp.OLLAMA,
+            model_tag="fake-local:1",
+            digest="d",
+            finish_reason="stop",
+            prompt_sha256=packet.sha256,
+            schema_errors=rp.schema_errors(text, packet.json_schema),
+        )
 
 
 class Clock:
@@ -99,9 +131,13 @@ def on(monkeypatch):
 
 
 def _rows(run):
-    return [dict(r) for r in db.connect().execute(
-        "SELECT * FROM review_findings WHERE review_run_id = ? AND origin = ? ORDER BY standard_clause",
-        (run, clause_review.ORIGIN))]
+    return [
+        dict(r)
+        for r in db.connect().execute(
+            "SELECT * FROM review_findings WHERE review_run_id = ? AND origin = ? ORDER BY standard_clause",
+            (run, clause_review.ORIGIN),
+        )
+    ]
 
 
 def _go(run, scope, fake, **kw):
@@ -109,7 +145,7 @@ def _go(run, scope, fake, **kw):
 
 
 def test_a_verified_quote_is_an_engineer_row_with_the_quote_and_page(on):
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     fake = Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR}})
     status = _go(run, scope, fake)
     [row] = _rows(run)
@@ -117,119 +153,161 @@ def test_a_verified_quote_is_an_engineer_row_with_the_quote_and_page(on):
     assert row["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
     assert row["contractor_page"] == 1 and row["contractor_evidence_text"] == GOOD_CHAIR
     assert row["finding"].startswith(clause_review.TEXT_VERIFIED)
-    assert row["requirement_id"] and row["standard_clause"] == "5.1" and row["confirmed_by"] is None
+    assert (
+        row["requirement_id"]
+        and row["standard_clause"] == "5.1"
+        and row["confirmed_by"] is None
+    )
 
 
 def test_thinking_is_on_and_the_prompt_carries_the_marked_invented_examples(on):
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     fake = Fake({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}})
     _go(run, scope, fake)
     [packet] = fake.packets
     assert packet.think is True
     assert packet.prompt.count("EXAMPLE ") >= 5
-    assert "HAZOP chair is appointed" in packet.prompt        # the passage the model is shown
+    assert "HAZOP chair is appointed" in packet.prompt  # the passage the model is shown
     for row in clause_review.examples("procedure"):
         assert row["label"] == clause_review.INVENTED_MARK
 
 
 def test_a_fabricated_quote_is_dropped_and_the_row_says_so(on):
-    sub, run, scope = _world()
-    fake = Fake({"HAZOP chair": {"answer": "quote", "page": 1,
-                                 "quote": "The HAZOP chair is always an external consultant with ten years of experience."}})
+    _sub, run, scope = _world()
+    fake = Fake(
+        {
+            "HAZOP chair": {
+                "answer": "quote",
+                "page": 1,
+                "quote": "The HAZOP chair is always an external consultant with ten years of experience.",
+            }
+        }
+    )
     status = _go(run, scope, fake)
     [row] = _rows(run)
     assert status["unverified"] == 1 and status["verified"] == 0
-    assert "could not be verified" in row["finding"] and "engineer to check" in row["finding"]
+    assert (
+        "could not be verified" in row["finding"]
+        and "engineer to check" in row["finding"]
+    )
     assert row["contractor_evidence_text"] is None and row["contractor_page"] is None
     assert "external consultant" not in row["finding"]
 
 
 def test_a_real_quote_on_the_wrong_page_is_not_verified(on):
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     fake = Fake({"HAZOP chair": {"answer": "quote", "page": 2, "quote": GOOD_CHAIR}})
     _go(run, scope, fake)
     [row] = _rows(run)
-    assert "could not be verified" in row["finding"] and row["contractor_evidence_text"] is None
+    assert (
+        "could not be verified" in row["finding"]
+        and row["contractor_evidence_text"] is None
+    )
 
 
 def test_a_quote_is_matched_folded_but_exactly():
     page = "The HAZOP   chair is\nappointed by the Safety Department and has not worked on the design."
-    assert clause_review.verify_quote("the hazop chair IS appointed by the safety department", page)
-    assert not clause_review.verify_quote("the hazop chair was appointed by the safety department", page)
-    assert not clause_review.verify_quote("the hazop chair", page)                      # too short to prove anything
-    assert not clause_review.verify_quote("The HAZOP chair is appointed ... Safety Department", page)
+    assert clause_review.verify_quote(
+        "the hazop chair IS appointed by the safety department", page
+    )
+    assert not clause_review.verify_quote(
+        "the hazop chair was appointed by the safety department", page
+    )
+    assert not clause_review.verify_quote(
+        "the hazop chair", page
+    )  # too short to prove anything
+    assert not clause_review.verify_quote(
+        "The HAZOP chair is appointed ... Safety Department", page
+    )
     assert not clause_review.verify_quote("", page)
 
 
 def test_no_evidence_is_an_engineer_row_never_missing_information(on):
-    sub, run, scope = _world((REQ_GUIDE,))
+    _sub, run, scope = _world((REQ_GUIDE,))
     fake = Fake({"guide words": {"answer": "no_evidence", "page": None, "quote": None}})
     status = _go(run, scope, fake)
     [row] = _rows(run)
     assert status["no_evidence"] == 1
     assert row["compliance_status"] == "NEEDS_ENGINEER_REVIEW" != "MISSING_INFORMATION"
-    assert row["finding"] == clause_review.TEXT_NO_EVIDENCE and row["contractor_page"] is None
+    assert (
+        row["finding"] == clause_review.TEXT_NO_EVIDENCE
+        and row["contractor_page"] is None
+    )
 
 
 def test_an_unreadable_answer_is_an_engineer_row(on):
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     status = _go(run, scope, Fake({"HAZOP chair": "this is not json"}))
     [row] = _rows(run)
     assert status["unreadable"] == 1 and row["finding"] == clause_review.TEXT_UNREADABLE
 
 
 def test_the_ai_can_never_make_a_row_compliant(on):
-    sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS, REQ_GUIDE))
-    fake = Fake({
-        "HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR},
-        "tracked to closure": {"answer": "quote", "page": 2, "quote": "made up words that are not on the page at all"},
-        "guide words": {"answer": "no_evidence", "page": None, "quote": None},
-    })
+    _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS, REQ_GUIDE))
+    fake = Fake(
+        {
+            "HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR},
+            "tracked to closure": {
+                "answer": "quote",
+                "page": 2,
+                "quote": "made up words that are not on the page at all",
+            },
+            "guide words": {"answer": "no_evidence", "page": None, "quote": None},
+        }
+    )
     _go(run, scope, fake)
     assert {r["compliance_status"] for r in _rows(run)} == {"NEEDS_ENGINEER_REVIEW"}
 
 
 def test_switch_off_changes_nothing(monkeypatch):
     assert settings.clause_review_enabled is False
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     fake = Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR}})
     assert _go(run, scope, fake) == {"ran": False, "reason": "off"}
-    review_jobs._clause_review(run, scope)
-    assert fake.packets == [] and _rows(run) == [] and clause_review.status_of(run) is None
+    clause_review.for_review(run, scope)
+    assert (
+        fake.packets == [] and _rows(run) == [] and clause_review.status_of(run) is None
+    )
 
 
 @pytest.mark.parametrize("kind", ["datasheet", "report", None])
 def test_other_kinds_are_not_run(on, kind):
-    sub, run, scope = _world(kind=kind)
+    _sub, run, scope = _world(kind=kind)
     fake = Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR}})
     out = _go(run, scope, fake)
     assert out["ran"] is False and fake.packets == [] and _rows(run) == []
 
 
 def test_a_specification_is_run(on):
-    sub, run, scope = _world(kind="specification")
+    _sub, run, scope = _world(kind="specification")
     fake = Fake({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}})
     assert _go(run, scope, fake)["kind"] == "specification" and len(fake.packets) == 1
 
 
 def test_a_rerun_over_unchanged_pages_makes_no_model_call(on):
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     fake = Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR}})
     _go(run, scope, fake)
     again = Fake({})
     status = _go(run, scope, again)
     assert again.packets == [] and status["cache_hits"] == 1 and status["calls"] == 0
-    [row] = _rows(run)                                   # replaced, not doubled
+    [row] = _rows(run)  # replaced, not doubled
     assert row["contractor_evidence_text"] == GOOD_CHAIR
 
 
 def test_a_cached_quote_is_verified_again_against_the_stored_page(on):
     sub, run, scope = _world()
-    _go(run, scope, Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR}}))
+    _go(
+        run,
+        scope,
+        Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR}}),
+    )
     # same text seen by the model, but page 1's stored text is no longer the quoted one
     with db.connect() as conn:
-        conn.execute("UPDATE pages SET text = ? WHERE document_id = ? AND page_no = 1",
-                     ("Nothing about the chair is written on this page at all, sorry.", sub))
+        conn.execute(
+            "UPDATE pages SET text = ? WHERE document_id = ? AND page_no = 1",
+            ("Nothing about the chair is written on this page at all, sorry.", sub),
+        )
     again = Fake({})
     _go(run, scope, again)
     [row] = _rows(run)
@@ -238,19 +316,34 @@ def test_a_cached_quote_is_verified_again_against_the_stored_page(on):
 
 def test_changed_text_is_asked_again(on):
     sub, run, scope = _world()
-    _go(run, scope, Fake({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}}))
+    _go(
+        run,
+        scope,
+        Fake({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}}),
+    )
     with db.connect() as conn:
-        conn.execute("UPDATE chunks SET text = ? WHERE id = ?", (PAGE1 + " Revised in rev B.", f"{sub}-c1"))
+        conn.execute(
+            "UPDATE chunks SET text = ? WHERE id = ?",
+            (PAGE1 + " Revised in rev B.", f"{sub}-c1"),
+        )
     fake = Fake({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}})
     assert _go(run, scope, fake)["calls"] == 1
 
 
 def test_the_time_budget_stops_cleanly_and_names_what_was_not_reviewed(on, monkeypatch):
-    monkeypatch.setattr(settings, "clause_review_seconds_per_page", 50.0)   # 2 pages -> 100 s
-    sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS, REQ_GUIDE))
+    monkeypatch.setattr(
+        settings, "clause_review_seconds_per_page", 50.0
+    )  # 2 pages -> 100 s
+    _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS, REQ_GUIDE))
     clock = Clock()
-    fake = Fake({k: {"answer": "no_evidence", "page": None, "quote": None}
-                 for k in ("HAZOP chair", "tracked to closure", "guide words")}, clock, step=60.0)
+    fake = Fake(
+        {
+            k: {"answer": "no_evidence", "page": None, "quote": None}
+            for k in ("HAZOP chair", "tracked to closure", "guide words")
+        },
+        clock,
+        step=60.0,
+    )
     status = _go(run, scope, fake, clock=clock)
     assert len(fake.packets) == 2 and len(_rows(run)) == 2
     assert status["not_reviewed"] == ["5.3"] and status["not_reviewed_count"] == 1
@@ -260,7 +353,7 @@ def test_the_time_budget_stops_cleanly_and_names_what_was_not_reviewed(on, monke
 
 def test_requirements_over_the_cap_are_named_not_reviewed(on, monkeypatch):
     monkeypatch.setattr(settings, "clause_review_max_requirements", 1)
-    sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS))
+    _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS))
     fake = Fake({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}})
     status = _go(run, scope, fake)
     assert len(_rows(run)) == 1 and status["not_reviewed"] == ["5.2"]
@@ -271,30 +364,52 @@ def test_a_call_that_fails_is_listed_not_reviewed_and_makes_no_row(on):
         def reason(self, packet):
             raise rp.ProviderRefused("ollama: down")
 
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     status = _go(run, scope, Down({}))
     assert status["failed"] == ["5.1"] and _rows(run) == []
 
 
 def test_it_asks_only_the_local_model(on, monkeypatch):
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     made = []
 
     class Local(Fake):
         def __init__(self, *a, **k):
-            super().__init__({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}})
+            super().__init__(
+                {"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}}
+            )
             made.append(k.get("timeout"))
 
     monkeypatch.setattr(rp, "OllamaProvider", Local)
-    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: pytest.fail("the configured provider may be Claude"))
-    monkeypatch.setattr(rp, "ClaudeProvider", lambda *a, **k: pytest.fail("Claude may not be used here"))
+    monkeypatch.setattr(
+        rp,
+        "get_provider",
+        lambda *a, **k: pytest.fail("the configured provider may be Claude"),
+    )
+    monkeypatch.setattr(
+        rp, "ClaudeProvider", lambda *a, **k: pytest.fail("Claude may not be used here")
+    )
     assert clause_review.run(run, allowed_document_ids=scope)["ran"] is True and made
 
 
 def test_an_unmarked_example_is_refused(tmp_path):
     bad = tmp_path / "x.json"
-    bad.write_text(json.dumps({"label": clause_review.INVENTED_MARK, "examples": [
-        {"label": "a real looking one", "requirement": "r", "passages": [], "answer": {}, "why": "w"}]}))
+    bad.write_text(
+        json.dumps(
+            {
+                "label": clause_review.INVENTED_MARK,
+                "examples": [
+                    {
+                        "label": "a real looking one",
+                        "requirement": "r",
+                        "passages": [],
+                        "answer": {},
+                        "why": "w",
+                    }
+                ],
+            }
+        )
+    )
     clause_review._load_examples.cache_clear()
     with pytest.raises(ValueError):
         clause_review._load_examples(str(bad), 0.0)
@@ -304,7 +419,9 @@ def test_the_examples_are_5_to_10_and_all_marked():
     for kind in clause_review.KINDS:
         rows = clause_review.examples(kind)
         assert 5 <= len(rows) <= 10
-        assert all(r["invented"] and r["label"] == clause_review.INVENTED_MARK for r in rows)
+        assert all(
+            r["invented"] and r["label"] == clause_review.INVENTED_MARK for r in rows
+        )
 
 
 def test_the_rows_reach_the_crs_for_a_non_datasheet_and_are_not_in_the_headline(on):
@@ -312,14 +429,23 @@ def test_the_rows_reach_the_crs_for_a_non_datasheet_and_are_not_in_the_headline(
     from app import review_tiers
     from app.api import run_summary
 
-    sub, run, scope = _world((REQ_CHAIR, REQ_GUIDE))
-    fake = Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR},
-                 "guide words": {"answer": "no_evidence", "page": None, "quote": None}})
+    _sub, run, scope = _world((REQ_CHAIR, REQ_GUIDE))
+    fake = Fake(
+        {
+            "HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR},
+            "guide words": {"answer": "no_evidence", "page": None, "quote": None},
+        }
+    )
     _go(run, scope, fake)
-    rows, _meta, _name, _stamp = main_mod._crs_content(run, access.unrestricted_scope(), "internal")
+    rows, _meta, _name, _stamp = main_mod._crs_content(
+        run, access.unrestricted_scope(), "internal"
+    )
     mine = [r for r in rows if r["row_kind"] == "clause_review"]
     assert len(mine) == 2
-    assert all(r["engineer_confirmed"] is False and "engineer to confirm" in r["comment_by"] for r in mine)
+    assert all(
+        r["engineer_confirmed"] is False and "engineer to confirm" in r["comment_by"]
+        for r in mine
+    )
     assert any(GOOD_CHAIR in r["ai_review_comment"] for r in mine)
     assert all("not issued" in r["comment"].lower() for r in mine)
     # the workbook builds for a procedure (no datasheet-only column is needed)
@@ -328,18 +454,55 @@ def test_the_rows_reach_the_crs_for_a_non_datasheet_and_are_not_in_the_headline(
     # not counted anywhere a headline is made
     findings = run_summary.comparison_mod.list_findings(run, allowed_document_ids=scope)
     assert len(findings) == 2 and clause_review.without_rows(findings) == []
-    assert review_tiers.summarise(clause_review.without_rows(findings))["counts"]["total"] == 0
+    assert (
+        review_tiers.summarise(clause_review.without_rows(findings))["counts"]["total"]
+        == 0
+    )
     assert main_mod._finding_counts(run)[0] == 0
 
 
 def test_an_engineers_decision_on_a_row_survives_a_rerun(on):
-    sub, run, scope = _world()
+    _sub, run, scope = _world()
     fake = Fake({"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}})
     _go(run, scope, fake)
     [row] = _rows(run)
     with db.connect() as conn:
-        conn.execute("UPDATE review_findings SET engineer_comment = 'checked on site' WHERE id = ?", (row["id"],))
-    _go(run, scope, Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR}}))
+        conn.execute(
+            "UPDATE review_findings SET engineer_comment = 'checked on site' WHERE id = ?",
+            (row["id"],),
+        )
+    _go(
+        run,
+        scope,
+        Fake({"HAZOP chair": {"answer": "quote", "page": 1, "quote": GOOD_CHAIR}}),
+    )
     [after] = _rows(run)
     assert after["id"] == row["id"] and after["engineer_comment"] == "checked on site"
     assert after["finding"] == clause_review.TEXT_NO_EVIDENCE
+
+
+def test_the_review_job_runs_it_after_the_other_checks_only_when_on(monkeypatch):
+    from app import review_jobs
+
+    calls = []
+    monkeypatch.setattr(review_jobs, "_ai_check", lambda *a: calls.append("ai"))
+    monkeypatch.setattr(review_jobs, "_web_check", lambda *a: calls.append("web"))
+    monkeypatch.setattr(clause_review, "run", lambda *a, **k: calls.append("clause"))
+    review_jobs._checks("r", frozenset(), [])
+    assert calls == ["ai", "web"]
+    monkeypatch.setattr(settings, "clause_review_enabled", True)
+    calls.clear()
+    review_jobs._checks("r", frozenset(), [])
+    assert calls == ["ai", "web", "clause"]
+
+
+def test_a_failure_of_the_review_never_fails_the_job(on, monkeypatch):
+    _sub, run, scope = _world()
+
+    def boom(*a, **k):
+        raise RuntimeError("secret document text must not be logged")
+
+    monkeypatch.setattr(clause_review, "run", boom)
+    clause_review.for_review(run, scope)
+    assert "RuntimeError" in clause_review.status_of(run)["plain"]
+    assert "secret" not in clause_review.status_of(run)["plain"]
