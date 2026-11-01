@@ -1,0 +1,530 @@
+{
+  "_about": "#1480 vessel kit PREPARATION (parked kit, milestone 58), all DRAFT. Box list and draft rule cards for a pressure vessel datasheet, built only from the standards the library already holds (SAES-D-001). Every card is a draft: no engineer has signed it off, no real vessel document has proved it. Read only when `vessel_kit_draft_enabled` is on (off by default); every result is held for the engineer. Rule text is in our own words, never the standard's. Clause numbers and pages are as stored in the library and not verified. A card whose value no held clause requires stays draft 'needs ...' (order 301.1, A-1440). ASME VIII-1 is held, but 0 of its 4,073 stored rules carry ASME's own clause numbers, so no card cites an ASME clause as verified.",
+  "equipment_type": "Pressure Vessel",
+  "status": "DRAFT",
+  "standards_held": [
+    "SAES-D-001"
+  ],
+  "standards_not_held": [],
+  "standards_held_unusable_for_citation": [
+    "ASME BPVC VIII-1 (clause numbers in the library are not ASME's own)"
+  ],
+  "clauses_verified": false,
+  "boxes": [
+    {
+      "role": "design_pressure",
+      "label": "Design pressure (internal, at the top of the vessel)",
+      "group": "Design basis"
+    },
+    {
+      "role": "design_temperature",
+      "label": "Design temperature",
+      "group": "Design basis"
+    },
+    {
+      "role": "mawp",
+      "label": "Maximum allowable working pressure",
+      "group": "Design basis"
+    },
+    {
+      "role": "mdmt",
+      "label": "Minimum design metal temperature",
+      "group": "Design basis"
+    },
+    {
+      "role": "operating_pressure",
+      "label": "Maximum operating pressure",
+      "group": "Design basis"
+    },
+    {
+      "role": "operating_temperature",
+      "label": "Operating temperature",
+      "group": "Design basis"
+    },
+    {
+      "role": "test_pressure",
+      "label": "Hydrostatic test pressure",
+      "group": "Design basis"
+    },
+    {
+      "role": null,
+      "label": "External (vacuum) design pressure",
+      "group": "Design basis",
+      "note": "no role in the checker yet; SAES-D-001 6.2.6 to 6.2.8 name the external pressures"
+    },
+    {
+      "role": "design_code",
+      "label": "Code of construction, division and edition",
+      "group": "Design basis"
+    },
+    {
+      "role": null,
+      "label": "Service (lethal, hydrogen, caustic, amine, cyclic) and process description",
+      "group": "Design basis",
+      "note": "no role in the checker yet; SAES-D-001 6.5 asks for both on the data sheet"
+    },
+    {
+      "role": "shell_material",
+      "label": "Shell material",
+      "group": "Construction"
+    },
+    {
+      "role": "head_material",
+      "label": "Head material",
+      "group": "Construction"
+    },
+    {
+      "role": null,
+      "label": "Head type",
+      "group": "Construction",
+      "note": "no role in the checker yet; SAES-D-001 6.8.1 asks for the types of heads on the data sheet"
+    },
+    {
+      "role": null,
+      "label": "Shell and head thickness (nominal and minimum required)",
+      "group": "Construction",
+      "note": "no role in the checker yet"
+    },
+    {
+      "role": "corrosion_allowance",
+      "label": "Corrosion allowance",
+      "group": "Construction"
+    },
+    {
+      "role": null,
+      "label": "Cladding or weld overlay (material, thickness)",
+      "group": "Construction",
+      "note": "no role in the checker yet"
+    },
+    {
+      "role": "joint_efficiency",
+      "label": "Weld joint efficiency",
+      "group": "Construction"
+    },
+    {
+      "role": "radiography",
+      "label": "Extent of radiography",
+      "group": "Construction"
+    },
+    {
+      "role": "pwht",
+      "label": "Post weld heat treatment",
+      "group": "Construction"
+    },
+    {
+      "role": null,
+      "label": "Impact test requirement (test temperature, energy)",
+      "group": "Construction",
+      "note": "no role in the checker yet; SAES-D-001 11.2.4 asks for the energy values on the data sheet"
+    },
+    {
+      "role": "inside_diameter",
+      "label": "Inside diameter",
+      "group": "Dimensions"
+    },
+    {
+      "role": "tangent_length",
+      "label": "Tangent-to-tangent length",
+      "group": "Dimensions"
+    },
+    {
+      "role": "vessel_volume",
+      "label": "Vessel volume",
+      "group": "Dimensions"
+    },
+    {
+      "role": "empty_weight",
+      "label": "Empty weight",
+      "group": "Dimensions"
+    },
+    {
+      "role": "operating_weight",
+      "label": "Operating weight",
+      "group": "Dimensions"
+    },
+    {
+      "role": null,
+      "label": "Nozzle and manway schedule (size, pressure class, facing)",
+      "group": "Connections",
+      "note": "no role in the checker yet; SAES-D-001 7.1.1 asks for the pressure classes on the data sheet"
+    },
+    {
+      "role": null,
+      "label": "Gasket type",
+      "group": "Connections",
+      "note": "no role in the checker yet; SAES-D-001 7.4.1"
+    },
+    {
+      "role": null,
+      "label": "Insulation (extent and design density)",
+      "group": "Protection",
+      "note": "no role in the checker yet; SAES-D-001 6.9.9 asks for both on the data sheet of an insulated vessel"
+    },
+    {
+      "role": null,
+      "label": "Fireproofing extent",
+      "group": "Protection",
+      "note": "no role in the checker yet; SAES-D-001 15.2"
+    },
+    {
+      "role": null,
+      "label": "Wind and earthquake design data",
+      "group": "Loads",
+      "note": "no role in the checker yet; SAES-D-001 6.9.1"
+    },
+    {
+      "role": null,
+      "label": "Support type and skirt height or leg and lug layout",
+      "group": "Loads",
+      "note": "no role in the checker yet; SAES-D-001 9.2.2 and 9.2.4"
+    }
+  ],
+  "cards": [
+    {
+      "id": "VSLD-01",
+      "draft": true,
+      "severity": "major",
+      "text": "The design pressure is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "6.2.2",
+        "page": 14
+      },
+      "rule": {
+        "kind": "required",
+        "field": "design_pressure"
+      }
+    },
+    {
+      "id": "VSLD-02",
+      "draft": true,
+      "severity": "major",
+      "text": "The design code, with its division and edition, is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "6.1.2",
+        "page": 13
+      },
+      "rule": {
+        "kind": "required",
+        "field": "design_code"
+      }
+    },
+    {
+      "id": "VSLD-03",
+      "draft": true,
+      "severity": "major",
+      "text": "The minimum design metal temperature is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "6.4",
+        "page": 16
+      },
+      "rule": {
+        "kind": "required",
+        "field": "mdmt"
+      }
+    },
+    {
+      "id": "VSLD-04",
+      "draft": true,
+      "severity": "critical",
+      "text": "The weld joint efficiency is at least 0.85 (85%). A figure printed as a percentage (70 or 85 %) is not judged: it is an engineer's question. Not checked: whether the vessel is built to the Division 1 code this clause is written for.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "6.6",
+        "page": 16
+      },
+      "rule": {
+        "kind": "constant",
+        "field": "joint_efficiency",
+        "op": ">=",
+        "value": 0.85
+      },
+      "plausible": {
+        "min": 0.01,
+        "max": 1
+      },
+      "tests": [
+        {
+          "name": "meets",
+          "facts": [
+            [
+              "joint efficiency",
+              "1.0",
+              null
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "breaks",
+          "facts": [
+            [
+              "joint efficiency",
+              "0.7",
+              null
+            ]
+          ],
+          "expect": "NON_COMPLIANT"
+        },
+        {
+          "name": "at the limit",
+          "facts": [
+            [
+              "joint efficiency",
+              "0.85",
+              null
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "unclear",
+          "facts": [
+            [
+              "joint efficiency",
+              "*",
+              null
+            ]
+          ],
+          "expect": "MISSING_INFORMATION"
+        },
+        {
+          "name": "printed as a percentage",
+          "facts": [
+            [
+              "joint efficiency",
+              "70",
+              null
+            ]
+          ],
+          "expect": "NEEDS_ENGINEER_REVIEW"
+        },
+        {
+          "name": "printed as a percentage at the limit",
+          "facts": [
+            [
+              "joint efficiency",
+              "85",
+              "%"
+            ]
+          ],
+          "expect": "NEEDS_ENGINEER_REVIEW"
+        }
+      ]
+    },
+    {
+      "id": "VSLD-05",
+      "draft": true,
+      "severity": "critical",
+      "text": "The design pressure is at least 1.05 times the maximum operating pressure. Not checked: the larger factor of 1.1 (or the fixed offset) that the clause gives for a maximum operating pressure up to 6,900 kPa; the stored table text is garbled, so only the lowest factor in it is used. The check reads whichever operating pressure the sheet states, which may be the normal and not the maximum one.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "6.2.3",
+        "page": 14
+      },
+      "rule": {
+        "kind": "percent_of",
+        "field": "design_pressure",
+        "op": ">=",
+        "right": "operating_pressure",
+        "percent": 105
+      },
+      "tests": [
+        {
+          "name": "meets",
+          "facts": [
+            [
+              "design pressure",
+              "11",
+              "barg"
+            ],
+            [
+              "maximum operating pressure",
+              "10",
+              "barg"
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "breaks",
+          "facts": [
+            [
+              "design pressure",
+              "10.4",
+              "barg"
+            ],
+            [
+              "maximum operating pressure",
+              "10",
+              "barg"
+            ]
+          ],
+          "expect": "NON_COMPLIANT"
+        },
+        {
+          "name": "at the limit",
+          "facts": [
+            [
+              "design pressure",
+              "10.5",
+              "barg"
+            ],
+            [
+              "maximum operating pressure",
+              "10",
+              "barg"
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "unclear",
+          "facts": [
+            [
+              "design pressure",
+              "*",
+              null
+            ],
+            [
+              "maximum operating pressure",
+              "10",
+              "barg"
+            ]
+          ],
+          "expect": "MISSING_INFORMATION"
+        },
+        {
+          "name": "a different unit above the limit",
+          "facts": [
+            [
+              "design pressure",
+              "1.2",
+              "MPa"
+            ],
+            [
+              "maximum operating pressure",
+              "1100",
+              "kPa"
+            ]
+          ],
+          "expect": "COMPLIANT"
+        },
+        {
+          "name": "a different unit below the limit",
+          "facts": [
+            [
+              "design pressure",
+              "1.15",
+              "MPa"
+            ],
+            [
+              "maximum operating pressure",
+              "1100",
+              "kPa"
+            ]
+          ],
+          "expect": "NON_COMPLIANT"
+        }
+      ]
+    },
+    {
+      "id": "VSLD-06",
+      "draft": true,
+      "severity": "major",
+      "text": "The corrosion allowance is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "6.7.1.3",
+        "page": 17
+      },
+      "rule": {
+        "kind": "required",
+        "field": "corrosion_allowance"
+      },
+      "needs": "a clause that requires the value to be stated (the cited clause does not); the stored text starts mid-sentence and its visible part is about welded attachments"
+    },
+    {
+      "id": "VSLD-07",
+      "draft": true,
+      "severity": "major",
+      "text": "The shell material is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "11.1.2",
+        "page": 33
+      },
+      "rule": {
+        "kind": "required",
+        "field": "shell_material"
+      },
+      "needs": "a clause that requires the value to be stated (the cited clause does not)"
+    },
+    {
+      "id": "VSLD-08",
+      "draft": true,
+      "severity": "major",
+      "text": "The head material is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "11.1.2",
+        "page": 33
+      },
+      "rule": {
+        "kind": "required",
+        "field": "head_material"
+      },
+      "needs": "a clause that requires the value to be stated (the cited clause does not)"
+    },
+    {
+      "id": "VSLD-09",
+      "draft": true,
+      "severity": "major",
+      "text": "The hydrostatic test pressure is stated on the data sheet.",
+      "source": {
+        "standard": "SAES-D-001",
+        "clause": "9.5",
+        "page": 32
+      },
+      "rule": {
+        "kind": "required",
+        "field": "test_pressure"
+      },
+      "needs": "a clause that requires the value to be stated (the cited clause does not)"
+    },
+    {
+      "id": "VSLD-10",
+      "draft": true,
+      "severity": "major",
+      "text": "The extent of radiography is stated on the data sheet.",
+      "source": {
+        "standard": "ASME BPVC VIII-1",
+        "clause": "none verified",
+        "page": 0
+      },
+      "rule": {
+        "kind": "required",
+        "field": "radiography"
+      },
+      "needs": "a standard we do not hold with a clause number we can cite (ASME VIII-1 is held, but the library's ASME clause numbers are not ASME's own)"
+    },
+    {
+      "id": "VSLD-11",
+      "draft": true,
+      "severity": "major",
+      "text": "Whether post weld heat treatment is required is stated on the data sheet.",
+      "source": {
+        "standard": "ASME BPVC VIII-1",
+        "clause": "none verified",
+        "page": 0
+      },
+      "rule": {
+        "kind": "required",
+        "field": "pwht"
+      },
+      "needs": "a standard we do not hold with a clause number we can cite (ASME VIII-1 is held, but the library's ASME clause numbers are not ASME's own)"
+    }
+  ]
+}
