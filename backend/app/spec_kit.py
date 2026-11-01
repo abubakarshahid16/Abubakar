@@ -472,6 +472,14 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
                 "UPDATE review_findings SET requirement_id = ? WHERE id = ?",
                 (f"{prefix}{r['item']}", made["id"]),
             )
+            if source := r.get("source"):
+                # a row citing ANOTHER document (#1482: the required-submissions list): its
+                # document, page and verified text, as a requirement source - not evidence
+                conn.execute(
+                    "UPDATE review_findings SET standard_document_id = ?, standard_page = ?,"
+                    " requirement_source_text = ? WHERE id = ?",
+                    (source[0], source[1], source[2][:4000], made["id"]),
+                )
 
 
 # ---------------------------------------------------------------- CRS hooks

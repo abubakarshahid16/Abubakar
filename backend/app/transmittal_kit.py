@@ -62,7 +62,7 @@ _ROLES = (
 _GAP = re.compile(r"\s{2,}|\t")
 _RULE_CELL = re.compile(r":?-{3,}:?")
 _REV = re.compile(
-    r"\brev(?:ision)?(?![a-z])\.?\s*(?:(?:no|nr|number)\b\.?\s*)?[:\-]?\s*([A-Za-z0-9]{1,4})\b",
+    r"\brev(?:ision)?(?![a-z])\.?\s*(?:(?:no|nr|num|number)\b\.?\s*)?[:\-]?\s*([A-Za-z0-9]{1,4})\b",
     re.I,
 )
 # a word a revision LABEL is printed with ("Rev No", "Revision By"): never a revision value
@@ -95,7 +95,11 @@ def _words(text: str) -> frozenset[str]:
     return frozenset(re.findall(r"[a-z0-9]+", (text or "").lower()))
 
 
-def _row(item: str, requirement: str, finding: str, detail: str, page, quote) -> dict:
+def _row(
+    item: str, requirement: str, finding: str, detail: str, page, quote, source=None
+) -> dict:
+    """`source`: (document, page, quote) of ANOTHER document the row cites - stored as the
+    finding's requirement source (document, page, text), never as the transmittal's page."""
     return {
         "item": item,
         "requirement": requirement,
@@ -104,6 +108,7 @@ def _row(item: str, requirement: str, finding: str, detail: str, page, quote) ->
         "page": page,
         "quote": (quote or "")[:_QUOTE] or None,
         "clause": None,
+        "source": source,
     }
 
 
@@ -236,15 +241,36 @@ def header_fields(
     return found
 
 
+_LABEL_CELL = re.compile(
+    "(?:"
+    + "|".join(f"(?:{p})" for _k, _l, p in _HEADER_FIELDS)
+    + "|"
+    + "|".join(f"(?:{p})" for _r, p in _ROLES)
+    + r"|no|item|s/?n|qty|remarks?|status)\s*[.:#\-]?",
+    re.I,
+)
+
+
+def _label_like(cell: str) -> bool:
+    """A cell that is only a field label or a column name ('Date', 'Document No.', 'Rev')."""
+    return bool(cell) and bool(_LABEL_CELL.fullmatch(cell.strip()))
+
+
 def _label_value(line: str, rx: re.Pattern, cell: re.Pattern) -> str | None:
     """The value of a 'Label: value' line, or of a pipe row whose first cell is the label
-    alone ('| Label | value |'); "" for a label with no value, None when not a label line."""
+    alone ('| Label | value |'); "" for a label with no value, None when not a label line.
+    A pipe row of three or more label-like cells is a table's HEADER row, not label:value,
+    and a value cell that is itself a label is no value (#1482 review)."""
     if m := rx.match(line):
         return m.group(1).strip()
     if "|" in line:
         cells = _cells(line)
-        if cells and cell.fullmatch(cells[0]):
-            return cells[1] if len(cells) > 1 else ""
+        if not cells or not cell.fullmatch(cells[0]):
+            return None
+        if sum(_label_like(c) for c in cells) >= 3:
+            return None
+        value = cells[1] if len(cells) > 1 else ""
+        return "" if _label_like(value) else value
     return None
 
 
@@ -297,17 +323,26 @@ def _has_number(text: str, number: str) -> bool:
     )
 
 
-def holders(numbers: list[str], candidates: list[str]) -> dict[str, list[str]]:
+def holders(
+    numbers: list[str], candidates: list[str], excluded: list[str] | None = None
+) -> dict[str, list[str]]:
     """number -> the candidate documents whose OWN title block carries it. Page 1 is a cheap
-    first filter; the title block (`classification.title_block_lines`) decides."""
+    first filter; the title block (`classification.title_block_lines`) decides. A document
+    routed as a transmittal (confirmed or suggested) LISTS numbers and is never a holder; one
+    that carried a listed number is added to `excluded`, so the run can say so."""
     from .classification import title_block_lines
 
     first = _first_pages(candidates)
     out: dict[str, list[str]] = {n: [] for n in numbers}
     for doc in candidates:
         wanted = [n for n in numbers if _has_number(first.get(doc, ""), n)]
-        # another transmittal LISTS numbers; it never carries one as its own (#1482)
-        if not wanted or procedure_text.document_kind(doc) == KIND:
+        if not wanted:
+            continue
+        if (
+            procedure_text.document_kind(doc) == KIND
+        ):  # #1482: it lists, it does not hold
+            if excluded is not None:
+                excluded.append(doc)
             continue
         pages = [{"page_no": p, "text": t} for p, t in procedure_text.load_pages(doc)]
         block = title_block_lines(pages)
@@ -322,24 +357,48 @@ def holders(numbers: list[str], candidates: list[str]) -> dict[str, list[str]]:
 
 def _rev_value(line: str) -> str | None:
     """The first revision VALUE on a line; a label word after 'Rev' ("Rev No", "Revision
-    By") is not one."""
-    for m in _REV.finditer(line):
+    By", the "Rev" of "Revision: Rev 2") is not one, and the search goes on from it."""
+    pos = 0
+    while m := _REV.search(line, pos):
         if m.group(1).lower() not in _REV_LABEL:
             return m.group(1)
+        pos = m.start(1)
     return None
 
 
+def _one_revision(lines) -> tuple[str, int, str] | bool | None:
+    """The one revision these lines state: lines that name ANOTHER document (supersedes,
+    reference ...) are skipped; two different values (a revision history) = False, unsure."""
+    found = []
+    for page_no, line in lines:
+        if _OTHER_REF.search(line):
+            continue
+        if value := _rev_value(line):
+            found.append((value, page_no, " ".join(line.split())))
+    values = {f[0].lower().lstrip("0") or "0" for f in found}
+    if len(values) > 1:
+        return False
+    return found[0] if found else None
+
+
 def cover_revision(document_id: str) -> tuple[str, int, str] | None:
-    """The revision on the held document's title block, else on its first page (the cover)."""
+    """The revision on the held document's title block, else on its first page (the cover).
+    Several different revisions where one is looked for = none read (never a guess)."""
     from .classification import title_block_lines
 
     loaded = procedure_text.load_pages(document_id)
     pages = [{"page_no": p, "text": t} for p, t in loaded]
-    cover = [(p, ln) for p, t in loaded[:1] for ln in t.splitlines()]
-    for page_no, line in [*title_block_lines(pages), *cover]:
-        if value := _rev_value(line):
-            return value, page_no, " ".join(line.split())
-    return None
+    block = title_block_lines(pages)
+    got = _one_revision(block)
+    if got is None:
+        seen = set(block)
+        got = _one_revision(
+            (p, ln)
+            for p, t in loaded[:1]
+            for ln in t.splitlines()
+            if (p, ln) not in seen
+        )
+    return got or None
 
 
 def _same_rev(a: str, b: str) -> bool:
@@ -434,9 +493,16 @@ def required_items(list_ids: list[str]) -> list[dict]:
     out = []
     for doc in list_ids:
         pages = procedure_text.load_pages(doc)
+        text = {p: _fold(t) for p, t in pages}
         for r in _read_tables(doc, pages, ("title",), forbids=("rev",)):
             item = r["cells"]["title"].strip()
             if item and not item.isdigit():
+                # the citation is checked on the list page's own stored text: the row as
+                # read, else (a stored grid row joined with '|') the item's own cell
+                on_page = text.get(r["page"], "")
+                cite = next(
+                    (q for q in (r["quote"], item) if q and _fold(q) in on_page), None
+                )
                 out.append(
                     {
                         "item": item,
@@ -444,9 +510,14 @@ def required_items(list_ids: list[str]) -> list[dict]:
                         "page": r["page"],
                         "quote": r["quote"],
                         "document": doc,
+                        "cite": cite,
                     }
                 )
     return out
+
+
+def _fold(text: str | None) -> str:
+    return re.sub(r"\s+", " ", text or "").strip().casefold()
 
 
 _GENERIC = frozenset(
@@ -529,19 +600,28 @@ def required_rows(items: list[dict], listed: list[dict], boundary: str) -> list[
             continue
         key = " ".join(sorted(_words(req["item"]), key=req["item"].lower().find))
         due = f"; due {req['due']}" if req["due"] else ""
+        # #1482: the quote is the LIST's text - never the transmittal's page and evidence. It
+        # is CITED (document, page, text) only when it was found on that list page's text;
+        # otherwise the list page is only named.
+        verified = bool(req.get("cite"))
+        where = (
+            f"required-submissions list {req['document']} page {req['page']}"
+            if verified
+            else f"named on required-submissions list {req['document']} page "
+            f"{req['page']}; quote not verified on that page"
+        )
         rows.append(
             _row(
                 f"not_transmitted:{key}",
                 f"The required item '{req['item']}' is transmitted.",
-                f"Required item '{req['item']}'{due} (required-submissions list "
-                f"{req['document']} page {req['page']}) is not on this transmittal: not "
-                f"transmitted - engineer to confirm whether due. {boundary}",
-                f"required item not listed on the transmittal: list {req['document']} "
-                f'page {req["page"]}: "{req["quote"]}"',
-                # #1482: the quote is the LIST's text, on the list's page - it is not on the
-                # transmittal, so it is never stored as the transmittal's page and evidence
+                f"Required item '{req['item']}'{due} ({where}) is not on this transmittal: "
+                f"not transmitted - engineer to confirm whether due. {boundary}",
+                f"required item not listed on the transmittal ({where})",
                 None,
                 None,
+                source=(req["document"], req["page"], req["cite"])
+                if verified
+                else None,
             )
         )
     used = set(cover.values())
@@ -616,14 +696,22 @@ def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
     skip = {document_id, *named}
     candidates = sorted(scope - skip)
     numbers = sorted({e["cells"]["docno"] for e in listed})
-    held = holders(numbers, candidates) if numbers else {}
+    excluded: list[str] = []
+    held = holders(numbers, candidates, excluded) if numbers else {}
     rows += listed_rows(listed, held)
     unmatched = [n for n in numbers if not held.get(n)]
     if unmatched:
         rows.append(
             _note(
                 "not_held",
-                f"{len(unmatched)} of {len(numbers)} listed documents were not found among the documents you may read (matched by document number in the held document's title block); revision and sheets not compared for them",
+                f"{len(unmatched)} of {len(numbers)} listed documents were not found among the documents you may read (matched by document number in the held document's title block; documents routed as transmittals are never taken as the held document); revision and sheets not compared for them",
+            )
+        )
+    if excluded:
+        rows.append(
+            _note(
+                "transmittal_not_holder",
+                f"{len(excluded)} document(s) you may read carry a listed number on page 1 but are routed as transmittals (confirmed or suggested), so they were not taken as the held document",
             )
         )
     if blocked:
