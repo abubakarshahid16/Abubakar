@@ -791,27 +791,18 @@ def _compare(requirement: dict, fact: dict | None, *,
     # ISSUE #163, CRITERION 2 & 4 - BEFORE EVERY OTHER BRANCH, INCLUDING THE
     # ABSENT-FACT ONE AND THE TABLE-ROW ONE BELOW.
     #
-    # `required_evidence_type` is set only when the requirement's OWN
-    # SENTENCE names a document to hand over - "submit a calibration
-    # certificate", "furnish vendor drawings" - via
-    # `requirements_3b.required_evidence_type`. It has been extracted and
-    # stored on every `standard_requirements` row since #162 and read by
-    # nothing here: a numeric_limit clause that also demands a certificate
-    # ("... confirmed by a calibration certificate to within 0.5%") could be
-    # paired by field-name containment to an unrelated datasheet value and
-    # compared as arithmetic, emitting a COMPLIANT/NON_COMPLIANT verdict this
-    # engine has no evidence for - the datasheet is not the certificate the
-    # clause asked for. Everything this pipeline reads comes from the
-    # submittal's DATASHEET extraction (`datasheets.py`), so
-    # `DATA_SHEET_EVIDENCE` is the one value that names what is actually being
-    # compared; any other named document routes to `NOT_IN_DOCUMENT_SCOPE`
-    # exactly as B9 already routes a `statement` with no matching field -
-    # this is the same claim ("this submittal type cannot answer it") for a
-    # requirement that says so explicitly rather than by shape.
-    # #1476: a procedure's own text answers a "procedure"/"plan" demand (code finds, an engineer decides).
-    if procedure_pages is not None and requirement.get(
-            "required_evidence_type") in procedure_text.OWN_TEXT_EVIDENCE:
-        return procedure_text.verdict(requirement, procedure_pages)
+    # `required_evidence_type` is set only when the requirement's OWN SENTENCE
+    # names a document to hand over ("submit a calibration certificate"), via
+    # `requirements_3b.required_evidence_type`. A numeric_limit clause that
+    # also demands a certificate could be paired to an unrelated datasheet
+    # value and compared as arithmetic: a COMPLIANT/NON_COMPLIANT verdict with
+    # no evidence, the datasheet not being the certificate asked for. Only
+    # `DATA_SHEET_EVIDENCE` names what is compared; any other named document
+    # routes to `NOT_IN_DOCUMENT_SCOPE`, as B9 routes an unmatched `statement`.
+    # #1476: a procedure's own text answers its own requirements (an engineer decides).
+    routed = procedure_text.route(requirement, fact, procedure_pages)
+    if routed:
+        return routed
     required_evidence = requirement.get("required_evidence_type")
     if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:
         return {
@@ -877,8 +868,6 @@ def _compare(requirement: dict, fact: dict | None, *,
     if fact is None:
         # B9, RULE R1: an unmatched `statement` is another document's question,
         # EXCEPT one asking only to be stated on the datasheet (order 210 FIX 1).
-        if procedure_pages is not None and requirement.get("requirement_type") == requirements_3b.STATEMENT:
-            return procedure_text.verdict(requirement, procedure_pages)  # #1476: the document is the evidence
         if requirement.get(
             "requirement_type"
         ) == requirements_3b.STATEMENT and not field_links.asks_only_to_be_stated(
@@ -2411,9 +2400,7 @@ def _run_comparison(
     procedure_pages = (procedure_text.load_pages(submittal_id)
                        if procedure_text.is_procedure_submittal(submittal_id) else None)
     # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
-    # ANSWERS IT. The rest are counted, one grouped line per standard, in the
-    # run's outcome; a definition or unconfirmed garbled text is never a check.
-    # See `table_gate`.
+    # ANSWERS IT; the rest are counted in the run's outcome. See `table_gate`.
     from . import table_gate
     names = standard_labels_mod.filenames(standard_ids)
     # #139 A CODE CITED FOR ONE ITEM applies through the cited clauses only;

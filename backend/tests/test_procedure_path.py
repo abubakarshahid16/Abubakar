@@ -59,7 +59,7 @@ def test_a_text_match_is_never_compliant():
 
 
 def test_a_procedure_evidence_demand_is_checked_against_the_text():
-    req = {**STATEMENT, "required_evidence_type": "procedure"}
+    req = {**STATEMENT, "requirement_type": "numeric_limit", "required_evidence_type": "procedure"}
     verdict = comparison.compare(req, None, procedure_pages=PAGES)
     assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert "found on page 2" in verdict["rationale"]
@@ -86,3 +86,13 @@ def test_the_switch_is_off_by_default_and_needs_a_kind(monkeypatch):
     monkeypatch.setattr(settings, "procedure_path_enabled", True)
     assert procedure_text.is_procedure_submittal("doc1") is True
     assert procedure_text.is_procedure_submittal("doc2") is False
+
+
+def test_a_clause_that_only_asks_to_be_stated_on_the_datasheet_is_not_looked_up_in_the_text():
+    text = "The relief valve set pressure shall be stated on the datasheet."
+    req = {**STATEMENT, "requirement_text": text, "source_text": text}
+    pages = [(1, "The relief valve set pressure is tested before the valve is installed.")]
+    verdict = comparison.compare(req, None, procedure_pages=pages)
+    assert verdict["status"] == comparison.MISSING_INFORMATION
+    assert "found on page" not in verdict["rationale"]
+    assert "procedure_text" not in verdict["rationale"]

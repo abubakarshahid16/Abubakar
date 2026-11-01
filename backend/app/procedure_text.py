@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 
+from . import field_links, requirements_3b
 from .config import settings
 from .db import connect
 
@@ -33,12 +34,13 @@ OWN_TEXT_EVIDENCE = frozenset({"procedure", "plan"})
 FOUND = "procedure_text_found"
 NOT_FOUND = "procedure_text_not_found"
 
-_STOP = frozenset(
+_STOP_TEXT = (
     "shall should must will would could may might can be been being is are was were have has had "
     "the and for with that this these those from into onto upon than then them they their there "
     "such any all each every other which where when while whose also only not nor but are its "
     "per via use used using ensure ensured provide provided make made need needed required "
-    "requirement requirements accordance applicable".split())
+    "requirement requirements accordance applicable")
+_STOP = frozenset(_STOP_TEXT.split())
 _WORD = re.compile(r"[a-z][a-z0-9\-]{3,}")
 _SENTENCE_END = re.compile(r"(?<=[.;:!?])\s+|\n+")
 #: A passage must carry at least this share of the requirement's key words,
@@ -109,6 +111,27 @@ def find_passage(requirement_text: str | None, pages: list[tuple[int, str]]) -> 
     if quote not in dict(pages)[page_no]:  # code, not the search, vouches for the quote
         return None
     return {"page": page_no, "quote": quote}
+
+
+def route(requirement: dict, fact: dict | None, pages: list[tuple[int, str]] | None) -> dict | None:
+    """The procedure path's verdict for a requirement, or None (the usual path).
+
+    Two cases that used to be sent to "needs another document": a demand for a
+    procedure/plan (a procedure is its own evidence), and an unmatched statement
+    (B9 R1) except one that only asks to be stated. A certificate, drawing or
+    report demand is never routed here (#163)."""
+    if pages is None:
+        return None
+    evidence = requirement.get("required_evidence_type")
+    own = evidence in OWN_TEXT_EVIDENCE
+    text = requirement.get("source_text") or requirement.get("requirement_text")
+    statement = (
+        fact is None
+        and evidence in (None, requirements_3b.DATA_SHEET_EVIDENCE)
+        and requirement.get("requirement_type") == requirements_3b.STATEMENT
+        and not field_links.asks_only_to_be_stated(text)
+    )
+    return verdict(requirement, pages) if own or statement else None
 
 
 def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
