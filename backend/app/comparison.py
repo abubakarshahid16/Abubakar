@@ -52,9 +52,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, intake, field_links, match_rules, method_notes, numparse,
+from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import equipment_scope as eqs, kind_rules, procedure_text
+from . import equipment_scope as eqs, intake, kind_rules, procedure_text
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
