@@ -71,8 +71,11 @@ def known_live_files() -> tuple[Path, ...]:
     Only their paths: nothing here opens them.
     """
     from .config import BACKEND_DIR, shared_backend_dir
+
     backends = (BACKEND_DIR, shared_backend_dir())
-    return tuple(dict.fromkeys(b / "data" / "rag_intelligence.sqlite" for b in backends))
+    return tuple(
+        dict.fromkeys(b / "data" / "rag_intelligence.sqlite" for b in backends)
+    )
 
 
 def _same_file_as_a_live_one(p: Path) -> bool:
@@ -81,7 +84,7 @@ def _same_file_as_a_live_one(p: Path) -> bool:
         return False
     for live in known_live_files():
         try:
-            if live.exists() and os.path.samefile(p, live):
+            if live.exists() and p.samefile(live):
                 return True
         except OSError:
             continue
@@ -96,9 +99,11 @@ def is_live_shaped(path: str | os.PathLike) -> bool:
     link to a known live file under another name counts too.
     """
     p = Path(path).resolve()
-    if (p.name.casefold() == "rag_intelligence.sqlite"
-            and p.parent.name.casefold() == "data"
-            and p.parent.parent.name.casefold() == "backend"):
+    if (
+        p.name.casefold() == "rag_intelligence.sqlite"
+        and p.parent.name.casefold() == "data"
+        and p.parent.parent.name.casefold() == "backend"
+    ):
         return True
     return _same_file_as_a_live_one(p)
 
