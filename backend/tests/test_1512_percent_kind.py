@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from app import datasheet_checks as dc
+from app import percent_kind
 from app.config import settings
 from tests.test_746_relief_valve_checklist import fact, results
 
@@ -85,15 +86,24 @@ def test_a_pressure_value_is_not_a_percent_and_is_untouched(monkeypatch):
     assert results(sheet)["PSV-27"]["status"] == "COMPLIANT"  # 5 % of 10 barg
 
 
-def test_the_kind_doubt_helper():
+def test_the_helper_is_silent_with_the_switch_off_or_on_a_non_percent_rule(monkeypatch):
+    set_switch(monkeypatch, False)
+    assert percent_kind.doubt({"raw_value": "0.30"}) is None
+    set_switch(monkeypatch, True)
+    assert percent_kind.doubt({"raw_value": "0.30"}, {"kind": "required"}) is None
+    assert percent_kind.doubt({"raw_value": "0.30"}, None, False) is None
+
+
+def test_the_kind_doubt_helper(monkeypatch):
+    set_switch(monkeypatch, True)
     def f(v):
         return {"raw_value": v}
 
-    assert dc._percent_kind_doubt(f("0.30")).startswith("the sheet prints 0.30")
-    assert dc._percent_kind_doubt(f("1")) is not None
-    assert dc._percent_kind_doubt(f("1.5")) is None
-    assert dc._percent_kind_doubt(f("0")) is None
-    assert dc._percent_kind_doubt(f("n/a")) is None
+    assert percent_kind.doubt(f("0.30")).startswith("the sheet prints 0.30")
+    assert percent_kind.doubt(f("1")) is not None
+    assert percent_kind.doubt(f("1.5")) is None
+    assert percent_kind.doubt(f("0")) is None
+    assert percent_kind.doubt(f("n/a")) is None
 
 
 def test_the_area_calculation_does_not_use_a_fraction_sized_percent(monkeypatch):
