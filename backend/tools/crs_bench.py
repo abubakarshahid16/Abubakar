@@ -495,6 +495,14 @@ def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
                 reasons.append(f"{name}: {key} {then[key]} -> blank")
             elif then.get(key) is not None and now[key] < then[key]:
                 reasons.append(f"{name}: {key} {then[key]} -> {now[key]}")
+        # A reader that breaks can make every quote vanish: fewer unfound quotes,
+        # nothing red. Quoted findings halving while the findings do not is red.
+        tq, nq = then.get("quotes_total"), now.get("quotes_total")
+        tf, nf = then.get("findings") or 0, now.get("findings") or 0
+        if tq and nq is not None and nq * 2 < tq and nf * 2 >= tf:
+            reasons.append(
+                f"{name}: quoted findings {tq} -> {nq} while findings {tf} -> {nf}"
+            )
         if then["kind_ok"] and not now["kind_ok"]:
             reasons.append(f"{name}: kind was right, now {now['kind']}")
     return reasons

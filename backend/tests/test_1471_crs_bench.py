@@ -371,3 +371,17 @@ def test_fewer_verified_quotes_because_rows_were_removed_is_not_red():
     before = [{"case": case, "stored": _m(quotes_verified=6, quotes_unverified=0)}]
     after = [{"case": case, "stored": _m(quotes_verified=4, quotes_unverified=0)}]
     assert crs_bench.gate(after, before) == []
+
+
+def test_quotes_vanishing_while_findings_stay_is_red():
+    case = {"name": "t", "run": "r"}
+    before = [
+        {
+            "case": case,
+            "stored": _m(quotes_total=113, quotes_unverified=4, findings=250),
+        }
+    ]
+    after = [
+        {"case": case, "stored": _m(quotes_total=0, quotes_unverified=0, findings=248)}
+    ]
+    assert any("quoted findings" in r for r in crs_bench.gate(after, before))
