@@ -42,6 +42,7 @@ from .datasheet_coverage import (
     coverage,  # noqa: F401  (moved out to keep this file shrinking)
 )
 from .deferred_value import hold_results, note_of
+from .label_match import drop_unit_less_twins
 from .percent_kind import doubt as _kind_doubt
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
@@ -524,6 +525,9 @@ def _one(found: list[dict]) -> tuple[dict | None, str | None]:
     """The one value a field states, or why there is not one."""
     if not found:
         return None, "absent"
+    # a unit left off one copy of the same number (switch `datasheet_label_join_enabled`)
+    if settings.datasheet_label_join_enabled:
+        found = drop_unit_less_twins(found)
     if len({_key(f) for f in found}) != 1:
         return None, "two different values"
     if settings.datasheet_one_value_enabled:

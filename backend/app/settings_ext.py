@@ -53,6 +53,11 @@ class SettingsExt(BaseModel):
     #: label answers each text attribute it names. OFF: nothing changes.
     #: Env: DATASHEET_ONE_VALUE_ENABLED.
     datasheet_one_value_enabled: bool = False
+    #: A datasheet field the sheet gives is not reported missing or conflicting for two general reasons: a split
+    #: abbreviation ("tube o d" for O.D.) is joined before the role table is read, and a reading with no unit
+    #: beside a reading of the same number with one is one value. Never decides (see `label_match`). OFF: nothing
+    #: changes. Env: DATASHEET_LABEL_JOIN_ENABLED.
+    datasheet_label_join_enabled: bool = False
     #: #1484 (parked kits, preparation): the same look-up routed by document KIND for a kind a held
     #: standard covers (drawing, from SAES-A-202): a DRAFT must-contain list, no model, engineer
     #: rows only. Transmittal (#1482) and contract (#1483) have no held standard and no kit.
