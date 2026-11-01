@@ -76,6 +76,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `chat_web` | The chat's web lane: ask first, send one phrase, cite what came back |
 | `chunker` | Step 3 - structure-aware chunking |
 | `data_page` | Step 3 - a body-text or measured-values page is never set aside as front matter |
+| `figure_page` | Step 2b - a drawing page with only a running header goes to recognition |
 | `answer_prompts` | Wording variants of the local answer prompt, off by default; measured by `eval/answer_quality/` (order 189) |
 | `citations` | Shared [S#] citation-marker syntax, used by both answer.py and synthesis.py |
 | `cited_edition` | R7 (#771): a note when the edition year a submittal prints after a standard differs from the held library copy's, never silently the same |
