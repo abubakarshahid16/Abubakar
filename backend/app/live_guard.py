@@ -24,7 +24,9 @@ TWO PARTS, both required:
    connection every app code path goes through, not the script's own care.
 
 "Live-shaped" = any `.../backend/data/rag_intelligence.sqlite`, in any
-checkout. Read-only inspection needs no clearance: open the file with
+checkout, the names compared case-folded (macOS's disk is case-insensitive);
+or the same file (inode) as this checkout's or the main checkout's live
+database, so a hard link under another name counts too (#1557). Read-only inspection needs no clearance: open the file with
 `sqlite3.connect("file:...?mode=ro", uri=True)`, which cannot write.
 
 The server marker is an environment variable, so a determined operator can
@@ -65,29 +67,37 @@ class LiveWriteClearance:
     manifest_path: str
 
 
-def known_live_files() -> tuple[Path, ...]:
+def known_live_files(backend: Path | None = None) -> tuple[Path, ...]:
     """This checkout's live database and, from a git worktree, the main one's.
 
+    `backend` is this checkout's `backend/` (default: the running code's).
     Only their paths: nothing here opens them.
     """
     from .config import BACKEND_DIR, shared_backend_dir
 
-    backends = (BACKEND_DIR, shared_backend_dir())
+    backend = BACKEND_DIR if backend is None else backend
+    backends = (backend, shared_backend_dir(backend))
     return tuple(
         dict.fromkeys(b / "data" / "rag_intelligence.sqlite" for b in backends)
     )
 
 
 def _same_file_as_a_live_one(p: Path) -> bool:
-    """#1557: a hard link has its own name, so only the inode tells."""
+    """#1557: a hard link has its own name, so only the inode tells.
+
+    Fails closed: a known live file that is missing is skipped, but one that
+    cannot be checked (e.g. its folder is not searchable) counts as a match.
+    """
     if not p.exists():
         return False
     for live in known_live_files():
         try:
-            if live.exists() and p.samefile(live):
+            if p.samefile(live):
                 return True
-        except OSError:
+        except FileNotFoundError:
             continue
+        except OSError:  # cannot tell: refuse rather than guess "not live"
+            return True
     return False
 
 

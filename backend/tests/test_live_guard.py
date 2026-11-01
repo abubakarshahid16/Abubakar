@@ -379,9 +379,40 @@ def test_the_server_may_open_the_live_database_through_a_hard_link(
     assert db.connect() is not None
 
 
-def test_the_known_live_files_are_this_checkouts_and_the_main_checkouts():
-    from app.config import BACKEND_DIR, shared_backend_dir
+def test_from_a_worktree_the_main_checkouts_live_file_is_known(tmp_path):
+    # A main checkout and a git worktree of it, as git lays them out.
+    main = tmp_path / "main"
+    main_live = _db(main / "backend" / "data" / "rag_intelligence.sqlite")
+    gitdir = main / ".git" / "worktrees" / "wt"
+    gitdir.mkdir(parents=True)
+    (gitdir / "commondir").write_text("../..\n", encoding="utf-8")
+    wt = tmp_path / "wt"
+    (wt / "backend" / "data").mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
 
-    known = _REAL_KNOWN_LIVE_FILES()
-    assert BACKEND_DIR / "data" / "rag_intelligence.sqlite" in known
-    assert shared_backend_dir() / "data" / "rag_intelligence.sqlite" in known
+    known = _REAL_KNOWN_LIVE_FILES(wt / "backend")
+    assert wt / "backend" / "data" / "rag_intelligence.sqlite" in known
+    assert main_live in known
+
+    # ...and a normal clone knows only its own.
+    assert _REAL_KNOWN_LIVE_FILES(main / "backend") == (main_live,)
+
+
+def test_a_live_file_that_cannot_be_checked_counts_as_live(tmp_path, monkeypatch):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root reads a chmod 000 folder")
+    locked = tmp_path / "locked"
+    live = _db(locked / "backend" / "data" / "rag_intelligence.sqlite")
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (live,))
+    other = _db(tmp_path / "other.sqlite")
+    locked.chmod(0)
+    try:
+        assert live_guard.is_live_shaped(other)
+    finally:
+        locked.chmod(0o755)
+
+
+def test_a_missing_known_live_file_is_skipped(tmp_path, monkeypatch):
+    gone = tmp_path / "gone" / "backend" / "data" / "rag_intelligence.sqlite"
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (gone,))
+    assert not live_guard.is_live_shaped(_db(tmp_path / "other.sqlite"))
