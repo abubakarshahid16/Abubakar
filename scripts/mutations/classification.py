@@ -143,10 +143,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="drop the 'nothing matched' guard, so a document with no "
                     "real evidence is no longer left NULL",
         path=APP / "classification.py",
-        anchor='        conn, document_id, pages, kind_on, existing["document_role"])\n'
-               "    if evidence is None:\n        return None",
-        replacement='        conn, document_id, pages, kind_on, existing["document_role"])\n'
-                    "    if False:\n        return None",
+        anchor='        conn, document_id, pages, kind_on, existing["document_role"]\n'
+               "    )\n    if evidence is None:\n        return None",
+        replacement='        conn, document_id, pages, kind_on, existing["document_role"]\n'
+                    "    )\n    if False:\n        return None",
         target=_EQUIPMENT_TYPE_TEST,
         keyword="test_a_document_with_no_evidence_stays_unclassified",
         tags=("critical", "honesty"),
