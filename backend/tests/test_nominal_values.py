@@ -38,12 +38,24 @@ def test_a_clause_that_states_one_value(sentence, raw, unit, low, high):
     "The supply shall be 24 V DC at 50 Hz.",                              # a second quantity
     "The pump shall be installed 3 m above grade.",                       # not a stating verb
     "See clause 4.2.1 for the 24 V supply.",
-    # #1529: comparator wording that the limit and range readers do not take
-    "The supply shall be 24 V DC, which is higher than the old 12 design.",
-    "The cable shall be 3 m, never longer than the tray.",
-    "The cable shall be 3 m, minimum.",
 ])
 def test_when_unsure_a_sentence_is_not_a_nominal_value(sentence):
+    limit = _parse(sentence)
+    assert limit is None or limit["operator"] != r.NOMINAL_OPERATOR
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The supply shall be 24 V DC, which is higher than the old 12 design.",
+        "The cable shall be 3 m, never longer than the tray.",
+        "The cable shall be 3 m, minimum.",
+    ],
+)
+def test_comparator_wording_the_limit_reader_misses_is_not_a_nominal_value(sentence):
+    """#1529: only the comparator check in `parse_nominal` stops these, since
+    the limit and range readers take none of them."""
+    assert r.parse_limit(sentence) is None and r.parse_range(sentence) is None
     limit = _parse(sentence)
     assert limit is None or limit["operator"] != r.NOMINAL_OPERATOR
 

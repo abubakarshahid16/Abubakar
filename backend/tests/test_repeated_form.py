@@ -86,7 +86,9 @@ def test_a_repeated_form_with_per_page_values_keeps_a_label_the_reference_data_d
     decided by the count alone: answers that differ on most pages are a field."""
     label = "Zorblax tag code"
     assert datasheets.named_field_role(datasheets.normalise_field_name(label)) is None
-    pages = {p: [TITLE_BLOCK, FOOTER, (label, f"{100 + p * 10} mm")] for p in range(1, 6)}
+    pages = {
+        p: [TITLE_BLOCK, FOOTER, (label, f"{100 + p * 10} mm")] for p in range(1, 6)
+    }
 
     furniture = datasheets.furniture_labels(pages)
 

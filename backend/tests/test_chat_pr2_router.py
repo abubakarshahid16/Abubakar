@@ -292,7 +292,8 @@ def test_on_the_claude_lane_a_claim_whose_quote_is_not_on_the_page_is_removed(mo
 
 
 def test_the_answer_call_on_the_claude_lane_asks_for_a_quote_so_a_claim_whose_quote_is_not_on_the_page_can_be_removed(
-        monkeypatch):
+    monkeypatch,
+):
     """#1529: the tool-use test above sends its own prompt; the plain answer
     call (`_call_model`) picks the prompt by lane and must ask Claude for an
     exact quote per claim, and the local engine must keep the plain prompt."""
