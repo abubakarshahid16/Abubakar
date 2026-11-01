@@ -90,7 +90,12 @@ def _range_key(fact: dict) -> tuple | None:
     rest = re.sub(r"[-\u2212\u2013\u2014]|\bto\b", " ", rest, flags=re.I)
     if not _plain_note("", rest):
         return None
-    return ("r", round(float(low), 9), round(float(high), 9), " ".join(unit.lower().split()))
+    return (
+        "r",
+        round(float(low), 9),
+        round(float(high), 9),
+        " ".join(unit.lower().split()),
+    )
 
 
 def key(fact: dict) -> tuple:

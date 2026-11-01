@@ -121,7 +121,13 @@ def add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
 def combined_result(fact: dict, field: str, res):
     """The row for a value that sits inside a combined line: code cannot say which part
     is this field's, so it is an engineer's question (a blank line is judged before this)."""
-    from .datasheet_checks import NEEDS_ENGINEER_REVIEW, _label, _pretty, _said, _sentence
+    from .datasheet_checks import (
+        NEEDS_ENGINEER_REVIEW,
+        _label,
+        _pretty,
+        _said,
+        _sentence,
+    )
 
     return res(
         NEEDS_ENGINEER_REVIEW,
