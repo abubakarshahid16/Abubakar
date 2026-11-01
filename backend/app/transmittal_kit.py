@@ -257,7 +257,10 @@ def holders(numbers: list[str], candidates: list[str]) -> dict[str, list[str]]:
         pages = [{"page_no": p, "text": t} for p, t in procedure_text.load_pages(doc)]
         block = title_block_lines(pages)
         for n in wanted:
-            if any(_has_number(line, n) for _p, line in block):
+            if any(
+                _has_number(line, n) and not _OTHER_REF.search(line)
+                for _p, line in block
+            ):
                 out[n].append(doc)
     return out
 
@@ -381,19 +384,52 @@ def required_items(list_ids: list[str]) -> list[dict]:
     return out
 
 
+_GENERIC = frozenset(
+    "a an and for of the to in on report reports datasheet datasheets data sheet sheets "
+    "document documents drawing drawings calculation calculations list schedule submission "
+    "submissions drg dwg doc".split()
+)
+_OTHER_REF = re.compile(
+    r"supersed|replac|cancel|reference|\bref\b|\bsee\b|related", re.I
+)
+
+
+def _content(text: str) -> frozenset[str]:
+    return _words(text) - _GENERIC
+
+
 def _covers(required: dict, entry: dict) -> bool:
-    c = entry["cells"]
-    need = _words(required["item"])
-    have = _words(c.get("title", "")) | _words(c["docno"])
-    return bool(need) and (
-        need <= have or (bool(c.get("title")) and _words(c["title"]) <= need)
-    )
+    """A listed document covers a required item only when every CONTENT word of the item (generic
+    words such as report, datasheet, drawing, calculation left out) is in the listed title. A
+    generic title or a document number never covers anything; unsure means not covered."""
+    need = _content(required["item"])
+    return bool(need) and need <= _content(entry["cells"].get("title", ""))
+
+
+def _exact(required: dict, entry: dict) -> bool:
+    return _words(required["item"]) == _words(entry["cells"].get("title", ""))
+
+
+def _coverage(items: list[dict], listed: list[dict]) -> dict[int, int | None]:
+    """item index -> index of the ONE listed document that covers it. A listed document that
+    covers more than one item covers them only where the words match exactly."""
+    taken: dict[int, int] = {}
+    out: dict[int, int | None] = {}
+    for i, req in enumerate(items):
+        out[i] = None
+        for j, e in enumerate(listed):
+            if _covers(req, e) and (j not in taken or _exact(req, e)):
+                out[i] = j
+                taken.setdefault(j, i)
+                break
+    return out
 
 
 def required_rows(items: list[dict], listed: list[dict], boundary: str) -> list[dict]:
     rows = []
-    for req in items:
-        if any(_covers(req, e) for e in listed):
+    cover = _coverage(items, listed)
+    for i, req in enumerate(items):
+        if cover[i] is not None:
             continue
         key = " ".join(sorted(_words(req["item"]), key=req["item"].lower().find))
         due = f"; due {req['due']}" if req["due"] else ""
@@ -409,8 +445,9 @@ def required_rows(items: list[dict], listed: list[dict], boundary: str) -> list[
                 req["quote"],
             )
         )
-    for e in listed:
-        if any(_covers(r, e) for r in items):
+    used = set(cover.values())
+    for j, e in enumerate(listed):
+        if j in used or any(_covers(r, e) for r in items):
             continue
         rows.append(
             _row(

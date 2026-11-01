@@ -221,3 +221,173 @@ def test_rows_reach_the_crs_as_transmittal_engineer_rows_and_notes_are_not_lines
     assert len(built) == len(_defects(run)) == 1
     assert built[0]["comment_by"].startswith("Transmittal check")
     assert built[0]["comment"] in crs_mapping.WAITING_COMMENTS
+
+
+# ---------------------------------------------------------------- review 1536 round 2
+
+
+def _req(item):
+    return {"item": item, "due": "", "page": 1, "quote": item, "document": "d"}
+
+
+def _entry(docno, title):
+    return {"cells": {"docno": docno, "title": title}, "page": 1, "quote": title}
+
+
+@pytest.mark.parametrize(
+    "title,docno,item",
+    [
+        ("Report", "R-1", "Relief valve report"),
+        ("Piping", "P-1", "Piping stress analysis"),
+        ("Calculation", "C-1", "Relief valve calculation"),
+        ("Datasheet", "D-1", "Pump datasheet"),
+        ("Misc", "DATASHEET-3", "Pump datasheet"),
+        ("Pump datasheet", "X-1", "Pump datasheet vibration analysis"),
+    ],
+)
+def test_a_generic_listed_title_or_number_never_covers_a_specific_item(
+    title, docno, item
+):
+    assert not transmittal_kit._covers(_req(item), _entry(docno, title))
+    rows = transmittal_kit.required_rows([_req(item)], [_entry(docno, title)], "b")
+    assert [r["item"].split(":")[0] for r in rows] == ["not_transmitted", "extra"]
+
+
+def test_a_specific_title_covers_its_item_and_a_generic_item_covers_nothing():
+    assert transmittal_kit._covers(
+        _req("Relief valve calculation"), _entry("X", "Relief valve sizing calculation")
+    )
+    assert not transmittal_kit._covers(_req("Datasheet"), _entry("X", "Pump datasheet"))
+
+
+def test_one_listed_document_covers_one_required_item_unless_the_words_match():
+    listed = [_entry("X-1", "Pump relief valve")]
+    rows = transmittal_kit.required_rows(
+        [_req("Pump"), _req("Relief valve")], listed, "b"
+    )
+    assert [r["item"] for r in rows] == ["not_transmitted:relief valve"]
+    twice = transmittal_kit.required_rows(
+        [_req("Pump datasheet"), _req("Pump datasheet")],
+        [_entry("X-1", "Pump datasheet")],
+        "b",
+    )
+    assert twice == []
+
+
+@pytest.mark.parametrize(
+    "a,b,same",
+    [
+        ("0", "00", True),
+        ("1", "01", True),
+        ("A", "a", True),
+        ("A", "B", False),
+        ("1", "2", False),
+        ("A", "1", False),
+        ("0", "1", False),
+    ],
+)
+def test_same_rev(a, b, same):
+    assert transmittal_kit._same_rev(a, b) is same
+
+
+def test_has_number_is_a_whole_token_not_a_substring():
+    assert transmittal_kit._has_number("Document No: ABC-100-001", "ABC-100-001")
+    assert transmittal_kit._has_number("Doc abc 100 001x abc-100-001", "ABC-100-001")
+    assert not transmittal_kit._has_number("Document No: ABC-100-0011", "ABC-100-001")
+    assert not transmittal_kit._has_number("XABC-100-001", "ABC-100-001")
+
+
+def test_no_revision_on_the_held_cover_is_a_row(on):
+    sub = _transmittal()
+    _doc(
+        "doc_h1",
+        ["Document No: ABC-100-001\nInvented cover", "page 2"],
+        "datasheet",
+        number="ABC-100-001",
+    )
+    _held("doc_h2", "ABC-100-002", "1", 1)
+    run, scope = _review(sub)
+    transmittal_kit.for_review(run, scope | {"doc_h1", "doc_h2"})
+    assert _items(run) == ["revision:ABC-100-001"]
+    row = _defects(run)[0]
+    assert "no revision read" in row["finding"]
+
+
+def test_two_held_documents_with_one_number_are_ambiguous_and_not_compared(on):
+    sub = _transmittal(
+        table=TABLE.replace("Pump datasheet    3      2", "Pump datasheet    9      9")
+    )
+    _held("doc_a", "ABC-100-001", "3", 2)
+    _held("doc_b", "ABC-100-001", "4", 3)
+    _held("doc_h2", "ABC-100-002", "1", 1)
+    run, scope = _review(sub)
+    transmittal_kit.for_review(run, scope | {"doc_a", "doc_b", "doc_h2"})
+    assert _items(run) == ["ambiguous:ABC-100-001"]
+
+
+def test_a_number_only_in_the_title_block_of_another_document_is_not_a_holder(on):
+    # page 1 carries the number only in a 'supersedes' line, and a number longer than it
+    _doc(
+        "doc_s",
+        ["Document No: ABC-100-777\nSupersedes: ABC-100-001\nRevision: 7"],
+        "datasheet",
+        number="ABC-100-777",
+    )
+    _doc(
+        "doc_l",
+        ["Document No: ABC-100-0011\nRevision: 7"],
+        "datasheet",
+        number="ABC-100-0011",
+    )
+    held = transmittal_kit.holders(["ABC-100-001"], ["doc_s", "doc_l"])
+    assert held == {"ABC-100-001": []}
+    _held("doc_ok", "ABC-100-001", "3", 2)
+    assert transmittal_kit.holders(["ABC-100-001"], ["doc_s", "doc_l", "doc_ok"]) == {
+        "ABC-100-001": ["doc_ok"]
+    }
+
+
+def test_a_number_in_the_body_but_not_the_title_block_is_not_a_holder():
+    body = "\n".join(f"line {i}" for i in range(30))
+    _doc(
+        "doc_b",
+        [
+            f"Cover\nInvented title\n{body}\nsee ABC-100-001 in body\n"
+            + "\n".join(f"tail {i}" for i in range(30))
+        ],
+        "datasheet",
+        number="ABC-100-999",
+    )
+    assert transmittal_kit.holders(["ABC-100-001"], ["doc_b"]) == {"ABC-100-001": []}
+
+
+def test_not_held_and_no_table_notes(on):
+    sub = _transmittal(table=TABLE)
+    run, scope = _review(sub)  # nothing held
+    transmittal_kit.for_review(run, scope)
+    texts = [n["note"] for n in spec_kit.notes(_rows(run))]
+    assert any("2 of 2 listed documents were not found" in t for t in texts)
+
+
+def test_no_table_note(on):
+    _doc("doc_t2", [HEADER], "transmittal", number="TRN-2")
+    run2, scope2 = _review("doc_t2")
+    transmittal_kit.for_review(run2, scope2)
+    texts = [n["note"] for n in spec_kit.notes(_rows(run2))]
+    assert any("No table of listed documents" in t for t in texts)
+
+
+def test_spec_kit_stores_at_most_one_not_run_row_per_run(on, monkeypatch):
+    monkeypatch.setattr(settings, "spec_kit_enabled", True)
+    _doc(
+        "doc_sp",
+        ["Plain text with nothing"],
+        "specification",
+        number="S-1",
+        equipment="unknown thing",
+    )
+    run, scope = _review("doc_sp")
+    spec_kit.for_review(run, scope)
+    not_run = [r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.NOT_RUN)]
+    assert len(not_run) == 1
+    assert len(spec_kit.notes(_rows(run))) == 1
