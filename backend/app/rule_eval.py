@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims, errors, numparse
+from . import claims, deferred_value, errors, numparse
 
 import logging
 
@@ -498,10 +498,11 @@ def _judge_one(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
         return ({"status": NEEDS_ENGINEER_REVIEW,
                  "rationale": f"{RULE_REASON}: the rule's structure is not one this system evaluates",
                  "limit": None, "observed": None, "exception_applied": None}, output)
-    return ({"status": result["status"], "rationale": result["rationale"],
-             "limit": result["required_value"], "observed": result["output_checked"],
-             "exception_applied": None, "input_used": result["input_used"],
-             "rows_used": result["rows_used"]}, output)
+    verdict = {"status": result["status"], "rationale": result["rationale"],
+               "limit": result["required_value"], "observed": result["output_checked"],
+               "exception_applied": None, "input_used": result["input_used"],
+               "rows_used": result["rows_used"]}
+    return deferred_value.hold_input(verdict, inp), output
 
 
 #: Which per-tag status decides a multi-tag verdict: a breach anywhere is a
