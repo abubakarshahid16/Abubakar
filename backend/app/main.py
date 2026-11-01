@@ -2965,7 +2965,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
-    meta["review_notes"] += pb_notes
+    meta["review_notes"] += pb_notes + export_status_mod.equipment_notes(submittal_id)
     return rows, meta, submittal_name, stamp
 
 

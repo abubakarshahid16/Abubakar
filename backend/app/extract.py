@@ -318,6 +318,32 @@ def _docx_rows(path: str) -> list[tuple] | None:
             for i, text in enumerate(structure.pages, start=1)]
 
 
+def _non_pdf_rows(path: str, doc_id: str | None = None) -> tuple[list[tuple] | None, bool]:
+    """(rows, flow) for a workbook or Word document; (None, False) for a PDF.
+
+    ONE_INTAKE_ENABLED: `intake.read` decides, and refuses what it cannot read
+    (IntakeRefused: the worker records the document as failed with that
+    reason). Off: the DATASHEET_OFFICE_INPUT / DOCX_INPUT_ENABLED seams as
+    before. With DATASHEET_OFFICE_INPUT on, a Word file keeps the datasheet
+    reader's own pages (its facts cite them); otherwise it is read with its
+    structure. A PDF never takes this branch.
+    """
+    if settings.one_intake_enabled:
+        from . import intake
+
+        if intake.detect(path) == intake.KIND_PDF:
+            return None, False
+        result = intake.read(path)
+        if doc_id:  # what was not read, or only partly, is stored with the document
+            intake.store(doc_id, result)
+        return intake.as_rows(result), result.flow
+    docx_rows = (_docx_rows(path)
+                 if settings.docx_input_enabled and not settings.datasheet_office_input else None)
+    if docx_rows is not None:
+        return docx_rows, True
+    return (_office_rows(path) if settings.datasheet_office_input else None), False
+
+
 def _batches(total_pages: int, size: int, start_batch: int) -> list[tuple[int, int, int]]:
     """(batch_no, first_page, last_page), 0-based batch numbers, 1-based pages."""
     result = []
@@ -415,20 +441,10 @@ def extract_document(doc_id: str, progress=None) -> dict:
                 "seconds": 0.0, "pages_per_sec": None, "resumed_from_batch": 0,
                 "error": "stored file is missing"}
 
-    # DATASHEET_OFFICE_INPUT seam (off by default): a workbook or Word
-    # document is read by `datasheet_inputs` - one page per visible sheet /
-    # per explicit page break - in THIS process and one batch. A PDF never
-    # takes this branch, so its path below is exactly what it was.
-    # With DATASHEET_OFFICE_INPUT on, a Word file keeps the datasheet reader's
-    # own pages (its facts cite them); otherwise it is read with its structure.
-    docx_rows = (_docx_rows(pdf_path)
-                 if settings.docx_input_enabled and not settings.datasheet_office_input
-                 else None)
-    if docx_rows is not None:
+    office_rows, flow = _non_pdf_rows(pdf_path, doc_id)
+    if flow:
         with conn:
             conn.execute("UPDATE documents SET pagination = 'flow' WHERE id = ?", (doc_id,))
-    office_rows = (docx_rows if docx_rows is not None
-                   else _office_rows(pdf_path) if settings.datasheet_office_input else None)
     total = (len(office_rows) if office_rows is not None
              else doc["page_count"] or page_count(pdf_path))
     if doc["page_count"] is None:

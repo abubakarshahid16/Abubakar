@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from . import cover_page, errors, page_not_read, unsupported_script
+from . import cover_page, errors, intake, page_not_read, unsupported_script
 from .config import settings
 from .db import connect
 
@@ -649,11 +649,11 @@ def coverage(document_id: str) -> dict:
             else:
                 no_field.append(r["page_no"])
     sources = {r["facts_recorded_by"] for r in ledger if r["facts_recorded_by"]}
-    by_reading: dict = {}
+    by_reading: dict = intake.coverage_part(document_id)
     if settings.page_read_by_reading_enabled:
         # #1473: "read" (a reading came back) apart from "fields found".
         dropped = _pages_dropped_with_content(document_id)
-        by_reading = {
+        by_reading |= {
             "pages_read": [r["page_no"] for r in ledger if page_has_reading(r)],
             "pages_not_read": [r["page_no"] for r in ledger if not page_has_reading(r)],
             # Why each unread page is unread, in plain words (owner rule on
@@ -667,7 +667,7 @@ def coverage(document_id: str) -> dict:
             },
         }
     return {
-        **by_reading,
+        **intake.split_partly(by_reading),
         "pages_total": len(ledger),
         "native": count("native_status"),
         "ocr": count("ocr_status"),
@@ -792,10 +792,11 @@ def readiness_pages(document_id: str) -> dict:
     # #1550: with PAGE_READ_BY_READING_ENABLED, "read" means a reading came
     # back (`pages_read` / `pages_not_read`), the meaning the CRS footer and
     # the issue gate count - never the fields list beside them.
-    read = cov.get("pages_read", cov.get("fact_pages"))
+    read = cov.get("pages_read")
     return {
-        "pages_total": cov.get("pages_total"),
-        "pages_read": len(read or []) if ledger_state == CURRENT else None,
+        "pages_total": cov.get("pages_total"), **intake.partly_part(cov),
+        "pages_read": (len(read) if read is not None else intake.pages_read_count(cov))
+        if ledger_state == CURRENT else None,
         "pages_read_no_field": cov.get("pages_read_no_field") or [],
         "unread_pages": cov.get("pages_not_read", cov.get("pages_not_read_into_fields")) or [],
         "unread_page_reasons": cov.get("pages_not_read_why", cov.get("not_read_reasons")) or {},
