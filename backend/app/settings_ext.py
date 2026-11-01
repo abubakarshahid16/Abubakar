@@ -84,6 +84,11 @@ class SettingsExt(BaseModel):
     #: or glued dot (".5.3", "x.5") is no value. OFF: ".30" reads as 30 and ".5 mm" is dropped,
     #: as before. Env: LEADING_DOT_DECIMAL_ENABLED.
     leading_dot_decimal_enabled: bool = False
+    #: Kit proof 1 Nov: a page whose lines are mostly measured values (a datasheet page) is never set
+    #: aside as book front matter because of a copyright footer, so the fact reader sees it. OFF: the
+    #: footer decides as before. Takes effect when a document is (re)chunked.
+    #: Env: DATA_PAGE_NOT_FRONTMATTER_ENABLED.
+    data_page_not_frontmatter_enabled: bool = False
     #: #1522 a playbook element (`playbooks._match`) is "present" only when the matching passage is
     #: the element's OWN section (a cue in its heading or section title); a passing mention in the
     #: body of another section becomes "unclear" (an engineer row), never "present". OFF: a passage

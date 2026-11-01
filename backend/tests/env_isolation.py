@@ -232,6 +232,7 @@ EGRESS_SAFE: dict[str, object] = {
     "vessel_kit_draft_enabled": False,
     # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
     "leading_dot_decimal_enabled": False,
+    "data_page_not_frontmatter_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: draft exchanger kit cards join the heat exchanger checklist (#1481, off by default)
