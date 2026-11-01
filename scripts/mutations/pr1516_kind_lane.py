@@ -30,8 +30,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         1,
         "a drawing kit row keeps the Specification byline",
         _M,
-        "        if origin == spec_kit.ORIGIN:  # #1484",
-        "        if False:  # #1484",
+        "    if origin == spec_kit.ORIGIN:\n        confirmed, unconfirmed, comment = spec_lane_words(",
+        "    if False:\n        confirmed, unconfirmed, comment = spec_lane_words(",
         "byline_and_waiting_comment_say_drawing",
     ),
     _m(

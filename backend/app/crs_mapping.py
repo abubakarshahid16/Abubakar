@@ -245,6 +245,17 @@ def finding_comment_key(f: dict) -> str:
     return comment_key(*key) if key[0] == "blanks" else _subject_key(f)
 
 
+def _lane(f: dict) -> tuple[str, str, str, str]:
+    """(confirmed byline prefix, unconfirmed byline, row kind, waiting comment) of a draft
+    origin; a kit row uses its document kind's noun (#1484), a specification's unchanged."""
+    origin = f.get("origin")
+    confirmed, unconfirmed, kind = _DRAFT_LANES[origin]
+    comment = UNCONFIRMED_COMMENTS[origin]
+    if origin == spec_kit.ORIGIN:
+        confirmed, unconfirmed, comment = spec_lane_words(spec_kit.noun_of(f))
+    return confirmed, unconfirmed, kind, comment
+
+
 def rejected_comment_keys(findings: list[dict]) -> set[str]:
     """The comment keys of the findings an engineer rejected - the row key
     each lands on AND its own per-requirement key (`finding_member_key`,
@@ -1614,14 +1625,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f.get("contractor_section") or "") if p)
         confirmed = bool(crs_decider.decider(f))
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
-        confirmed_by_prefix, unconfirmed_by, row_kind = _DRAFT_LANES[origin]
-        # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
-        # says it awaits an engineer, the draft stays in "AI Review Comments".
-        unconfirmed_comment = UNCONFIRMED_COMMENTS[origin]
-        if origin == spec_kit.ORIGIN:  # #1484: the kind's noun, "specification" unchanged
-            confirmed_by_prefix, unconfirmed_by, unconfirmed_comment = spec_lane_words(
-                spec_kit.noun_of(f)
-            )
+        confirmed_by_prefix, unconfirmed_by, row_kind, unconfirmed_comment = _lane(f)
         rows.append(
             {
                 "finding_id": f.get("id") or "",
