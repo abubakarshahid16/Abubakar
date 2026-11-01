@@ -1093,8 +1093,8 @@ def extract_requirements(
                     continue
                 scoper.store(created, sentence, clause, chunk)
                 written += 1
-                low_confidence += confidence < VERIFICATION_THRESHOLD
-
+                if confidence < VERIFICATION_THRESHOLD:
+                    low_confidence += 1
     superseded = _supersede(
         document_id, [i for i in reproducible.values() if i not in kept],
         run_id, action="re_extraction")

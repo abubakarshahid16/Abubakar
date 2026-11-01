@@ -108,18 +108,18 @@ def run(path: Path, *, dry_run: bool, out: Path | None, say=print) -> dict:
             multi += len(scope["types"]) > 1
             for t in scope["types"]:
                 per_type[t] = per_type.get(t, 0) + 1
-        if not dry_run:
-            fields = res.stored_fields(scope)
+        fields = res.stored_fields(scope)
+        new = (fields.get("equipment_type"), fields.get("equipment_scope_evidence"))
+        if not dry_run and new != (
+            row["equipment_type"],
+            row["equipment_scope_evidence"],
+        ):
             conn.execute(
                 "UPDATE standard_requirements SET equipment_type = ?, equipment_scope_evidence = ?"
                 " WHERE id = ?",
-                (
-                    fields.get("equipment_type"),
-                    fields.get("equipment_scope_evidence"),
-                    row["id"],
-                ),
+                (*new, row["id"]),
             )
-            written += 1
+            written += 1  # only a row whose stored scope CHANGED: a re-run writes 0
     if not dry_run:
         conn.commit()
     conn.close()

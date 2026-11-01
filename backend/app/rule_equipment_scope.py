@@ -49,6 +49,73 @@ _PREPOSITION = re.compile(
 _MODAL = re.compile(
     r"\b(?:shall|must|should|may|will|needs? to|is to|are to)\b", re.IGNORECASE
 )
+# A type named inside a negated, excluded, contrasted or deferred phrase is NOT the rule's
+# scope (rule 4). A negation cue masks from the cue to the end of its phrase: the sentence
+# end, or a comma that leads into the main clause ("Unlike heat exchangers, vessels shall").
+_NEGATION = re.compile(
+    r"\b(?:not|no|never|neither|nor|cannot|except(?:ing)?|exclud(?:e|es|ed|ing)|"
+    r"other than|unlike|instead of|rather than|apart from|without)\b",
+    re.IGNORECASE,
+)
+# A deferral masks the whole sentence: the rule says where the equipment is dealt with, not
+# that this clause is written for it.
+_DEFERRAL = re.compile(
+    r"\b(?:elsewhere|see|refer(?:red)? to|given in|specified in|covered (?:by|in)|"
+    r"not (?:covered|included|applicable))\b",
+    re.IGNORECASE,
+)
+_SENTENCE_END = re.compile(r"[.;:]")
+_MASK = " \u00a6 "
+# What a heading or subject is ABOUT stops where a modifier phrase starts: "Piping connected
+# to pumps" is about piping; "Valves in compressor service" is about valves. "for" or "of"
+# followed by the equipment stays a scope ("Requirements for pumps") unless it ends in
+# "service".
+_MODIFIER = re.compile(
+    r"\b(?:connected|attached|used|serving|associated|installed|mounted|located|supplied|"
+    r"handling|in|on|at|with|from|within|under|to|by)\b|\bfor\b(?=[^.]*\bservice\b)",
+    re.IGNORECASE,
+)
+
+
+def _sentence_end(text: str, start: int) -> int:
+    m = _SENTENCE_END.search(text, start)
+    return m.start() if m else len(text)
+
+
+def masked(text: str) -> str:
+    """`text` with every negated, excluded, contrasted or deferred phrase blanked."""
+    text = str(text or "")
+    spans: list[tuple[int, int]] = []
+    for m in _NEGATION.finditer(text):
+        end = _sentence_end(text, m.end())
+        comma = text.find(",", m.end(), end)
+        while comma != -1:
+            if not _MODAL.search(text[m.end() : comma]) and _MODAL.search(
+                text[comma:end]
+            ):
+                end = comma
+                break
+            comma = text.find(",", comma + 1, end)
+        spans.append((m.start(), end))
+    for m in _DEFERRAL.finditer(text):
+        begin = max(text.rfind(c, 0, m.start()) for c in ".;:") + 1
+        spans.append((begin, _sentence_end(text, m.end())))
+    for begin, end in sorted(spans, reverse=True):
+        text = text[:begin] + _MASK + text[end:]
+    return text
+
+
+def _types(text: str, vocab) -> set[str]:
+    """Equipment types named by SPECIFIC phrases. A generic phrase ("valves", "turbine")
+    that the vocabulary maps to several types names none of them: never guess one."""
+    if vocab.pattern is None:
+        return set()
+    found: set[str] = set()
+    for match in vocab.pattern.finditer(subject_scope._fold(text)):
+        types = vocab.phrases[match.group(0)]
+        if len(types) == 1:
+            found |= {t for t in types if vocab.kind.get(t) == subject_scope.EQUIPMENT}
+    return found
 
 
 def extract_enabled() -> bool:
@@ -89,13 +156,13 @@ def _phrase_window(text: str, start: int) -> str:
 def _scope_phrase(text: str, vocab) -> tuple[set[str], str]:
     for m in _STRONG.finditer(text):
         window = _phrase_window(text, m.end())
-        found = vocab.equipment_in(window)
+        found = _types(window, vocab)
         if found:
             return found, _words(text[m.start() : m.end()] + " " + window)
     lead = _LEADING_FOR.match(text)
     if lead:
         window = _phrase_window(text, lead.end())
-        found = vocab.equipment_in(window)
+        found = _types(window, vocab)
         if found:
             return found, _words(text[: lead.end()] + " " + window)
     return set(), ""
@@ -106,7 +173,8 @@ def scope_of(
 ) -> dict:
     """{"types": sorted list (empty = unknown), "quote", "page", "method"}."""
     vocab = vocab or subject_scope.vocabulary()
-    text = str(requirement.get("requirement_text") or "")
+    raw = str(requirement.get("requirement_text") or "")
+    text = masked(raw)
     page = requirement.get("page")
 
     def out(types: set[str], quote: str, method: str) -> dict:
@@ -119,7 +187,7 @@ def scope_of(
     lead_in = text[: verb.start()] if verb else text
     # the grammatical subject only: "Bolts for the flange of the vessel" is about bolts
     subject = _PREPOSITION.split(lead_in, maxsplit=1)[0]
-    types = vocab.equipment_in(subject)
+    types = _types(subject, vocab)
     if types:
         return out(types, _words(lead_in), SUBJECT)
     chain = [requirement.get("chunk_section")]
@@ -128,7 +196,8 @@ def scope_of(
         chain.append((headings or {}).get(clause))
         chain.extend((headings or {}).get(a) for a in subject_scope._ancestors(clause))
     for head in chain:
-        types = vocab.equipment_in(head)
+        shown = masked(head)
+        types = _types(_MODIFIER.split(shown, maxsplit=1)[0], vocab)
         if types:
             return out(types, _words(head), HEADING)
     return out(set(), "", UNKNOWN)
@@ -177,7 +246,9 @@ def ask_local_model(
         return None
     types = {str(t).strip().lower() for t in data.get("types") or []}
     quote = str(data.get("quote") or "").strip()
-    folded = " ".join(text.lower().split())
+    folded = " ".join(
+        masked(text).lower().split()
+    )  # the quote may not sit in a negated phrase
     if (
         not types
         or not types <= set(allowed)

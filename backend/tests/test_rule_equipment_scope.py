@@ -242,3 +242,101 @@ def test_script_takes_the_heavy_lock(copy_db, monkeypatch):
     monkeypatch.setattr(heavy_lock, "run_locked", fake)
     assert _script().main(["--db", str(copy_db), "--dry-run"]) == 75
     assert seen == ["rule-scope"]
+
+
+# ------------------------------------------- negation, exclusion, deferral (rule 4)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "This clause does not apply to centrifugal pumps.",
+        "Not applicable to pumps.",
+        "Excluding compressors, documents shall be submitted in English.",
+        "This section does not cover compressors.",
+        "Requirements for pumps are given elsewhere.",
+        "Compressors are not covered by this clause.",
+        "See clause 9 for pumps.",
+    ],
+)
+def test_a_type_in_a_negated_excluded_or_deferred_phrase_is_never_the_scope(text):
+    assert res.scope_of(_r(text))["types"] == []
+
+
+def test_positive_type_stays_beside_an_excluded_one():
+    s = res.scope_of(_r("This section applies to pumps, other than compressors."))
+    assert s["types"] == ["pump"]
+
+
+def test_contrast_keeps_only_the_positive_type():
+    s = res.scope_of(
+        _r("Unlike heat exchangers, vessels shall be fitted with a drain.")
+    )
+    assert s["types"] == ["pressure vessel"]
+
+
+def test_a_negated_list_masks_every_item():
+    assert res.scope_of(_r("Not applicable to pumps, compressors."))["types"] == []
+
+
+def test_heading_modifier_phrase_is_not_the_scope():
+    only = res.scope_of(
+        _r("Piping shall be tested.", section="7 Piping connected to pumps")
+    )
+    assert only["types"] == []
+
+
+def test_a_heading_with_a_for_scope_still_counts():
+    s = res.scope_of(_r("Seals shall be fitted.", section="4 Requirements for pumps"))
+    assert s["types"] == ["pump"]
+    refinery = res.scope_of(
+        _r("Seals shall be fitted.", section="4 Pumps in refinery service")
+    )
+    assert refinery["types"] == ["pump"]
+
+
+def test_a_generic_valve_never_fans_out_to_specific_valve_types():
+    s = res.scope_of(
+        _r("Stems shall be coated.", section="6 Valves in compressor service")
+    )
+    assert s["types"] == []
+    assert res.scope_of(_r("Valves shall be tested."))["types"] == []
+    assert res.scope_of(_r("The relief valve shall be tested."))["types"] == [
+        "relief valve"
+    ]
+
+
+def test_model_answer_inside_a_negated_phrase_is_dropped():
+    text = "Pumps are not covered here; seals shall be double."
+    said = _says(["pump"], "Pumps are not covered here")
+    assert res.ask_local_model(_r(text), post=said) is None
+    text = "Seals fitted on pumps shall be double, other than on compressors."
+    assert (
+        res.ask_local_model(_r(text), post=_says(["compressor"], "on compressors"))
+        is None
+    )
+    assert res.ask_local_model(_r(text), post=_says(["pump"], "Seals fitted on pumps"))
+
+
+def test_script_refuses_a_symlink_and_a_relative_path_to_a_live_shaped_file(
+    tmp_path, copy_db, monkeypatch, capsys
+):
+    live = tmp_path / "backend" / "data" / "rag_intelligence.sqlite"
+    live.parent.mkdir(parents=True)
+    shutil.copy(copy_db, live)
+    link = tmp_path / "innocent.sqlite"
+    link.symlink_to(live)
+    before = _digest(live)
+    assert _script().main(["--db", str(link)]) == 2
+    monkeypatch.chdir(live.parent)
+    assert _script().main(["--db", "rag_intelligence.sqlite"]) == 2
+    assert capsys.readouterr().err.count("REFUSED") == 2
+    assert _digest(live) == before
+
+
+def test_a_second_write_run_changes_zero_rows(copy_db, tmp_path):
+    first, second = tmp_path / "a.json", tmp_path / "b.json"
+    assert _script().main(["--db", str(copy_db), "--out", str(first)]) == 0
+    assert _script().main(["--db", str(copy_db), "--out", str(second)]) == 0
+    assert json.loads(first.read_text())["rows_written"] > 0
+    assert json.loads(second.read_text())["rows_written"] == 0
