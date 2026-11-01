@@ -439,9 +439,11 @@ def reasons_for(doc_id: str) -> list[dict]:
     ]
 
 
-def refusal_of(exc: BaseException, code: str, message: str) -> tuple[str, str]:
+def refusal_of(exc: BaseException, last_error: dict) -> tuple[str, str]:
     """(code, sentence) to record for a failed document: the refusal's own when
-    intake refused the file, else the ones given."""
+    intake refused the file, else the internal code and the redacted message."""
+    from . import errors
+
     if isinstance(exc, IntakeRefused):
         return exc.code, exc.message
-    return code, message
+    return errors.INTERNAL, last_error["message"]
