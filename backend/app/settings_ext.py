@@ -35,3 +35,7 @@ class SettingsExt(BaseModel):
     #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
     #: OFF: nothing changes. Env: SPEC_KIT_ENABLED.
     spec_kit_enabled: bool = False
+    #: #1478 pump kit PREPARATION: append the DRAFT pump cards of `reference/pump_kit_draft.json`
+    #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
+    #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.
+    pump_kit_draft_enabled: bool = False
