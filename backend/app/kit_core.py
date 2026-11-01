@@ -136,7 +136,7 @@ class Kit:
         }
 
 
-#: Every kit, filled in by the kit modules (`pump_kit`, `vessel_kit`) when `datasheet_checks` imports them.
+#: Every kit, filled in by the kit modules (`pump_kit`, `vessel_kit`) as they are imported (`_kits` imports them).
 KITS: list[Kit] = []
 
 
@@ -145,10 +145,16 @@ def register(kit: Kit) -> Kit:
     return kit
 
 
+def _kits() -> list[Kit]:
+    from . import pump_kit, vessel_kit  # noqa: F401  (importing a kit module registers it)
+
+    return KITS
+
+
 def with_kit(key: str, items: list[dict]) -> list[dict]:
     """`items` plus the draft kit cards of every kit for this type (none while its switch is off)."""
     out = list(items)
-    for kit in KITS:
+    for kit in _kits():
         out += kit.loader_items(key, out)
     return out
 
@@ -160,7 +166,7 @@ def held(result: dict, item: dict) -> dict:
     if not item.get("kit"):
         return result
     words = next(
-        (k.words for k in KITS if k.name == item["kit"]),
+        (k.words for k in _kits() if k.name == item["kit"]),
         "DRAFT kit card: the clause number is as stored in the library and not yet verified by an engineer",
     )
     out = {**result, "draft": True, "local": True, "kit": item["kit"]}
