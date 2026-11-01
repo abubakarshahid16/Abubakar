@@ -103,9 +103,11 @@ def test_a_page_with_no_stored_text_is_not_a_page_of_the_quote(standard):
 def test_a_single_page_chunk_is_unchanged(standard):
     report = run(reply(item()), TEXT, {1: TEXT})
     assert report["proposed"] == 1 and stored_pages() == {1}
-    version = connect().execute(
-        "SELECT extractor_version FROM standard_requirements"
-    ).fetchone()[0]
+    version = (
+        connect()
+        .execute("SELECT extractor_version FROM standard_requirements")
+        .fetchone()[0]
+    )
     assert version is None  # the slice-1 sentence draft, no page re-check added
 
 

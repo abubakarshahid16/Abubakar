@@ -306,7 +306,10 @@ def recheck_on_page(conn, row) -> None:
         "SELECT extractor_version FROM standard_requirements WHERE id = ?",
         (row["requirement_id"],),
     ).fetchone()
-    if req is None or req["extractor_version"] not in {TABLE_VERSION, QUOTE_PAGE_VERSION}:
+    if req is None or req["extractor_version"] not in {
+        TABLE_VERSION,
+        QUOTE_PAGE_VERSION,
+    }:
         return
     page = conn.execute(
         "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",

@@ -145,7 +145,9 @@ def _table_row(item: dict, chunk, texts: dict[int, str], resolve: bool):
     base = tables.read_row(item, chunk["text"], None)  # the page plays no part in None
     if base is None or base[1] != [tables.CELLS_NOT_ON_PAGE]:
         return None if base is None else (*base, first)
-    found = [(no, tables.read_row(item, chunk["text"], text)) for no, text in texts.items()]
+    found = [
+        (no, tables.read_row(item, chunk["text"], text)) for no, text in texts.items()
+    ]
     on = [(no, row) for no, row in found if tables.CELLS_NOT_ON_PAGE not in row[1]]
     if len(on) != 1:
         return [], [PAGE_UNCERTAIN], None
