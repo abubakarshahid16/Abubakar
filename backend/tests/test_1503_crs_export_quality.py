@@ -351,23 +351,23 @@ def test_a_fail_merged_into_an_engineers_row_shows_fail():
     assert v["rows"][0]["row_kind"] == "engineer_comment"
 
 
-def test_switch_off_workbook_keeps_its_columns_and_widths():
-    client = sheet([row(engineer_confirmed=True)], OFF, copy="issue")["CRS"]
-    assert "J" not in client.column_dimensions or client.column_dimensions[
-        "J"
-    ].width in (None, 13.0)
-    assert client.max_column == 9
-    internal = sheet([row()], OFF)
-    ws = internal["CRS"]
-    assert [c.value for c in ws[crs_export.COLUMN_HEADER_ROW]][-3:] == [
-        crs_export.AI_COLUMN,
-        crs_export.REASONING_COLUMN,
-        crs_export.TRUST_COLUMN,
-    ]
-    assert ws.column_dimensions["J"].width == crs_export.AI_COLUMN_WIDTH
-    assert ws.column_dimensions["K"].width == crs_export.REASONING_COLUMN_WIDTH
-    assert ws.column_dimensions["L"].width == crs_export.TRUST_COLUMN_WIDTH
-    assert internal.sheetnames == ["CRS", "Applicable standards", "Review notes"]
-    assert [c.value for c in ws[crs_export.FIRST_DATA_ROW]][
-        3
-    ] == "Datasheet check: Set pressure is above the limit."
+def test_switch_off_workbook_is_the_workbook_main_made():
+    """Every column width, merge, row height, alignment, font, fill and cell
+    value of both copies on a small fixture, as origin/main's `crs_export`
+    wrote them (`crs_off_layout.json`, generated once from main's code)."""
+    import json
+    from pathlib import Path
+
+    from tests.crs_off_layout import build_all
+
+    expected = json.loads((Path(__file__).parent / "crs_off_layout.json").read_text())
+    got = json.loads(json.dumps(build_all({"export_quality": False})))
+    for copy in ("internal", "issue"):
+        assert got[copy]["sheets"] == expected[copy]["sheets"]
+        for sheet in expected[copy]["sheets"]:
+            for part in ("widths", "merged", "heights", "max", "cells"):
+                assert got[copy][sheet][part] == expected[copy][sheet][part], (
+                    copy,
+                    sheet,
+                    part,
+                )
