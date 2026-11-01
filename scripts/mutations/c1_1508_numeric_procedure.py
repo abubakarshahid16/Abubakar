@@ -6,14 +6,14 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _T = "tests/test_1476_numeric_procedure.py"
-_TAG = ("c1_1476", "numeric_procedure")
+_TAG = ("c1_1508", "numeric_procedure")
 _P = APP / "procedure_text.py"
 
 
 def _m(n, desc, anchor, repl, kw):
     return Mutation(
-        id=f"M1476-{n:02d}",
-        phase=1476,
+        id=f"M1508-{n:02d}",
+        phase=1508,
         description=desc,
         path=_P,
         anchor=anchor,
