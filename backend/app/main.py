@@ -2960,13 +2960,25 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "incomplete_notice": absence_mod.notice_for(unchecked),
         # #633 item 7: row 1 of a sheet whose run did not complete - status, reason,
         # unread pages, missing standards. "" for a completed run (sheet unchanged).
-        "run_status_note": export_status_mod.crs_header_note(run.get("status"), outcome.get("error"), unread, missing),
+        "run_status_note": _crs_header_note(run, outcome, unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += pb_notes
     return rows, meta, submittal_name, stamp
+
+
+def _crs_header_note(run: dict, outcome: dict, unread: list, missing: list[str]) -> str:
+    """Row 1 of a CRS whose run did not complete. #1550: a run stored with
+    PAGE_READ_BY_READING_ENABLED counts its unread pages as the issue gate and
+    the CRS footer do (`page_ledger.run_unread_pages`), never the fields list."""
+    cov = outcome.get("page_coverage") or {}
+    by_reading = "pages_not_read" in cov
+    if by_reading:
+        unread = page_ledger_mod.run_unread_pages(cov, page_ledger_mod.run_reader(outcome))
+    return export_status_mod.crs_header_note(
+        run.get("status"), outcome.get("error"), unread, missing, by_reading=by_reading)
 
 
 def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:

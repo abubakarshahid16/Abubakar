@@ -49,9 +49,11 @@ def _reasons(counts: dict[str, int]) -> str:
     return ", ".join(f"{n} {why}" for why, n in sorted(counts.items()) if n)
 
 
-def reader(summary: dict | None) -> dict | None:
+def reader(summary: dict | None, pages_total: int | None = None) -> dict | None:
     """The AI reader, from the reader summary the run kept
-    (`requirement_split.reader`, written by `datasheets.reader_summary`)."""
+    (`requirement_split.reader`, written by `datasheets.reader_summary`).
+    #1550: `pages_total` (a run stored with PAGE_READ_BY_READING_ENABLED) other
+    than the pages the AI was given: the count says its own boundary."""
     if not summary:
         return None
     pages = _n(summary.get("pages"))
@@ -66,6 +68,11 @@ def reader(summary: dict | None) -> dict | None:
     partly = len(summary.get("partly_read") or {})  # order 139: of the pages read
     lines = [
         f"{read} of {pages} page(s) read by the AI"
+        + (
+            f" ({pages} given to it of {pages_total} in this submittal)"
+            if pages_total is not None and pages_total != pages
+            else ""
+        )
         + (f" ({partly} only in part)" if partly else "")
         + (f"; {timed_out} timed out" if timed_out else "")
         + (
@@ -202,8 +209,12 @@ def for_run(outcome: dict | None, ai_check_status: dict | None,
     """The four steps for one run, or None when the run holds no record of
     any of them (the panel is then not shown at all)."""
     outcome = outcome or {}
+    cov = outcome.get("page_coverage") or {}
     steps = {
-        "reader": reader((outcome.get("requirement_split") or {}).get("reader")),
+        "reader": reader(
+            (outcome.get("requirement_split") or {}).get("reader"),
+            cov.get("pages_total") if "pages_not_read" in cov else None,
+        ),
         "matcher": matcher(outcome.get("ai_matcher")),
         "engineering_check": engineering_check(ai_check_status),
         "wording": wording(wording_summary),

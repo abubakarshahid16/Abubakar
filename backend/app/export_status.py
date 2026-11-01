@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 from . import page_ledger
+from .config import settings
 from .db import connect
 
 COMPLETED = "completed"
@@ -101,13 +102,21 @@ def _listed(values: list, label: str, unit: str) -> str:
     return f"{label}: {len(items)} {unit}" + (f" ({shown})" if items else "")
 
 
-def unread_pages_line(pages: list, known: bool = True, note: str | None = None) -> str:
+#: #1550: the unit when "read" means a reading came back for the page.
+NOT_READ_BY_READING = "page(s) not read"
+
+
+def unread_pages_line(pages: list, known: bool = True, note: str | None = None,
+                      by_reading: bool = False) -> str:
     """The unread pages, as the readiness strip counts them. `known` is False
     when the page ledger cannot be counted on: then the line says the count is
-    not known rather than printing 0 for "nobody looked"."""
+    not known rather than printing 0 for "nobody looked". `by_reading` (#1550):
+    the pages are the ones no reading came back for, so they are "not read",
+    never "not read into fields"."""
     if not known:
         return "Unread pages: not known" + (f" - {note}" if note else "")
-    return _listed(pages, "Unread pages", "page(s) not read into fields")
+    return _listed(pages, "Unread pages",
+                   NOT_READ_BY_READING if by_reading else "page(s) not read into fields")
 
 
 def missing_standards_line(missing: list[str]) -> str:
@@ -130,17 +139,18 @@ def pdf_header_lines(document_id: str, allowed: frozenset[str] | None) -> tuple[
         lines.append(status_line(run["status"], run["reason"]))
     lines.append(unread_pages_line(pages["unread_pages"],
                                    known=pages["ledger_state"] == page_ledger.CURRENT,
-                                   note=pages.get("ledger_note")))
+                                   note=pages.get("ledger_note"),
+                                   by_reading=settings.page_read_by_reading_enabled))
     lines.append(missing_standards_line(missing_standards(document_id, allowed)))
     return run, lines
 
 
 def crs_header_note(status: str | None, reason: str | None,
-                    unread: list, missing: list[str]) -> str:
+                    unread: list, missing: list[str], by_reading: bool = False) -> str:
     """The first line of a CRS whose run did not complete: '' for a completed
     run (its sheet is unchanged), else the status, its reason and the same
     two counts the readiness strip shows. Both copies print it."""
     if status == COMPLETED:
         return ""
     return (f"REVIEW INCOMPLETE: run {status or 'unknown'} - {_reason(reason)}. "
-            f"{unread_pages_line(unread)}. {missing_standards_line(missing)}.")
+            f"{unread_pages_line(unread, by_reading=by_reading)}. {missing_standards_line(missing)}.")

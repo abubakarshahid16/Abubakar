@@ -340,6 +340,10 @@ def _subject_key(f: dict) -> str:
 #: The "Review notes" sheet (owner order 2f): the engineer's internal list.
 NOTE_MISSING_STANDARD = "Standard not in your library - upload required"
 NOTE_UNREAD_PAGES = "Pages not yet readable - engineer to check"
+#: #1550: the same note for a run stored with PAGE_READ_BY_READING_ENABLED,
+#: where "not read" means no reading came back: these pages were read, and no
+#: datasheet field was taken from them - never called "not read".
+NOTE_NO_FIELD_PAGES = "No datasheet field taken from some pages - engineer to check"
 NOTE_PAGE_READER = "Value not found by the page reader - engineer to check the page"
 NOTE_OTHER_DOCUMENT = "Requires another document"
 #: CRS quick wins: a statement no datasheet field was found for. NOT "requires
@@ -387,7 +391,15 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                       "detail": (f"Cited by this submittal and not in the standards "
                                  f"library; its requirements were not checked.")})
     unread = [f for f in findings if _unread(f)]
-    if unread:
+    if unread and "pages_not_read" in ((outcome or {}).get("page_coverage") or {}):
+        pages = _page_list(unread_pages or [])
+        notes.append({"note": NOTE_NO_FIELD_PAGES, "standard": "", "count": len(unread),
+                      "detail": (f"{len(unread)} requirement{'s' if len(unread) != 1 else ''} "
+                                 "could not be checked because no datasheet field was taken "
+                                 "from " + (f"page{'s' if len(unread_pages or []) != 1 else ''} "
+                                            f"{pages}" if pages else "some pages")
+                                 + " of this submittal; the values may be there.")})
+    elif unread:
         pages = _page_list(unread_pages or [])
         notes.append({"note": NOTE_UNREAD_PAGES, "standard": "", "count": len(unread),
                       "detail": (f"{len(unread)} requirement{'s' if len(unread) != 1 else ''} "

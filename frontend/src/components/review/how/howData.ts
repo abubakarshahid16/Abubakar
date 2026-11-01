@@ -63,7 +63,12 @@ export function pageFacts(run: ReviewRunSummary) {
     timedOut: sourced(reader && reader.engine !== "off" ? (reader.timed_out ?? []) : null,
                       "requirement_split.reader.timed_out"),
     // Absent = the run did not record it; never read as "no page unread".
-    notRead: sourced(pc?.pages_not_read_into_fields ?? null, "page_coverage.pages_not_read_into_fields"),
+    // #1550: a run stored with PAGE_READ_BY_READING_ENABLED counts "not read" as
+    // the pages no reading came back for, as the CRS footer and issue gate do.
+    notRead: pc?.pages_not_read
+      ? sourced(pc.pages_not_read, "page_coverage.pages_not_read")
+      : sourced(pc?.pages_not_read_into_fields ?? null, "page_coverage.pages_not_read_into_fields"),
+    byReading: Boolean(pc?.pages_not_read),
     readNoField: sourced(pc?.pages_read_no_field ?? null, "page_coverage.pages_read_no_field"),
     notReadReasons: pc?.not_read_reasons ?? {},
     aiNotRead: sourced(pc?.pages_ai_not_read ?? null, "page_coverage.pages_ai_not_read"),
@@ -123,7 +128,7 @@ export function pagesMeaning(run: ReviewRunSummary): string {
       : "The run did not record whether the reading was complete (page_coverage.reading), so it cannot be said that all pages were read.");
     const unread = p.notRead.value;
     const aiMissed = p.aiNotRead.value;
-    if (unread && unread.length) sentences.push(`${unread.length} of ${total} pages were not read into fields (pages ${pageList(unread)}).`);
+    if (unread && unread.length) sentences.push(`${unread.length} of ${total} pages were not read${p.byReading ? "" : " into fields"} (pages ${pageList(unread)}).`);
     if (aiMissed && aiMissed.length) sentences.push(`The AI reader did not read ${plural(aiMissed.length, "page")} (pages ${pageList(aiMissed)}).`);
   }
   if (p.notRead.value === null) {
