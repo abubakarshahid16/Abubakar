@@ -662,3 +662,35 @@ def test_a_failed_ai_check_record_keeps_the_clause_review_entry(on, monkeypatch)
         run, "ai_check_status", "AI engineering check", RuntimeError("x")
     )
     _still_said(run)
+
+
+def test_a_run_that_stops_by_an_error_is_a_note_and_a_notice_with_the_rows_it_wrote(
+    on, monkeypatch
+):
+    from app import absence
+
+    _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS))
+
+    class Breaks(Fake):
+        def reason(self, packet):
+            if self.packets:
+                raise RuntimeError("secret document text must not be logged")
+            return super().reason(packet)
+
+    fake = Breaks(
+        {"HAZOP chair": {"answer": "no_evidence", "page": None, "quote": None}}
+    )
+    real = clause_review.run
+    monkeypatch.setattr(
+        clause_review, "run", lambda r, **k: real(r, provider=fake, **k)
+    )
+    clause_review.for_review(run, scope)
+    assert len(_rows(run)) == 1
+    ai = clause_review._stored_ai_status(db.connect(), run)
+    assert ai["clause_review"]["rows_before_stop"] == 1
+    assert "after 1 clause(s) got a row" in ai["plain"] and "secret" not in ai["plain"]
+    parts = absence.unchecked_parts(run_status="completed", outcome={}, ai_status=ai)
+    assert [p["part"] for p in parts if p["part"] == "clause_review"] == [
+        "clause_review"
+    ]
+    assert "REVIEW INCOMPLETE" in absence.notice_for(parts)

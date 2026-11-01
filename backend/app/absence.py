@@ -286,8 +286,9 @@ def _unfinished(ai_status: dict | None, web_status: dict | None):
         if status and status.get("complete") is False:
             yield key, str(status.get("plain") or f"{key} did not complete").strip()
     clause = (ai_status or {}).get("clause_review") or {}
-    if clause.get("ran") and (
-        clause.get("not_read_count") or clause.get("kind_state") != "confirmed"
+    if clause.get("stopped_by_error") or (
+        clause.get("ran")
+        and (clause.get("not_read_count") or clause.get("kind_state") != "confirmed")
     ):
         yield "clause_review", str(clause["plain"])
 

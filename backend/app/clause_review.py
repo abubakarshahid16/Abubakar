@@ -615,8 +615,27 @@ def for_review(review_run_id: str, scope: frozenset[str]) -> None:
     except Exception as exc:  # noqa: BLE001 - suggestions are optional; the review stands
         log.warning("clause review skipped: %s", type(exc).__name__)
         with contextlib.suppress(Exception):
-            plain = f"AI clause review could not run ({type(exc).__name__})"
-            _store_status(review_run_id, {"ran": False, "plain": plain})
+            rows = (
+                connect()
+                .execute(
+                    "SELECT COUNT(*) FROM review_findings WHERE review_run_id = ? AND origin = ?",
+                    (review_run_id, ORIGIN),
+                )
+                .fetchone()[0]
+            )
+            plain = (
+                f"AI clause review stopped by an error ({type(exc).__name__}) after "
+                f"{rows} clause(s) got a row; the rest were not reviewed"
+            )
+            _store_status(
+                review_run_id,
+                {
+                    "ran": False,
+                    "stopped_by_error": True,
+                    "rows_before_stop": rows,
+                    "plain": plain,
+                },
+            )
 
 
 _FAILED = object()
