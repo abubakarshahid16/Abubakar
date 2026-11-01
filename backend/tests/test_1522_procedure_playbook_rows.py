@@ -216,3 +216,43 @@ def test_off_the_whole_crs_equals_the_crs_without_the_wiring(monkeypatch):
     rows_unwired, meta_unwired = _crs(run)
     assert rows_off == rows_unwired
     assert meta_off == meta_unwired
+
+
+def _chosen_ids(cover, monkeypatch):
+    seen = []
+    real = playbooks.review
+
+    def spy(document_id, playbook, *, allowed_document_ids, proposer=None):
+        seen.append(playbook.id)
+        return real(
+            document_id,
+            playbook,
+            allowed_document_ids=allowed_document_ids,
+            proposer=proposer,
+        )
+
+    monkeypatch.setattr(playbooks, "review", spy)
+    _crs(_run(_doc("p1", HAZOP_SECTIONS, cover=cover)))
+    return sorted(seen)
+
+
+def test_a_cover_sentence_that_only_mentions_hazop_does_not_choose_the_hazop_playbook(
+    on, monkeypatch
+):
+    cover = (
+        "SIL assessment procedure\n"
+        "This procedure is issued following the HAZOP study of the plant\n"
+        "Document S-1"
+    )
+    assert _chosen_ids(cover, monkeypatch) == ["sil_procedure"]
+
+
+def test_a_combined_title_chooses_both_playbooks(on, monkeypatch):
+    cover = "HAZOP & SIL ASSESSMENT PROCEDURE\nDocument HS-1"
+    assert _chosen_ids(cover, monkeypatch) == ["hazop_procedure", "sil_procedure"]
+
+
+def test_a_hazop_title_chooses_only_the_hazop_playbook(on, monkeypatch):
+    assert _chosen_ids("HAZOP Study Procedure\nDocument H-1", monkeypatch) == [
+        "hazop_procedure"
+    ]
