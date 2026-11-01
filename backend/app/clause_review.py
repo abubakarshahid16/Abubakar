@@ -51,7 +51,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from . import job_progress, scope_quote
+from . import clause_review_status, job_progress, scope_quote
 from .config import settings
 from .crs_draft_lanes import CLAUSE_ORIGIN
 from .db import connect
@@ -639,9 +639,12 @@ def for_review(review_run_id: str, scope: frozenset[str]) -> None:
 
 
 _FAILED = object()
+_SKIPPED = object()
 
 
-def _answer(provider, key, kind, req, passages, status, submittal, model):
+def _answer(
+    provider, key, kind, req, passages, status, submittal, model, cache_only=False
+):
     """(the parsed answer or None, was it stored, the engine) for one requirement.
     A stored answer makes no model call; a cut-off or schema-breaking reply is no answer."""
     from . import reasoning_provider as rp
@@ -654,6 +657,10 @@ def _answer(provider, key, kind, req, passages, status, submittal, model):
     if stored is not None:
         status["cache_hits"] += 1
         return _parse(stored["answer"]), True, None
+    if (
+        cache_only
+    ):  # whole-document mode, budget spent: a stored answer costs no model time
+        return _SKIPPED, False, None
     packet = rp.Packet(
         prompt=build_prompt(kind, req, passages),
         system=SYSTEM,
@@ -698,30 +705,7 @@ def _start_status(
 
 
 def _finish_status(review_run_id: str, status: dict, elapsed: float) -> dict:
-    status["elapsed_seconds"] = round(elapsed, 1)
-    status["minutes_per_page"] = round(elapsed / 60 / max(1, status["pages"]), 3)
-    status["not_reviewed_count"] = len(status["not_reviewed"])
-    read = sum(
-        status[k] for k in ("verified", "no_evidence", "unverified", "unreadable")
-    )
-    left = len(status["not_reviewed"]) + len(status["failed"])
-    why = f" ({status['stopped']})" if status["stopped"] else ""
-    named = [*status["not_reviewed"], *status["failed"]]
-    listed = (
-        f": {', '.join(named[:10])}{' ...' if len(named) > 10 else ''}" if named else ""
-    )
-    kind = f"document kind '{status['kind']}'" + (
-        ""
-        if status["kind_state"] == "confirmed"
-        else f" ({status['kind_state']}, not confirmed)"
-    )
-    status["not_read_count"] = left
-    status["plain"] = (
-        f"AI clause review (suggestions only, engineer to confirm): {read} of {status['requirements']} "
-        f"requirement(s) read - {status['verified']} with a verified quote, {status['no_evidence']} "
-        f"with no passage found, {status['unverified']} with a quote that could not be verified, "
-        f"{status['unreadable']} unreadable; {left} not reviewed{why}{listed}; {kind}."
-    )
+    clause_review_status.fill(status, elapsed)
     _store_status(review_run_id, status)
     return status
 
@@ -757,17 +741,27 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
     model = str(getattr(provider, "requested_model", None) or "local")
     pages = page_texts(submittal)
     readable = [p for p, t in pages.items() if t.strip()]
+    whole = bool(settings.clause_review_whole_document_enabled)
     budget_s = max(1, len(readable)) * float(settings.clause_review_seconds_per_page)
+    if whole:
+        # Whole-document mode: ONE time budget for the run replaces the count cap.
+        budget_s = float(settings.clause_review_time_budget_s)
     wanted = requirements_for(review_run_id, allowed_document_ids)
     cap = int(settings.clause_review_max_requirements)
+    if whole or cap <= 0:
+        cap = len(wanted)  # no count cap; the time budget is the bound
     status = _start_status(kind, state, model, len(readable), budget_s, len(wanted))
+    status["whole_document"] = whole
     started, engine = clock(), model
     total = min(len(wanted), cap)
     for index, req in enumerate(wanted[:cap]):
-        if clock() - started >= budget_s:
+        spent = clock() - started >= budget_s
+        if spent and not whole:
             status["not_reviewed"] = [_label(r) for r in wanted[index:cap]]
             status["stopped"] = "the time budget for this document was spent"
             break
+        if spent:
+            status["stopped"] = f"time budget of {round(budget_s)} s reached"
         # #1494: display only, "checking clause N of M"
         job_progress.clause(index + 1, total)
         passages = retrieve(submittal, req["requirement_text"], pages)
@@ -780,7 +774,11 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
             status,
             submittal,
             model,
+            cache_only=spent,
         )
+        if answer is _SKIPPED:  # budget spent and nothing stored: not reviewed
+            status["not_reviewed"].append(_label(req))
+            continue
         if answer is _FAILED:
             status["failed"].append(_label(req))
             continue
