@@ -425,6 +425,14 @@ def test_switch_on_only_the_cards_nothing_committed_already_asks_are_added(kit_o
     assert len(keys) == len(set(keys))
 
 
+def test_switch_on_a_card_that_needs_a_standard_is_never_loaded_only_the_cards_a_held_clause_requires(
+    kit_on,
+):
+    # against an empty checklist nothing is a duplicate: the five tested cards load, the six that need a standard do not
+    ids = [i["id"] for i in vessel_kit.loader_items(VESSEL, [])]
+    assert ids == ["VSLD-01", "VSLD-02", "VSLD-03", "VSLD-04", "VSLD-05"]
+
+
 def test_switch_on_other_equipment_types_are_unchanged(kit_on):
     rules = dc.load_rules()
     for key in ("Pressure Safety Valve", "Heat Exchanger", PUMP):
