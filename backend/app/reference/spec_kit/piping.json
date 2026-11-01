@@ -1,0 +1,168 @@
+{
+ "discipline": "piping",
+ "label": "DRAFT - an engineer approves each item before it is relied on",
+ "title": "Piping specification",
+ "identify": [
+  "piping",
+  "pipeline",
+  "pipe class",
+  "line class"
+ ],
+ "items": [
+  {
+   "id": "line_class",
+   "topic": "Line classes covered",
+   "terms": [
+    [
+     "line class"
+    ],
+    [
+     "piping class"
+    ],
+    [
+     "pipe class"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-L-105",
+    "clause": "2",
+    "page": 6
+   }
+  },
+  {
+   "id": "design_limits",
+   "topic": "Pressure and temperature limits of each line class",
+   "terms": [
+    [
+     "pressure",
+     "temperature",
+     "limit"
+    ],
+    [
+     "pressure rating"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-L-105",
+    "clause": "24.1",
+    "page": 255
+   }
+  },
+  {
+   "id": "corrosion_allowance",
+   "topic": "Corrosion allowance",
+   "terms": [
+    [
+     "corrosion allowance"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-L-105",
+    "clause": "6.1.3",
+    "page": 12
+   }
+  },
+  {
+   "id": "wall_thickness",
+   "topic": "Wall thickness and schedule calculation",
+   "terms": [
+    [
+     "wall thickness"
+    ],
+    [
+     "schedule"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-L-105",
+    "clause": "6.1.3",
+    "page": 12
+   }
+  },
+  {
+   "id": "pwht",
+   "topic": "Post-weld heat treatment",
+   "terms": [
+    [
+     "postweld"
+    ],
+    [
+     "post weld"
+    ],
+    [
+     "pwht"
+    ],
+    [
+     "stress relief"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-L-105",
+    "clause": "7.1.6",
+    "page": 13
+   }
+  },
+  {
+   "id": "design_code",
+   "topic": "Piping design code and edition",
+   "terms": [
+    [
+     "b31"
+    ],
+    [
+     "design code"
+    ]
+   ],
+   "draft_reason": "SAES-L-105 names codes by line class (p255) but the clause that requires a specification to state the code edition was not identified. DRAFT."
+  },
+  {
+   "id": "materials",
+   "topic": "Pipe, fitting and valve materials",
+   "terms": [
+    [
+     "material"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "scope",
+   "topic": "Scope and purpose of the specification",
+   "terms": [
+    [
+     "scope"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "documentation",
+   "topic": "Documentation and deliverables the supplier submits",
+   "terms": [
+    [
+     "documentation"
+    ],
+    [
+     "deliverable"
+    ],
+    [
+     "data book"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "inspection_testing",
+   "topic": "Inspection and testing requirements",
+   "terms": [
+    [
+     "inspection"
+    ],
+    [
+     "testing"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  }
+ ]
+}

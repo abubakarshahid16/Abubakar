@@ -30,3 +30,8 @@ class SettingsExt(BaseModel):
     #: completed. Pages read with no datasheet field are NOT failed. OFF: nothing
     #: changes. Env: NOTHING_READ_FAILS_ENABLED.
     nothing_read_fails_enabled: bool = False
+    #: #1479 specification kit (preparation, `spec_kit.py`): a DRAFT must-contain list per
+    #: discipline looked up in a specification's own pages, no model; numeric limits
+    #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
+    #: OFF: nothing changes. Env: SPEC_KIT_ENABLED.
+    spec_kit_enabled: bool = False

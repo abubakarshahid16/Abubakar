@@ -211,6 +211,8 @@ EGRESS_SAFE: dict[str, object] = {
     "clause_review_enabled": False,
     # --- local only, no model or socket: a review that read nothing fails (#1495, off by default)
     "nothing_read_fails_enabled": False,
+    # --- local only, no model or socket: a specification is checked against a must-contain list (#1479, off by default)
+    "spec_kit_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,

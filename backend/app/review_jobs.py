@@ -306,11 +306,12 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 def _checks(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     """The review's optional checks, after the comparison. None fails the review."""
-    from . import clause_review
+    from . import clause_review, spec_kit
 
     _ai_check(run_id, scope, missing)
     _web_check(run_id, scope, missing)
     clause_review.for_review(run_id, scope)
+    spec_kit.for_review(run_id, scope)  # #1479
 
 
 def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:

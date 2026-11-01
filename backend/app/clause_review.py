@@ -585,7 +585,7 @@ def status_of(review_run_id: str) -> dict | None:
 def without_rows(findings: list[dict]) -> list[dict]:
     """The findings with this review's rows left out: they are suggestions for the
     engineer, never counted in a headline (tiers, sheet counts, per-status counts)."""
-    return [f for f in findings if f.get("origin") != ORIGIN]
+    return [f for f in findings if f.get("origin") not in (ORIGIN, "spec_kit")]
 
 
 # ------------------------------------------------------------------- the run
