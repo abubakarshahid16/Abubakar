@@ -19,6 +19,7 @@ into `findings` rows is the integration task's job, not this module's.
 Pre-built and pre-tested by Cowork (9 standalone tests) against the client
 template; delivered on branch cowork/phase-7-crs-export for integration.
 """
+
 import hashlib
 from io import BytesIO
 
@@ -61,6 +62,7 @@ ROW_FILLS = {
     "ai_engineering_check": PatternFill("solid", fgColor="FFEFE8F7"),
     # #1477: a clause review item - the same lavender, a draft until confirmed.
     "clause_review": PatternFill("solid", fgColor="FFEFE8F7"),
+    "spec_kit": PatternFill("solid", fgColor="FFEFE8F7"),
     # Owner order 2c: a datasheet self-check - the pale amber of review work.
     "datasheet_check": PatternFill("solid", fgColor="FFFCF3CF"),
     # Entry 68: an absence on a page only the page reader read - engineer
@@ -73,10 +75,16 @@ ROW_FILLS = {
     # pale green, read as "right unless you say otherwise".
     ROW_KIND_SAFETY_TICK: PatternFill("solid", fgColor="FFE3F2E6"),
 }
-HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
-           "Comment By", "Contractor's Response", "Final Resolution"]
-WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
-          "G": 15.0}
+HEADERS = [
+    "Item No",
+    "Document Name",
+    "Page No./Section",
+    "COMPANY Comments",
+    "Comment By",
+    "Contractor's Response",
+    "Final Resolution",
+]
+WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0, "G": 15.0}
 #: CRS QUICK WINS (2026-09-27, audit crs.md defect 8): the standard and
 #: clause a comment rests on, in a column of their own, after the client's
 #: seven (none of which moves or is renamed). Page No./Section is the
@@ -151,7 +159,11 @@ COPY_INTERNAL = "internal"
 COPY_ISSUE = "issue"
 COPIES = (COPY_INTERNAL, COPY_ISSUE)
 #: The file name says which copy it is.
-COPY_FILE_SUFFIX = {COPY_INTERNAL: "internal-review-copy", COPY_ISSUE: "issue-to-contractor"}
+COPY_FILE_SUFFIX = {
+    COPY_INTERNAL: "internal-review-copy",
+    COPY_ISSUE: "issue-to-contractor",
+}
+
 
 def default_company() -> str:
     """Printed on row 1 when the caller names no company.
@@ -161,7 +173,9 @@ def default_company() -> str:
     git. Empty when unset, and empty prints nothing rather than a guess about
     who issued the sheet."""
     from .config import settings
+
     return settings.crs_company_name or ""
+
 
 #: Row 2, and not a caller's to change: this IS what the document is.
 SUBTITLE = "COMMENT RESOLUTION SHEET"
@@ -213,8 +227,10 @@ ISSUED_CODE_LABEL = "Review Code:"
 #: B10: printed under the code, so a CRS never passes off the AI's
 #: recommendation as an engineer's decision.
 CODE_DECIDED_BY_ENGINEER = "Decided by the reviewing engineer."
-CODE_NOT_YET_DECIDED = ("AI recommendation - NOT yet decided by an engineer. "
-                        "An engineer must record the final code before issue.")
+CODE_NOT_YET_DECIDED = (
+    "AI recommendation - NOT yet decided by an engineer. "
+    "An engineer must record the final code before issue."
+)
 
 #: The columns filled after issue. Carried as empty strings rather than left
 #: out, because the sheet has seven columns whether or not anyone has
@@ -229,14 +245,18 @@ CONTRACTOR_COLUMNS = ("contractor_response", "final_resolution")
 #: The tip shown on each Contractor's Response cell (Excel limits: title 32,
 #: prompt 255 characters).
 RESPONSE_PROMPT_TITLE = "Start with a response code"
-RESPONSE_PROMPT = ("Begin your reply with one of: Accepted / Accepted with comment / "
-                   "Rejected / Clarification needed. Then your explanation, e.g. "
-                   "\"Rejected - the rating on p.4 is per the vendor's standard.\"")
+RESPONSE_PROMPT = (
+    "Begin your reply with one of: Accepted / Accepted with comment / "
+    "Rejected / Clarification needed. Then your explanation, e.g. "
+    '"Rejected - the rating on p.4 is per the vendor\'s standard."'
+)
 
 
 def crs_numbers_open() -> str:
     from .crs_numbers import OPEN
+
     return OPEN
+
 
 #: Prefix of the per-row system-generated number the client asked for, and
 #: the label it prints under. "Ref:" reads as what it is - a handle to quote
@@ -277,17 +297,18 @@ def row_reference(review_run_id: str, finding: dict, salt: int = 0) -> str:
     `salt` exists only for the collision loop in `build_crs_view`; callers
     leave it alone.
     """
-    key = "\x1f".join((
-        str(review_run_id or ""),
-        str(finding.get("finding_id") or ""),
-        str(finding.get("document_name") or ""),
-        str(finding.get("page_section") or ""),
-        str(finding.get("comment") or ""),
-        str(salt) if salt else "",
-    ))
+    key = "\x1f".join(
+        (
+            str(review_run_id or ""),
+            str(finding.get("finding_id") or ""),
+            str(finding.get("document_name") or ""),
+            str(finding.get("page_section") or ""),
+            str(finding.get("comment") or ""),
+            str(salt) if salt else "",
+        )
+    )
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return ROW_REF_PREFIX + digest[:ROW_REF_DIGITS].upper()
-
 
 
 def _ai_column(finding: dict, copy: str) -> str:
@@ -393,11 +414,14 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # It is the engineer's comment: issued with its words, or COUNTED
         # below when it has none - never dropped unseen. The draft itself is
         # not printed on this copy (`_ai_column`).
-        findings = [f for f in findings
-                    if f.get("engineer_confirmed") is True
-                    # rule_trust: a safety tick is the engineer's own check,
-                    # never a comment to the contractor - ticked or not.
-                    and f.get("row_kind") != ROW_KIND_SAFETY_TICK]
+        findings = [
+            f
+            for f in findings
+            if f.get("engineer_confirmed") is True
+            # rule_trust: a safety tick is the engineer's own check,
+            # never a comment to the contractor - ticked or not.
+            and f.get("row_kind") != ROW_KIND_SAFETY_TICK
+        ]
         withheld_no_text = sum(1 for f in findings if _no_issuable_text(f))
         findings = [f for f in findings if not _no_issuable_text(f)]
 
@@ -438,44 +462,57 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # two different IDs on one comment is exactly what a contractor
         # quoting it back cannot resolve.
         crs_ref = str(finding.get("crs_ref") or "")
-        rows.append({
-            "item_no": crs_ref or n,
-            "row_ref": ref,
-            "crs_ref": crs_ref,
-            "document_name": finding.get("document_name", ""),
-            "page_section": finding.get("page_section", ""),
-            # The reference is the comment's FIRST LINE rather than an eighth
-            # column: the client's template has seven columns, and widening it
-            # without their sign-off is what the project's own audits warned
-            # against. Same shape as the Requirement/Submitted/Equipment lines
-            # `crs_mapping._comment_text` already writes.
-            "comment": (comment if crs_ref or copy == COPY_INTERNAL else
-                        f"{ROW_REF_LABEL}: {ref}" + (f"\n{comment}" if comment else "")),
-            "comment_by": finding.get("comment_by", ""),
-            # The contractor's reply, as imported or recorded
-            # (`crs_numbers.response_cell`) - empty until they answer.
-            "contractor_response": (str(finding.get("crs_response") or "")
-                                    if crs_ref else ""),
-            # THE COMPANY'S COLUMN, NOT THE CONTRACTOR'S: only the reviewer
-            # closes a comment. "Open" from the moment it is numbered, then
-            # "Closed" (with the reviewer's note, if any).
-            "final_resolution": (str(finding.get("crs_status") or crs_numbers_open())
-                                 if crs_ref else ""),
-            # NEVER PRINTED - read by `build_crs` alone to pick a row's fill.
-            # Carried through the view (not read straight off `findings` by
-            # the renderer) so the preview route and the workbook agree on
-            # what kind a row is, same as every other field here.
-            "row_kind": finding.get("row_kind", ""),
-            "standard_reference": str(finding.get("standard_reference") or ""),
-            "severity": str(finding.get("severity") or ""),
-            "ai_review_comment": _ai_column(finding, copy),
-            # R30: internal copy only, like the AI column.
-            "reasoning": (str(finding.get("reasoning") or "")
-                          if copy == COPY_INTERNAL else ""),
-            # rule_trust (#947): internal copy only, like the two above.
-            "rule_trust": (str(finding.get("rule_trust") or "")
-                           if copy == COPY_INTERNAL else ""),
-        })
+        rows.append(
+            {
+                "item_no": crs_ref or n,
+                "row_ref": ref,
+                "crs_ref": crs_ref,
+                "document_name": finding.get("document_name", ""),
+                "page_section": finding.get("page_section", ""),
+                # The reference is the comment's FIRST LINE rather than an eighth
+                # column: the client's template has seven columns, and widening it
+                # without their sign-off is what the project's own audits warned
+                # against. Same shape as the Requirement/Submitted/Equipment lines
+                # `crs_mapping._comment_text` already writes.
+                "comment": (
+                    comment
+                    if crs_ref or copy == COPY_INTERNAL
+                    else f"{ROW_REF_LABEL}: {ref}" + (f"\n{comment}" if comment else "")
+                ),
+                "comment_by": finding.get("comment_by", ""),
+                # The contractor's reply, as imported or recorded
+                # (`crs_numbers.response_cell`) - empty until they answer.
+                "contractor_response": (
+                    str(finding.get("crs_response") or "") if crs_ref else ""
+                ),
+                # THE COMPANY'S COLUMN, NOT THE CONTRACTOR'S: only the reviewer
+                # closes a comment. "Open" from the moment it is numbered, then
+                # "Closed" (with the reviewer's note, if any).
+                "final_resolution": (
+                    str(finding.get("crs_status") or crs_numbers_open())
+                    if crs_ref
+                    else ""
+                ),
+                # NEVER PRINTED - read by `build_crs` alone to pick a row's fill.
+                # Carried through the view (not read straight off `findings` by
+                # the renderer) so the preview route and the workbook agree on
+                # what kind a row is, same as every other field here.
+                "row_kind": finding.get("row_kind", ""),
+                "standard_reference": str(finding.get("standard_reference") or ""),
+                "severity": str(finding.get("severity") or ""),
+                "ai_review_comment": _ai_column(finding, copy),
+                # R30: internal copy only, like the AI column.
+                "reasoning": (
+                    str(finding.get("reasoning") or "") if copy == COPY_INTERNAL else ""
+                ),
+                # rule_trust (#947): internal copy only, like the two above.
+                "rule_trust": (
+                    str(finding.get("rule_trust") or "")
+                    if copy == COPY_INTERNAL
+                    else ""
+                ),
+            }
+        )
         # Order 139 part 2: the row's rank and this copy's word for it (spec
         # f), and whether the caller sent no comment text (spec e; internal
         # copy only - the issue copy never carries such a row).
@@ -489,11 +526,15 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         "subtitle": SUBTITLE,
         # A missing value renders as NOTHING, never as "None": a CRS carrying
         # a plausible-looking transmittal number lies about its own provenance.
-        "header": [{"label": label, "value": meta.get(key, "") or ""}
-                   for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS) + [STANDARD_COLUMN, PRIORITY_COLUMN]
-                   + ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]
-                      if copy == COPY_INTERNAL else []),
+        "header": [
+            {"label": label, "value": meta.get(key, "") or ""}
+            for label, key in HEADER_FIELDS
+        ],
+        "columns": list(HEADERS)
+        + [STANDARD_COLUMN, PRIORITY_COLUMN]
+        + (
+            [AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN] if copy == COPY_INTERNAL else []
+        ),
         "crs_copy": copy,
         "rows": rows,
         # Spec e: rows left off THIS copy because they had no comment text
@@ -506,34 +547,51 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # are not in your library ... a review code can't be suggested yet"
         # and an engineer's override note are internal. The code and who
         # decided it are what the contractor receives.
-        "recommended_code_label": (ISSUED_CODE_LABEL if copy == COPY_ISSUE
-                                   else RECOMMENDED_CODE_LABEL),
-        "recommended_code_reason": ("" if copy == COPY_ISSUE
-                                    else meta.get("recommended_code_reason") or ""),
+        "recommended_code_label": (
+            ISSUED_CODE_LABEL if copy == COPY_ISSUE else RECOMMENDED_CODE_LABEL
+        ),
+        "recommended_code_reason": (
+            "" if copy == COPY_ISSUE else meta.get("recommended_code_reason") or ""
+        ),
         "recommended_code_status": meta.get("recommended_code_status") or "",
         # #633: A SHEET THAT COULD NOT CHECK EVERYTHING SAYS SO ON ITSELF, in both
         # copies. The count and the notice go to the contractor too; the
         # internal copy also lists each part.
         "incomplete_notice": meta.get("incomplete_notice") or "",
-        "unchecked_parts": ([str(p) for p in (meta.get("unchecked_parts") or [])]
-                            if copy == COPY_INTERNAL else []),
+        "unchecked_parts": (
+            [str(p) for p in (meta.get("unchecked_parts") or [])]
+            if copy == COPY_INTERNAL
+            else []
+        ),
         # B5: WHICH STANDARDS THE REVIEW APPLIED, AND WHY - each with its
         # method, reason and evidence, plus the ones considered and not
         # included and the cited ones not held (MISSING_LOCALLY). Drawn on a
         # sheet of its own so the client's seven-column comment sheet is
         # unchanged.
         "applicable_standards": [
-            {"standard": str(s.get("standard") or ""),
-             "status": str(s.get("status") or ""),
-             "method": str(s.get("method") or ""),
-             "reason": str(s.get("reason") or ""),
-             "evidence": str(s.get("evidence") or "")}
-            for s in (meta.get("applicable_standards") or [])],
+            {
+                "standard": str(s.get("standard") or ""),
+                "status": str(s.get("status") or ""),
+                "method": str(s.get("method") or ""),
+                "reason": str(s.get("reason") or ""),
+                "evidence": str(s.get("evidence") or ""),
+            }
+            for s in (meta.get("applicable_standards") or [])
+        ],
         # 2f: internal notes, internal copy only.
-        "review_notes": ([
-            {"note": str(n.get("note") or ""), "standard": str(n.get("standard") or ""),
-             "count": n.get("count"), "detail": str(n.get("detail") or "")}
-            for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
+        "review_notes": (
+            [
+                {
+                    "note": str(n.get("note") or ""),
+                    "standard": str(n.get("standard") or ""),
+                    "count": n.get("count"),
+                    "detail": str(n.get("detail") or ""),
+                }
+                for n in (meta.get("review_notes") or [])
+            ]
+            if copy == COPY_INTERNAL
+            else []
+        ),
     }
 
 
@@ -606,13 +664,23 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         cell = _write(ws, row, col, value)
         cell.font = Font(name=ARIAL, bold=bold, size=size)
         cell.alignment = Alignment(
-            horizontal="center" if center else "left",
-            vertical="top", wrap_text=wrap)
+            horizontal="center" if center else "left", vertical="top", wrap_text=wrap
+        )
         return cell
 
     # Header block, rows 1-7, merges as measured from the template.
-    ws.merge_cells("A1:G1")  # #633 item 7: an incomplete run is said on row 1, above the company
-    put(1, 1, "\n".join(p for p in (view["run_status_note"], view["title"]) if p), bold=True, size=12, center=True, wrap=True)
+    ws.merge_cells(
+        "A1:G1"
+    )  # #633 item 7: an incomplete run is said on row 1, above the company
+    put(
+        1,
+        1,
+        "\n".join(p for p in (view["run_status_note"], view["title"]) if p),
+        bold=True,
+        size=12,
+        center=True,
+        wrap=True,
+    )
     ws.row_dimensions[1].height = 75 if view["run_status_note"] else 30
     ws.merge_cells("A2:G2")
     put(2, 1, view["subtitle"], bold=True, size=12, center=True)
@@ -625,8 +693,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
 
     # Column headers, directly under the header block.
     for i, header in enumerate(view["columns"], start=1):
-        put(COLUMN_HEADER_ROW, i, header,
-            bold=True, center=True, wrap=True).border = BOX
+        put(
+            COLUMN_HEADER_ROW, i, header, bold=True, center=True, wrap=True
+        ).border = BOX
 
     # Data rows, from the row after the column headers.
     # The sheet row is the entry's POSITION, never its Item No: a permanent
@@ -635,21 +704,36 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     for position, entry in enumerate(view["rows"], start=1):
         row = COLUMN_HEADER_ROW + position
         comment = entry["comment"]
-        values = [entry["item_no"], entry["document_name"],
-                  entry["page_section"], comment, entry["comment_by"],
-                  entry["contractor_response"], entry["final_resolution"],
-                  entry["standard_reference"], entry.get("priority_label", "")]
+        values = [
+            entry["item_no"],
+            entry["document_name"],
+            entry["page_section"],
+            comment,
+            entry["comment_by"],
+            entry["contractor_response"],
+            entry["final_resolution"],
+            entry["standard_reference"],
+            entry.get("priority_label", ""),
+        ]
         if internal:
-            values.extend([entry["ai_review_comment"], entry["reasoning"],
-                           entry.get("rule_trust", "")])
+            values.extend(
+                [
+                    entry["ai_review_comment"],
+                    entry["reasoning"],
+                    entry.get("rule_trust", ""),
+                ]
+            )
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9)))
+            cell = put(
+                row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9))
+            )
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill
         ws.row_dimensions[row].height = max(
-            15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
+            15, 13 * (comment.count("\n") + len(comment) // 90 + 1)
+        )
 
     # THE REPLY CONVENTION, ON THE SHEET ITSELF. A tip on every Contractor's
     # Response cell asks for one of the four response codes first, which is
@@ -658,10 +742,17 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     # code imports with no code rather than being refused or guessed.
     if view["rows"]:
         from openpyxl.worksheet.datavalidation import DataValidation
-        tip = DataValidation(type="textLength", operator="greaterThanOrEqual",
-                             formula1="0", allow_blank=True, showErrorMessage=False,
-                             showInputMessage=True, promptTitle=RESPONSE_PROMPT_TITLE,
-                             prompt=RESPONSE_PROMPT)
+
+        tip = DataValidation(
+            type="textLength",
+            operator="greaterThanOrEqual",
+            formula1="0",
+            allow_blank=True,
+            showErrorMessage=False,
+            showInputMessage=True,
+            promptTitle=RESPONSE_PROMPT_TITLE,
+            prompt=RESPONSE_PROMPT,
+        )
         first = COLUMN_HEADER_ROW + 1
         tip.add(f"F{first}:F{COLUMN_HEADER_ROW + len(view['rows'])}")
         ws.add_data_validation(tip)
@@ -674,25 +765,26 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     # the code, so a reader sees it before anything that reads as a result.
     if view["incomplete_notice"]:
         notice_row = COLUMN_HEADER_ROW + len(view["rows"]) + 1
-        ws.merge_cells(start_row=notice_row, start_column=1, end_row=notice_row,
-                       end_column=7)
+        ws.merge_cells(
+            start_row=notice_row, start_column=1, end_row=notice_row, end_column=7
+        )
         put(notice_row, 1, view["incomplete_notice"], bold=True, wrap=True)
         ws.row_dimensions[notice_row].height = 30
     code = view["recommended_code"]
     if code:
         row = COLUMN_HEADER_ROW + len(view["rows"]) + 2
-        ws.merge_cells(start_row=row, start_column=1, end_row=row,
-                       end_column=2)
-        ws.merge_cells(start_row=row, start_column=3, end_row=row,
-                       end_column=7)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+        ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=7)
         put(row, 1, view["recommended_code_label"], bold=True)
         reason = view["recommended_code_reason"]
-        put(row, 3, f"{code}" + (f" - {reason}" if reason else ""),
-            bold=True, wrap=True)
+        put(
+            row, 3, f"{code}" + (f" - {reason}" if reason else ""), bold=True, wrap=True
+        )
         ws.row_dimensions[row].height = max(15, 13 * (len(reason) // 90 + 1))
         if view["recommended_code_status"]:
-            ws.merge_cells(start_row=row + 1, start_column=3, end_row=row + 1,
-                           end_column=7)
+            ws.merge_cells(
+                start_row=row + 1, start_column=3, end_row=row + 1, end_column=7
+            )
             put(row + 1, 3, view["recommended_code_status"], wrap=True)
 
     # B5: the applied standards and their reasons, on their own sheet.
@@ -701,10 +793,12 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         cell = _write(standards_sheet, 1, col, header)
         cell.font = Font(bold=True)
     for r, entry in enumerate(view["applicable_standards"], start=2):
-        for col, key in enumerate(("standard", "status", "method", "reason", "evidence"),
-                                  start=1):
-            _write(standards_sheet, r, col, entry[key]).alignment = \
-                Alignment(wrap_text=True, vertical="top")
+        for col, key in enumerate(
+            ("standard", "status", "method", "reason", "evidence"), start=1
+        ):
+            _write(standards_sheet, r, col, entry[key]).alignment = Alignment(
+                wrap_text=True, vertical="top"
+            )
     for col, width in zip("ABCDE", (38, 22, 16, 70, 60)):
         standards_sheet.column_dimensions[col].width = width
 
@@ -715,8 +809,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
             _write(notes_sheet, 1, col, header).font = Font(bold=True)
         for r, entry in enumerate(view["review_notes"], start=2):
             for col, key in enumerate(("note", "standard", "count", "detail"), start=1):
-                _write(notes_sheet, r, col, entry[key]).alignment = \
-                    Alignment(wrap_text=True, vertical="top")
+                _write(notes_sheet, r, col, entry[key]).alignment = Alignment(
+                    wrap_text=True, vertical="top"
+                )
         for col, width in zip("ABCD", (44, 30, 8, 90)):
             notes_sheet.column_dimensions[col].width = width
 

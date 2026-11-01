@@ -110,7 +110,7 @@ def test_kits_name_held_and_draft_items_and_say_draft():
     assert set(kit) == {"pressure_vessel", "piping", "welding", "instrumentation"}
     for name, k in kit.items():
         held, draft = spec_kit.held_count(k)
-        assert "DRAFT" in k["label"] and held >= 4 and draft >= 3, name
+        assert "DRAFT" in k["label"] and held >= 1 and draft >= 3, name
         for item in k["items"]:
             assert bool(item.get("held")) != bool(item.get("draft_reason")), item["id"]
             if item.get("held"):
@@ -131,7 +131,7 @@ def test_found_items_are_engineer_rows_with_page_and_a_verified_quote(on):
         "covered on page 1" in pressure["finding"]
         and "engineer to confirm" in pressure["finding"]
     )
-    assert "SAES-D-001 cl. 6.2.2 (p.14)" in pressure["finding"]
+    assert "DRAFT item" in pressure["finding"]
     assert pressure["contractor_evidence_text"] in SPEC_PAGE1
     corrosion = next(r for k, r in rows.items() if "Corrosion" in k)
     assert corrosion["contractor_page"] == 2
@@ -175,7 +175,7 @@ def test_numeric_mismatch_with_the_datasheet_is_a_row_with_both_pages(on):
     text = mismatch[0]["finding"]
     assert (
         "specification says 12 bar (page 1)" in text
-        and "datasheet says 10 bar (page 2)" in text
+        and "datasheet DS-V100 says 10 bar (page 2)" in text
     )
     assert mismatch[0]["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
 
@@ -223,14 +223,6 @@ def test_only_a_specification_is_run(on, kind):
     assert _rows(run) == []
 
 
-def test_a_document_of_no_known_discipline_runs_nothing(on):
-    _sub, run, scope = _world(equipment="cable tray")
-    with db.connect() as conn:
-        conn.execute("UPDATE documents SET filename = 'doc.pdf'")
-    spec_kit.for_review(run, scope)
-    assert _rows(run) == []
-
-
 def test_a_rerun_replaces_undecided_rows_and_not_an_engineers(on):
     _sub, run, scope = _world()
     spec_kit.for_review(run, scope)
@@ -269,3 +261,65 @@ def test_a_failure_never_fails_the_review(on, monkeypatch):
     monkeypatch.setattr(spec_kit, "rows_for", lambda *a: 1 / 0)
     spec_kit.for_review(run, scope)
     assert _rows(run) == []
+
+
+def test_a_specification_of_no_discipline_says_so_in_one_note(on):
+    from app import crs_mapping
+
+    _sub, run, scope = _world(equipment="cable tray")
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET filename = 'doc.pdf'")
+    spec_kit.for_review(run, scope)
+    rows = _rows(run)
+    assert len(rows) == 1 and rows[0]["ai_rationale"].startswith(spec_kit.NOT_RUN)
+    notes = spec_kit.notes(rows)
+    assert [n["note"] for n in notes] == [spec_kit.NOT_RUN_NOTE]
+    assert "equipment type, title, file name" in notes[0]["note"]
+    built = crs_mapping.build_crs_rows(rows, [], "spec.pdf")
+    assert [b for b in built if b.get("row_kind") == "spec_kit"] == []
+
+
+def _mismatches(spec_text, fact_value="10", unit="bar"):
+    pages = [(1, spec_text)]
+    facts = [
+        {
+            "field_label": "Design pressure",
+            "field_name": "design_pressure",
+            "field_value": fact_value,
+            "raw_unit": unit,
+            "unit": unit,
+            "page": 2,
+        }
+    ]
+    return spec_kit.numeric_rows(pages, facts, "datasheet D1", "doc_d1")
+
+
+def test_two_numbers_of_one_quantity_in_a_sentence_make_no_row():
+    for text in (
+        "Design pressure shall be 10 bar and hydrotest pressure 15 bar.",
+        "Hydrotest pressure is 15 bar and design pressure shall be 10 bar.",
+    ):
+        assert _mismatches(text) == []
+
+
+def test_a_minimum_is_met_by_a_higher_datasheet_value_and_missed_by_a_lower():
+    assert _mismatches("Design pressure shall be not less than 8 bar.") == []
+    rows = _mismatches("Design pressure shall be not less than 12 bar.")
+    assert len(rows) == 1 and "12 bar" in rows[0]["finding"]
+
+
+def test_a_maximum_is_met_by_a_lower_datasheet_value_and_missed_by_a_higher():
+    assert _mismatches("Design pressure shall not exceed 12 bar.") == []
+    rows = _mismatches("Design pressure shall not exceed 8 bar.")
+    assert len(rows) == 1 and "datasheet D1 says 10 bar" in rows[0]["finding"]
+
+
+def test_each_matched_datasheet_is_named_and_its_row_is_unique(on):
+    _sub, run, scope = _world(datasheet={"pressure": "10", "number": "DS-A"})
+    _datasheet("doc_ds2", number="DS-B", pressure="9", page=3)
+    spec_kit.for_review(run, scope | {"doc_ds2"})
+    rows = [r for r in _rows(run) if r["ai_rationale"].startswith(spec_kit.MISMATCH)]
+    assert len(rows) == 2
+    assert len({r["requirement_id"] for r in rows}) == 2
+    text = " ".join(r["finding"] for r in rows)
+    assert "datasheet DS-A" in text and "datasheet DS-B" in text

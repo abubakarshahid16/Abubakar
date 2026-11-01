@@ -46,12 +46,17 @@ KIND = "specification"
 FOUND = "spec_kit_found"
 NOT_FOUND = "spec_kit_not_found"
 MISMATCH = "spec_kit_numeric_mismatch"
-REASON_CODES = (FOUND, NOT_FOUND, MISMATCH)
+NOT_RUN = "spec_kit_not_run"
+REASON_CODES = (FOUND, NOT_FOUND, MISMATCH, NOT_RUN)
 
 MAX_QUOTE = 400
 #: Two values are "the same" within this relative tolerance after unit conversion.
 TOLERANCE = 0.005
 NOTE = "Specification check - not covered by keyword search; engineer to check"
+NOT_RUN_NOTE = (
+    "Specification kit not run: no discipline recognised "
+    "(looked at equipment type, title, file name)"
+)
 
 
 @lru_cache(maxsize=1)
@@ -236,6 +241,7 @@ def numeric_rows(
     pages: list[tuple[int, str]],
     facts: list[dict],
     datasheet_name: str = "the datasheet",
+    sheet_id: str = "",
 ) -> list[dict]:
     """One row per datasheet fact whose label (all its words) a specification sentence also
     carries, with a number of the same quantity that differs. Each side's number is shown as
@@ -256,11 +262,17 @@ def numeric_rows(
                 folded = _fold(part)
                 if not all(w in folded for w in words):
                     continue
-                for m in claims.extract_measurements(part):
-                    if _differs(m, sheet):
-                        hit = (page_no, " ".join(part.split())[:MAX_QUOTE], m)
-                        break
-                if hit:
+                # one number of this quantity in the sentence, or none is taken: with two
+                # (design 10 bar, test 15 bar) nothing says which one the label belongs to
+                same = [
+                    m
+                    for m in claims.extract_measurements(part)
+                    if _differs(m, sheet) is not None
+                ]
+                if len(same) == 1 and _differs(same[0], sheet):
+                    hit = (page_no, " ".join(part.split())[:MAX_QUOTE], same[0])
+                    break
+                if same:
                     break
             if hit:
                 break
@@ -270,7 +282,7 @@ def numeric_rows(
         sheet_says = f"{fact['field_value']} {unit}".strip()
         rows.append(
             {
-                "item": f"numeric:{label}",
+                "item": f"numeric:{label}:{sheet_id}",
                 "requirement": f"The specification and the datasheet state the same {label}.",
                 "finding": (
                     f"{label}: specification says {spec_says} (page {hit[0]}), "
@@ -300,14 +312,41 @@ def applies(document_id: str | None) -> bool:
     )
 
 
+def _name(document_id: str) -> str:
+    """A datasheet is named by its document number, else its id: never text from it."""
+    row = (
+        connect()
+        .execute(
+            "SELECT document_number FROM document_classification WHERE document_id = ?",
+            (document_id,),
+        )
+        .fetchone()
+    )
+    return (row[0] if row and row[0] else "") or document_id
+
+
+def not_run_row() -> dict:
+    return {
+        "item": "not_run",
+        "requirement": "The specification kit ran.",
+        "finding": NOT_RUN_NOTE + "; engineer to check the specification.",
+        "rationale": f"{NOT_RUN}: {NOT_RUN_NOTE}",
+        "page": None,
+        "quote": None,
+        "clause": None,
+    }
+
+
 def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
     kit = identify(document_id)
     if kit is None:
-        return []
+        return [not_run_row()]
     pages = procedure_text.load_pages(document_id)
     out = [item_row(i, pages) for i in kit["items"]]
     for sheet in matching_datasheets(document_id, scope):
-        out.extend(numeric_rows(pages, _facts(sheet)))
+        out.extend(
+            numeric_rows(pages, _facts(sheet), f"datasheet {_name(sheet)}", sheet)
+        )
     return out
 
 
@@ -382,11 +421,21 @@ def is_row(finding: dict) -> bool:
 
 def is_unfound(finding: dict) -> bool:
     """Searched and nothing found: counted in ONE note, not a CRS line each."""
-    return is_row(finding) and _code(finding).startswith(NOT_FOUND)
+    return is_row(finding) and _code(finding).startswith((NOT_FOUND, NOT_RUN))
 
 
 def notes(findings: list[dict]) -> list[dict]:
     """ONE review note per run for the items no passage was found for."""
+    not_run = [f for f in findings if is_row(f) and _code(f).startswith(NOT_RUN)]
+    if not_run:
+        return [
+            {
+                "note": NOT_RUN_NOTE,
+                "standard": "",
+                "count": 1,
+                "detail": NOT_RUN_NOTE + ".",
+            }
+        ]
     rows = [f for f in findings if is_unfound(f)]
     if not rows:
         return []

@@ -60,11 +60,7 @@
      "filler"
     ]
    ],
-   "held": {
-    "standard": "SAES-W-011",
-    "clause": "6.1",
-    "page": 12
-   }
+   "draft_reason": "SAES-W-011 6.1 (p12) is a conformance rule for consumables. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "sour_service_pwht",
@@ -80,11 +76,7 @@
      "pwht"
     ]
    ],
-   "held": {
-    "standard": "SAES-W-011",
-    "clause": "6.6.5",
-    "page": 15
-   }
+   "draft_reason": "SAES-W-011 6.6.5 (p15) is a prohibition for one steel, not a statement to make. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "welder_qualification",

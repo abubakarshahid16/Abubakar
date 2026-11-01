@@ -23,11 +23,7 @@
      "design code"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "6.1.2",
-    "page": 13
-   }
+   "draft_reason": "SAES-D-001 6.1.2 (p13) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "design_pressure",
@@ -37,11 +33,7 @@
      "design pressure"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "6.2.2",
-    "page": 14
-   }
+   "draft_reason": "SAES-D-001 6.2.2 (p14) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "design_temperature",
@@ -51,11 +43,7 @@
      "design temperature"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "6.3.2",
-    "page": 16
-   }
+   "draft_reason": "SAES-D-001 6.3 asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "mdmt",
@@ -68,11 +56,7 @@
      "minimum design metal temperature"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "6.4",
-    "page": 16
-   }
+   "draft_reason": "SAES-D-001 6.4 (p16) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "service",
@@ -91,11 +75,7 @@
      "service description"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "6.5",
-    "page": 16
-   }
+   "draft_reason": "SAES-D-001 6.5 (p16) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "joint_efficiency",
@@ -119,11 +99,7 @@
      "corrosion allowance"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "6.7.1.2",
-    "page": 16
-   }
+   "draft_reason": "SAES-D-001 6.7.1.2 (p16) is a design rule about cladding, not a statement a specification must make. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "wind_seismic",
@@ -138,11 +114,7 @@
      "earthquake"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "6.9.1",
-    "page": 19
-   }
+   "draft_reason": "SAES-D-001 6.9.1 (p19) asks for it on the vessel data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "nozzle_ratings",
@@ -157,11 +129,7 @@
      "rating"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "7.1.1",
-    "page": 23
-   }
+   "draft_reason": "SAES-D-001 7.1.1 (p23) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "hydrostatic_test",
@@ -177,11 +145,7 @@
      "test pressure"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "9.5",
-    "page": 32
-   }
+   "draft_reason": "SAES-D-001 9.5 (p32) is a support design rule for the test load. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "referenced_editions",
@@ -191,11 +155,7 @@
      "edition"
     ]
    ],
-   "held": {
-    "standard": "SAES-D-001",
-    "clause": "3",
-    "page": 7
-   }
+   "draft_reason": "SAES-D-001 cl. 3 (p7) says which edition of the references applies; it does not ask a specification to list them. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "materials",

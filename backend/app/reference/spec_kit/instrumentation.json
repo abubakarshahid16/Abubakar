@@ -26,11 +26,7 @@
      "api 14.3"
     ]
    ],
-   "held": {
-    "standard": "SAES-J-100",
-    "clause": "5.1",
-    "page": 7
-   }
+   "draft_reason": "SAES-J-100 5.1 (p7) is a calculation-method rule. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "wake_frequency",
@@ -97,11 +93,7 @@
      "specification sheet"
     ]
    ],
-   "held": {
-    "standard": "SAES-J-100",
-    "clause": "4.1",
-    "page": 6
-   }
+   "draft_reason": "SAES-J-100 does not ask for a data sheet in the clause first cited; not re-cited. No held clause requires a specification to contain it. DRAFT."
   },
   {
    "id": "process_conditions",
