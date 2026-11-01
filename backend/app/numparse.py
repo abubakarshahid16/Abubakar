@@ -355,16 +355,20 @@ def leading_dot_enabled() -> bool:
     """LEADING_DOT_DECIMAL_ENABLED (#1515, default off); read lazily so this
     module keeps importing nothing from the app at load time."""
     from .config import settings
+
     return bool(settings.leading_dot_decimal_enabled)
 
 
 _NUM_PART = r"[-+]?\d[\d.,\s]*"
 _NUM_PART_LEAD = r"[-+]?(?:\.\d+|\d[\d.,\s]*)"
+_VALUE = re.compile(r"(?P<cmp>[^\d]*?)\s*(?P<num>" + _NUM_PART + ")")
+_VALUE_LEAD = re.compile(r"(?P<cmp>[^\d]*?)\s*(?P<num>" + _NUM_PART_LEAD + ")")
 
 
 @functools.lru_cache(maxsize=8)
 def _leading_dot_pattern(pattern: re.Pattern) -> re.Pattern:
-    return re.compile(pattern.pattern.replace("(?P<value>\\d", "(?P<value>\\.\\d+|\\d", 1))
+    lead = pattern.pattern.replace("(?P<value>\\d", "(?P<value>\\.\\d+|\\d", 1)
+    return re.compile(lead)
 
 
 def with_leading_dot(pattern: re.Pattern) -> re.Pattern:
@@ -402,15 +406,15 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
     for c in MINUS_SIGNS:
         s = s.replace(c, "-")
     lead_on = leading_dot_enabled()
-    m = re.fullmatch(r"(?P<cmp>[^\d]*?)\s*(?P<num>" + (_NUM_PART_LEAD if lead_on else _NUM_PART) + ")", s)
+    m = (_VALUE_LEAD if lead_on else _VALUE).fullmatch(s)
     if not m:
         return None
     if lead_on:
-        glued = s[:m.start("num")]
+        glued = s[: m.start("num")]
         if m.group("num").lstrip("+-").startswith(".") and glued[-1:].isalnum():
-            m = re.fullmatch(r"(?P<cmp>[^\d]*?)\s*(?P<num>" + _NUM_PART + ")", s)    # "p.4": as before
+            m = _VALUE.fullmatch(s)  # "p.4": as before
         elif glued.rstrip().endswith(".") and not glued.rstrip()[-2:-1].isalnum():
-            return None          # ".5.3", "...5": a stranded dot, the text cannot say
+            return None  # ".5.3", "...5": a stranded dot, the text cannot say
         if not m:
             return None
     prefix = s[:m.start("num")]
