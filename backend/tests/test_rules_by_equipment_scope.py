@@ -2,6 +2,7 @@
 kind is left out and counted; unknown scope stays in; switch off changes nothing.
 Invented standards and rules only."""
 
+# ruff: noqa: F811, I001
 from __future__ import annotations
 
 import json
@@ -10,6 +11,7 @@ import pytest
 
 from app import db, equipment_scope, scope_ledger
 from app.config import settings
+from tests.test_partial_standards import temp_storage as review_storage  # noqa: F401
 from tests.test_applicability import _doc, temp_storage  # noqa: F401
 
 LABELS = {
@@ -143,7 +145,7 @@ def test_shipped_table_lists_pump_only_standards():
         ("needs_engineer", False, None),
     ],
 )
-def test_submittal_kind_only_when_decided(temp_storage, state, guess, expected):  # noqa: F811
+def test_submittal_kind_only_when_decided(temp_storage, state, guess, expected):
     _doc("d1", "d.pdf", "CONTRACTOR_SUBMITTAL")
     with db.connect() as conn:
         conn.execute(
@@ -157,14 +159,13 @@ def test_submittal_kind_only_when_decided(temp_storage, state, guess, expected):
 
 # ------------------------------------------- the real review path (wiring in comparison)
 
-from tests.test_partial_standards import temp_storage as review_storage  # noqa: E402,F401
-
 
 def _review(equipment_type, standard_file):
     import uuid
 
     from app import comparison, datasheets, standards
-    from tests.test_partial_standards import NOW, _doc as _pdoc
+    from tests.test_partial_standards import NOW
+    from tests.test_partial_standards import _doc as _pdoc
 
     _pdoc("std", standard_file, "COMPANY_STANDARD")
     _pdoc("sub", "sheet.pdf", "CONTRACTOR_SUBMITTAL", equipment_type=equipment_type)

@@ -161,3 +161,22 @@ def split_part(result: dict | None) -> dict:
     """What the run stores in `requirement_split`; nothing when off."""
     summary = (result or {}).get("summary")
     return {"equipment_scope": summary} if summary else {}
+
+
+def gate_for_run(
+    requirements, stored, facts, submittal_id, standard_labels, not_applied
+):
+    """The review's one call: reads the submittal's equipment and kind, gates
+    `requirements`, appends the left-out items to `not_applied`. Returns
+    (kept, result); result is what `split_part` stores."""
+    equipment = subject_scope.submittal_equipment(
+        stored, facts, subject_scope.vocabulary()
+    )[0]
+    result = gate(
+        requirements,
+        equipment=equipment,
+        kind=submittal_kind(submittal_id),
+        standard_labels=standard_labels,
+    )
+    not_applied.extend(result["items"])
+    return result["kept"], result

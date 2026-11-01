@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import kind_rules, procedure_text
+from . import equipment_scope as eqs, kind_rules, procedure_text
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -2471,19 +2471,10 @@ def _run_comparison(
         partial_standards=applicability_mod.governing_table()["partial_standards"])
     requirements = partial["kept"]
     extra_not_applied.extend(partial["items"])
-    # RULES BY EQUIPMENT SCOPE (switch): a rule for another equipment type or kind is counted, not checked.
-    from . import equipment_scope
-
-    es = equipment_scope.gate(
-        requirements,
-        equipment=subject_scope.submittal_equipment(
-            stored, facts, subject_scope.vocabulary()
-        )[0],
-        kind=equipment_scope.submittal_kind(submittal_id),
-        standard_labels=standard_labels,
+    # RULES BY EQUIPMENT SCOPE (switch): a rule for another equipment type or kind is counted.
+    requirements, es = eqs.gate_for_run(
+        requirements, stored, facts, submittal_id, standard_labels, extra_not_applied
     )
-    requirements = es["kept"]
-    extra_not_applied.extend(es["items"])
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
     # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
     from . import ai_applicability as ai_div
@@ -2508,14 +2499,10 @@ def _run_comparison(
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
-    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this submittal's
-    # equipment type has a review checklist, the library requirements of a standard the checklist CITES
-    # are not checked one by one: the checklist items are. They stay quotable. GUARD: only standards
-    # named in the checklist's own `source.standard` (`checklist_sources`); any other applicable
-    # standard keeps the normal path, and a type with no checklist is unchanged. AFTER the applicability gates
-    # (subject, service and clause conditions, AI): a clause that does not
-    # apply keeps that stronger, reasoned decision; only what still applies -
-    # the kept requirements and the table cells no field answered - is "not used".
+    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this type has a
+    # review checklist, the requirements of a standard the checklist CITES (`source.standard`) are not
+    # checked one by one: its items are. AFTER the applicability gates: a clause that does not apply
+    # keeps that stronger decision; only what still applies is "not used". Other standards unchanged.
     covered_items: list[dict] = []
     checklist_note = None
     from . import checklist_scope
@@ -3026,8 +3013,7 @@ def _run_comparison(
     )
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
-    split = {**split, **kind_rules.split_part(kn, checklist_note)}
-    split = {**split, **equipment_scope.split_part(es)}
+    split = {**split, **kind_rules.split_part(kn, checklist_note), **eqs.split_part(es)}
     if cited_scope["summary"]:  # #139: standards cited only for named clauses
         split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:
