@@ -206,7 +206,8 @@ def test_on_a_set_aside_contents_page_stays_unread_but_is_named(monkeypatch):
     assert cov["pages_read"] == [1, 2, 3]
     assert cov["pages_not_read"] == [4]  # no reader ran: never counted read
     assert cov["pages_not_read_why"] == {
-        "4": "excluded from the index on purpose (rule page_classified_toc)"}
+        "4": "excluded from the index on purpose (rule page_classified_toc)"
+    }
 
 
 def test_off_the_set_aside_key_is_absent(monkeypatch):
@@ -215,17 +216,22 @@ def test_off_the_set_aside_key_is_absent(monkeypatch):
     assert "pages_not_read_why" not in cov
 
 
-def test_the_crs_names_the_unread_page_and_why_and_the_summary_shows_not_read(monkeypatch):
+def test_the_crs_names_the_unread_page_and_why_and_the_summary_shows_not_read(
+    monkeypatch,
+):
     from app import crs_mapping, page_not_read
 
     monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
     cov = page_ledger.coverage(_doc_with_contents_page())
     outcome = {"page_coverage": cov}
-    notes = page_not_read.notes(outcome)
+    notes = crs_mapping.build_review_notes([], [], None, outcome)
     named = [n for n in notes if n["note"] == page_not_read.NOTE_PAGE_NOT_READ]
     assert len(named) == 1 and named[0]["count"] == 1
     assert "Page 4 was not read" in named[0]["detail"]
-    assert "excluded from the index on purpose (rule page_classified_toc)" in named[0]["detail"]
+    assert (
+        "excluded from the index on purpose (rule page_classified_toc)"
+        in named[0]["detail"]
+    )
     # the engineer's run summary lists it as not read, with the same words
     assert page_ledger.run_unread_pages(cov) == [4]
     assert page_ledger.run_unread_reasons(cov) == cov["pages_not_read_why"]
@@ -234,13 +240,19 @@ def test_the_crs_names_the_unread_page_and_why_and_the_summary_shows_not_read(mo
 
 
 def test_unread_page_words_blank_image_and_a_plain_failure():
-    base = {"index_status": "retrievable", "index_reason": None, "native_status": "text",
-            "ocr_status": "not_required", "facts_reason": None}
+    base = {
+        "index_status": "retrievable",
+        "index_reason": None,
+        "native_status": "text",
+        "ocr_status": "not_required",
+        "facts_reason": None,
+    }
     from app import page_not_read
 
     w = page_not_read.unread_page_words
     assert w({**base, "native_status": "empty"}) == "blank page"
     assert w({**base, "native_status": "needs_ocr", "ocr_status": "pending"}) == (
-        "image with no reading")
+        "image with no reading"
+    )
     # content that simply failed is not excused by any of the three kinds
     assert w({**base, "facts_reason": "the model failed"}) == "the model failed"

@@ -25,7 +25,7 @@ Ids, counts and reasons only; never clause text.
 from __future__ import annotations
 
 from .db import connect
-from . import recommendations, scope_ledger
+from . import page_not_read, recommendations, scope_ledger
 
 CHECKED, ENGINEER, NOT_CHECKED, CHECKLIST, DOES_NOT_APPLY = (
     "checked", "engineer", "not_checked", "covered_by_checklist", "does_not_apply")
@@ -160,6 +160,7 @@ def outcome_notes(outcome: dict, findings: list[dict]) -> list[dict]:
         from .rule_trust import review_notes as trust_notes
         notes.extend(trust_notes(outcome, findings))
     notes.extend(review_notes(outcome))
+    notes.extend(page_not_read.notes(outcome))  # #1473
     return notes
 
 

@@ -20,7 +20,10 @@ def unread_page_words(row: dict) -> str:
         return f"excluded from the index on purpose (rule {reason.split(',')[0]})"
     if row["native_status"] == "empty":
         return BLANK_PAGE
-    if row["native_status"] == "needs_ocr" or row["ocr_status"] in ("pending", "failed"):
+    if row["native_status"] == "needs_ocr" or row["ocr_status"] in (
+        "pending",
+        "failed",
+    ):
         return IMAGE_NO_READING
     return str(row["facts_reason"] or "no reading came back for this page")
 
@@ -39,4 +42,11 @@ def notes(outcome: dict | None) -> list[dict]:
         + "; ".join(f"page {p}: {why[p]}" for p in order)
         + "."
     )
-    return [{"note": NOTE_PAGE_NOT_READ, "standard": "", "count": len(order), "detail": detail}]
+    return [
+        {
+            "note": NOTE_PAGE_NOT_READ,
+            "standard": "",
+            "count": len(order),
+            "detail": detail,
+        }
+    ]
