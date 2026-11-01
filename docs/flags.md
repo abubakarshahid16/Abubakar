@@ -57,6 +57,7 @@ does not make one.
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `one_intake_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | One intake layer: PDF, Word, Excel (a page per sheet) and images read into one page shape, every unread page or refused file states its reason (#525 part 1) |
+| `intake_images_xlsx_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | With `one_intake_enabled`: upload accepts PNG / JPEG / TIFF (OCR'd like a scanned page) and indexes .xlsx sheets with a sheet + cell-range citation (#525 slice 2) |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |
 | `onnx_cpu_arena_rerank` | `True` | permanent | | | Machine-specific memory tuning |
 | `onnx_cpu_arena_embed` | `False` | permanent | | | Machine-specific memory tuning |

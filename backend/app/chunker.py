@@ -2872,6 +2872,12 @@ def chunk_provenance(page_start: int, page_end: int, recognised: set[int],
     return ("recognised", min(scores) if scores else None, n, sample or None)
 
 
+def _is_indexed_workbook(doc) -> bool:
+    from . import sheet_chunks, stored_paths
+
+    return sheet_chunks.applies(stored_paths.local(doc["stored_path"]))
+
+
 def chunk_document(doc_id: str, force: bool = False,
                    acknowledge_orphaned_findings: bool = False) -> dict:
     """Chunk one extracted document. Idempotent - re-running replaces rows.
@@ -2908,7 +2914,10 @@ def chunk_document(doc_id: str, force: bool = False,
     # clause-number headings) is applied to it: its chunks are built from the
     # structure by `docx_chunks`. Everything after chunking is shared.
     flow = "pagination" in doc.keys() and doc["pagination"] == "flow"
-    page_kinds = ({pno: "prose" for pno, _ in pages} if flow
+    # #525 slice 2 (switch on): a workbook is chunked by `sheet_chunks`, each
+    # chunk cited by sheet and cell range; no PDF heuristic touches it either.
+    sheet = not flow and _is_indexed_workbook(doc)
+    page_kinds = ({pno: "prose" for pno, _ in pages} if flow or sheet
                   else classify_document_pages(pages, total_pages))
     signature = _chunk_signature(doc["sha256"], pages, raw_tables)
     existing = conn.execute(
@@ -2947,6 +2956,11 @@ def chunk_document(doc_id: str, force: bool = False,
 
         running, removed = set(), 0
         chunks = docx_chunks.build_chunks(docx_reader.read_structure(stored_paths.local(doc["stored_path"])))
+    elif sheet:
+        from . import sheet_chunks, stored_paths
+
+        running, removed = set(), 0
+        chunks = sheet_chunks.build_chunks(stored_paths.local(doc["stored_path"]))
     else:
         running = detect_running_lines(pages)
         # Ruled tables replace their own lines with one structured stand-in
