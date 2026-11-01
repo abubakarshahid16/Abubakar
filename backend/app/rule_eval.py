@@ -229,7 +229,7 @@ def _parse_expr(expr: str, symbols: list[str]) -> dict | None:
         return None
     terms = []
     for part in parts:
-        m = (_TERM_LEAD if numparse.leading_dot_enabled() else _TERM).match(part.strip())
+        m = numparse.lead_or(_TERM, _TERM_LEAD).match(part.strip())
         if not m:
             return None
         sym = " ".join(m.group("sym").split()).lower()
@@ -260,7 +260,7 @@ def _parse_rule(text: str, *, output: str, input_names: list[str], comparator: s
         line = " ".join(line.split())
         if not line:
             continue
-        m = (_BOUND_LEAD if numparse.leading_dot_enabled() else _BOUND).match(line)
+        m = numparse.lead_or(_BOUND, _BOUND_LEAD).match(line)
         if not m:
             continue
         rest = line[m.end():].lstrip(" |:-–")

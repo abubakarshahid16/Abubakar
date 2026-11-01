@@ -28,7 +28,9 @@ def _rows():
 
 
 def _figures(text):
-    return [(f["value"], f["sign"], f["unit"]) for f in answer._figure_occurrences(text)]
+    return [
+        (f["value"], f["sign"], f["unit"]) for f in answer._figure_occurrences(text)
+    ]
 
 
 def test_off_the_datasheet_reader_drops_a_leading_dot_value(off):
@@ -65,12 +67,16 @@ def test_off_a_rule_table_loses_the_leading_dot_rows(off):
 
 def test_on_a_rule_table_reads_the_leading_dot_bounds(on):
     assert _rows() == [(None, 0.5), (0.5, 3.0), (3.0, None)]
-    term = rule_eval.parse_rule(TABLE, output="x", input_names=["mop"])["rows"][0]["terms"][0]
+    term = rule_eval.parse_rule(TABLE, output="x", input_names=["mop"])["rows"][0][
+        "terms"
+    ][0]
     assert term == {"k": 1.0, "c": 0.5}
 
 
 def test_on_a_rule_table_stranded_dot_is_no_bound(on):
-    rule = rule_eval.parse_rule("Up to .5.3 mm | MOP\nOver 3 mm | 2 x MOP", output="x", input_names=["mop"])
+    rule = rule_eval.parse_rule(
+        "Up to .5.3 mm | MOP\nOver 3 mm | 2 x MOP", output="x", input_names=["mop"]
+    )
     assert [(r["from"], r["to"]) for r in rule["rows"]] == [(3.0, None)]
 
 
@@ -92,4 +98,7 @@ def test_off_a_second_leading_dot_quantity_is_not_seen(off):
 
 def test_on_a_second_leading_dot_quantity_is_a_second_claim(on):
     assert requirements_3b.parse_nominal(CLAUSE) is None
-    assert requirements_3b.parse_nominal("The supply shall be 24 V DC.")["raw_value"] == "24"
+    assert (
+        requirements_3b.parse_nominal("The supply shall be 24 V DC.")["raw_value"]
+        == "24"
+    )
