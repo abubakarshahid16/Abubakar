@@ -603,6 +603,18 @@ def rows(document_id: str) -> list[dict]:
     ]
 
 
+def _pages_dropped_with_content(document_id: str) -> set[int]:
+    """Pages a page rule set aside although the chunker saw clause text on them."""
+    out: set[int] = set()
+    for e in connect().execute(
+        "SELECT page_start, page_end FROM exclusions WHERE document_id = ?"
+        " AND scope = 'page' AND clause_headings > 0 AND page_start IS NOT NULL",
+        (document_id,),
+    ):
+        out.update(range(e["page_start"], (e["page_end"] or e["page_start"]) + 1))
+    return out
+
+
 def coverage(document_id: str) -> dict:
     """The per-document summary a review states, WITH ITS DENOMINATOR.
 
@@ -640,13 +652,16 @@ def coverage(document_id: str) -> dict:
     by_reading: dict = {}
     if settings.page_read_by_reading_enabled:
         # #1473: "read" (a reading came back) apart from "fields found".
+        dropped = _pages_dropped_with_content(document_id)
         by_reading = {
             "pages_read": [r["page_no"] for r in ledger if page_has_reading(r)],
             "pages_not_read": [r["page_no"] for r in ledger if not page_has_reading(r)],
             # Why each unread page is unread, in plain words (owner rule on
             # #1473): the page stays NOT READ, it is only named.
             "pages_not_read_why": {
-                str(r["page_no"]): page_not_read.unread_page_words(r)
+                str(r["page_no"]): page_not_read.unread_page_words(
+                    r, dropped_content=r["page_no"] in dropped
+                )
                 for r in ledger
                 if not page_has_reading(r)
             },

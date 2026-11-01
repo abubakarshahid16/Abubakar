@@ -256,3 +256,40 @@ def test_unread_page_words_blank_image_and_a_plain_failure():
     )
     # content that simply failed is not excused by any of the three kinds
     assert w({**base, "facts_reason": "the model failed"}) == "the model failed"
+
+
+def test_a_scan_whose_ocr_failed_is_never_called_blank():
+    # Review of #1519: an empty text layer with a failed OCR is content that
+    # failed, not a blank page.
+    from app import page_not_read
+
+    row = {
+        "index_status": "no_chunk",
+        "index_reason": "",
+        "native_status": "empty",
+        "ocr_status": "failed",
+        "facts_reason": None,
+    }
+    assert page_not_read.unread_page_words(row) == page_not_read.IMAGE_NO_READING
+    row["ocr_status"] = "not_required"
+    assert page_not_read.unread_page_words(row) == page_not_read.BLANK_PAGE
+
+
+def test_a_page_set_aside_although_it_holds_clause_text_is_not_excused(monkeypatch):
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
+    doc = _prose_doc()
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id,page_no,text,char_count,needs_ocr,batch_no)"
+            " VALUES (?,4,'8 Testing 8.1 The vessel shall be tested',40,0,0)",
+            (doc,),
+        )
+        conn.execute(
+            "INSERT INTO exclusions (document_id,scope,page_start,page_end,chunk_id,rule,"
+            "reason,text_sample,text_length,created_at,clause_headings)"
+            " VALUES (?,'page',4,4,NULL,'page_classified_front_matter','front','x',40,?,1)",
+            (doc, NOW),
+        )
+    page_ledger.refresh(doc, as_submittal=True)
+    why = page_ledger.coverage(doc)["pages_not_read_why"]["4"]
+    assert "on purpose" not in why and "not excused" in why

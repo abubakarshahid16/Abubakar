@@ -14,17 +14,26 @@ IMAGE_NO_READING = "image with no reading"
 NOTE_PAGE_NOT_READ = "Page not read - no reading came back"
 
 
-def unread_page_words(row: dict) -> str:
+DROPPED_WITH_CONTENT = "set aside by a rule although it holds clause text - not excused"
+
+
+def unread_page_words(row: dict, *, dropped_content: bool = False) -> str:
+    """`dropped_content`: the chunker flagged this page's exclusion as real body
+    text (exclusions.clause_headings), so the rule is not an excuse."""
     reason = str(row["index_reason"] or "")
     if row["index_status"] == "excluded" and reason.startswith("page_classified_"):
+        if dropped_content:
+            return f"{DROPPED_WITH_CONTENT} (rule {reason.split(',')[0]})"
         return f"excluded from the index on purpose (rule {reason.split(',')[0]})"
-    if row["native_status"] == "empty":
-        return BLANK_PAGE
+    # A failed or pending reading first: a scan whose OCR failed has an empty
+    # text layer too, and is not a blank page (review of #1519).
     if row["native_status"] == "needs_ocr" or row["ocr_status"] in (
         "pending",
         "failed",
     ):
         return IMAGE_NO_READING
+    if row["native_status"] == "empty":
+        return BLANK_PAGE
     return str(row["facts_reason"] or "no reading came back for this page")
 
 
