@@ -213,6 +213,7 @@ EGRESS_SAFE: dict[str, object] = {
     "review_progress_bar_enabled": False,
     # --- local files only, no model or socket: a per-review audit report (#1525, off by default)
     "review_audit_report_enabled": False,
+    "review_audit_dir": "",  # empty = the default audit folder outside the repo (#1525)
     # --- local only, no model or socket: a review that read nothing fails (#1495, off by default)
     "nothing_read_fails_enabled": False,
     # --- local only, no model or socket: a specification is checked against a must-contain list (#1479, off by default)
