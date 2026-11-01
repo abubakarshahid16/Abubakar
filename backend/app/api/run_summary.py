@@ -27,6 +27,7 @@ from .. import (
 from .. import ai_engineering_check as ai_engineering_check_mod
 from .. import ai_numbers as ai_numbers_mod
 from .. import clause_coverage as clause_coverage_mod
+from .. import clause_review as clause_review_mod
 from .. import comparison as comparison_mod
 from .. import crs_mapping as crs_mapping_mod
 from .. import crs_wording as crs_wording_mod
@@ -246,7 +247,10 @@ def _tiers(review_run_id: str, allowed) -> tuple[dict, dict, dict | None, list |
         outcome.get("unchecked_counts")
     )
     timed_out = reader_timed_out_pages(split)
-    findings = comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed)
+    # #1477: clause review rows are suggestions, never in a headline count.
+    findings = clause_review_mod.without_rows(
+        comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed)
+    )
     tiers = review_tiers.summarise(findings, _facts(review_run_id, outcome, timed_out))
     tiers["held_reasons"] = held_reasons_mod.counts(findings)
     return tiers, outcome, split, timed_out
@@ -325,7 +329,11 @@ def review_run_summary(
         }
     sheet = (
         review_counts_mod.sheet_counts(
-            comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
+            clause_review_mod.without_rows(
+                comparison_mod.list_findings(
+                    review_run_id, allowed_document_ids=allowed
+                )
+            ),
             _facts(review_run_id, outcome, timed_out),
             grouping,
         )

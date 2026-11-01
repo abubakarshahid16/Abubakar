@@ -20,6 +20,8 @@ requirement that already has a finding in the run gets no second one."""
 
 from __future__ import annotations
 
+from . import recommendations
+
 NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
 NOT_ROWS = frozenset({"text_quality"})
 HELD_REASON = "Held, not compared with the datasheet"
@@ -58,6 +60,8 @@ def kind_of(item: dict) -> str:
     """The kind of hold, named only when it is the one the item really is; any
     other hold (the citation gate's, a conditional clause's) is "other"."""
     decided_by = str(item.get("decided_by") or "")
+    if item.get("code") == recommendations.CODE:
+        return "recommendation"
     if item.get("code") == "service_unknown":
         return "service"
     if decided_by.startswith("code:scope-not-read"):
@@ -119,7 +123,8 @@ def add(
             key = (requirement.get("standard_document_id"), kind_of(item))
             groups.setdefault(key, []).append(item)
     for (sid, kind), group in groups.items():
-        if len(group) > GROUP_ABOVE:
+        # each recommendation is its own query, however many there are
+        if len(group) > GROUP_ABOVE and kind != "recommendation":
             made = [
                 _group_row(
                     prepare_finding, group, kind, labels.get(sid) or str(sid), common
@@ -130,11 +135,16 @@ def add(
             for item in group:
                 code = item.get("code") or ""
                 fallback = REASONS.get(code, ("", "no reason recorded"))[1]
+                said = verdict(item, fallback)
+                if kind == "recommendation":  # a query, never the "held" wording
+                    said["rationale"] = recommendations.query_words(
+                        item["requirement"], labels.get(sid) or str(sid)
+                    )
                 made.append(
                     prepare_finding(
                         requirement=item["requirement"],
                         fact=None,
-                        verdict=verdict(item, fallback),
+                        verdict=said,
                         **common,
                     )
                 )

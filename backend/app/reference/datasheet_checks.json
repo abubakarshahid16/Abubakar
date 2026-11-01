@@ -862,8 +862,8 @@
           "id": "PSV-01",
           "text": "The set pressure is stated.",
           "source": {
-            "standard": "API 520-I",
-            "clause": "3.49"
+            "standard": "SAES-J-600",
+            "clause": "8"
           },
           "rule": {
             "kind": "required",
@@ -875,8 +875,8 @@
           "id": "PSV-02",
           "text": "The maximum allowable working pressure is stated.",
           "source": {
-            "standard": "API 520-I",
-            "clause": "3.26"
+            "standard": "SAES-J-600",
+            "clause": "8.3"
           },
           "rule": {
             "kind": "required",
@@ -888,21 +888,22 @@
           "id": "PSV-03",
           "text": "The design pressure is stated.",
           "source": {
-            "standard": "API 520-I",
-            "clause": "3.16"
+            "standard": "SAES-J-600",
+            "clause": "8.16"
           },
           "rule": {
             "kind": "required",
             "field": "design_pressure"
           },
+          "weak_source": true,
           "severity": "minor"
         },
         {
           "id": "PSV-04",
           "text": "The maximum operating pressure is stated.",
           "source": {
-            "standard": "API 520-I",
-            "clause": "3.27"
+            "standard": "SAES-J-600",
+            "clause": "8"
           },
           "rule": {
             "kind": "required",
@@ -921,6 +922,7 @@
             "kind": "required",
             "field": "relieving_temperature"
           },
+          "needs": "a standard we do not hold",
           "severity": "minor"
         },
         {
@@ -941,7 +943,7 @@
           "text": "The built-up back pressure is stated.",
           "source": {
             "standard": "API 520-I",
-            "clause": "3.7"
+            "clause": "5.3.4.1"
           },
           "rule": {
             "kind": "required",
@@ -954,7 +956,7 @@
           "text": "The superimposed back pressure is stated.",
           "source": {
             "standard": "API 520-I",
-            "clause": "3.53"
+            "clause": "4.2.1.3.6"
           },
           "rule": {
             "kind": "required",
@@ -992,8 +994,8 @@
           "id": "PSV-11",
           "text": "The rated relieving capacity is stated.",
           "source": {
-            "standard": "API 520-I",
-            "clause": "3.41"
+            "standard": "SAES-J-600",
+            "clause": "8.13.1"
           },
           "rule": {
             "kind": "required",
@@ -1031,8 +1033,8 @@
           "id": "PSV-14",
           "text": "The inlet size is stated.",
           "source": {
-            "standard": "API 520-I",
-            "clause": "3.20"
+            "standard": "SAES-J-600",
+            "clause": "4.1.2"
           },
           "rule": {
             "kind": "required",
@@ -1045,12 +1047,13 @@
           "text": "The outlet size is stated.",
           "source": {
             "standard": "API 520-I",
-            "clause": "3.34"
+            "clause": "5.3.4.1"
           },
           "rule": {
             "kind": "required",
             "field": "outlet_size"
           },
+          "weak_source": true,
           "severity": "minor"
         },
         {
@@ -1242,22 +1245,7 @@
             "op": ">=",
             "right": "design_pressure"
           },
-          "severity": "major"
-        },
-        {
-          "id": "PSV-26",
-          "text": "The maximum operating pressure leaves a margin below the set pressure (at most 90% of it).",
-          "source": {
-            "standard": "API 520-I",
-            "clause": "3.32"
-          },
-          "rule": {
-            "kind": "percent_of",
-            "left": "operating_pressure",
-            "op": "<=",
-            "percent": 90,
-            "right": "set_pressure"
-          },
+          "needs": "a standard we do not hold",
           "severity": "major"
         },
         {

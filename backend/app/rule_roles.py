@@ -30,6 +30,9 @@ from pathlib import Path
 from . import field_links, field_naming, field_vocabulary, form_reader_fields
 
 DIR = Path(__file__).parent / "reference" / "rule_roles"
+#: Order 299.1: extra boxes of a type's form for the CONVERTER, as data (never in datasheet_checks.json, where a role
+#: can become a mandatory-field finding on every sheet).
+FORM_V2_DIR = Path(__file__).parent / "reference" / "form_v2"
 STATUS = "draft"
 
 #: Unit families a numeric role's `kind` allows (the families `field_vocabulary` checks).
@@ -73,7 +76,47 @@ def form(
             continue
         name = field_links.canonical(f.key.replace("_", " "))
         names[name], families[name] = f.key, wanted
+    for box in extra_boxes(
+        equipment_type
+    ):  # the type's own boxes are never cut or renamed
+        name = field_links.canonical(box["name"])
+        if name in names:
+            raise ValueError(
+                f"form v2 box {box['name']!r} is already a box of the form"
+            )
+        names[name], families[name] = (
+            name.replace(" ", "_"),
+            _KIND_FAMILIES[box["unit_kind"]],
+        )
     return sorted(names), names, families
+
+
+def extra_boxes(equipment_type: str | None) -> list[dict]:
+    """The converter-only boxes of the type's form v2 (order 299.1), [] when it has none. Each is
+    {name, unit_kind, spellings}; a unit kind with no checkable unit family, or a name used twice, is an
+    error here, never a box that silently cannot be checked."""
+    from . import datasheet_checks
+
+    key = datasheet_checks.mandatory_list_key(
+        equipment_type, datasheet_checks.load_rules()
+    )
+    path = FORM_V2_DIR / f"{slug(key)}.json"
+    if key == datasheet_checks.GENERIC or not path.is_file():
+        return []
+    boxes = json.loads(path.read_text(encoding="utf-8")).get("boxes") or []
+    seen: set[str] = set()
+    for box in boxes:
+        name = field_links.canonical(box.get("name"))
+        if not name or name in seen:
+            raise ValueError(
+                f"form v2 box {box.get('name')!r} is empty or listed twice"
+            )
+        if box.get("unit_kind") not in _KIND_FAMILIES:
+            raise ValueError(
+                f"form v2 box {name!r} has no checkable unit kind: {box.get('unit_kind')!r}"
+            )
+        seen.add(name)
+    return boxes
 
 
 def propose(

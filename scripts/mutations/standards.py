@@ -106,7 +106,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor=r'    r"\b(shall|must\s+not|must|is\s+required\s+to|are\s+required\s+to"',
         replacement=r'    r"\b(shall|should|must\s+not|must|is\s+required\s+to|are\s+required\s+to"',
         target="tests/test_standards_library.py",
-        keyword="recommendations_are_not_recorded",
+        keyword="recommendations_are_recorded_as_recommendations_never_as_requirements",
         tags=("honesty",),
     ),
     Mutation(

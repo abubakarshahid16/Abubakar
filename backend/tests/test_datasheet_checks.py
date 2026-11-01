@@ -294,6 +294,7 @@ def test_with_no_standard_held_the_review_still_gives_datasheet_check_comments(v
         for r in comments
         if "revision block" not in r["comment"]
         and "was not found in the fields read" not in r["comment"]
+        and "was not read as a value" not in r["comment"]
     ]
     # CRS quick wins: Page/Section is "p.<page> - <field>", the datasheet's.
     assert field_rows and all(r["page_section"].startswith("p.1 - ") for r in field_rows)

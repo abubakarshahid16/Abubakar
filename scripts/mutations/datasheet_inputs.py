@@ -88,10 +88,8 @@ MUTATIONS: tuple[Mutation, ...] = (
        "xlsx_rows_become_facts or docx_table_becomes_facts"),
     _m(1714, "the extract stage reads an office file with PyMuPDF",
        APP / "extract.py",
-       "    office_rows = (docx_rows if docx_rows is not None\n"
-       "                   else _office_rows(pdf_path) if settings.datasheet_office_input else None)",
-       "    office_rows = (docx_rows if docx_rows is not None\n"
-       "                   else None)",
+       "    return (_office_rows(path) if settings.datasheet_office_input else None), False",
+       "    return None, False",
        "extract_stage_writes_office_pages or whole_pipeline"),
     _m(1715, "an office file's condition is left to PyMuPDF",
        APP / "datasheets.py",

@@ -1,0 +1,110 @@
+{
+  "invented": true,
+  "label": "INVENTED - replace with engineer examples",
+  "kind": "procedure",
+  "note": "Every row is made up for the tests and the first runs. No real document text. The owner replaces them with engineer decisions.",
+  "examples": [
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "The study shall be led by a facilitator independent of the design team.",
+      "passages": [
+        {
+          "page": 3,
+          "text": "Roles. The HAZOP chair is appointed by the Safety Department and has not worked on the design of the unit under study. A scribe records every deviation."
+        }
+      ],
+      "answer": {
+        "answer": "quote",
+        "page": 3,
+        "quote": "The HAZOP chair is appointed by the Safety Department and has not worked on the design of the unit under study."
+      },
+      "why": "The passage states the same thing in other words, so quote it."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "Every node shall be studied with the guide words no, more, less, reverse, as well as, other than.",
+      "passages": [
+        {
+          "page": 5,
+          "text": "Nodes are listed in Appendix A. The team meets daily from 08:00 to 16:00."
+        }
+      ],
+      "answer": {
+        "answer": "no_evidence",
+        "page": null,
+        "quote": null
+      },
+      "why": "The passages talk about nodes and meetings, not the guide words: no evidence."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "Recommendations shall be tracked to closure with a named owner and a due date.",
+      "passages": [
+        {
+          "page": 9,
+          "text": "Each recommendation is entered in the action register with an owner and a due date, and the register is reviewed monthly until all actions are closed."
+        }
+      ],
+      "answer": {
+        "answer": "quote",
+        "page": 9,
+        "quote": "Each recommendation is entered in the action register with an owner and a due date"
+      },
+      "why": "Owner and due date are both stated: quote the part that says so."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "The team shall include a process engineer, an operations representative and an instrument engineer.",
+      "passages": [
+        {
+          "page": 4,
+          "text": "Team members: process engineer, mechanical engineer, safety adviser."
+        }
+      ],
+      "answer": {
+        "answer": "no_evidence",
+        "page": null,
+        "quote": null
+      },
+      "why": "Two of the three roles are not named: no evidence for the requirement as written."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "The study shall be repeated when the process design changes.",
+      "passages": [
+        {
+          "page": 11,
+          "text": "A management of change review is raised for any change; the HAZOP is repeated where the change alters a node's operating conditions."
+        }
+      ],
+      "answer": {
+        "answer": "quote",
+        "page": 11,
+        "quote": "the HAZOP is repeated where the change alters a node's operating conditions"
+      },
+      "why": "A condition is stated; the engineer decides whether it is enough."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "Safeguards shall be recorded against each cause.",
+      "passages": [
+        {
+          "page": 7,
+          "text": "Worksheet columns: node, deviation, cause, consequence, safeguard, recommendation."
+        }
+      ],
+      "answer": {
+        "answer": "quote",
+        "page": 7,
+        "quote": "Worksheet columns: node, deviation, cause, consequence, safeguard, recommendation."
+      },
+      "why": "The worksheet has a safeguard column beside cause; quote it, the engineer confirms."
+    }
+  ]
+}

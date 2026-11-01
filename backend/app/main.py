@@ -58,7 +58,7 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
-from . import playbooks as playbooks_mod
+from . import playbooks as playbooks_mod, procedure_playbook_rows as ppr_mod
 from . import requirement_split as requirement_split_mod
 from . import auth as auth_mod, auth_session as auth_session_mod
 from . import errors
@@ -1283,7 +1283,7 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
     total = drafts = 0
     for row in connect().execute(
             f"SELECT compliance_status, {ai_check_drafts_mod.DRAFT_SQL} AS draft, COUNT(*) AS n FROM"
-            " review_findings WHERE review_run_id = ? GROUP BY compliance_status, draft", (run_id,)):
+            " review_findings WHERE review_run_id = ? AND origin IS NOT 'clause_review' AND origin IS NOT 'spec_kit' GROUP BY compliance_status, draft", (run_id,)):
         total += row["n"]
         if (status := row["compliance_status"]) is not None:
             by_status[status] = by_status.get(status, 0) + row["n"]
@@ -2792,16 +2792,15 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
 
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}
-    # B3: the pages this run could not read into fields, AS STORED ON THE RUN,
-    # so the CRS names the same pages the findings were decided on.
+    # B3: the pages this run could not read, AS STORED ON THE RUN (as the findings were decided on).
     unread = ((outcome.get("page_coverage") or {})
               .get("pages_not_read_into_fields") or [])
     missing = _missing_references(submittal_id, allowed)
-    # #754 F5b: required vs cited, recomputed like `missing` from the
-    # submittal's own text, facts and type (no stored copy to go stale).
+    # #754 F5b: required vs cited, recomputed like `missing` (no stored copy to go stale).
     check = applicability_mod.standards_check(submittal_id, allowed_document_ids=allowed)
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
+    rows, pb_notes = ppr_mod.merge(rows, submittal_id, submittal_name, allowed)  # #1522
     # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.
@@ -2955,7 +2954,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
-            {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
+            {"note": part["note"], "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
@@ -2966,6 +2965,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
+    meta["review_notes"] += pb_notes + export_status_mod.equipment_notes(submittal_id)
     return rows, meta, submittal_name, stamp
 
 

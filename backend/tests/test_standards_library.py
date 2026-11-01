@@ -195,13 +195,17 @@ def test_a_clause_is_never_inherited_from_the_preceding_chunk():
     assert by_chunk["c2"]["clause"] is None
 
 
-def test_recommendations_are_not_recorded_as_requirements():
-    """`should` is advice. Recording it manufactures non-compliance."""
+def test_recommendations_are_recorded_as_recommendations_never_as_requirements():
+    """`should` is advice. Since order 288.2 it is recorded (the coverage audit found 143 of 147 missing
+    from a Recommended Practice), but as its own type with no limit, and no review may read it:
+    recording it as a requirement would manufacture non-compliance."""
     doc = _standard(_doc("doc_std"))
     _chunk("c1", doc, "The coating should be inspected before despatch.",
            section="5.1 Coating", page=4)
     result = standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
-    assert result["requirements"] == 0
+    [row] = standards.list_requirements(doc, allowed_document_ids=_scope(doc))
+    assert result["requirements"] == 1 and row["requirement_type"] == "recommendation"
+    assert row["raw_value"] is None and standards.is_reviewable(row) is False
 
 
 def test_a_prohibition_is_recorded_because_violating_it_is_a_finding():

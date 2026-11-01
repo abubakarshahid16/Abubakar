@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from . import cover_page, errors, unsupported_script
+from . import cover_page, errors, intake, page_not_read, unsupported_script
 from .config import settings
 from .db import connect
 
@@ -531,7 +531,10 @@ def run_unread_pages(
     page number, and the gate must never drop a page it asked for before.
     Sorted, no duplicates. Pure: reads nothing."""
     cov = page_coverage if isinstance(page_coverage, dict) else {}
-    pages = {int(p) for p in cov.get("pages_not_read_into_fields") or []}
+    # #1473: a run stored with the page-read switch on names the pages no
+    # reading came back for (`pages_not_read`); older runs, the fields rule.
+    unread = cov.get("pages_not_read", cov.get("pages_not_read_into_fields"))
+    pages = {int(p) for p in unread or []}
     pages |= {int(p) for p in cov.get("pages_ai_not_read") or []}
     if isinstance(reader, dict):
         timed_out = {int(p) for p in reader.get("timed_out") or []}
@@ -553,6 +556,8 @@ def run_unread_reasons(
     recorded = {
         **{str(k): v for k, v in (cov.get("ai_not_read_reasons") or {}).items()},
         **{str(k): v for k, v in (cov.get("not_read_reasons") or {}).items()},
+        # #1473: the plain-words reason, stored when the page-read switch was on.
+        **{str(k): v for k, v in (cov.get("pages_not_read_why") or {}).items()},
     }
     timed_out = (
         {int(p) for p in reader.get("timed_out") or []}
@@ -598,6 +603,18 @@ def rows(document_id: str) -> list[dict]:
     ]
 
 
+def _pages_dropped_with_content(document_id: str) -> set[int]:
+    """Pages a page rule set aside although the chunker saw clause text on them."""
+    out: set[int] = set()
+    for e in connect().execute(
+        "SELECT page_start, page_end FROM exclusions WHERE document_id = ?"
+        " AND scope = 'page' AND clause_headings > 0 AND page_start IS NOT NULL",
+        (document_id,),
+    ):
+        out.update(range(e["page_start"], (e["page_end"] or e["page_start"]) + 1))
+    return out
+
+
 def coverage(document_id: str) -> dict:
     """The per-document summary a review states, WITH ITS DENOMINATOR.
 
@@ -632,7 +649,25 @@ def coverage(document_id: str) -> dict:
             else:
                 no_field.append(r["page_no"])
     sources = {r["facts_recorded_by"] for r in ledger if r["facts_recorded_by"]}
+    by_reading: dict = intake.coverage_part(document_id)
+    if settings.page_read_by_reading_enabled:
+        # #1473: "read" (a reading came back) apart from "fields found".
+        dropped = _pages_dropped_with_content(document_id)
+        by_reading |= {
+            "pages_read": [r["page_no"] for r in ledger if page_has_reading(r)],
+            "pages_not_read": [r["page_no"] for r in ledger if not page_has_reading(r)],
+            # Why each unread page is unread, in plain words (owner rule on
+            # #1473): the page stays NOT READ, it is only named.
+            "pages_not_read_why": {
+                str(r["page_no"]): page_not_read.unread_page_words(
+                    r, dropped_content=r["page_no"] in dropped
+                )
+                for r in ledger
+                if not page_has_reading(r)
+            },
+        }
     return {
+        **intake.split_partly(by_reading),
         "pages_total": len(ledger),
         "native": count("native_status"),
         "ocr": count("ocr_status"),
@@ -649,6 +684,22 @@ def coverage(document_id: str) -> dict:
         "facts_source": (sources.pop() if len(sources) == 1
                          else "mixed" if sources else None),
     }
+
+
+def page_has_reading(row: dict) -> bool:
+    """#1473: did a text or picture reading come back for this page, whether or
+    not it held a datasheet field? True when the page has a usable text layer
+    (native text, or finished OCR) and the readers ran on it: fields found, or
+    none found. A page the file could not be read for (`unreadable`), that
+    extraction never reached, or that has no usable text stays unread. Says
+    nothing about fields: `pages_not_read_into_fields` is unchanged."""
+    if row["facts_status"] not in ("facts", READ_NO_FIELD, "no_facts"):
+        return False
+    if row["facts_status"] != "facts" and row["facts_recorded_by"] != "extraction":
+        # No recorded reading: a derived "no_facts" (read before the ledger
+        # existed) is not evidence that any reader ran on the page.
+        return False
+    return row["native_status"] == "text" or row["ocr_status"] == "done"
 
 
 def _page_reader_only(document_id: str, fact_pages: list[int]) -> list[int]:
@@ -739,8 +790,8 @@ def readiness_pages(document_id: str) -> dict:
     ledger_state = state(document_id)
     cov = coverage(document_id) if ledger_state == CURRENT else {}
     return {
-        "pages_total": cov.get("pages_total"),
-        "pages_read": len(cov.get("fact_pages") or []) if ledger_state == CURRENT else None,
+        "pages_total": cov.get("pages_total"), **intake.partly_part(cov),
+        "pages_read": intake.pages_read_count(cov) if ledger_state == CURRENT else None,
         "pages_read_no_field": cov.get("pages_read_no_field") or [],
         "unread_pages": cov.get("pages_not_read_into_fields") or [],
         "unread_page_reasons": cov.get("not_read_reasons") or {},

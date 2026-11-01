@@ -1,5 +1,5 @@
 """PR #761: a standard an equipment type takes only in part applies only in
-that part. The gate's call is in comparison.py (the danger zone)."""
+that part. The gate's call is in equipment_scope.gate_for_run (called from comparison.py)."""
 from __future__ import annotations
 
 from ._base import APP, Mutation
@@ -8,9 +8,9 @@ _T = "tests/test_partial_standards.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M761-01", phase=761, description="the partial-standard gate is never applied in a review",
-             path=APP / "comparison.py",
-             anchor="    requirements = partial[\"kept\"]\n    extra_not_applied.extend(partial[\"items\"])\n",
-             replacement="    pass\n",
+             path=APP / "equipment_scope.py",
+             anchor="        partial[\"kept\"],\n",
+             replacement="        requirements,\n",
              target=_T, keyword="relief_valve_review_does_not_check", tags=("applicability", "critical")),
     Mutation(id="M761-02", phase=761, description="every requirement of a partial standard is kept",
              path=APP / "subject_scope.py",

@@ -65,7 +65,14 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import ai_requirements, field_links, field_naming, requirements_3b, rule_eval
+from . import (
+    ai_requirements,
+    card_trust,
+    field_links,
+    field_naming,
+    requirements_3b,
+    rule_eval,
+)
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -75,9 +82,16 @@ NEEDS_ENGINEER_REVIEW = rule_eval.NEEDS_ENGINEER_REVIEW
 
 SAFETY, STANDARD = "SAFETY", "STANDARD"
 ENGINEER_CONFIRMED, AUTO_PROVEN, UNPROVEN = "ENGINEER_CONFIRMED", "AUTO_PROVEN", "UNPROVEN"
+#: Order 306.1: a card tested by the real code decides while its engineer approval is pending. Its own label, so
+#: nothing that means "a proven family" (the audit draw, the CRS words) ever treats a tested card as proven.
+TESTED_CARD = "TESTED_CARD"
 #: What the CRS prints for each label.
-TRUST_WORDS = {ENGINEER_CONFIRMED: "engineer-approved rule", AUTO_PROVEN: "automatic (proven rule)",
-               UNPROVEN: "automatic rule not yet proven"}
+TRUST_WORDS = {
+    ENGINEER_CONFIRMED: "engineer-approved rule",
+    AUTO_PROVEN: "automatic (proven rule)",
+    TESTED_CARD: "automatic (tested rule, engineer approval pending)",
+    UNPROVEN: "automatic rule not yet proven",
+}
 PROVEN, NOT_PROVEN, INVALID = "PROVEN", "NOT_PROVEN", "INVALID"
 AUDIT_CORRECT, AUDIT_ERROR = "correct", "error"
 AUDIT_RATE_MIN, AUDIT_RATE_MAX = 0.02, 0.05
@@ -311,6 +325,8 @@ def check_label(result: dict) -> str:
     a mandatory field - is UNPROVEN. No family proof applies: none is AI-compiled."""
     if result.get("checklist") and not result.get("draft") and not result.get("local"):
         return ENGINEER_CONFIRMED
+    if settings.tested_cards_decide_enabled and card_trust.decides(result):
+        return TESTED_CARD  # order 306.1: a tested card decides while its engineer approval is pending
     return UNPROVEN
 
 
@@ -349,6 +365,12 @@ def label_check(result: dict) -> dict:
     if out.get("rule_said"):
         out["detail"] = f"{result.get('detail') or ''} ({UNPROVEN_REASON})".strip()
     out.update(tier=None, show_for_engineer_tick=False)
+    if out["trust_label"] == TESTED_CARD:  # order 306.1
+        is_safety = card_trust.safety(result["rule_id"])
+        out.update(
+            tier=SAFETY if is_safety else STANDARD,
+            show_for_engineer_tick=is_safety and out.get("status") == COMPLIANT,
+        )
     return out
 
 

@@ -53,6 +53,15 @@ def test_a_label_in_no_pages_text_is_missing_for_the_contractor():
     assert "in the text of pages 1-2" in r["detail"] and "contractor is to provide" in r["detail"]
 
 
+def test_a_label_search_that_finds_nothing_says_what_it_searched_not_that_the_value_is_absent():
+    # CRS-008 (I-06 hand check, 29 Oct): a note stated the rating in other words, so "was not found in
+    # the text" was false. The search is by the field's NAME; the row says so and leaves the door open.
+    detail = results()["PSV-09"]["detail"]
+    assert "no label for it was found" in detail and "searched by its name" in detail
+    assert "may state it in other words" in detail
+    assert "was not found" not in detail
+
+
 def test_a_page_with_no_text_decides_nothing():
     r = results(pages={1: PAGES[1], 2: ""})["PSV-09"]
     assert r["status"] == "MISSING_INFORMATION" and not r.get("text_searched")   # left to the page rule

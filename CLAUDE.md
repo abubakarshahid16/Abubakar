@@ -12,6 +12,12 @@
 > replacing an AI step with a rules-only path, needs the owner's written
 > approval on #692.
 
+## Where we are (pointers only)
+
+- The plan: #805 is the only plan. The bench `scripts/crs_bench.py` is the done-gate.
+- Live state: `~/project/planner/WHERE-WE-ARE.md` (on the owner's Mac, outside the repo).
+- Defect list: `docs/code-review/README.md`. Long passages moved out of this file: `docs/claude-md-detail.md`.
+
 Read this first, every session. It is short on purpose; the long version is
 `docs/HANDOVER.md`, and the current defect list is `docs/code-review/README.md`.
 
@@ -95,26 +101,14 @@ carries the client's name; only the owner can rename it.
 7. **When something the user sees turns out false, record the retraction** in
    `docs/status-honesty-audit.md`: screen text, CRS wording, reports, exports,
    and claims made to the owner in issues or PRs. Internal refactors, test-only
-   changes and renamed helpers get no entry. Name a new entry after its PR:
-   `- **A-<PR number> - ...**` (a second one in the same PR: `A-<PR number>b`).
-   Existing numbered entries stay as they are. Several findings in
-   `docs/code-review/` belong there.
+   [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 7 (continued)"]
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
    another). Before closing a fix, grep for the claim.
 9. **"Super user"** is a display label only; the internal identifier stays `admin`.
 10. **Dashboard stays a focused operational dashboard, not a metrics dump.**
-    As of the AI Submittal Review workflow (2026-09), this no longer means
-    "no new tiles" literally - it means no UNNECESSARY tiles. Exactly four
-    primary cards: Contractor Submittals, Active Standards, Reviews in
-    Progress, Needs Attention. One `Upload Datasheet and Run AI Review`
-    button. One compact Recent Reviews table. One warning banner shown only
-    when there is a real issue (low memory, failed OCR, missing standards).
-    Standards Readiness detail lives on the Standards Library page. Recent
-    Intelligence Work (comprehensive analyses, gap analyses, market results)
-    lives on the Analysis Hub. RAM/model/OCR/embeddings/latency/ingestion
-    detail lives on System Health. Nothing else gets added to Dashboard
-    without updating this rule first.
+    Exactly four primary cards; nothing else gets added to Dashboard without updating this rule first.
+    [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 10 (continued)"]
 11. Merge commits, not squash. Conventional prefixes (`feat:`, `fix:`, `test:`,
     `docs:`). Issues, milestones, PRs with `Closes #N`. Free tools only.
 12. **IDs are named after the PR, never "the next free number".** Mutation ids:
@@ -149,6 +143,8 @@ When a mistake is called out on #692, add one line here in your next PR.
 - Approved a PR from its code while it made an existing mutation entry blind (#1355 and M2513: a new rule caught the sentence the old test used, so the entry no longer failed): before approving a change to a module that has mutation entries, apply those entries by hand and run their tests (PR 1369).
 - Moved lines a mutation anchor quotes and pushed without `check_mutation_anchors.py`, so CI went red (s3, #1285; the pre-push guard now runs it).
 - Added a second model pass without asking what it costs on the Claude lane (s3, #1288; a repeat read must be local-only).
+- Approved a danger-zone label change from the gate alone (#1446, cloud-2 caught it): a tested-card verdict printed "proven" on the CRS because the words are built from the stored label; before approving, follow the value from where it is set to the cell the engineer reads.
+- Pushed a new `backend/app` module without `check_system_map.py` and `check_unused_modules.py`, so CI sent two PRs back (#1447, #1449): run both before the push.
 
 ## Who does what
 
@@ -180,11 +176,11 @@ When a mistake is called out on #692, add one line here in your next PR.
   the main checkout's live DB (2026-09-24) - this is why.
 - Shell heredocs eat backslashes in regexes. Write Python patch scripts to a
   file, or use quoted heredocs (`<<'EOF'`).
-- `AUTH_MODE=demo_required` is on. `<img src>` cannot send the bearer token —
-  page images are now fetched with the header (`useAuthedImage`).
+  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: AUTH_MODE item"]
 
 ## Heavy checks: one lock, batched (#680)
 
+```text
 P1, the changed-test run, the mutation run and the AI task batch each need most
 of the machine's memory. They share ONE lock file, `D:\project\.heavy-job.lock`
 on the Windows PC (elsewhere the temp folder; `HEAVY_JOB_LOCK=<path>` moves it,
@@ -194,6 +190,7 @@ it is stale after 3 hours or when its process is gone. `run_p1.py`,
 (`backend/app/ai_task_runner.py`) take it themselves through
 `backend/app/heavy_lock.py`; a job waits up to 30 minutes
 (`HEAVY_JOB_WAIT_MINUTES`), then exits with code 75 and says who holds it.
+```
 Never write a second waiter.
 
 1. GitHub CI is the first gate for every PR.
@@ -201,8 +198,10 @@ Never write a second waiter.
    of green PRs, plus per PR only when it touches retrieval, answer, review or
    eval code.
 3. Every P1, test run and AI batch unloads its models at the end (#666).
+```text
 4. Mutation runs are for changed danger-zone modules only (rule 6):
    `python scripts/mutation_check.py --changed`, not the full registry.
+```
 
 ## Where to look
 
@@ -212,11 +211,8 @@ Never write a second waiter.
 | Architecture as the code actually is | `docs/architecture-call-graph.md` (current); `docs/architecture.md` (older, stale line refs) |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
 | Recorded false claims | `docs/status-honesty-audit.md` |
-| The review score (recall, precision, false compliant, citations; answer-key format) | `eval/review/README.md`, `scripts/review_score.py` |
-| Review playbooks (HAZOP, SIL procedures; data files, clause-cited, standard not held is never met) | `docs/playbooks.md` |
-| The scored model tier of P1 (figures, clause, could-not-read; PC only) | `eval/p1ai/README.md` |
+| (moved rows) | `docs/claude-md-detail.md`, section "Where to look: rows for review score, playbooks, scored model tier" |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
-| How a night's PRs become a release (roles, reviews, the Mac proof, merging) | `.claude/skills/release-train/SKILL.md` |
-| Demo script and safe questions | `docs/HANDOVER.md` § Demo |
+| (moved rows) | `docs/claude-md-detail.md`, section "Where to look: rows for release train and demo script" |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |
 

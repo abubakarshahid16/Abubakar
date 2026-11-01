@@ -840,7 +840,7 @@ def list_drafts(*, allowed_document_ids: frozenset[str], status: str = DRAFT,
 def _draft(conn, draft_id: str, allowed_document_ids: frozenset[str]):
     row = conn.execute(
         "SELECT d.*, r.standard_document_id, r.chunk_id, r.clause, r.page, r.requirement_text,"
-        " r.source_text, r.requirement_type, r.superseded_at"
+        " r.source_text, r.requirement_type, NULLIF(r.superseded_at, 'held:ai_requirement_extraction') AS superseded_at"
         " FROM clause_check_drafts d JOIN standard_requirements r ON r.id = d.requirement_id"
         " WHERE d.id = ?", (draft_id,)).fetchone()
     # "not found" is the same answer as "not yours"
@@ -953,11 +953,8 @@ def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozense
     who = (actor or {}).get("id")
     if decision == "reject":
         with conn:
-            # A9/#923: the read of row["status"] above and this write are two
-            # steps - a concurrent decision on the same draft could land
-            # between them. Guarded here too, so only the first decision to
-            # reach this UPDATE actually takes effect; the loser gets a clear
-            # DraftError instead of silently reporting success twice.
+            # A9/#923: the status read above and this write are two steps; the
+            # guard lets only the first concurrent decision take effect.
             decided = conn.execute(
                 "UPDATE clause_check_drafts SET status = ?, decided_by = ?, decided_at = ?"
                 " WHERE id = ? AND status = ?", (REJECTED, who, now, draft_id, DRAFT))
@@ -972,6 +969,9 @@ def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozense
     if row["superseded_at"] or row["requirement_type"] != STATEMENT:
         raise DraftError("the clause sentence has changed since this draft was proposed")
     sentence = row["source_text"] or row["requirement_text"] or ""
+    from . import ai_requirement_tables
+
+    ai_requirement_tables.recheck_on_page(conn, row)
     limit = limit_from_draft(row, sentence)
     new = standards.create_requirement(
         standard_document_id=row["standard_document_id"], chunk_id=row["chunk_id"],

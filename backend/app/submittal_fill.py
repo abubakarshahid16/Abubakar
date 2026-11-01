@@ -163,6 +163,12 @@ def _now() -> str:
     return stamp()
 
 
+def title_only() -> bool:
+    from .config import settings
+
+    return settings.equipment_from_title_block_enabled
+
+
 def fill(document_id: str) -> dict:
     """Write the heading as the title, and as the equipment type when that is
     still empty. Returns `{field: value}` for what was written (empty when
@@ -211,7 +217,8 @@ def fill(document_id: str) -> dict:
         sets += ["title = ?", "field_evidence = ?"]
         values += [line, json.dumps(evidence)]
         written["title"] = line
-    name = None if row["equipment_type"] else equipment_name(line)
+    # Owner decision 1 Nov: a heading in the page body never sets the equipment type.
+    name = None if row["equipment_type"] or title_only() else equipment_name(line)
     if name:
         sets += ["equipment_type = ?", "equipment_type_evidence = ?"]
         values += [

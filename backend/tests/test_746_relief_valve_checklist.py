@@ -59,7 +59,7 @@ def test_each_rule_kind_is_decided_by_code():
     assert "By Contractor" in r["PSV-01"]["detail"]                # the note is named
     assert r["PSV-24"]["status"] == "COMPLIANT"                    # 10 barg <= MAWP 12 barg
     assert r["PSV-25"]["status"] == "COMPLIANT"                    # MAWP 12 >= design 12
-    assert r["PSV-26"]["status"] == "COMPLIANT"                    # 8.5 <= 90% of 10
+    assert r["PSV-S03"]["status"] == "COMPLIANT"                   # 10 >= 8.5 + 1.0 (100 kPa wins)
     assert r["PSV-29"]["status"] == "COMPLIANT"                    # 0.8 <= 10% of 10 (conventional)
     assert r["PSV-16"]["status"] == "COMPLIANT"                    # allowed valve type
     assert r["PSV-32"]["status"] == "COMPLIANT"                    # k > 1 for a gas
@@ -76,7 +76,11 @@ def test_a_breach_is_non_compliant_with_both_values_and_the_clause():
     assert r["severity"] == "critical"
     tight = [f for f in SHEET if f["field_name"] != "operating pressure"] + [
         fact("operating pressure", "9.5", "barg")]
-    assert results(tight)["PSV-26"]["status"] == "NON_COMPLIANT"   # 9.5 > 90% of 10
+    assert results(tight)["PSV-S03"]["status"] == "NON_COMPLIANT"  # 10 < 9.5 + 1.0
+    # a percent-of rule (PSV-29, conventional valve): back pressure 2 barg is 20% of the 10 barg set pressure
+    back = [f for f in SHEET if f["field_name"] != "back press variable"]
+    back.append(fact("back press variable", "2", "barg"))
+    assert results(back)["PSV-29"]["status"] == "NON_COMPLIANT"
 
 
 def test_a_condition_decides_whether_an_item_applies():

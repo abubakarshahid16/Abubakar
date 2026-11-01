@@ -30,7 +30,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from . import claims, numparse, own_value_limit
+from . import claims, numparse, own_value_limit, recommendations
 
 #: What kind of thing a requirement states. Enforced in Pydantic
 #: (`schemas.RequirementType`), stored as plain TEXT.
@@ -994,7 +994,7 @@ def parse_nominal(sentence: str) -> dict | None:
         return None
     # A second quantity in the sentence ("24 V DC at 50 Hz") is a second claim.
     if any(not match.start("value") <= m.start("value") < match.end("value")
-           for m in claims._MEASUREMENT.finditer(text)):
+           for m in numparse.with_leading_dot(claims._MEASUREMENT).finditer(text)):
         return None
     measurement = measure(raw_value, raw_unit)
     return {"operator": NOMINAL_OPERATOR, "raw_value": raw_value, "raw_unit": raw_unit,
@@ -1283,11 +1283,11 @@ TABLE_ROW = "table_row"
 #: never counted as a requirement.
 DEFINITION = "definition"
 
-#: EVERY requirement_type this module writes - what the API must be able to
-#: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
-#: three the parser may classify an obligation as; these are all of them.
+#: EVERY requirement_type this module writes - what the API must be able to return
+#: (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core three the parser classifies.
 STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
                            DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE, CROSS_FIELD_LIMIT)
+STORED_REQUIREMENT_TYPES += (recommendations.TYPE,)
 
 
 def classify(sentence: str, limit: dict | None) -> str:

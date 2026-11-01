@@ -21,6 +21,8 @@ import json
 import logging
 from pathlib import Path
 
+from . import equipment_scope, kind_rules
+
 _log = logging.getLogger(__name__)
 
 ANSWERED = "answered"
@@ -279,6 +281,20 @@ def check_failed_status(name: str, reason: str) -> dict:
             "reason": why, "plain": f"{name} could not be checked: {why}."}
 
 
+def _unfinished(ai_status: dict | None, web_status: dict | None):
+    """(part, plain line) of each AI step that did not complete, and (#1477) of a
+    clause review that left clauses unread or rests on a guessed document kind."""
+    for key, status in (("ai_check", ai_status), ("web_check", web_status)):
+        if status and status.get("complete") is False:
+            yield key, str(status.get("plain") or f"{key} did not complete").strip()
+    clause = (ai_status or {}).get("clause_review") or {}
+    if clause.get("stopped_by_error") or (
+        clause.get("ran")
+        and (clause.get("not_read_count") or clause.get("kind_state") != "confirmed")
+    ):
+        yield "clause_review", str(clause["plain"])
+
+
 def unchecked_parts(*, run_status: str | None, outcome: dict | None,
                     partial_findings: int = 0,
                     ai_status: dict | None = None,
@@ -297,7 +313,8 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         # `detail` lines explain another part (the reasons behind the unchecked
         # share); they are listed on the internal copy and are not counted as
         # parts that could not be checked.
-        parts.append({"part": part, "line": line, **({"detail": True} if detail else {})})
+        extra = {"detail": True} if detail else {}
+        parts.append({"part": part, "line": line, "note": "Not checked", **extra})
 
     if run_status != "completed":
         why = (outcome.get("error") or "").strip().rstrip(".")
@@ -315,6 +332,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         add("datasheet_check_not_run",
             "The datasheet revision-block check could not be checked: "
             + str(outcome["datasheet_check_not_run"]) + ".")
+    parts.extend(kind_rules.lines(outcome) + equipment_scope.lines(outcome))
     stds = outcome.get("standards_not_checked") or []
     if stds:
         add("standards_not_checked",
@@ -339,9 +357,8 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     # order 261.2: a page the AI could not read is a part that could not be trusted
     if degraded and degraded_read.is_part(degraded):
         add("degraded_read", degraded_read.line(degraded))
-    for key, status in (("ai_check", ai_status), ("web_check", web_status)):
-        if status and status.get("complete") is False:
-            add(key, str(status.get("plain") or f"{key} did not complete").strip())
+    for key, plain in _unfinished(ai_status, web_status):
+        add(key, plain)
     # THE SHARE, WITH ITS DENOMINATOR, on every incomplete export.
     counts = outcome.get("unchecked_counts") or {}
     sentence = share_sentence(counts.get("not_compared", 0), counts.get("not_applied", 0),
@@ -354,7 +371,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
 
         for line in split_lines(outcome.get("requirement_split") or requirement_split.from_counts(counts)):
             add("requirement_reasons", line, detail=True)
-    elif parts and not counts:
+    elif any(not p.get("detail") for p in parts) and not counts:
         add("unchecked_share", "The share of requirements not compared is not known: "
                                "this review did not reach the comparison.")
     return parts
@@ -362,9 +379,9 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
 
 def notice_for(parts: list[dict]) -> str:
     """The one line a sheet prints when something could not be checked."""
+    parts = [p for p in parts if not p.get("detail")]
     if not parts:
         return ""
-    parts = [p for p in parts if not p.get("detail")]
     notice = (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
               "- this sheet is not a complete review.")
     # The unchecked share, with its denominator, is part of the notice on every

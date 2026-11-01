@@ -36,6 +36,41 @@ def reporting(callback: Callable[[int, int], None]) -> Iterator[None]:
         _report.reset(token)
 
 
+_report_clause: ContextVar[Callable[[int, int], None] | None] = ContextVar(
+    "job_progress_report_clause", default=None
+)
+
+
+@contextlib.contextmanager
+def reporting_clauses(callback: Callable[[int, int], None]) -> Iterator[None]:
+    """Send `clause(number, total)` calls to `callback` inside this block (#1494)."""
+    token = _report_clause.set(callback)
+    try:
+        yield
+    finally:
+        _report_clause.reset(token)
+
+
+#: job id -> wall-clock time its first clause started (#1494). Process-local: a
+#: process that does not hold it shows no estimate, never a guessed one.
+CLAUSE_STARTED: dict[str, float] = {}
+
+
+def clause(number: int, total: int) -> None:
+    """The AI clause review starts clause `number` of `total` (1-based). Display
+    only, like `page`: no callback means nothing happens, and a callback that
+    fails is logged and ignored, so a progress line never changes a decision."""
+    callback = _report_clause.get()
+    if callback is None:
+        return
+    try:
+        callback(number, total)
+    except Exception as exc:  # noqa: BLE001 - a progress line never stops a review
+        errors.fell_back(
+            "job_progress: clause progress not recorded; review goes on", exc, None
+        )
+
+
 #: Which page of how many the reader is on, kept for `logged` (REVIEW_DEBUG).
 _where: ContextVar[tuple[int, int] | None] = ContextVar(
     "job_progress_where", default=None

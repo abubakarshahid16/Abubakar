@@ -101,6 +101,7 @@ export function runStatusLabel(status: string | null | undefined): string {
 export const TRUST_WORDS: Record<string, string> = {
   ENGINEER_CONFIRMED: "Rule approved by an engineer",
   AUTO_PROVEN: "Checked by a proven rule",
+  TESTED_CARD: "Checked by a tested rule, engineer approval pending",
   UNPROVEN: "Rule not yet proven, so you decide",
 };
 

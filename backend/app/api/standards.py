@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from .. import access, errors, schemas
+from .. import access, ai_requirement_chunks, errors, schemas
 from .. import admin as admin_mod
 from .. import job_queue as job_queue_mod
 from .. import okf as okf_mod
@@ -477,6 +477,45 @@ def decide_clause_check(
         raise HTTPException(status_code=status, detail=errors.safe_error(
             errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER,
             str(exc))) from exc
+
+
+@router.post(
+    "/api/standards/{document_id}/clause-checks/extract",
+    response_model=ai_requirement_chunks.ExtractionCounts,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def extract_clause_checks(
+    document_id: str,
+    max_chunks: int = Query(5, ge=1, le=20),
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """#645 slice 3: the LOCAL model reads this standard's chunks and proposes
+    limits; code verifies every field; drafts only. ADMIN. Off unless
+    `ai_requirement_extraction_enabled`. Counts only in the answer.
+
+    SYNCHRONOUS: the request returns when the (at most 20) chunks are read,
+    holding the heavy-job lock; if another heavy job holds it, 409 at once."""
+    from .. import heavy_lock
+    from .. import standards as standards_mod
+
+    try:
+        report = ai_requirement_chunks.extract_standard(
+            document_id,
+            allowed_document_ids=scope.allowed_document_ids,
+            max_chunks=max_chunks,
+        )
+    except heavy_lock.HeavyJobBusy as exc:
+        raise HTTPException(
+            status_code=409, detail="another heavy job is running"
+        ) from exc
+    standards_mod._audit(
+        "standard.clause_check_extract",
+        actor,
+        document_id,
+        detail=f"chunks={report['chunks']} proposed={report['proposed']}",
+    )
+    return report
 
 
 @router.post("/api/standards/{document_id}/requirements/extract-async",

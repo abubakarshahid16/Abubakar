@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 
-from app import document_refs, field_naming, standards_acquisition
+from app import clause_review, document_refs, field_naming, standards_acquisition
 from app.db import connect
 
 from tests.r2_security_support import h, temp_storage, world  # noqa: F401
@@ -27,6 +27,7 @@ from tests.r2_security_support import h, temp_storage, world  # noqa: F401
 def _full_schema() -> None:
     """Tables created lazily by their own module are created here too."""
     standards_acquisition.ensure_schema()
+    clause_review.ensure_schema()
     with connect() as conn:
         conn.execute(field_naming._TABLE)
 

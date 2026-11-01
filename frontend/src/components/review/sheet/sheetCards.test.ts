@@ -115,6 +115,7 @@ describe("words", () => {
   it("rule_trust (#947): the trust line is the finding's own label, in the owner's words", () => {
     expect(trustLine(buildCards([f({ trust_label: "AUTO_PROVEN" })])[0])).toBe("Checked by a proven rule");
     expect(trustLine(buildCards([f({ trust_label: "ENGINEER_CONFIRMED" })])[0])).toBe("Rule approved by an engineer");
+    expect(trustLine(buildCards([f({ trust_label: "TESTED_CARD" })])[0])).toBe("Checked by a tested rule, engineer approval pending");
     expect(trustLine(buildCards([f({ compliance_status: "NEEDS_ENGINEER_REVIEW", trust_label: "UNPROVEN", rule_said: "NON_COMPLIANT" })])[0]))
       .toBe('Rule not yet proven, so you decide. The rule said "does not meet"; held for you.');
   });

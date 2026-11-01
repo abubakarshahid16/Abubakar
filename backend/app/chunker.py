@@ -29,6 +29,7 @@ from . import fts_index, orphan_guard, states
 from . import unsupported_script as script
 from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
+from .data_page import body_or_data
 from . import tables as tables_mod
 
 # ---------------------------------------------------------------- tokenizer
@@ -529,8 +530,7 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
     # Both halves are required. A contents page has headings without
     # sentences; a copyright page has sentences without numbered clauses. Only
     # body text has both.
-    if count_clause_headings(text) >= 1 and longest_clause(text) >= MIN_CLAUSE_WORDS:
-        marker_hits = 0
+    marker_hits *= not body_or_data(text, lines)
 
     # Front matter markers are decisive wherever they appear.
     if marker_hits >= 2 or (marker_hits >= 1 and page_no <= max(12, total_pages * 0.05)):

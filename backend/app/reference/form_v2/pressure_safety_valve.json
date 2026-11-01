@@ -1,0 +1,168 @@
+{
+  "_about": "Order 299.1: the converter's relief-valve form v2 = the type's own numeric boxes (datasheet_checks.json) PLUS these. DATA ONLY, no document text, no sheet wording: each box is a quantity the public relief-valve standards name. A box has a plain-words name, a unit kind (the family a limit's unit must belong to) and other spellings. Not read by the datasheet reader or the mandatory-field check.",
+  "equipment_type": "Pressure Safety Valve",
+  "status": "draft",
+  "boxes": [
+    {
+      "name": "relieving pressure",
+      "unit_kind": "pressure",
+      "spellings": []
+    },
+    {
+      "name": "maximum operating pressure",
+      "unit_kind": "pressure",
+      "spellings": [
+        "max operating pressure"
+      ]
+    },
+    {
+      "name": "test pressure",
+      "unit_kind": "pressure",
+      "spellings": []
+    },
+    {
+      "name": "hydrotest pressure",
+      "unit_kind": "pressure",
+      "spellings": [
+        "hydrostatic test pressure"
+      ]
+    },
+    {
+      "name": "outlet pressure",
+      "unit_kind": "pressure",
+      "spellings": []
+    },
+    {
+      "name": "maximum allowable accumulated pressure",
+      "unit_kind": "pressure",
+      "spellings": [
+        "maap"
+      ]
+    },
+    {
+      "name": "accumulation",
+      "unit_kind": "percent",
+      "spellings": []
+    },
+    {
+      "name": "blowdown",
+      "unit_kind": "percent",
+      "spellings": [
+        "blow down"
+      ]
+    },
+    {
+      "name": "set pressure tolerance",
+      "unit_kind": "percent",
+      "spellings": [
+        "set pressure accuracy"
+      ]
+    },
+    {
+      "name": "inlet pressure loss",
+      "unit_kind": "percent",
+      "spellings": [
+        "inlet pressure drop"
+      ]
+    },
+    {
+      "name": "operating temperature",
+      "unit_kind": "temperature",
+      "spellings": []
+    },
+    {
+      "name": "flowing temperature",
+      "unit_kind": "temperature",
+      "spellings": []
+    },
+    {
+      "name": "minimum design metal temperature",
+      "unit_kind": "temperature",
+      "spellings": [
+        "mdmt"
+      ]
+    },
+    {
+      "name": "mass flow rate",
+      "unit_kind": "flow",
+      "spellings": []
+    },
+    {
+      "name": "volumetric flow rate",
+      "unit_kind": "flow",
+      "spellings": []
+    },
+    {
+      "name": "relieving capacity",
+      "unit_kind": "flow",
+      "spellings": []
+    },
+    {
+      "name": "certified capacity",
+      "unit_kind": "flow",
+      "spellings": []
+    },
+    {
+      "name": "orifice diameter",
+      "unit_kind": "length",
+      "spellings": []
+    },
+    {
+      "name": "nozzle diameter",
+      "unit_kind": "length",
+      "spellings": []
+    },
+    {
+      "name": "inlet line length",
+      "unit_kind": "length",
+      "spellings": []
+    },
+    {
+      "name": "outlet line length",
+      "unit_kind": "length",
+      "spellings": []
+    },
+    {
+      "name": "valve lift",
+      "unit_kind": "length",
+      "spellings": []
+    },
+    {
+      "name": "effective orifice area",
+      "unit_kind": "area",
+      "spellings": []
+    },
+    {
+      "name": "actual orifice area",
+      "unit_kind": "area",
+      "spellings": []
+    },
+    {
+      "name": "fluid density",
+      "unit_kind": "density",
+      "spellings": []
+    },
+    {
+      "name": "liquid density",
+      "unit_kind": "density",
+      "spellings": []
+    },
+    {
+      "name": "vapor density",
+      "unit_kind": "density",
+      "spellings": [
+        "vapour density"
+      ]
+    },
+    {
+      "name": "operating density",
+      "unit_kind": "density",
+      "spellings": []
+    },
+    {
+      "name": "operating viscosity",
+      "unit_kind": "viscosity",
+      "spellings": []
+    }
+  ]
+}
