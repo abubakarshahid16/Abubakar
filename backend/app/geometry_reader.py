@@ -36,8 +36,9 @@ import re
 import statistics
 from typing import Any
 
-from . import blank_markers, claims, errors, geometry_blank_cells, page_columns
+from . import blank_markers, claims, errors, geometry_blank_cells
 from . import geometry_index_cells as gic
+from . import page_columns as pc
 
 # --------------------------------------------------------------------------
 # Units
@@ -153,7 +154,7 @@ MAX_HEADER_ROWS = 4
 
 def _grid(table: Any) -> tuple[list[list[str]], list[list[Any]]]:
     """Cell texts and cell rects, row-major; merged cells are None in rects."""
-    texts = [[page_columns.clean_cell(c, _clean) for c in row] for row in table.extract()]
+    texts = [[pc.clean_cell(c, _clean) for c in row] for row in table.extract()]
     rects = [list(r.cells) for r in table.rows]
     return texts, rects
 
@@ -1200,9 +1201,8 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
     value's box and the label's box (forms), and table id / row / column /
     column label (tables).
     """
-    # Lazy import: geometry_reader is documented as pure/no-database, and
-    # `ocr` pulls in `db.connect`; only the one function needed is used, and
-    # only when a table is actually being keyed.
+    # Lazy import: this module is pure/no-database and `ocr` pulls in
+    # `db.connect`; only the one function needed, only when a table is keyed.
     from .ocr import alphabet_violations
 
     form = form if form is not None else read_form(page)
@@ -1258,7 +1258,7 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
                     "position": None, "table_id": c["table_id"], "row": c["row"],
                     "column": c["column"], "column_label": c["label"],
                 })
-    rows = geometry_blank_cells.keep_bare(page, page_columns.with_head_rows(page, rows))
+    rows = geometry_blank_cells.keep_bare(page, pc.with_head_rows(page, rows))
     out: list[dict[str, Any]] = []
     seen: set[tuple] = set()
     for row in rows:

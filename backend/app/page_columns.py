@@ -57,8 +57,9 @@ def is_stacked_labels(raw: str | None) -> bool:
     lines = [ln.strip() for ln in (raw or "").splitlines() if ln.strip()]
     if len(lines) < STACK_MIN_LINES:
         return False
-    return all(_CAPITALS_LABEL.match(ln) and len(ln.split()) <= STACK_MAX_WORDS
-               for ln in lines)
+    return all(
+        _CAPITALS_LABEL.match(ln) and len(ln.split()) <= STACK_MAX_WORDS for ln in lines
+    )
 
 
 def clean_cell(raw: Any, fallback: Callable[[Any], str]) -> str:
@@ -75,14 +76,27 @@ def _head(phrase: list[tuple], is_unit: Callable[..., bool]) -> dict[str, Any] |
     m = _BRACKET_UNIT.match(last)
     if not m or not is_unit(m.group("unit"), allow_single=True):
         return None
-    name_words = [w[4] for w in phrase[:-1]] + ([m.group("pre")] if m.group("pre") else [])
-    name = re.sub(r"\s+", " ", " ".join(name_words).replace("(", " ").replace(")", " ")).strip()
+    name_words = [w[4] for w in phrase[:-1]] + (
+        [m.group("pre")] if m.group("pre") else []
+    )
+    name = re.sub(
+        r"\s+", " ", " ".join(name_words).replace("(", " ").replace(")", " ")
+    ).strip()
     if not re.search(r"[^\W\d_]", name):
         return None
     x0, x1 = min(w[0] for w in phrase), max(w[2] for w in phrase)
-    return {"name": name, "unit": m.group("unit").strip(), "x0": x0, "x1": x1,
-            "bbox": [round(x0, 2), round(min(w[1] for w in phrase), 2),
-                     round(x1, 2), round(max(w[3] for w in phrase), 2)]}
+    return {
+        "name": name,
+        "unit": m.group("unit").strip(),
+        "x0": x0,
+        "x1": x1,
+        "bbox": [
+            round(x0, 2),
+            round(min(w[1] for w in phrase), 2),
+            round(x1, 2),
+            round(max(w[3] for w in phrase), 2),
+        ],
+    }
 
 
 def _under(heads: list[dict[str, Any]], line: list[tuple]) -> dict[int, tuple]:
@@ -93,7 +107,10 @@ def _under(heads: list[dict[str, Any]], line: list[tuple]) -> dict[int, tuple]:
             continue
         centre = (w[0] + w[2]) / 2
         for k, h in enumerate(heads):
-            if h["x0"] - COLUMN_SLACK <= centre <= h["x1"] + COLUMN_SLACK and k not in found:
+            if (
+                h["x0"] - COLUMN_SLACK <= centre <= h["x1"] + COLUMN_SLACK
+                and k not in found
+            ):
                 found[k] = w
                 break
     return found
@@ -104,24 +121,41 @@ def _taken(word: tuple, taken: list[tuple[list[float], str]]) -> bool:
     AND whose text holds the word's text (a cell that merely covers the area
     does not own every number inside it)."""
     cx, cy = (word[0] + word[2]) / 2, (word[1] + word[3]) / 2
-    return any(b and b[0] <= cx <= b[2] and b[1] <= cy <= b[3]
-               and word[4] in (text or "").replace("(", " ").replace(")", " ").split()
-               for b, text in taken)
+    return any(
+        b
+        and b[0] <= cx <= b[2]
+        and b[1] <= cy <= b[3]
+        and word[4] in (text or "").replace("(", " ").replace(")", " ").split()
+        for b, text in taken
+    )
 
 
 def with_head_rows(page: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """`rows` plus the header-line rows of `page` (switch on); `rows` as is when off."""
     if not enabled():
         return rows
-    from . import geometry_reader as gr  # at call time: geometry_reader imports this module
+    from . import (
+        geometry_reader as gr,  # at call time: geometry_reader imports this module
+    )
+
     lines = gr._visual_lines([w for w in gr.upright_words(page) if w[4].strip()])
-    return rows + head_rows(lines, gr._phrases, gr.is_unit_label, page_no=page.number + 1,
-                            taken=[(r["bbox"], r["value_text"]) for r in rows if r.get("bbox")])
+    return rows + head_rows(
+        lines,
+        gr._phrases,
+        gr.is_unit_label,
+        page_no=page.number + 1,
+        taken=[(r["bbox"], r["value_text"]) for r in rows if r.get("bbox")],
+    )
 
 
-def head_rows(lines: list[list[tuple]], phrases: Callable[[list[tuple]], list[list[tuple]]],
-              is_unit: Callable[..., bool], *, page_no: int,
-              taken: list[tuple[list[float], str]]) -> list[dict[str, Any]]:
+def head_rows(
+    lines: list[list[tuple]],
+    phrases: Callable[[list[tuple]], list[list[tuple]]],
+    is_unit: Callable[..., bool],
+    *,
+    page_no: int,
+    taken: list[tuple[list[float], str]],
+) -> list[dict[str, Any]]:
     """Label/value rows read from header lines of unit-bearing names (rule 1)."""
     out: list[dict[str, Any]] = []
     for li, line in enumerate(lines):
@@ -131,16 +165,23 @@ def head_rows(lines: list[list[tuple]], phrases: Callable[[list[tuple]], list[li
         need = max(2, (len(heads) + 1) // 2)
         data: list[tuple[tuple | None, dict[int, tuple]]] = []
         prev = line
-        for nxt in lines[li + 1:]:
+        for nxt in lines[li + 1 :]:
             height = max(w[3] - w[1] for w in prev) or 10.0
             if min(w[1] for w in nxt) - max(w[3] for w in prev) > MAX_LINE_GAP * height:
                 break
             cells = _under(heads, nxt)
             if len(cells) < need:
                 break
-            key = next((w for w in nxt if _ROW_NUMBER.match(w[4])
-                        and w[2] < heads[0]["x0"] and not any(w is c for c in cells.values())),
-                       None)
+            key = next(
+                (
+                    w
+                    for w in nxt
+                    if _ROW_NUMBER.match(w[4])
+                    and w[2] < heads[0]["x0"]
+                    and not any(w is c for c in cells.values())
+                ),
+                None,
+            )
             data.append((key, cells))
             prev = nxt
         for n, (key, cells) in enumerate(data, start=1):
@@ -148,14 +189,36 @@ def head_rows(lines: list[list[tuple]], phrases: Callable[[list[tuple]], list[li
                 if _taken(w, taken):
                     continue
                 h = heads[k]
-                label = h["name"] if len(data) == 1 else f"{h['name']} {key[4] if key else n}"
-                out.append({
-                    "source": "form", "page": page_no, "label": label, "label_text": h["name"],
-                    "value_text": f"{w[4]} {h['unit']}", "value": w[4].replace(",", "."),
-                    "unit": h["unit"], "is_blank": False, "blank_marker": None,
-                    "condition": None, "note": None,
-                    "bbox": [round(w[0], 2), round(w[1], 2), round(w[2], 2), round(w[3], 2)],
-                    "label_bbox": h["bbox"], "position": "below",
-                    "table_id": None, "row": None, "column": None, "column_label": None,
-                })
+                label = (
+                    h["name"]
+                    if len(data) == 1
+                    else f"{h['name']} {key[4] if key else n}"
+                )
+                out.append(
+                    {
+                        "source": "form",
+                        "page": page_no,
+                        "label": label,
+                        "label_text": h["name"],
+                        "value_text": f"{w[4]} {h['unit']}",
+                        "value": w[4].replace(",", "."),
+                        "unit": h["unit"],
+                        "is_blank": False,
+                        "blank_marker": None,
+                        "condition": None,
+                        "note": None,
+                        "bbox": [
+                            round(w[0], 2),
+                            round(w[1], 2),
+                            round(w[2], 2),
+                            round(w[3], 2),
+                        ],
+                        "label_bbox": h["bbox"],
+                        "position": "below",
+                        "table_id": None,
+                        "row": None,
+                        "column": None,
+                        "column_label": None,
+                    }
+                )
     return out
