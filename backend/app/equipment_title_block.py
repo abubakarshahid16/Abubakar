@@ -25,29 +25,23 @@ METHOD = "engineer_to_confirm"
 _SHEET_WORDS = re.compile(
     r"data[\s\-]*sheet|specification|^\s*(?:document\s+)?title\s*:", re.I
 )
-#: A line that CITES another document ("Ref. specification: Electric Motors", "Applicable
-#: specification: ...", "Refer to SAES-A-004"): it names that document's subject, never a
-#: second type of this sheet. A reference word alone is not enough (#1552): the line must
-#: cite a document (a specification or standard, or a standard number), and a line that
-#: names a data sheet ("APPLICABLE TO: COMPRESSOR DATA SHEET") is never a citation.
+#: A title line that starts with a reference word, or is a "specification:" label ("Ref.
+#: specification: Electric Motors", "Applicable specification: ..."). It cites another
+#: document, so it names that document's subject, never a second type of this sheet -
+#: unless it names a data sheet (#1552): "APPLICABLE TO: COMPRESSOR DATA SHEET" and
+#: "Ref. API 610 Motor data sheet" are a second type.
 _REFERENCE = re.compile(
     r"^\s*(?:ref(?:erence)?s?\b|refer\b|see\b|(?:as\s+)?per\b|in\s+accordance\b"
     r"|according\s+to\b|applicable\b)|\bspecifications?\s*(?:no\.?|number)?\s*:",
     re.I,
 )
-_CITES_DOCUMENT = re.compile(
-    r"(?i:\b(?:specifications?|standards?)\b)|\b[A-Z]{2,}(?:[\s\-]+[A-Z]{1,3})?[\s\-]+\d{2,}"
-)
 _DATA_SHEET = re.compile(r"data[\s\-]*sheet", re.I)
 
 
 def _citation(line: str) -> bool:
-    """A reference line that cites another document (and names no data sheet)."""
-    return bool(
-        _REFERENCE.search(line)
-        and _CITES_DOCUMENT.search(line)
-        and not _DATA_SHEET.search(line)
-    )
+    """A reference line that names no data sheet. Only lines `_SHEET_WORDS` matched get
+    here, so what is dropped is a reference line naming a specification."""
+    return bool(_REFERENCE.search(line)) and not _DATA_SHEET.search(line)
 
 
 def _sheet_line(line: str) -> bool:

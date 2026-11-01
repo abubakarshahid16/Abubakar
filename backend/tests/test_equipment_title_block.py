@@ -138,7 +138,12 @@ def test_a_reference_line_citing_a_motor_specification_is_not_a_second_type(on):
 
 @pytest.mark.parametrize(
     "second",
-    ["APPLICABLE TO: COMPRESSOR DATA SHEET", "PUMP / MOTOR DATA SHEET per API 610"],
+    [
+        "APPLICABLE TO: COMPRESSOR DATA SHEET",
+        "Ref. API 610 Motor data sheet",
+        # guard, not fail-first: no reference word at the start, ambiguous before #1552 too
+        "PUMP / MOTOR DATA SHEET per API 610",
+    ],
 )
 def test_a_reference_word_line_naming_another_data_sheet_is_still_a_second_type(
     on, second
