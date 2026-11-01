@@ -26,8 +26,14 @@ def temp_db(tmp_path, monkeypatch):
 def _page(title_lines, *, panel="MOTOR DATA"):
     """A title block of `title_lines`, a body (the panel label sits at line 11, beyond the
     page edge), and a footer."""
-    body = [f"Process line {i}" for i in range(5)] + [panel] + [f"Value line {i}" for i in range(6)]
-    return "\n".join([*title_lines, *body, "Notes", "Page 1 of 3", "Rev 0", "Issued", "End"])
+    body = (
+        [f"Process line {i}" for i in range(5)]
+        + [panel]
+        + [f"Value line {i}" for i in range(6)]
+    )
+    return "\n".join(
+        [*title_lines, *body, "Notes", "Page 1 of 3", "Rev 0", "Issued", "End"]
+    )
 
 
 def _doc(doc_id, text, *, confirmed=False):
@@ -66,11 +72,15 @@ def _doc(doc_id, text, *, confirmed=False):
 
 
 def _row(doc_id):
-    return db.connect().execute(
-        "SELECT equipment_type, equipment_type_evidence FROM document_classification"
-        " WHERE document_id=?",
-        (doc_id,),
-    ).fetchone()
+    return (
+        db.connect()
+        .execute(
+            "SELECT equipment_type, equipment_type_evidence FROM document_classification"
+            " WHERE document_id=?",
+            (doc_id,),
+        )
+        .fetchone()
+    )
 
 
 def _run(doc_id):
@@ -85,7 +95,12 @@ def on(monkeypatch):
 
 
 def test_the_title_block_names_a_pump_and_a_motor_panel_in_the_body_is_ignored(on):
-    _doc("d1", _page(["ACME PROJECT", "CENTRIFUGAL PUMP DATA SHEET", "Doc 1", "Rev 0", "Tag P-1"]))
+    _doc(
+        "d1",
+        _page(
+            ["ACME PROJECT", "CENTRIFUGAL PUMP DATA SHEET", "Doc 1", "Rev 0", "Tag P-1"]
+        ),
+    )
     row = _run("d1")
     assert row["equipment_type"] == "Centrifugal Pump"
     assert json.loads(row["equipment_type_evidence"])["method"] == "title_phrase_match"
@@ -106,7 +121,13 @@ def test_no_equipment_in_the_title_block_is_engineer_to_confirm_never_motor(on):
     "title",
     [
         ["ACME PROJECT", "PUMP AND MOTOR DATA SHEET", "Doc 1", "Rev 0", "Tag P-1"],
-        ["CENTRIFUGAL PUMP DATA SHEET", "COMPRESSOR DATA SHEET", "Doc 1", "Rev 0", "Tag P-1"],
+        [
+            "CENTRIFUGAL PUMP DATA SHEET",
+            "COMPRESSOR DATA SHEET",
+            "Doc 1",
+            "Rev 0",
+            "Tag P-1",
+        ],
     ],
 )
 def test_a_title_block_naming_two_types_is_engineer_to_confirm(on, title):
@@ -131,6 +152,20 @@ def test_no_note_when_the_title_block_named_the_type(on):
 
 
 def test_an_engineer_confirmed_record_is_not_touched(on):
-    _doc("d1", _page(["ACME PROJECT", "TECHNICAL DATA", "Doc 1", "Rev 0", "Tag X-1"]), confirmed=True)
+    _doc(
+        "d1",
+        _page(["ACME PROJECT", "TECHNICAL DATA", "Doc 1", "Rev 0", "Tag X-1"]),
+        confirmed=True,
+    )
     assert _run("d1")["equipment_type"] == "Valve"
     assert equipment_title_block.for_submittal("d1") == []
+
+
+def test_a_title_naming_one_type_by_two_spellings_is_not_ambiguous(on):
+    _doc(
+        "d1",
+        _page(
+            ["DATA SHEET FOR PRESSURE SAFETY VALVES (PSVs)", "Doc 1", "Rev 0", "x", "y"]
+        ),
+    )
+    assert _run("d1")["equipment_type"] == "Pressure Safety Valve"

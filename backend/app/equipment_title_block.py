@@ -22,7 +22,9 @@ from .db import connect
 NOTE = "Equipment type not read from the title block - engineer to confirm"
 METHOD = "engineer_to_confirm"
 #: A line that calls itself a sheet or a labelled title: where a second type may be named.
-_SHEET_WORDS = re.compile(r"data[\s\-]*sheet|specification|^\s*(?:document\s+)?title\s*:", re.I)
+_SHEET_WORDS = re.compile(
+    r"data[\s\-]*sheet|specification|^\s*(?:document\s+)?title\s*:", re.I
+)
 
 
 @dataclass
@@ -40,7 +42,9 @@ def _same_family(a: str, b: str) -> bool:
     a, b = " ".join(a.lower().split()), " ".join(b.lower().split())
     if not a or not b:
         return False
-    return bool(re.search(rf"\b{re.escape(a)}\b", b) or re.search(rf"\b{re.escape(b)}\b", a))
+    return bool(
+        re.search(rf"\b{re.escape(a)}\b", b) or re.search(rf"\b{re.escape(b)}\b", a)
+    )
 
 
 def _other_types_in(lines, label: str) -> list[str]:
@@ -56,8 +60,12 @@ def _other_types_in(lines, label: str) -> list[str]:
             if len(types) != 1 or not re.search(rf"\b{re.escape(phrase)}\b", folded):
                 continue
             (name,) = types
-            if vocab.kind.get(name) != subject_scope.EQUIPMENT or _same_family(name, label):
+            if vocab.kind.get(name) != subject_scope.EQUIPMENT or _same_family(
+                name, label
+            ):
                 continue
+            if name in vocab.phrases.get(subject_scope._fold(label), ()):
+                continue  # the vocabulary itself spells `label` as this type
             if not any(_same_family(name, seen) for seen in found):
                 found.append(name)
     return found
@@ -118,7 +126,9 @@ def decide(conn, document_id: str, pages, kind_on: bool, role):
 
     if settings.equipment_from_title_block_enabled:
         reading = read_title_block(pages)
-        if reading.evidence is None and c._body_fallback_ok(kind_on, pages, document_id, role):
+        if reading.evidence is None and c._body_fallback_ok(
+            kind_on, pages, document_id, role
+        ):
             store_to_confirm(document_id, reading)
         return reading.evidence
     evidence = c.suggest_equipment_type_from_title(c.title_block_lines(pages))
