@@ -194,6 +194,8 @@ EGRESS_SAFE: dict[str, object] = {
     "table_text_cells_enabled": False,
     # --- local only: reads an uploaded Word file with the standard library
     "docx_input_enabled": True,
+    # --- local only, no model or socket: one intake layer for every file type (off by default)
+    "one_intake_enabled": False,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,

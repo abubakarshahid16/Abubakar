@@ -751,6 +751,12 @@ class Settings(SettingsExt, BaseSettings):
     #: `docx_reader` with its structure kept and cited by heading path and
     #: paragraph. OFF: refused unless DATASHEET_OFFICE_INPUT is on. Env: DOCX_INPUT_ENABLED.
     docx_input_enabled: bool = True
+    #: One intake layer (W5b-01, #525, part 1): extraction reads every file
+    #: through `intake.read` (PDF and Word as today; Excel one page per sheet;
+    #: an image one page waiting for OCR) and a file it cannot read is refused
+    #: with a reason. OFF: nothing changes. Local only, no model, no socket.
+    #: Env: ONE_INTAKE_ENABLED.
+    one_intake_enabled: bool = False
     #: #1473: a page counts as READ when a recorded text or picture reading came
     #: back for it, apart from "fields found" (`page_ledger.coverage` adds
     #: `pages_read` / `pages_not_read`), and a Word file reaches the fact reader
