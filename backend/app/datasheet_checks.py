@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, pump_kit, severity_rule
 from .checklist_scope import governs, standards
 from .config import settings
 from .datasheet_coverage import (
@@ -371,9 +371,9 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
         for tag, roles in by_tag.items():
             if tag is None and tagged:
                 continue    # the common section counts for every tag (above)
-            for item in checklist["items"]:
-                out.append(evaluate_item(item, roles, common if tag is not None else {},
-                                         tag, rules, draft=checklist["draft"], page_texts=page_texts))
+            out += pump_kit.rows(
+                checklist, roles, common if tag is not None else {}, tag, rules, page_texts
+            )
     if page_texts and equipment_type:
         out.append(_result("DS-R1", COMPLIANT if has_block else MISSING_INFORMATION,
                            "A datasheet carries a revision block.",
@@ -423,7 +423,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
     if key not in table:
         return None
     entry = table[key]
-    items = list(entry.get("items", [])) + _local_items(key)
+    items = pump_kit.with_kit(key, list(entry.get("items", [])) + _local_items(key))
     for item in items:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
@@ -774,7 +774,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         if kind == "above_by":
             right_words = (f"{_label(other, rule['right']).lower()} {_said(other)} (page {other.get('page')}) "
                            f"plus the greater of {rule['percent']}% or {rule['at_least']} {rule['unit']}")
-        right_words = ((f"{rule['percent']}% of " if kind == "percent_of" else "")
+        right_words = right_words if kind == "above_by" else ((f"{rule['percent']}% of " if kind == "percent_of" else "")
                        + f"{_label(other, rule['right']).lower()} {_said(other)} (page {other.get('page')})")
     if (left is None or right is None or left[1] != right[1]
             or (left[2] and right[2] and left[2] != right[2])):

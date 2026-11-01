@@ -35,3 +35,7 @@ class SettingsExt(BaseModel):
     #: label answers each text attribute it names. OFF: nothing changes.
     #: Env: DATASHEET_ONE_VALUE_ENABLED.
     datasheet_one_value_enabled: bool = False
+    #: #1478 pump kit PREPARATION: append the DRAFT pump cards of `reference/pump_kit_draft.json`
+    #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
+    #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.
+    pump_kit_draft_enabled: bool = False
