@@ -639,10 +639,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"],
                   entry["standard_reference"], entry.get("priority_label", "")]
-        values.extend(quality.tail_cells(view, entry))  # #1503
-        if internal and not view.get("export_quality"):
+        if internal:
             values.extend([entry["ai_review_comment"], entry["reasoning"],
                            entry.get("rule_trust", "")])
+        values[9:] = quality.tail_cells(view, entry, values[9:])  # #1503
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
             cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9)))

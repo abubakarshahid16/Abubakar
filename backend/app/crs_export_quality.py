@@ -490,11 +490,11 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
     return view
 
 
-def tail_cells(view: dict, entry: dict) -> list:
-    """The cells after Priority on a row: the AI column when this copy has it
-    (switch on only; off, the caller's own three columns apply)."""
+def tail_cells(view: dict, entry: dict, current: list) -> list:
+    """The cells after Priority on a row. Switch off: `current`, the caller's
+    own three columns. On: the AI column when this copy has it, else none."""
     if not view.get("export_quality"):
-        return []
+        return current
     return [entry["ai_review_comment"]] if view["columns"][-1] == AI_COLUMN else []
 
 
