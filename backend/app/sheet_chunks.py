@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 
 from . import chunker
 from .chunker import Block, count_tokens
@@ -45,11 +46,27 @@ def applies(path: str | os.PathLike) -> bool:
         return False
 
 
-def cell_range(sheet: str, first_row: int, first_col: int, last_row: int, last_col: int) -> str:
+def structured(doc) -> Callable[[], list[Block]] | None:
+    """The chunk builder for a document that states its own structure, else None:
+    a Word document (pagination 'flow', `docx_chunks`) or, switch on, a workbook (here).
+    Returned unbuilt, so a document whose chunks are unchanged is not read again."""
+    from . import docx_chunks, docx_reader, stored_paths
+
+    path = stored_paths.local(doc["stored_path"])
+    if "pagination" in doc.keys() and doc["pagination"] == "flow":
+        return lambda: docx_chunks.build_chunks(docx_reader.read_structure(path))
+    return (lambda: build_chunks(path)) if applies(path) else None
+
+
+def cell_range(
+    sheet: str, first_row: int, first_col: int, last_row: int, last_col: int
+) -> str:
     """`'Sheet name'!A3:F17` (or `Data!B2` for one cell), quoted as Excel quotes it."""
     from openpyxl.utils import get_column_letter
 
-    name = sheet if _PLAIN_SHEET.fullmatch(sheet) else "'" + sheet.replace("'", "''") + "'"
+    name = (
+        sheet if _PLAIN_SHEET.fullmatch(sheet) else "'" + sheet.replace("'", "''") + "'"
+    )
     start = f"{get_column_letter(first_col)}{first_row}"
     end = f"{get_column_letter(last_col)}{last_row}"
     return f"{name}!{start}" if start == end else f"{name}!{start}:{end}"
@@ -102,7 +119,9 @@ def _sheet_chunks(title: str, page_no: int, rows: list[Row]) -> list[Block]:
             if count_tokens(text) <= ceiling
             else chunker.split_oversized(text, page_no, page_no, title, "table")
         )
-        for piece in pieces:  # an over-long row is windowed, every window keeps its cells
+        for (
+            piece
+        ) in pieces:  # an over-long row is windowed, every window keeps its cells
             piece.locator, piece.context = where, title
             chunks.append(piece)
         group, tokens = [], head_tokens

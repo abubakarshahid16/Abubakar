@@ -14,8 +14,18 @@ import pymupdf
 import pytest
 from PIL import Image
 
-from app import access, chunker, db, extract, intake, page_ledger, sheet_chunks, states
-from app import stored_paths, upload
+from app import (
+    access,
+    chunker,
+    db,
+    extract,
+    intake,
+    page_ledger,
+    sheet_chunks,
+    states,
+    stored_paths,
+    upload,
+)
 from app.config import settings
 
 
@@ -76,10 +86,15 @@ def test_switch_defaults_off():
     assert Settings.model_fields["intake_images_xlsx_enabled"].default is False
 
 
-@pytest.mark.parametrize("one_intake,slice2", [(False, False), (True, False), (False, True)])
-@pytest.mark.parametrize("fmt,name", [("PNG", "a.png"), ("JPEG", "a.jpg"), ("TIFF", "a.tif")])
-def test_either_switch_off_an_image_is_refused_as_today(monkeypatch, one_intake, slice2, fmt,
-                                                         name):
+@pytest.mark.parametrize(
+    "one_intake,slice2", [(False, False), (True, False), (False, True)]
+)
+@pytest.mark.parametrize(
+    "fmt,name", [("PNG", "a.png"), ("JPEG", "a.jpg"), ("TIFF", "a.tif")]
+)
+def test_either_switch_off_an_image_is_refused_as_today(
+    monkeypatch, one_intake, slice2, fmt, name
+):
     monkeypatch.setattr(settings, "one_intake_enabled", one_intake)
     monkeypatch.setattr(settings, "intake_images_xlsx_enabled", slice2)
     with pytest.raises(upload.UploadError) as exc:
@@ -88,9 +103,12 @@ def test_either_switch_off_an_image_is_refused_as_today(monkeypatch, one_intake,
     assert not any(settings.upload_dir.iterdir())
 
 
-@pytest.mark.parametrize("one_intake,slice2", [(False, False), (True, False), (False, True)])
-def test_either_switch_off_a_workbook_is_stored_not_indexed_as_today(monkeypatch, one_intake,
-                                                                     slice2):
+@pytest.mark.parametrize(
+    "one_intake,slice2", [(False, False), (True, False), (False, True)]
+)
+def test_either_switch_off_a_workbook_is_stored_not_indexed_as_today(
+    monkeypatch, one_intake, slice2
+):
     monkeypatch.setattr(settings, "one_intake_enabled", one_intake)
     monkeypatch.setattr(settings, "intake_images_xlsx_enabled", slice2)
     row, job_id, _dup = _ingest(_workbook(), "lines.xlsx")
@@ -100,9 +118,14 @@ def test_either_switch_off_a_workbook_is_stored_not_indexed_as_today(monkeypatch
 # ------------------------------------------------------------------- images
 
 
-@pytest.mark.parametrize("fmt,name,suffix", [("PNG", "scan.png", ".png"),
-                                              ("JPEG", "scan.jpg", ".jpg"),
-                                              ("TIFF", "scan.tiff", ".tif")])
+@pytest.mark.parametrize(
+    "fmt,name,suffix",
+    [
+        ("PNG", "scan.png", ".png"),
+        ("JPEG", "scan.jpg", ".jpg"),
+        ("TIFF", "scan.tiff", ".tif"),
+    ],
+)
 def test_an_image_is_accepted_queued_and_its_original_kept(fmt, name, suffix):
     data = _image(fmt)
     row, job_id, dup = _ingest(data, name)
@@ -130,9 +153,14 @@ def test_every_page_of_a_multi_page_tiff_becomes_a_page():
 def test_an_image_gets_pages_and_a_page_ledger_like_a_scanned_pdf():
     row, _job, _dup = _ingest(_image("PNG", size=(1200, 1600)), "scan.png")
     extract.extract_document(row["id"])
-    pages = db.connect().execute(
-        "SELECT page_no, needs_ocr, ocr_route FROM pages WHERE document_id = ?",
-        (row["id"],)).fetchall()
+    pages = (
+        db.connect()
+        .execute(
+            "SELECT page_no, needs_ocr, ocr_route FROM pages WHERE document_id = ?",
+            (row["id"],),
+        )
+        .fetchall()
+    )
     assert [(p["page_no"], p["needs_ocr"]) for p in pages] == [(1, 1)]
     assert pages[0]["ocr_route"]  # the routing reason is stored, as for a scan
     page_ledger.refresh(row["id"])
@@ -176,14 +204,24 @@ def _indexed_workbook():
 
 def test_a_workbook_is_indexed_and_every_chunk_cites_sheet_and_cells():
     doc_id = _indexed_workbook()
-    chunks = db.connect().execute(
-        "SELECT page_start, page_end, kind, section, locator, retrievable, text FROM chunks"
-        " WHERE document_id = ? ORDER BY ordinal", (doc_id,)).fetchall()
+    chunks = (
+        db.connect()
+        .execute(
+            "SELECT page_start, page_end, kind, section, locator, retrievable, text FROM chunks"
+            " WHERE document_id = ? ORDER BY ordinal",
+            (doc_id,),
+        )
+        .fetchall()
+    )
     assert len(chunks) == 1
     c = chunks[0]
     assert c["locator"] == "'Line list'!B3:D5"
-    assert (c["page_start"], c["page_end"], c["kind"], c["section"]) == (1, 1, "table",
-                                                                         "Line list")
+    assert (c["page_start"], c["page_end"], c["kind"], c["section"]) == (
+        1,
+        1,
+        "table",
+        "Line list",
+    )
     assert c["retrievable"] == 1
     assert "| L-101 | 12 | barg |" in c["text"] and "| L-102 | 15 | barg |" in c["text"]
 
@@ -195,10 +233,17 @@ def test_a_workbook_hidden_and_empty_sheets_are_reported_not_dropped():
     assert (2, "page_not_read") in stored  # the empty sheet, with its reason
     page_ledger.refresh(doc_id)
     cov = page_ledger.coverage(doc_id)
-    assert cov["intake_reasons"]["0"] == ["not read: hidden sheet 3 (workbook position)"]
-    secret = db.connect().execute(
-        "SELECT COUNT(*) FROM chunks WHERE document_id = ? AND locator LIKE 'Secret%'",
-        (doc_id,)).fetchone()[0]
+    assert cov["intake_reasons"]["0"] == [
+        "not read: hidden sheet 3 (workbook position)"
+    ]
+    secret = (
+        db.connect()
+        .execute(
+            "SELECT COUNT(*) FROM chunks WHERE document_id = ? AND locator LIKE 'Secret%'",
+            (doc_id,),
+        )
+        .fetchone()[0]
+    )
     assert secret == 0
 
 
@@ -231,17 +276,22 @@ def test_a_row_too_long_for_one_chunk_is_windowed_and_keeps_its_cells(tmp_path):
     assert {c.locator for c in chunks} == {"Notes!A1"}
 
 
-@pytest.mark.parametrize("sheet,expected", [
-    ("Data", "Data!A1:B2"),
-    ("Line list", "'Line list'!A1:B2"),
-    ("O'Brien", "'O''Brien'!A1:B2"),
-    ("2024", "'2024'!A1:B2"),
-])
+@pytest.mark.parametrize(
+    "sheet,expected",
+    [
+        ("Data", "Data!A1:B2"),
+        ("Line list", "'Line list'!A1:B2"),
+        ("O'Brien", "'O''Brien'!A1:B2"),
+        ("2024", "'2024'!A1:B2"),
+    ],
+)
 def test_cell_range_quotes_the_sheet_name_as_excel_does(sheet, expected):
     assert sheet_chunks.cell_range(sheet, 1, 1, 2, 2) == expected
 
 
-def test_switch_off_a_workbook_indexed_by_the_older_seam_is_chunked_as_before(monkeypatch):
+def test_switch_off_a_workbook_indexed_by_the_older_seam_is_chunked_as_before(
+    monkeypatch,
+):
     """DATASHEET_OFFICE_INPUT indexes a workbook already; with slice 2 off its
     chunks are built by the PDF chunker from page text, with no locator."""
     monkeypatch.setattr(settings, "intake_images_xlsx_enabled", False)
@@ -249,6 +299,10 @@ def test_switch_off_a_workbook_indexed_by_the_older_seam_is_chunked_as_before(mo
     row, _job, _dup = _ingest(_workbook(), "lines.xlsx")
     extract.extract_document(row["id"])
     chunker.chunk_document(row["id"])
-    locators = {r[0] for r in db.connect().execute(
-        "SELECT locator FROM chunks WHERE document_id = ?", (row["id"],))}
+    locators = {
+        r[0]
+        for r in db.connect().execute(
+            "SELECT locator FROM chunks WHERE document_id = ?", (row["id"],)
+        )
+    }
     assert locators == {None}

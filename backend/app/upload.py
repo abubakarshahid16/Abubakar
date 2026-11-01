@@ -334,8 +334,11 @@ def stream_to_temp(src: BinaryIO, temp_path: Path) -> tuple[str, int]:
                         "Old Office files (.doc, .xls, .ppt) are not supported. "
                         + UNSUPPORTED_OFFICE_HINT,
                         "legacy Office container")
-                if not (block.startswith(PDF_MAGIC) or block.startswith(ZIP_MAGIC)
-                        or _accepted_image(block)):
+                if not (
+                    block.startswith(PDF_MAGIC)
+                    or block.startswith(ZIP_MAGIC)
+                    or _accepted_image(block)
+                ):
                     raise UploadError(
                         "not_pdf",
                         "That file is not a PDF",
@@ -389,17 +392,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
         # document is a datasheet input. Flag off: it stays `xlsx` here and
         # `validate_xlsx` refuses it as `not_xlsx`, exactly as before.
         if kind == KIND_XLSX:
-            office = zip_office_type(temp_path)
-            if office == "pptx":
-                raise UploadError(
-                    "unsupported_office",
-                    "PowerPoint files (.pptx) are not supported yet. " + UNSUPPORTED_OFFICE_HINT,
-                    "ppt/presentation.xml present")
-            if office == "odf":
-                raise UploadError(
-                    "unsupported_office",
-                    "OpenDocument files (.odt, .ods, .odp) are not supported yet. "
-                    + UNSUPPORTED_OFFICE_HINT, "OpenDocument mimetype")
+            _refuse_unread_office(temp_path)
         if (kind == KIND_XLSX and docx_accepted() and is_docx(temp_path)):
             kind = KIND_DOCX
             validate_docx(temp_path)
@@ -432,19 +425,12 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # same id. Master-plan section 27: "Original uploaded files remain
     # immutable." Keeping the first copy is what makes that a property of the
     # code rather than a sentence in a document.
-    placed = False
     if final_path.exists():
         temp_path.unlink(missing_ok=True)
     else:
         os.replace(temp_path, final_path)  # atomic within the same volume
-        placed = True
     # An image: the original stays as uploaded; the pipeline reads its pages.
-    try:
-        read_path = _image_pages(final_path) if kind in IMAGE_KINDS else final_path
-    except UploadError:
-        if placed:  # refused: nothing of this upload is left behind
-            final_path.unlink(missing_ok=True)
-        raise
+    read_path = _image_pages(final_path) if kind in IMAGE_KINDS else final_path
 
     doc_id = f"doc_{sha256[:12]}"
     job_id = f"job_{uuid.uuid4().hex[:12]}"
@@ -473,12 +459,9 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # workbook or Word document IS indexed - its pages are rendered by
     # `datasheet_inputs` in the extract stage - so a datasheet sent as one can
     # be reviewed. Off: a workbook is stored and never indexed, as above.
-    # #525 slice 2 (`intake.uploads_enabled()`, off by default): a workbook is
-    # indexed through intake, each chunk cited by sheet and cell range
-    # (`sheet_chunks`), and an image is indexed as picture-only PDF pages.
     indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())
                or bool(settings.datasheet_office_input))
-    indexed = indexed or kind in IMAGE_KINDS or _xlsx_indexed(kind)
+    indexed = indexed or _slice2_indexed(kind)
     status = states.QUEUED if indexed else states.STORED_NOT_INDEXED
 
     try:
@@ -524,19 +507,42 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     return row, (job_id if indexed else None), None
 
 
-def _xlsx_indexed(kind: str) -> bool:
-    """#525 slice 2: a workbook is indexed through intake (its sheets become
-    chunks with a sheet + cell-range citation). Off: stored, never indexed."""
+def _refuse_unread_office(temp_path: Path) -> None:
+    """A PowerPoint or OpenDocument zip is refused with what it is and what to do."""
+    office = zip_office_type(temp_path)
+    if office == "pptx":
+        raise UploadError(
+            "unsupported_office",
+            "PowerPoint files (.pptx) are not supported yet. "
+            + UNSUPPORTED_OFFICE_HINT,
+            "ppt/presentation.xml present",
+        )
+    if office == "odf":
+        raise UploadError(
+            "unsupported_office",
+            "OpenDocument files (.odt, .ods, .odp) are not supported yet. "
+            + UNSUPPORTED_OFFICE_HINT,
+            "OpenDocument mimetype",
+        )
+
+
+def _slice2_indexed(kind: str) -> bool:
+    """#525 slice 2 (`intake.uploads_enabled()`, off by default): an image is
+    indexed as its picture-only PDF pages, and a workbook through intake, each
+    chunk cited by sheet and cell range (`sheet_chunks`). Off: neither (an
+    image never gets this far, a workbook is stored and never indexed)."""
     from . import intake
 
-    return kind == KIND_XLSX and intake.uploads_enabled()
+    return kind in IMAGE_KINDS or (kind == KIND_XLSX and intake.uploads_enabled())
 
 
 def _image_pages(original: Path) -> Path:
     """The picture-only PDF the pipeline reads for a stored image, written once beside it.
 
     Content-addressed like the original (`<sha256>.<suffix>.pdf`), written to a
-    temp name and renamed, so a crash leaves no half-written file under the name."""
+    temp name and renamed, so a crash leaves no half-written file under the name.
+    An image intake refuses (it does not open, too many pixels or pages) is
+    removed again, so a refused upload leaves nothing behind."""
     from . import intake
 
     pages = original.with_name(original.name + ".pdf")
@@ -544,9 +550,10 @@ def _image_pages(original: Path) -> Path:
         part = original.with_name(f".{original.name}.{uuid.uuid4().hex}.part")
         try:
             intake.image_to_pdf(original, part)
-            os.replace(part, pages)
+            part.replace(pages)
         except intake.IntakeRefused as exc:
             part.unlink(missing_ok=True)
+            original.unlink(missing_ok=True)
             raise UploadError(exc.code, exc.message) from exc
         except Exception:
             part.unlink(missing_ok=True)
