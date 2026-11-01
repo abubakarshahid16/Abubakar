@@ -384,9 +384,7 @@ VALUE_UNIT_LEAD = re.compile(
     r"^(?P<value>[-+]?(?:\.\d+(?![.,]?\d)|\d[\d.,]*))\s*"
     r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?"
 )
-CELL_LEAD = re.compile(
-    r"^\s*[<>=~±]{0,2}\s*[-+]?(?:\.\d+|\d[\d,]*(?:\.\d+)?)\s*$"
-)
+CELL_LEAD = re.compile(r"^\s*[<>=~±]{0,2}\s*[-+]?(?:\.\d+|\d[\d,]*(?:\.\d+)?)\s*$")
 
 
 def lead_or(plain: re.Pattern, lead: re.Pattern) -> re.Pattern:
