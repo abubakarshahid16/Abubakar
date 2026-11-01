@@ -233,7 +233,9 @@ def comparison_words(requirement: dict, quote: str) -> str:
     if len(same) != 1:
         return ""
     bound = _OPERATOR_WORDS.get(requirement.get("operator") or "")
-    limit = " ".join(filter(None, [bound, str(raw_value), str(raw_unit)]))
+    if not bound:
+        return ""
+    limit = f"{bound} {raw_value} {raw_unit}"
     return (
         f"the procedure states {same[0].raw_value} {same[0].raw_unit}; "
         f"the requirement is {limit}; "

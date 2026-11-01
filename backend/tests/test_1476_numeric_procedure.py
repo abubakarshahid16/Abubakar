@@ -59,17 +59,34 @@ def test_unit_code_is_used_minutes_against_hours_is_the_same_quantity():
 
 
 def test_two_same_quantity_numbers_in_the_quote_are_not_compared():
-    pages = [(1, "Gauges are checked every 6 months and re-certified every 24 months.")]
+    text = "Each hot work permit shall be valid for a maximum of 8 hours."
+    assert _req(text)["requirement_type"] == "numeric_limit"
+    pages = [
+        (
+            1,
+            "Each hot work permit is valid for 6 hours on weekdays and 12 hours at weekends.",
+        )
+    ]
     with procedure_text.using(pages):
-        why = comparison.compare(
-            _req("Gauges shall be checked every 3 months at most."), None
-        )["rationale"]
+        why = comparison.compare(_req(text), None)["rationale"]
     assert "found on page 1:" in why and "the procedure states" not in why
 
 
 def test_different_quantity_in_the_quote_is_not_compared():
-    why = _go("Gauges shall be checked at most every 3 bar.")["rationale"]
-    assert "the procedure states" not in why
+    text = "Each hot work permit shall be valid for a maximum of 8 hours."
+    assert _req(text)["requirement_type"] == "numeric_limit"
+    pages = [(1, "Each hot work permit is valid at a pressure of 12 bar.")]
+    with procedure_text.using(pages):
+        why = comparison.compare(_req(text), None)["rationale"]
+    assert "found on page 1:" in why and "the procedure states" not in why
+
+
+def test_no_operator_prints_no_comparison_sentence():
+    req = _req("Each hot work permit shall be valid for a maximum of 8 hours.")
+    req["operator"] = None
+    assert (
+        procedure_text.comparison_words(req, "Each permit is valid for 12 hours.") == ""
+    )
 
 
 def test_not_found_is_the_unfound_row_never_missing():
@@ -97,8 +114,9 @@ def test_datasheet_submittal_is_unchanged():
 
 
 def test_a_numeric_limit_that_names_another_document_is_not_routed():
-    text = "A calibration certificate shall show a maximum error of 2 percent."
+    text = "A calibration certificate shall be valid for a maximum of 8 hours."
     req = _req(text, evidence="certificate")
+    assert req["requirement_type"] == "numeric_limit"
     with procedure_text.using(PAGES):
         assert procedure_text.route(req, None) is None
 
