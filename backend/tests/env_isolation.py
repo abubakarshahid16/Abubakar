@@ -205,6 +205,8 @@ EGRESS_SAFE: dict[str, object] = {
     "document_kind_enabled": False,
     # --- local only, no model or socket: a page is read when a reading came back (#1473, off by default)
     "page_read_by_reading_enabled": False,
+    # --- local only, no model or socket: a procedure is checked against its own text (#1476, off by default)
+    "procedure_path_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
     "clause_review_enabled": False,
 }

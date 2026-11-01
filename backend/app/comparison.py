@@ -54,6 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
+from . import procedure_text
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -787,23 +788,17 @@ def _compare(requirement: dict, fact: dict | None, *,
     # ISSUE #163, CRITERION 2 & 4 - BEFORE EVERY OTHER BRANCH, INCLUDING THE
     # ABSENT-FACT ONE AND THE TABLE-ROW ONE BELOW.
     #
-    # `required_evidence_type` is set only when the requirement's OWN
-    # SENTENCE names a document to hand over - "submit a calibration
-    # certificate", "furnish vendor drawings" - via
-    # `requirements_3b.required_evidence_type`. It has been extracted and
-    # stored on every `standard_requirements` row since #162 and read by
-    # nothing here: a numeric_limit clause that also demands a certificate
-    # ("... confirmed by a calibration certificate to within 0.5%") could be
-    # paired by field-name containment to an unrelated datasheet value and
-    # compared as arithmetic, emitting a COMPLIANT/NON_COMPLIANT verdict this
-    # engine has no evidence for - the datasheet is not the certificate the
-    # clause asked for. Everything this pipeline reads comes from the
-    # submittal's DATASHEET extraction (`datasheets.py`), so
-    # `DATA_SHEET_EVIDENCE` is the one value that names what is actually being
-    # compared; any other named document routes to `NOT_IN_DOCUMENT_SCOPE`
-    # exactly as B9 already routes a `statement` with no matching field -
-    # this is the same claim ("this submittal type cannot answer it") for a
-    # requirement that says so explicitly rather than by shape.
+    # `required_evidence_type` is set only when the requirement's OWN SENTENCE
+    # names a document to hand over ("submit a calibration certificate"), via
+    # `requirements_3b.required_evidence_type`. A numeric_limit clause that
+    # also demands a certificate could be paired to an unrelated datasheet
+    # value and compared as arithmetic: a COMPLIANT/NON_COMPLIANT verdict with
+    # no evidence, the datasheet not being the certificate asked for. Only
+    # `DATA_SHEET_EVIDENCE` names what is compared; any other named document
+    # routes to `NOT_IN_DOCUMENT_SCOPE`, as B9 routes an unmatched `statement`.
+    # #1476: a procedure's own text answers its own requirements (an engineer decides).
+    if routed := procedure_text.route(requirement, fact):
+        return routed
     required_evidence = requirement.get("required_evidence_type")
     if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:
         return {
@@ -1566,7 +1561,7 @@ def _prepare_finding(
         "finding": comment or method_notes.split_method_notes(rationale)[0],
         "required_action": _required_action(status),
         "confidence": _confidence_label(confidence),
-        "contractor_page": (fact or {}).get("page"),
+        "contractor_page": procedure_text.page_of(fact, rationale),
         "contractor_section": (fact or {}).get("section"),
         "contractor_evidence_text": (fact or {}).get("field_value"),
         "standard_document_id": requirement.get("standard_document_id"),
@@ -1607,6 +1602,7 @@ _REASON_CODES = (
     CONDITION_NOT_MET,
     "UNREAD_PAGES",
     "PAGE_READER_ONLY",
+    *procedure_text.REASON_CODES,  # #1476
     match_rules.QUANTITY_KIND_UNSURE,  # before its prefix, `quantity_kind`
     match_rules.QUANTITY_KIND,
 )
@@ -2299,7 +2295,10 @@ def run_comparison(
     parsing, the matcher) carries the submittal's fields and the applied
     standards' clause text - those documents and no others."""
     from . import claude_approved
-    with claude_approved.carrying(claude_approved.review_documents(review_run_id)):
+    with (
+        claude_approved.carrying(claude_approved.review_documents(review_run_id)),
+        procedure_text.reading(review_run_id),  # #1476
+    ):
         return _run_comparison(
             review_run_id, allowed_document_ids=allowed_document_ids, subject=subject,
             reference_coverage=reference_coverage, model_opinions=model_opinions,
