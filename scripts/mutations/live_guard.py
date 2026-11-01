@@ -51,37 +51,43 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     # ---- #1557: a different-case path or a hard link to the live file -----
     Mutation(
-        id="M1561-01", phase=1561,
+        id="M1561-01",
+        phase=1561,
         description="the live-path shape is compared case-sensitively again, so "
-                    "Backend/Data/RAG_Intelligence.sqlite on macOS opens the live "
-                    "file without a backup (live guard)",
+        "Backend/Data/RAG_Intelligence.sqlite on macOS opens the live "
+        "file without a backup (live guard)",
         path=APP / "live_guard.py",
-        anchor="        p.name.casefold() == \"rag_intelligence.sqlite\"\n"
-               "        and p.parent.name.casefold() == \"data\"\n"
-               "        and p.parent.parent.name.casefold() == \"backend\"\n",
-        replacement="        p.name == \"rag_intelligence.sqlite\"\n"
-                    "        and p.parent.name == \"data\"\n"
-                    "        and p.parent.parent.name == \"backend\"\n",
-        target=_LIVE_GUARD_TEST, keyword="different_case_path",
+        anchor='        p.name.casefold() == "rag_intelligence.sqlite"\n'
+        '        and p.parent.name.casefold() == "data"\n'
+        '        and p.parent.parent.name.casefold() == "backend"\n',
+        replacement='        p.name == "rag_intelligence.sqlite"\n'
+        '        and p.parent.name == "data"\n'
+        '        and p.parent.parent.name == "backend"\n',
+        target=_LIVE_GUARD_TEST,
+        keyword="different_case_path",
         tags=("critical",),
     ),
     Mutation(
-        id="M1561-02", phase=1561,
+        id="M1561-02",
+        phase=1561,
         description="a hard link to the live file under another name is not "
-                    "live, so db.connect() opens it freely (live guard)",
+        "live, so db.connect() opens it freely (live guard)",
         path=APP / "live_guard.py",
         anchor="    return _same_file_as_a_live_one(p)\n",
         replacement="    return False\n",
-        target=_LIVE_GUARD_TEST, keyword="hard_link_to_the_live",
+        target=_LIVE_GUARD_TEST,
+        keyword="hard_link_to_the_live",
         tags=("critical",),
     ),
     Mutation(
-        id="M1561-03", phase=1561,
+        id="M1561-03",
+        phase=1561,
         description="any existing file counts as the live one once a live file "
-                    "exists, so a real diagnostic copy is refused (live guard)",
+        "exists, so a real diagnostic copy is refused (live guard)",
         path=APP / "live_guard.py",
         anchor="            if live.exists() and p.samefile(live):\n",
         replacement="            if live.exists():\n",
-        target=_LIVE_GUARD_TEST, keyword="real_copy",
+        target=_LIVE_GUARD_TEST,
+        keyword="real_copy",
     ),
 )
