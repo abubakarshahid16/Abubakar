@@ -185,9 +185,8 @@ def gate_for_run(
     result is what `split_part` stores."""
     from . import applicability
 
-    equipment = subject_scope.submittal_equipment(
-        stored, facts, subject_scope.vocabulary()
-    )[0]
+    vocab = subject_scope.vocabulary()
+    equipment = subject_scope.submittal_equipment(stored, facts, vocab)[0]
     partial = subject_scope.partial_gate(
         requirements,
         equipment=equipment,
@@ -195,9 +194,11 @@ def gate_for_run(
         partial_standards=applicability.governing_table()["partial_standards"],
     )
     not_applied.extend(partial["items"])
+    # leaving out only: an unsure sheet is read as every type it gives (switch on); the
+    # partial gate above keeps the plain reading, since it narrows a standard to one type's part
     result = gate(
         partial["kept"],
-        equipment=equipment,
+        equipment=subject_scope.narrowing_equipment(stored, facts, vocab)[0],
         kind=submittal_kind(submittal_id),
         standard_labels=standard_labels,
     )

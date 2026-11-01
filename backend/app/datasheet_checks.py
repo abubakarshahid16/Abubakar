@@ -309,7 +309,11 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                        fact, role, tag))
         # ---- units: present, and of the field's kind
         for role in rules["needs_unit"]:
-            for fact in roles.get(role, []):
+            readings = roles.get(role, [])
+            # the copy `_one` already united with its twin that has the unit (rule 8, #1533)
+            if settings.datasheet_label_join_enabled:
+                readings = drop_unit_less_twins(readings)
+            for fact in readings:
                 if fact.get("is_blank") or fact.get("raw_value") in (None, ""):
                     continue
                 kind = rules["roles"][role]["kind"]
