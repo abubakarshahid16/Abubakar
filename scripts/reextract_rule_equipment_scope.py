@@ -53,7 +53,9 @@ def run(path: Path, *, dry_run: bool, out: Path | None, say=print) -> dict:
     from app import rule_equipment_scope as res
 
     use_model = res.model_enabled()
-    uri = f"file:{path}?mode={'ro' if dry_run else 'rw'}"
+    # as_uri() percent-encodes '#' and '?': a raw f"file:{path}" lets SQLite cut the name
+    # at '#', so "rag_intelligence.sqlite#copy" would open the live file read-write.
+    uri = Path(path).resolve().as_uri() + ("?mode=ro" if dry_run else "?mode=rw")
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     cols = {r[1] for r in conn.execute("PRAGMA table_info(standard_requirements)")}
@@ -159,6 +161,12 @@ def main(argv: list[str] | None = None) -> int:
     if live_guard.is_live_shaped(path):
         print(
             "REFUSED: that path is shaped like the live database. Work on a copy.",
+            file=sys.stderr,
+        )
+        return 2
+    if "#" in path.name or "?" in path.name:
+        print(
+            "REFUSED: '#' or '?' in the file name; SQLite may open a different file.",
             file=sys.stderr,
         )
         return 2
