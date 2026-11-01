@@ -66,8 +66,38 @@ def cover_text(pages: list[tuple[int, str]]) -> str:
 
 #: Words a sentence has and a heading does not (verbs, pronouns, clause links).
 _SENTENCE_WORDS = frozenset(
-    "is are was were be been shall will should must may has have this that these "
-    "those which where when after before following issued by with from as it we".split()
+    [
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "shall",
+        "will",
+        "should",
+        "must",
+        "may",
+        "has",
+        "have",
+        "this",
+        "that",
+        "these",
+        "those",
+        "which",
+        "where",
+        "when",
+        "after",
+        "before",
+        "following",
+        "issued",
+        "by",
+        "with",
+        "from",
+        "as",
+        "it",
+        "we",
+    ]
 )
 
 
