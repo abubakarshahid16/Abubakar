@@ -283,6 +283,7 @@ def _m(**over):
         "checklist_decided": 2,
         "rules_decided": 1,
         "quotes_verified": 4,
+        "quotes_unverified": 1,
         "pages_read": 5,
         "kind_ok": True,
         "kind": "datasheet",
@@ -290,9 +291,7 @@ def _m(**over):
     return {**base, **over}
 
 
-@pytest.mark.parametrize(
-    "key", ["checklist_decided", "rules_decided", "quotes_verified", "pages_read"]
-)
+@pytest.mark.parametrize("key", ["checklist_decided", "rules_decided", "pages_read"])
 def test_gate_goes_red_when_a_higher_is_better_measure_drops(key):
     case = {"name": "t", "run": "r"}
     before = [{"case": case, "stored": _m()}]
@@ -302,7 +301,8 @@ def test_gate_goes_red_when_a_higher_is_better_measure_drops(key):
 
 
 @pytest.mark.parametrize(
-    "key", ["untrue", "irrelevant", "pass_on_deferred", "sent_away"]
+    "key",
+    ["untrue", "irrelevant", "pass_on_deferred", "sent_away", "quotes_unverified"],
 )
 def test_gate_goes_red_when_a_lower_is_better_measure_rises(key):
     case = {"name": "t", "run": "r"}
@@ -364,3 +364,24 @@ def test_a_pass_on_a_deferred_value_is_not_credited_as_decided(run_id):
     assert m["checklist_decided"] == base["checklist_decided"]
     assert m["checklist_total"] == base["checklist_total"] + 1
     assert m["pass_on_deferred"] == base["pass_on_deferred"] + 1
+
+
+def test_fewer_verified_quotes_because_rows_were_removed_is_not_red():
+    case = {"name": "t", "run": "r"}
+    before = [{"case": case, "stored": _m(quotes_verified=6, quotes_unverified=0)}]
+    after = [{"case": case, "stored": _m(quotes_verified=4, quotes_unverified=0)}]
+    assert crs_bench.gate(after, before) == []
+
+
+def test_quotes_vanishing_while_findings_stay_is_red():
+    case = {"name": "t", "run": "r"}
+    before = [
+        {
+            "case": case,
+            "stored": _m(quotes_total=113, quotes_unverified=4, findings=250),
+        }
+    ]
+    after = [
+        {"case": case, "stored": _m(quotes_total=0, quotes_unverified=0, findings=248)}
+    ]
+    assert any("quoted findings" in r for r in crs_bench.gate(after, before))

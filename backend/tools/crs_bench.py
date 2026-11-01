@@ -174,6 +174,7 @@ def score(
             f.get("compliance_status") == "NOT_IN_DOCUMENT_SCOPE" for f in findings
         ),
         "quotes_verified": len(verified),
+        "quotes_unverified": len(quoted) - len(verified),
         "quotes_total": len(quoted),
         "pages_read": None if total is None else total - len(unread),
         "pages_total": total,
@@ -494,13 +495,29 @@ def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
                 reasons.append(f"{name}: {key} {then[key]} -> blank")
             elif then.get(key) is not None and now[key] < then[key]:
                 reasons.append(f"{name}: {key} {then[key]} -> {now[key]}")
+        # A reader that breaks can make every quote vanish: fewer unfound quotes,
+        # nothing red. Quoted findings halving while the findings do not is red.
+        tq, nq = then.get("quotes_total"), now.get("quotes_total")
+        tf, nf = then.get("findings") or 0, now.get("findings") or 0
+        if tq and nq is not None and nq * 2 < tq and nf * 2 >= tf:
+            reasons.append(
+                f"{name}: quoted findings {tq} -> {nq} while findings {tf} -> {nf}"
+            )
         if then["kind_ok"] and not now["kind_ok"]:
             reasons.append(f"{name}: kind was right, now {now['kind']}")
     return reasons
 
 
-HIGHER_IS_WORSE = ("untrue", "irrelevant", "pass_on_deferred", "sent_away")
-LOWER_IS_WORSE = ("checklist_decided", "rules_decided", "quotes_verified", "pages_read")
+# Quotes are gated on the ones NOT found on their page: removing a row that
+# should never have existed is not a loss, but one more unfound quote is.
+HIGHER_IS_WORSE = (
+    "untrue",
+    "irrelevant",
+    "pass_on_deferred",
+    "sent_away",
+    "quotes_unverified",
+)
+LOWER_IS_WORSE = ("checklist_decided", "rules_decided", "pages_read")
 
 
 def render_markdown(
