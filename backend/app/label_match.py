@@ -61,9 +61,8 @@ def drop_unit_less_twins(found: list[dict]) -> list[dict]:
     Unchanged when no such pair exists or the united readings do not all agree on number and unit."""
     united = [f for f in found if _has_unit(f) and _number(f) is not None]
     bare = [f for f in found if not _has_unit(f)]
-    if not all(
-        _plain(f) for f in bare
-    ):  # "max 650", "not 650": a bound or negation is another value
+    # "max 650", "not 650": a bound or negation is another value
+    if not all(_plain(f) for f in bare):
         return found
     if not united or not bare or len(united) + len(bare) != len(found):
         return found
