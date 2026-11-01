@@ -1214,12 +1214,11 @@ class Settings(ClauseReviewSettings, BaseSettings):
     # OWNER ORDER 2026-09-26 (chat redesign). The chat answers through the
     # reasoning provider above (Claude when configured, else the local engine)
     # and every Claude call is charged to the step "chat" in the ledger.
-    #: The chat answer's output cap on the Claude lane. Was 250, which cut
-    #: a normal multi-point answer short; raised to 1500, then to 4000
-    #: (owner order 2026-09-27, Claude-first mode): a tool-use answer that
-    #: reads a document AND a standard needs more room than a single-passage
-    #: extract did. A CEILING, not a target. The local engine keeps
-    #: `max_output_tokens`: its 4096-token window has to hold the evidence
+    #: The chat answer's output cap on the Claude lane. Was 250, which cut a normal
+    #: multi-point answer short; raised to 1500, then to 4000 (owner order 2026-09-27,
+    #: Claude-first mode): a tool-use answer that reads a document AND a standard needs
+    #: more room than a single-passage extract did. A CEILING, not a target. The local
+    #: engine keeps `max_output_tokens`: its 4096-token window has to hold the evidence
     #: too (`context_budget` subtracts the output cap from it).
     chat_max_output_tokens: int = 4000
     #: Low for answers grounded in documents; a little warmer for general
@@ -1259,23 +1258,21 @@ class Settings(ClauseReviewSettings, BaseSettings):
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
     review_ai_check_local_timeout_s: float = 300.0
-    #: #501 (owner decision 2026-10-12): a SECOND, datasheet-only opinion by
-    #: the Claude API after the check has run. "ollama" (default) = none.
-    #: "claude" = asked only under REASONING_PROVIDER=per_task (or claude),
-    #: both egress flags and a key; the packet carries the datasheet alone -
-    #: no standard's text, no clause list - and declares only the submittal,
-    #: so the approved-document lock decides per datasheet.
+    #: #501 (owner decision 2026-10-12): a SECOND, datasheet-only opinion by the Claude
+    #: API after the check has run. "ollama" (default) = none. "claude" = asked only
+    #: under REASONING_PROVIDER=per_task (or claude), both egress flags and a key; the
+    #: packet carries the datasheet alone - no standard's text, no clause list - and
+    #: declares only the submittal, so the approved-document lock decides per datasheet.
     #: Env: REVIEW_AI_CHECK_ENGINE.
     review_ai_check_engine: str = "ollama"
     #: #844: seconds the AI engineering check may take in total on the LOCAL
     #: model (it asks one page per call); pages left are named on the run.
     #: Env: REVIEW_AI_CHECK_LOCAL_MAX_SECONDS.
     review_ai_check_local_max_seconds: float = 1200.0
-    #: #838: when a review's documents are not approved for the cloud model,
-    #: the re-check runs on the LOCAL model. Seconds one such call may take,
-    #: and seconds the whole run may take before it stops with what it has
-    #: (the route answers a waiting request).
-    #: Env: CLAUDE_RECHECK_LOCAL_TIMEOUT_S, CLAUDE_RECHECK_LOCAL_MAX_SECONDS.
+    #: #838: when a review's documents are not approved for the cloud model, the re-
+    #: check runs on the LOCAL model. Seconds one such call may take, and seconds the
+    #: whole run may take before it stops with what it has (the route answers a waiting
+    #: request). Env: CLAUDE_RECHECK_LOCAL_TIMEOUT_S, CLAUDE_RECHECK_LOCAL_MAX_SECONDS.
     claude_recheck_local_timeout_s: float = 120.0
     claude_recheck_local_max_seconds: float = 600.0
     #: Output token cap per `review_ai_check` call. Raised from 4000 (2026-09-27):
@@ -1284,14 +1281,13 @@ class Settings(ClauseReviewSettings, BaseSettings):
     #: silently on every single run. Still finite (a worst-case estimate feeds
     #: `claude_spend.reserve` before the call leaves).
     review_ai_check_max_output_tokens: int = 12000
-    #: Owner order 2d-2: for a standard the datasheet cites but the library
-    #: does not hold, an OPTIONAL check against a PUBLIC web copy. OFF BY
-    #: DEFAULT. Never for a company standard (SAES/SAMSS/KOC-* and the like) -
-    #: those always read "Company standard - upload required" and nothing is
-    #: searched for them. On its own this flag sends nothing either: it also
-    #: needs the market lane's own two egress flags (`market_live_enabled`,
-    #: `market_allow_public_egress`) and a configured search tier, and goes
-    #: through that lane's host allowlist, rate limit and audit.
+    #: Owner order 2d-2: for a standard the datasheet cites but the library does not
+    #: hold, an OPTIONAL check against a PUBLIC web copy. OFF BY DEFAULT. Never for a
+    #: company standard (SAES/SAMSS/KOC-* and the like) - those always read "Company
+    #: standard - upload required" and nothing is searched for them. On its own this
+    #: flag sends nothing either: it also needs the market lane's own two egress flags
+    #: (`market_live_enabled`, `market_allow_public_egress`) and a configured search
+    #: tier, and goes through that lane's host allowlist, rate limit and audit.
     review_web_standards_enabled: bool = False
     #: Owner order 2a: let Claude turn a table/formula clause the code parser
     #: cannot read into rule_eval's structured form. Accepted ONLY when every
@@ -1325,14 +1321,13 @@ class Settings(ClauseReviewSettings, BaseSettings):
     #: place, so "where can this talk to" has a single answer that can be read
     #: without grepping three provider modules.
     #:
-    #: CODE-LEVEL ALLOWLISTING IS DEFENCE IN DEPTH AND NOT THE CONTROL. A
-    #: process that can open a socket can reach any host it likes; this list
-    #: only stops the code in THIS repository from doing so by accident or
-    #: through a mistaken config value. The real control is an OS-level
-    #: firewall rule (or an egress proxy) restricting the backend process to
-    #: these hosts, applied outside the application, where the application
-    #: cannot edit it. This list is what makes an accident loud; the firewall
-    #: is what makes a deliberate exfiltration hard.
+    #: CODE-LEVEL ALLOWLISTING IS DEFENCE IN DEPTH AND NOT THE CONTROL. A process that
+    #: can open a socket can reach any host it likes; this list only stops the code in
+    #: THIS repository from doing so by accident or through a mistaken config value. The
+    #: real control is an OS-level firewall rule (or an egress proxy) restricting the
+    #: backend process to these hosts, applied outside the application, where the
+    #: application cannot edit it. This list is what makes an accident loud; the
+    #: firewall is what makes a deliberate exfiltration hard.
     #:
     #: No tier-1 host is listed by default because no tier-1 vendor is chosen.
     market_allowed_hosts: tuple[str, ...] = (
@@ -1342,15 +1337,14 @@ class Settings(ClauseReviewSettings, BaseSettings):
 
     #: Tier 1, general web search. GENERIC NAME, not a vendor's.
     #:
-    #: The vendor originally suggested has started asking for a billing
-    #: address, so the choice is unsettled. A setting called
-    #: `tavily_api_key` would have to be renamed the day that changes, and
-    #: renaming an environment variable on a client's machine is a silent
-    #: breakage: the old name keeps being read from their `.env`, resolves to
-    #: nothing, and the tier reports itself unconfigured while the operator
-    #: believes they configured it. The vendor is named by
-    #: `market_search_provider` and the credential is generic, so swapping
-    #: vendors is a value change rather than a rename.
+    #: The vendor originally suggested has started asking for a billing address, so the
+    #: choice is unsettled. A setting called `tavily_api_key` would have to be renamed
+    #: the day that changes, and renaming an environment variable on a client's machine
+    #: is a silent breakage: the old name keeps being read from their `.env`, resolves
+    #: to nothing, and the tier reports itself unconfigured while the operator believes
+    #: they configured it. The vendor is named by `market_search_provider` and the
+    #: credential is generic, so swapping vendors is a value change rather than a
+    #: rename.
     #:
     #: EMPTY IS A NORMAL STATE, not an error. Tier 1 unconfigured means tier 1
     #: is not attempted, which is reported in `tiers_attempted`, and tiers 2
@@ -1368,22 +1362,20 @@ class Settings(ClauseReviewSettings, BaseSettings):
     #: Tier 2, OpenAlex. THE OPERATOR'S ADDRESS, NEVER THE CLIENT'S, and
     #: EMPTY BY DEFAULT.
     #:
-    #: OpenAlex asks for a contact address to put a caller in its "polite
-    #: pool" - better rate limits in exchange for being identifiable. That is
-    #: a reasonable trade for whoever RUNS this software and an unreasonable
-    #: one to make on the client's behalf: their address in an outbound query
-    #: string tells OpenAlex which organisation is researching which
-    #: standards, which is exactly the kind of inference this product exists
-    #: to prevent. So it defaults to empty, the tier works without it on the
-    #: common pool, and if it is set it must be the address of the operator
-    #: deploying the system.
+    #: OpenAlex asks for a contact address to put a caller in its "polite pool" - better
+    #: rate limits in exchange for being identifiable. That is a reasonable trade for
+    #: whoever RUNS this software and an unreasonable one to make on the client's
+    #: behalf: their address in an outbound query string tells OpenAlex which
+    #: organisation is researching which standards, which is exactly the kind of
+    #: inference this product exists to prevent. So it defaults to empty, the tier works
+    #: without it on the common pool, and if it is set it must be the address of the
+    #: operator deploying the system.
     market_openalex_contact_email: str = ""
 
-    #: PER-TIER TIMEOUT. An offline-first product must not hang because
-    #: somebody's network is slow. These are deliberately short: the feature
-    #: is advisory background context, and a reader waiting on a spinner for a
-    #: "reference - background only" row is worse served than one told the
-    #: tier did not answer.
+    #: PER-TIER TIMEOUT. An offline-first product must not hang because somebody's
+    #: network is slow. These are deliberately short: the feature is advisory background
+    #: context, and a reader waiting on a spinner for a "reference - background only"
+    #: row is worse served than one told the tier did not answer.
     market_tier_timeout_seconds: float = 6.0
 
     #: PER-TIER RATE LIMIT, as a minimum interval between outbound calls to

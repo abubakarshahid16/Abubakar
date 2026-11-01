@@ -1320,11 +1320,10 @@ class SearchResult(BaseModel):
     seconds: float
     timings: dict[str, float]
     hits: list[Passage]
-    #: THE FILTER THAT WAS APPLIED, echoed so a reader can judge an absence.
-    #: "no evidence" and "no evidence in the slice you filtered to" are
-    #: different findings, and a screen that cannot tell them apart will show
-    #: the first when it means the second. Optional so a response predating
-    #: the filter still validates.
+    #: THE FILTER THAT WAS APPLIED, echoed so a reader can judge an absence. "no
+    #: evidence" and "no evidence in the slice you filtered to" are different findings,
+    #: and a screen that cannot tell them apart will show the first when it means the
+    #: second. Optional so a response predating the filter still validates.
     applied_scope: AppliedScope | None = None
 
 
@@ -2282,10 +2281,9 @@ class ReviewFinding(BaseModel):
     contractor_page: int | None = None
     contractor_section: str | None = None
     contractor_evidence_text: str | None = None
-    #: WHO STOOD BEHIND THE PAIRING. A model-paired finding is a guess until an
-    #: engineer says otherwise, and a confirmed finding is never deleted by a
-    #: re-run. Both are visible here so a reader can tell a confirmed pairing
-    #: from an unexamined one.
+    #: WHO STOOD BEHIND THE PAIRING. A model-paired finding is a guess until an engineer
+    #: says otherwise, and a confirmed finding is never deleted by a re-run. Both are
+    #: visible here so a reader can tell a confirmed pairing from an unexamined one.
     confirmed_by: str | None = None
     confirmed_at: str | None = None
     #: Where the finding came from when not the comparison: "chat" (an
