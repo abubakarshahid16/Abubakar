@@ -22,8 +22,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     # ---------------------------------------------------------- schema memo
     Mutation(
         id="M1330", phase=1330,
-        description="never skip an ensure_schema: every call re-runs ~150 "
-                    "schema statements, per finding and per request",
+        description="never take the unlocked fast path: every call on a "
+                    "proven schema waits on the migration lock, so a read "
+                    "stalls behind another thread's migration",
         path=APP / "db.py",
         anchor="        if _schema_memo.get(key) == _schema_version(conn):\n            return None",
         replacement="        if False:\n            return None",
