@@ -63,6 +63,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `auth` | WHO a request is. `access.py` decides WHAT it may see |
 | `auth_session` | The browser's sign-in (order 164.2): HttpOnly cookie, CSRF layers, where Secure is set, sign-out that ends the token on the server |
 | `blank_markers` | ONE HOME for "this datasheet cell says the value is not provided yet" |
+| `blank_form` | A blank form (label lines, no value): the document kind never comes from a label |
 | `chat` | Conversations, messages, and follow-up resolution |
 | `chat_actions` | What a reader does WITH a chat answer: rate it, and file a drafted comment |
 | `chat_answers` | The chat's non-document answers: general knowledge, rewrites, actions, records |
