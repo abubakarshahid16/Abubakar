@@ -152,7 +152,18 @@
    "topic": "Referenced standards with editions",
    "terms": [
     [
-     "edition"
+     "edition",
+     "referenc"
+    ],
+    [
+     "edition cited"
+    ],
+    [
+     "latest edition"
+    ],
+    [
+     "edition",
+     "applies"
     ]
    ],
    "draft_reason": "SAES-D-001 cl. 3 (p7) says which edition of the references applies; it does not ask a specification to list them. No held clause requires a specification to contain it. DRAFT."
@@ -162,11 +173,27 @@
    "topic": "Materials of construction",
    "terms": [
     [
-     "material",
-     "specification"
+     "materials of construction"
     ],
     [
-     "materials of construction"
+     "material specification"
+    ],
+    [
+     "material grade"
+    ],
+    [
+     "material",
+     "re:\\bastm\\s?[ab]\\s?-?\\d{2,3}\\b"
+    ],
+    [
+     "re:\\b(sa|sb)-?\\d{2,3}\\b",
+     "re:\\bgr(ade)?\\b"
+    ],
+    [
+     "materials shall"
+    ],
+    [
+     "re:\\bmaterials? (shall|must) (be|conform|comply)"
     ]
    ],
    "draft_reason": "SAES-D-001 18.4 (p40) states material rules for the nameplate only; the vessel-materials clause was not identified. DRAFT."
@@ -176,7 +203,32 @@
    "topic": "Scope and purpose of the specification",
    "terms": [
     [
-     "scope"
+     "this specification",
+     "defines"
+    ],
+    [
+     "this specification",
+     "covers"
+    ],
+    [
+     "this specification",
+     "applies to"
+    ],
+    [
+     "this document",
+     "covers"
+    ],
+    [
+     "scope of this specification"
+    ],
+    [
+     "scope of this document"
+    ],
+    [
+     "scope of this standard"
+    ],
+    [
+     "purpose of this specification"
     ]
    ],
    "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
@@ -186,13 +238,48 @@
    "topic": "Documentation and deliverables the supplier submits",
    "terms": [
     [
-     "documentation"
+     "documentation",
+     "shall"
     ],
     [
-     "deliverable"
+     "data book",
+     "shall"
     ],
     [
-     "data book"
+     "deliverable",
+     "shall"
+    ],
+    [
+     "shall submit",
+     "calculation"
+    ],
+    [
+     "shall submit",
+     "drawing"
+    ],
+    [
+     "shall submit",
+     "certificate"
+    ],
+    [
+     "shall submit",
+     "report"
+    ],
+    [
+     "shall be submitted",
+     "calculation"
+    ],
+    [
+     "shall be submitted",
+     "drawing"
+    ],
+    [
+     "shall be submitted",
+     "certificate"
+    ],
+    [
+     "shall be submitted",
+     "report"
     ]
    ],
    "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
@@ -202,10 +289,57 @@
    "topic": "Inspection and testing requirements",
    "terms": [
     [
-     "inspection"
+     "non-destructive",
+     "shall"
     ],
     [
-     "testing"
+     "nondestructive",
+     "shall"
+    ],
+    [
+     "nde",
+     "shall"
+    ],
+    [
+     "radiograph",
+     "shall"
+    ],
+    [
+     "ultrasonic",
+     "shall"
+    ],
+    [
+     "rt",
+     "shall"
+    ],
+    [
+     "ut",
+     "shall"
+    ],
+    [
+     "mt",
+     "shall"
+    ],
+    [
+     "pt",
+     "shall"
+    ],
+    [
+     "examination",
+     "shall"
+    ],
+    [
+     "inspection",
+     "testing",
+     "shall"
+    ],
+    [
+     "re:\\btest(s|ed|ing)?\\b",
+     "shall"
+    ],
+    [
+     "inspection",
+     "acceptance"
     ]
    ],
    "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."

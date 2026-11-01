@@ -63,6 +63,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `auth` | WHO a request is. `access.py` decides WHAT it may see |
 | `auth_session` | The browser's sign-in (order 164.2): HttpOnly cookie, CSRF layers, where Secure is set, sign-out that ends the token on the server |
 | `blank_markers` | ONE HOME for "this datasheet cell says the value is not provided yet" |
+| `blank_form` | A blank form (label lines, no value): the document kind never comes from a label |
 | `chat` | Conversations, messages, and follow-up resolution |
 | `chat_actions` | What a reader does WITH a chat answer: rate it, and file a drafted comment |
 | `chat_answers` | The chat's non-document answers: general knowledge, rewrites, actions, records |
@@ -255,6 +256,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_progress` | #1494: the progress block of a running review (pages, elapsed, stall) from the jobs row; read-only, behind a switch |
 | `review_recovery` | Put back, or cancel, the review jobs a dead process left running; at startup every claim of another process (order 231) |
 | `review_audit` | One local AUDIT.md + AUDIT.json per finished review (pages, standards, rules, AI use, gates, CRS), behind REVIEW_AUDIT_REPORT_ENABLED (#1525) |
+| `deferred_pass` | Step 6 - a Pass on a 'By Contractor'/TBA value (owner D2 = Query), one test for the bench and the audit |
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
 | `row_noise` | Page furniture and fragments that are not fields (#193 plan B4, item 3) |
