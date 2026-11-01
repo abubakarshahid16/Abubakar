@@ -469,8 +469,8 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # DATASHEET_OFFICE_INPUT seam (off by default): with the flag on a
     # workbook or Word document IS indexed - its pages are rendered by
     # `datasheet_inputs` in the extract stage - so a datasheet sent as one can
-    # be reviewed. #525 slice 2 (`_slice2_indexed`): indexed, except a CRS template
-    # (`sheet_chunks.withdraw_template`). Both off: stored, never indexed, as above.
+    # be reviewed. #525 slice 2: an image is indexed; a workbook is stored and waits
+    # for its role (`sheet_chunks.withhold`), never a CRS template. Off: as above.
     indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())
                or bool(settings.datasheet_office_input))
     indexed = indexed or _slice2_indexed(kind)
@@ -515,7 +515,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
         # emit would report a failure that is not one.
         _suggest_classification(doc_id, filename, read_path)
     else:
-        _suggest_workbook_classification(doc_id, filename)
+        _stored_not_indexed(doc_id, filename, kind, read_path)
     return row, (job_id if indexed else None), None
 
 
@@ -540,12 +540,30 @@ def _refuse_unread_office(temp_path: Path) -> None:
 
 def _slice2_indexed(kind: str) -> bool:
     """#525 slice 2 (`intake.uploads_enabled()`, off by default): an image is
-    indexed as its picture-only PDF pages, and a workbook through intake, each
-    chunk cited by sheet and cell range (`sheet_chunks`). Off: neither (an
-    image never gets this far, a workbook is stored and never indexed)."""
+    indexed at upload as its picture-only PDF pages (an image never gets this
+    far with the switch off). A workbook is NOT indexed at upload: it waits for
+    its role (`_stored_not_indexed`)."""
+    return kind in IMAGE_KINDS
+
+
+def _slice2_workbook(kind: str) -> bool:
     from . import intake
 
-    return kind in IMAGE_KINDS or (kind == KIND_XLSX and intake.uploads_enabled())
+    return kind == KIND_XLSX and intake.uploads_enabled()
+
+
+def _stored_not_indexed(doc_id: str, filename: str, kind: str, path: Path) -> None:
+    """A document stored without indexing. A slice-2 workbook (fail-closed, lead
+    decision on #1560) is held until a person sets its role - page 0 of its
+    intake reasons says so - and is suggested from its first sheet; any other
+    is suggested from its filename, as before."""
+    if not _slice2_workbook(kind):
+        _suggest_workbook_classification(doc_id, filename)
+        return
+    from . import sheet_chunks
+
+    sheet_chunks.withhold(doc_id)
+    _suggest_classification(doc_id, filename, path)
 
 
 def image_original(stored: Path) -> Path | None:
@@ -669,7 +687,7 @@ def _first_page_text(pdf_path: Path) -> str:
 
             pages = docx_reader.read_structure(pdf_path).pages
             return pages[0] if pages else ""
-        if settings.datasheet_office_input or _slice2_indexed(KIND_XLSX):
+        if settings.datasheet_office_input or _slice2_workbook(KIND_XLSX):
             # DATASHEET_OFFICE_INPUT seam (and #525 slice 2): an office file's page
             # 1 is its first rendered sheet / page, never PyMuPDF's reading of it.
             from . import datasheet_inputs

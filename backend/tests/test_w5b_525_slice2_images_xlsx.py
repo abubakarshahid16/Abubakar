@@ -194,12 +194,29 @@ def test_a_tiff_over_the_frame_limit_is_refused_and_leaves_nothing(monkeypatch):
 # ----------------------------------------------------------------- workbooks
 
 
-def _indexed_workbook():
-    row, job_id, _dup = _ingest(_workbook(), "lines.xlsx")
-    assert row["status"] == states.QUEUED and job_id
+def _indexed_workbook(data=None, role="SUPPORTING_DOCUMENT"):
+    """Upload a workbook, set its role (it waits for one), extract and chunk it."""
+    from app import classification
+
+    row, job_id, _dup = _ingest(data or _workbook(), "lines.xlsx")
+    assert row["status"] == states.STORED_NOT_INDEXED and job_id is None
+    classification.set_role(row["id"], role)
     extract.extract_document(row["id"])
     chunker.chunk_document(row["id"])
     return row["id"]
+
+
+def _index_rows(doc_id):
+    conn = db.connect()
+    from app import fts_index
+
+    fts_index.ensure_schema(conn)
+    return tuple(
+        conn.execute(
+            f"SELECT COUNT(*) FROM {t} WHERE document_id = ?", (doc_id,)
+        ).fetchone()[0]
+        for t in ("chunks", "chunks_fts", "chunk_vectors")
+    )
 
 
 def test_a_workbook_is_indexed_and_every_chunk_cites_sheet_and_cells():
@@ -416,55 +433,143 @@ def _template_workbook() -> bytes:
     return buf.getvalue()
 
 
-def test_a_crs_template_is_taken_out_of_the_index_when_its_role_is_set():
+def _fake_index(doc_id):
+    """The keyword and vector rows indexing would write (no model is run)."""
+    conn = db.connect()
+    with conn:
+        for r in conn.execute(
+            "SELECT id, text FROM chunks WHERE document_id = ?", (doc_id,)
+        ):
+            conn.execute(
+                "INSERT INTO chunks_fts (chunk_id, document_id, text) VALUES (?, ?, ?)",
+                (r["id"], doc_id, r["text"]),
+            )
+            conn.execute(
+                "INSERT INTO chunk_vectors (chunk_id, document_id, dim, vector, model,"
+                " created_at) VALUES (?, ?, 1, x'00000000', 'm', 'now')",
+                (r["id"], doc_id),
+            )
+
+
+def _status(doc_id):
+    return (
+        db.connect()
+        .execute("SELECT status FROM documents WHERE id = ?", (doc_id,))
+        .fetchone()[0]
+    )
+
+
+def test_a_workbook_waits_for_its_role_before_anything_is_indexed():
+    from app import classification
+
+    row, job_id, _dup = _ingest(_template_workbook(), "book.xlsx")
+    assert job_id is None and _status(row["id"]) == states.STORED_NOT_INDEXED
+    assert _index_rows(row["id"]) == (0, 0, 0)
+    assert [r["reason"] for r in intake.reasons_for(row["id"])] == [
+        sheet_chunks.WHY_WAITING
+    ]
+    classification.set_role(row["id"], "CONTRACTOR_SUBMITTAL")
+    assert _status(row["id"]) == states.QUEUED
+    job = (
+        db.connect()
+        .execute("SELECT stage, state FROM jobs WHERE document_id = ?", (row["id"],))
+        .fetchone()
+    )
+    assert tuple(job) == ("extract", "running")
+    extract.extract_document(row["id"])
+    chunker.chunk_document(row["id"])
+    assert _index_rows(row["id"])[0] > 0
+
+
+def test_a_crs_template_is_never_indexed_even_when_chunking_is_forced():
     from app import classification
 
     row, _job, _dup = _ingest(_template_workbook(), "crs-template.xlsx")
-    extract.extract_document(row["id"])
-    chunker.chunk_document(row["id"])
-    conn = db.connect()
-    count = "SELECT COUNT(*) FROM chunks WHERE document_id = ?"
-    assert conn.execute(count, (row["id"],)).fetchone()[0] > 0
     classification.set_role(row["id"], "CRS_TEMPLATE")
-    assert conn.execute(count, (row["id"],)).fetchone()[0] == 0
-    doc = conn.execute(
-        "SELECT status, chunk_count FROM documents WHERE id = ?", (row["id"],)
-    ).fetchone()
-    assert (doc["status"], doc["chunk_count"]) == (states.STORED_NOT_INDEXED, 0)
+    assert _status(row["id"]) == states.STORED_NOT_INDEXED
+    assert [r["reason"] for r in intake.reasons_for(row["id"])] == [
+        sheet_chunks.WHY_TEMPLATE
+    ]
+    chunker.chunk_document(row["id"], force=True)  # even if something ran it
+    assert _index_rows(row["id"]) == (0, 0, 0)
+    assert _status(row["id"]) == states.STORED_NOT_INDEXED
 
 
-def test_a_crs_template_classified_before_chunking_is_never_chunked():
-    from app import classification, ingest
+def test_a_workbook_turned_crs_template_leaves_the_index_and_closes_its_job():
+    from app import classification
 
-    row, _job, _dup = _ingest(_template_workbook(), "crs-template.xlsx")
+    doc_id = _indexed_workbook(_template_workbook())
+    _fake_index(doc_id)
+    assert all(n > 0 for n in _index_rows(doc_id))
+    classification.set_role(doc_id, "CRS_TEMPLATE")
+    assert _index_rows(doc_id) == (0, 0, 0)  # chunks, keyword rows and vectors
+    assert _status(doc_id) == states.STORED_NOT_INDEXED
+    states_ = {
+        r[0]
+        for r in db.connect().execute(
+            "SELECT state FROM jobs WHERE document_id = ?", (doc_id,)
+        )
+    }
+    assert "running" not in states_  # no job left running for ever
+
+
+def test_a_queued_workbook_turned_crs_template_has_its_running_job_closed():
+    from app import classification
+
+    row, _job, _dup = _ingest(_template_workbook(), "book.xlsx")
+    classification.set_role(row["id"], "SUPPORTING_DOCUMENT")  # queued, job running
     classification.set_role(row["id"], "CRS_TEMPLATE")
-    extract.extract_document(row["id"])
+    jobs = [
+        tuple(r)
+        for r in db.connect().execute(
+            "SELECT stage, state FROM jobs WHERE document_id = ?", (row["id"],)
+        )
+    ]
+    assert jobs == [("extract", "cancelled")]
+    assert _status(row["id"]) == states.STORED_NOT_INDEXED
+
+
+def test_the_worker_stops_on_a_held_workbook_without_an_error():
+    from app import ingest
+
+    row, _job, _dup = _ingest(_template_workbook(), "book.xlsx")
     conn = db.connect()
-    with conn:
+    with conn:  # as if something queued it with no role set
         conn.execute(
             "UPDATE documents SET status = ? WHERE id = ?", (states.CHUNKING, row["id"])
         )
     result = ingest.IngestionWorker().process(row["id"])
     assert "error" not in result, result
-    count = "SELECT COUNT(*) FROM chunks WHERE document_id = ?"
-    assert conn.execute(count, (row["id"],)).fetchone()[0] == 0
-    status = conn.execute(
-        "SELECT status FROM documents WHERE id = ?", (row["id"],)
-    ).fetchone()[0]
-    assert status == states.STORED_NOT_INDEXED
+    assert _status(row["id"]) == states.STORED_NOT_INDEXED
+    assert _index_rows(row["id"]) == (0, 0, 0)
 
 
-def test_only_a_slice2_workbook_is_withdrawn_as_a_template(monkeypatch):
+def test_a_vector_is_not_written_for_a_chunk_withdrawn_mid_embedding(monkeypatch):
+    import numpy as np
+
+    from app import classification, ingest
+
+    doc_id = _indexed_workbook(_template_workbook())
+
+    class Stub:
+        config = type("C", (), {"model_file": "stub.onnx"})()
+
+        def embed_passages(self, texts):
+            classification.set_role(doc_id, "CRS_TEMPLATE")  # withdrawn meanwhile
+            return [np.zeros(4, dtype="float32") for _ in texts]
+
+    monkeypatch.setattr(ingest.Embedder, "instance", staticmethod(lambda cfg: Stub()))
+    monkeypatch.setattr(ingest, "_passage_text", lambda emb, r: r["text"])
+    ingest.IngestionWorker().embed_pending(doc_id)
+    assert _index_rows(doc_id) == (0, 0, 0)
+
+
+def test_only_a_slice2_workbook_is_held_by_role(monkeypatch):
     from app import classification
 
     row, _job, _dup = _ingest(_image("PNG"), "scan.png")  # a PDF-read document
     classification.set_role(row["id"], "CRS_TEMPLATE")
-    status = (
-        db.connect()
-        .execute("SELECT status FROM documents WHERE id = ?", (row["id"],))
-        .fetchone()[0]
-    )
-    assert status == states.QUEUED
+    assert _status(row["id"]) == states.QUEUED
 
 
 def test_a_row_merged_label_is_written_on_every_row_as_the_page_text_is(tmp_path):

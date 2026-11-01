@@ -2889,7 +2889,7 @@ def chunk_document(doc_id: str, force: bool = False,
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")
     from . import sheet_chunks
-    if sheet_chunks.withdraw_template(doc_id):  # #525: a CRS template is never indexed
+    if sheet_chunks.withhold(doc_id):  # #525: a workbook waits for its role
         return {"document_id": doc_id, "filename": doc["filename"], "withdrawn": True}
 
     # Recognised text overrides the empty extraction that triggered it. The

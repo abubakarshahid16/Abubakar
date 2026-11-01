@@ -680,7 +680,8 @@ class IngestionWorker(ReviewDrain):
                 conn.executemany(
                     """INSERT OR REPLACE INTO chunk_vectors
                        (chunk_id, document_id, dim, vector, model, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                       SELECT ?, ?, ?, ?, ?, ?  -- not for a chunk withdrawn meanwhile
+                       WHERE EXISTS (SELECT 1 FROM chunks WHERE id = ?1)""",
                     [
                         (r["id"], doc_id, int(v.shape[0]), v.astype("float32").tobytes(),
                          embedding_tag(embedder.config.model_file), _now())
@@ -897,7 +898,7 @@ def on_role_changed(document_id: str, *, classify: bool = True) -> None:
     classifier must not overwrite what was typed a moment ago.
     """
     try:
-        row = sheet_chunks.status_unless_withdrawn(document_id)  # #525: CRS template
+        row = sheet_chunks.status_after_role(document_id)  # #525: a workbook's role
     except Exception as exc:  # noqa: BLE001 - assigning a role must not fail here
         errors.record_failure(exc, document_id=document_id, stage="role_changed")
         return

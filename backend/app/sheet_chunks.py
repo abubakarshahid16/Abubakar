@@ -28,11 +28,13 @@ MERGED CELLS as `datasheet_inputs.read_xlsx` reads them: a range spanning
 several rows repeats its value on each of its rows in its first column, so a
 label merged down beside three values labels all three.
 
-CRS TEMPLATES ARE NOT INDEXED (lead decision on #1560). A CRS template is a
-form to fill, not content to answer from. A workbook classified CRS_TEMPLATE
-is taken out of the index (`withdraw_template`) when it reaches chunking and
-when the role is set later, and is then `stored_not_indexed` like a workbook
-with the switch off. Indexing templates needs the owner's approval.
+FAIL-CLOSED ON ROLE (lead decisions on #1560). An uploaded workbook is stored
+and NOT indexed until a person sets its role (`withhold`, page-0 reason
+"waiting for its role before indexing"); setting a role queues it for
+indexing (`status_after_role`). A CRS template is a form to fill, not content
+to answer from: one classified CRS_TEMPLATE is never indexed, and one that was
+indexed under another role leaves the index when the role changes. Indexing
+templates needs the owner's approval.
 
 Nothing is left out in silence. The limits are the workbook reader's own
 (`datasheet_inputs.MAX_SHEET_ROWS`, `MAX_SHEET_COLS`, `MAX_CELL_CHARS`), and
@@ -84,49 +86,106 @@ def structured(doc) -> Callable[[], list[Block]] | None:
     return (lambda: build_chunks(path)) if applies(path) else None
 
 
-def withdraw_template(document_id: str) -> bool:
-    """A workbook indexed by this slice and classified CRS_TEMPLATE leaves the index.
+#: Page-0 intake reasons of a workbook held out of the index (lead decision, #1560).
+WHY_WAITING = (
+    "not indexed yet: waiting for its role before indexing (a workbook is indexed"
+    " only once a person sets what it is)"
+)
+WHY_TEMPLATE = "not indexed: a CRS template is a form to fill, not content to cite"
 
-    Its chunks, keyword rows and vectors are deleted and it becomes
-    `stored_not_indexed`, the state of a workbook with the switch off; its file
-    and pages stay. True when it was withdrawn. Anything else: untouched."""
-    from . import fts_index, states, stored_paths
-    from .db import connect
 
-    conn = connect()
+def _held(conn, document_id: str):
+    """(stored_path, role) of a slice-2 workbook whose role does not allow
+    indexing (none yet, or CRS_TEMPLATE); None for anything else."""
+    from . import stored_paths
+
     doc = conn.execute(
         "SELECT d.stored_path, c.document_role FROM documents d LEFT JOIN"
         " document_classification c ON c.document_id = d.id WHERE d.id = ?",
         (document_id,),
     ).fetchone()
-    if doc is None or doc["document_role"] != CRS_TEMPLATE:
-        return False
-    if not applies(stored_paths.local(doc["stored_path"])):
+    if doc is None or not applies(stored_paths.local(doc["stored_path"])):
+        return None
+    role = doc["document_role"]
+    return None if role and role != CRS_TEMPLATE else (doc["stored_path"], role)
+
+
+def withhold(document_id: str) -> bool:
+    """FAIL-CLOSED: a workbook read by this slice is indexed only once a person
+    has set its role, and never as a CRS_TEMPLATE. Until then, or as a
+    template, it holds no chunks, keyword rows or vectors, it is
+    `stored_not_indexed` (stored and listed, not retrievable), its extraction
+    job is closed (cancelled), and page 0 of its intake reasons says why.
+    True when it is held. Anything else: untouched."""
+    from . import fts_index, job_queue, states
+    from .db import connect
+
+    conn = connect()
+    held = _held(conn, document_id)
+    if held is None:
         return False
     fts_index.ensure_schema(conn)  # the keyword table is made on first use
+    why = WHY_TEMPLATE if held[1] == CRS_TEMPLATE else WHY_WAITING
     with conn:
-        for table in ("chunks_fts", "chunk_vectors", "chunks"):
+        for table in ("chunks_fts", "chunk_vectors", "chunks", "intake_reasons"):
             conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
+        conn.execute(
+            "INSERT INTO intake_reasons (document_id, page_no, code, reason)"
+            " VALUES (?, 0, 'not_indexed', ?)",
+            (document_id, why),
+        )
         conn.execute(
             "UPDATE documents SET status = ?, chunk_count = 0, chunk_count_total = 0,"
             " embedded_count = 0 WHERE id = ?",
             (states.STORED_NOT_INDEXED, document_id),
         )
+        conn.execute(
+            "UPDATE jobs SET state = ?, updated_at = ? WHERE document_id = ?"
+            " AND stage IN ('extract', 'chunk') AND state NOT IN (?, ?, ?)",
+            (
+                job_queue.CANCELLED,
+                job_queue.now_iso(),
+                document_id,
+                job_queue.DONE,
+                job_queue.CANCELLED,
+                job_queue.POISONED,
+            ),
+        )
     return True
 
 
-def status_unless_withdrawn(document_id: str):
-    """For a role change: None when the document was just withdrawn as a CRS
-    template (or does not exist), else its `status` row."""
+def status_after_role(document_id: str):
+    """For a role change: a held workbook stays held (None); a workbook whose
+    role now allows it is queued for indexing (None: it is not READY); else
+    the document's `status` row, for the READY hooks."""
+    from . import job_queue, states
     from .db import connect
 
-    if withdraw_template(document_id):
+    if withhold(document_id):
         return None
-    return (
-        connect()
-        .execute("SELECT status FROM documents WHERE id = ?", (document_id,))
-        .fetchone()
-    )
+    conn = connect()
+    row = conn.execute(
+        "SELECT status, stored_path, priority FROM documents WHERE id = ?",
+        (document_id,),
+    ).fetchone()
+    waiting = conn.execute(
+        "SELECT 1 FROM intake_reasons WHERE document_id = ? AND code = 'not_indexed'",
+        (document_id,),
+    ).fetchone()
+    if row is None or row["status"] != states.STORED_NOT_INDEXED or not waiting:
+        return row
+    now = job_queue.now_iso()
+    with conn:
+        conn.execute("DELETE FROM intake_reasons WHERE document_id = ?", (document_id,))
+        conn.execute(
+            "UPDATE documents SET status = ? WHERE id = ?", (states.QUEUED, document_id)
+        )
+        conn.execute(
+            "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at,"
+            " priority) VALUES (?, ?, 'extract', 'running', ?, ?, ?)",
+            (f"job_{os.urandom(6).hex()}", document_id, now, now, row["priority"]),
+        )
+    return None
 
 
 def cell_range(
