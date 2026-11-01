@@ -205,6 +205,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
 | `pump_kit` | #1478 preparation: the pump kit's name, data file and public names over `kit_core`; box list and DRAFT pump cards from held standards, read only behind `pump_kit_draft_enabled` (off by default); never decide |
+| `at_limit` | #1475 finding: compares a value with a worked-out limit (factor or percentage) with float noise removed, behind `at_limit_precision_enabled` (off by default); local only, no model or socket |
 | `kit_core` | The shared mechanism of an equipment kit (#1478, #1480): data file, loader hook, tests, the held-for-the-engineer rule for every kit row; local only |
 | `vessel_kit` | #1480 preparation (parked kit, milestone 58): box list and DRAFT vessel cards from held standards (SAES-D-001), read only behind `vessel_kit_draft_enabled` (off by default); every row held, never decide |
 | `nothing_read` | #1495: a review that read no value and no page text ends failed "nothing read" (switch off by default) |
