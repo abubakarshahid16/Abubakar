@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import procedure_text
+from . import kind_rules, procedure_text
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -2426,6 +2426,7 @@ def _run_comparison(
     # engineer or the classifier gave one; the field names otherwise.
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
+    kn = kind_rules.for_run(submittal_id, allowed_document_ids, standard_ids)
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
     trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
@@ -2975,7 +2976,7 @@ def _run_comparison(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    check_results = checklist_scope.evaluate(facts, stored, page_texts)
+    check_results = kind_rules.gate(kn, checklist_scope, facts, stored, page_texts)
     # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
     # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
@@ -3012,8 +3013,7 @@ def _run_comparison(
     )
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
-    if checklist_note:
-        split = {**split, "checklist": checklist_note}
+    split = {**split, **kind_rules.split_part(kn, checklist_note)}
     if cited_scope["summary"]:  # #139: standards cited only for named clauses
         split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:

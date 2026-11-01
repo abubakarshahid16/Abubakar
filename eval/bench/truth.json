@@ -6,7 +6,7 @@
     "untrue lines / irrelevant lines: findings a truth matcher names, counted once per finding (one finding = one CRS line).",
     "checklist decided: datasheet_check findings COMPLIANT or NON_COMPLIANT, of all datasheet_check findings; a Pass on a deferred value (D2) is not credited as a decision.",
     "standard rules decided: distinct requirement_ids whose finding is COMPLIANT or NON_COMPLIANT, of the rules that apply as the run states them (requirement_split: checked + applies_not_checked, the headline boundary); when a run has no split, of distinct requirement_ids not sent to NOT_IN_DOCUMENT_SCOPE.",
-    "verified-quote rate: findings carrying a contractor quote and page whose quote is found, whitespace- and case-folded, in that page's stored text.",
+    "verified-quote rate: findings carrying a contractor quote and page whose quote is found, whitespace- and case-folded, in that page's stored text. The gate counts the quotes NOT found (a rise is red); a fall in found quotes because rows were rightly removed is not a loss.",
     "pages read: ledger pages not listed in pages_not_read_into_fields, of ledger pages (the code's current meaning of 'read').",
     "kind recognised: the kind the code would route on (today: any equipment type = datasheet) equals the truth kind.",
     "pass on a contractor-deferred value (D2): COMPLIANT findings whose wording says 'By Contractor' or 'TBA'. Owner decision D2: these are Query. Shown on its own row, gated (a rise is red), not credited as decided, not yet counted as wrong verdicts."

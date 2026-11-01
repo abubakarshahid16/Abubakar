@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -204,6 +205,32 @@ def _page(conn, job_id: str, done: int, total: int, heartbeat=None) -> None:
         conn.execute(sql, (label, _now(), job_id))
 
 
+def _clause(conn, job_id: str, number: int, total: int, heartbeat=None) -> None:
+    """#1494: the clause the AI clause review is on - "checking clause 12 of 60".
+    Same rules as `_page`: progress only, skipped inside an open transaction, the
+    worker heartbeat is not skipped. Numbers only, never clause text."""
+    if heartbeat is not None:
+        heartbeat()
+    if number == 1:
+        job_progress.CLAUSE_STARTED[job_id] = time.time()
+    if conn.in_transaction:
+        return
+    with conn:
+        sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
+        conn.execute(sql, (f"checking clause {number} of {total}", _now(), job_id))
+
+
+def _checks_reporting(conn, job_id: str, heartbeat, run_id, scope, missing) -> None:
+    """`_checks` with the clause review's "checking clause N of M" going to the job (#1494)."""
+    try:
+        with job_progress.reporting_clauses(
+            lambda n, t: _clause(conn, job_id, n, t, heartbeat)
+        ):
+            _checks(run_id, scope, missing)
+    finally:
+        job_progress.CLAUSE_STARTED.pop(job_id, None)
+
+
 def _reporting_pages(conn, job_id: str, heartbeat=None):
     """The reader's page reports go to this job's label for the block (3b)."""
     return job_progress.reporting(
@@ -384,7 +411,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         _label(conn, job_id, FINISHING)
         with _phase(conn, job_id, None, heartbeat, timings, "checks"):
             missing = [m["identifier"] for m in selection["missing_references"]]
-            _checks(run_id, scope, missing)
+            _checks_reporting(conn, job_id, heartbeat, run_id, scope, missing)
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
         # R15 (#779) numbers every CRS row, R26 step 8 (#763) words each comment;
         # neither fails the run (see the helpers).

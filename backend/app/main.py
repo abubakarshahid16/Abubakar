@@ -2955,7 +2955,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
-            {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
+            {"note": part["note"], "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
