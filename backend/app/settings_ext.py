@@ -30,16 +30,16 @@ class SettingsExt(BaseModel):
     #: completed. Pages read with no datasheet field are NOT failed. OFF: nothing
     #: changes. Env: NOTHING_READ_FAILS_ENABLED.
     nothing_read_fails_enabled: bool = False
-    #: #1472 (kept here so `config.py` does not grow): the datasheet checks read ONE value where
-    #: a sheet prints a range twice (a plain note on one reading), and a combined "a / b / c"
-    #: label answers each text attribute it names. OFF: nothing changes.
-    #: Env: DATASHEET_ONE_VALUE_ENABLED.
-    datasheet_one_value_enabled: bool = False
     #: #1479 specification kit (preparation, `spec_kit.py`): a DRAFT must-contain list per
     #: discipline looked up in a specification's own pages, no model; numeric limits
     #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
     #: OFF: nothing changes. Env: SPEC_KIT_ENABLED.
     spec_kit_enabled: bool = False
+    #: #1472 (kept here so `config.py` does not grow): the datasheet checks read ONE value where
+    #: a sheet prints a range twice (a plain note on one reading), and a combined "a / b / c"
+    #: label answers each text attribute it names. OFF: nothing changes.
+    #: Env: DATASHEET_ONE_VALUE_ENABLED.
+    datasheet_one_value_enabled: bool = False
     #: #1484 (parked kits, preparation): the same look-up routed by document KIND for a kind a held
     #: standard covers (drawing, from SAES-A-202): a DRAFT must-contain list, no model, engineer
     #: rows only. Transmittal (#1482) and contract (#1483) have no held standard and no kit.
