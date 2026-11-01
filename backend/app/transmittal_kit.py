@@ -126,7 +126,7 @@ def _grids(
             if grid:
                 out.append((page_no, [(row, " | ".join(row)) for row in grid]))
         block: list[tuple[list[str], str]] = []
-        for line in text.splitlines() + [""]:
+        for line in [*text.splitlines(), ""]:
             cells = [c.strip() for c in _GAP.split(line.strip()) if c.strip()]
             if cells and (m := _TRAIL_DATE.search(cells[-1])) and m.start() > 0:
                 cells[-1:] = [cells[-1][: m.start()].strip(), m.group(1)]
