@@ -22,9 +22,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M196", phase=15,
         description="NEVER SWALLOW THE DUPLICATE COLUMN, so the loser dies "
-                    "when two connections migrate the same database at once "
-                    "(the migration lock serialises threads within one "
-                    "process; the race is now between connections)",
+        "when two connections migrate the same database at once "
+        "(the migration lock serialises threads within one "
+        "process; the race is now between connections)",
         path=APP / "db.py",
         anchor=DUPLICATE_GUARD,
         replacement="            if True:\n                raise",
