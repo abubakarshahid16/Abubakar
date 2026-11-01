@@ -291,6 +291,28 @@ def test_on_the_claude_lane_a_claim_whose_quote_is_not_on_the_page_is_removed(mo
     assert "exact words" in seen[0]["system"][0]["text"]
 
 
+def test_the_answer_call_on_the_claude_lane_asks_for_a_quote_so_a_claim_whose_quote_is_not_on_the_page_can_be_removed(
+        monkeypatch):
+    """#1529: the tool-use test above sends its own prompt; the plain answer
+    call (`_call_model`) picks the prompt by lane and must ask Claude for an
+    exact quote per claim, and the local engine must keep the plain prompt."""
+    seen: dict = {}
+
+    def fake_generate(system, prompt, **kw):
+        seen["system"] = system
+        return {"text": "x"}
+
+    monkeypatch.setattr(chat_model, "generate", fake_generate)
+    monkeypatch.setattr(settings, "answer_prompt_variant", "default")
+    monkeypatch.setattr(answer_mod, "claude_lane", lambda: True)
+    answer_mod._call_model("p")
+    assert seen["system"] == answer_mod.SYSTEM_PROMPT_VERIFIED
+    assert "exact words" in seen["system"]
+    monkeypatch.setattr(answer_mod, "claude_lane", lambda: False)
+    answer_mod._call_model("p")
+    assert seen["system"] == answer_mod.SYSTEM_PROMPT
+
+
 def test_on_the_claude_lane_an_answer_with_no_verified_claim_is_not_shown(monkeypatch, tmp_path):
     seen: list = []
     _claude_on_tool_use(monkeypatch, tmp_path, seen,

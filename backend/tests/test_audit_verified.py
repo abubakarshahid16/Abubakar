@@ -100,6 +100,15 @@ def test_a_clause_number_in_the_passage_does_not_support_a_figure():
     assert clean == "" and removed == [{"value": "6", "cited": [1], "reason": "figure_missing"}]
 
 
+def test_a_clause_number_in_the_passage_does_not_support_a_dashed_figure():
+    """#1529: "3 -6 mm" reads the 6 as a possible range dash, so the unit/sign
+    check skips it. The bag check against the passage's figures is then the
+    only gate, and it must not count "clause 6" as a measurement."""
+    clean, removed = answer_mod.ground_numbers(
+        "The wall thickness is 3 -6 mm [S1].", PIPING)
+    assert clean == "" and removed == [{"value": "6", "cited": [1], "reason": "figure_missing"}]
+
+
 def test_a_clause_number_in_the_span_does_not_support_a_summary_figure():
     """Rule 8: the synthesis lane compared against the same unstripped spans."""
     kept, dropped = synthesis._cite("The minimum wall thickness is 6 mm [S1].",

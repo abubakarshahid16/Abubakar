@@ -80,6 +80,20 @@ def test_a_repeated_form_with_per_page_values_is_not_furniture():
     assert "relieving temperature" not in furniture
 
 
+def test_a_repeated_form_with_per_page_values_keeps_a_label_the_reference_data_does_not_name():
+    """#1529: `Set pressure` is a named field and skips the count rule since
+    2026-10-11, so the test above no longer reaches it. An unnamed label is
+    decided by the count alone: answers that differ on most pages are a field."""
+    label = "Zorblax tag code"
+    assert datasheets.named_field_role(datasheets.normalise_field_name(label)) is None
+    pages = {p: [TITLE_BLOCK, FOOTER, (label, f"{100 + p * 10} mm")] for p in range(1, 6)}
+
+    furniture = datasheets.furniture_labels(pages)
+
+    assert datasheets.normalise_field_name(label) not in furniture
+    assert "document no" in furniture
+
+
 def test_the_title_block_on_the_same_pages_is_still_stripped():
     """THE OTHER HALF, and it must hold in the same fixture: the rule has to
     tell a header from a field IN ONE DOCUMENT, not in two different ones."""
