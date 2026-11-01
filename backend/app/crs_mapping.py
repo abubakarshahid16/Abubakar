@@ -43,6 +43,17 @@ from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 # isort: split
 from . import paragraph_ids
 
+# isort: split
+from .crs_draft_lanes import (
+    AI_UNCONFIRMED_COMMENT,
+    CLAUSE_LANE,
+    ROW_KIND_CLAUSE_REVIEW,
+    WAITING_COMMENTS,
+    WEB_UNCONFIRMED_COMMENT,
+)
+from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
+from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
+
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
 #: Read by `crs_export` to colour a row. Never printed. One tag per bucket
@@ -70,11 +81,6 @@ _AI_ORIGIN = "ai_engineering_check"
 ROW_KIND_DATASHEET_CHECK = "datasheet_check"
 _DATASHEET_ORIGIN = "datasheet_check"
 _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
-#: #1477: a clause review item (`clause_review.py`): never a verdict; rides in "AI
-#: Review Comments" like kind C until an engineer confirms it, off the sheet if rejected.
-ROW_KIND_CLAUSE_REVIEW = "clause_review"
-_CLAUSE_ORIGIN = "clause_review"
-_CLAUSE_CONFIRMED_BY = "AI clause review, confirmed by "
 #: Owner order 2d-2: a public-web standards check item (kind D,
 #: `origin = 'web_standard_check'`). Same confirm-or-off-the-sheet rule as
 #: kind C - unconfirmed rides in "AI Review Comments", confirmed moves to
@@ -109,11 +115,7 @@ _WEB_UNCONFIRMED_BY = "Web check - engineer to confirm"
 _DRAFT_LANES = {
     _AI_ORIGIN: (_AI_CONFIRMED_BY, _AI_UNCONFIRMED_BY, ROW_KIND_AI_ENGINEERING_CHECK),
     _WEB_ORIGIN: (_WEB_CONFIRMED_BY, _WEB_UNCONFIRMED_BY, ROW_KIND_WEB_STANDARD_CHECK),
-    _CLAUSE_ORIGIN: (
-        _CLAUSE_CONFIRMED_BY,
-        "AI clause review - engineer to confirm",
-        ROW_KIND_CLAUSE_REVIEW,
-    ),
+    _CLAUSE_ORIGIN: CLAUSE_LANE,
 }
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
@@ -237,13 +239,8 @@ def finding_comment_key(f: dict) -> str:
         return comment_key(
             origin, f.get("finding"), f.get("required_action"),
             f.get("contractor_page"), f.get("contractor_section"))
-    if origin == _CLAUSE_ORIGIN:
-        # the requirement, never the wording: a re-run keeps the row's number
-        return comment_key(
-            origin,
-            f.get("standard_document_id"),
-            f.get("requirement_id") or f.get("standard_clause"),
-        )
+    if origin == _CLAUSE_ORIGIN:  # the requirement, never the wording: a re-run keeps the number
+        return comment_key(origin, f.get("standard_document_id"), f.get("requirement_id"))
     key = _group_key(f)
     if key[0] == "field":
         return field_comment_key(key[1], key[2])
@@ -1010,25 +1007,6 @@ PRIORITY_WORDS = {
 #: it theirs, and to the contractor it is a request to clarify, not an
 #: internal to-do. Every other word is the same.
 ISSUE_PRIORITY_WORDS = {**PRIORITY_WORDS, PRIORITY_ENGINEER_TO_CHECK: "Clarification"}
-
-#: Spec e: COMPANY Comments of an UNCONFIRMED AI / web item. Plain words that
-#: the row is a suggestion awaiting an engineer - never the draft itself,
-#: which stays in "AI Review Comments" (owner order 2d/2f).
-AI_UNCONFIRMED_COMMENT = (
-    "AI suggestion awaiting an engineer's decision - its words are in "
-    "AI Review Comments. Not issued to the contractor until an engineer "
-    "confirms it."
-)
-WEB_UNCONFIRMED_COMMENT = (
-    "Web standards check suggestion awaiting an engineer's decision - its "
-    "words are in AI Review Comments. Not issued to the contractor until "
-    "an engineer confirms it."
-)
-
-#: The two waiting sentences. They are text ONLY beside the draft they point
-#: to (a row's "AI Review Comments"); anywhere else - a carried-forward
-#: snapshot, a row whose draft is gone - they say nothing true.
-WAITING_COMMENTS = frozenset({AI_UNCONFIRMED_COMMENT, WEB_UNCONFIRMED_COMMENT})
 
 
 def row_has_no_text(row: dict) -> bool:

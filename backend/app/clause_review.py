@@ -52,12 +52,13 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import scope_quote
+from .crs_draft_lanes import CLAUSE_ORIGIN
 from .config import settings
 from .db import add_column_if_missing, connect
 
 log = logging.getLogger(__name__)
 
-ORIGIN = "clause_review"
+ORIGIN = CLAUSE_ORIGIN
 STEP = "clause_review"
 PROMPT_VERSION = "clause-review-v1"
 #: The kinds this review is for (`document_kinds`, the router's table).
@@ -493,14 +494,28 @@ def _store_row(
         )
 
 
-def _ensure_column(conn) -> None:
-    """The run's own outcome column; added here, never by a schema edit elsewhere."""
+_CACHE_TABLE = """CREATE TABLE IF NOT EXISTS clause_review_cache (
+    key         TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    answer      TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+)"""
+
+
+def ensure_schema(conn=None) -> None:
+    """The stored-answer table and the run's own outcome column, created on first
+    use (like `field_naming`'s table), never by an edit of the shared schema.
+    Key = sha256(the text the model saw, requirement id and words, model, prompt
+    version); `answer` is the model's raw JSON, verified again on every use."""
+    conn = conn or connect()
+    conn.execute(_CACHE_TABLE)
     add_column_if_missing(conn, "review_runs", "clause_review_status", "TEXT")
 
 
 def _store_status(review_run_id: str, status: dict) -> None:
     conn = connect()
-    _ensure_column(conn)
+    ensure_schema(conn)
     with conn:
         conn.execute(
             "UPDATE review_runs SET clause_review_status = ?, updated_at = ? WHERE id = ?",
@@ -511,7 +526,7 @@ def _store_status(review_run_id: str, status: dict) -> None:
 def status_of(review_run_id: str) -> dict | None:
     """The run's stored clause review outcome (counts and names, never text); None if it never ran."""
     conn = connect()
-    _ensure_column(conn)
+    ensure_schema(conn)
     row = conn.execute(
         "SELECT clause_review_status FROM review_runs WHERE id = ?", (review_run_id,)
     ).fetchone()
@@ -567,6 +582,7 @@ def _answer(provider, key, kind, req, passages, status, submittal, model):
     from . import reasoning_provider as rp
 
     conn = connect()
+    ensure_schema(conn)
     stored = conn.execute(
         "SELECT answer FROM clause_review_cache WHERE key = ?", (key,)
     ).fetchone()
