@@ -69,9 +69,9 @@ def test_on_anything_else_around_a_range_keeps_two_values(on, text, lo, hi):
     assert "two different values" in row["detail"]
 
 
-def _combined(value=None, marker=None, label="Port size / rating / ends"):
+def _combined(value=None, marker=None, label="Valve size / rating / ends"):
     f = fact(
-        "port size rating ends",
+        "valve size rating ends",
         value or "x",
         None,
         label=label,
@@ -95,14 +95,14 @@ def test_on_a_combined_line_marked_by_contractor_names_that_line(on):
     row = _row([_combined(marker="By Contractor / Vendor")], "PSV-S02")
     assert row["status"] == "MISSING_INFORMATION"
     assert "no label for it was found" not in row["detail"]
-    assert "Port size / rating / ends" in row["detail"]
+    assert "Valve size / rating / ends" in row["detail"]
     assert "By Contractor / Vendor" in row["detail"]
 
 
 def test_on_a_combined_line_with_a_value_is_an_engineer_question_never_compliant(on):
     row = _row([_combined(value="3 in / 300 / RF")], "PSV-S02")
     assert row["status"] == "NEEDS_ENGINEER_REVIEW"
-    assert "Port size / rating / ends" in row["detail"]
+    assert "Valve size / rating / ends" in row["detail"]
 
 
 def test_on_a_value_under_the_rating_label_itself_is_decided_as_before(on):
@@ -115,8 +115,8 @@ def test_on_a_value_under_the_rating_label_itself_is_decided_as_before(on):
 
 def test_on_an_ambiguous_part_answers_nothing(on):
     # "material" ends several wanted roles: not one, so no role is answered.
-    f = _combined(marker="By Contractor", label="Port size / material")
-    f["field_name"] = "port size material"
+    f = _combined(marker="By Contractor", label="Valve size / material")
+    f["field_name"] = "valve size material"
     row = _row([f], "PSV-S02")
     assert "no label for it was found" in row["detail"]
 
@@ -138,12 +138,53 @@ def test_combined_roles_names_only_a_part_that_ends_exactly_one_wanted_text_role
 
     rules = dc.load_rules()
     wanted = dr.wanted_roles(PSV, rules)
-    assert dr.combined_roles("Port size / rating / ends", rules, wanted) == [
+    assert dr.combined_roles("Valve size / rating / ends", rules, wanted) == [
         "inlet_rating"
     ]
-    assert dr.combined_roles("Flange / rating, facing", rules, wanted) == [
+    assert dr.combined_roles("Valve size, rating, facing", rules, wanted) == [
         "inlet_rating"
     ]
     # "type" ends several roles; one part alone is not a combined line
-    assert dr.combined_roles("Port size / material", rules, wanted) == []
+    assert dr.combined_roles("Valve size / material", rules, wanted) == []
     assert dr.combined_roles("rating", rules, wanted) == []
+
+
+def test_combined_roles_qualifier_must_agree():
+    from app import datasheet_roles as dr
+
+    rules = dc.load_rules()
+    wanted = dr.wanted_roles(PSV, rules)
+    for label in (
+        "Outlet size / rating",
+        "Connection type / rating",
+        "Outlet size / rating / ends",
+    ):
+        assert dr.combined_roles(label, rules, wanted) == [], label
+    assert dr.combined_roles("Valve size / rating", rules, wanted) == ["inlet_rating"]
+
+
+def test_on_an_outlet_line_never_writes_an_inlet_rating_row(on):
+    row = _row(
+        [_combined(marker="By Contractor", label="Outlet size / rating")], "PSV-S02"
+    )
+    assert "no label for it was found" in row["detail"]
+
+
+@pytest.mark.parametrize("order", [0, 1])
+def test_on_a_merged_noted_range_is_a_query_when_deferred_values_are_queries(
+    on, monkeypatch, order
+):
+    monkeypatch.setattr(settings, "deferred_value_is_query_enabled", True)
+    facts = [_range("4-28 cP By Contractor"), _range("4-28 cP")]
+    facts[0]["value_note"] = "By Contractor"
+    row = _row(facts[::-1] if order else facts, "PSV-23")
+    assert row["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "By Contractor" in row["detail"]
+
+
+def test_on_a_merged_noted_range_stays_the_existing_deferred_pass_when_d2_is_off(on):
+    facts = [_range("4-28 cP"), _range("4-28 cP By Contractor")]
+    facts[1]["value_note"] = "By Contractor"
+    row = _row(facts, "PSV-23")
+    assert row["status"] == "COMPLIANT"
+    assert "By Contractor" in row["detail"]

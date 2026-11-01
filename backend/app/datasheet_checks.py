@@ -36,10 +36,11 @@ from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, severity_rule
 from .checklist_scope import governs, standards
+from .config import settings
 from .datasheet_coverage import (
     coverage,  # noqa: F401  (moved out to keep this file shrinking)
 )
-from .deferred_value import hold_results
+from .deferred_value import hold_results, note_of
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
@@ -523,6 +524,9 @@ def _one(found: list[dict]) -> tuple[dict | None, str | None]:
         return None, "absent"
     if len({_key(f) for f in found}) != 1:
         return None, "two different values"
+    if settings.datasheet_one_value_enabled:
+        # #1472: merged readings keep a deferral note if ANY of them has one (D2 holds it).
+        return next((f for f in found if note_of(f)), found[0]), None
     return found[0], None
 
 
@@ -630,8 +634,10 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     unknown = None    # the first condition the sheet does not state, if any
     for condition in conditions:
         cond_fact, why = _one(get(condition["role"]))
-        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot be wrong whatever the
-        # condition ("k is above 1"). Any other item with an unknown condition is an engineer's question.
+        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot
+        # be wrong whatever the condition ("the molecular weight is stated",
+        # "k is above 1"): an unknown condition does not stop them. Any other
+        # item with an unknown condition is an engineer's question.
         if cond_fact is None:
             if rule["kind"] == "calc":
                 # R13: which formula applies is not known; the phase item asks.

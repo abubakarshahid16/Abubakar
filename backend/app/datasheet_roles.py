@@ -90,15 +90,41 @@ def combined_roles(label: str, rules: dict, wanted: frozenset) -> list[str]:
         for r, spec in rules["roles"].items()
         if spec.get("kind") == "text" and r in wanted
     ]
+    pair_words = _pair_words(rules)
     found: list[str] = []
     for part in parts:
         if roles_of(part, rules):
             continue
         words = part.split()
         ends = [r for r in text_roles if r.split("_")[-len(words) :] == words]
-        if len(ends) == 1 and ends[0] not in found:
-            found.append(ends[0])
+        if len(ends) != 1 or ends[0] in found:
+            continue
+        qualifier = set(ends[0].split("_")[: -len(words)])
+        others = [r for p in parts if p != part for r in roles_of(p, rules)]
+        if qualifier and not _agrees(qualifier, others, pair_words):
+            continue
+        found.append(ends[0])
     return found
+
+
+def _pair_words(rules: dict) -> frozenset:
+    """Qualifier words the roles table itself sets against each other (inlet / outlet):
+    the first words of two role names that differ only there."""
+    tails: dict[tuple, set] = {}
+    for role in rules["roles"]:
+        head, *rest = role.split("_")
+        tails.setdefault(tuple(rest), set()).add(head)
+    return frozenset(w for heads in tails.values() if len(heads) > 1 for w in heads)
+
+
+def _agrees(qualifier: set, others: list[str], pair_words: frozenset) -> bool:
+    """An unqualified part ("rating") answers a qualified role ("inlet rating") only when
+    another part of the label names a role of that same qualifier ("valve size" is an
+    inlet size) and none names the opposite one ("outlet size")."""
+    named = [set(r.split("_")) for r in others]
+    if any((w & pair_words) - qualifier for w in named):
+        return False
+    return any(qualifier <= w for w in named)
 
 
 def add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
