@@ -41,12 +41,13 @@ from . import (
 from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
-from . import paragraph_ids, procedure_text
+from . import paragraph_ids, procedure_text, spec_kit
 
 # isort: split
-from .crs_draft_lanes import (
+from .crs_draft_lanes import (  # noqa: F401
     AI_UNCONFIRMED_COMMENT,
     CLAUSE_LANE,
+    UNCONFIRMED_COMMENTS,
     WAITING_COMMENTS,
     WEB_UNCONFIRMED_COMMENT,
 )
@@ -115,6 +116,7 @@ _DRAFT_LANES = {
     _AI_ORIGIN: (_AI_CONFIRMED_BY, _AI_UNCONFIRMED_BY, ROW_KIND_AI_ENGINEERING_CHECK),
     _WEB_ORIGIN: (_WEB_CONFIRMED_BY, _WEB_UNCONFIRMED_BY, ROW_KIND_WEB_STANDARD_CHECK),
     _CLAUSE_ORIGIN: CLAUSE_LANE,
+    spec_kit.ORIGIN: spec_kit.LANE,
 }
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
@@ -188,6 +190,7 @@ def _no_datasheet_field(finding: dict) -> bool:
         and not (finding.get("fact_id") or finding.get("contractor_page"))
         and not _unread(finding)
         and not procedure_text.is_row(finding)
+        and not spec_kit.is_row(finding)
         and not _page_reader_only(finding)
         and not _confirmed(finding)
         and not finding.get("rule_said")
@@ -233,7 +236,7 @@ def finding_comment_key(f: dict) -> str:
         return comment_key(
             origin, f.get("finding"), f.get("required_action"),
             f.get("contractor_page"), f.get("contractor_section"))
-    if origin == _CLAUSE_ORIGIN:  # the requirement, never the wording: a re-run keeps the number
+    if origin in (_CLAUSE_ORIGIN, spec_kit.ORIGIN):
         return comment_key(origin, f.get("standard_document_id"), f.get("requirement_id"))
     key = _group_key(f)
     if key[0] == "field":
@@ -428,6 +431,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     notes.extend(_field_not_identified_notes(findings))
     notes.extend(crs_no_field.notes(findings))
     notes.extend(procedure_text.notes(findings, _standard_reference))
+    notes.extend(spec_kit.notes(findings))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -1086,8 +1090,8 @@ def _bucket_of(f: dict) -> str | None:
         return None
     if origin == "chat":
         return BUCKET_CHAT
-    if origin in (_AI_ORIGIN, _CLAUSE_ORIGIN):
-        return BUCKET_AI
+    if origin in (_AI_ORIGIN, _CLAUSE_ORIGIN, spec_kit.ORIGIN):
+        return None if spec_kit.is_unfound(f) else BUCKET_AI
     if origin == _WEB_ORIGIN:
         return BUCKET_WEB
     if origin == _DATASHEET_ORIGIN:
@@ -1612,9 +1616,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         confirmed_by_prefix, unconfirmed_by, row_kind = _DRAFT_LANES[origin]
         # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
         # says it awaits an engineer, the draft stays in "AI Review Comments".
-        unconfirmed_comment = (
-            WEB_UNCONFIRMED_COMMENT if origin == _WEB_ORIGIN else AI_UNCONFIRMED_COMMENT
-        )
+        unconfirmed_comment = UNCONFIRMED_COMMENTS[origin]
         rows.append(
             {
                 "finding_id": f.get("id") or "",

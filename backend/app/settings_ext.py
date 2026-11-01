@@ -30,6 +30,11 @@ class SettingsExt(BaseModel):
     #: completed. Pages read with no datasheet field are NOT failed. OFF: nothing
     #: changes. Env: NOTHING_READ_FAILS_ENABLED.
     nothing_read_fails_enabled: bool = False
+    #: #1479 specification kit (preparation, `spec_kit.py`): a DRAFT must-contain list per
+    #: discipline looked up in a specification's own pages, no model; numeric limits
+    #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
+    #: OFF: nothing changes. Env: SPEC_KIT_ENABLED.
+    spec_kit_enabled: bool = False
     #: #1472 (kept here so `config.py` does not grow): the datasheet checks read ONE value where
     #: a sheet prints a range twice (a plain note on one reading), and a combined "a / b / c"
     #: label answers each text attribute it names. OFF: nothing changes.
@@ -46,6 +51,12 @@ class SettingsExt(BaseModel):
     #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
     #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.
     pump_kit_draft_enabled: bool = False
+    #: #1475 finding: a value exactly AT a percent / factor limit ("1.05 x operating pressure",
+    #: "10 % above", "110 % of the MAWP") can read just under it in some units by float rounding and
+    #: fail wrongly. ON: the limit comparison ignores float noise (1e-9 relative), never wider.
+    #: The owner should switch this on promptly: it removes a possible wrong Fail. OFF: nothing
+    #: changes. Env: AT_LIMIT_PRECISION_ENABLED.
+    at_limit_precision_enabled: bool = False
     #: #1503 CRS EXPORT QUALITY (`crs_export_quality.py`): one row per section + clause, no
     #: empty rows, a page or "page not found (reason)" on every row, comments at most 350
     #: characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks,

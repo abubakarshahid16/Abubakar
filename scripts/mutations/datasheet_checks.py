@@ -8,7 +8,7 @@ _M = APP / "datasheet_checks.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1056", phase=89, description="a failed consistency check is reported as met",
-             path=_M, anchor="            ok = _OPS[rule[\"op\"]](a[0], b[0])\n",
+             path=_M, anchor="            ok = _hold(rule[\"op\"], a[0], b[0], _OPS)\n",
              replacement="            ok = True\n",
              target=_T, keyword="below_operating_is_a_comment_with_the_calculation", tags=("honesty", "critical")),
     Mutation(id="M1057", phase=89, description="gauge and absolute pressures are compared as one scale",
