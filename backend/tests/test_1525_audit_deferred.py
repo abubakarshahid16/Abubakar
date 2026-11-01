@@ -19,6 +19,7 @@ FINDINGS = [
     _f(3, "COMPLIANT", "Material TBA meets the limit."),
     _f(4, "NON_COMPLIANT", "Back pressure TBA exceeds the limit."),
     _f(5, "NEEDS_ENGINEER_REVIEW", "Value by contractor."),
+    _f(6, "NON_COMPLIANT", "Rating By Contractor below the limit."),
 ]
 
 
