@@ -44,6 +44,20 @@
         "API 526"
       ],
       "library_standard_ids": null
+    },
+    "page_read_switch": {
+      "pages_not_read": [
+        2
+      ],
+      "pages_no_field": [
+        1,
+        3
+      ],
+      "reader_timed_out_pages": [],
+      "missing_standards": [],
+      "library_standard_ids": [
+        "std-1"
+      ]
     }
   },
   "base_finding": {
@@ -815,6 +829,32 @@
         "label": "Needs you",
         "reason": "value conflict"
       }
+    },
+    {
+      "name": "#1550: a page read with no field taken (page-read switch): no field taken",
+      "facts": "page_read_switch",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "contractor_page": 3
+      },
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "no field taken"
+      }
+    },
+    {
+      "name": "#1550: a page with no reading (page-read switch): page not read",
+      "facts": "page_read_switch",
+      "finding": {
+        "compliance_status": "MISSING_INFORMATION",
+        "contractor_page": 2
+      },
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "page not read"
+      }
     }
   ],
   "removed": [
@@ -1182,6 +1222,42 @@
           3,
           5
         ]
+      }
+    },
+    {
+      "name": "#1550: a run stored with the page-read switch: not read is the reading, the fields list is no field taken",
+      "run": {
+        "page_coverage": {
+          "pages_total": 3,
+          "fact_pages": [],
+          "pages_not_read_into_fields": [
+            1,
+            2,
+            3
+          ],
+          "not_read_reasons": {},
+          "pages_read": [
+            1,
+            3
+          ],
+          "pages_not_read": [
+            2
+          ],
+          "pages_not_read_why": {
+            "2": "blank page"
+          }
+        },
+        "requirement_split": null
+      },
+      "expected": {
+        "pages_not_read": [
+          2
+        ],
+        "pages_no_field": [
+          1,
+          3
+        ],
+        "reader_timed_out_pages": []
       }
     }
   ]

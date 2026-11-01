@@ -35,7 +35,7 @@
  * from the server, and this signature stays.
  */
 import type {
-  ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RunSummaryTier,
+  PageCoverage, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RunSummaryTier,
   RunSummaryTierCounts, RunSummaryTierLabel, RunSummaryTierReason, RunSummaryTierRow,
 } from "../../../types/api";
 import { TIER_RULES } from "../../../../../contracts/generated/review_tiers";
@@ -66,8 +66,11 @@ export interface TierResult {
 
 /** What is known about the run, as data. Every list may be empty. */
 export interface RunFacts {
-  /** `page_coverage.pages_not_read_into_fields` as stored on the run. */
+  /** `page_coverage.pages_not_read_into_fields` as stored on the run; with the
+   *  page-read switch (#1550), `pages_not_read` (no reading came back). */
   pagesNotRead: number[];
+  /** #1550, page-read switch only: pages read with no datasheet field taken. */
+  pagesNoField?: number[];
   /** Pages the AI reader gave up on (`reader.timed_out`), when recorded per page. */
   readerTimedOutPages: number[];
   /** Identifiers of standards the submittal cites that the library does not
@@ -120,7 +123,14 @@ export function fold(text: string | null | undefined): string {
   return (text ?? "").toLowerCase().replace(FOLD, TIER_RULES.fold.replace).trim();
 }
 
-/** The finding's page is one the reader did not read into fields, or gave up on. */
+/** #1550: the finding's page was read and no datasheet field was taken from it. */
+export function noFieldTaken(finding: ReviewFinding, facts: RunFacts): boolean {
+  const page = finding.contractor_page;
+  return typeof page === "number" && (facts.pagesNoField ?? []).includes(page);
+}
+
+/** The finding's page is one the reader did not read (into fields, with the
+ *  page-read switch off), or gave up on. */
 export function pageNotRead(finding: ReviewFinding, facts: RunFacts): boolean {
   const page = finding.contractor_page;
   if (typeof page !== "number") return false;
@@ -195,6 +205,7 @@ function phrase(word: PhraseWord): Predicate {
  *  the ORDER they are tried in is the data's, never this object's. */
 export const UNSETTLED_RULES: Readonly<Record<UnsettledWord, Predicate>> = {
   "page not read": pageNotRead,
+  "no field taken": noFieldTaken,
   [MISSING_INFORMATION.not_in_library_reason]: citesMissingStandard,
   "AI guess": pairingUnconfirmed,
   "rule not proven": ruleUnproven,
@@ -246,13 +257,22 @@ export function tierOf(finding: ReviewFinding, facts: RunFacts = EMPTY_FACTS): T
  *  and the reader record's `requirement_split.reader.timed_out` (order 135,
  *  D3: never a guess from a page note's words). No reader record gives no
  *  timed-out page, as on the server: an empty list makes no claim. */
+/** #1550: with the page-read switch "not read" is `pages_not_read`, and the rest
+ *  of the fields list is "no field taken"; off, the fields list as before. */
+function pageFactsOf(pc: PageCoverage | null | undefined): Pick<RunFacts, "pagesNotRead" | "pagesNoField"> {
+  const fields = pc?.pages_not_read_into_fields ?? [];
+  if (!pc?.pages_not_read) return { pagesNotRead: fields };
+  const notRead = pc.pages_not_read;
+  return { pagesNotRead: notRead, pagesNoField: fields.filter((p) => !notRead.includes(p)) };
+}
+
 export function runFactsOf(
   run: Pick<ReviewRunSummary, "page_coverage" | "requirement_split"> | null,
   standards: ReviewRunStandard[] | null,
   missing: ReviewRunMissingReference[],
 ): RunFacts {
   return {
-    pagesNotRead: run?.page_coverage?.pages_not_read_into_fields ?? [],
+    ...pageFactsOf(run?.page_coverage),
     readerTimedOutPages: run?.requirement_split?.reader?.timed_out ?? [],
     missingStandards: missing.filter((m) => m.status === "MISSING_LOCALLY" || !m.status).map((m) => m.identifier),
     libraryStandardIds: standards ? standards.filter((s) => s.included).map((s) => s.standard_document_id) : null,

@@ -45,6 +45,7 @@ def facts_of(name: str) -> review_tiers.RunFacts:
         reader_timed_out_pages=frozenset(raw["reader_timed_out_pages"]),
         missing_standards=tuple(raw["missing_standards"]),
         library_standard_ids=None if library is None else frozenset(library),
+        pages_no_field=frozenset(raw.get("pages_no_field", [])),
     )
 
 
@@ -154,6 +155,7 @@ def test_the_server_gathers_the_run_facts_the_table_says(case, temp_storage):  #
         "no-such-run", run, run_summary.reader_timed_out_pages(run["requirement_split"])
     )
     assert sorted(facts.pages_not_read) == case["expected"]["pages_not_read"]
+    assert sorted(facts.pages_no_field) == case["expected"].get("pages_no_field", [])
     assert (
         sorted(facts.reader_timed_out_pages)
         == case["expected"]["reader_timed_out_pages"]

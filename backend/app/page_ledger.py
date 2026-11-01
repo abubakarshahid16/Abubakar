@@ -783,9 +783,9 @@ def readiness_pages(document_id: str) -> dict:
     never 0 for "nobody looked" (CLAUDE.md rule 4).
 
     HONESTY GROUP (2026-09-27): `unread_page_reasons` carries, keyed by the
-    page number AS A STRING (a JSON object key), WHY each unread page did not
-    read into fields - `coverage`'s own `not_read_reasons`, which the route
-    once dropped on the floor.
+    page number AS A STRING, WHY each unread page is unread. #1550: with the
+    page-read switch "unread" is no reading came back (`pages_not_read_why`);
+    off, not read into fields (`not_read_reasons`); `page_not_read.readiness_part`.
     """
     ledger_state = state(document_id)
     cov = coverage(document_id) if ledger_state == CURRENT else {}

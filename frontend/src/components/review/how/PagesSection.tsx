@@ -16,6 +16,7 @@ export function PagesSection({ run }: { run: ReviewRunSummary }) {
   const timedOut = p.timedOut.value;
   const notRead = p.notRead.value;
   const aiNotRead = p.aiNotRead.value;
+  const noField = p.noFieldTaken.value; // #1550: only with the page-read switch
   return (
     <HowSection meta={PAGES_META}>
       <FactList label="Pages">
@@ -36,9 +37,14 @@ export function PagesSection({ run }: { run: ReviewRunSummary }) {
         <Fact label="AI reader timed out on" testId="pages-timed-out"
           fact={{ value: timedOut === null ? null : timedOut.length, source: p.timedOut.source }}
           detail={timedOut && timedOut.length ? `(pages ${pageList(timedOut)})` : undefined} />
-        <Fact label="Not read into fields" testId="pages-not-read"
+        <Fact label={p.byReading ? "Not read" : "Not read into fields"} testId="pages-not-read"
           fact={{ value: notRead === null ? null : notRead.length, source: p.notRead.source }}
           detail={notRead && notRead.length ? `(pages ${pageList(notRead)})` : undefined} />
+        {noField !== null && (
+          <Fact label="No datasheet field taken from" testId="pages-no-field-taken"
+            fact={{ value: noField.length, source: p.noFieldTaken.source }}
+            detail={noField.length ? `(pages ${pageList(noField)})` : undefined} />
+        )}
         <Fact label="Scanned pages without OCR" fact={p.withoutOcr} testId="pages-no-ocr"
           detail={p.ocrDone.value !== null ? `(OCR done on ${p.ocrDone.value}, from ${p.ocrDone.source})` : undefined} />
         <Fact label="Reading status" testId="pages-reading"

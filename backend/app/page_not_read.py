@@ -178,6 +178,17 @@ def unchecked_page_parts(cov: dict) -> list[tuple[str, str]]:
     return out
 
 
+def tier_pages(cov: dict) -> dict:
+    """`review_tiers.RunFacts`' page sets (tiers.ts `pageFactsOf`). Switch off:
+    the fields list is "page not read", as before; on: `pages_not_read`, and the
+    rest of the fields list is `pages_no_field` ("no field taken")."""
+    fields = cov.get("pages_not_read_into_fields") or []
+    if not by_reading(cov):
+        return {"pages_not_read": frozenset(fields)}
+    not_read = frozenset(cov.get("pages_not_read") or [])
+    return {"pages_not_read": not_read, "pages_no_field": frozenset(fields) - not_read}
+
+
 def readiness_part(cov: dict, into_fields: int, current: bool) -> dict:
     """The readiness strip's page numbers (`page_ledger.readiness_pages`): pages
     read, unread pages and why. Switch off: pages read into fields, as before.

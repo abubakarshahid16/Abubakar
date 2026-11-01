@@ -70,6 +70,15 @@ describe("runFactsOf", () => {
   it("a run without a ledger and a failed standards list claim nothing", () => {
     expect(runFactsOf(null, null, [])).toEqual(EMPTY_FACTS);
   });
+  it("#1550: with the page-read switch, 'page not read' is the reading's; a read page with no field is 'no field taken'", () => {
+    const on = { pages_total: 3, fact_pages: [], pages_not_read_into_fields: [1, 2, 3], not_read_reasons: {},
+      pages_read: [1, 3], pages_not_read: [2] };
+    const facts3 = runFactsOf({ page_coverage: on, requirement_split: null } as never, null, []);
+    expect(facts3.pagesNotRead).toEqual([2]);
+    expect(facts3.pagesNoField).toEqual([1, 3]);
+    expect(tierOf(f({ compliance_status: "COMPLIANT", contractor_page: 3 }), facts3).reason).toBe("no field taken");
+    expect(tierOf(f({ compliance_status: "COMPLIANT", contractor_page: 2 }), facts3).reason).toBe("page not read");
+  });
 });
 
 describe("server tiers (order 95 piece 1, #1111)", () => {

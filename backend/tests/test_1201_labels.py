@@ -133,7 +133,8 @@ def test_the_new_reasons_are_data_and_the_api_accepts_them():
         NO_STANDARD,
         OUTSIDE,
     )
-    assert T.RULES["reasons"][-2:] == [NO_STANDARD, OUTSIDE]
+    # #1550 appended "no field taken" after the two.
+    assert T.RULES["reasons"][-3:-1] == [NO_STANDARD, OUTSIDE]
     for word in (NO_STANDARD, OUTSIDE):
         row = run_summary.TierRow(
             finding_id="f", tier="C", label="Needs you", reason=word

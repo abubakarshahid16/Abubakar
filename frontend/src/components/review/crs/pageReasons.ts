@@ -9,6 +9,15 @@
  * These patterns read the app's OWN reader wording, never a document's.
  */
 
+/** #1550: reasons that mean NO reading came back for the page (#1473's kinds):
+ *  such a page "was not read", never "not fully read". */
+const NO_READING = [
+  /set aside by a rule although it holds clause text/i,
+  /excluded from the index on purpose/i,
+  /^image with no reading$/i,
+  /^blank page$/i,
+];
+
 /** The page kinds the chunker's page rules name, in plain words. */
 const KIND_WORDS: Record<string, string> = { toc: "table of contents" };
 
@@ -50,5 +59,6 @@ export function plainPageReason(reason: string | null | undefined): string {
 /** "Page 1 was not fully read: it looks like a cover page (the computer's guess)." */
 export function unreadPageLine(page: number, reason: string | null | undefined): string {
   const why = plainPageReason(reason);
-  return why ? `Page ${page} was not fully read: ${why}.` : `Page ${page} was not fully read.`;
+  const how = reason && NO_READING.some((p) => p.test(reason)) ? "was not read" : "was not fully read";
+  return why ? `Page ${page} ${how}: ${why}.` : `Page ${page} ${how}.`;
 }

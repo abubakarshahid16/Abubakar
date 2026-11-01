@@ -28,7 +28,8 @@ export const TIER_RULES = {
     "value conflict",
     "unit unknown",
     "no standard linked",
-    "standard outside this review"
+    "standard outside this review",
+    "no field taken"
   ],
   "needs_you": {
     "tier": "C",
@@ -68,6 +69,7 @@ export const TIER_RULES = {
   },
   "unsettled_order": [
     "page not read",
+    "no field taken",
     "standard not in library",
     "AI guess",
     "rule not proven",

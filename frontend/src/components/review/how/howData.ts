@@ -70,7 +70,11 @@ export function pageFacts(run: ReviewRunSummary) {
       : sourced(pc?.pages_not_read_into_fields ?? null, "page_coverage.pages_not_read_into_fields"),
     byReading: Boolean(pc?.pages_not_read),
     readNoField: sourced(pc?.pages_read_no_field ?? null, "page_coverage.pages_read_no_field"),
-    notReadReasons: pc?.not_read_reasons ?? {},
+    // #1550: the reasons of the same meaning (`pages_not_read_why`), and the
+    // fields list said apart as "no datasheet field taken".
+    notReadReasons: (pc?.pages_not_read ? pc.pages_not_read_why : pc?.not_read_reasons) ?? {},
+    noFieldTaken: sourced(pc?.pages_not_read ? pc.pages_not_read_into_fields : null,
+                          "page_coverage.pages_not_read_into_fields"),
     aiNotRead: sourced(pc?.pages_ai_not_read ?? null, "page_coverage.pages_ai_not_read"),
     aiNotReadReasons: pc?.ai_not_read_reasons ?? {},
     reading: pc?.reading ?? null,

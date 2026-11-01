@@ -36,6 +36,8 @@ const OLD_REASON_WORDS: Record<string, string> = {
 const NEW_REASON_WORDS: Record<string, string> = {
   "no standard linked": "This is a blank value with no standard behind it, so there was no clause to check. Decide from the datasheet.",
   "standard outside this review": "The standard this comment rests on was not part of this review (it may be in the library). An engineer can add it with \"Add a standard\" under \"Engineer: change the standards\", or you can decide from the datasheet.",
+  // #1550: a page read with no datasheet field taken (page-read switch only).
+  "no field taken": "The page was read, but no datasheet field was taken from it, so the value may still be on the page. Read the page yourself.",
 };
 const OLD_CODE_WORDS: Record<string, string> = {
   "Approved": "Everything checked meets the standard; the contractor may go ahead.",
