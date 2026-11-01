@@ -14,8 +14,13 @@ def _filler(tag, n=12):
     return "\n".join(f"{tag} line {i}" for i in range(n))
 
 
-COVER = "Line 9 River Crossing\nHydrostatic Pressure Test Plan\nVersion\nREV-2\n" + _filler("Cover")
-ATTACHMENT = "ACME GASES\nMaterial Safety Data Sheet\nProduct: nitrogen\n" + _filler("MSDS")
+COVER = (
+    "Line 9 River Crossing\nHydrostatic Pressure Test Plan\nVersion\nREV-2\n"
+    + _filler("Cover")
+)
+ATTACHMENT = "ACME GASES\nMaterial Safety Data Sheet\nProduct: nitrogen\n" + _filler(
+    "MSDS"
+)
 
 
 def _pages(*texts):
@@ -35,9 +40,14 @@ def test_the_earliest_page_naming_the_document_wins():
     assert (e.kind, e.page) == ("specification", 1)
 
 
-@pytest.mark.parametrize("title", [
-    "Hydrostatic Pressure Test Plan", "PNEUMATIC TESTING PLAN", "Inspection and Test Plan",
-])
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Hydrostatic Pressure Test Plan",
+        "PNEUMATIC TESTING PLAN",
+        "Inspection and Test Plan",
+    ],
+)
 def test_a_test_plan_is_a_procedure(title):
     e = document_kind.decide_document_kind(_pages(title + "\n" + _filler("Cover")))
     assert e.kind == "procedure"
