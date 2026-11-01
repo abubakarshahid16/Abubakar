@@ -337,7 +337,6 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         document_refs.record_document_deleted(conn, document_id, removed, actor=actor)
 
     files_removed = 0
-    # An image upload (#525 slice 2) is two files: the original and its pages.
     for stored in upload_mod.stored_files(Path(stored_paths.local(doc["stored_path"]))):
         if stored.exists():
             stored.unlink()

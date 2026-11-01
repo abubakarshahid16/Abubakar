@@ -2888,6 +2888,9 @@ def chunk_document(doc_id: str, force: bool = False,
     doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")
+    from . import sheet_chunks
+    if sheet_chunks.withdraw_template(doc_id):  # #525: a CRS template is never indexed
+        return {"document_id": doc_id, "filename": doc["filename"], "withdrawn": True}
 
     # Recognised text overrides the empty extraction that triggered it. The
     # resolution is explicit rather than a column read, because page_ocr is a
@@ -2907,7 +2910,6 @@ def chunk_document(doc_id: str, force: bool = False,
     # structure, so none of the PDF heuristics below (page classes, running
     # lines, ruled-table masks, clause-number headings) is applied to it: its
     # chunks are built from the file (`sheet_chunks.structured`). The rest is shared.
-    from . import sheet_chunks
     build = sheet_chunks.structured(doc)
     page_kinds = ({pno: "prose" for pno, _ in pages} if build
                   else classify_document_pages(pages, total_pages))

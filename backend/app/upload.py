@@ -560,7 +560,8 @@ def image_original(stored: Path) -> Path | None:
 
 
 def stored_files(stored: Path) -> list[Path]:
-    """Every file on disk that belongs to a document's `stored_path`."""
+    """Every file on disk that belongs to a document's `stored_path`: an image
+    upload (#525 slice 2) is two, the original and its pages."""
     original = image_original(stored)
     return [Path(stored)] + ([original] if original is not None else [])
 

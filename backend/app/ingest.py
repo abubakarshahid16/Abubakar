@@ -19,8 +19,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import acronyms as acronyms_mod
-from . import doc_router, errors, intake, job_queue, page_ledger, states
-from . import sheet_chunks
+from . import doc_router, errors, intake, job_queue, page_ledger, sheet_chunks, states
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
@@ -481,7 +480,7 @@ class IngestionWorker(ReviewDrain):
                     result["stages"].append(f"unknown_status:{status}->extracting")
                     continue
 
-                if status in (states.FAILED, states.NO_SEARCHABLE_CONTENT):
+                if status in states.NOT_SEARCHABLE_STATES:  # failed, none, not indexed
                     result["stages"].append(status)
                     return result
 
@@ -501,8 +500,6 @@ class IngestionWorker(ReviewDrain):
                     continue
 
                 if status == states.CHUNKING:
-                    if sheet_chunks.withdraw_template(doc_id):  # #525: never indexed
-                        return result
                     result["chunk"] = chunk_document(doc_id)
                     _route_document_kind(doc_id, result)
                     telemetry.record(
@@ -900,9 +897,7 @@ def on_role_changed(document_id: str, *, classify: bool = True) -> None:
     classifier must not overwrite what was typed a moment ago.
     """
     try:
-        sheet_chunks.withdraw_template(document_id)  # #525 slice 2: a CRS template leaves the index
-        row = connect().execute(
-            "SELECT status FROM documents WHERE id = ?", (document_id,)).fetchone()
+        row = sheet_chunks.status_unless_withdrawn(document_id)  # #525: CRS template
     except Exception as exc:  # noqa: BLE001 - assigning a role must not fail here
         errors.record_failure(exc, document_id=document_id, stage="role_changed")
         return

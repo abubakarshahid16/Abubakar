@@ -115,6 +115,20 @@ def withdraw_template(document_id: str) -> bool:
     return True
 
 
+def status_unless_withdrawn(document_id: str):
+    """For a role change: None when the document was just withdrawn as a CRS
+    template (or does not exist), else its `status` row."""
+    from .db import connect
+
+    if withdraw_template(document_id):
+        return None
+    return (
+        connect()
+        .execute("SELECT status FROM documents WHERE id = ?", (document_id,))
+        .fetchone()
+    )
+
+
 def cell_range(
     sheet: str, first_row: int, first_col: int, last_row: int, last_col: int
 ) -> str:
