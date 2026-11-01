@@ -70,6 +70,14 @@ _AI_ORIGIN = "ai_engineering_check"
 ROW_KIND_DATASHEET_CHECK = "datasheet_check"
 _DATASHEET_ORIGIN = "datasheet_check"
 _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
+#: #1477: a clause review item (`clause_review.py`, `origin = 'clause_review'`): the
+#: local model's reading of one requirement against a procedure or specification,
+#: with a quote the code found on the page. Never a verdict; rides in "AI Review
+#: Comments" like kind C until an engineer confirms it, off the sheet if rejected.
+ROW_KIND_CLAUSE_REVIEW = "clause_review"
+_CLAUSE_ORIGIN = "clause_review"
+_CLAUSE_CONFIRMED_BY = "AI clause review, confirmed by "
+_CLAUSE_UNCONFIRMED_BY = "AI clause review - engineer to confirm"
 #: Owner order 2d-2: a public-web standards check item (kind D,
 #: `origin = 'web_standard_check'`). Same confirm-or-off-the-sheet rule as
 #: kind C - unconfirmed rides in "AI Review Comments", confirmed moves to
@@ -174,7 +182,7 @@ def _no_datasheet_field(finding: dict) -> bool:
     return (
         finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
         and finding.get("origin")
-        not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, "chat")
+        not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN, "chat")
         and not (finding.get("fact_id") or finding.get("contractor_page"))
         and not _unread(finding)
         and not _page_reader_only(finding)
@@ -222,6 +230,10 @@ def finding_comment_key(f: dict) -> str:
         return comment_key(
             origin, f.get("finding"), f.get("required_action"),
             f.get("contractor_page"), f.get("contractor_section"))
+    if origin == _CLAUSE_ORIGIN:
+        # the requirement, never the wording: a re-run keeps the row's number
+        return comment_key(
+            origin, f.get("standard_document_id"), f.get("requirement_id") or f.get("standard_clause"))
     key = _group_key(f)
     if key[0] == "field":
         return field_comment_key(key[1], key[2])
@@ -251,6 +263,7 @@ _BYLINE_SHAPES = (
     re.compile(r"^(AI Review, (?:edited and )?confirmed by )(?P<who>.+?)()$"),
     re.compile("^(" + re.escape(_AI_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
     re.compile("^(" + re.escape(_WEB_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
+    re.compile("^(" + re.escape(_CLAUSE_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
     re.compile(r"^()(?P<who>.+?)( \(filed from chat\))$"),
 )
 
@@ -1090,7 +1103,7 @@ def _bucket_of(f: dict) -> str | None:
         return None
     if origin == "chat":
         return BUCKET_CHAT
-    if origin == _AI_ORIGIN:
+    if origin in (_AI_ORIGIN, _CLAUSE_ORIGIN):
         return BUCKET_AI
     if origin == _WEB_ORIGIN:
         return BUCKET_WEB
@@ -1593,8 +1606,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     # a verdict; a draft in its own column until an engineer confirms it.
     for f in _one_row_findings(items, BUCKET_AI, BUCKET_WEB):
         origin = f.get("origin")
-        if origin not in (_AI_ORIGIN, _WEB_ORIGIN) or f.get("approval_status") == "rejected":
+        if (origin not in (_AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN)
+                or f.get("approval_status") == "rejected"):
             continue
+        relates = ""
         text = f.get("engineer_comment") or _finding_text(f)
         if origin == _AI_ORIGIN:
             relates = _ai_relates_to(f)
@@ -1611,14 +1626,20 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
         confirmed = bool(crs_decider.decider(f))
-        confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
+        confirmed_by_prefix = {
+            _AI_ORIGIN: _AI_CONFIRMED_BY, _CLAUSE_ORIGIN: _CLAUSE_CONFIRMED_BY,
+        }.get(origin, _WEB_CONFIRMED_BY)
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
-        unconfirmed_by = _AI_UNCONFIRMED_BY if origin == _AI_ORIGIN else _WEB_UNCONFIRMED_BY
-        row_kind = ROW_KIND_AI_ENGINEERING_CHECK if origin == _AI_ORIGIN else ROW_KIND_WEB_STANDARD_CHECK
+        unconfirmed_by = {
+            _AI_ORIGIN: _AI_UNCONFIRMED_BY, _CLAUSE_ORIGIN: _CLAUSE_UNCONFIRMED_BY,
+        }.get(origin, _WEB_UNCONFIRMED_BY)
+        row_kind = {
+            _AI_ORIGIN: ROW_KIND_AI_ENGINEERING_CHECK, _CLAUSE_ORIGIN: ROW_KIND_CLAUSE_REVIEW,
+        }.get(origin, ROW_KIND_WEB_STANDARD_CHECK)
         # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
         # says it awaits an engineer, the draft stays in "AI Review Comments".
         unconfirmed_comment = (
-            AI_UNCONFIRMED_COMMENT if origin == _AI_ORIGIN else WEB_UNCONFIRMED_COMMENT
+            WEB_UNCONFIRMED_COMMENT if origin == _WEB_ORIGIN else AI_UNCONFIRMED_COMMENT
         )
         rows.append(
             {
@@ -1648,7 +1669,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             }
         )
         rows[-1].update(crs_ai_drafts.row_extras(f))
-        rank = row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB)
+        rank = row_priority(BUCKET_WEB if origin == _WEB_ORIGIN else BUCKET_AI)
         sort_keys.append(_rank_row(rows[-1], rank, [f]))
 
     # #754 F5b: the required-vs-cited result, one row per standard.

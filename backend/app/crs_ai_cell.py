@@ -43,6 +43,7 @@ _GENERIC = "the AI's wording did not pass the check"
 _AI_KINDS = (
     crs_mapping.ROW_KIND_AI_ENGINEERING_CHECK,
     crs_mapping.ROW_KIND_WEB_STANDARD_CHECK,
+    crs_mapping.ROW_KIND_CLAUSE_REVIEW,
 )
 
 

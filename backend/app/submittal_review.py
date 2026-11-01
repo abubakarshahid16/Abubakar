@@ -322,6 +322,9 @@ def ensure_schema() -> None:
             ("ai_check_status", "TEXT"),
             # #633: the web standards check's own outcome, stored the same way.
             ("web_check_status", "TEXT"),
+            # #1477: the clause review's own outcome (counts, time, the requirements
+            # not reviewed), JSON; NULL when it never ran.
+            ("clause_review_status", "TEXT"),
             # #725 F7: the two transmittal numbers the CRS header names, as an
             # engineer ENTERED them (`set_crs_transmittals`). NULL = nobody
             # entered one, and the sheet prints nothing - never a placeholder.

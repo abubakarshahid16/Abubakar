@@ -57,6 +57,18 @@ CREATE TABLE IF NOT EXISTS document_kinds (
     confirmed_at   TEXT
 );
 
+-- #1477: the clause review's stored AI answers, so a re-run over unchanged
+-- pages makes no model call. Key = sha256(page text seen, requirement id and text,
+-- model, prompt version). `answer` is the model's raw JSON (a quote and a page);
+-- the code verifies it again against the stored page text on every use.
+CREATE TABLE IF NOT EXISTS clause_review_cache (
+    key         TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    answer      TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS jobs (
     id                    TEXT PRIMARY KEY,
     document_id           TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
