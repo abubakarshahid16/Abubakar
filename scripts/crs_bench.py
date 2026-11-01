@@ -9,7 +9,9 @@ a copy first (`live_guard.diagnostic_copy()`). The table holds counts, ids and
 checklist field names only; the copy itself stays on this machine.
 
 Exit codes: 0 green, 1 red (a wrong verdict, or a measure worse than
---baseline), 2 refused.
+--baseline), 2 refused, 3 the bench itself failed (an error, NOT a result: no
+table is written; #1539 - a bench importing a file someone was editing once
+looked 'red'). Run the bench only in a checkout nobody is editing.
 """
 
 from __future__ import annotations
@@ -54,7 +56,21 @@ def _settings_file(given: str | None) -> Path | None:
     return main_env if main_env and main_env.exists() else None
 
 
+EXIT_ERROR = 3
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Run the bench; a crash is EXIT_ERROR with its type, never 'red'."""
+    try:
+        return _main(argv)
+    except Exception as exc:  # noqa: BLE001 - reported, never read as a result
+        print(
+            f"BENCH ERROR (not a result): {type(exc).__name__}: {exc}", file=sys.stderr
+        )
+        return EXIT_ERROR
+
+
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

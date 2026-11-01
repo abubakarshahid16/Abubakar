@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from .blank_form import is_blank_form, line_shape
 from .classification import (
     _SPACE,
     _now,
@@ -259,6 +260,17 @@ def decide_document_kind(
         # A standard ABOUT drawings is still a standard: the stored role decides,
         # and says it is from the role, not from a title.
         return make("standard", None, None, "document_role", 0.7, guess=True)
+    blank = is_blank_form(lines)
+    if blank:
+        # Owner order 1 Nov: a form of labels with no values never takes its
+        # kind from a label. A cell-less heading may; a label row only when it
+        # names the form a data sheet (the one kind a blank form can be).
+        data_sheet = _KIND_CUES[-1][1]
+        lines = [
+            (pg, ln)
+            for pg, ln in lines
+            if line_shape(ln) == "other" or data_sheet.search(ln)
+        ]
     code = _type_code_hit(lines)
     title = _title_cue_hit(lines)
     if code is not None:
@@ -274,7 +286,7 @@ def decide_document_kind(
         )
     if title is not None:
         return make(title[0], title[1], title[2], "title_cue", 0.8)
-    body = _contract_body_hit(pages)
+    body = None if blank else _contract_body_hit(pages)
     if body is not None:
         return make(
             "contract", body[0], body[1], "cover_contract_words", 0.7, guess=True
@@ -285,13 +297,17 @@ def decide_document_kind(
         [
             (pg, ln)
             for pg, ln in title_block_lines(pages)
-            if len(ln.split()) <= _TITLE_WORDS_MAX and not ln.rstrip().endswith(".")
+            if len(ln.split()) <= _TITLE_WORDS_MAX
+            and not ln.rstrip().endswith(".")
+            and not (blank and line_shape(ln) != "other")
         ]
     )
     if named is not None:
         return make(
             "datasheet", named.page, named.quote, "title_equipment", 0.6, guess=True
         )
+    if blank:
+        return make("unknown", None, None, "blank_form", None, guess=True)
     return make("unknown", None, None, "no_cue", None, guess=True)
 
 
@@ -409,8 +425,10 @@ def body_equipment_allowed(pages: Sequence[dict], document_id: str, role) -> boo
     stored = stored_kind(document_id)
     if stored is not None and stored[1] == "confirmed":
         return stored[0] == "datasheet"
-    kind = decide_document_kind(pages, document_role=role).kind
-    return kind in ("datasheet", "unknown")
+    decided = decide_document_kind(pages, document_role=role)
+    if decided.method == "blank_form":
+        return False  # a blank form's labels name no equipment: ask the engineer
+    return decided.kind in ("datasheet", "unknown")
 
 
 def counts_from(conn, document_ids: Iterable[str] | None = None) -> dict:

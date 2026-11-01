@@ -27,6 +27,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from . import deferred_pass
 from .config import settings
 
 NOT_RECORDED = "not recorded"
@@ -228,6 +229,16 @@ def _standards_section(run_id: str, steps: dict, allowed) -> dict:
     }
 
 
+def _deferred_part(findings: list[dict], passes: int) -> dict:
+    """D2: Passes on a contractor-deferred value are Query - counted as the bench does."""
+    n = sum(map(deferred_pass.is_deferred_pass, findings))
+    return {
+        "pass_on_deferred": n,
+        "pass_on_deferred_note": f"{n} of {passes} Pass rows are on a contractor-deferred value"
+        + (" (Query under owner decision D2)" if n else ""),
+    }
+
+
 def _rules_section(findings: list[dict]) -> dict:
     rows, counts = [], Counter()
     for f in findings:
@@ -263,6 +274,7 @@ def _rules_section(findings: list[dict]) -> dict:
         "rows_total": len(rows),
         "rows": rows,
         "verdict_counts": {VERDICT.get(k, k): v for k, v in counts.items() if k},
+        **_deferred_part(findings, counts.get("COMPLIANT", 0)),
         "by_standard_document": dict(by_standard),
     }
 
@@ -313,7 +325,6 @@ def _gates_section(outcome: dict, steps: dict) -> dict:
         "not_recorded_on_the_run": [
             "wrong",
             "untrue",
-            "pass_on_deferred",
             "nothing-read guard",
             "certificate guard",
         ],
@@ -464,6 +475,7 @@ def _md_rules(audit: dict) -> list[str]:
             )
             or NOT_RECORDED
         ),
+        f"- {rules['pass_on_deferred_note']}",
         "",
         "| clause | field | value read | page | verdict | basis | card |",
         "|---|---|---|---|---|---|---|",
