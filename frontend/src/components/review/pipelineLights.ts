@@ -55,9 +55,10 @@ function readStep(run: ReviewRunSummary, trace: ReviewTrace | null): PipelineSte
   const ai = run.ai_numbers?.reader;
   const c = ai?.counts ?? {};
   const details = [read?.summary, ...(ai?.lines ?? [])].filter((l): l is string => Boolean(l));
-  const base = { key: "read" as const, title: "Read the datasheet", details };
+  // "document", not "datasheet": a procedure or specification is read here too (the live review).
+  const base = { key: "read" as const, title: "Read the document", details };
   if (!read) return { ...base, light: "amber", reason: "no read record for this run" };
-  if (num(read.counts.values) === 0) return { ...base, light: "red", reason: "no value was read from the datasheet" };
+  if (num(read.counts.values) === 0) return { ...base, light: "red", reason: "no value was read from the document" };
   const added = num(c.ai_only);
   if ((c.timed_out ?? 0) > 0) {
     return { ...base, light: "amber",
