@@ -54,6 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
+from . import procedure_text
 from .config import settings
 from .db import connect
 from .provenance import ai_quote_proved
@@ -671,11 +672,13 @@ def _hold_unsure_kind(
 
 def compare(requirement: dict, fact: dict | None, *,
             subject: str | None = None,
-            submittal_facts: list[dict] | None = None) -> dict:
+            submittal_facts: list[dict] | None = None,
+            procedure_pages: list[tuple[int, str]] | None = None) -> dict:
     """`_compare`'s verdict, with a breach on an untrusted value held for an
     engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
     verdict = _hold_low_trust_breach(
-        _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
+        _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts,
+                 procedure_pages=procedure_pages),
         fact)
     box = ai_quote_proved(fact) if fact and not fact.get("confirmed_by") else None
     if box and verdict.get("status") in _VERDICTS_HELD_ON_LOW_TRUST:
@@ -754,7 +757,8 @@ def _compare_nominal(requirement: dict, fact: dict, *, subject: str | None,
 
 def _compare(requirement: dict, fact: dict | None, *,
              subject: str | None = None,
-             submittal_facts: list[dict] | None = None) -> dict:
+             submittal_facts: list[dict] | None = None,
+             procedure_pages: list[tuple[int, str]] | None = None) -> dict:
     """The DETERMINISTIC verdict for one requirement against one fact.
 
     Returns `{status, rationale, limit, observed, exception_applied}`, plus
@@ -805,6 +809,9 @@ def _compare(requirement: dict, fact: dict | None, *,
     # this is the same claim ("this submittal type cannot answer it") for a
     # requirement that says so explicitly rather than by shape.
     required_evidence = requirement.get("required_evidence_type")
+    # #1476: a procedure's own text answers a "procedure"/"plan" demand (code finds, an engineer decides).
+    if procedure_pages is not None and required_evidence in procedure_text.OWN_TEXT_EVIDENCE:
+        return procedure_text.verdict(requirement, procedure_pages)
     if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:
         return {
             "status": NOT_IN_DOCUMENT_SCOPE,
@@ -869,6 +876,8 @@ def _compare(requirement: dict, fact: dict | None, *,
     if fact is None:
         # B9, RULE R1: an unmatched `statement` is another document's question,
         # EXCEPT one asking only to be stated on the datasheet (order 210 FIX 1).
+        if procedure_pages is not None and requirement.get("requirement_type") == requirements_3b.STATEMENT:
+            return procedure_text.verdict(requirement, procedure_pages)  # #1476: the document is the evidence
         if requirement.get(
             "requirement_type"
         ) == requirements_3b.STATEMENT and not field_links.asks_only_to_be_stated(
@@ -2398,6 +2407,8 @@ def _run_comparison(
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
     facts, purchaser_facts = required_values.split(facts)
+    procedure_pages = (procedure_text.load_pages(submittal_id)
+                       if procedure_text.is_procedure_submittal(submittal_id) else None)
     # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
     # ANSWERS IT. The rest are counted, one grouped line per standard, in the
     # run's outcome; a definition or unconfirmed garbled text is never a check.
@@ -2720,7 +2731,7 @@ def _run_comparison(
             # those are different rows from the one being compared.
             verdict = (_hold_low_trust_breach(rule_verdict, fact) if rule_verdict
                        else compare(requirement, fact, subject=subject,
-                                    submittal_facts=facts))
+                                    submittal_facts=facts, procedure_pages=procedure_pages))
             if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
                 verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
             # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in

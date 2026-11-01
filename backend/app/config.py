@@ -747,6 +747,18 @@ class Settings(BaseSettings):
     #: then indexed too. OFF by default - merging changes nothing.
     #: Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
+    #: #1476 PROCEDURE PATH. ON: for a submittal whose kind is a procedure (or
+    #: specification), a procedure-type requirement is looked for in the
+    #: submittal's OWN page text instead of being sent to "needs another
+    #: document": found -> NEEDS_ENGINEER_REVIEW with the page and a quote code
+    #: verified as real text; not found -> MISSING_INFORMATION. Never COMPLIANT.
+    #: Certificate, drawing and report demands stay NOT_IN_DOCUMENT_SCOPE (#163).
+    #: OFF by default. Env: PROCEDURE_PATH_ENABLED.
+    procedure_path_enabled: bool = False
+    #: Until #1474's `document_kind` column exists: comma-separated document ids
+    #: to treat as procedures (tests and the bench). Empty = none.
+    #: Env: PROCEDURE_PATH_DOCUMENT_IDS.
+    procedure_path_document_ids: str = ""
     #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
     #: is accepted and indexed through the SAME pipeline as a PDF (pages,
     #: chunks, search, citations, requirements, reviews), read by
