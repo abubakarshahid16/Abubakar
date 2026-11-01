@@ -305,3 +305,69 @@ def test_the_setting_is_off_by_default():
 
 def test_the_ai_column_name_has_one_meaning():
     assert q.AI_COLUMN == crs_export.AI_COLUMN
+
+
+def test_an_equipment_tag_is_not_a_page():
+    assert not q.has_page("P101 - Fluid")
+    assert not q.has_page("Pump P2 outlet")
+    assert q.has_page("p.2 - Fluid") and q.has_page("pp. 3-4") and q.has_page("page 5")
+    assert q.page_cell("P101 - Fluid").startswith("page not found (not identified)")
+
+
+def test_a_cut_never_parts_a_number_from_its_unit_or_a_clause_word_from_its_id():
+    text = (
+        "x" * 20
+        + " "
+        + "word " * 63
+        + "10 mm and clause 4.1.2 applies here for the rest of the text."
+    )
+    for limit in range(300, 340):
+        head, rest = q.split_comment(text, limit)
+        assert head + " " + rest == text or (head + rest).split() == text.split()
+        assert not head.endswith("10") and not head.endswith("clause")
+        assert not rest.startswith(("mm", "4.1.2"))
+
+
+def test_the_requested_action_stays_in_the_client_comment():
+    middle = " ".join(
+        f"Detail sentence number {i} is long enough to fill space." for i in range(12)
+    )
+    text = f"Set pressure is above the limit. {middle} Contractor to correct the datasheet."
+    head, rest = q.shorten(text, 350)
+    assert len(head) <= 350 and head.endswith("Contractor to correct the datasheet.")
+    assert head.startswith("Set pressure is above the limit.")
+    assert sorted((head + " " + rest).split()) == sorted(text.split())
+    v = view([row(text, engineer_confirmed=True)], copy="issue")
+    assert v["rows"][0]["comment"].endswith("Contractor to correct the datasheet.")
+
+
+def test_a_fail_merged_into_an_engineers_row_shows_fail():
+    rows = [
+        row("Engineer note.", row_kind="engineer_comment", priority=4),
+        row("Value out of limit.", priority=1),
+    ]
+    v = view(rows)
+    assert len(v["rows"]) == 1 and v["rows"][0]["priority_label"] == "Fail"
+    assert v["rows"][0]["row_kind"] == "engineer_comment"
+
+
+def test_switch_off_workbook_keeps_its_columns_and_widths():
+    client = sheet([row(engineer_confirmed=True)], OFF, copy="issue")["CRS"]
+    assert "J" not in client.column_dimensions or client.column_dimensions[
+        "J"
+    ].width in (None, 13.0)
+    assert client.max_column == 9
+    internal = sheet([row()], OFF)
+    ws = internal["CRS"]
+    assert [c.value for c in ws[crs_export.COLUMN_HEADER_ROW]][-3:] == [
+        crs_export.AI_COLUMN,
+        crs_export.REASONING_COLUMN,
+        crs_export.TRUST_COLUMN,
+    ]
+    assert ws.column_dimensions["J"].width == crs_export.AI_COLUMN_WIDTH
+    assert ws.column_dimensions["K"].width == crs_export.REASONING_COLUMN_WIDTH
+    assert ws.column_dimensions["L"].width == crs_export.TRUST_COLUMN_WIDTH
+    assert internal.sheetnames == ["CRS", "Applicable standards", "Review notes"]
+    assert [c.value for c in ws[crs_export.FIRST_DATA_ROW]][
+        3
+    ] == "Datasheet check: Set pressure is above the limit."

@@ -44,7 +44,7 @@ sys.path.insert(0, str(REPO / "backend"))
 INTERNAL_PHRASES = ("not yet proven", "reasoning (internal)", "rule trust (internal)")
 PRIORITIES = ("Missing value", "Engineer to check", "Fail", "Pass")
 PLACEHOLDER = "No comment text was produced for this row"
-_PAGE = re.compile(r"(?<![A-Za-z])(?:pp?|pages?)\.?\s*\d", re.I)
+_PAGE = re.compile(r"(?<![A-Za-z0-9])(?:pp?\.\s*|pages?\s+)\d", re.I)
 
 
 def measure(workbook_path: Path) -> dict:

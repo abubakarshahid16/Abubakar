@@ -597,11 +597,11 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     internal = view["crs_copy"] == COPY_INTERNAL
     ws.column_dimensions["H"].width = STANDARD_COLUMN_WIDTH
     ws.column_dimensions["I"].width = PRIORITY_COLUMN_WIDTH
-    ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
+    if internal or view.get("export_quality"):  # switch off: as it was
+        ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
     if internal:
         ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
         ws.column_dimensions["L"].width = TRUST_COLUMN_WIDTH
-
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = _write(ws, row, col, value)
         cell.font = Font(name=ARIAL, bold=bold, size=size)

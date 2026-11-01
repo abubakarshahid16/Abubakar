@@ -134,7 +134,9 @@ def not_in_library_note(reference: str, default: str) -> str:
 
 # --------------------------------------------------------------------- page
 
-_HAS_PAGE = re.compile(r"(?<![A-Za-z])(?:pp?|pages?)\.?\s*\d", re.I)
+# "p.2", "pp. 3-4", "page 5": the word "page" or "p." WITH its separator. A bare
+# "P101" or "P2" is an equipment tag, not a page.
+_HAS_PAGE = re.compile(r"(?<![A-Za-z0-9])(?:pp?\.\s*|pages?\s+)\d", re.I)
 NOT_FOUND = "page not found"
 REASON_NOT_READ = "not read"
 REASON_NOT_IDENTIFIED = "not identified"
@@ -170,22 +172,88 @@ def page_cell(page_section: str, row_kind: str = "") -> str:
 # ------------------------------------------------------------------ comment
 
 
+_UNIT_LEADERS = (
+    "clause",
+    "cl.",
+    "section",
+    "sec.",
+    "para",
+    "paragraph",
+    "item",
+    "no.",
+    "table",
+    "figure",
+)
+_SENTENCE_END = re.compile(r"(?<=[.!?])[ \t]+(?=[A-Z(\"'])|\n+")
+_ACTION = re.compile(
+    r"\b(?:contractor to|engineer to|requested|please|to confirm|to clarify|to correct|"
+    r"to provide|to submit|to state)\b",
+    re.I,
+)
+
+
+def _bad_space(text: str, at: int) -> bool:
+    """Is the space at `at` between a number and its unit, or a clause word and
+    its id? A cut there would part "10" from "mm" or "clause" from "4.1"."""
+    before = text[:at].split(" ")[-1]
+    after = text[at + 1 :].split(" ")[0]
+    if any(ch.isdigit() for ch in before) and after[:1] and not after[:1].isupper():
+        return True
+    return before.lower() in _UNIT_LEADERS and any(ch.isdigit() for ch in after)
+
+
 def split_comment(text: str, limit: int = COMMENT_LIMIT) -> tuple[str, str]:
     """(head, rest): head is at most `limit` characters, cut at the last line
-    end, sentence end or space before the limit (inside a word only when the
-    text has no break at all); head + rest is the whole text."""
+    end, sentence end or space before the limit (never between a number and its
+    unit or a clause word and its id; inside a word only when the text has no
+    break at all); head + rest is the whole text."""
     text = str(text or "")
     if len(text) <= limit:
         return text, ""
     cut = 0
     for marker, keep in (("\n", 0), (". ", 1), (" ", 0)):
         at = text.rfind(marker, 0, limit + 1)
+        while at > 0 and marker == " " and _bad_space(text, at):
+            at = text.rfind(marker, 0, at)
         if at > 0:
             cut = at + keep
             break
     if cut <= 0:
         cut = limit
     return text[:cut].rstrip(), text[cut:].lstrip()
+
+
+def shorten(text: str, limit: int = COMMENT_LIMIT) -> tuple[str, str]:
+    """`split_comment` that keeps the requested action in the comment: the last
+    sentence that asks the contractor for something stays after the leading
+    sentences that fit; the sentences left out are the rest (nothing is lost)."""
+    text = str(text or "")
+    if len(text) <= limit:
+        return text, ""
+    parts, seps, last = [], [], 0
+    for m in _SENTENCE_END.finditer(text):
+        parts.append(text[last : m.start()])
+        seps.append(m.group())
+        last = m.end()
+    parts.append(text[last:])
+    seps.append("")
+    action = [i for i, p in enumerate(parts) if i > 0 and _ACTION.search(p)]
+    if not action or len(parts[action[-1]]) >= limit:
+        return split_comment(text, limit)
+    k = action[-1]
+    budget, taken = limit - len(parts[k]) - 1, 0
+    for i in range(k):
+        if taken + len(parts[i]) + len(seps[i]) > budget:
+            break
+        taken += len(parts[i]) + len(seps[i])
+        last_taken = i
+    else:
+        last_taken = k - 1
+    head_i = range(0, last_taken + 1) if taken else range(0)
+    head = "".join(parts[i] + seps[i] for i in head_i) + parts[k]
+    skipped = [i for i in range(len(parts)) if i not in head_i and i != k]
+    rest = "".join(parts[i] + seps[i] for i in skipped).strip()
+    return (head, rest) if rest and len(head) <= limit else split_comment(text, limit)
 
 
 def strip_unproven_flag(text: str) -> tuple[str, bool]:
@@ -240,8 +308,11 @@ def _join(first: str, later: str) -> str:
 
 def merge_duplicates(rows: list[dict]) -> tuple[list[dict], int]:
     """Rule 1. Returns (rows, number of rows merged away). The first row of a
-    key keeps its place, number and kind; a later one adds its comment (and
-    its reasoning and AI wording) after it and lends it a stronger rank."""
+    key keeps its place, number, kind and fill; a later one adds its comment
+    (and its reasoning and AI wording) after it. Only the RANK is lent: the
+    row prints the strongest rank of the group (a Fail merged into an
+    engineer's comment shows Fail), while its row kind and colour stay the
+    first row's."""
     out: list[dict] = []
     first_of: dict = {}
     merged = 0
@@ -332,7 +403,7 @@ def _finish_rows(rows: list[dict], ref_label: str) -> tuple[set[str], bool]:
             continue
         first, _, tail = entry["comment"].partition("\n")
         prefix = first + "\n" if first.startswith(f"{ref_label}: ") and tail else ""
-        head, rest = split_comment(
+        head, rest = shorten(
             entry["comment"][len(prefix) :], COMMENT_LIMIT - len(prefix)
         )
         if rest:
