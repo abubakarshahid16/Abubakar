@@ -181,6 +181,10 @@ class SettingsExt(BaseModel):
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
     ai_requirement_extraction_enabled: bool = False
+    #: #645 slice 3: a quote from a chunk ACROSS pages is cited to the one page whose own text holds
+    #: it whole (none or several: refused, as before); accept checks it there again. No new model call.
+    #: OFF: such a quote is refused (page uncertain). Env: AI_REQUIREMENT_QUOTE_PAGE_ENABLED.
+    ai_requirement_quote_page_enabled: bool = False
     #: Owner decision 1 Nov (part of #1478): ONLY the title block (`classification.title_block_lines`) sets
     #: the equipment type; a section or panel heading in the page body never does (a pump sheet's 'MOTOR
     #: DATA' panel made it a Motor). None or two different types in the title block: the type is NULL,
