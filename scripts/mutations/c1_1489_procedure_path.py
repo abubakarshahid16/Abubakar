@@ -1,5 +1,6 @@
 """#1476 / PR 1489 procedure path: each entry deletes one decision line;
 backend/tests/test_procedure_path.py must notice."""
+
 from __future__ import annotations
 
 from ._base import APP, Mutation
@@ -9,38 +10,120 @@ _TAG = ("c1_1489", "procedure_path")
 _C = APP / "comparison.py"
 _P = APP / "procedure_text.py"
 _OWN = "    own = evidence in OWN_TEXT_EVIDENCE\n"
-_STATEMENT = "        and requirement.get(\"requirement_type\") == requirements_3b.STATEMENT\n"
+_STATEMENT = (
+    '        and requirement.get("requirement_type") == requirements_3b.STATEMENT\n'
+)
 
 
 def _m(n, desc, path, anchor, repl, kw=None):
-    return Mutation(id=f"M1489-{n:02d}", phase=1489, description=desc, path=path,
-                    anchor=anchor, replacement=repl, target=_T, keyword=kw, tags=_TAG)
+    return Mutation(
+        id=f"M1489-{n:02d}",
+        phase=1489,
+        description=desc,
+        path=path,
+        anchor=anchor,
+        replacement=repl,
+        target=_T,
+        keyword=kw,
+        tags=_TAG,
+    )
 
 
 MUTATIONS: tuple[Mutation, ...] = (
-    _m(1, "a procedure-evidence demand is sent to another document again", _P,
-       _OWN, "    own = False\n", "procedure_evidence_demand"),
-    _m(2, "an unmatched statement of a procedure is sent away again", _P,
-       _STATEMENT, "        and False\n", "found_requirement or nothing_found"),
-    _m(3, "a certificate or drawing demand is checked against the procedure text", _P,
-       _OWN, '    own = bool(evidence)\n',
-       "certificate_or_drawing"),
-    _m(4, "nothing found no longer says contractor to show where", _P,
-       '"status": "MISSING_INFORMATION"', '"status": "NEEDS_ENGINEER_REVIEW"', "nothing_found"),
-    _m(5, "a found passage becomes COMPLIANT", _P,
-       '"status": "NEEDS_ENGINEER_REVIEW"', '"status": "COMPLIANT"', "never_compliant or found_requirement"),
-    _m(6, "the switch is ignored", _P,
-       "    if not settings.procedure_path_enabled or not document_id:\n",
-       "    if not document_id:\n", "switch_is_off"),
-    _m(7, "every submittal counts as a procedure once the switch is on", _P,
-       "    return document_id in listed or document_kind(document_id) in PROCEDURE_KINDS\n",
-       "    return True\n", "switch_is_off"),
-    _m(8, "the pages never reach the comparison, so nothing is routed", _C,
-       "    routed = procedure_text.route(requirement, fact, procedure_pages)\n",
-       "    routed = None\n", "found_requirement"),
-    _m(9, "a statement that only asks to be stated is looked up in the text", _P,
-       "        and not field_links.asks_only_to_be_stated(text)\n", "", "stated_on_the_datasheet"),
-    _m(10, "a statement naming a certificate is looked up in the text", _P,
-       "        and evidence in (None, requirements_3b.DATA_SHEET_EVIDENCE)\n", "",
-       "certificate_or_drawing"),
+    _m(
+        1,
+        "a procedure-evidence demand is sent to another document again",
+        _P,
+        _OWN,
+        "    own = False\n",
+        "procedure_evidence_demand",
+    ),
+    _m(
+        2,
+        "an unmatched statement of a procedure is sent away again",
+        _P,
+        _STATEMENT,
+        "        and False\n",
+        "found_requirement or nothing_found",
+    ),
+    _m(
+        3,
+        "a certificate or drawing demand is checked against the procedure text",
+        _P,
+        _OWN,
+        "    own = bool(evidence)\n",
+        "certificate_or_drawing",
+    ),
+    _m(
+        4,
+        "nothing found no longer says contractor to show where",
+        _P,
+        '"status": "MISSING_INFORMATION"',
+        '"status": "NEEDS_ENGINEER_REVIEW"',
+        "nothing_found",
+    ),
+    _m(
+        5,
+        "a found passage becomes COMPLIANT",
+        _P,
+        '"status": "NEEDS_ENGINEER_REVIEW"',
+        '"status": "COMPLIANT"',
+        "never_compliant or found_requirement",
+    ),
+    _m(
+        6,
+        "the switch is ignored",
+        _P,
+        "    if not settings.procedure_path_enabled or not document_id:\n",
+        "    if not document_id:\n",
+        "switch_is_off",
+    ),
+    _m(
+        7,
+        "every submittal counts as a procedure once the switch is on",
+        _P,
+        "    return document_id in listed or document_kind(document_id) in PROCEDURE_KINDS\n",
+        "    return True\n",
+        "switch_is_off",
+    ),
+    _m(
+        8,
+        "the comparison never asks the procedure path, so nothing is routed",
+        _C,
+        "    if routed := procedure_text.route(requirement, fact):\n",
+        "    if False:\n",
+        "found_requirement",
+    ),
+    _m(
+        9,
+        "a statement that only asks to be stated is looked up in the text",
+        _P,
+        "        and not field_links.asks_only_to_be_stated(text)\n",
+        "",
+        "stated_on_the_datasheet",
+    ),
+    _m(
+        10,
+        "a statement naming a certificate is looked up in the text",
+        _P,
+        "        and evidence in (None, requirements_3b.DATA_SHEET_EVIDENCE)\n",
+        "",
+        "certificate_or_drawing",
+    ),
+    _m(
+        11,
+        "the run never reads the procedure pages",
+        _C,
+        "        with procedure_text.reading(review_run_id):  # #1476\n",
+        "        with procedure_text.using(None):  # #1476\n",
+        "reads_the_procedure_pages",
+    ),
+    _m(
+        12,
+        "the pages stay set after the run, for the next caller",
+        _P,
+        "        _PAGES.reset(token)\n",
+        "        pass\n",
+        "reads_the_procedure_pages",
+    ),
 )

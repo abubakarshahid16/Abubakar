@@ -672,13 +672,11 @@ def _hold_unsure_kind(
 
 def compare(requirement: dict, fact: dict | None, *,
             subject: str | None = None,
-            submittal_facts: list[dict] | None = None,
-            procedure_pages: list[tuple[int, str]] | None = None) -> dict:
+            submittal_facts: list[dict] | None = None) -> dict:
     """`_compare`'s verdict, with a breach on an untrusted value held for an
     engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
     verdict = _hold_low_trust_breach(
-        _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts,
-                 procedure_pages=procedure_pages),
+        _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
         fact)
     box = ai_quote_proved(fact) if fact and not fact.get("confirmed_by") else None
     if box and verdict.get("status") in _VERDICTS_HELD_ON_LOW_TRUST:
@@ -757,8 +755,7 @@ def _compare_nominal(requirement: dict, fact: dict, *, subject: str | None,
 
 def _compare(requirement: dict, fact: dict | None, *,
              subject: str | None = None,
-             submittal_facts: list[dict] | None = None,
-             procedure_pages: list[tuple[int, str]] | None = None) -> dict:
+             submittal_facts: list[dict] | None = None) -> dict:
     """The DETERMINISTIC verdict for one requirement against one fact.
 
     Returns `{status, rationale, limit, observed, exception_applied}`, plus
@@ -800,8 +797,7 @@ def _compare(requirement: dict, fact: dict | None, *,
     # `DATA_SHEET_EVIDENCE` names what is compared; any other named document
     # routes to `NOT_IN_DOCUMENT_SCOPE`, as B9 routes an unmatched `statement`.
     # #1476: a procedure's own text answers its own requirements (an engineer decides).
-    routed = procedure_text.route(requirement, fact, procedure_pages)
-    if routed:
+    if routed := procedure_text.route(requirement, fact):
         return routed
     required_evidence = requirement.get("required_evidence_type")
     if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:
@@ -2299,10 +2295,11 @@ def run_comparison(
     standards' clause text - those documents and no others."""
     from . import claude_approved
     with claude_approved.carrying(claude_approved.review_documents(review_run_id)):
-        return _run_comparison(
-            review_run_id, allowed_document_ids=allowed_document_ids, subject=subject,
-            reference_coverage=reference_coverage, model_opinions=model_opinions,
-            replace=replace, missing_references=missing_references)
+        with procedure_text.reading(review_run_id):  # #1476
+            return _run_comparison(
+                review_run_id, allowed_document_ids=allowed_document_ids, subject=subject,
+                reference_coverage=reference_coverage, model_opinions=model_opinions,
+                replace=replace, missing_references=missing_references)
 
 
 def _run_comparison(
@@ -2397,10 +2394,10 @@ def _run_comparison(
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
     facts, purchaser_facts = required_values.split(facts)
-    procedure_pages = (procedure_text.load_pages(submittal_id)
-                       if procedure_text.is_procedure_submittal(submittal_id) else None)
     # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
-    # ANSWERS IT; the rest are counted in the run's outcome. See `table_gate`.
+    # ANSWERS IT. The rest are counted, one grouped line per standard, in the
+    # run's outcome; a definition or unconfirmed garbled text is never a check.
+    # See `table_gate`.
     from . import table_gate
     names = standard_labels_mod.filenames(standard_ids)
     # #139 A CODE CITED FOR ONE ITEM applies through the cited clauses only;
@@ -2719,7 +2716,7 @@ def _run_comparison(
             # those are different rows from the one being compared.
             verdict = (_hold_low_trust_breach(rule_verdict, fact) if rule_verdict
                        else compare(requirement, fact, subject=subject,
-                                    submittal_facts=facts, procedure_pages=procedure_pages))
+                                    submittal_facts=facts))
             if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
                 verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
             # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in

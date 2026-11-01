@@ -20,7 +20,9 @@ SWITCH: `settings.procedure_path_enabled`, OFF by default.
 
 from __future__ import annotations
 
+import contextvars
 import re
+from contextlib import contextmanager
 
 from . import field_links, requirements_3b
 from .config import settings
@@ -39,7 +41,8 @@ _STOP_TEXT = (
     "the and for with that this these those from into onto upon than then them they their there "
     "such any all each every other which where when while whose also only not nor but are its "
     "per via use used using ensure ensured provide provided make made need needed required "
-    "requirement requirements accordance applicable")
+    "requirement requirements accordance applicable"
+)
 _STOP = frozenset(_STOP_TEXT.split())
 _WORD = re.compile(r"[a-z][a-z0-9\-]{3,}")
 _SENTENCE_END = re.compile(r"(?<=[.;:!?])\s+|\n+")
@@ -58,7 +61,8 @@ def _stem(word: str) -> str:
 
 def key_words(text: str | None) -> frozenset[str]:
     return frozenset(
-        _stem(w) for w in _WORD.findall((text or "").lower()) if w not in _STOP)
+        _stem(w) for w in _WORD.findall((text or "").lower()) if w not in _STOP
+    )
 
 
 def document_kind(document_id: str) -> str | None:
@@ -69,7 +73,8 @@ def document_kind(document_id: str) -> str | None:
         return None
     row = conn.execute(
         "SELECT document_kind FROM document_classification WHERE document_id = ?",
-        (document_id,)).fetchone()
+        (document_id,),
+    ).fetchone()
     return ((row[0] or "").lower() or None) if row else None
 
 
@@ -80,17 +85,25 @@ def is_procedure_submittal(document_id: str | None) -> bool:
     (`procedure_path_document_ids`) says so. NEVER guessed from the text."""
     if not settings.procedure_path_enabled or not document_id:
         return False
-    listed = {x.strip() for x in settings.procedure_path_document_ids.split(",") if x.strip()}
+    listed = {
+        x.strip() for x in settings.procedure_path_document_ids.split(",") if x.strip()
+    }
     return document_id in listed or document_kind(document_id) in PROCEDURE_KINDS
 
 
 def load_pages(document_id: str) -> list[tuple[int, str]]:
-    return [(r["page_no"], r["text"] or "") for r in connect().execute(
-        "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
-        (document_id,))]
+    return [
+        (r["page_no"], r["text"] or "")
+        for r in connect().execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        )
+    ]
 
 
-def find_passage(requirement_text: str | None, pages: list[tuple[int, str]]) -> dict | None:
+def find_passage(
+    requirement_text: str | None, pages: list[tuple[int, str]]
+) -> dict | None:
     """The best passage of `pages` for the requirement, or None.
 
     {page, quote}: `quote` is a slice of that page's stored text (verified)."""
@@ -103,7 +116,11 @@ def find_passage(requirement_text: str | None, pages: list[tuple[int, str]]) -> 
         for part in _SENTENCE_END.split(text):
             hit = len(wanted & key_words(part))
             share = hit / len(wanted)
-            if hit >= need and share >= MIN_SHARE and (best is None or (share, hit) > best[:2]):
+            if (
+                hit >= need
+                and share >= MIN_SHARE
+                and (best is None or (share, hit) > best[:2])
+            ):
                 best = (share, hit, page_no, part.strip()[:MAX_QUOTE])
     if best is None:
         return None
@@ -113,13 +130,47 @@ def find_passage(requirement_text: str | None, pages: list[tuple[int, str]]) -> 
     return {"page": page_no, "quote": quote}
 
 
-def route(requirement: dict, fact: dict | None, pages: list[tuple[int, str]] | None) -> dict | None:
+#: The pages of the procedure under review, set only for the length of one
+#: `run_comparison` (`reading`). None = not a procedure review: nothing is routed,
+#: so every other caller of `comparison.compare` (rules, chat) is unchanged.
+_PAGES: contextvars.ContextVar[list[tuple[int, str]] | None] = contextvars.ContextVar(
+    "procedure_pages", default=None
+)
+
+
+@contextmanager
+def using(pages: list[tuple[int, str]] | None):
+    token = _PAGES.set(pages)
+    try:
+        yield
+    finally:
+        _PAGES.reset(token)
+
+
+@contextmanager
+def reading(review_run_id: str):
+    """Pages of the run's submittal when it is a procedure (switch on), else None."""
+    row = (
+        connect()
+        .execute(
+            "SELECT submittal_document_id FROM review_runs WHERE id = ?",
+            (review_run_id,),
+        )
+        .fetchone()
+    )
+    doc = row[0] if row else None
+    with using(load_pages(doc) if is_procedure_submittal(doc) else None):
+        yield
+
+
+def route(requirement: dict, fact: dict | None) -> dict | None:
     """The procedure path's verdict for a requirement, or None (the usual path).
 
     Two cases that used to be sent to "needs another document": a demand for a
     procedure/plan (a procedure is its own evidence), and an unmatched statement
     (B9 R1) except one that only asks to be stated. A certificate, drawing or
     report demand is never routed here (#163)."""
+    pages = _PAGES.get()
     if pages is None:
         return None
     evidence = requirement.get("required_evidence_type")
@@ -140,10 +191,20 @@ def verdict(requirement: dict, pages: list[tuple[int, str]]) -> dict:
     found = find_passage(text, pages)
     base = {"limit": None, "observed": None, "exception_applied": None}
     if found is None:
-        return {**base, "status": "MISSING_INFORMATION", "rationale": (
-            f"{NOT_FOUND}: no passage of this procedure was found for the requirement; "
-            f"contractor to show where it is addressed")}
+        return {
+            **base,
+            "status": "MISSING_INFORMATION",
+            "rationale": (
+                f"{NOT_FOUND}: no passage of this procedure was found for the requirement; "
+                f"contractor to show where it is addressed"
+            ),
+        }
     quote = " ".join(found["quote"].split())
-    return {**base, "status": "NEEDS_ENGINEER_REVIEW", "rationale": (
-        f"{FOUND}: found on page {found['page']}: \"{quote}\" - this is the closest passage by its "
-        f"words, not a finding that the requirement is met; engineer to confirm")}
+    return {
+        **base,
+        "status": "NEEDS_ENGINEER_REVIEW",
+        "rationale": (
+            f'{FOUND}: found on page {found["page"]}: "{quote}" - this is the closest passage by its '
+            f"words, not a finding that the requirement is met; engineer to confirm"
+        ),
+    }

@@ -745,8 +745,8 @@ class Settings(BaseSettings):
     #: still at the OCR fallback's low confidence and engineer-review state.
     #: Trade-off: a CRS template workbook is then indexed too. OFF. Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
-    procedure_path_enabled: bool = False  # #1476: a procedure is checked against its own text; OFF
-    procedure_path_document_ids: str = ""  # #1476: ids treated as procedures until #1474's column
+    procedure_path_enabled: bool = False  # #1476: a procedure is checked against its own text
+    procedure_path_document_ids: str = ""  # #1476: ids treated as procedures until #1474
     #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
     #: is accepted and indexed through the SAME pipeline as a PDF (pages,
     #: chunks, search, citations, requirements, reviews), read by
