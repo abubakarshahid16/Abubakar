@@ -70,7 +70,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1514,
         description="a plain number with no % label is held as a fraction too",
         path=_P,
-        anchor="    number = claims.parse_value(str(fact.get(\"raw_value\")))\n",
+        anchor='    number = claims.parse_value(str(fact.get("raw_value")))\n',
         replacement="    number = 0.5\n",
         target=_T,
         keyword="unambiguous_values_decide_the_same",
