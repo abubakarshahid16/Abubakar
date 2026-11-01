@@ -48,7 +48,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="not in (NOT_APPLICABLE,)\n",
              target=_T, keyword="never_written", tags=("calc", "honesty")),
     Mutation(id="M798-12", phase=798, description="a calculation counts as a field in the reader-coverage line",
-             path=_C, anchor='if r.get("checklist") and not r.get("calc")]',
+             path=APP / "datasheet_coverage.py", anchor='if r.get("checklist") and not r.get("calc")]',
              replacement='if r.get("checklist")]',
              target=_T, keyword="never_written", tags=("calc",)),
     Mutation(id="M798-13", phase=798, description="a back pressure stated as a percentage is not compared as one",
