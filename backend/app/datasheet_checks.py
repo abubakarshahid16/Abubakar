@@ -34,8 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, severity_rule
-from .config import settings
+from . import absence, blank_markers, claims, datasheet_roles, deferred_value, severity_rule
 from .checklist_scope import governs, standards
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
@@ -346,13 +345,6 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                        "pressure basis"),
                                    left[0], rule["left"], tag))
                 continue
-            if settings.deferred_value_is_query_enabled and (
-                    blank_markers.deferred_note(left[0]) or blank_markers.deferred_note(right[0])):
-                out.append(_result(rule["id"], NEEDS_ENGINEER_REVIEW, rule["text"],
-                                   _sentence("a field in this pair is marked by the sheet as deferred "
-                                             "(By Contractor, TBA), so the pair was not judged"),
-                                   left[0], rule["left"], tag))
-                continue
             ok = _OPS[rule["op"]](a[0], b[0])
             calc = (f"{_label(left[0], rule['left'])} {_said(left[0])} (page {left[0].get('page')}) is "
                     f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {_label(right[0], rule['right']).lower()} "
@@ -383,7 +375,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                            ("A revision block was found." if has_block else
                             "No revision block was found on the datasheet pages read."),
                            None, "revision_block", None))
-    return out
+    return deferred_value.hold_results(out, facts, rules, wanted)
 
 
 # ---------------------------------------------------------------- #746 checklist
@@ -737,12 +729,6 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)
     noted = f" The sheet marks this value '{fact['value_note']}'." if fact.get("value_note") else ""
     where = f"{_label(fact, field)} {_said(fact)} (page {fact.get('page')})"
-    if settings.deferred_value_is_query_enabled and (deferred := blank_markers.deferred_note(fact)):
-        # #1475, owner decision D2: "By Contractor" / "TBA" beside a figure is a deferred value, a query,
-        # never a pass or a fail.
-        return res(NEEDS_ENGINEER_REVIEW, _sentence(
-            f"{_label(fact, field).lower()} {_said(fact)} (page {fact.get('page')}) is marked "
-            f"'{deferred}' on the sheet, so the value is deferred and was not judged; engineer to confirm"), fact)
     if kind == "required":
         return res(COMPLIANT, f"{where} is stated.{noted}", fact)
     if kind == "allowed":
@@ -801,10 +787,6 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                      else "is stated twice with different values")
             return res(NEEDS_ENGINEER_REVIEW, _sentence(
                 f"the {_pretty(rule['right']).lower()} it is checked against {state}"), fact)
-        if settings.deferred_value_is_query_enabled and (deferred := blank_markers.deferred_note(other)):
-            return res(NEEDS_ENGINEER_REVIEW, _sentence(
-                f"the {_pretty(rule['right']).lower()} it is checked against is marked '{deferred}' on the "
-                "sheet, so the value is deferred and was not judged"), fact)
         right = _scale(_measure(other))
         if kind == "percent_of":
             factor = float(rule["percent"]) / 100.0

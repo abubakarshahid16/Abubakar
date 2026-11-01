@@ -450,21 +450,15 @@ class Settings(BaseSettings):
     #: type) has been PROVEN on an answer key of at least `rule_proof_min_cases` cases with no error (rule
     #: of three: 0 errors in 300 bounds the error rate at 1% with 95% confidence), and the rule passes
     #: code's second check. OFF by default: the owner switches it on after the first family is proven.
-    #: A share `rule_audit_rate` (clamped to 2-5%, at least one) of the automatic findings is drawn
-    #: for an engineer's spot-check; one audit error drops the family back to unproven. The safety
-    #: field list and the condition words live in reference data, not in code.
+    #: A share `rule_audit_rate` (clamped 2-5%, at least one) of automatic findings is drawn for an engineer's
+    #: spot-check; one audit error drops the family to unproven. Safety fields and condition words: reference data.
     rule_auto_use_enabled: bool = False
     #: Order 288.2: a recommendation of a standard the datasheet names is raised as a query (OFF: ignored).
     recommendation_queries_enabled: bool = False
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     tested_cards_decide_enabled: bool = False  # order 306.1
-    #: #1475 / owner decision D2: a value the sheet prints beside "By Contractor" / "TBA" / "to be advised"
-    #: (a figure with a note, #725 F3) is a deferred value, never COMPLIANT and never NON_COMPLIANT: it becomes
-    #: a question for the engineer (NEEDS_ENGINEER_REVIEW) in the datasheet checklist and in the standards
-    #: comparison. OFF by default: the owner switches it on after the bench shows 0 wrong verdicts.
-    #: Env: DEFERRED_VALUE_IS_QUERY_ENABLED.
-    deferred_value_is_query_enabled: bool = False
+    deferred_value_is_query_enabled: bool = False  # #1475 D2: By Contractor/TBA value is a query (off)
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md

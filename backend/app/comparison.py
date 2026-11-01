@@ -52,9 +52,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
+from . import (absence, claims, closing_noun, conditions, datasheets, deferred_value, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import blank_markers
 from .config import settings
 from .db import connect
 from .provenance import ai_quote_proved
@@ -111,8 +110,6 @@ NAMED_VALUE = "named_value"
 #: condition was established as NOT holding by a datasheet fact (B24 and the
 #: condition reader in `conditions`). Read by `crs_mapping` as a literal.
 CONDITION_NOT_MET = "condition_not_met"
-#: #1475 (D2): the sheet prints "By Contractor" / "TBA" beside the value, so it is deferred.
-DEFERRED_VALUE = "deferred_value"
 
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
@@ -677,9 +674,9 @@ def compare(requirement: dict, fact: dict | None, *,
             submittal_facts: list[dict] | None = None) -> dict:
     """`_compare`'s verdict, with a breach on an untrusted value held for an
     engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
-    verdict = _hold_low_trust_breach(
+    verdict = deferred_value.hold(_hold_low_trust_breach(
         _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
-        fact)
+        fact), fact)
     box = ai_quote_proved(fact) if fact and not fact.get("confirmed_by") else None
     if box and verdict.get("status") in _VERDICTS_HELD_ON_LOW_TRUST:
         # THE TRACE SAYS THE SOURCE: an AI-read value decided this verdict.
@@ -1163,18 +1160,6 @@ def _compare(requirement: dict, fact: dict | None, *,
         }
 
     status = COMPLIANT if verdict else NON_COMPLIANT
-    if settings.deferred_value_is_query_enabled and (deferred := blank_markers.deferred_note(fact)):
-        # #1475, owner decision D2: a value the sheet marks "By Contractor" / "TBA" is deferred. The numbers
-        # are shown, the status is the engineer's, never COMPLIANT and never NON_COMPLIANT.
-        return {
-            "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": (
-                f"{DEFERRED_VALUE}: the datasheet marks this value {deferred!r}, so it is deferred and not "
-                f"judged by code. The numbers read {status}; an engineer decides"),
-            "limit": _describe(limit, governing),
-            "observed": _describe(observed, fact),
-            "exception_applied": exception, **_cond,
-        }
     within = "within" if verdict else "outside"
     note = f"; {crossed.note}" if crossed is not None and crossed.note else ""
     if exception is not None:
