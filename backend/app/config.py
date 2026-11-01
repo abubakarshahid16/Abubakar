@@ -1090,6 +1090,12 @@ class Settings(BaseSettings):
     # guard inside strip_running_lines keeps a wider window safe.
     running_line_scan_lines: int = 5
 
+    # #1474: decide a document's KIND (datasheet, procedure, specification,
+    # contract, ...) from its title block and cover, and stop the body-text
+    # equipment fallback for documents that are not datasheets. No model call.
+    # OFF by default; off, nothing is stored and nothing changes.
+    document_kind_enabled: bool = False
+
     # Content-quality gate. A chunk failing these does not read like natural
     # language and is stored but not retrievable. Tuned against known-good
     # book1 prose and known-bad book2 symbol-font tables.

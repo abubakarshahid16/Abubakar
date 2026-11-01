@@ -142,6 +142,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
 | `doc_router` | The document-type router (W5b-02, #526) |
+| `document_kind` | The kind of a document (datasheet, procedure, specification, contract...) from its title block and cover (#1474) |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
