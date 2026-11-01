@@ -28,7 +28,9 @@ from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
 
 @pytest.fixture
 def audit_dir(tmp_path_factory, monkeypatch):
-    out = tmp_path_factory.mktemp("proof_out")  # a sibling of the data folder, not inside it
+    out = tmp_path_factory.mktemp(
+        "proof_out"
+    )  # a sibling of the data folder, not inside it
     monkeypatch.setattr(settings, "review_audit_dir", str(out))
     return out.resolve()
 
