@@ -118,6 +118,20 @@ def _fold(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+#: a contents-page line ("Scope ........ 6"): a heading's address, not the clause itself
+_LEADER = re.compile(r"\.{4,}")
+
+
+def _has(word: str, folded: str) -> bool:
+    """One word of a term group: `re:<pattern>` is a regex, a word of three letters or fewer
+    (rt, ut) must stand alone, any other is a substring."""
+    if word.startswith("re:"):
+        return re.search(word[3:], folded) is not None
+    if len(word) <= 3 and word.isalnum():
+        return re.search(rf"\b{re.escape(word)}\b", folded) is not None
+    return word in folded
+
+
 def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
     """{page, quote} of the first passage holding every word of one of the item's word
     groups, or None. The quote is cut from the stored page text and checked to be in it."""
@@ -125,8 +139,12 @@ def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
     for page_no, text in pages:
         for part in procedure_text._SENTENCE_END.split(text):
             folded = _fold(part)
-            if not folded or not any(
-                all(word in folded for word in group) for group in item["terms"]
+            if (
+                not folded
+                or _LEADER.search(part)
+                or not any(
+                    all(_has(word, folded) for word in group) for group in item["terms"]
+                )
             ):
                 continue
             quote = " ".join(part.split())[:MAX_QUOTE]
