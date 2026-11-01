@@ -655,7 +655,10 @@ def classify_equipment_type_for_submittal(
          function's to override, the same principle `write_suggestion` already
          applies to `doc_type`/`discipline`.
       3. No pattern matched. Returns None; the stored value, including NULL,
-         is left exactly as it was.
+         is left exactly as it was - except with
+         `equipment_from_title_block_enabled` on, where a title block naming
+         no type (or two) overwrites it with NULL marked "engineer to confirm"
+         (`equipment_title_block.store_to_confirm`, the old value audited).
 
     RECLASSIFICATION IS VERSIONED. When the new evidence's `equipment_type`
     differs from a PREVIOUSLY STORED VALUE (not from NULL - a first

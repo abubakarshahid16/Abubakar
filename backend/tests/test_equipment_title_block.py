@@ -8,7 +8,13 @@ import json
 
 import pytest
 
-from app import classification, db, equipment_title_block, submittal_fill
+from app import (
+    classification,
+    db,
+    equipment_title_block,
+    form_reader_run,
+    submittal_fill,
+)
 from app.config import settings
 
 
@@ -94,16 +100,87 @@ def on(monkeypatch):
     monkeypatch.setattr(settings, "equipment_from_title_block_enabled", True)
 
 
-def test_the_title_block_names_a_pump_and_a_motor_panel_in_the_body_is_ignored(on):
+@pytest.mark.parametrize("switch", [True, False])
+def test_the_title_block_names_a_pump_and_a_motor_panel_in_the_body_is_ignored(
+    monkeypatch, switch
+):
+    """The pump comes from the title block in both modes; the same sheet without the
+    pump title line becomes a Motor from its panel only with the switch off."""
+    monkeypatch.setattr(settings, "equipment_from_title_block_enabled", switch)
     _doc(
         "d1",
         _page(
             ["ACME PROJECT", "CENTRIFUGAL PUMP DATA SHEET", "Doc 1", "Rev 0", "Tag P-1"]
         ),
     )
+    _doc("d2", _page(["ACME PROJECT", "Doc 1", "Rev 0", "Tag P-1", "Sheet 1"]))
     row = _run("d1")
     assert row["equipment_type"] == "Centrifugal Pump"
     assert json.loads(row["equipment_type_evidence"])["method"] == "title_phrase_match"
+    assert _run("d2")["equipment_type"] == (None if switch else "Motor")
+
+
+def test_a_reference_line_citing_a_motor_specification_is_not_a_second_type(on):
+    _doc(
+        "d1",
+        _page(
+            [
+                "CENTRIFUGAL PUMP DATA SHEET",
+                "Ref. specification: Electric Motors",
+                "Doc 1",
+                "Rev 0",
+                "Tag P-1",
+            ]
+        ),
+    )
+    assert _run("d1")["equipment_type"] == "Centrifugal Pump"
+
+
+@pytest.mark.parametrize("switch", [True, False])
+def test_the_form_reader_takes_no_type_from_the_body_with_the_switch_on(
+    monkeypatch, switch
+):
+    """A NULL type (engineer to confirm) stays None for the form reader: a body
+    panel naming equipment never picks that type's field list."""
+    monkeypatch.setattr(settings, "equipment_from_title_block_enabled", switch)
+    text = _page(
+        ["ACME PROJECT", "TECHNICAL DATA", "Doc 1", "Rev 0", "Tag X-1"],
+        panel="CENTRIFUGAL PUMP DATA",
+    )
+    _doc("d1", text)
+    chunks = [{"page_start": 1, "ordinal": 1, "text": text}]
+    got = form_reader_run.equipment_type_of("d1", chunks)
+    assert got == (None if switch else "Centrifugal Pump")
+
+
+def test_the_engineer_to_confirm_note_reaches_the_crs(on, monkeypatch):
+    """Through the CRS route (`main._crs_content`), not the helper alone."""
+    from app import access, submittal_review
+    from tests.test_crs_endpoint import _client, _submittal
+    from tests.test_crs_endpoint import _run as _review_run
+
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    submittal_review.ensure_schema()
+    doc = _submittal("d1")
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO document_classification (document_id, suggested_by,"
+            " document_role) VALUES (?,?,?)",
+            (doc, "t", "CONTRACTOR_SUBMITTAL"),
+        )
+    equipment_title_block.store_to_confirm(
+        doc, equipment_title_block.TitleReading(None, "none", [])
+    )
+    run_id = _review_run(doc)
+    try:
+        view = _client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview").json()
+    finally:
+        from app.main import app
+
+        app.dependency_overrides.clear()
+    notes = [n["note"] for n in view["review_notes"]]
+    assert equipment_title_block.NOTE in notes
 
 
 def test_no_equipment_in_the_title_block_is_engineer_to_confirm_never_motor(on):

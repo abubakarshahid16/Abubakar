@@ -25,6 +25,19 @@ METHOD = "engineer_to_confirm"
 _SHEET_WORDS = re.compile(
     r"data[\s\-]*sheet|specification|^\s*(?:document\s+)?title\s*:", re.I
 )
+#: A line that CITES another document ("Ref. specification: Electric Motors", "Applicable
+#: specification: ...", "Refer to ...", "In accordance with ..."): it names that document's
+#: subject, never a second type of this sheet.
+_CITATION = re.compile(
+    r"^\s*(?:ref(?:erence)?s?\b|refer\b|see\b|(?:as\s+)?per\b|in\s+accordance\b"
+    r"|according\s+to\b|applicable\b)|\bspecifications?\s*(?:no\.?|number)?\s*:",
+    re.I,
+)
+
+
+def _sheet_line(line: str) -> bool:
+    """A title line that may name a second type of THIS sheet."""
+    return bool(_SHEET_WORDS.search(line)) and not _CITATION.search(line)
 
 
 @dataclass
@@ -95,7 +108,7 @@ def read_title_block(pages) -> TitleReading:
     lines = classification.title_block_lines(pages)
     evidence = classification.suggest_equipment_type_from_title(lines)
     if evidence is None:
-        sheet = [(p, ln) for p, ln in lines if _SHEET_WORDS.search(ln)]
+        sheet = [(p, ln) for p, ln in lines if _sheet_line(ln)]
         named = _vocabulary_types(lines) or _other_types_in(sheet, "")
         if len(named) > 1:
             return TitleReading(None, "ambiguous", [n.title() for n in named])
@@ -106,7 +119,7 @@ def read_title_block(pages) -> TitleReading:
     titled = [
         (p, ln)
         for p, ln in lines
-        if quote in " ".join(ln.lower().split()) or _SHEET_WORDS.search(ln)
+        if quote in " ".join(ln.lower().split()) or _sheet_line(ln)
     ]
     others = _other_types_in(titled, evidence.equipment_type)
     if others:
