@@ -125,3 +125,24 @@ def test_a_percent_print_never_passes_as_a_bare_number(monkeypatch):
         assert r["status"] == "NEEDS_ENGINEER_REVIEW"
     r = results([*base, *[fact("built up back pressure", "70", "%")]])["PSV-29"]
     assert r["status"] == "NON_COMPLIANT"  # 70 % > 10 %
+
+
+@pytest.mark.parametrize("on,status", [(False, "NON_COMPLIANT"), (True, "COMPLIANT")])
+def test_the_pair_consistency_rules_use_the_same_comparison(monkeypatch, on, status):
+    """DS-C1 (design pressure at least the operating pressure): two figures that are the
+    same pressure to float noise are equal."""
+    from tests.test_datasheet_checks import full_vessel
+    from tests.test_datasheet_checks import run as run_checks
+
+    monkeypatch.setattr(settings, "at_limit_precision_enabled", on)
+    real = dc._number
+    noise = {"design pressure": 1154.9999999999998, "operating pressure": 1155.0}
+
+    def fake(f):
+        got = real(f)
+        if got is not None and f.get("field_name") in noise:
+            return (noise[f["field_name"]], got[1], got[2])
+        return got
+
+    monkeypatch.setattr(dc, "_number", fake)
+    assert run_checks(full_vessel())["DS-C1"]["status"] == status

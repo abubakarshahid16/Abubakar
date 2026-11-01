@@ -65,4 +65,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="today_a_value_at_the_limit",
         tags=_TAGS,
     ),
+    Mutation(
+        id="M1511-06",
+        phase=1511,
+        description="the pair consistency rules compare plain floats again",
+        path=_M,
+        anchor='            ok = _hold(rule["op"], a[0], b[0])\n',
+        replacement='            ok = _OPS[rule["op"]](a[0], b[0])\n',
+        target=_T,
+        keyword="pair_consistency",
+        tags=_TAGS,
+    ),
 )

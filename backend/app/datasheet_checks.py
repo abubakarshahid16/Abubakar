@@ -352,7 +352,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                        "pressure basis"),
                                    left[0], rule["left"], tag))
                 continue
-            ok = _OPS[rule["op"]](a[0], b[0])
+            ok = _hold(rule["op"], a[0], b[0])
             calc = (f"{_label(left[0], rule['left'])} {_said(left[0])} (page {left[0].get('page')}) is "
                     f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {_label(right[0], rule['right']).lower()} "
                     f"{_said(right[0])} (page {right[0].get('page')}).")
