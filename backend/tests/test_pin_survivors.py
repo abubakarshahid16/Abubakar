@@ -5,8 +5,12 @@ from __future__ import annotations
 
 from app import clause_review, procedure_text
 
-REQ = {"source_text": "The hazop chair shall be independent of the design team members."}
-PAGES = [(3, "Roles. The chair is appointed by the Safety Department. A scribe records.")]
+REQ = {
+    "source_text": "The hazop chair shall be independent of the design team members."
+}
+PAGES = [
+    (3, "Roles. The chair is appointed by the Safety Department. A scribe records.")
+]
 
 
 def test_verdict_refuses_quote_not_on_stated_page(monkeypatch):
@@ -14,7 +18,10 @@ def test_verdict_refuses_quote_not_on_stated_page(monkeypatch):
     monkeypatch.setattr(
         procedure_text,
         "find_passage",
-        lambda text, pages: {"page": 3, "quote": "The chair is wholly independent of design."},
+        lambda text, pages: {
+            "page": 3,
+            "quote": "The chair is wholly independent of design.",
+        },
     )
     row = procedure_text.verdict(REQ, PAGES)
     assert row["status"] == "NEEDS_ENGINEER_REVIEW"
@@ -36,9 +43,7 @@ def test_verdict_accepts_quote_on_page(monkeypatch):
     assert row["rationale"].startswith(procedure_text.FOUND)
 
 
-PAGE = (
-    "The HAZOP chair is appointed by the Safety Department and has not worked on the design."
-)
+PAGE = "The HAZOP chair is appointed by the Safety Department and has not worked on the design."
 
 
 def test_verify_quote_refuses_ellipsis():
@@ -55,7 +60,9 @@ def test_verify_quote_accepts_verbatim_five_words():
 
 
 def test_verify_quote_refuses_ellipsis_even_if_substring_would_match():
-    page = "The HAZOP chair is appointed by the Safety Department ... and has not worked."
+    page = (
+        "The HAZOP chair is appointed by the Safety Department ... and has not worked."
+    )
     assert not clause_review.verify_quote(
         "The HAZOP chair is appointed by the Safety Department ...", page
     )
