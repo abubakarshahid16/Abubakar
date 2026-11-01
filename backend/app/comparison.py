@@ -2425,7 +2425,8 @@ def _run_comparison(
     # THE SHEET'S KIND, ONCE PER RUN. The classification's word when an
     # engineer or the classifier gave one; the field names otherwise.
     from . import classification as classification_mod
-    stored, kind_note = kind_rules.for_run(submittal_id, classification_mod.of_document(submittal_id))
+    stored = classification_mod.of_document(submittal_id) or {}
+    stored, kn = kind_rules.for_run(submittal_id, stored)
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
     trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
@@ -2975,7 +2976,7 @@ def _run_comparison(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    check_results = kind_rules.gate(kind_note, checklist_scope.evaluate, facts, stored, page_texts)
+    check_results = kind_rules.gate(kn, checklist_scope, facts, stored, page_texts)
     # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
     # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
@@ -3012,9 +3013,7 @@ def _run_comparison(
     )
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
-    split = {**split, **kind_rules.split_part(kind_note)}
-    if checklist_note:
-        split = {**split, "checklist": checklist_note}
+    split = {**split, **kind_rules.split_part(kn, checklist_note)}
     if cited_scope["summary"]:  # #139: standards cited only for named clauses
         split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:
@@ -3047,7 +3046,7 @@ def _run_comparison(
                        unchecked_standards=unchecked_standards,
                        requirements_not_applied=requirements_not_applied,
                        applicability=applicability_summary,
-                       datasheet_check_not_run=kind_rules.checklist_note(kind_note) or datasheet_check_not_run,
+                       datasheet_check_not_run=kind_rules.not_run(kn, datasheet_check_not_run),
                        ai_matcher=ai_matcher,
                        unchecked_counts=unchecked_counts,
                        requirement_split=split,

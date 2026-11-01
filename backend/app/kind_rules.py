@@ -78,14 +78,17 @@ def standards_exclusion(document_id: str | None) -> str | None:
     return None if b is None else f"chosen for an equipment type; {b['reason']}"
 
 
-def checklist_note(note: dict | None) -> str | None:
+def not_run(note: dict | None, other: str | None) -> str | None:
     """The plain-words reason the checklist was not applied, from a run note."""
-    return note["checklist"] if note and note["blocked"] else None
+    return note["checklist"] if note and note["blocked"] else other
 
 
-def split_part(note: dict | None) -> dict:
+def split_part(note: dict | None, checklist: dict | None = None) -> dict:
     """What the run stores of the note, in `requirement_split`."""
-    return {"kind_rules": note} if note else {}
+    return {
+        **({"checklist": checklist} if checklist else {}),
+        **({"kind_rules": note} if note else {}),
+    }
 
 
 def for_run(document_id: str, classification: dict | None) -> tuple[dict, dict | None]:
@@ -116,18 +119,20 @@ def for_run(document_id: str, classification: dict | None) -> tuple[dict, dict |
     }
 
 
-def reading_for(document_id: str, reading: tuple) -> tuple:
+def reading_for(document_id: str, equipment: set, source, doubt, facts) -> tuple:
     """`applicability._equipment_reading`'s answer; a non-datasheet kind reads
     no equipment (so no governing standard, no required-by-type, no by-type)."""
-    return (set(), None, None, reading[3]) if blocked(document_id) else reading
+    if blocked(document_id):
+        return set(), None, None, facts
+    return equipment, source, doubt, facts
 
 
-def gate(note: dict | None, evaluate, *args) -> list:
+def gate(note: dict | None, scope, *args) -> list:
     """The datasheet checks of a run: none for a non-datasheet kind."""
-    return [] if note and note["blocked"] else evaluate(*args)
+    return [] if note and note["blocked"] else scope.evaluate(*args)
 
 
-def profile_part(document_id: str, library: list[dict], allowed) -> tuple[dict, tuple]:
+def profile(document_id: str, library: list[dict], allowed) -> tuple[dict, tuple]:
     """`(profile, part)` for `applicability.select`. A non-datasheet kind: the
     profile carries no equipment type, and `part` keeps the standards the type
     WOULD have chosen, each with the reason. Unknown kind: unchanged, marked."""
