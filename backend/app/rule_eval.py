@@ -189,14 +189,29 @@ def evaluate(rule: dict, input_value: float, input_unit: str,
 # ---------------------------------------------------------------- parsing
 
 _NUM = r"(\d[\d,]*(?:\.\d+)?)"
+#: `_NUM` also reading a leading-dot number (".5") when LEADING_DOT_DECIMAL_ENABLED
+#: is on (#1518); a stranded dot (".5.3") matches neither alternative.
+_NUM_LEAD = r"(\.\d+(?![.,]?\d)|\d[\d,]*(?:\.\d+)?)"
 _UNIT = r"([a-zA-Z°]+[a-zA-Z0-9/°]*)"
-_BOUND = re.compile(
-    r"^(?:(?:up\s*to|<=|≤|not\s+exceeding)\s*" + _NUM + r"\s*" + _UNIT + r"?"
-    r"|(?:over|above|>|exceeding)\s*" + _NUM + r"\s*" + _UNIT + r"?"
-    r"(?:\s*(?:up\s*to|to|and\s+up\s+to|-|–|and\s+not\s+exceeding)\s*" + _NUM + r"\s*" + _UNIT + r"?)?)",
-    re.IGNORECASE)
-_TERM = re.compile(r"(?:" + _NUM + r"\s*(?:x|×|\*|times)\s*)?(?P<sym>[A-Za-z][A-Za-z .]{0,40}?)"
-                   r"\s*(?:\+\s*" + _NUM + r"\s*" + _UNIT + r"?)?\s*$", re.IGNORECASE)
+
+
+def _bound_pattern(num: str) -> re.Pattern:
+    return re.compile(
+        r"^(?:(?:up\s*to|<=|≤|not\s+exceeding)\s*" + num + r"\s*" + _UNIT + r"?"
+        r"|(?:over|above|>|exceeding)\s*" + num + r"\s*" + _UNIT + r"?"
+        r"(?:\s*(?:up\s*to|to|and\s+up\s+to|-|–|and\s+not\s+exceeding)\s*" + num + r"\s*" + _UNIT + r"?)?)",
+        re.IGNORECASE)
+
+
+def _term_pattern(num: str) -> re.Pattern:
+    return re.compile(r"(?:" + num + r"\s*(?:x|×|\*|times)\s*)?(?P<sym>[A-Za-z][A-Za-z .]{0,40}?)"
+                      r"\s*(?:\+\s*" + num + r"\s*" + _UNIT + r"?)?\s*$", re.IGNORECASE)
+
+
+_BOUND = _bound_pattern(_NUM)
+_TERM = _term_pattern(_NUM)
+_BOUND_LEAD = _bound_pattern(_NUM_LEAD)
+_TERM_LEAD = _term_pattern(_NUM_LEAD)
 
 
 def _n(text: str) -> float:
@@ -224,7 +239,7 @@ def _parse_expr(expr: str, symbols: list[str]) -> dict | None:
         return None
     terms = []
     for part in parts:
-        m = _TERM.match(part.strip())
+        m = (_TERM_LEAD if numparse.leading_dot_enabled() else _TERM).match(part.strip())
         if not m:
             return None
         sym = " ".join(m.group("sym").split()).lower()
@@ -255,7 +270,7 @@ def _parse_rule(text: str, *, output: str, input_names: list[str], comparator: s
         line = " ".join(line.split())
         if not line:
             continue
-        m = _BOUND.match(line)
+        m = (_BOUND_LEAD if numparse.leading_dot_enabled() else _BOUND).match(line)
         if not m:
             continue
         rest = line[m.end():].lstrip(" |:-–")

@@ -95,6 +95,13 @@ _NUMBERED_LABEL = re.compile(r"^\s*(?P<no>\d{1,3})\s*[|.\)]?\s*(?P<rest>\S.*)$")
 _VALUE_UNIT = re.compile(
     r"^(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?"
 )
+#: The same, also reading a leading-dot value (".5 mm", "-.5 C") when
+#: LEADING_DOT_DECIMAL_ENABLED is on (#1518). A stranded dot (".5.3", "...5")
+#: matches neither alternative, so it is no value.
+_VALUE_UNIT_LEAD = re.compile(
+    r"^(?P<value>[-+]?(?:\.\d+(?![.,]?\d)|\d[\d.,]*))\s*"
+    r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?"
+)
 
 #: A cell that is nothing but a number - "340", "0.911". Used to decide
 #: whether trailing letters were a unit or the start of prose.
@@ -949,6 +956,8 @@ def referenced_standards(text: str) -> list[str]:
 #: A cell that is a bare number, with an optional comparator and sign. The
 #: test for "is there a value here that a unit could belong to".
 _NUMERIC_CELL = re.compile(r"^\s*[<>=~±]{0,2}\s*[-+]?\d[\d,]*(?:\.\d+)?\s*$")
+_NUMERIC_CELL_LEAD = re.compile(
+    r"^\s*[<>=~±]{0,2}\s*[-+]?(?:\.\d+|\d[\d,]*(?:\.\d+)?)\s*$")
 
 #: A trailing parenthesised or bracketed token at the end of a label.
 _LABEL_TAIL = re.compile(r"^(?P<label>.+?)\s*[\(\[]\s*(?P<tail>[^()\[\]]{1,14})\s*[\)\]]\s*$")
@@ -1012,7 +1021,8 @@ def _unit_follows(parts: list[str], index: int) -> bool:
 
 
 def _is_numeric_cell(text: str) -> bool:
-    return bool(_NUMERIC_CELL.match(text or ""))
+    cell = _NUMERIC_CELL_LEAD if numparse.leading_dot_enabled() else _NUMERIC_CELL
+    return bool(cell.match(text or ""))
 
 
 def _unit_in_label(label: str) -> tuple[str, str | None]:
@@ -2019,7 +2029,7 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
             return None, None, None
         # The FIRST system is the value; the second is its printed conversion.
         text = f"{dual['v1']} {dual['u1'].strip()}"
-    match = _VALUE_UNIT.match(text)
+    match = (_VALUE_UNIT_LEAD if numparse.leading_dot_enabled() else _VALUE_UNIT).match(text)
     if not match:
         return None, None, None
     value = match.group("value")
