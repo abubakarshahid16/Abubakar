@@ -242,6 +242,31 @@ def test_init_db_creates_the_intake_reasons_table():
     assert "intake_reasons" in names
 
 
+def _drop_table():
+    conn = db.connect()
+    with conn:
+        conn.execute("DROP TABLE intake_reasons")
+
+
+def test_an_old_database_without_the_table_reads_as_no_reasons_and_creates_nothing(
+    tmp_path,
+):
+    doc_id = _index_xlsx(_xlsx(tmp_path / "old.xlsx"), "old.xlsx")
+    page_ledger.refresh(doc_id)
+    _drop_table()
+    assert intake.reasons_for(doc_id) == []
+    assert "intake_reasons" not in page_ledger.coverage(doc_id)  # switch on, no crash
+    names = {r[0] for r in db.connect().execute("SELECT name FROM sqlite_master")}
+    assert "intake_reasons" not in names  # a read path never creates schema
+
+
+def test_init_db_adds_the_table_to_an_existing_database(tmp_path):
+    _drop_table()
+    db.init_db()
+    names = {r[0] for r in db.connect().execute("SELECT name FROM sqlite_master")}
+    assert "intake_reasons" in names
+
+
 def _big_hidden_workbook(path):
     wb = openpyxl.Workbook()
     ws = wb.active

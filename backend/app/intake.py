@@ -412,18 +412,27 @@ def store(doc_id: str, result: IntakeResult) -> int:
 
 
 def reasons_for(doc_id: str) -> list[dict]:
-    """The stored reasons of a document, page by page (page 0 = the whole file)."""
+    """The stored reasons of a document, page by page (page 0 = the whole file).
+
+    A database made before the table existed (init_db has not run on it yet)
+    holds no reasons: [] , and a read never creates schema."""
+    import sqlite3
+
     from .db import connect
 
-    conn = connect()
-    return [
-        dict(r)
-        for r in conn.execute(
-            "SELECT page_no, code, reason FROM intake_reasons WHERE document_id = ?"
-            " ORDER BY page_no, code",
-            (doc_id,),
-        )
-    ]
+    try:
+        return [
+            dict(r)
+            for r in connect().execute(
+                "SELECT page_no, code, reason FROM intake_reasons WHERE document_id = ?"
+                " ORDER BY page_no, code",
+                (doc_id,),
+            )
+        ]
+    except sqlite3.OperationalError as exc:
+        if "no such table: intake_reasons" not in str(exc):
+            raise
+        return []
 
 
 def refusal_of(exc: BaseException, last_error: dict) -> tuple[str, str]:
