@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any
 
+from . import numparse
 from .config import settings
 
 #: A unit in square brackets, alone ("[l/s]") or glued to a name ("(NPSHR)[m]").
@@ -38,8 +40,18 @@ _ROW_NUMBER = re.compile(r"^\d{1,3}$")
 #: A line of capitals-only label text: no figure, no lowercase.
 _CAPITALS_LABEL = re.compile(r"^[A-Z][A-Z .,/&#'()-]*$")
 
-#: Slack (pt) either side of a name's box within which a number stands under it.
-COLUMN_SLACK = 8.0
+#: A year as a number, and a line that is page furniture, not a measurement.
+_YEAR = re.compile(r"^(?:19|20)\d{2}$")
+_FURNITURE = re.compile(
+    r"\b(?:page|sheet|rev|revision|date|issue)\b|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}[/.]\d{1,2}[/.](?:\d{2}|\d{4})\b",
+    re.IGNORECASE,
+)
+
+#: What this page's reading left out, counted for the run in progress: {kind: n}.
+_LOSSES: ContextVar[dict | None] = ContextVar("page_columns_losses", default=None)
+STACKED = "stacked label cells"
+SKIPPED = "value rows under a header line"
 #: A data line is at most this many line heights below the line above it.
 MAX_LINE_GAP = 3.0
 #: Stacked labels: at least this many lines, each at most this many words.
@@ -66,8 +78,35 @@ def clean_cell(raw: Any, fallback: Callable[[Any], str]) -> str:
     """The cell's text: `fallback(raw)` as always, except stacked labels (switch
     on) which are unreadable and so empty."""
     if enabled() and isinstance(raw, str) and is_stacked_labels(raw):
+        _lose(STACKED)
         return ""
     return fallback(raw)
+
+
+def _lose(kind: str) -> None:
+    counts = _LOSSES.get()
+    if counts is None:
+        counts = {}
+        _LOSSES.set(counts)
+    counts[kind] = counts.get(kind, 0) + 1
+
+
+def flush_losses(page_no: int) -> dict[str, int]:
+    """Hand the counts left out of this page to the page ledger (the reader
+    failures of `datasheets._PAGE_FAILURES`, which make the page's reading
+    incomplete and are printed with it) and clear them."""
+    counts = _LOSSES.get() or {}
+    _LOSSES.set(None)
+    if counts:
+        from . import datasheets  # at call time: datasheets imports the readers
+
+        failures = datasheets._PAGE_FAILURES.get()
+        if failures is not None:
+            said = ", ".join(f"{n} {kind}" for kind, n in sorted(counts.items()))
+            failures.setdefault(int(page_no), set()).add(
+                f"column rows: {said} not read"
+            )
+    return counts
 
 
 def _head(phrase: list[tuple], is_unit: Callable[..., bool]) -> dict[str, Any] | None:
@@ -99,21 +138,39 @@ def _head(phrase: list[tuple], is_unit: Callable[..., bool]) -> dict[str, Any] |
     }
 
 
-def _under(heads: list[dict[str, Any]], line: list[tuple]) -> dict[int, tuple]:
-    """Head index -> the plain-number word under it (leftmost wins)."""
-    found: dict[int, tuple] = {}
+def _under(
+    heads: list[dict[str, Any]], line: list[tuple]
+) -> tuple[dict[int, tuple], bool, bool]:
+    """(head index -> its one number, touched, clean). `touched`: a plain number
+    stands under some name. `clean`: EVERY name has exactly one number inside its
+    own box (no slack) and no number straddles two names."""
+    per: dict[int, list[tuple]] = {}
+    straddle = touched = False
     for w in line:
         if not _PLAIN_NUMBER.match(w[4]):
             continue
-        centre = (w[0] + w[2]) / 2
-        for k, h in enumerate(heads):
-            if (
-                h["x0"] - COLUMN_SLACK <= centre <= h["x1"] + COLUMN_SLACK
-                and k not in found
-            ):
-                found[k] = w
-                break
-    return found
+        hit = [k for k, h in enumerate(heads) if w[0] < h["x1"] and w[2] > h["x0"]]
+        touched = touched or bool(hit)
+        straddle = straddle or len(hit) > 1
+        for k in hit:
+            per.setdefault(k, []).append(w)
+    clean = (
+        not straddle
+        and len(per) == len(heads)
+        and all(len(v) == 1 for v in per.values())
+    )
+    return ({k: v[0] for k, v in per.items()} if clean else {}), touched, clean
+
+
+def _is_measurement(line: list[tuple], cells: dict[int, tuple]) -> bool:
+    """Not a date, page or sheet line, no year as a value, every value a number
+    that `numparse` accepts."""
+    if _FURNITURE.search(" ".join(w[4] for w in line)):
+        return False
+    return all(
+        not _YEAR.match(w[4]) and numparse.parse_value(w[4]) is not None
+        for w in cells.values()
+    )
 
 
 def _taken(word: tuple, taken: list[tuple[list[float], str]]) -> bool:
@@ -139,13 +196,15 @@ def with_head_rows(page: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]
     )
 
     lines = gr._visual_lines([w for w in gr.upright_words(page) if w[4].strip()])
-    return rows + head_rows(
+    found = head_rows(
         lines,
         gr._phrases,
         gr.is_unit_label,
         page_no=page.number + 1,
         taken=[(r["bbox"], r["value_text"]) for r in rows if r.get("bbox")],
     )
+    flush_losses(page.number + 1)
+    return rows + found
 
 
 def head_rows(
@@ -162,16 +221,19 @@ def head_rows(
         heads = [h for h in (_head(p, is_unit) for p in phrases(line)) if h]
         if len(heads) < 2:
             continue
-        need = max(2, (len(heads) + 1) // 2)
         data: list[tuple[tuple | None, dict[int, tuple]]] = []
         prev = line
         for nxt in lines[li + 1 :]:
             height = max(w[3] - w[1] for w in prev) or 10.0
             if min(w[1] for w in nxt) - max(w[3] for w in prev) > MAX_LINE_GAP * height:
                 break
-            cells = _under(heads, nxt)
-            if len(cells) < need:
+            cells, touched, clean = _under(heads, nxt)
+            if not touched:
                 break
+            prev = nxt
+            if not clean or not _is_measurement(nxt, cells):
+                _lose(SKIPPED)
+                continue
             key = next(
                 (
                     w
@@ -183,7 +245,6 @@ def head_rows(
                 None,
             )
             data.append((key, cells))
-            prev = nxt
         for n, (key, cells) in enumerate(data, start=1):
             for k, w in sorted(cells.items()):
                 if _taken(w, taken):
