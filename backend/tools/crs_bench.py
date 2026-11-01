@@ -174,6 +174,7 @@ def score(
             f.get("compliance_status") == "NOT_IN_DOCUMENT_SCOPE" for f in findings
         ),
         "quotes_verified": len(verified),
+        "quotes_unverified": len(quoted) - len(verified),
         "quotes_total": len(quoted),
         "pages_read": None if total is None else total - len(unread),
         "pages_total": total,
@@ -499,8 +500,16 @@ def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
     return reasons
 
 
-HIGHER_IS_WORSE = ("untrue", "irrelevant", "pass_on_deferred", "sent_away")
-LOWER_IS_WORSE = ("checklist_decided", "rules_decided", "quotes_verified", "pages_read")
+# Quotes are gated on the ones NOT found on their page: removing a row that
+# should never have existed is not a loss, but one more unfound quote is.
+HIGHER_IS_WORSE = (
+    "untrue",
+    "irrelevant",
+    "pass_on_deferred",
+    "sent_away",
+    "quotes_unverified",
+)
+LOWER_IS_WORSE = ("checklist_decided", "rules_decided", "pages_read")
 
 
 def render_markdown(
