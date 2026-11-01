@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .clause_review_settings import ClauseReviewSettings
+from .settings_ext import SettingsExt
 
 
 class ModelHostRefused(RuntimeError):
@@ -248,7 +248,7 @@ def shared_backend_dir(backend: Path = BACKEND_DIR) -> Path:
     return candidate if common.name == ".git" and candidate.is_dir() else backend
 
 
-class Settings(ClauseReviewSettings, BaseSettings):
+class Settings(SettingsExt, BaseSettings):
     # ANCHORED, like every other path in this class. It was `".env"` - a
     # relative path, resolved by pydantic-settings against the process working
     # directory - while `data_dir`, `db_path` and the model directories were

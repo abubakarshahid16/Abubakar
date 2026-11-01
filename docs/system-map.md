@@ -112,7 +112,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
 | `clause_review` | #1477: AI clause review of a procedure or specification: one requirement at a time against 4 small passages, local model only, every quote verified on the stored page text, never a verdict (engineer to confirm), cached, time-budgeted; off by default |
-| `clause_review_settings` | #1477: the clause review's settings (a base of `config.Settings`, kept out of the big file) |
+| `settings_ext` | #1477, #1495: settings kept out of `config.py` (a base of `config.Settings`, so the big file does not grow) |
 | `clause_check_rank` | Order 235 item 1: which clause sentences get the per-run clause-check budget (fields the sheet states, then a safety clause, then standards it cites, then figures) and each standard's share |
 | `crash_log` | Order 252: a native crash (bus error, segfault) leaves the stack of every thread in `<data>/logs/native-crash.log` |
 | `pdf_guard` | Order 252: one process-wide re-entrant lock around short PyMuPDF blocks (MuPDF is not thread-safe) |
@@ -202,6 +202,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ocr` | Step 2b - resumable page-batch recognition for scanned pages |
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
+| `nothing_read` | #1495: a review that read no value and no page text ends failed "nothing read" (switch off by default) |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
 | `pairing_head` | A field is a clause's field only when the label stands in the subject's head, not in a complement (audit C5) |
 | `pdf_flow` | #633 item 6: PDF text that wraps and continues on the next page, never dropped (layout only) |

@@ -209,6 +209,8 @@ EGRESS_SAFE: dict[str, object] = {
     "procedure_path_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
     "clause_review_enabled": False,
+    # --- local only, no model or socket: a review that read nothing fails (#1495, off by default)
+    "nothing_read_fails_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
