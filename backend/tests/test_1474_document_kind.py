@@ -295,3 +295,27 @@ def test_the_report_gives_two_numbers_each_with_its_boundary(monkeypatch):
     assert "unknown of documents with a kind decision: 1/2 = 50.0%" in text
     assert "documents decided at all: 2/10" in text
     assert "1/10" not in text  # the undecided are never in the unknown rate
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "DRAWING PRACTICE STANDARD\nSheet 1",
+        "PUMP DATA SHEET STANDARD\nSheet 1",
+        "INSPECTION PROCEDURE STANDARD\nDoc. No.: AB-123-PD-0001",
+    ],
+)
+def test_a_company_standard_stays_a_standard_whatever_its_title(page):
+    evidence = document_kind.decide_document_kind(
+        [{"page_no": 1, "text": page}], document_role="COMPANY_STANDARD"
+    )
+    assert (evidence.kind, evidence.method, evidence.guess) == (
+        "standard",
+        "document_role",
+        True,
+    )
+    # the same page of a submittal is read by its title
+    assert (
+        document_kind.decide_document_kind([{"page_no": 1, "text": page}]).kind
+        != "standard"
+    )

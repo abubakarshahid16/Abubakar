@@ -199,9 +199,10 @@ def decide_document_kind(
 ) -> DocumentKindEvidence:
     """The kind of ONE document from its title block and cover; pure, no I/O.
 
-    Order: the type code of the document number, then a title/cover heading,
-    then the contract's own opening words, then a stored COMPANY_STANDARD role,
-    then an equipment type named IN THE TITLE (a guess). Nothing else - no
+    Order: a stored COMPANY_STANDARD role (always a standard; title cues only
+    decide among submittal kinds), then the type code of the document number,
+    then a title/cover heading, then the contract's own opening words, then an
+    equipment type named IN THE TITLE (a guess). Nothing else - no
     chunk, no body sentence. When the number and the title disagree the number
     wins and the title's reading is kept as `conflict`, and it is a guess."""
     now = _now()
@@ -220,6 +221,10 @@ def decide_document_kind(
             conflict=conflict,
         )
 
+    if document_role == "COMPANY_STANDARD":
+        # A standard ABOUT drawings is still a standard: the stored role decides,
+        # and says it is from the role, not from a title.
+        return make("standard", None, None, "document_role", 0.7, guess=True)
     code = _type_code_hit(lines)
     title = _title_cue_hit(lines)
     if code is not None:
@@ -240,8 +245,6 @@ def decide_document_kind(
         return make(
             "contract", body[0], body[1], "cover_contract_words", 0.7, guess=True
         )
-    if document_role == "COMPANY_STANDARD":
-        return make("standard", None, None, "document_role", 0.7, guess=True)
     # Only heading-shaped lines: on a one-page note the whole page is "title
     # block", and a sentence of body text is not the document naming itself.
     named = suggest_equipment_type_from_title(
