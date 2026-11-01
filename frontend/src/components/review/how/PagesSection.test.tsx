@@ -42,4 +42,18 @@ describe("PagesSection, one meaning of 'not read' (#1550)", () => {
     expect(screen.queryByTestId("pages-no-field-taken")).toBeNull();
     expect(screen.getByTestId("pages-not-read-reasons").textContent).toContain(`Page 1: ${NO_FIELD}`);
   });
+  const reading = { status: "incomplete", pages_total: 3, incomplete_pages: [1, 2, 3], reasons: {} };
+  it("switch on: the incomplete reading says 'not read' only of page 2", () => {
+    show({ ...on, reading });
+    const row = screen.getByTestId("pages-reading").textContent ?? "";
+    expect(row).toContain("page 2 not read; pages 1, 3 no datasheet field taken");
+    expect(row).not.toContain("not read in full");
+    const meaning = screen.getByTestId("pages-meaning").textContent ?? "";
+    expect(meaning).toContain("incomplete: page 2 not read; pages 1, 3 no datasheet field taken (of 3 pages)");
+  });
+  it("switch off: the incomplete reading's words are unchanged", () => {
+    show({ ...coverage, reading });
+    expect(screen.getByTestId("pages-reading").textContent).toContain("(pages 1-3 not read in full, from");
+    expect(screen.getByTestId("pages-meaning").textContent).toContain("3 of 3 pages were not read in full (pages 1-3)");
+  });
 });

@@ -104,6 +104,23 @@ function plural(n: number, word: string): string {
  *  fields. It says "all pages" only when the run stored its reading as
  *  complete (`page_coverage.reading.status`); otherwise it says what the run
  *  stored, and what it did not. */
+/** #1550: the incomplete reading's pages in words (`page_not_read.incomplete_words`).
+ *  The hold is unchanged. Off: "pages 1-3 not read in full"; with the page-read
+ *  switch, "not read" only for `pages_not_read`, "no datasheet field taken" for
+ *  the rest of the fields list, "not read in full" for any other page. */
+export function incompleteWords(pc: PageCoverage | null, pages: number[]): string {
+  const say = (ps: number[], words: string) => `${ps.length === 1 ? "page" : "pages"} ${pageList(ps)} ${words}`;
+  if (!pc?.pages_not_read) return say(pages, "not read in full");
+  const notRead = pc.pages_not_read;
+  const fields = pc.pages_not_read_into_fields;
+  const groups: Array<[number[], string]> = [
+    [pages.filter((p) => notRead.includes(p)), "not read"],
+    [pages.filter((p) => fields.includes(p) && !notRead.includes(p)), "no datasheet field taken"],
+    [pages.filter((p) => !fields.includes(p) && !notRead.includes(p)), "not read in full"],
+  ];
+  return groups.filter(([ps]) => ps.length).map(([ps, words]) => say(ps, words)).join("; ");
+}
+
 export function pagesMeaning(run: ReviewRunSummary): string {
   const pc = run.page_coverage ?? null;
   const p = pageFacts(run);
@@ -119,8 +136,11 @@ export function pagesMeaning(run: ReviewRunSummary): string {
       .map(({ page, reasons }) => `page ${page}: ${reasons.length ? reasons.join("; ") : "no reason recorded"}`);
     const general = [...Object.entries(reading.reasons ?? {}).filter(([, on]) => on).map(([reason]) => reason),
                      ...(reading.notes ?? [])];
+    const counted = pc.pages_not_read
+      ? `${incompleteWords(pc, pages)} (of ${total} pages)` // #1550
+      : `${pages.length} of ${total} pages were not read in full (pages ${pageList(pages)})`;
     sentences.push(pages.length
-      ? `The run stored the reading as incomplete: ${pages.length} of ${total} pages were not read in full (pages ${pageList(pages)})${why.length ? ` - ${why.join("; ")}` : ""}.`
+      ? `The run stored the reading as incomplete: ${counted}${why.length ? ` - ${why.join("; ")}` : ""}.`
       : "The run stored the reading as incomplete.");
     if (general.length) sentences.push(`Also recorded: ${general.join("; ")}.`);
     sentences.push("A value that was not found may still be on those pages; an engineer should look at them.");

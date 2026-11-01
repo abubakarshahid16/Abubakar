@@ -1899,10 +1899,10 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     # comments) would be a claim about it. A proven breach stays a breach.
     reading = (page_coverage or {}).get("reading") or {}
     if reading.get("status") == page_ledger.READING_INCOMPLETE and result["code"] in (codes[0], codes[1]):
-        pages = page_ledger.page_list(reading.get("incomplete_pages") or [])
+        pages = page_not_read.incomplete_words(page_coverage, reading)
         result = {**result, "code": codes[3],
-                  "reason": (f"Manual review: the reading is incomplete (page{'s' if len(reading.get('incomplete_pages') or []) != 1 else ''} "
-                             f"{pages} not read in full, see the run's page coverage), so the rest cannot be called met"),
+                  "reason": (f"Manual review: the reading is incomplete ({pages}, "  # 1550
+                             "see the run's page coverage), so the rest cannot be called met"),
                   "reading_incomplete": True}
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:

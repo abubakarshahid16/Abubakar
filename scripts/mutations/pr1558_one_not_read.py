@@ -33,4 +33,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="finding_rationale_words_follow_the_switch",
         tags=_TAG,
     ),
+    Mutation(
+        id="M1558-03",
+        phase=1558,
+        description="the held approval calls pages no field was taken from 'not read in full'",
+        path=APP / "comparison.py",
+        anchor="        pages = page_not_read.incomplete_words(page_coverage, reading)\n",
+        replacement="        pages = page_not_read.incomplete_words(None, reading)\n",
+        target=_T,
+        keyword="held_approval_words_follow_the_switch",
+        tags=_TAG,
+    ),
 )

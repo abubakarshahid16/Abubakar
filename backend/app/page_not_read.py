@@ -178,6 +178,30 @@ def unchecked_page_parts(cov: dict) -> list[tuple[str, str]]:
     return out
 
 
+def incomplete_words(cov: dict | None, reading: dict) -> str:
+    """The incomplete `reading`'s pages (`incomplete_pages`) in words. The
+    approval hold is unchanged; only the words follow the switch. Off: "pages
+    1-3 not read in full", as before. On: "not read" only for `pages_not_read`,
+    "no datasheet field taken from" for the rest of the fields list, and "not
+    read in full" for any other page (an AI reader that did not finish it)."""
+    pages = reading.get("incomplete_pages") or []
+    if not by_reading(cov):
+        plural = "s" if len(pages) != 1 else ""
+        return f"page{plural} {page_list(pages)} not read in full"
+    not_read = set((cov or {}).get("pages_not_read") or [])
+    fields = set((cov or {}).get("pages_not_read_into_fields") or [])
+    groups = (
+        ([p for p in pages if p in not_read], "not read"),
+        ([p for p in pages if p in fields - not_read], "no datasheet field taken"),
+        ([p for p in pages if p not in fields | not_read], "not read in full"),
+    )
+    return "; ".join(
+        f"page{'s' if len(ps) != 1 else ''} {page_list(ps)} {words}"
+        for ps, words in groups
+        if ps
+    )
+
+
 def tier_pages(cov: dict) -> dict:
     """`review_tiers.RunFacts`' page sets (tiers.ts `pageFactsOf`). Switch off:
     the fields list is "page not read", as before; on: `pages_not_read`, and the

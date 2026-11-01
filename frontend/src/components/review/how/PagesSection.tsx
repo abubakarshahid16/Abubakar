@@ -2,7 +2,7 @@
  *  `pages_ai_not_read`) and `requirement_split.reader`. */
 import type { ReviewRunSummary } from "../../../types/api";
 import { pageList } from "../reviewFormat";
-import { NOT_RECORDED, pageFacts, pagesMeaning, readerOf } from "./howData";
+import { NOT_RECORDED, incompleteWords, pageFacts, pagesMeaning, readerOf } from "./howData";
 import { Fact, FactList, HowSection, type HowSectionMeta } from "./HowPrimitives";
 
 export const PAGES_META: HowSectionMeta = {
@@ -50,7 +50,7 @@ export function PagesSection({ run }: { run: ReviewRunSummary }) {
         <Fact label="Reading status" testId="pages-reading"
           fact={{ value: p.reading ? p.reading.status : null, source: "page_coverage.reading.status" }}
           detail={p.reading && p.reading.incomplete_pages.length
-            ? `(pages ${pageList(p.reading.incomplete_pages)} not read in full, from page_coverage.reading.incomplete_pages)` : undefined} />
+            ? `(${incompleteWords(run.page_coverage ?? null, p.reading.incomplete_pages)}, from page_coverage.reading.incomplete_pages)` : undefined} />
       </FactList>
       {notRead && notRead.length > 0 && (
         <ul data-testid="pages-not-read-reasons" className="list-disc ps-5 text-sm text-slateish-300">

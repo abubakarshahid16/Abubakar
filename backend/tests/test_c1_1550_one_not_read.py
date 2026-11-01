@@ -164,3 +164,32 @@ def test_finding_rationale_words_follow_the_switch(cov, words):
     out = comparison.qualify_by_pages({"status": comparison.MISSING_INFORMATION}, cov)
     assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert words in out["rationale"]
+
+
+#: The run's reading: pages 1-3 with no field, page 5 the AI reader did not finish.
+READING = {"status": page_ledger.READING_INCOMPLETE, "incomplete_pages": [1, 2, 3, 5]}
+
+
+@pytest.mark.parametrize(
+    "cov, words",
+    [
+        (
+            {**ON, "pages_total": 5, "reading": READING},
+            "the reading is incomplete (page 2 not read; pages 1, 3 no datasheet field "
+            "taken; page 5 not read in full, see the run's page coverage)",
+        ),
+        (
+            {**OFF, "pages_total": 5, "reading": READING},
+            "the reading is incomplete (pages 1-3, 5 not read in full, see the run's "
+            "page coverage)",
+        ),
+    ],
+)
+def test_the_held_approval_words_follow_the_switch_and_the_hold_stays(cov, words):
+    complete = {"sufficient": True, "fields_read": 240, "fields_estimated": 250}
+    out = comparison.recommend_code(
+        [{"compliance_status": comparison.COMPLIANT}], complete, page_coverage=cov
+    )
+    assert out["code"] == comparison.CODE_MANUAL
+    assert out.get("reading_incomplete") is True
+    assert words in out["reason"]
