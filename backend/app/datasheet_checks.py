@@ -719,6 +719,12 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'one of' if ok else 'not one of'}: {', '.join(rule['values'])}.{noted}",
                    fact)
+    if (settings.percent_kind_check_enabled and _is_percent(fact)
+            and (rule.get("stated_as_percent") or rule.get("percent_of_role")
+                 or (rule.get("unit") or "").strip() == "%")
+            and (doubt := _percent_kind_doubt(fact)) is not None):
+        # #1512: a fraction-sized number under a % label is never decided.
+        return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)
     if kind == "percent_of" and rule.get("stated_as_percent") and _is_percent(fact):
         # R13: a value the sheet states AS a percentage of the right-hand
         # field ("built-up back pressure 8 %" of the set pressure) is compared
@@ -918,9 +924,23 @@ def _is_percent(fact: dict) -> bool:
     return not unit and "%" in label
 
 
+def _percent_kind_doubt(fact: dict) -> str | None:
+    """#1512: why a value printed under a percent label cannot be decided - its
+    number is fraction-sized (0 < n <= 1), so "0.30 %" may be 0.30 % or the
+    fraction 0.30 = 30 %. None when the number and the label agree in kind."""
+    number = _number_of_or_none(fact)
+    if number is None or not 0 < abs(number) <= 1:
+        return None
+    printed = str(fact.get("raw_value")).strip()
+    return (f"the sheet prints {printed} with a % label - a fraction or a percent? "
+            f"engineer to confirm")
+
+
 def _overpressure_kpa(get, set_kpa_g: float, rules: dict) -> tuple[float, dict]:
     fact = _input(get, "overpressure")
     if _is_percent(fact):
+        if settings.percent_kind_check_enabled and (doubt := _percent_kind_doubt(fact)) is not None:
+            raise _NotCalculated(doubt)
         return set_kpa_g * _number_of(fact, "overpressure") / 100.0, fact
     return _converted(fact, "overpressure", "pressure_kpa", rules), fact
 

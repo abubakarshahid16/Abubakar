@@ -52,6 +52,11 @@ class SettingsExt(BaseModel):
     #: The owner should switch this on promptly: it removes a possible wrong Fail. OFF: nothing
     #: changes. Env: AT_LIMIT_PRECISION_ENABLED.
     at_limit_precision_enabled: bool = False
+    #: #1512: a value printed under a % label with a fraction-sized number ("0.30 %": 0.30 % or the
+    #: fraction 0.30 = 30 %?) is never decided on the percent cards (PSV-27, PSV-28, PSV-29); it goes
+    #: to the engineer with the reason. The owner should switch this on promptly: it removes a possible
+    #: wrong approval. OFF: nothing changes. Env: PERCENT_KIND_CHECK_ENABLED.
+    percent_kind_check_enabled: bool = False
     #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
     #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
