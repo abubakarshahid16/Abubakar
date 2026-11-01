@@ -7,6 +7,7 @@ and the clause review's lane (`clause_review.py`): never a verdict, it rides in
 engineer rejects it. No imports, no db: `crs_mapping` stays pure.
 """
 
+import re
 from collections import defaultdict
 
 #: Spec e: COMPANY Comments of an UNCONFIRMED AI / web item. Plain words that
@@ -72,3 +73,21 @@ WAITING_COMMENTS = frozenset(
     {AI_UNCONFIRMED_COMMENT, WEB_UNCONFIRMED_COMMENT, SPEC_UNCONFIRMED_COMMENT}
     | {spec_lane_words(n)[2] for n in KIND_NOUNS}
 )
+
+
+_NOUN = re.compile(r"^A ([a-z]+) states: ")
+
+
+def lane(f: dict, lanes: dict) -> tuple[str, str, str, str]:
+    """(confirmed byline prefix, unconfirmed byline, row kind, waiting comment) of a draft
+    finding's origin; a kit row (#1484) uses its document kind's noun, read from its requirement
+    words, and a specification's wording is unchanged."""
+    origin = f.get("origin")
+    confirmed, unconfirmed, kind = lanes[origin]
+    comment = UNCONFIRMED_COMMENTS[origin]
+    if origin == SPEC_ORIGIN:
+        found = _NOUN.match(f.get("requirement") or "")
+        confirmed, unconfirmed, comment = spec_lane_words(
+            found.group(1) if found else "specification"
+        )
+    return confirmed, unconfirmed, kind, comment

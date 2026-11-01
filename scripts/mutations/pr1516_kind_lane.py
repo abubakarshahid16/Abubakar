@@ -7,7 +7,7 @@ from ._base import APP, Mutation
 
 _T = "tests/test_1484_parked_kits.py"
 _TAG = ("pr1516", "crs", "kind_lane")
-_M = APP / "crs_mapping.py"
+_M = APP / "crs_draft_lanes.py"
 _L = APP / "crs_draft_lanes.py"
 
 
@@ -30,8 +30,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         1,
         "a drawing kit row keeps the Specification byline",
         _M,
-        "    if origin == spec_kit.ORIGIN:\n        confirmed, unconfirmed, comment = spec_lane_words(",
-        "    if False:\n        confirmed, unconfirmed, comment = spec_lane_words(",
+        "    if origin == SPEC_ORIGIN:\n        found = _NOUN.match(",
+        "    if False:\n        found = _NOUN.match(",
         "byline_and_waiting_comment_say_drawing",
     ),
     _m(

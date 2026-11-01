@@ -50,7 +50,7 @@ from .crs_draft_lanes import (  # noqa: F401
     UNCONFIRMED_COMMENTS,
     WAITING_COMMENTS,
     WEB_UNCONFIRMED_COMMENT,
-    spec_lane_words,
+    lane,
 )
 from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
 from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
@@ -243,17 +243,6 @@ def finding_comment_key(f: dict) -> str:
     if key[0] == "field":
         return field_comment_key(key[1], key[2])
     return comment_key(*key) if key[0] == "blanks" else _subject_key(f)
-
-
-def _lane(f: dict) -> tuple[str, str, str, str]:
-    """(confirmed byline prefix, unconfirmed byline, row kind, waiting comment) of a draft
-    origin; a kit row uses its document kind's noun (#1484), a specification's unchanged."""
-    origin = f.get("origin")
-    confirmed, unconfirmed, kind = _DRAFT_LANES[origin]
-    comment = UNCONFIRMED_COMMENTS[origin]
-    if origin == spec_kit.ORIGIN:
-        confirmed, unconfirmed, comment = spec_lane_words(spec_kit.noun_of(f))
-    return confirmed, unconfirmed, kind, comment
 
 
 def rejected_comment_keys(findings: list[dict]) -> set[str]:
@@ -1625,7 +1614,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f.get("contractor_section") or "") if p)
         confirmed = bool(crs_decider.decider(f))
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
-        confirmed_by_prefix, unconfirmed_by, row_kind, unconfirmed_comment = _lane(f)
+        confirmed_by_prefix, unconfirmed_by, row_kind, unconfirmed_comment = lane(f, _DRAFT_LANES)
         rows.append(
             {
                 "finding_id": f.get("id") or "",
