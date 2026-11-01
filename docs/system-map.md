@@ -114,6 +114,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
 | `clause_review` | #1477: AI clause review of a procedure or specification: one requirement at a time against 4 small passages, local model only, every quote verified on the stored page text, never a verdict (engineer to confirm), cached, time-budgeted; off by default |
+| `clause_review_status` | #1477: the words of the clause review's outcome (counts with denominators; whole-document note "N of M reviewed, K not reviewed, first not reviewed"); pure, no model, no storage |
 | `settings_ext` | #1477, #1495: settings kept out of `config.py` (a base of `config.Settings`, so the big file does not grow) |
 | `clause_check_rank` | Order 235 item 1: which clause sentences get the per-run clause-check budget (fields the sheet states, then a safety clause, then standards it cites, then figures) and each standard's share |
 | `crash_log` | Order 252: a native crash (bus error, segfault) leaves the stack of every thread in `<data>/logs/native-crash.log` |
@@ -150,6 +151,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `doc_router` | The document-type router (W5b-02, #526) |
 | `document_kind` | The kind of a document (datasheet, procedure, specification, contract...) from its title block and cover (#1474) |
 | `kind_rules` | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards (#1474) |
+| `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |

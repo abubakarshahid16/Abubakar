@@ -18,9 +18,22 @@ class SettingsExt(BaseModel):
     #: pages x this is spent and names the requirements not reviewed. Measured
     #: minutes per page is recorded on the run. Env: CLAUSE_REVIEW_SECONDS_PER_PAGE.
     clause_review_seconds_per_page: float = Field(90.0, gt=0)
-    #: At most this many requirements per run (the rest are named as not reviewed).
-    #: Env: CLAUSE_REVIEW_MAX_REQUIREMENTS.
-    clause_review_max_requirements: int = Field(60, ge=1)
+    #: At most this many requirements per run (the rest are named as not reviewed);
+    #: 0 = no count cap. Env: CLAUSE_REVIEW_MAX_REQUIREMENTS.
+    clause_review_max_requirements: int = Field(60, ge=0)
+    #: Whole-document clause review: the 60-requirement count cap is lifted and the run
+    #: is bounded by ONE time budget instead; what the budget leaves unread is named
+    #: ("N of M reviewed; K not reviewed (time budget of T s reached); first not
+    #: reviewed: ..."), never a pass. Still the LOCAL model only; stored answers are
+    #: reused. OFF: the count cap and the per-page budget behave as before.
+    #: Env: CLAUSE_REVIEW_WHOLE_DOCUMENT_ENABLED.
+    clause_review_whole_document_enabled: bool = False
+    #: Seconds for the whole clause review of one run in whole-document mode. Default 7200
+    #: (2 h): a local call with thinking is about 20 to 60 s (timeout 600 s), so this reads
+    #: roughly 120 to 360 requirements, and it stays under the 3 h stale limit of the heavy
+    #: lock. Checked between calls, so one call started near the end can overrun it by up to
+    #: clause_review_call_timeout_s (600 s): worst case about 7800 s. Env: CLAUSE_REVIEW_TIME_BUDGET_S.
+    clause_review_time_budget_s: float = Field(7200.0, gt=0)
     #: Seconds one local call may take, and its output cap (thinking is on, and
     #: its tokens count). Env: CLAUSE_REVIEW_CALL_TIMEOUT_S, CLAUSE_REVIEW_NUM_PREDICT.
     clause_review_call_timeout_s: float = Field(600.0, gt=0)
@@ -52,6 +65,11 @@ class SettingsExt(BaseModel):
     #: unknown / undecided keeps today's behaviour, marked. OFF: nothing changes.
     #: Env: KIND_CHOOSES_RULES_ENABLED.
     kind_chooses_rules_enabled: bool = False
+    #: Rules by equipment scope (`equipment_scope.py`): a rule whose own scope (its single-equipment
+    #: standard, or its document kind) names a DIFFERENT equipment type or
+    #: kind than the submittal's is left out and counted in a note; unknown scope stays in. Narrowing
+    #: only. OFF: nothing changes. Env: RULES_BY_EQUIPMENT_SCOPE_ENABLED.
+    rules_by_equipment_scope_enabled: bool = False
     #: #1478 pump kit PREPARATION: append the DRAFT pump cards of `reference/pump_kit_draft.json`
     #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
     #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.

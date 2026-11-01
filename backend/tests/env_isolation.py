@@ -209,6 +209,8 @@ EGRESS_SAFE: dict[str, object] = {
     "procedure_path_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
     "clause_review_enabled": False,
+    # --- local model only, no socket but model_transport: whole-document clause review (off by default)
+    "clause_review_whole_document_enabled": False,
     # --- read-only display of the jobs row, no model or socket (#1494, off by default)
     "review_progress_bar_enabled": False,
     # --- local files only, no model or socket: a per-review audit report (#1525, off by default)
@@ -224,6 +226,8 @@ EGRESS_SAFE: dict[str, object] = {
     "parked_kits_draft_enabled": False,
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
+    # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
+    "rules_by_equipment_scope_enabled": False,
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
     "pump_kit_draft_enabled": False,
     # --- local only, no model or socket: a value at a percent limit is at it in every unit (#1475, off by default)
