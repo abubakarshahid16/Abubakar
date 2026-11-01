@@ -2976,9 +2976,12 @@ def _crs_header_note(run: dict, outcome: dict, unread: list, missing: list[str])
     cov = outcome.get("page_coverage") or {}
     by_reading = "pages_not_read" in cov
     if by_reading:
-        unread = page_ledger_mod.run_unread_pages(cov, page_ledger_mod.run_reader(outcome))
+        unread = page_ledger_mod.run_unread_pages(
+            cov, page_ledger_mod.run_reader(outcome)
+        )
     return export_status_mod.crs_header_note(
-        run.get("status"), outcome.get("error"), unread, missing, by_reading=by_reading)
+        run.get("status"), outcome.get("error"), unread, missing, by_reading=by_reading
+    )
 
 
 def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:

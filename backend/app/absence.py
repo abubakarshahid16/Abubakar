@@ -168,7 +168,9 @@ def unchecked_share(not_compared: int, checked: int) -> float | None:
     return (not_compared or 0) / applies
 
 
-def reader_summary_line(reader: dict | None, pages_total: int | None = None) -> str | None:
+def reader_summary_line(
+    reader: dict | None, pages_total: int | None = None
+) -> str | None:
     """One plain line on what read the datasheet (owner order 2026-10-11):
     the AI engine and model with the pages it read, or the code readers only,
     and the pages the AI left to the code readers, grouped by reason.
@@ -363,13 +365,19 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         # gate count; a read page no field was taken from is said as that.
         not_read = cov.get("pages_not_read") or []
         if not_read:
-            add("unread_pages", f"{len(not_read)} page(s) of this submittal were not read; "
-                                "values on them could not be checked.")
+            add(
+                "unread_pages",
+                f"{len(not_read)} page(s) of this submittal were not read; "
+                "values on them could not be checked.",
+            )
         unread = [p for p in unread if p not in set(not_read)]
         if unread:
-            add("no_field_pages", f"{len(unread)} page(s) of this submittal were read, but no "
-                                  "datasheet field was taken from them; values on them could "
-                                  "not be checked.")
+            add(
+                "no_field_pages",
+                f"{len(unread)} page(s) of this submittal were read, but no "
+                "datasheet field was taken from them; values on them could "
+                "not be checked.",
+            )
     elif unread:
         add("unread_pages", f"{len(unread)} page(s) of this submittal were not read into fields; "
                             "values on them could not be checked.")
@@ -391,8 +399,10 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         add("unchecked_share", sentence)
         from . import requirement_split
 
-        for line in split_lines(outcome.get("requirement_split") or requirement_split.from_counts(counts),
-                                pages_total=cov.get("pages_total") if "pages_not_read" in cov else None):
+        for line in split_lines(
+            outcome.get("requirement_split") or requirement_split.from_counts(counts),
+            pages_total=cov.get("pages_total") if "pages_not_read" in cov else None,
+        ):
             add("requirement_reasons", line, detail=True)
     elif any(not p.get("detail") for p in parts) and not counts:
         add("unchecked_share", "The share of requirements not compared is not known: "

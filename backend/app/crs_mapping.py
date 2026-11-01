@@ -393,12 +393,24 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     unread = [f for f in findings if _unread(f)]
     if unread and "pages_not_read" in ((outcome or {}).get("page_coverage") or {}):
         pages = _page_list(unread_pages or [])
-        notes.append({"note": NOTE_NO_FIELD_PAGES, "standard": "", "count": len(unread),
-                      "detail": (f"{len(unread)} requirement{'s' if len(unread) != 1 else ''} "
-                                 "could not be checked because no datasheet field was taken "
-                                 "from " + (f"page{'s' if len(unread_pages or []) != 1 else ''} "
-                                            f"{pages}" if pages else "some pages")
-                                 + " of this submittal; the values may be there.")})
+        notes.append(
+            {
+                "note": NOTE_NO_FIELD_PAGES,
+                "standard": "",
+                "count": len(unread),
+                "detail": (
+                    f"{len(unread)} requirement{'s' if len(unread) != 1 else ''} "
+                    "could not be checked because no datasheet field was taken "
+                    "from "
+                    + (
+                        f"page{'s' if len(unread_pages or []) != 1 else ''} {pages}"
+                        if pages
+                        else "some pages"
+                    )
+                    + " of this submittal; the values may be there."
+                ),
+            }
+        )
     elif unread:
         pages = _page_list(unread_pages or [])
         notes.append({"note": NOTE_UNREAD_PAGES, "standard": "", "count": len(unread),

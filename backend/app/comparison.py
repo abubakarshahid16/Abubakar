@@ -1742,15 +1742,23 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
     if unread:
         # #1550: with PAGE_READ_BY_READING_ENABLED "not read" means no reading
         # came back; these pages are said as no field taken, never "not read".
-        unread_words = ("had no datasheet field taken from them"
-                        if "pages_not_read" in pages else "were not read into fields")
-        return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
-            f"{UNREAD_PAGES}: no value for this requirement was found in the "
-            f"fields read from {where} of {total}; "
-            f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
-            f"{unread_words}, so the value may be there. An engineer "
-            "must check those pages before this becomes a comment to the "
-            "contractor")}
+        unread_words = (
+            "had no datasheet field taken from them"
+            if "pages_not_read" in pages
+            else "were not read into fields"
+        )
+        return {
+            **verdict,
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (
+                f"{UNREAD_PAGES}: no value for this requirement was found in the "
+                f"fields read from {where} of {total}; "
+                f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
+                f"{unread_words}, so the value may be there. An engineer "
+                "must check those pages before this becomes a comment to the "
+                "contractor"
+            ),
+        }
     page_reader_only = pages.get("pages_read_only_by_page_reader") or []
     if page_reader_only:
         # Owner decision 2026-09-26 (honesty audit entry 68): these pages are
