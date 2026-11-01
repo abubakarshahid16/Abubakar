@@ -689,7 +689,8 @@ def classify_equipment_type_for_submittal(
         "SELECT page_no, text FROM pages WHERE document_id = ?"
         " ORDER BY page_no", (document_id,))]
     evidence = equipment_title_block.decide(
-        conn, document_id, pages, kind_on, existing["document_role"])
+        conn, document_id, pages, kind_on, existing["document_role"]
+    )
     if evidence is None:
         return None
 

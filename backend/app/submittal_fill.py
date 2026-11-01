@@ -163,7 +163,7 @@ def _now() -> str:
     return stamp()
 
 
-def from_title_block_only() -> bool:
+def title_only() -> bool:
     from .config import settings
 
     return settings.equipment_from_title_block_enabled
@@ -218,7 +218,7 @@ def fill(document_id: str) -> dict:
         values += [line, json.dumps(evidence)]
         written["title"] = line
     # Owner decision 1 Nov: a heading in the page body never sets the equipment type.
-    name = None if row["equipment_type"] or from_title_block_only() else equipment_name(line)
+    name = None if row["equipment_type"] or title_only() else equipment_name(line)
     if name:
         sets += ["equipment_type = ?", "equipment_type_evidence = ?"]
         values += [
