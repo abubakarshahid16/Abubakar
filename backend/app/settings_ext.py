@@ -127,3 +127,11 @@ class SettingsExt(BaseModel):
     #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the
     #: engineer. OFF: nothing changes. Env: EXCHANGER_KIT_DRAFT_ENABLED.
     exchanger_kit_draft_enabled: bool = False
+    #: #1525 per-review audit report: `review_audit.py` writes AUDIT.md + AUDIT.json (pages read, standards,
+    #: rules compared, AI use, gates, CRS) for each finished review, from what the run stored. Local files only,
+    #: export only, no verdict changes, no model, no socket, no document text beyond page and clause numbers
+    #: and stored quote snippets. OFF: nothing is written. Env: REVIEW_AUDIT_REPORT_ENABLED.
+    review_audit_report_enabled: bool = False
+    #: Folder the audit files go under (`<date>-<run id>/`). Empty = `~/project/mirror/proof`.
+    #: Env: REVIEW_AUDIT_DIR.
+    review_audit_dir: str = ""
