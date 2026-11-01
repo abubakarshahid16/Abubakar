@@ -231,7 +231,7 @@ def _where(chunk: dict) -> str:
 
 def _chunks(document_id: str) -> list[dict]:
     rows = connect().execute(
-        "SELECT ordinal, kind, page_start, section, context, locator, retrievable, text"
+        "SELECT ordinal, kind, page_start, page_end, section, context, locator, retrievable, text"
         " FROM chunks WHERE document_id = ? ORDER BY ordinal", (document_id,)).fetchall()
     return [dict(r) for r in rows]
 
@@ -282,7 +282,14 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
                  "missing_cues": [], "found_at": []}
         if not held and _presence_without_standard():
             entry.update(
-                _section_without_standard(element, found, body, read_in_full, why_not)
+                _section_without_standard(
+                    element,
+                    found,
+                    body,
+                    (read_in_full, why_not),
+                    checklist=checklist_words(playbook),
+                    document_id=document_id,
+                )
             )
             results.append(entry)
             continue
@@ -347,12 +354,67 @@ def _heading_of(chunk: dict) -> str:
     ).strip()
 
 
-def _place(ev: dict, body: list[dict]) -> str:
+QUOTE_WORDS = 15  # owner, #1567: at most 15 words of a passage on an unclear row
+_CHECKLIST_GENERIC = frozenset(
+    {"procedure", "procedures", "study", "review", "assessment"}
+    | {"the", "a", "an", "of", "for", "and"}
+)
+
+
+def checklist_words(playbook: Playbook) -> str:
+    """'per the draft HAZOP checklist (not yet engineer-approved)': never 'approved'
+    until an engineer has signed the playbook off (owner, #1567)."""
+    name = " ".join(
+        w for w in playbook.title.split() if w.lower() not in _CHECKLIST_GENERIC
+    )
+    if playbook.signed_off:
+        return f"per the {name} checklist signed off by {playbook.sign_off.get('by')}"
+    return f"per the draft {name} checklist (not yet engineer-approved)"
+
+
+def _chunk_of(ev: dict, body: list[dict]) -> dict:
+    return next((c for c in body if _where(c) == ev["locator"]), {})
+
+
+def _place(ev: dict, body: list[dict], page: int | None = None) -> str:
     """'page N (heading "...")' of an evidence passage, the heading as written."""
-    chunk = next((c for c in body if _where(c) == ev["locator"]), {})
-    page, heading = chunk.get("page_start"), _heading_of(chunk)
+    chunk = _chunk_of(ev, body)
+    page, heading = page or chunk.get("page_start"), _heading_of(chunk)
     named = f' (heading "{heading[:QUOTE_MAX]}")' if heading else ""
     return (f"page {page}" if page else ev["locator"]) + named
+
+
+def _verified_quote(
+    ev: dict, body: list[dict], document_id: str
+) -> tuple[int | None, str | None]:
+    """(page, quote): at most QUOTE_WORDS words of the passage's sentence, kept only when
+    it is found in the stored text of a page the passage spans; that page is cited."""
+    chunk = _chunk_of(ev, body)
+    words = (ev.get("quote") or "").split()[:QUOTE_WORDS]
+    first, last = (
+        chunk.get("page_start"),
+        chunk.get("page_end") or chunk.get("page_start"),
+    )
+    if not words or first is None:
+        return first, None
+    quote = " ".join(words)
+    rows = (
+        connect()
+        .execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? AND page_no BETWEEN ? AND ?"
+            " ORDER BY page_no",
+            (document_id, first, last),
+        )
+        .fetchall()
+    )
+    page = next((r["page_no"] for r in rows if quote_in(quote, r["text"])), None)
+    return (page, quote) if page is not None else (first, None)
+
+
+def _cited(ev: dict, body: list[dict], document_id: str) -> str:
+    page, quote = _verified_quote(ev, body, document_id)
+    said = f': "{quote}"' if quote else "; no quote could be verified on the page text"
+    return _place(ev, body, page) + said
 
 
 NO_HEADINGS = "no section heading was read from this document"
@@ -366,19 +428,22 @@ def _section_without_standard(
     element: Element,
     found: dict,
     body: list[dict],
-    read_in_full: bool,
-    why_not: str | None,
+    read: tuple[bool, str | None],
+    *,
+    checklist: str,
+    document_id: str,
 ) -> dict:
     """The section-presence result of an element whose standard is NOT held. The state
     stays STANDARD_NOT_HELD (never met, never compliant); `section_state` says:
       present  a section of its own holds all of it: its page and heading
       unclear  a section of its own holds part of it, OR no section of its own but one
-               passage elsewhere states all of it (not proven absent: never "not found")
+               passage elsewhere states all of it (not proven absent: never "not found");
+               the passage is quoted (<= 15 words, verified on its page)
       missing  no section of its own and no passage stating all of it; passing mentions
                stay pointers (`found_at`) -> "Section not found"
       could_not_be_checked  not read in full, or no section heading read at all
     """
-    std, ev = element.standard, found["evidence"]
+    (read_in_full, why_not), std, ev = read, element.standard, found["evidence"]
     out = {"state": STANDARD_NOT_HELD, "section_state": found["state"]}
     out["found_at"] = [e["locator"] for e in ev[:3]]
     out["missing_cues"] = found["missing_cues"]
@@ -397,26 +462,25 @@ def _section_without_standard(
             f"{why}; this is not a finding that it is met"
         )
     elif found["state"] == UNCLEAR and found.get("own_section_found"):
-        lacks = found["own_lacks"]
-        out.update(evidence=ev[:3], missing_cues=lacks)
+        lacks, best = found["own_lacks"], found["own_best"]
+        out.update(evidence=[best], missing_cues=lacks)
         out["reason"] = (
-            "unclear: a section of its own was found, but only part of what this "
-            f"element expects: the section does not mention {', '.join(lacks)}; "
-            f"{not_quoted}; engineer to check"
+            "unclear: a section of its own was found at "
+            f"{_cited(best, body, document_id)}, but it does not mention "
+            f"{', '.join(lacks)}; {not_quoted}; engineer to check"
         )
     elif found["state"] == UNCLEAR and found.get("stated_elsewhere"):
         stated = found["stated_elsewhere"]
         out["evidence"] = stated[:1]
         out["reason"] = (
             "unclear: no section of its own was found, but it is stated at "
-            f"{_place(stated[0], body)}; {not_quoted}; engineer to confirm"
+            f"{_cited(stated[0], body, document_id)}; {not_quoted}; engineer to confirm"
         )
     else:
         out["section_state"] = MISSING
         out["reason"] = (
             f"Section not found: {element.title}. Required by {std} {element.clause} "
-            "per the approved playbook; standard not held, its text is not quoted; "
-            "engineer to confirm"
+            f"{checklist}; standard not held, its text is not quoted; engineer to confirm"
         )
     return out
 
@@ -504,6 +568,7 @@ def _match(element: Element, body: list[dict]) -> dict:
             lacks = [lbl for lbl, _ in element.groups if lbl not in best["groups"]]
             text_too = "a statement in the text under the heading"
             unclear["own_lacks"] = lacks or [text_too]
+            unclear["own_best"] = best
         return unclear
     return {"state": MISSING, "evidence": [], "missing_cues": [label for label, _ in element.groups]}
 

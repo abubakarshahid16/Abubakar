@@ -143,9 +143,9 @@ def _comment(playbook: playbooks.Playbook, report: dict, entry: dict) -> str:
 
 
 def _row(playbook, report, entry, submittal_name: str) -> dict:
-    shown = (
-        entry["state"] == playbooks.PRESENT
-        or entry.get("section_state") == playbooks.PRESENT
+    shown = entry["state"] == playbooks.PRESENT or entry.get("section_state") in (
+        playbooks.PRESENT,
+        playbooks.UNCLEAR,
     )
     ev = (entry["evidence"] or [{}])[0] if shown else {}
     return {

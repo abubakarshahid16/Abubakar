@@ -50,8 +50,9 @@ def test_a_missing_section_without_the_standard_is_section_not_found(monkeypatch
     cut = [s for s in HAZOP_SECTIONS if s[0] != CUT]
     row = _row(_mine(_crs(_run(_doc("p2", cut)))[0]), ELEMENT)
     assert (
-        f"Section not found: {ELEMENT}. Required by {_clause()} per the approved playbook; "
-        "standard not held, its text is not quoted; engineer to confirm."
+        f"Section not found: {ELEMENT}. Required by {_clause()} per the draft HAZOP "
+        "checklist (not yet engineer-approved); standard not held, its text is not "
+        "quoted; engineer to confirm."
     ) in row["comment"]
     assert row["playbook_state"] == playbooks.STANDARD_NOT_HELD
     assert row["engineer_confirmed"] is False
@@ -216,3 +217,75 @@ def test_the_standard_held_path_is_unchanged(monkeypatch):
     assert [r["comment"] for r in before] == [r["comment"] for r in after]
     assert all("Section not found" not in r["comment"] for r in after)
     assert all(r["playbook_state"] != playbooks.STANDARD_NOT_HELD for r in after)
+
+
+NODE = "The plant is divided into nodes, each a section with a clear design intent."
+
+
+def _moved(sentence=NODE):
+    rest = [s for s in HAZOP_SECTIONS if s[0] != CUT]
+    return [(t, b + " " + sentence) if t == "Analysis" else (t, b) for t, b in rest]
+
+
+def _page_of(sections, title):
+    return 1 + next(i for i, s in enumerate(sections, start=1) if s[0] == title)
+
+
+def test_an_unclear_row_quotes_the_passage_verified_on_its_page(monkeypatch):
+    _switches(monkeypatch)
+    moved = _moved()
+    doc = _doc("q1", moved)
+    row = _row(_mine(_crs(_run(doc))[0]), ELEMENT)
+    page = _page_of(moved, "Analysis")
+    assert f'stated at page {page} (heading "Analysis"): "{NODE}"' in row["comment"]
+    assert row["page_section"] == f"page {page}"
+    with db.connect() as conn:
+        text = conn.execute(
+            "SELECT text FROM pages WHERE document_id = ? AND page_no = ?", (doc, page)
+        ).fetchone()[0]
+    assert playbooks.quote_in(NODE, text)
+
+
+def test_the_quote_is_at_most_15_words(monkeypatch):
+    _switches(monkeypatch)
+    long = (
+        "The plant is divided into nodes by the study leader before the sessions start, "
+        "each node a part of the process with one design intent and its own lines."
+    )
+    row = _row(_mine(_crs(_run(_doc("q2", _moved(long))))[0]), ELEMENT)
+    quote = row["comment"].split(': "', 1)[1].split('"', 1)[0]
+    assert quote == " ".join(long.split()[:15])
+    assert len(quote.split()) == 15
+
+
+def test_a_quote_not_on_the_cited_page_is_not_shown(monkeypatch):
+    _switches(monkeypatch)
+    moved = _moved()
+    doc = _doc("q3", moved)
+    with db.connect() as conn:  # the page text no longer holds the passage
+        conn.execute(
+            "UPDATE pages SET text = 'Analysis' WHERE document_id = ? AND page_no = ?",
+            (doc, _page_of(moved, "Analysis")),
+        )
+    row = _row(_mine(_crs(_run(doc))[0]), ELEMENT)
+    assert NODE not in row["comment"]
+    assert "no quote could be verified on the page text" in row["comment"]
+
+
+def test_the_wording_names_the_draft_checklist_never_approved(monkeypatch):
+    _switches(monkeypatch)
+    cover = "HAZOP and SIL Procedure\nDocument HP-001 revision 0"
+    rows = _mine(_crs(_run(_doc("w1", HAZOP_SECTIONS, cover=cover)))[0])
+    sil = [r for r in rows if r["comment"].startswith("SIL")]
+    hazop = [r for r in rows if r["comment"].startswith("HAZOP")]
+    assert sil and hazop
+    assert any(
+        "per the draft SIL checklist (not yet engineer-approved)" in r["comment"]
+        for r in sil
+    )
+    assert all("HAZOP checklist" not in r["comment"] for r in sil)
+    assert all("approved playbook" not in r["comment"] for r in rows)
+    assert all(
+        "approved" not in r["comment"].replace("not yet engineer-approved", "")
+        for r in rows
+    )
