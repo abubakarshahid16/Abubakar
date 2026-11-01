@@ -45,7 +45,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import equipment_scope, numparse
+from . import equipment_scope as eqs
+from . import numparse
 
 VOCABULARY_PATH = Path(__file__).parent / "reference" / "equipment_vocabulary.json"
 
@@ -422,10 +423,9 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     """Split `requirements` into what the review checks and what does not apply.
 
     Returns {"kept": [...], "not_applied": [one grouped line per subject],
-    "summary": {...counts...}}. Order of `kept` is the order given.
-    """
+    "summary": {...counts...}}. Order of `kept` is the order given."""
     vocab = vocab or vocabulary()
-    equipment, source, doubt = equipment_scope.narrowing_equipment(classification, facts, vocab)
+    equipment, source, doubt = eqs.narrowing_equipment(classification, facts, vocab)
     headings_by_standard = headings_by_standard or {}
     kept: list[dict] = []
     summary = {"submittal_equipment": sorted(equipment), "equipment_source": source,

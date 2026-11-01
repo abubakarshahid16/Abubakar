@@ -165,7 +165,9 @@ def narrowing_equipment(classification, facts, vocab):
     pressure-vessel code as its design code reads heat exchanger and pressure vessel). Only a rule
     about NONE of them is left out, which each reading on its own would also leave out, so the
     doubt never decides which reading wins. Off, or no doubt: `read_equipment` unchanged."""
-    equipment, source, doubt = subject_scope.read_equipment(classification, facts, vocab)
+    equipment, source, doubt = subject_scope.read_equipment(
+        classification, facts, vocab
+    )
     if not doubt or not enabled():
         return equipment, source, doubt
     every = set(doubt["named"]) | {
