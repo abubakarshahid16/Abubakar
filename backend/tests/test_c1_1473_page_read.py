@@ -160,3 +160,22 @@ def test_word_pages_are_the_pages_its_chunks_use_and_all_count_read(
         )
     }
     assert methods == {"docx"}
+
+
+def test_a_legacy_derived_no_facts_page_is_not_counted_read(monkeypatch):
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
+    doc = _prose_doc()
+    with db.connect() as conn:  # extraction never recorded these pages
+        conn.execute(
+            "UPDATE page_ledger SET facts_recorded_by = 'derived' WHERE document_id=?",
+            (doc,),
+        )
+    cov = page_ledger.coverage(doc)
+    assert cov["pages_read"] == []
+    assert cov["pages_not_read"] == [1, 2, 3]
+
+
+def test_run_unread_pages_from_a_real_ledger(monkeypatch):
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
+    cov = page_ledger.coverage(_prose_doc(ocr_pending=2))
+    assert page_ledger.run_unread_pages(cov) == [2]

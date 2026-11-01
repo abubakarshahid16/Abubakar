@@ -743,7 +743,8 @@ class Settings(BaseSettings):
     #: 'docx', and a scanned page's OCR text also yields table-shaped lines
     #: ("label  value  unit", "label | value | unit") beside "LABEL: VALUE",
     #: still at the OCR fallback's low confidence and engineer-review state.
-    #: Trade-off: a CRS template workbook is then indexed too. OFF by default.
+    #: Trade-off to measure before switching on: a CRS template workbook is
+    #: then indexed too. OFF by default - merging changes nothing.
     #: Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
     #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
@@ -756,7 +757,11 @@ class Settings(BaseSettings):
     #: default since the tests in test_w5b_525_docx.py pass.
     #: Env: DOCX_INPUT_ENABLED.
     docx_input_enabled: bool = True
-    page_read_by_reading_enabled: bool = False  # #1473
+    #: #1473: a page counts as READ when a recorded text or picture reading came
+    #: back for it, apart from "fields found" (`page_ledger.coverage` adds
+    #: `pages_read` / `pages_not_read`), and a Word file reaches the fact reader
+    #: through `word_flow`. OFF: nothing changes. Env: PAGE_READ_BY_READING_ENABLED.
+    page_read_by_reading_enabled: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

@@ -671,6 +671,10 @@ def page_has_reading(row: dict) -> bool:
     nothing about fields: `pages_not_read_into_fields` is unchanged."""
     if row["facts_status"] not in ("facts", READ_NO_FIELD, "no_facts"):
         return False
+    if row["facts_status"] != "facts" and row["facts_recorded_by"] != "extraction":
+        # No recorded reading: a derived "no_facts" (read before the ledger
+        # existed) is not evidence that any reader ran on the page.
+        return False
     return row["native_status"] == "text" or row["ocr_status"] == "done"
 
 
