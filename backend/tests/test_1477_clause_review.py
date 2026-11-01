@@ -610,3 +610,55 @@ def test_a_complete_read_of_a_confirmed_kind_is_no_incomplete_part_but_a_guessed
     assert (
         part["part"] == "clause_review" and "suggested, not confirmed" in part["line"]
     )
+
+
+def _budget_stopped_run(monkeypatch):
+    monkeypatch.setattr(settings, "clause_review_seconds_per_page", 50.0)
+    _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS, REQ_GUIDE))
+    clock = Clock()
+    answers = {
+        k: {"answer": "no_evidence", "page": None, "quote": None}
+        for k in ("HAZOP chair", "tracked to closure", "guide words")
+    }
+    _go(run, scope, Fake(answers, clock, step=60.0), clock=clock)
+    assert clause_review.status_of(run)["not_reviewed"] == ["5.3"]
+    return run
+
+
+def _still_said(run):
+    from app import absence
+
+    ai = clause_review._stored_ai_status(db.connect(), run)
+    assert ai["clause_review"]["not_reviewed"] == ["5.3"]
+    assert "1 not reviewed" in ai["plain"]
+    parts = absence.unchecked_parts(run_status="completed", outcome={}, ai_status=ai)
+    assert any(p["part"] == "clause_review" for p in parts)
+    assert "REVIEW INCOMPLETE" in absence.notice_for(parts)
+
+
+def test_a_later_ai_check_write_keeps_the_clause_review_entry_and_the_notice(
+    on, monkeypatch
+):
+    from app import ai_engineering_check as aic
+
+    run = _budget_stopped_run(monkeypatch)
+    done = {"ran": True, "complete": True, "plain": "AI engineering check complete."}
+    aic._store_status(run, dict(done))
+    _still_said(run)
+    aic._store_status(run, dict(done))  # said once, however many times the check writes
+    assert (
+        clause_review._stored_ai_status(db.connect(), run)["plain"].count(
+            "AI clause review"
+        )
+        == 1
+    )
+
+
+def test_a_failed_ai_check_record_keeps_the_clause_review_entry(on, monkeypatch):
+    from app import review_jobs
+
+    run = _budget_stopped_run(monkeypatch)
+    review_jobs._record_check_failure(
+        run, "ai_check_status", "AI engineering check", RuntimeError("x")
+    )
+    _still_said(run)

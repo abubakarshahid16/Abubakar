@@ -245,6 +245,10 @@ def _record_check_failure(run_id: str, column: str, name: str, exc: BaseExceptio
     status = absence.check_failed_status(name, f"it failed ({type(exc).__name__})")
     assert column in ("ai_check_status", "web_check_status")
     try:
+        if column == "ai_check_status":
+            from . import clause_review
+
+            return clause_review.write_ai_status(run_id, status)
         conn = connect()
         with conn:
             conn.execute(f"UPDATE review_runs SET {column} = ?, updated_at = ? WHERE id = ?",

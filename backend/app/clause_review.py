@@ -557,6 +557,26 @@ def _store_status(review_run_id: str, status: dict) -> None:
         )
 
 
+def write_ai_status(review_run_id: str, status: dict) -> None:
+    """The ONE way the AI engineering check (and its failure record) writes
+    `ai_check_status`: it keeps an existing clause review entry and its sentence,
+    so a later /ai-check re-run never makes the sheet look fully read."""
+    conn = connect()
+    clause = _stored_ai_status(conn, review_run_id).get(STATUS_KEY)
+    if clause:
+        base = str(status.get("plain") or "").split(_PLAIN_MARK)[0].strip()
+        status = {
+            **status,
+            STATUS_KEY: clause,
+            "plain": (base + " " + clause["plain"]).strip(),
+        }
+    with conn:
+        conn.execute(
+            "UPDATE review_runs SET ai_check_status = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(status), _now(), review_run_id),
+        )
+
+
 def status_of(review_run_id: str) -> dict | None:
     """The run's stored clause review outcome (counts and names, never text); None if it never ran."""
     return _stored_ai_status(connect(), review_run_id).get(STATUS_KEY)
