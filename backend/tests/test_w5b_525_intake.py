@@ -333,13 +333,18 @@ def test_switch_off_leaves_pages_read_alone(tmp_path, monkeypatch):
 
 
 def test_review_trace_read_step_carries_the_partly_read_note(tmp_path):
-    from app import page_not_read
+    from app import review_trace
 
     doc_id = _index_xlsx(_big_hidden_workbook(tmp_path / "trace.xlsx"), "trace.xlsx")
     page_ledger.refresh(doc_id)
-    cov = page_ledger.coverage(doc_id)
-    detail = page_not_read.notes({"page_coverage": cov})[0]["detail"]
-    assert "page 1: partly read" in detail and cov["pages_partly_read"]
+    step = review_trace._read_step(page_ledger.coverage(doc_id), [])
+    assert (
+        "partly read 1" in step["summary"] and step["counts"]["partly_read_pages"] == 1
+    )
+    assert any("page 1: partly read" in i for i in step["items"])
+    settings.one_intake_enabled = False
+    quiet = review_trace._read_step(page_ledger.coverage(doc_id), [])
+    assert quiet["counts"]["partly_read_pages"] == 0 and quiet["items"] == []
 
 
 def test_with_the_switch_off_the_ledger_and_the_crs_note_do_not_change(tmp_path):
