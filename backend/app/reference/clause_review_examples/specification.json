@@ -1,0 +1,110 @@
+{
+  "invented": true,
+  "label": "INVENTED - replace with engineer examples",
+  "kind": "specification",
+  "note": "Every row is made up for the tests and the first runs. No real document text. The owner replaces them with engineer decisions.",
+  "examples": [
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "The vessel shall be hydrostatically tested at 1.3 times the design pressure.",
+      "passages": [
+        {
+          "page": 6,
+          "text": "After fabrication each vessel is hydrostatically tested at 1.3 times the design pressure and held for 30 minutes."
+        }
+      ],
+      "answer": {
+        "answer": "quote",
+        "page": 6,
+        "quote": "each vessel is hydrostatically tested at 1.3 times the design pressure"
+      },
+      "why": "Same figure, quote it."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "Welding shall be carried out by qualified welders.",
+      "passages": [
+        {
+          "page": 2,
+          "text": "Painting is applied in two coats. Inspection is by the purchaser."
+        }
+      ],
+      "answer": {
+        "answer": "no_evidence",
+        "page": null,
+        "quote": null
+      },
+      "why": "Nothing about welders or their qualification: no evidence."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "The contractor shall submit a quality plan before fabrication starts.",
+      "passages": [
+        {
+          "page": 1,
+          "text": "A quality plan will be issued to the purchaser for review ten days before fabrication starts."
+        }
+      ],
+      "answer": {
+        "answer": "quote",
+        "page": 1,
+        "quote": "A quality plan will be issued to the purchaser for review ten days before fabrication starts."
+      },
+      "why": "Different words, same commitment."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "Materials shall have mill test certificates to EN 10204 type 3.1.",
+      "passages": [
+        {
+          "page": 8,
+          "text": "Materials are supplied with certificates."
+        }
+      ],
+      "answer": {
+        "answer": "no_evidence",
+        "page": null,
+        "quote": null
+      },
+      "why": "A certificate is mentioned but not the type: no evidence for the requirement as written."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "Nameplates shall be stainless steel.",
+      "passages": [
+        {
+          "page": 10,
+          "text": "Each item carries an engraved 316 stainless steel nameplate fixed with rivets."
+        }
+      ],
+      "answer": {
+        "answer": "quote",
+        "page": 10,
+        "quote": "engraved 316 stainless steel nameplate"
+      },
+      "why": "Material stated."
+    },
+    {
+      "invented": true,
+      "label": "INVENTED - replace with engineer examples",
+      "requirement": "Spare parts for two years of operation shall be listed.",
+      "passages": [
+        {
+          "page": 12,
+          "text": "A recommended spares list for commissioning and two years of operation is attached as Appendix C."
+        }
+      ],
+      "answer": {
+        "answer": "quote",
+        "page": 12,
+        "quote": "A recommended spares list for commissioning and two years of operation is attached as Appendix C."
+      },
+      "why": "Stated; whether Appendix C is complete is for the engineer."
+    }
+  ]
+}

@@ -60,6 +60,10 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
         FK_CASCADE,
         "an administrator's confirmation of this Company standard (#620)",
     ),
+    ("clause_review_cache", "document_id"): (
+        FK_CASCADE,
+        "stored AI answers about this submittal (#1477)",
+    ),
     ("document_classification", "document_id"): (FK_CASCADE, "metadata about this document"),
     ("document_kinds", "document_id"): (FK_CASCADE, "the document-type router's suggestion or a person's confirmed kind"),
     ("document_role_access", "document_id"): (FK_CASCADE, "grants on a document that is gone"),
