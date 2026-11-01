@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from . import cover_page, errors, page_not_read, unsupported_script
+from . import cover_page, errors, intake, page_not_read, unsupported_script
 from .config import settings
 from .db import connect
 
@@ -667,7 +667,7 @@ def coverage(document_id: str) -> dict:
             },
         }
     return {
-        **by_reading,
+        **by_reading, **intake.coverage_part(document_id),
         "pages_total": len(ledger),
         "native": count("native_status"),
         "ocr": count("ocr_status"),

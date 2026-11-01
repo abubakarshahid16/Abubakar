@@ -37,12 +37,38 @@ def unread_page_words(row: dict, *, dropped_content: bool = False) -> str:
     return str(row["facts_reason"] or "no reading came back for this page")
 
 
-def notes(outcome: dict | None) -> list[dict]:
-    """One CRS note naming the unread pages and each reason. Only a run stored
-    with PAGE_READ_BY_READING_ENABLED carries `pages_not_read_why`."""
-    why = ((outcome or {}).get("page_coverage") or {}).get("pages_not_read_why") or {}
-    if not why:
+NOTE_FILE_PARTLY_READ = "File not fully read"
+
+
+def _intake_note(coverage: dict) -> list[dict]:
+    """ONE_INTAKE_ENABLED: what intake left out of a workbook (a cut sheet, a
+    hidden sheet, a formula with no stored result), each with its reason."""
+    found = coverage.get("intake_reasons") or {}
+    if not found:
         return []
+    parts = [
+        ("the file" if p == "0" else f"page {p}") + ": " + "; ".join(found[p])
+        for p in sorted(found, key=int)
+    ]
+    return [
+        {
+            "note": NOTE_FILE_PARTLY_READ,
+            "standard": "",
+            "count": len(found),
+            "detail": "Not read or only partly read - " + " | ".join(parts) + ".",
+        }
+    ]
+
+
+def notes(outcome: dict | None) -> list[dict]:
+    """CRS notes naming the unread pages and each reason. Only a run stored
+    with PAGE_READ_BY_READING_ENABLED carries `pages_not_read_why`; only a
+    document read with ONE_INTAKE_ENABLED carries `intake_reasons`."""
+    coverage = (outcome or {}).get("page_coverage") or {}
+    out = _intake_note(coverage)
+    why = coverage.get("pages_not_read_why") or {}
+    if not why:
+        return out
     order = sorted(why, key=int)
     plural = len(order) != 1
     detail = (
@@ -57,5 +83,6 @@ def notes(outcome: dict | None) -> list[dict]:
             "standard": "",
             "count": len(order),
             "detail": detail,
-        }
+        },
+        *out,
     ]

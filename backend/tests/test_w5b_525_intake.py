@@ -232,6 +232,59 @@ def test_a_sheet_past_the_row_limit_is_partly_read_with_the_reason_stored(tmp_pa
     assert stored["row_limit"]["page_no"] == 1
 
 
+def test_init_db_creates_the_intake_reasons_table():
+    names = {
+        r[0]
+        for r in db.connect().execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    assert "intake_reasons" in names
+
+
+def _big_hidden_workbook(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for i in range(5200):
+        ws.append([f"row {i}", i])
+    wb.create_sheet("Notes").append(["a", "b"])
+    wb.create_sheet("Secret").sheet_state = "hidden"
+    wb.save(path)
+    return path
+
+
+def test_the_crs_note_names_a_truncated_sheet_and_a_hidden_sheet(tmp_path):
+    from app import page_not_read
+
+    doc_id = _index_xlsx(_big_hidden_workbook(tmp_path / "crs.xlsx"), "crs.xlsx")
+    page_ledger.refresh(doc_id)
+    cov = page_ledger.coverage(doc_id)
+    assert cov["intake_reasons"]["1"] == [
+        "partly read: rows after row 5000 not read: row limit 5000"
+    ]
+    assert cov["intake_reasons"]["0"] == [
+        "not read: hidden sheet 3 (workbook position)"
+    ]
+    [note] = page_not_read.notes({"page_coverage": cov})
+    assert note["note"] == page_not_read.NOTE_FILE_PARTLY_READ
+    assert (
+        "page 1: partly read: rows after row 5000 not read: row limit 5000"
+        in note["detail"]
+    )
+    assert "the file: not read: hidden sheet 3" in note["detail"]
+
+
+def test_with_the_switch_off_the_ledger_and_the_crs_note_do_not_change(tmp_path):
+    from app import page_not_read
+
+    doc_id = _index_xlsx(_big_hidden_workbook(tmp_path / "off.xlsx"), "off.xlsx")
+    settings.one_intake_enabled = False
+    page_ledger.refresh(doc_id)
+    cov = page_ledger.coverage(doc_id)
+    assert "intake_reasons" not in cov
+    assert page_not_read.notes({"page_coverage": cov}) == []
+
+
 def test_a_formula_with_no_stored_result_is_counted_not_dropped(tmp_path):
     wb = openpyxl.Workbook()
     ws = wb.active

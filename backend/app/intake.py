@@ -391,17 +391,6 @@ def as_rows(result: IntakeResult) -> list[tuple]:
     ]
 
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS intake_reasons (
-    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    page_no     INTEGER NOT NULL,
-    code        TEXT NOT NULL,
-    reason      TEXT NOT NULL,
-    PRIMARY KEY (document_id, page_no, code)
-)
-"""
-
-
 def store(doc_id: str, result: IntakeResult) -> int:
     """Keep what was not read (or only partly) where the document record can show it.
 
@@ -413,7 +402,6 @@ def store(doc_id: str, result: IntakeResult) -> int:
     rows |= {(n, "page_not_read", w) for n, w in result.not_read().items()}
     conn = connect()
     with conn:
-        conn.execute(_SCHEMA)
         conn.execute("DELETE FROM intake_reasons WHERE document_id = ?", (doc_id,))
         conn.executemany(
             "INSERT OR REPLACE INTO intake_reasons (document_id, page_no, code, reason)"
@@ -428,7 +416,6 @@ def reasons_for(doc_id: str) -> list[dict]:
     from .db import connect
 
     conn = connect()
-    conn.execute(_SCHEMA)
     return [
         dict(r)
         for r in conn.execute(
@@ -447,3 +434,23 @@ def refusal_of(exc: BaseException, last_error: dict) -> tuple[str, str]:
     if isinstance(exc, IntakeRefused):
         return exc.code, exc.message
     return errors.INTERNAL, last_error["message"]
+
+
+def coverage_part(document_id: str) -> dict:
+    """What `page_ledger.coverage` adds for a document read through intake:
+    `intake_reasons` = {page_no: [reason, ...]}, page "0" = the whole file.
+
+    ONE_INTAKE_ENABLED off, or nothing stored: {} (nothing changes). A page
+    states its own full reason once; file-level reasons (a hidden sheet) are
+    kept apart."""
+    if not settings.one_intake_enabled:
+        return {}
+    by_page: dict[str, list[str]] = {}
+    own = {
+        r["page_no"] for r in reasons_for(document_id) if r["code"] == "page_not_read"
+    }
+    for r in reasons_for(document_id):
+        if r["page_no"] in own and r["code"] != "page_not_read":
+            continue
+        by_page.setdefault(str(r["page_no"]), []).append(r["reason"])
+    return {"intake_reasons": by_page} if by_page else {}
