@@ -479,8 +479,10 @@ def decide_clause_check(
             str(exc))) from exc
 
 
-@router.post("/api/standards/{document_id}/clause-checks/extract",
-             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.post(
+    "/api/standards/{document_id}/clause-checks/extract",
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def extract_clause_checks(
     document_id: str,
     max_chunks: int = Query(5, ge=1, le=20),
@@ -492,10 +494,18 @@ def extract_clause_checks(
     `ai_requirement_extraction_enabled`. Counts only in the answer."""
     from .. import ai_requirement_chunks
     from .. import standards as standards_mod
+
     report = ai_requirement_chunks.extract_standard(
-        document_id, allowed_document_ids=scope.allowed_document_ids, max_chunks=max_chunks)
-    standards_mod._audit("standard.clause_check_extract", actor, document_id,
-                         detail=f"chunks={report['chunks']} proposed={report['proposed']}")
+        document_id,
+        allowed_document_ids=scope.allowed_document_ids,
+        max_chunks=max_chunks,
+    )
+    standards_mod._audit(
+        "standard.clause_check_extract",
+        actor,
+        document_id,
+        detail=f"chunks={report['chunks']} proposed={report['proposed']}",
+    )
     return report
 
 
