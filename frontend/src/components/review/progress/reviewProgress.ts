@@ -34,7 +34,7 @@ export function shown(d: ReviewProgressDetail, extra = 0): Shown {
   let estimate: string | null = null;
   if (hasPages && elapsedS !== null && elapsedS > 0 && done >= ESTIMATE_MIN_PAGES && done < total) {
     const left = (elapsedS / done) * (total - done);
-    estimate = `about ${minutes(left)} left (estimate, from the pages done so far)`;
+    estimate = `about ${minutes(left)} left reading pages (estimate, from the pages done so far)`;
   }
   const idle = typeof d.idle_seconds === "number" ? d.idle_seconds + extra : null;
   let stall: Shown["stall"] = null;

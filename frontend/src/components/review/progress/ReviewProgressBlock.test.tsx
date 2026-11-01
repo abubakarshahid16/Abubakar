@@ -41,7 +41,7 @@ describe("the time-left estimate", () => {
   });
   it("is labelled an estimate with its basis once 3 pages are done", () => {
     const e = shown(detail({ pages_done: 3, elapsed_seconds: 300 })).estimate;
-    expect(e).toBe("about 11 min left (estimate, from the pages done so far)");
+    expect(e).toBe("about 11 min left reading pages (estimate, from the pages done so far)");
   });
   it("is hidden when the total is unknown or all pages are done", () => {
     expect(shown(detail({ pages_done: 5, pages_total: null })).estimate).toBeNull();
