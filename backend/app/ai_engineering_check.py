@@ -711,10 +711,9 @@ def _plain_status(status: dict) -> str:
 
 
 def _store_status(review_run_id: str, status: dict) -> None:
-    conn = connect()
-    with conn:
-        conn.execute("UPDATE review_runs SET ai_check_status = ?, updated_at = ? WHERE id = ?",
-                     (json.dumps(status), _now(), review_run_id))
+    from . import clause_review
+
+    clause_review.write_ai_status(review_run_id, status)  # keeps a clause review entry
 
 
 def ai_check_status(review_run_id: str, *, allowed_document_ids: frozenset[str], run: dict | None = None) -> dict | None:

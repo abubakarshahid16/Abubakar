@@ -245,6 +245,10 @@ def _record_check_failure(run_id: str, column: str, name: str, exc: BaseExceptio
     status = absence.check_failed_status(name, f"it failed ({type(exc).__name__})")
     assert column in ("ai_check_status", "web_check_status")
     try:
+        if column == "ai_check_status":
+            from . import clause_review
+
+            return clause_review.write_ai_status(run_id, status)
         conn = connect()
         with conn:
             conn.execute(f"UPDATE review_runs SET {column} = ?, updated_at = ? WHERE id = ?",
@@ -297,6 +301,15 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         # #633: AND IT SAYS SO ON THE RUN. The review stands, but a reviewer must
         # be able to tell "ran, nothing to raise" from "could not be checked".
         _record_check_failure(run_id, "ai_check_status", "AI engineering check", exc)
+
+
+def _checks(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
+    """The review's optional checks, after the comparison. None fails the review."""
+    from . import clause_review
+
+    _ai_check(run_id, scope, missing)
+    _web_check(run_id, scope, missing)
+    clause_review.for_review(run_id, scope)
 
 
 def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
@@ -365,8 +378,8 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             company_standard_confirm.record_on_run(run_id, held)
         _label(conn, job_id, FINISHING)
         with _phase(conn, job_id, None, heartbeat, timings, "checks"):
-            _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
-            _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+            missing = [m["identifier"] for m in selection["missing_references"]]
+            _checks(run_id, scope, missing)
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
         # R15 (#779): every CRS row of the finished run gets its permanent number
         # (drafts not issued), then R26 step 8 (#763): the model words each CRS

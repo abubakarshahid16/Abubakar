@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .clause_review_settings import ClauseReviewSettings
+
 
 class ModelHostRefused(RuntimeError):
     """A model endpoint this system will not talk to.
@@ -158,8 +160,7 @@ def check_model_url(
 
     host = (parts.hostname or "").lower()
     if not host:
-        raise ModelHostRefused(
-            "answer model URL names no host; refusing to guess one")
+        raise ModelHostRefused("answer model URL names no host; refusing to guess one")
 
     # Credentials in the URL are refused rather than stripped. A value shaped
     # like `http://user:pass@host` is either an accident or a proxy nobody
@@ -247,7 +248,7 @@ def shared_backend_dir(backend: Path = BACKEND_DIR) -> Path:
     return candidate if common.name == ".git" and candidate.is_dir() else backend
 
 
-class Settings(BaseSettings):
+class Settings(ClauseReviewSettings, BaseSettings):
     # ANCHORED, like every other path in this class. It was `".env"` - a
     # relative path, resolved by pydantic-settings against the process working
     # directory - while `data_dir`, `db_path` and the model directories were
@@ -265,8 +266,7 @@ class Settings(BaseSettings):
     # under `demo_required` could not help, because it never saw
     # `demo_required` - the same mechanism that disabled the control also
     # bypassed its guard.
-    model_config = SettingsConfigDict(
-        env_file=BACKEND_DIR / ".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", extra="ignore")
 
     # Bind loopback only. Never 0.0.0.0 - document content must not be reachable.
     # ENFORCED, not only advised: a non-loopback bind under AUTH_MODE=disabled
