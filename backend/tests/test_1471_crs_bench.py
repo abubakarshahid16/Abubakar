@@ -269,3 +269,67 @@ def test_the_truth_file_holds_no_document_text():
         for key in ("untrue", "irrelevant", "wrong"):
             for m in case.get(key, []):
                 assert set(m) <= allowed
+
+
+def _m(**over):
+    base = {
+        "wrong": 0,
+        "untrue": 0,
+        "irrelevant": 0,
+        "pass_on_deferred": 0,
+        "sent_away": 3,
+        "checklist_decided": 2,
+        "rules_decided": 1,
+        "quotes_verified": 4,
+        "pages_read": 5,
+        "kind_ok": True,
+        "kind": "datasheet",
+    }
+    return {**base, **over}
+
+
+@pytest.mark.parametrize(
+    "key", ["checklist_decided", "rules_decided", "quotes_verified", "pages_read"]
+)
+def test_gate_goes_red_when_a_higher_is_better_measure_drops(key):
+    case = {"name": "t", "run": "r"}
+    before = [{"case": case, "stored": _m()}]
+    assert crs_bench.gate([{"case": case, "stored": _m()}], before) == []
+    worse = [{"case": case, "stored": _m(**{key: _m()[key] - 1})}]
+    assert any(key in r for r in crs_bench.gate(worse, before))
+
+
+@pytest.mark.parametrize(
+    "key", ["untrue", "irrelevant", "pass_on_deferred", "sent_away"]
+)
+def test_gate_goes_red_when_a_lower_is_better_measure_rises(key):
+    case = {"name": "t", "run": "r"}
+    before = [{"case": case, "stored": _m()}]
+    worse = [{"case": case, "stored": _m(**{key: _m()[key] + 1})}]
+    assert any(key in r for r in crs_bench.gate(worse, before))
+
+
+def test_a_measure_that_goes_blank_is_worse_never_zero():
+    case = {"name": "t", "run": "r"}
+    before = [{"case": case, "stored": _m()}]
+    blank = [{"case": case, "stored": _m(pages_read=None)}]
+    assert any("blank" in r for r in crs_bench.gate(blank, before))
+
+
+def test_a_wrong_verdict_in_the_stored_column_is_red_even_with_a_replay():
+    case = {"name": "t", "run": "r"}
+    res = [{"case": case, "stored": _m(wrong=1), "replay": _m()}]
+    assert any("stored" in r for r in crs_bench.gate(res))
+
+
+def test_an_empty_truth_matcher_is_refused_not_matched_to_everything(run_id):
+    with pytest.raises(ValueError):
+        _score(run_id, {"kind": "datasheet", "untrue": [{"why": "no key"}]})
+
+
+def test_run_bench_itself_refuses_a_live_shaped_path(monkeypatch):
+    from app import live_guard
+
+    monkeypatch.setattr(live_guard, "is_live_shaped", lambda _p: True)
+    with pytest.raises(PermissionError):
+        crs_bench.run_bench(Path("x.sqlite"), {"cases": []})

@@ -34,6 +34,9 @@ DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = re.compile(r"\bby contractor\b|\btba\b|\bto be advised\b", re.I)
 
 
+MATCH_KEYS = ("origin", "status", "requirement_id", "match_method", "section")
+
+
 class ModelCallRefused(RuntimeError):
     """The bench never calls a model; the replay counts every attempt."""
 
@@ -42,7 +45,9 @@ class ModelCallRefused(RuntimeError):
 
 
 def _matches(finding: dict, matcher: dict) -> bool:
-    for key in ("origin", "status", "requirement_id", "match_method", "section"):
+    if not set(matcher) & set(MATCH_KEYS):
+        raise ValueError(f"a truth matcher must name at least one of {MATCH_KEYS}")
+    for key in MATCH_KEYS:
         if key not in matcher:
             continue
         want = matcher[key]
@@ -216,9 +221,18 @@ def _models_refused(counter: list[int], installed: tuple[str, ...] = ()):
         (model_transport, ("post_json", "post_json_retrying", "stream_json")),
         (reader_transport, ("stream", "_gated", "batch_create", "list_models")),
     )
+    import smtplib
+    import socket
+
     import httpx  # the net under the gates: no request leaves, whatever imported it
 
-    blocked += ((httpx.Client, ("send",)), (httpx.AsyncClient, ("send",)))
+    blocked += (
+        (httpx.Client, ("send",)),
+        (httpx.AsyncClient, ("send",)),
+        (smtplib.SMTP, ("connect",)),
+        (socket.socket, ("connect", "connect_ex")),
+        (socket, ("create_connection",)),
+    )
     for mod, names in blocked:
         for name in names:
             if hasattr(mod, name):
@@ -361,6 +375,10 @@ def _frac(n, d) -> str:
 
 
 def run_bench(db_path: Path, truth: dict, *, do_replay: bool = True) -> list[dict]:
+    from app import live_guard
+
+    if live_guard.is_live_shaped(db_path):
+        raise PermissionError("the bench never opens the live database; pass a copy")
     out = []
     raw = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
@@ -401,32 +419,40 @@ ROWS = [
 
 
 def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
-    """Why the bench is red, or [] when green: any wrong verdict, or any
-    measure worse than the saved baseline for the same run."""
+    """Why the bench is red, or [] when green: any wrong verdict (stored or
+    replay), or any measure worse than the saved baseline for the same run. A
+    measure that had a value and is now blank is worse (null is never 0)."""
     reasons = []
     base = {b["case"]["run"]: b for b in (baseline or [])}
     for r in results:
-        now = r.get("replay") or r["stored"]
         name = r["case"]["name"]
-        if now["wrong"]:
-            reasons.append(f"{name}: {now['wrong']} wrong verdict(s)")
+        for column in ("stored", "replay"):
+            if r.get(column) and r[column]["wrong"]:
+                reasons.append(
+                    f"{name}: {r[column]['wrong']} wrong verdict(s) ({column})"
+                )
+        now = r.get("replay") or r["stored"]
         b = base.get(r["case"]["run"])
-        if b:
-            then = b.get("replay") or b["stored"]
-            for key in ("untrue", "irrelevant", "pass_on_deferred"):
-                if now[key] > then[key]:
-                    reasons.append(f"{name}: {key} {then[key]} -> {now[key]}")
-            for key in (
-                "checklist_decided",
-                "rules_decided",
-                "quotes_verified",
-                "pages_read",
-            ):
-                if (now[key] or 0) < (then[key] or 0):
-                    reasons.append(f"{name}: {key} {then[key]} -> {now[key]}")
-            if then["kind_ok"] and not now["kind_ok"]:
-                reasons.append(f"{name}: kind was right, now {now['kind']}")
+        if not b:
+            continue
+        then = b.get("replay") or b["stored"]
+        for key in HIGHER_IS_WORSE:
+            if then.get(key) is not None and now.get(key) is None:
+                reasons.append(f"{name}: {key} {then[key]} -> blank")
+            elif then.get(key) is not None and now[key] > then[key]:
+                reasons.append(f"{name}: {key} {then[key]} -> {now[key]}")
+        for key in LOWER_IS_WORSE:
+            if then.get(key) is not None and now.get(key) is None:
+                reasons.append(f"{name}: {key} {then[key]} -> blank")
+            elif then.get(key) is not None and now[key] < then[key]:
+                reasons.append(f"{name}: {key} {then[key]} -> {now[key]}")
+        if then["kind_ok"] and not now["kind_ok"]:
+            reasons.append(f"{name}: kind was right, now {now['kind']}")
     return reasons
+
+
+HIGHER_IS_WORSE = ("untrue", "irrelevant", "pass_on_deferred", "sent_away")
+LOWER_IS_WORSE = ("checklist_decided", "rules_decided", "quotes_verified", "pages_read")
 
 
 def render_markdown(
