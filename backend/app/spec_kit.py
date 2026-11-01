@@ -21,6 +21,13 @@ What code may say, and no more:
   * NEVER COMPLIANT.
 
 SWITCH: `settings.spec_kit_enabled`, OFF by default.
+
+PARKED KINDS (#1484 drawing; #1482 transmittal and #1483 contract wait, see
+docs/parked-kits-waiting.md): the same mechanism, routed by the document's KIND instead of a
+discipline. `reference/kind_kits/<kind>.json` holds a DRAFT must-contain list for a kind a held
+standard covers; the rows, notes and CRS hooks are the ones above with the kind's noun in the
+words ("A drawing states: ..."). No numeric cross-check for these kinds. SWITCH:
+`settings.parked_kits_draft_enabled`, OFF by default and independent of `spec_kit_enabled`.
 """
 
 from __future__ import annotations
@@ -39,6 +46,7 @@ from .db import connect
 log = logging.getLogger(__name__)
 
 KIT_DIR = Path(__file__).parent / "reference" / "spec_kit"
+KIND_KIT_DIR = Path(__file__).parent / "reference" / "kind_kits"
 ORIGIN = "spec_kit"
 LANE = SPEC_LANE
 KIND = "specification"
@@ -66,6 +74,16 @@ def kits() -> dict[str, dict]:
     for path in sorted(KIT_DIR.glob("*.json")):
         kit = json.loads(path.read_text())
         out[kit["discipline"]] = kit
+    return out
+
+
+@lru_cache(maxsize=1)
+def kind_kits() -> dict[str, dict]:
+    """document kind -> DRAFT kit, for the parked kinds a held standard covers."""
+    out = {}
+    for path in sorted(KIND_KIT_DIR.glob("*.json")):
+        kit = json.loads(path.read_text())
+        out[kit["kind"]] = kit
     return out
 
 
@@ -123,7 +141,9 @@ def _source(item: dict) -> str:
     return "DRAFT item, no held standard clause"
 
 
-def item_row(item: dict, pages: list[tuple[int, str]]) -> dict:
+def item_row(
+    item: dict, pages: list[tuple[int, str]], noun: str = "specification"
+) -> dict:
     found = find_item(item, pages)
     source = _source(item)
     if found:
@@ -132,21 +152,21 @@ def item_row(item: dict, pages: list[tuple[int, str]]) -> dict:
             f"passage by its words, not a finding that the item is adequate; engineer to confirm"
         )
         text = (
-            f"{item['topic']}: covered on page {found['page']} of the specification; "
+            f"{item['topic']}: covered on page {found['page']} of the {noun}; "
             f"engineer to confirm ({source})."
         )
     else:
         rationale = (
-            f"{NOT_FOUND}: a keyword search of the specification's pages found no passage "
+            f"{NOT_FOUND}: a keyword search of the {noun}'s pages found no passage "
             f"for '{item['topic']}'; engineer to check (it may be stated in other words)"
         )
         text = (
-            f"{item['topic']}: no passage found by keyword search of the specification "
+            f"{item['topic']}: no passage found by keyword search of the {noun} "
             f"({source}); engineer to check."
         )
     return {
         "item": item["id"],
-        "requirement": f"A specification states: {item['topic']} ({source}).",
+        "requirement": f"A {noun} states: {item['topic']} ({source}).",
         "finding": text,
         "rationale": rationale,
         "page": found["page"] if found else None,
@@ -305,11 +325,12 @@ def numeric_rows(
 
 
 def applies(document_id: str | None) -> bool:
-    return bool(
-        settings.spec_kit_enabled
-        and document_id
-        and procedure_text.document_kind(document_id) == KIND
-    )
+    if not document_id:
+        return False
+    kind = procedure_text.document_kind(document_id)
+    if kind == KIND:
+        return bool(settings.spec_kit_enabled)
+    return bool(settings.parked_kits_draft_enabled and kind in kind_kits())
 
 
 def _name(document_id: str) -> str:
@@ -325,19 +346,38 @@ def _name(document_id: str) -> str:
     return (row[0] if row and row[0] else "") or document_id
 
 
-def not_run_row() -> dict:
+def not_run_row(noun: str = "specification", note: str = NOT_RUN_NOTE) -> dict:
     return {
         "item": "not_run",
-        "requirement": "The specification kit ran.",
-        "finding": NOT_RUN_NOTE + "; engineer to check the specification.",
-        "rationale": f"{NOT_RUN}: {NOT_RUN_NOTE}",
+        "requirement": f"The {noun} kit ran.",
+        "finding": note + f"; engineer to check the {noun}.",
+        "rationale": f"{NOT_RUN}: {note}",
         "page": None,
         "quote": None,
         "clause": None,
     }
 
 
+def kind_rows(kit: dict, document_id: str) -> list[dict]:
+    """A parked kind's rows: nothing runs when the document has no stored page text (nothing
+    was searched), else one row per item. No numeric cross-check."""
+    noun = kit["noun"]
+    pages = procedure_text.load_pages(document_id)
+    if not any(text.strip() for _, text in pages):
+        return [
+            not_run_row(
+                noun,
+                f"{noun.capitalize()} kit not run: no page text is stored for the {noun} "
+                f"(a scan not read yet?)",
+            )
+        ]
+    return [item_row(i, pages, noun) for i in kit["items"]]
+
+
 def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
+    kit = kind_kits().get(procedure_text.document_kind(document_id) or "")
+    if kit is not None:
+        return kind_rows(kit, document_id)
     kit = identify(document_id)
     if kit is None:
         return [not_run_row()]
@@ -372,6 +412,9 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
     from . import review as rv
 
     conn = connect()
+    kind = procedure_text.document_kind(doc)
+    # a parked kind's rows carry the kind in their requirement id: the one place the noun is read from
+    prefix = f"{ORIGIN}:{kind}:" if kind in kind_kits() else f"{ORIGIN}:"
     with conn:
         conn.execute(
             "DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"
@@ -404,7 +447,7 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
             )
             conn.execute(
                 "UPDATE review_findings SET requirement_id = ? WHERE id = ?",
-                (f"{ORIGIN}:{r['item']}", made["id"]),
+                (f"{prefix}{r['item']}", made["id"]),
             )
 
 
@@ -424,26 +467,31 @@ def is_unfound(finding: dict) -> bool:
     return is_row(finding) and _code(finding).startswith((NOT_FOUND, NOT_RUN))
 
 
+def noun_of(finding: dict) -> str:
+    """The noun of the document kind a kit row was written for ("specification" for the
+    discipline kits), from its requirement id `spec_kit:<kind>:<item>`."""
+    parts = str(finding.get("requirement_id") or "").split(":")
+    if len(parts) >= 3 and parts[0] == ORIGIN and parts[1] in kind_kits():
+        return kind_kits()[parts[1]]["noun"]
+    return "specification"
+
+
 def notes(findings: list[dict]) -> list[dict]:
     """ONE review note per run for the items no passage was found for."""
     not_run = [f for f in findings if is_row(f) and _code(f).startswith(NOT_RUN)]
     if not_run:
-        return [
-            {
-                "note": NOT_RUN_NOTE,
-                "standard": "",
-                "count": 1,
-                "detail": NOT_RUN_NOTE + ".",
-            }
-        ]
+        said = str(not_run[0].get("ai_rationale") or "")
+        text = (
+            said.split(": ", 1)[1] if said.startswith(NOT_RUN + ": ") else NOT_RUN_NOTE
+        )
+        return [{"note": text, "standard": "", "count": 1, "detail": text + "."}]
     rows = [f for f in findings if is_unfound(f)]
     if not rows:
         return []
+    noun = noun_of(rows[0])
+    lead = f"A {noun} states: "
     topics = [
-        (f.get("requirement") or "")
-        .removeprefix("A specification states: ")
-        .split(" (")[0]
-        for f in rows
+        (f.get("requirement") or "").removeprefix(lead).split(" (")[0] for f in rows
     ]
     listed = "; ".join(topics[:8]) + (
         f"; and {len(topics) - 8} more" if len(topics) > 8 else ""
@@ -451,11 +499,13 @@ def notes(findings: list[dict]) -> list[dict]:
     plural = "s" if len(rows) != 1 else ""
     return [
         {
-            "note": NOTE,
+            "note": NOTE
+            if noun == "specification"
+            else f"{noun.capitalize()} check - not covered by keyword search; engineer to check",
             "standard": "",
             "count": len(rows),
             "detail": (
-                f"{len(rows)} item{plural} of the specification must-contain list (a DRAFT list) "
+                f"{len(rows)} item{plural} of the {noun} must-contain list (a DRAFT list) "
                 f"have no passage found by a keyword search of the document's pages; the "
                 f"document may state them in other words. Each is a finding of this run "
                 f"(reason code {NOT_FOUND}): {listed}."
