@@ -118,7 +118,7 @@ def test_a_proven_schema_answers_with_one_statement_without_waiting_on_a_migrati
     PRAGMA), so this holds the lock in another thread and asks: does the
     proven schema still answer at once?"""
     review.ensure_schema()
-    review.ensure_schema()      # settled: proven against its own DDL
+    review.ensure_schema()  # settled: proven against its own DDL
     held, release = threading.Event(), threading.Event()
 
     def migrating():
