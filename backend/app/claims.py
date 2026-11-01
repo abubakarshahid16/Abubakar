@@ -566,14 +566,6 @@ _MEASUREMENT = re.compile(
 )
 
 
-#: #1515: the same, with a leading-dot value (".5 mm"); used only when
-#: LEADING_DOT_DECIMAL_ENABLED is on. A dot after a letter, digit or comma
-#: ("3.5", "p.4") is still blocked by the same look-behind.
-_MEASUREMENT_LEAD = re.compile(
-    _MEASUREMENT.pattern.replace("(?P<value>" + _NUMBER + ")",
-                                 "(?P<value>\\.\\d+|" + _NUMBER + ")", 1))
-
-
 def parse_comparator(text: str) -> str | None:
     """">=" for ≥ / "at least" / "not less than"; "min"/"max" for the words; None otherwise."""
     t = text.strip()
@@ -843,7 +835,7 @@ def extract_measurements(sentence: str, skips: dict[str, int] | None = None) -> 
     def skipped(reason: str) -> None:
         if skips is not None:
             skips[reason] = skips.get(reason, 0) + 1
-    for m in (_MEASUREMENT_LEAD if numparse.leading_dot_enabled() else _MEASUREMENT).finditer(sentence):
+    for m in numparse.with_leading_dot(_MEASUREMENT).finditer(sentence):
         start, end = m.span("value")
         # The sign is numparse's. A dash that is a joiner or a range separator
         # ("8501-1", "5-10 mm", "5 -10 mm") makes this no measurement, as it

@@ -33,6 +33,7 @@ gate without pulling in retrieval or the database.
 from __future__ import annotations
 
 import contextvars
+import functools
 import re
 import unicodedata
 from collections.abc import Iterator
@@ -359,6 +360,18 @@ def leading_dot_enabled() -> bool:
 
 _NUM_PART = r"[-+]?\d[\d.,\s]*"
 _NUM_PART_LEAD = r"[-+]?(?:\.\d+|\d[\d.,\s]*)"
+
+
+@functools.lru_cache(maxsize=8)
+def _leading_dot_pattern(pattern: re.Pattern) -> re.Pattern:
+    return re.compile(pattern.pattern.replace("(?P<value>\\d", "(?P<value>\\.\\d+|\\d", 1))
+
+
+def with_leading_dot(pattern: re.Pattern) -> re.Pattern:
+    """`pattern` (a unit-measurement regex with a `value` group) also matching
+    a leading-dot value (".5 mm"), when LEADING_DOT_DECIMAL_ENABLED is on (#1515);
+    else `pattern` itself. A dot after a letter or digit stays blocked by its look-behind."""
+    return _leading_dot_pattern(pattern) if leading_dot_enabled() else pattern
 
 
 def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -> float | None:

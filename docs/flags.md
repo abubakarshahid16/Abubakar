@@ -48,6 +48,7 @@ does not make one.
 | `pump_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft pump kit cards from held standards (SAES-G-005) join the Centrifugal Pump checklist; draft only, never decide; preparation for #1478, proof waits for 2 real pump documents |
 | `crs_export_quality_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | CRS export quality (#1503): one row per section + clause, no empty rows, page or "page not found" on every row, comments at most 350 characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks, trimmed standards sheet, Priority from a fixed list; export only, no verdict changes |
 | `vessel_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft vessel kit cards from held standards (SAES-D-001) join the Pressure Vessel checklist; every row held for the engineer, never decides; preparation for the parked vessel kit (#1480), proof waits for 2 real vessel documents |
+| `exchanger_kit_draft_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | Draft exchanger kit cards from the held standard SAES-E-004 join the Heat Exchanger checklist; every row held for the engineer, never decides; preparation for the parked exchanger kit (#1481), proof waits for 2 real exchanger documents |
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |

@@ -225,6 +225,8 @@ EGRESS_SAFE: dict[str, object] = {
     "vessel_kit_draft_enabled": False,
     # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
     "leading_dot_decimal_enabled": False,
+    # --- local only, no model or socket: draft exchanger kit cards join the heat exchanger checklist (#1481, off by default)
+    "exchanger_kit_draft_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
