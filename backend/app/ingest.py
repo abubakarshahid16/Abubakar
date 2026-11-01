@@ -605,7 +605,9 @@ class IngestionWorker(ReviewDrain):
             self.last_error = errors.record_failure(
                 exc, code=errors.INTERNAL, document_id=doc_id, stage="process"
             )
-            code, safe_message = intake.refusal_of(exc, errors.INTERNAL, self.last_error["message"])
+            code, safe_message = intake.refusal_of(
+                exc, errors.INTERNAL, self.last_error["message"]
+            )
             with conn:
                 conn.execute(
                     "UPDATE documents SET status = ?, error_code = ?, error_message = ?"
