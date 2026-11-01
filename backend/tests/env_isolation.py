@@ -217,16 +217,21 @@ EGRESS_SAFE: dict[str, object] = {
     "spec_kit_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
+    # --- local only, no model or socket: a drawing is checked against a DRAFT must-contain list (#1484, off by default)
+    "parked_kits_draft_enabled": False,
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
     "pump_kit_draft_enabled": False,
     # --- local only, no model or socket: a value at a percent limit is at it in every unit (#1475, off by default)
     "at_limit_precision_enabled": False,
+    "percent_kind_check_enabled": False,
     # --- local only, no model or socket: CRS export quality, export only (#1503, off by default)
     "crs_export_quality_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
     "vessel_kit_draft_enabled": False,
+    # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
+    "leading_dot_decimal_enabled": False,
     # --- local only, no model or socket: draft exchanger kit cards join the heat exchanger checklist (#1481, off by default)
     "exchanger_kit_draft_enabled": False,
 }

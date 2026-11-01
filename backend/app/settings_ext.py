@@ -40,6 +40,11 @@ class SettingsExt(BaseModel):
     #: label answers each text attribute it names. OFF: nothing changes.
     #: Env: DATASHEET_ONE_VALUE_ENABLED.
     datasheet_one_value_enabled: bool = False
+    #: #1484 (parked kits, preparation): the same look-up routed by document KIND for a kind a held
+    #: standard covers (drawing, from SAES-A-202): a DRAFT must-contain list, no model, engineer
+    #: rows only. Transmittal (#1482) and contract (#1483) have no held standard and no kit.
+    #: OFF: nothing changes. Env: PARKED_KITS_DRAFT_ENABLED.
+    parked_kits_draft_enabled: bool = False
 
     #: #1474: the document KIND (router table `document_kinds`) chooses the rule set: a
     #: document whose kind is anything but datasheet gets no equipment datasheet checklist and
@@ -57,6 +62,11 @@ class SettingsExt(BaseModel):
     #: The owner should switch this on promptly: it removes a possible wrong Fail. OFF: nothing
     #: changes. Env: AT_LIMIT_PRECISION_ENABLED.
     at_limit_precision_enabled: bool = False
+    #: #1512: a value printed under a % label with a fraction-sized number ("0.30 %": 0.30 % or the
+    #: fraction 0.30 = 30 %?) is never decided on the percent cards (PSV-27, PSV-28, PSV-29); it goes
+    #: to the engineer with the reason. The owner should switch this on promptly: it removes a possible
+    #: wrong approval. OFF: nothing changes. Env: PERCENT_KIND_CHECK_ENABLED.
+    percent_kind_check_enabled: bool = False
     #: #1503 CRS EXPORT QUALITY (`crs_export_quality.py`): one row per section + clause, no
     #: empty rows, a page or "page not found (reason)" on every row, comments at most 350
     #: characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks,
@@ -69,6 +79,11 @@ class SettingsExt(BaseModel):
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
     #: row held for the engineer. OFF: nothing changes. Env: VESSEL_KIT_DRAFT_ENABLED.
     vessel_kit_draft_enabled: bool = False
+    #: #1515 a number written without its leading zero (".30", "-.5") is the decimal it is, in
+    #: `numparse.parse_value` and in `claims.extract_measurements` (".5 mm" was dropped); a stranded
+    #: or glued dot (".5.3", "x.5") is no value. OFF: ".30" reads as 30 and ".5 mm" is dropped,
+    #: as before. Env: LEADING_DOT_DECIMAL_ENABLED.
+    leading_dot_decimal_enabled: bool = False
     #: #1481 heat exchanger kit PREPARATION (parked, milestone 58): append the DRAFT exchanger cards of
     #: `reference/exchanger_kit_draft.json` (the held standard SAES-E-004 requires the value, not already in the
     #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the
