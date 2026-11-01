@@ -61,7 +61,27 @@ def cover_text(pages: list[tuple[int, str]]) -> str:
     if not pages:
         return ""
     lines = [ln.strip() for ln in (pages[0][1] or "").splitlines() if ln.strip()]
-    return "\n".join(lines[:COVER_LINES])
+    return "\n".join(ln for ln in lines[:COVER_LINES] if _is_heading(ln))
+
+
+#: Words a sentence has and a heading does not (verbs, pronouns, clause links).
+_SENTENCE_WORDS = frozenset(
+    "is are was were be been shall will should must may has have this that these "
+    "those which where when after before following issued by with from as it we".split()
+)
+
+
+def _is_heading(line: str) -> bool:
+    """A title-shaped line (short, no colon, not a sentence), not a sentence that
+    mentions a subject. Same length and colon rule as `document_kind`'s title cue."""
+    from .document_kind import _TITLE_WORDS_MAX
+
+    words = line.strip("| ").split()
+    if not words or ":" in line or len(words) > _TITLE_WORDS_MAX:
+        return False
+    if line.rstrip().endswith((".", ";", ",")):
+        return False
+    return not any(w.lower() in _SENTENCE_WORDS for w in words)
 
 
 def matches(playbook: playbooks.Playbook, cover: str) -> bool:
