@@ -149,3 +149,7 @@ class SettingsExt(BaseModel):
     #: Folder the audit files go under (`<date>-<run id>/`). Empty = `~/project/mirror/proof`.
     #: Env: REVIEW_AUDIT_DIR.
     review_audit_dir: str = ""
+    #: #645 slice 3 (`ai_requirement_chunks.py`): the LOCAL model reads a held standard chunks
+    #: and proposes single limits; code verifies every field; drafts only.
+    #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
+    ai_requirement_extraction_enabled: bool = False
