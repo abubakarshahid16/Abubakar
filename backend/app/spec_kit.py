@@ -415,7 +415,11 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
     conn = connect()
     kind = procedure_text.document_kind(doc)
     # a parked kind's rows carry the kind in their requirement id: the one place the noun is read from
-    prefix = f"{ORIGIN}:{kind}:" if kind in kind_kits() or kind in KIND_NOUNS else f"{ORIGIN}:"
+    prefix = (
+        f"{ORIGIN}:{kind}:"
+        if kind in kind_kits() or kind in KIND_NOUNS
+        else f"{ORIGIN}:"
+    )
     with conn:
         conn.execute(
             "DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"

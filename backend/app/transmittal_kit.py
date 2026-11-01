@@ -43,10 +43,17 @@ _HEADER_FIELDS = (
     ("date", "date", r"date(?:\s+of\s+issue)?"),
     ("from", "from", r"from"),
     ("to", "to", r"to"),
-    ("purpose", "purpose of issue", r"purpose(?:\s+of\s+(?:issue|transmittal))?|issued\s+for"),
+    (
+        "purpose",
+        "purpose of issue",
+        r"purpose(?:\s+of\s+(?:issue|transmittal))?|issued\s+for",
+    ),
 )
 _ROLES = (
-    ("docno", r"\bdoc(?:ument)?\.?\s*(?:no|number|num|#)\b|\bdrawing\s*(?:no|number)\b"),
+    (
+        "docno",
+        r"\bdoc(?:ument)?\.?\s*(?:no|number|num|#)\b|\bdrawing\s*(?:no|number)\b",
+    ),
     ("rev", r"\brev(?:ision)?\b"),
     ("sheets", r"\bsheets?\b|\bpages?\b"),
     ("due", r"\bdue\b|\bdate\b|\bsubmi"),
@@ -93,14 +100,17 @@ def _note(item: str, text: str) -> dict:
 # ---------------------------------------------------------------- reading
 
 
-def _grids(document_id: str, pages: list[tuple[int, str]]) -> list[tuple[int, list[tuple[list[str], str]]]]:
+def _grids(
+    document_id: str, pages: list[tuple[int, str]]
+) -> list[tuple[int, list[tuple[list[str], str]]]]:
     """(page, [(cells, quote)]) per table: stored `tables_json` grids, else blocks of
     consecutive page lines that split into two or more cells at wide gaps."""
     out = []
     stored = {
         r["page_no"]: r["tables_json"]
         for r in connect().execute(
-            "SELECT page_no, tables_json FROM pages WHERE document_id = ?", (document_id,)
+            "SELECT page_no, tables_json FROM pages WHERE document_id = ?",
+            (document_id,),
         )
     }
     for page_no, text in pages:
@@ -162,16 +172,24 @@ def _read_tables(document_id: str, pages, needs, forbids=()) -> list[dict]:
     return rows
 
 
-def header_fields(pages: list[tuple[int, str]]) -> dict[str, tuple[str, int | None, str | None]]:
+def header_fields(
+    pages: list[tuple[int, str]],
+) -> dict[str, tuple[str, int | None, str | None]]:
     """field -> (value, page, quote); value is "" for a blank label and the field is absent from
     the result when no label line was found."""
     found = {}
     for key, _label, pattern in _HEADER_FIELDS:
         rx = re.compile(rf"^\s*(?:{pattern})\s*[:\-]\s*(.*)$", re.I)
         for page_no, text in pages:
-            hit = next(((m, ln) for ln in text.splitlines() if (m := rx.match(ln))), None)
+            hit = next(
+                ((m, ln) for ln in text.splitlines() if (m := rx.match(ln))), None
+            )
             if hit:
-                found[key] = (hit[0].group(1).strip(), page_no, " ".join(hit[1].split()))
+                found[key] = (
+                    hit[0].group(1).strip(),
+                    page_no,
+                    " ".join(hit[1].split()),
+                )
                 break
     return found
 
@@ -183,7 +201,11 @@ def header_rows(pages) -> list[dict]:
         value, page, quote = got.get(key, ("", None, None))
         if value:
             continue
-        where = f"the label is on page {page} with no value" if page else "no such label found"
+        where = (
+            f"the label is on page {page} with no value"
+            if page
+            else "no such label found"
+        )
         rows.append(
             _row(
                 f"header:{key}",
@@ -243,7 +265,9 @@ def holders(numbers: list[str], candidates: list[str]) -> dict[str, list[str]]:
 def cover_revision(document_id: str) -> tuple[str, int, str] | None:
     from .classification import title_block_lines
 
-    pages = [{"page_no": p, "text": t} for p, t in procedure_text.load_pages(document_id)]
+    pages = [
+        {"page_no": p, "text": t} for p, t in procedure_text.load_pages(document_id)
+    ]
     for page_no, line in title_block_lines(pages):
         if m := _REV.search(line):
             return m.group(1), page_no, " ".join(line.split())
@@ -261,9 +285,11 @@ def _int(text: str | None) -> int | None:
 
 
 def _page_count(document_id: str) -> int | None:
-    row = connect().execute(
-        "SELECT page_count FROM documents WHERE id = ?", (document_id,)
-    ).fetchone()
+    row = (
+        connect()
+        .execute("SELECT page_count FROM documents WHERE id = ?", (document_id,))
+        .fetchone()
+    )
     return row[0] if row and row[0] else None
 
 
@@ -359,7 +385,9 @@ def _covers(required: dict, entry: dict) -> bool:
     c = entry["cells"]
     need = _words(required["item"])
     have = _words(c.get("title", "")) | _words(c["docno"])
-    return bool(need) and (need <= have or (bool(c.get("title")) and _words(c["title"]) <= need))
+    return bool(need) and (
+        need <= have or (bool(c.get("title")) and _words(c["title"]) <= need)
+    )
 
 
 def required_rows(items: list[dict], listed: list[dict], boundary: str) -> list[dict]:
@@ -376,7 +404,7 @@ def required_rows(items: list[dict], listed: list[dict], boundary: str) -> list[
                 f"Required item '{req['item']}'{due} (required-submissions list page "
                 f"{req['page']}) is not on this transmittal: not transmitted - engineer to "
                 f"confirm whether due. {boundary}",
-                f"required item not listed on the transmittal: \"{req['quote']}\"",
+                f'required item not listed on the transmittal: "{req["quote"]}"',
                 req["page"],
                 req["quote"],
             )
@@ -391,7 +419,7 @@ def required_rows(items: list[dict], listed: list[dict], boundary: str) -> list[
                 f"{e['cells']['docno']} {e['cells'].get('title', '')} (transmittal page "
                 f"{e['page']}) is listed but not on the required-submissions list; engineer "
                 f"to check. {boundary}",
-                f"listed item not on the required list: \"{e['quote']}\"",
+                f'listed item not on the required list: "{e["quote"]}"',
                 e["page"],
                 e["quote"],
             )
@@ -418,15 +446,26 @@ def _named_ids() -> list[str]:
 def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
     pages = procedure_text.load_pages(document_id)
     if not any(text.strip() for _, text in pages):
-        return [_note("no_text", "Transmittal kit not run: no page text is stored for the transmittal")]
+        return [
+            _note(
+                "no_text",
+                "Transmittal kit not run: no page text is stored for the transmittal",
+            )
+        ]
     rows = header_rows(pages)
     listed = [
         r
         for r in _read_tables(document_id, pages, ("docno",))
-        if any(c in r["cells"] for c in ("rev", "sheets")) and re.search(r"\d", r["cells"]["docno"])
+        if any(c in r["cells"] for c in ("rev", "sheets"))
+        and re.search(r"\d", r["cells"]["docno"])
     ]
     if not listed:
-        rows.append(_note("no_table", "No table of listed documents (document number with revision or sheets) was read from the transmittal"))
+        rows.append(
+            _note(
+                "no_table",
+                "No table of listed documents (document number with revision or sheets) was read from the transmittal",
+            )
+        )
     named = _named_ids()
     allowed = [i for i in named if i in scope]
     blocked = len(named) - len(allowed)
@@ -437,11 +476,26 @@ def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
     rows += listed_rows(listed, held)
     unmatched = [n for n in numbers if not held.get(n)]
     if unmatched:
-        rows.append(_note("not_held", f"{len(unmatched)} of {len(numbers)} listed documents were not found among the documents you may read (matched by document number in the held document's title block); revision and sheets not compared for them"))
+        rows.append(
+            _note(
+                "not_held",
+                f"{len(unmatched)} of {len(numbers)} listed documents were not found among the documents you may read (matched by document number in the held document's title block); revision and sheets not compared for them",
+            )
+        )
     if blocked:
-        rows.append(_note("list_not_allowed", f"{blocked} of {len(named)} named required-submissions list documents are not in the documents you may read; not read"))
+        rows.append(
+            _note(
+                "list_not_allowed",
+                f"{blocked} of {len(named)} named required-submissions list documents are not in the documents you may read; not read",
+            )
+        )
     if not named:
-        rows.append(_note("no_list", "Transmittal kit: no required-submissions list named; required and extra items not checked"))
+        rows.append(
+            _note(
+                "no_list",
+                "Transmittal kit: no required-submissions list named; required and extra items not checked",
+            )
+        )
     elif allowed:
         items = required_items(allowed)
         if items:
@@ -451,16 +505,26 @@ def rows_for(document_id: str, scope: frozenset[str]) -> list[dict]:
             )
             rows += required_rows(items, listed, boundary)
         else:
-            rows.append(_note("list_no_items", "No table of required items was read from the named required-submissions list; required and extra items not checked"))
+            rows.append(
+                _note(
+                    "list_no_items",
+                    "No table of required items was read from the named required-submissions list; required and extra items not checked",
+                )
+            )
     return rows
 
 
 def for_review(review_run_id: str, scope: frozenset[str]) -> None:
     """The review job's call, after the comparison. A failure never fails the review."""
     try:
-        row = connect().execute(
-            "SELECT submittal_document_id FROM review_runs WHERE id = ?", (review_run_id,)
-        ).fetchone()
+        row = (
+            connect()
+            .execute(
+                "SELECT submittal_document_id FROM review_runs WHERE id = ?",
+                (review_run_id,),
+            )
+            .fetchone()
+        )
         doc = row[0] if row else None
         if applies(doc):
             spec_kit._store(review_run_id, doc, rows_for(doc, scope))

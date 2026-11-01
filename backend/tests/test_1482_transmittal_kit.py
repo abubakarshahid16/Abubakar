@@ -170,9 +170,7 @@ def test_no_required_list_named_is_one_note_and_no_step_4_rows(on):
     transmittal_kit.for_review(run, scope)
     notes = spec_kit.notes(_rows(run))
     assert any("no required-submissions list named" in n["note"] for n in notes)
-    assert [
-        i for i in _items(run) if i.startswith(("extra", "not_transmitted"))
-    ] == []
+    assert [i for i in _items(run) if i.startswith(("extra", "not_transmitted"))] == []
 
 
 def test_a_document_outside_the_allowed_ids_is_never_read(on, monkeypatch):
