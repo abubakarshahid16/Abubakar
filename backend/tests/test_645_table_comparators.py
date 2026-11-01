@@ -13,7 +13,8 @@ from app import ai_requirement_tables as art
 from app import ai_requirements as air
 from app.config import settings
 from app.db import connect
-from tests.test_645_chunk_extraction import drafts, item, reply, run
+from tests.test_645_chunk_extraction import drafts, item, reply
+from tests.test_645_chunk_extraction import run as run_chunk
 from tests.test_645_clause_checks import Fake
 from tests.test_w5_677_scope_ledger import (  # noqa: F401 - fixture
     _doc,
@@ -54,14 +55,40 @@ def limits() -> set[tuple]:
     return {(d["operator"], d["value"], d["unit"]) for d in drafts()}
 
 
+def raw_page(text: str) -> str:
+    """The page as the raw extraction holds it: one cell per line."""
+    out = []
+    for line in text.splitlines():
+        if "|" not in line:
+            out.append(line)
+        elif set(line) - set(" |-:"):
+            out.extend(c.strip() for c in line.strip().strip("|").split("|"))
+    return "\n".join(out)
+
+
+def run(model_reply, text, *, page_text=None, **kw):
+    """`run` of the chunk tests, with the chunk's page stored the raw way."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO pages (document_id, page_no, text, char_count,"
+            " batch_no) VALUES ('std', 1, ?, 1, 0)",
+            (raw_page(text) if page_text is None else page_text,),
+        )
+    return run_chunk(model_reply, text, **kw)
+
+
 def test_min_and_max_columns_give_two_limits_with_the_header_unit_column(standard):
     report = run(reply(row_item()), MIN_MAX)
     assert report["proposed"] == 2 and report["refused"] == {}
     assert limits() == {(">=", "1", "barg"), ("<=", "10", "barg")}
+    page = raw_page(MIN_MAX)
     for draft in drafts():
-        assert draft["quote"].splitlines()[0] == "| Parameter | Min | Max | Unit |"
-        assert draft["quote"].splitlines()[-1] == "| Design pressure | 1 | 10 | barg |"
-        assert all(line in MIN_MAX for line in draft["quote"].splitlines())
+        # the quote is the PAGE's own words (one cell per line), not the markdown
+        assert draft["quote"].split("\n") == [
+            "Parameter", "Min", "Max", "Unit",
+            "Design pressure", "1", "10", "barg",
+        ]  # fmt: skip
+        assert "|" not in draft["quote"] and draft["quote"].split("\n")[0] in page
     held = (
         connect()
         .execute("SELECT superseded_at, requirement_type FROM standard_requirements")
@@ -109,16 +136,51 @@ def test_a_table_with_no_header_row_gives_no_comparator(standard):
     assert sum(report["refused"].values()) == 1
 
 
-def test_the_quote_is_header_and_row_taken_from_the_chunk_by_code(standard):
+def test_a_header_cell_absent_from_the_page_is_refused(standard):
+    page = raw_page(MIN_MAX).replace("Max\n", "")
+    report = run(reply(row_item()), MIN_MAX, page_text=page)
+    assert report["proposed"] == 0 and drafts() == []
+    assert report["refused"] == {art.CELLS_NOT_ON_PAGE: 1}
+
+
+def test_cells_out_of_reading_order_on_the_page_are_refused(standard):
+    page = "Design pressure\n1\n10\nbarg\nParameter\nMin\nMax\nUnit"
+    report = run(reply(row_item()), MIN_MAX, page_text=page)
+    assert report["proposed"] == 0 and drafts() == []
+
+
+def test_a_missing_page_text_refuses(standard):
+    report = run(reply(row_item()), MIN_MAX, page_text="")
+    assert report["proposed"] == 0 and drafts() == []
+
+
+def test_accept_checks_the_quote_on_the_page_again(standard):
     run(reply(row_item()), MIN_MAX)
-    chunk = (
-        connect().execute("SELECT text FROM chunks WHERE id = 'c1'").fetchone()["text"]
+    [maximum] = [d for d in drafts() if d["operator"] == "<="]
+    with connect() as conn:
+        conn.execute("UPDATE pages SET text = 'a different page' WHERE page_no = 1")
+    with pytest.raises(air.DraftError, match="not on the page"):
+        air.decide_draft(
+            maximum["id"],
+            decision="accept",
+            allowed_document_ids=frozenset({"std"}),
+            actor={"id": None},
+        )
+
+
+def test_a_prose_header_is_not_a_direction(standard):
+    for cell in (
+        "Remarks: minimum thickness shall be verified",
+        "Minimum thickness shall be verified",
+        "Notes on the maximum value",
+    ):
+        assert art.header_operator(cell) is None
+    table = (
+        "| Parameter | Remarks: minimum thickness shall be verified |\n| Wall | 6 mm |"
     )
-    for draft in drafts():
-        header, row = draft["quote"].splitlines()[0], draft["quote"].splitlines()[-1]
-        assert header in chunk and row in chunk
-    # the model's own quote carries no header: the header came from code
-    assert "Parameter" not in ROW
+    report = run(reply(row_item(quote="Wall | 6 mm", value="6", unit="mm")), table)
+    assert report["proposed"] == 0 and drafts() == []
+    assert art.header_operator("Minimum wall thickness") == ">="
 
 
 def test_a_value_not_in_the_row_cells_is_refused(standard):

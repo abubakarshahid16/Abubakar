@@ -101,7 +101,9 @@ def _refuse(report: dict, why: str) -> None:
     report["refused"][why] = report["refused"].get(why, 0) + 1
 
 
-def _store(conn, standard_document_id: str, chunk, check: dict, model) -> None:
+def _store(
+    conn, standard_document_id: str, chunk, check: dict, model, version=None
+) -> None:
     from . import standards
 
     row = standards.create_requirement(
@@ -112,6 +114,7 @@ def _store(conn, standard_document_id: str, chunk, check: dict, model) -> None:
         clause=None,
         page=chunk["page_start"],
         extraction_method="extracted",
+        extractor_version=version,
         structured={"requirement_type": air.STATEMENT},
     )
     with conn:
@@ -140,7 +143,11 @@ def _take(conn, standard_document_id: str, chunk, item: dict, report: dict) -> N
     """Verify one extracted item and store what passes. A row of a headed
     table whose column header states the direction (slice 2) is read by
     `ai_requirement_tables`; every other item takes the sentence path."""
-    row = tables.read_row(item, chunk["text"])
+    page = conn.execute(
+        "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
+        (standard_document_id, chunk["page_start"]),
+    ).fetchone()
+    row = tables.read_row(item, chunk["text"], page["text"] if page else None)
     if row is not None:
         checks, refusals = row
         for why in refusals:
@@ -158,7 +165,14 @@ def _take(conn, standard_document_id: str, chunk, item: dict, report: dict) -> N
         elif duplicate(conn, standard_document_id, check):
             _refuse(report, ALREADY_HELD)
         else:
-            _store(conn, standard_document_id, chunk, check, report["model"])
+            _store(
+                conn,
+                standard_document_id,
+                chunk,
+                check,
+                report["model"],
+                tables.TABLE_VERSION if row is not None else None,
+            )
             report["proposed"] += 1
 
 

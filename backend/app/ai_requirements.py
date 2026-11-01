@@ -972,6 +972,9 @@ def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozense
     if row["superseded_at"] or row["requirement_type"] != STATEMENT:
         raise DraftError("the clause sentence has changed since this draft was proposed")
     sentence = row["source_text"] or row["requirement_text"] or ""
+    from . import ai_requirement_tables
+
+    ai_requirement_tables.recheck_on_page(conn, row)
     limit = limit_from_draft(row, sentence)
     new = standards.create_requirement(
         standard_document_id=row["standard_document_id"], chunk_id=row["chunk_id"],

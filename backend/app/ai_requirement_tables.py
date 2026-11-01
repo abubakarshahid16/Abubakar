@@ -41,6 +41,15 @@ from . import ai_requirements as air
 from . import numparse
 
 COMPARATOR_NOT_STATED = "the quote states no comparator, so it stays unknown"
+CELLS_NOT_ON_PAGE = "a header or row cell is not on the page, in reading order"
+#: `standard_requirements.extractor_version` of a statement stored by this module.
+TABLE_VERSION = "ai_requirement_tables:1"
+_HEADER_WORDS = 4
+_VERBS = frozenset(
+    {"shall", "must", "should", "will", "may", "can", "be", "is", "are", "was"}
+    | {"were", "been", "verified", "required", "to", "of", "for", "when", "if"}
+    | {"where", "unless"}
+)
 UNIT_DISAGREED = "the unit is not the one the table states"
 
 #: Words that, in a header, usually give the CONDITION a column applies under
@@ -62,15 +71,19 @@ _CAPTION_WORDS = 15
 
 def header_operator(cell: str) -> str | None:
     """The direction one header cell states, or None. Exactly one direction;
-    a number of its own outside brackets means the cell holds a condition."""
+    a number of its own outside brackets means the cell holds a condition; the
+    WHOLE cell must be the direction word plus a short noun or unit (at most
+    `_HEADER_WORDS` words, no verb, no colon): a remark is not a column name."""
     text = _BRACKET.sub(" ", (cell or "").casefold())
-    if re.search(r"\d", text):
+    if re.search(r"\d|[:;,]", text) or len(re.findall(r"\w+", text)) > _HEADER_WORDS:
         return None
     found: set[str] = set()
     for rx, op in _WORD_RX:
         if rx.search(text):
             found.add(op)
             text = rx.sub(" ", text)
+    if set(re.findall(r"\w+", text)) & _VERBS:
+        return None
     return found.pop() if len(found) == 1 else None
 
 
@@ -170,7 +183,7 @@ def _number(cell: str) -> str | None:
     return f"{found[0].value:g}"
 
 
-def read_row(item: dict, chunk_text: str):
+def read_row(item: dict, chunk_text: str, page_text: str | None):
     """None when the item is not a located row of a headed table whose column
     states a direction (the prose path then decides). Else
     (checks, refusals): checks are the verified limits of the row, refusals the
@@ -188,11 +201,11 @@ def read_row(item: dict, chunk_text: str):
             continue
         for line, cells in table["rows"]:
             if quote in air._squash(line):
-                return _limits_of_row(item, table, line, cells, model_value)
+                return _limits_of_row(item, table, line, cells, model_value, page_text)
     return None
 
 
-def _limits_of_row(item, table, line, cells, model_value):
+def _limits_of_row(item, table, line, cells, model_value, page_text):
     directions = _columns(table)
     numeric = {
         i: n for i, c in enumerate(cells) if i >= 1 and (n := _number(c)) is not None
@@ -220,9 +233,13 @@ def _limits_of_row(item, table, line, cells, model_value):
     uses_caption = bool(table["caption"]) and not any(
         header_operator(h) for h in table["header"]
     )
-    quote = "\n".join(
-        ([table["caption"]] if uses_caption else []) + table["header_lines"] + [line]
-    )
+    pieces = ([table["caption"]] if uses_caption else []) + [
+        c for ln in [*table["header_lines"], line] for c in _cells(ln) if c
+    ]
+    found = locate_cells(pieces, page_text)
+    if found is None:
+        return [], [CELLS_NOT_ON_PAGE]
+    quote = "\n".join(found)  # the PAGE's own words, in reading order
     checks: list[dict] = []
     refusals: list[str] = []
     for column in sorted(i for i in numeric if i in directions):
@@ -246,6 +263,44 @@ def _limits_of_row(item, table, line, cells, model_value):
         else:
             checks.append(check)
     return checks, refusals
+
+
+def locate_cells(cells: list[str], page_text: str | None) -> list[str] | None:
+    """Every cell found in `page_text` (whitespace and case folded, whole
+    words, in READING ORDER). Returns the page's own substrings, which is what
+    the engineer sees on the page, or None when any cell is missing."""
+    page = " ".join((page_text or "").split())
+    lower = page.lower()
+    if not page or not cells or len(lower) != len(page):
+        return None
+    out: list[str] = []
+    pos = 0
+    for cell in cells:
+        want = " ".join(cell.split()).lower()
+        m = re.compile(r"(?<!\w)" + re.escape(want) + r"(?!\w)").search(lower, pos)
+        if not want or m is None:
+            return None
+        out.append(page[m.start() : m.end()])
+        pos = m.end()
+    return out
+
+
+def recheck_on_page(conn, row) -> None:
+    """At accept: a table draft's quote is still on its page, line by line in
+    reading order. Raises `DraftError`. Drafts of other modules are skipped."""
+    req = conn.execute(
+        "SELECT extractor_version FROM standard_requirements WHERE id = ?",
+        (row["requirement_id"],),
+    ).fetchone()
+    if req is None or req["extractor_version"] != TABLE_VERSION:
+        return
+    page = conn.execute(
+        "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
+        (row["standard_document_id"], row["page"]),
+    ).fetchone()
+    lines = (row["quote"] or "").split("\n")
+    if locate_cells(lines, page["text"] if page else None) != lines:
+        raise air.DraftError("code refused the draft: " + CELLS_NOT_ON_PAGE)
 
 
 def already_drafted(conn, standard_document_id: str, check: dict) -> bool:
