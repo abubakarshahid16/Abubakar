@@ -153,7 +153,9 @@ def test_a_report_contents_list_item_is_not_the_team_section(monkeypatch):
     from app import playbooks
 
     monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
-    body = [_chunk("Team members", "Procedure > Report contents > Team members", CHAIRMAN)]
+    body = [
+        _chunk("Team members", "Procedure > Report contents > Team members", CHAIRMAN)
+    ]
     assert playbooks._match(_element(), body)["state"] == "unclear"
     body = [_chunk("Table of contents", "Procedure", CHAIRMAN)]
     assert playbooks._match(_element(), body)["state"] == "unclear"
@@ -163,7 +165,11 @@ def test_a_real_team_section_under_a_numbered_parent_is_still_present(monkeypatc
     from app import playbooks
 
     monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
-    body = [_chunk("HAZOP team members", "Procedure > 4. Study > HAZOP team members", CHAIRMAN)]
+    body = [
+        _chunk(
+            "HAZOP team members", "Procedure > 4. Study > HAZOP team members", CHAIRMAN
+        )
+    ]
     assert playbooks._match(_element(), body)["state"] == "present"
 
 

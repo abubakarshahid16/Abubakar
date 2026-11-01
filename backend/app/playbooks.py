@@ -322,7 +322,8 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
 
 _REFERENCE_HEADING = re.compile(
     r"(?<![a-z0-9])(definitions?|glossary|abbreviations?|acronyms?|terminology|nomenclature|"
-    r"references|bibliography|(table of|report) contents)(?![a-z0-9])")
+    r"references|bibliography|(table of|report) contents)(?![a-z0-9])"
+)
 
 
 def own_section(element: Element, chunk: dict) -> bool:
