@@ -273,7 +273,12 @@ def test_a_row_too_long_for_one_chunk_is_windowed_and_keeps_its_cells(tmp_path):
     chunks = sheet_chunks.build_chunks(tmp_path / "wide.xlsx")
     assert len(chunks) > 1
     assert all(c.tokens <= settings.chunk_max_tokens for c in chunks)
-    assert {c.locator for c in chunks} == {"Notes!A1"}
+    n = len(chunks)
+    assert [c.locator for c in chunks] == [
+        f"Notes!A1 (part {i} of {n})" for i in range(1, n + 1)
+    ]
+    words = " ".join(c.text.split("\n")[1].strip("| ") for c in chunks).split()
+    assert words == ws["A1"].value[:2000].split()  # the cell, cut only at its limit
 
 
 @pytest.mark.parametrize(
@@ -306,3 +311,215 @@ def test_switch_off_a_workbook_indexed_by_the_older_seam_is_chunked_as_before(
         )
     }
     assert locators == {None}
+
+
+# ------------------------------------------------- review of #1560 (round 2)
+
+
+@pytest.fixture()
+def client():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        yield c
+
+
+def test_deleting_an_image_removes_the_original_and_its_pages(client):
+    data = _image("PNG")
+    row, _job, _dup = _ingest(data, "scan.png")
+    pages = _stored(row)
+    original = settings.upload_dir / f"{row['sha256']}.png"
+    assert pages.exists() and original.exists()
+    served = client.get(f"/api/documents/{row['id']}/original")
+    assert (
+        served.status_code == 200 and served.content == data
+    )  # the image, not its pages
+    r = client.delete(f"/api/documents/{row['id']}", params={"confirm": "true"})
+    assert r.status_code == 200, r.text
+    assert not pages.exists() and not original.exists()
+    assert r.json()["files_removed"] >= 2
+
+
+def _md_cells(ws, first_row, first_col, last_row, last_col) -> list[str]:
+    lines = []
+    for r in range(first_row, last_row + 1):
+        cells = [ws.cell(r, c).value for c in range(first_col, last_col + 1)]
+        if any(v not in (None, "") for v in cells):
+            lines.append(
+                "| " + " | ".join("" if v is None else str(v) for v in cells) + " |"
+            )
+    return lines
+
+
+def test_every_chunk_of_a_padded_sheet_is_exactly_its_cited_cells(tmp_path):
+    """Sparse rows over 20 columns: padded to the chunk's range, the rows used
+    to overflow the budget and be windowed mid-row under the whole range."""
+    from openpyxl.utils.cell import range_boundaries
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "CRS"
+    for r in range(1, 33):
+        ws.cell(r, (r * 7) % 20 + 1, (f"Comment {r} " + "word " * 18).strip())
+    wb.save(tmp_path / "padded.xlsx")
+    chunks = sheet_chunks.build_chunks(tmp_path / "padded.xlsx")
+    assert len(chunks) > 1
+    covered = []
+    for c in chunks:
+        assert c.tokens <= settings.chunk_max_tokens
+        sheet, ref = c.locator.split("!")
+        assert sheet == "CRS"
+        min_col, min_row, max_col, max_row = range_boundaries(ref)
+        title, *lines = c.text.split("\n")
+        assert title == "CRS"
+        assert lines == _md_cells(ws, min_row, min_col, max_row, max_col)
+        covered += list(range(min_row, max_row + 1))
+    assert covered == list(range(1, 33))  # every row once, in order
+
+
+def test_a_huge_later_tiff_page_is_refused_before_any_page_is_decoded(
+    tmp_path, monkeypatch
+):
+    from PIL import ImageOps
+
+    small = Image.new("RGB", (10, 10), "white")
+    big = Image.new("RGB", (100, 100), "white")
+    small.save(tmp_path / "two.tif", "TIFF", save_all=True, append_images=[big])
+    monkeypatch.setattr(intake, "MAX_IMAGE_PIXELS", 1000)
+    decoded = []
+    real = ImageOps.exif_transpose
+    monkeypatch.setattr(
+        ImageOps, "exif_transpose", lambda im, **kw: decoded.append(im.size) or real(im)
+    )
+    with pytest.raises(intake.IntakeRefused) as exc:
+        intake.image_to_pdf(tmp_path / "two.tif", tmp_path / "two.pdf")
+    assert exc.value.code == "image_too_large"
+    assert decoded == []
+    assert not (tmp_path / "two.pdf").exists()
+
+
+def _template_workbook() -> bytes:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Comments"
+    ws.append(
+        [
+            "Instructions: the contractor shall answer every comment below in the"
+            " reply column and return this sheet with the next revision."
+        ]
+    )
+    ws.append(["No.", "Comment", "Reply"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_a_crs_template_is_taken_out_of_the_index_when_its_role_is_set():
+    from app import classification
+
+    row, _job, _dup = _ingest(_template_workbook(), "crs-template.xlsx")
+    extract.extract_document(row["id"])
+    chunker.chunk_document(row["id"])
+    conn = db.connect()
+    count = "SELECT COUNT(*) FROM chunks WHERE document_id = ?"
+    assert conn.execute(count, (row["id"],)).fetchone()[0] > 0
+    classification.set_role(row["id"], "CRS_TEMPLATE")
+    assert conn.execute(count, (row["id"],)).fetchone()[0] == 0
+    doc = conn.execute(
+        "SELECT status, chunk_count FROM documents WHERE id = ?", (row["id"],)
+    ).fetchone()
+    assert (doc["status"], doc["chunk_count"]) == (states.STORED_NOT_INDEXED, 0)
+
+
+def test_a_crs_template_classified_before_chunking_is_never_chunked():
+    from app import classification, ingest
+
+    row, _job, _dup = _ingest(_template_workbook(), "crs-template.xlsx")
+    classification.set_role(row["id"], "CRS_TEMPLATE")
+    extract.extract_document(row["id"])
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "UPDATE documents SET status = ? WHERE id = ?", (states.CHUNKING, row["id"])
+        )
+    result = ingest.IngestionWorker().process(row["id"])
+    assert "error" not in result, result
+    count = "SELECT COUNT(*) FROM chunks WHERE document_id = ?"
+    assert conn.execute(count, (row["id"],)).fetchone()[0] == 0
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (row["id"],)
+    ).fetchone()[0]
+    assert status == states.STORED_NOT_INDEXED
+
+
+def test_only_a_slice2_workbook_is_withdrawn_as_a_template(monkeypatch):
+    from app import classification
+
+    row, _job, _dup = _ingest(_image("PNG"), "scan.png")  # a PDF-read document
+    classification.set_role(row["id"], "CRS_TEMPLATE")
+    status = (
+        db.connect()
+        .execute("SELECT status FROM documents WHERE id = ?", (row["id"],))
+        .fetchone()[0]
+    )
+    assert status == states.QUEUED
+
+
+def test_a_row_merged_label_is_written_on_every_row_as_the_page_text_is(tmp_path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Pump"
+    ws["A1"], ws["B1"] = "Casing", "CS"
+    ws["B2"], ws["B3"] = "SS316", "Duplex"
+    ws.merge_cells("A1:A3")
+    wb.save(tmp_path / "merged.xlsx")
+    [chunk] = sheet_chunks.build_chunks(tmp_path / "merged.xlsx")
+    assert chunk.text.split("\n")[1:] == [
+        "| Casing | CS |",
+        "| Casing | SS316 |",
+        "| Casing | Duplex |",
+    ]
+    page = intake.read(tmp_path / "merged.xlsx").pages[0].text
+    assert page.count("Casing") == 3
+
+
+def test_a_cell_is_cited_as_excel_displays_it(tmp_path):
+    from datetime import datetime
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Data"
+    ws["A1"], ws["B1"] = "Corrosion allowance share", 0.125
+    ws["B1"].number_format = "0.0%"
+    ws["A2"], ws["B2"] = "Design flow", 1234.5
+    ws["B2"].number_format = "#,##0.00"
+    ws["A3"], ws["B3"] = "Issued", datetime(2026, 3, 4)
+    ws["B3"].number_format = "dd/mm/yyyy"
+    wb.save(tmp_path / "shown.xlsx")
+    [chunk] = sheet_chunks.build_chunks(tmp_path / "shown.xlsx")
+    assert chunk.text.split("\n")[1:] == [
+        "| Corrosion allowance share | 12.5% |",
+        "| Design flow | 1,234.50 |",
+        "| Issued | 04/03/2026 |",
+    ]
+
+
+def test_an_indexed_workbook_is_classified_from_its_first_sheet():
+    from app import classification
+
+    wb = openpyxl.Workbook()
+    wb.active.append(["Centrifugal pump data sheet", "Rev 0"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    row, _job, _dup = _ingest(buf.getvalue(), "book1.xlsx")
+    record = classification.of_document(row["id"])
+    assert record is not None and record["doc_class"] == "DATASHEET"
+
+
+def test_an_old_office_file_names_what_is_read_with_the_switch_on():
+    with pytest.raises(upload.UploadError) as exc:
+        _ingest(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 old excel", "legacy.xls")
+    assert exc.value.code == "unsupported_office"
+    assert ".xlsx" in exc.value.message and "PNG" in exc.value.message

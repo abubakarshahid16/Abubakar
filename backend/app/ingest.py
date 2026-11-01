@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from . import acronyms as acronyms_mod
 from . import doc_router, errors, intake, job_queue, page_ledger, states
+from . import sheet_chunks
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
@@ -500,6 +501,8 @@ class IngestionWorker(ReviewDrain):
                     continue
 
                 if status == states.CHUNKING:
+                    if sheet_chunks.withdraw_template(doc_id):  # #525: never indexed
+                        return result
                     result["chunk"] = chunk_document(doc_id)
                     _route_document_kind(doc_id, result)
                     telemetry.record(
@@ -897,6 +900,7 @@ def on_role_changed(document_id: str, *, classify: bool = True) -> None:
     classifier must not overwrite what was typed a moment ago.
     """
     try:
+        sheet_chunks.withdraw_template(document_id)  # #525 slice 2: a CRS template leaves the index
         row = connect().execute(
             "SELECT status FROM documents WHERE id = ?", (document_id,)).fetchone()
     except Exception as exc:  # noqa: BLE001 - assigning a role must not fail here

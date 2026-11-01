@@ -8,13 +8,37 @@ cells with their positions kept, so every chunk carries a `locator` such as
 citation of a workbook chunk shows that locator (the same column a Word chunk
 uses for "4.2 > para 3"), so a claim resolves to cells an engineer can open.
 
+EXACT RANGES. A chunk holds whole rows, and its locator names exactly those
+rows and the columns from the first to the last value they hold; every row is
+written as one cell per column of that range, so the chunk's text IS the text
+of the cells it cites. A chunk never starts or ends inside a row. A row too
+long for one chunk is cut between cells, each piece citing its own cells; only
+a single cell too long for a chunk is cut inside the cell, and its pieces say
+so (`Notes!A1 (part 1 of 3)`).
+
+THE DISPLAYED VALUE. A cell is quoted as Excel shows it, from its number
+format: `0.0%` of 0.125 is `12.5%`, `#,##0.00` of 1234.5 is `1,234.50`, a
+date as its format writes it, quoted text and currency signs kept. A format
+this reader does not understand (fractions, scientific, conditional colours)
+falls back to the stored value, written as `datasheet_inputs` writes it.
+(The sheet's page text, `datasheet_inputs.read_xlsx`, keeps the stored value:
+the datasheet reader is unchanged by this slice.)
+
+MERGED CELLS as `datasheet_inputs.read_xlsx` reads them: a range spanning
+several rows repeats its value on each of its rows in its first column, so a
+label merged down beside three values labels all three.
+
+CRS TEMPLATES ARE NOT INDEXED (lead decision on #1560). A CRS template is a
+form to fill, not content to answer from. A workbook classified CRS_TEMPLATE
+is taken out of the index (`withdraw_template`) when it reaches chunking and
+when the role is set later, and is then `stored_not_indexed` like a workbook
+with the switch off. Indexing templates needs the owner's approval.
+
 Nothing is left out in silence. The limits are the workbook reader's own
 (`datasheet_inputs.MAX_SHEET_ROWS`, `MAX_SHEET_COLS`, `MAX_CELL_CHARS`), and
 what they cut, a hidden sheet, an empty sheet and a formula with no stored
-result are already stored as intake reasons (`intake.store`), which the
-document's coverage and the CRS note 'File not fully read' show. A merged
-range's value is written once, at its top-left cell, which is where the
-citation points.
+result are stored as intake reasons (`intake.store`), which the document's
+coverage and the CRS note 'File not fully read' show.
 
 General: no sheet name, label or layout is recognised (rule 13). Local only,
 no model, no socket.
@@ -25,6 +49,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable
+from datetime import date, datetime, time
 
 from . import chunker
 from .chunker import Block, count_tokens
@@ -32,6 +57,7 @@ from .config import settings
 
 #: A sheet name Excel writes without quotes in a reference.
 _PLAIN_SHEET = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
+CRS_TEMPLATE = "CRS_TEMPLATE"
 
 
 def applies(path: str | os.PathLike) -> bool:
@@ -58,6 +84,37 @@ def structured(doc) -> Callable[[], list[Block]] | None:
     return (lambda: build_chunks(path)) if applies(path) else None
 
 
+def withdraw_template(document_id: str) -> bool:
+    """A workbook indexed by this slice and classified CRS_TEMPLATE leaves the index.
+
+    Its chunks, keyword rows and vectors are deleted and it becomes
+    `stored_not_indexed`, the state of a workbook with the switch off; its file
+    and pages stay. True when it was withdrawn. Anything else: untouched."""
+    from . import fts_index, states, stored_paths
+    from .db import connect
+
+    conn = connect()
+    doc = conn.execute(
+        "SELECT d.stored_path, c.document_role FROM documents d LEFT JOIN"
+        " document_classification c ON c.document_id = d.id WHERE d.id = ?",
+        (document_id,),
+    ).fetchone()
+    if doc is None or doc["document_role"] != CRS_TEMPLATE:
+        return False
+    if not applies(stored_paths.local(doc["stored_path"])):
+        return False
+    fts_index.ensure_schema(conn)  # the keyword table is made on first use
+    with conn:
+        for table in ("chunks_fts", "chunk_vectors", "chunks"):
+            conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
+        conn.execute(
+            "UPDATE documents SET status = ?, chunk_count = 0, chunk_count_total = 0,"
+            " embedded_count = 0 WHERE id = ?",
+            (states.STORED_NOT_INDEXED, document_id),
+        )
+    return True
+
+
 def cell_range(
     sheet: str, first_row: int, first_col: int, last_row: int, last_col: int
 ) -> str:
@@ -72,67 +129,233 @@ def cell_range(
     return f"{name}!{start}" if start == end else f"{name}!{start}:{end}"
 
 
+# ------------------------------------------------------------ displayed value
+
+_QUOTED = re.compile(r'"([^"]*)"|\\(.)|\[\$([^\]-]*)[^\]]*\]|\[[^\]]*\]|[_*].')
+_NUMBER = re.compile(r"[#0?][#0?,]*(?:\.[#0?]+)?")
+_DATE_TOKEN = re.compile(r"(?i)yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d|hh|h|ss|s|am/pm")
+
+
+def _protect(fmt: str) -> tuple[str, list[str]]:
+    """The format's codes, with its quoted text, escapes and [$sym] set aside as
+    placeholders (private-use characters no code pattern matches)."""
+    kept: list[str] = []
+
+    def keep(m: re.Match) -> str:
+        kept.append(next((g for g in m.groups() if g is not None), ""))
+        return chr(0xE000 + len(kept) - 1)
+
+    return _QUOTED.sub(keep, fmt), kept
+
+
+def _restore(text: str, kept: list[str]) -> str:
+    return re.sub("[\ue000-\uf8ff]", lambda m: kept[ord(m.group(0)) - 0xE000], text)
+
+
+def _shown_number(value: float, fmt: str) -> str | None:
+    sections = fmt.split(";")
+    section = sections[0]
+    if value < 0 and len(sections) > 1:  # a negative section writes its own sign
+        section, value = sections[1], -value
+    code, kept = _protect(section)
+    m = _NUMBER.search(code)
+    if not m or re.search(r"[eE][+-]|/", code):
+        return None
+    spec = m.group(0)
+    places = len(spec.split(".")[1]) if "." in spec else 0
+    scaled = value * 100 if "%" in code else value
+    number = f"{scaled:,.{places}f}" if "," in spec else f"{scaled:.{places}f}"
+    return _restore(code[: m.start()] + number + code[m.end() :], kept)
+
+
+def _shown_date(value, fmt: str) -> str | None:
+    text, kept = _protect(fmt.split(";")[0])
+    if not _DATE_TOKEN.search(text):
+        return None
+    tokens = list(_DATE_TOKEN.finditer(text))
+    twelve = any(t.group(0).lower() == "am/pm" for t in tokens)
+    out, at = [], 0
+    for i, t in enumerate(tokens):
+        out.append(text[at : t.start()])
+        at = t.end()
+        tok = t.group(0)
+        low = tok.lower()
+        near_time = (i and tokens[i - 1].group(0).lower() in ("h", "hh")) or (
+            i + 1 < len(tokens) and tokens[i + 1].group(0).lower() in ("s", "ss")
+        )
+        out.append(_date_part(value, low, tok, twelve, near_time))
+    out.append(text[at:])
+    return _restore("".join(out), kept)
+
+
+def _date_part(value, low: str, tok: str, twelve: bool, minutes: bool) -> str:
+    hour = getattr(value, "hour", 0)
+    parts = {
+        "yyyy": lambda: f"{value.year:04d}",
+        "yy": lambda: f"{value.year % 100:02d}",
+        "mmmm": lambda: value.strftime("%B"),
+        "mmm": lambda: value.strftime("%b"),
+        "dddd": lambda: value.strftime("%A"),
+        "ddd": lambda: value.strftime("%a"),
+        "dd": lambda: f"{value.day:02d}",
+        "d": lambda: str(value.day),
+        "hh": lambda: f"{(hour % 12 or 12) if twelve else hour:02d}",
+        "h": lambda: str((hour % 12 or 12) if twelve else hour),
+        "ss": lambda: f"{getattr(value, 'second', 0):02d}",
+        "s": lambda: str(getattr(value, "second", 0)),
+        "am/pm": lambda: "AM" if hour < 12 else "PM",
+    }
+    if low in ("mm", "m"):
+        if minutes:
+            minute = getattr(value, "minute", 0)
+            return f"{minute:02d}" if low == "mm" else str(minute)
+        return f"{value.month:02d}" if low == "mm" else str(value.month)
+    try:
+        return parts[low]()
+    except (AttributeError, ValueError):
+        return tok
+
+
+def shown(value, fmt: str | None) -> str:
+    """The cell as Excel displays it (see the module note); else the stored value."""
+    from . import datasheet_inputs as di
+
+    raw = di._cell_text(value)
+    if not raw or not fmt or fmt in ("General", "@") or isinstance(value, bool):
+        return raw
+    if isinstance(value, (int, float)):
+        out = _shown_number(float(value), fmt)
+    elif isinstance(value, (datetime, date, time)):
+        out = _shown_date(value, fmt)
+    else:
+        out = None
+    return " ".join(out.split()) if out else raw
+
+
+# ---------------------------------------------------------------- the rows
+
 Row = tuple[int, dict[int, str]]
 
 
-def _sheet_rows(ws) -> list[Row]:
-    """(row number, {column: text}) for each row holding a value, within the limits."""
+def _merges(zf, sheet_xml: str | None) -> tuple[dict, set]:
+    """(carried, corners) as `read_xlsx` builds them: a cell below a range's first
+    row in its first column -> that range's top-left cell."""
+    from . import datasheet_inputs as di
+
+    merged = di._merged_ranges(zf, sheet_xml) if sheet_xml else []
+    carried: dict[tuple[int, int], tuple[int, int]] = {}
+    for r0, c0, r1, _c1 in merged:
+        for r in range(r0 + 1, min(r1, di.MAX_SHEET_ROWS) + 1):
+            carried[(r, c0)] = (r0, c0)
+        if len(carried) > di.MAX_TOTAL_CELLS:
+            raise di.InputError("too_many_cells", "merged ranges cover too many cells")
+    return carried, {(r0, c0) for r0, c0, *_ in merged}
+
+
+def _sheet_rows(ws, carried: dict, corners: set) -> list[Row]:
+    """(row number, {column: displayed text}) for each row holding a value."""
     from . import datasheet_inputs as di
 
     out: list[Row] = []
-    for row_no, values in enumerate(ws.iter_rows(values_only=True), start=1):
+    top_left: dict[tuple[int, int], str] = {}
+    for row_no, row in enumerate(ws.iter_rows(), start=1):
         if row_no > di.MAX_SHEET_ROWS:
             break
-        cells = [
-            (col_no, di._cell_text(v)[: di.MAX_CELL_CHARS])
-            for col_no, v in enumerate(values[: di.MAX_SHEET_COLS], start=1)
-        ]
-        cells = {c: t for c, t in cells if t}
+        cells: dict[int, str] = {}
+        for col_no, cell in enumerate(row[: di.MAX_SHEET_COLS], start=1):
+            value = getattr(cell, "value", None)
+            fmt = getattr(cell, "number_format", None)
+            text = shown(value, fmt)[: di.MAX_CELL_CHARS]
+            if (row_no, col_no) in corners:
+                top_left[(row_no, col_no)] = text
+            if not text and (row_no, col_no) in carried:
+                text = top_left.get(carried[(row_no, col_no)], "")
+            if text:
+                cells[col_no] = text
         if cells:
             out.append((row_no, cells))
     return out
 
 
 def _md(cells: dict[int, str], first: int, last: int) -> str:
-    """One row as `| a |  | c |`, a cell per column from `first` to `last`, so
-    every row of a chunk lines up with the cell range its locator names."""
+    """One row as `| a |  | c |`, a cell per column from `first` to `last`."""
     return chunker._md_row([cells.get(c, "") for c in range(first, last + 1)], 0)
 
 
+def _render(title: str, group: list[Row]) -> tuple[str, str]:
+    """(text, locator) of whole rows: exactly the cells the locator names."""
+    first = min(min(cells) for _r, cells in group)
+    last = max(max(cells) for _r, cells in group)
+    text = "\n".join([title] + [_md(cells, first, last) for _r, cells in group])
+    return text, cell_range(title, group[0][0], first, group[-1][0], last)
+
+
+def _block(title: str, page_no: int, text: str, locator: str) -> Block:
+    b = Block("table", text, page_no, page_no, title, count_tokens(text))
+    b.locator, b.context = locator, title
+    return b
+
+
+def _split_row(title: str, page_no: int, row: Row, ceiling: int) -> list[Block]:
+    """A row too long for one chunk: cut between cells, each piece its own cells."""
+    row_no, cells = row
+    out: list[Block] = []
+    piece: dict[int, str] = {}
+    for col in sorted(cells):
+        trial = {**piece, col: cells[col]}
+        if piece and count_tokens(_render(title, [(row_no, trial)])[0]) > ceiling:
+            out.append(_block(title, page_no, *_render(title, [(row_no, piece)])))
+            trial = {col: cells[col]}
+        if count_tokens(_render(title, [(row_no, trial)])[0]) > ceiling:
+            out.extend(_split_cell(title, page_no, row_no, col, cells[col], ceiling))
+            piece = {}
+            continue
+        piece = trial
+    if piece:
+        out.append(_block(title, page_no, *_render(title, [(row_no, piece)])))
+    return out
+
+
+def _split_cell(title, page_no, row_no, col, text, ceiling) -> list[Block]:
+    """One cell too long for a chunk: cut between words, each part named as a part."""
+    where = cell_range(title, row_no, col, row_no, col)
+    parts: list[list[str]] = [[]]
+    for word in text.split():
+        if parts[-1] and count_tokens(_md({1: " ".join(parts[-1] + [word])}, 1, 1)) > (
+            ceiling - count_tokens(title) - 8
+        ):
+            parts.append([])
+        parts[-1].append(word)
+    n = len(parts)
+    return [
+        _block(
+            title,
+            page_no,
+            f"{title}\n{_md({1: ' '.join(p)}, 1, 1)}",
+            where if n == 1 else f"{where} (part {i} of {n})",
+        )
+        for i, p in enumerate(parts, start=1)
+    ]
+
+
 def _sheet_chunks(title: str, page_no: int, rows: list[Row]) -> list[Block]:
+    """Whole rows per chunk, the budget counted on exactly the text written."""
     target, ceiling = settings.chunk_target_tokens, settings.chunk_max_tokens
-    head_tokens = count_tokens(title)
     chunks: list[Block] = []
     group: list[Row] = []
-    tokens = head_tokens
-
-    def flush() -> None:
-        nonlocal group, tokens
-        if not group:
-            return
-        first = min(min(cells) for _r, cells in group)
-        last = max(max(cells) for _r, cells in group)
-        where = cell_range(title, group[0][0], first, group[-1][0], last)
-        text = "\n".join([title] + [_md(cells, first, last) for _r, cells in group])
-        pieces = (
-            [Block("table", text, page_no, page_no, title, count_tokens(text))]
-            if count_tokens(text) <= ceiling
-            else chunker.split_oversized(text, page_no, page_no, title, "table")
-        )
-        for (
-            piece
-        ) in pieces:  # an over-long row is windowed, every window keeps its cells
-            piece.locator, piece.context = where, title
-            chunks.append(piece)
-        group, tokens = [], head_tokens
-
     for row in rows:
-        t = count_tokens(_md(row[1], min(row[1]), max(row[1])))
-        if group and tokens + t > target:
-            flush()
+        if count_tokens(_render(title, [row])[0]) > ceiling:
+            if group:
+                chunks.append(_block(title, page_no, *_render(title, group)))
+                group = []
+            chunks.extend(_split_row(title, page_no, row, ceiling))
+            continue
+        if group and count_tokens(_render(title, [*group, row])[0]) > target:
+            chunks.append(_block(title, page_no, *_render(title, group)))
+            group = []
         group.append(row)
-        tokens += t
-    flush()
+    if group:
+        chunks.append(_block(title, page_no, *_render(title, group)))
     return chunks
 
 
@@ -146,17 +369,22 @@ def build_chunks(path: str | os.PathLike) -> list[Block]:
     from . import datasheet_inputs as di
 
     di.check_zip_bounds(path)
+    chunks: list[Block] = []
     with zipfile.ZipFile(path) as zf:
         di.refuse_doctype(zf)
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True, keep_links=False)
-    chunks: list[Block] = []
-    try:
-        page_no = 0
-        for ws in wb.worksheets:
-            if getattr(ws, "sheet_state", "visible") != "visible":
-                continue  # stored as an intake reason, never read
-            page_no += 1
-            chunks.extend(_sheet_chunks(ws.title, page_no, _sheet_rows(ws)))
-    finally:
-        wb.close()
+        sheet_xml = di._sheet_paths(zf)
+        wb = openpyxl.load_workbook(
+            path, read_only=True, data_only=True, keep_links=False
+        )
+        try:
+            page_no = 0
+            for ws in wb.worksheets:
+                if getattr(ws, "sheet_state", "visible") != "visible":
+                    continue  # stored as an intake reason, never read
+                page_no += 1
+                carried, corners = _merges(zf, sheet_xml.get(ws.title))
+                rows = _sheet_rows(ws, carried, corners)
+                chunks.extend(_sheet_chunks(ws.title, page_no, rows))
+        finally:
+            wb.close()
     return chunks

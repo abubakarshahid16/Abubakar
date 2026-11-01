@@ -417,20 +417,23 @@ def image_to_pdf(src: str | os.PathLike, dst: str | os.PathLike) -> int:
     pixels = 0
     try:
         with Image.open(src) as img:
+            # Every page's DECLARED size first, read from its header without
+            # decoding a pixel: a small first page cannot hide a huge later one.
             for n, frame in enumerate(ImageSequence.Iterator(img), start=1):
                 if n > MAX_IMAGE_FRAMES:
                     raise IntakeRefused(
                         "image_too_many_frames",
                         f"The image has more than {MAX_IMAGE_FRAMES} pages, over the limit.",
                     )
-                page = ImageOps.exif_transpose(frame)
-                if page.mode not in ("1", "L", "RGB", "RGBA"):
-                    page = page.convert("RGB")
-                pixels += page.width * page.height
+                pixels += frame.size[0] * frame.size[1]
                 if pixels > MAX_IMAGE_PIXELS:
                     raise IntakeRefused(
                         "image_too_large", "The image's pages are over the pixel limit."
                     )
+            for frame in ImageSequence.Iterator(img):
+                page = ImageOps.exif_transpose(frame)
+                if page.mode not in ("1", "L", "RGB", "RGBA"):
+                    page = page.convert("RGB")
                 buf = io.BytesIO()
                 page.save(buf, "PNG")
                 frames.append((buf.getvalue(), page.width, page.height))

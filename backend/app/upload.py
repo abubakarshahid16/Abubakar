@@ -76,6 +76,17 @@ OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 UNSUPPORTED_OFFICE_HINT = (
     "This system reads PDF and Word (.docx) files. Save the file as a PDF or, for a "
     "Word document, as .docx.")
+#: The same sentence while #525 slice 2 also reads workbooks and images.
+SLICE2_OFFICE_HINT = (
+    "This system reads PDF, Word (.docx), Excel (.xlsx) and image (PNG, JPEG, TIFF) "
+    "files. Save the file as one of those.")
+
+
+def _office_hint() -> str:
+    """What this system reads, true for the switch as it is now."""
+    from . import intake
+
+    return SLICE2_OFFICE_HINT if intake.uploads_enabled() else UNSUPPORTED_OFFICE_HINT
 
 
 class UploadError(Exception):
@@ -332,7 +343,7 @@ def stream_to_temp(src: BinaryIO, temp_path: Path) -> tuple[str, int]:
                     raise UploadError(
                         "unsupported_office",
                         "Old Office files (.doc, .xls, .ppt) are not supported. "
-                        + UNSUPPORTED_OFFICE_HINT,
+                        + _office_hint(),
                         "legacy Office container")
                 if not (
                     block.startswith(PDF_MAGIC)
@@ -438,7 +449,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     conn = connect()
 
     # ---------------------------------------------------------------------
-    # A WORKBOOK IS STORED AND NEVER INDEXED. THIS IS A DECISION, NOT A CRASH.
+    # SWITCH OFF: A WORKBOOK IS STORED AND NEVER INDEXED. A DECISION, NOT A CRASH.
     #
     # A CRS template is a FORM TO BE FILLED, not corpus content. Extracting it
     # would put spreadsheet scaffolding - blank cells, header rows, the word
@@ -458,7 +469,8 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # DATASHEET_OFFICE_INPUT seam (off by default): with the flag on a
     # workbook or Word document IS indexed - its pages are rendered by
     # `datasheet_inputs` in the extract stage - so a datasheet sent as one can
-    # be reviewed. Off: a workbook is stored and never indexed, as above.
+    # be reviewed. #525 slice 2 (`_slice2_indexed`): indexed, except a CRS template
+    # (`sheet_chunks.withdraw_template`). Both off: stored, never indexed, as above.
     indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())
                or bool(settings.datasheet_office_input))
     indexed = indexed or _slice2_indexed(kind)
@@ -514,14 +526,14 @@ def _refuse_unread_office(temp_path: Path) -> None:
         raise UploadError(
             "unsupported_office",
             "PowerPoint files (.pptx) are not supported yet. "
-            + UNSUPPORTED_OFFICE_HINT,
+            + _office_hint(),
             "ppt/presentation.xml present",
         )
     if office == "odf":
         raise UploadError(
             "unsupported_office",
             "OpenDocument files (.odt, .ods, .odp) are not supported yet. "
-            + UNSUPPORTED_OFFICE_HINT,
+            + _office_hint(),
             "OpenDocument mimetype",
         )
 
@@ -534,6 +546,23 @@ def _slice2_indexed(kind: str) -> bool:
     from . import intake
 
     return kind in IMAGE_KINDS or (kind == KIND_XLSX and intake.uploads_enabled())
+
+
+def image_original(stored: Path) -> Path | None:
+    """The uploaded image behind a stored image-pages PDF (`<sha>.<ext>.pdf` ->
+    `<sha>.<ext>`); None for any other stored file. The pair is fixed by the
+    names `_image_pages` writes, so every reader of `stored_path` finds the
+    original the same way: delete removes both, `/original` serves the image."""
+    stem = Path(stored).name.removesuffix(".pdf")
+    if stem == Path(stored).name or Path(stem).suffix not in IMAGE_KINDS.values():
+        return None
+    return Path(stored).with_name(stem)
+
+
+def stored_files(stored: Path) -> list[Path]:
+    """Every file on disk that belongs to a document's `stored_path`."""
+    original = image_original(stored)
+    return [Path(stored)] + ([original] if original is not None else [])
 
 
 def _image_pages(original: Path) -> Path:
@@ -639,9 +668,9 @@ def _first_page_text(pdf_path: Path) -> str:
 
             pages = docx_reader.read_structure(pdf_path).pages
             return pages[0] if pages else ""
-        if settings.datasheet_office_input:
-            # DATASHEET_OFFICE_INPUT seam: an office file's page 1 is its
-            # first rendered sheet / page, never PyMuPDF's reading of it.
+        if settings.datasheet_office_input or _slice2_indexed(KIND_XLSX):
+            # DATASHEET_OFFICE_INPUT seam (and #525 slice 2): an office file's page
+            # 1 is its first rendered sheet / page, never PyMuPDF's reading of it.
             from . import datasheet_inputs
 
             if datasheet_inputs.office_kind(pdf_path) is not None:
