@@ -756,7 +756,7 @@ class Settings(BaseSettings):
     #: default since the tests in test_w5b_525_docx.py pass.
     #: Env: DOCX_INPUT_ENABLED.
     docx_input_enabled: bool = True
-    page_read_by_reading_enabled: bool = False  # #1473: read apart from fields; Word to facts
+    page_read_by_reading_enabled: bool = False  # #1473
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

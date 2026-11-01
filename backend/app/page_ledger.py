@@ -533,8 +533,8 @@ def run_unread_pages(
     cov = page_coverage if isinstance(page_coverage, dict) else {}
     # #1473: a run stored with the page-read switch on names the pages no
     # reading came back for (`pages_not_read`); older runs, the fields rule.
-    unread_key = "pages_not_read" if "pages_not_read" in cov else "pages_not_read_into_fields"
-    pages = {int(p) for p in cov.get(unread_key) or []}
+    unread = cov.get("pages_not_read", cov.get("pages_not_read_into_fields"))
+    pages = {int(p) for p in unread or []}
     pages |= {int(p) for p in cov.get("pages_ai_not_read") or []}
     if isinstance(reader, dict):
         timed_out = {int(p) for p in reader.get("timed_out") or []}
