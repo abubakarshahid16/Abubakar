@@ -11,7 +11,7 @@ import pytest
 
 from app import db, job_progress, review_jobs
 from app.config import settings
-from tests.test_1477_clause_review import (  # noqa: F401 - fixtures
+from tests.test_1477_clause_review import (
     REQ_ACTIONS,
     REQ_CHAIR,
     Fake,

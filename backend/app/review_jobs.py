@@ -223,7 +223,9 @@ def _clause(conn, job_id: str, number: int, total: int, heartbeat=None) -> None:
 def _checks_reporting(conn, job_id: str, heartbeat, run_id, scope, missing) -> None:
     """`_checks` with the clause review's "checking clause N of M" going to the job (#1494)."""
     try:
-        with job_progress.reporting_clauses(lambda n, t: _clause(conn, job_id, n, t, heartbeat)):
+        with job_progress.reporting_clauses(
+            lambda n, t: _clause(conn, job_id, n, t, heartbeat)
+        ):
             _checks(run_id, scope, missing)
     finally:
         job_progress.CLAUSE_STARTED.pop(job_id, None)
