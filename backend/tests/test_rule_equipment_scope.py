@@ -334,6 +334,26 @@ def test_script_refuses_a_symlink_and_a_relative_path_to_a_live_shaped_file(
     assert _digest(live) == before
 
 
+def test_a_hash_copy_name_beside_the_live_file_never_opens_the_live_file(
+    tmp_path, copy_db, capsys
+):
+    # Scratch dir shaped like backend/data/ with a DUMMY live file; never the real one.
+    data = tmp_path / "backend" / "data"
+    data.mkdir(parents=True)
+    live = data / "rag_intelligence.sqlite"
+    shutil.copy(copy_db, live)
+    copy = data / "rag_intelligence.sqlite#copy"
+    shutil.copy(copy_db, copy)
+    live_before, copy_before = _digest(live), _digest(copy)
+    assert _script().main(["--db", str(copy)]) == 2
+    assert "REFUSED" in capsys.readouterr().err
+    assert _digest(live) == live_before and _digest(copy) == copy_before
+    # Even past the entry check, run() opens the named copy, not the cut-off name.
+    summary = _script().run(copy, dry_run=False, out=None, say=lambda *_: None)
+    assert summary["rows_written"] > 0
+    assert _digest(live) == live_before and _digest(copy) != copy_before
+
+
 def test_a_second_write_run_changes_zero_rows(copy_db, tmp_path):
     first, second = tmp_path / "a.json", tmp_path / "b.json"
     assert _script().main(["--db", str(copy_db), "--out", str(first)]) == 0

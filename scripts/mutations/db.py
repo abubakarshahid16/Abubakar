@@ -21,9 +21,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     #: The check-then-ALTER race that every ensure_schema carried.
     Mutation(
         id="M196", phase=15,
-        description="NEVER SWALLOW THE DUPLICATE COLUMN, restoring the race "
-                    "that killed one request in three when two threads "
-                    "migrated the same database at once",
+        description="NEVER SWALLOW THE DUPLICATE COLUMN, so the loser dies "
+        "when two connections migrate the same database at once "
+        "(the migration lock serialises threads within one "
+        "process; the race is now between connections)",
         path=APP / "db.py",
         anchor=DUPLICATE_GUARD,
         replacement="            if True:\n                raise",
