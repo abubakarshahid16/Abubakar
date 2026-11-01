@@ -7,6 +7,8 @@ and the clause review's lane (`clause_review.py`): never a verdict, it rides in
 engineer rejects it. No imports, no db: `crs_mapping` stays pure.
 """
 
+from collections import defaultdict
+
 #: Spec e: COMPANY Comments of an UNCONFIRMED AI / web item. Plain words that
 #: the row is a suggestion awaiting an engineer - never the draft itself,
 #: which stays in "AI Review Comments" (owner order 2d/2f).
@@ -29,11 +31,11 @@ SPEC_UNCONFIRMED_COMMENT = (
     "engineer's decision - its words are in AI Review Comments. Not issued to the "
     "contractor until an engineer confirms it."
 )
-#: The waiting sentence of each non-AI draft origin; any other origin uses the AI's.
-UNCONFIRMED_COMMENTS = {
-    "web_standard_check": WEB_UNCONFIRMED_COMMENT,
-    "spec_kit": SPEC_UNCONFIRMED_COMMENT,
-}
+#: The waiting sentence of each draft origin; any origin not named uses the AI's.
+UNCONFIRMED_COMMENTS = defaultdict(
+    lambda: AI_UNCONFIRMED_COMMENT,
+    {"web_standard_check": WEB_UNCONFIRMED_COMMENT, "spec_kit": SPEC_UNCONFIRMED_COMMENT},
+)
 WAITING_COMMENTS = frozenset(
     {AI_UNCONFIRMED_COMMENT, WEB_UNCONFIRMED_COMMENT, SPEC_UNCONFIRMED_COMMENT}
 )

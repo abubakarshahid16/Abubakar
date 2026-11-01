@@ -44,12 +44,7 @@ from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 from . import paragraph_ids, procedure_text, spec_kit
 
 # isort: split
-from .crs_draft_lanes import (
-    AI_UNCONFIRMED_COMMENT,
-    CLAUSE_LANE,
-    UNCONFIRMED_COMMENTS,
-    WAITING_COMMENTS,
-)
+from .crs_draft_lanes import CLAUSE_LANE, UNCONFIRMED_COMMENTS, WAITING_COMMENTS
 from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
 from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
 
@@ -188,7 +183,8 @@ def _no_datasheet_field(finding: dict) -> bool:
         not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN, "chat")
         and not (finding.get("fact_id") or finding.get("contractor_page"))
         and not _unread(finding)
-        and not (procedure_text.is_row(finding) or spec_kit.is_row(finding))
+        and not procedure_text.is_row(finding)
+        and not spec_kit.is_row(finding)
         and not _page_reader_only(finding)
         and not _confirmed(finding)
         and not finding.get("rule_said")
@@ -1614,7 +1610,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         confirmed_by_prefix, unconfirmed_by, row_kind = _DRAFT_LANES[origin]
         # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
         # says it awaits an engineer, the draft stays in "AI Review Comments".
-        unconfirmed_comment = UNCONFIRMED_COMMENTS.get(origin, AI_UNCONFIRMED_COMMENT)
+        unconfirmed_comment = UNCONFIRMED_COMMENTS[origin]
         rows.append(
             {
                 "finding_id": f.get("id") or "",
