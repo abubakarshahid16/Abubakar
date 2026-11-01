@@ -237,6 +237,59 @@ def is_row(finding: dict) -> bool:
     return str(code).startswith(REASON_CODES)
 
 
+def _code(finding: dict) -> str:
+    return str(finding.get("reason_code") or finding.get("ai_rationale") or "")
+
+
+def is_found(finding: dict) -> bool:
+    return _code(finding).startswith(FOUND)
+
+
+def is_unfound(finding: dict) -> bool:
+    """Searched and nothing found, or too short to search: counted in ONE note, not
+    a CRS line each."""
+    return _code(finding).startswith((NOT_FOUND, TOO_SHORT))
+
+
+def page_of(fact: dict | None, rationale: str | None) -> int | None:
+    """The contractor page of a finding: the fact's, else the page a found row quotes."""
+    if fact:
+        return fact.get("page")
+    match = re.match(rf"{FOUND}: found on page (\d+):", rationale or "")
+    return int(match.group(1)) if match else None
+
+
+def notes(findings: list[dict], reference) -> list[dict]:
+    """ONE review note per run for the rows no passage was found for. The count is
+    exactly the number of such findings; each is listed (capped) by its reference."""
+    rows = [f for f in findings if is_unfound(f)]
+    if not rows:
+        return []
+    short = sum(1 for f in rows if _code(f).startswith(TOO_SHORT))
+    refs = list(dict.fromkeys(r for r in (reference(f) for f in rows) if r))
+    listed = "; ".join(refs[:6]) + (
+        f"; and {len(refs) - 6} more" if len(refs) > 6 else ""
+    )
+    plural = "s" if len(rows) != 1 else ""
+    detail = (
+        f"{len(rows)} requirement{plural} of this run have no passage found by a keyword "
+        f"search of the document's pages"
+        + (f" ({short} too short to search)" if short else "")
+        + "; the document may state them in other words. Each is a finding of this run "
+        "(reason code procedure_text_not_found or procedure_text_too_short)"
+        + (f": {listed}" if listed else "")
+        + "."
+    )
+    return [
+        {
+            "note": "Procedure check - no passage found by keyword search; engineer to check",
+            "standard": "",
+            "count": len(rows),
+            "detail": detail,
+        }
+    ]
+
+
 def crs_words(finding: dict, lead: str) -> str | None:
     """The CRS comment of a procedure row, or None for any other finding. It says what
     the search of the document's own text found, never "not answered by the datasheet"."""
@@ -246,7 +299,7 @@ def crs_words(finding: dict, lead: str) -> str | None:
     if (finding.get("reason_code") or finding.get("ai_rationale") or "").startswith(
         FOUND
     ):
-        return f"{lead} {said} Engineer to confirm."
+        return f"{lead} {said}"
     return (
         f"{lead} {said} Clarification requested: please indicate where this "
         f"document addresses the requirement."

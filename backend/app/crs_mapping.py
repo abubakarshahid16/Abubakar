@@ -108,14 +108,11 @@ _MISSING_INFORMATION = "MISSING_INFORMATION"
 _NOT_IN_DOCUMENT_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
 
 #: The leading token `comparison.REQUIRES_OTHER_DOCUMENT` embeds in
-#: `ai_rationale` on a NOT_IN_DOCUMENT_SCOPE finding (issue #163). Duplicated
-#: here as a literal for the same reason as `_MISSING_INFORMATION` above:
-#: reading a stable, documented piece of text is not re-deciding the verdict
-#: that produced it. A NOT_IN_DOCUMENT_SCOPE finding without this marker is
-#: left out of the summary count rather than guessed into one - #165 found
-#: none in three real runs, but a future branch of `comparison._reconcile`
-#: could add one, and this module must not assume every reason for that
-#: status is "needs another document".
+#: `ai_rationale` on a NOT_IN_DOCUMENT_SCOPE finding (issue #163), a literal as
+#: `_MISSING_INFORMATION` above is: reading stable text is not re-deciding the
+#: verdict. A NOT_IN_DOCUMENT_SCOPE finding without it is left out of the
+#: summary count rather than guessed into one (#165): this module must not
+#: assume every reason for that status is "needs another document".
 _REQUIRES_OTHER_DOCUMENT_MARKER = "requires_other_document"
 
 #: B3. `comparison.UNREAD_PAGES` leads `ai_rationale` on a finding whose value
@@ -413,6 +410,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
     notes.extend(crs_no_field.notes(findings))
+    notes.extend(procedure_text.notes(findings, _standard_reference))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -1112,6 +1110,7 @@ def _bucket_of(f: dict) -> str | None:
             not _unread(f)
             and not _page_reader_only(f)
             and not _no_datasheet_field(f)
+            and not procedure_text.is_unfound(f)
         ):
             return BUCKET_QUESTION
         return None

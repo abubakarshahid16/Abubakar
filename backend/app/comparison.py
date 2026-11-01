@@ -1561,7 +1561,7 @@ def _prepare_finding(
         "finding": comment or method_notes.split_method_notes(rationale)[0],
         "required_action": _required_action(status),
         "confidence": _confidence_label(confidence),
-        "contractor_page": (fact or {}).get("page"),
+        "contractor_page": procedure_text.page_of(fact, rationale),
         "contractor_section": (fact or {}).get("section"),
         "contractor_evidence_text": (fact or {}).get("field_value"),
         "standard_document_id": requirement.get("standard_document_id"),

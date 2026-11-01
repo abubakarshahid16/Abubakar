@@ -266,31 +266,44 @@ def _crs_finding(requirement: dict, status: str, rationale: str) -> dict:
     }
 
 
-def test_a_found_and_a_not_found_row_reach_the_crs_with_their_words():
-    """From compare() through the CRS builder to the text the engineer reads."""
+def test_a_found_row_is_a_crs_line_with_its_page_and_the_rest_are_one_counted_note():
+    """From compare() through the CRS builder and the review notes."""
     from app import crs_mapping
 
-    other = {
-        **STATEMENT,
-        "requirement_text": "Crane lifting plans must name the rigging inspector.",
-        "source_text": "Crane lifting plans must name the rigging inspector.",
-    }
+    def other(n):
+        text = f"Crane lifting plan {n} must name the rigging inspector."
+        return {**STATEMENT, "requirement_text": text, "source_text": text}
+
     findings = []
-    for i, req in enumerate((STATEMENT, other)):
+    for i, req in enumerate((STATEMENT, other(1), other(2), other(3))):
         with procedure_text.using(PAGES):
             v = comparison.compare(req, None)
         f = _crs_finding(req, v["status"], v["rationale"])
+        f["contractor_page"] = procedure_text.page_of(None, v["rationale"])
         findings.append({**f, "id": f"pf{i}"})
-    assert [f["reason_code"] for f in findings] == [
-        "procedure_text_found",
-        "procedure_text_not_found",
-    ]
+    assert [f["reason_code"] for f in findings] == (
+        ["procedure_text_found"] + ["procedure_text_not_found"] * 3
+    )
+    assert findings[0]["contractor_page"] == 2
+    assert all(f["compliance_status"] != comparison.COMPLIANT for f in findings)
     rows = crs_mapping.build_crs_rows(findings, [], "proc.pdf")
-    text = " ".join(str(r.get("comment")) for r in rows)
-    assert len(rows) == 2
+    assert len(rows) == 1  # the found row only
+    text = str(rows[0].get("comment"))
     assert "found on page 2" in text and "qualified before production welding" in text
-    assert "keyword search" in text
-    assert "Not answered by any field read from the datasheet" not in text
+    assert "2" in str(rows[0].get("page_section"))
+    notes = [
+        n
+        for n in crs_mapping.build_review_notes(findings, [])
+        if "Procedure check" in n["note"]
+    ]
+    assert len(notes) == 1
+    assert (
+        notes[0]["count"]
+        == 3
+        == sum(f["reason_code"] == "procedure_text_not_found" for f in findings)
+    )
+    assert "keyword search" in notes[0]["detail"]
+    assert crs_mapping.build_review_notes(findings[:1], []) == []
 
 
 def test_a_procedure_records_demand_is_another_document():
@@ -316,3 +329,13 @@ def test_a_quote_not_in_the_stored_page_is_never_shown(monkeypatch):
         verdict = comparison.compare(STATEMENT, None)
     assert "not on the page" not in verdict["rationale"]
     assert "keyword search" in verdict["rationale"]
+
+
+def test_a_found_row_stored_without_a_page_is_still_a_crs_line():
+    from app import crs_mapping
+
+    with procedure_text.using(PAGES):
+        v = comparison.compare(STATEMENT, None)
+    f = _crs_finding(STATEMENT, v["status"], v["rationale"])
+    assert f["contractor_page"] is None
+    assert len(crs_mapping.build_crs_rows([f], [], "proc.pdf")) == 1

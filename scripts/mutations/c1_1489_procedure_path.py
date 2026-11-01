@@ -157,7 +157,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _M,
         "        and not procedure_text.is_row(finding)\n",
         "",
-        "reach_the_crs",
+        "without_a_page",
     ),
     _m(
         18,
@@ -165,7 +165,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _M,
         "    if words := procedure_text.crs_words(f, lead):  # #1476\n",
         "    if False:\n",
-        "reach_the_crs",
+        "one_counted_note",
     ),
     _m(
         19,
@@ -173,7 +173,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _C,
         "    *procedure_text.REASON_CODES,  # #1476\n",
         "",
-        "reach_the_crs",
+        "one_counted_note",
     ),
     _m(
         20,
@@ -190,5 +190,29 @@ MUTATIONS: tuple[Mutation, ...] = (
         '    if not found or _fold(quote) not in _fold(dict(pages).get(found["page"], "")):\n',
         "    if not found:\n",
         "never_shown",
+    ),
+    _m(
+        22,
+        "a not-found procedure row is its own CRS line again",
+        _M,
+        "            and not procedure_text.is_unfound(f)\n",
+        "",
+        "one_counted_note",
+    ),
+    _m(
+        23,
+        "the procedure note counts one too many",
+        _P,
+        '            "count": len(rows),\n',
+        '            "count": len(rows) + 1,\n',
+        "one_counted_note",
+    ),
+    _m(
+        24,
+        "a found row loses its contractor page",
+        _P,
+        "    return int(match.group(1)) if match else None\n",
+        "    return None\n",
+        "one_counted_note",
     ),
 )
