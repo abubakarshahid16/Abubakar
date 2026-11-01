@@ -64,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
     except Exception as exc:  # noqa: BLE001 - reported, never read as a result
-        print(f"BENCH ERROR (not a result): {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            f"BENCH ERROR (not a result): {type(exc).__name__}: {exc}", file=sys.stderr
+        )
         return EXIT_ERROR
 
 
