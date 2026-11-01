@@ -58,7 +58,7 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
-from . import playbooks as playbooks_mod, procedure_playbook_rows as procedure_playbook_rows_mod
+from . import playbooks as playbooks_mod, procedure_playbook_rows as ppr_mod
 from . import requirement_split as requirement_split_mod
 from . import auth as auth_mod, auth_session as auth_session_mod
 from . import errors
@@ -2796,12 +2796,11 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     unread = ((outcome.get("page_coverage") or {})
               .get("pages_not_read_into_fields") or [])
     missing = _missing_references(submittal_id, allowed)
-    # #754 F5b: required vs cited, recomputed like `missing` from the
-    # submittal's own text, facts and type (no stored copy to go stale).
+    # #754 F5b: required vs cited, recomputed like `missing` (no stored copy to go stale).
     check = applicability_mod.standards_check(submittal_id, allowed_document_ids=allowed)
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
-    rows, playbook_notes = procedure_playbook_rows_mod.merge(rows, submittal_id, submittal_name, allowed)  # #1522
+    rows, pb_notes = ppr_mod.merge(rows, submittal_id, submittal_name, allowed)  # #1522
     # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.
@@ -2965,7 +2964,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
-    meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed) + playbook_notes
+    meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
+    meta["review_notes"] += pb_notes
     return rows, meta, submittal_name, stamp
 
 

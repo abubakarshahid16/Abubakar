@@ -34,7 +34,19 @@ BY = "Playbook check (draft)"
 COVER_LINES = 12
 #: Words of a playbook title that do not name its subject.
 _GENERIC = frozenset(
-    "procedure procedures study review assessment the a an of for and".split()
+    [
+        "procedure",
+        "procedures",
+        "study",
+        "review",
+        "assessment",
+        "the",
+        "a",
+        "an",
+        "of",
+        "for",
+        "and",
+    ]
 )
 _WORD = re.compile(r"[a-z0-9&]+")
 

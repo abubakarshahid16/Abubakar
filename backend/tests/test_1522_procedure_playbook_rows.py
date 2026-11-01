@@ -129,11 +129,14 @@ def test_a_removed_section_makes_its_element_row_not_found(on):
     cut = [s for s in HAZOP_SECTIONS if s[0] != "Follow-up"]
     full = _mine(_crs(_run(_doc("p1", HAZOP_SECTIONS)))[0])
     short = _mine(_crs(_run(_doc("p2", cut)))[0])
-    follow = lambda rows: next(
-        r
-        for r in rows
-        if "Recommendations and their follow-up" in r["comment"].split(":")[0]
-    )  # noqa: E731
+
+    def follow(rows):
+        return next(
+            r
+            for r in rows
+            if "Recommendations and their follow-up" in r["comment"].split(":")[0]
+        )
+
     assert "found at" in follow(full)["comment"]
     assert "found at" not in follow(short)["comment"]
     assert follow(short)["playbook_state"] in (playbooks.UNCLEAR, playbooks.MISSING)
