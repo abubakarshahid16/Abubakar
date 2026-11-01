@@ -378,11 +378,10 @@ def _v(value) -> str:
     return NOT_RECORDED if value is None else str(value)
 
 
-def render_markdown(audit: dict) -> str:
-    run, pages, std = audit["run"], audit["pages"], audit["standards"]
-    rules, gates, crs = audit["rules"], audit["gates"], audit["crs"]
+def _md_run(audit: dict) -> list[str]:
+    run = audit["run"]
     kind = run.get("kind_decided")
-    out = [
+    return [
         f"# Review audit {run['id']}",
         "",
         f"_{audit['boundary']}_",
@@ -405,6 +404,12 @@ def render_markdown(audit: dict) -> str:
         f"- AI calls made: {_v(run['ai_calls_made'])}; refused: {_v(run['ai_calls_refused'])}",
         f"- started by: {_v(run['started_by'])}",
         "",
+    ]
+
+
+def _md_pages(audit: dict) -> list[str]:
+    pages = audit["pages"]
+    out = [
         "## 2. Pages",
         f"- pages in the document: {_v(pages['total'])}",
         f"- read (text): {_v(pages['read_text'])}; read (picture): {_v(pages['read_picture'])}",
@@ -419,8 +424,12 @@ def render_markdown(audit: dict) -> str:
         for p in (pages["per_page"] or [])
         if p.get("rule")
     ]
-    out += [
-        "",
+    return [*out, ""]
+
+
+def _md_standards(audit: dict) -> list[str]:
+    std = audit["standards"]
+    return [
         "## 3. Standards",
         f"- applied: {std['applied_count']} ({', '.join(f'{k} {v}' for k, v in std['applied_by_method'].items()) or 'no method recorded'})",
         *[f"  - {a['filename']} ({a['method']})" for a in std["applied"]],
@@ -429,6 +438,12 @@ def render_markdown(audit: dict) -> str:
         f"(design / material / purchasing split: {std['cited_not_in_library_split']})",
         f"- editions: {std['editions']}",
         "",
+    ]
+
+
+def _md_rules(audit: dict) -> list[str]:
+    rules = audit["rules"]
+    out = [
         "## 4. Rules",
         f"- rules compared: {rules['rows_total']}",
         "- verdicts: "
@@ -460,7 +475,11 @@ def render_markdown(audit: dict) -> str:
             )
             + " |"
         )
-    out += ["", "## 5. AI use"]
+    return [*out, ""]
+
+
+def _md_ai(audit: dict) -> list[str]:
+    out = ["## 5. AI use"]
     for s in audit["ai_use"]["steps"]:
         out += [
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; calls {_v(s['calls'])}; "
@@ -471,10 +490,16 @@ def render_markdown(audit: dict) -> str:
         ]
         if s.get("reason"):
             out.append(f"  - reason: {s['reason']}")
-    out += ["", "## 6. Safety gates"]
+    return [*out, ""]
+
+
+def _md_gates_crs(audit: dict) -> list[str]:
+    gates, crs = audit["gates"], audit["crs"]
+    out = ["## 6. Safety gates"]
     out += [f"- {k}: {_v(v)}" for k, v in gates["recorded"].items()]
     out += [f"- {n}: {NOT_RECORDED}" for n in gates["not_recorded_on_the_run"]]
-    out += [
+    return [
+        *out,
         "",
         "## 7. CRS",
         f"- rows exported: {_v(crs['rows_exported'])}",
@@ -482,10 +507,25 @@ def render_markdown(audit: dict) -> str:
         f"- rows dropped (empty, duplicate): {crs['rows_dropped']}",
         f"- client copy: {crs['client_copy_path']}; internal copy: {crs['internal_copy_path']}",
         "",
-        "## 8. Retractions and known gaps",
     ]
+
+
+def render_markdown(audit: dict) -> str:
     gaps = audit["retractions_and_gaps"]
-    out.append(f"- {gaps['note']}")
+    out = [
+        f"# Review audit {audit['run']['id']}",
+        "",
+        f"_{audit['boundary']}_",
+        "",
+        *_md_run(audit),
+        *_md_pages(audit),
+        *_md_standards(audit),
+        *_md_rules(audit),
+        *_md_ai(audit),
+        *_md_gates_crs(audit),
+        "## 8. Retractions and known gaps",
+        f"- {gaps['note']}",
+    ]
     out += [
         f"  - {g['id']} (switch {g['switch_off']} is off)"
         for g in gaps["entries"] or []

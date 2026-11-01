@@ -1,3 +1,4 @@
+# ruff: noqa: F811
 """#1525: one machine-written AUDIT.md + AUDIT.json per review run, behind
 REVIEW_AUDIT_REPORT_ENABLED (off by default). Invented documents only.
 
@@ -17,7 +18,12 @@ import pytest
 from app import access, review_audit, review_jobs, review_trace
 from app.config import settings
 from app.db import connect
-from tests.test_p3_review_jobs import W, _enqueue, temp_storage, world  # noqa: F401 - fixtures
+from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
+    W,
+    _enqueue,
+    temp_storage,
+    world,
+)
 
 
 @pytest.fixture
