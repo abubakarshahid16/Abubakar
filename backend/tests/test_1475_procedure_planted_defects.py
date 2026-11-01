@@ -25,6 +25,7 @@ import pytest
 
 from app import clause_review, comparison, db, procedure_text, standards
 from app import requirements_3b as r3b
+from app.config import settings
 
 # the fixtures and the fake provider of the clause review tests: reused, not copied (autouse fixtures included)
 from tests.test_1477_clause_review import (  # noqa: F401
@@ -33,7 +34,6 @@ from tests.test_1477_clause_review import (  # noqa: F401
     _procedure,
     _resolver,
     _rows,
-    on,
 )
 from tests.test_b3_page_ledger import _review, temp_storage  # noqa: F401 - autouse
 
@@ -181,6 +181,11 @@ DOCS = {
     "sil": (SIL_PAGES, SIL),
     "hotwork": (HOTWORK_PAGES, HOTWORK),
 }
+
+
+@pytest.fixture
+def on(monkeypatch):
+    monkeypatch.setattr(settings, "clause_review_enabled", True)
 
 
 def _pages(texts):
