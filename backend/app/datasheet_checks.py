@@ -34,8 +34,16 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
+from .at_limit import hold as _hold
 from .checklist_scope import governs, standards
+from .config import settings
+from .datasheet_coverage import (
+    coverage,  # noqa: F401  (moved out to keep this file shrinking)
+)
+from .deferred_value import hold_results, note_of
+from .label_match import drop_unit_less_twins
+from .percent_kind import doubt as _kind_doubt
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
@@ -233,6 +241,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
             qualified.setdefault(fact.get("equipment_tag"), {}).setdefault(under, []).append(fact)
     if not by_tag:
         by_tag[None] = {}
+    datasheet_roles.add_combined(facts, by_tag, rules, wanted)
     out: list[dict] = []
     # GENERIC_FALLBACK (2026-09-27): `equipment_type` is unknown/unconfirmed
     # on almost every submittal today (nothing wrote it before B9, and B9's
@@ -292,9 +301,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                 # ONE LIST (rule 8): `blank_markers`, the list the datasheet
                 # reader itself used to mark the fact blank - a lone "*" or
                 # "VENDOR TO ADVISE" is a placeholder here exactly as there.
-                printed = fact.get("field_value") or fact.get("blank_marker") or ""
-                if fact.get("is_blank") or (printed.strip()
-                                            and blank_markers.classify(printed)[0]):
+                if blank_markers.fact_is_placeholder(fact):
                     out.append(_result("DS-M2", MISSING_INFORMATION,
                                        f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
                                        f"{_label(fact, role)} is marked '{_said(fact) or fact.get('blank_marker')}' "
@@ -347,15 +354,14 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                        "pressure basis"),
                                    left[0], rule["left"], tag))
                 continue
-            ok = _OPS[rule["op"]](a[0], b[0])
+            ok = _hold(rule["op"], a[0], b[0], _OPS)
             calc = (f"{_label(left[0], rule['left'])} {_said(left[0])} (page {left[0].get('page')}) is "
                     f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {_label(right[0], rule['right']).lower()} "
                     f"{_said(right[0])} (page {right[0].get('page')}).")
             out.append(_result(rule["id"], COMPLIANT if ok else NON_COMPLIANT, rule["text"],
                                calc, left[0], rule["left"], tag))
     # ---- revision block: two or more of the revision table's own headings
-    # Two DISTINCT revision-table headings on one page (row_noise's markers,
-    # read line by line): the rule row_noise uses to recognise the block.
+    # Two DISTINCT revision-table headings on one page (row_noise's markers) make a block.
     from .row_noise import _REVISION_TABLE_MARKERS
     def _block(text: str) -> bool:
         lines = (text or "").splitlines()
@@ -368,16 +374,16 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
         for tag, roles in by_tag.items():
             if tag is None and tagged:
                 continue    # the common section counts for every tag (above)
-            for item in checklist["items"]:
-                out.append(evaluate_item(item, roles, common if tag is not None else {},
-                                         tag, rules, draft=checklist["draft"], page_texts=page_texts))
+            out += kit_core.rows(
+                checklist, roles, common if tag is not None else {}, tag, rules, page_texts
+            )
     if page_texts and equipment_type:
         out.append(_result("DS-R1", COMPLIANT if has_block else MISSING_INFORMATION,
                            "A datasheet carries a revision block.",
                            ("A revision block was found." if has_block else
                             "No revision block was found on the datasheet pages read."),
                            None, "revision_block", None))
-    return out
+    return hold_results(out, facts, rules, wanted)
 
 
 # ---------------------------------------------------------------- #746 checklist
@@ -420,7 +426,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
     if key not in table:
         return None
     entry = table[key]
-    items = list(entry.get("items", [])) + _local_items(key)
+    items = kit_core.with_kit(key, list(entry.get("items", [])) + _local_items(key))
     for item in items:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
@@ -519,37 +525,16 @@ def _one(found: list[dict]) -> tuple[dict | None, str | None]:
     """The one value a field states, or why there is not one."""
     if not found:
         return None, "absent"
+    # a unit left off one copy of the same number (switch `datasheet_label_join_enabled`)
+    if settings.datasheet_label_join_enabled:
+        found = drop_unit_less_twins(found)
     if len({_key(f) for f in found}) != 1:
         return None, "two different values"
+    if settings.datasheet_one_value_enabled:
+        # #1472: merged readings keep a deferral note if ANY of them has one (D2 holds it).
+        return next((f for f in found if note_of(f)), found[0]), None
     return found[0], None
 
-
-
-def coverage(results: list[dict]) -> dict | None:
-    """The reader-coverage line of a review (planner 2026-10-10, roadmap R11):
-    of the checklist's fields (each field once, across tags), how many were
-    READ as a fact, and how many are on the sheet but were NOT read (a reader
-    gap, with the pages): the to-do list for the datasheet reader. None when
-    the review ran no checklist."""
-    # A calculation compares a field the `required` items already count; it
-    # is not a field of its own (R13), so the reader-coverage line is unchanged.
-    items = [r for r in results if r.get("checklist") and not r.get("calc")]
-    if not items:
-        return None
-    fields: dict[str, str] = {}
-    gap_pages: dict[str, set] = {}
-    for r in items:
-        role = r.get("role") or ""
-        state = "read" if r.get("fact_id") else ("gap" if r.get("reader_gap") else "absent")
-        # a field read for one tag counts as read; a gap only if never read
-        if fields.get(role) != "read":
-            fields[role] = "read" if state == "read" else (fields.get(role) if fields.get(role) == "gap" else state)
-        if r.get("reader_gap"):
-            gap_pages.setdefault(role, set()).update(r.get("pages") or [])
-    gaps = sorted(f for f, st in fields.items() if st == "gap")
-    return {"fields": len(fields), "read": sum(1 for st in fields.values() if st == "read"),
-            "on_sheet_not_read": len(gaps),
-            "gap_pages": sorted({p for f in gaps for p in gap_pages.get(f, ())})}
 
 
 def _page_span(page_texts: dict[int, str] | None) -> str:
@@ -655,10 +640,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     unknown = None    # the first condition the sheet does not state, if any
     for condition in conditions:
         cond_fact, why = _one(get(condition["role"]))
-        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot
-        # be wrong whatever the condition ("the molecular weight is stated",
-        # "k is above 1"): an unknown condition does not stop them. Any other
-        # item with an unknown condition is an engineer's question.
+        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot be wrong whatever the
+        # condition ("k is above 1"). Any other item with an unknown condition is an engineer's question.
         if cond_fact is None:
             if rule["kind"] == "calc":
                 # R13: which formula applies is not known; the phase item asks.
@@ -716,16 +699,18 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                         f"page{'s' if len(searched) > 1 else ''} {pages}: engineer to check.")
                 return {**r, "reader_gap": True, "pages": searched}
             r = res(MISSING_INFORMATION,
-                    f"{_pretty(field)} was not found in the fields read or in the text of "
-                    f"pages {_page_span(page_texts)}; the contractor is to provide it.")
+                    f"{_pretty(field)} was not read as a value, and no label for it was found in the text of pages "
+                    f"{_page_span(page_texts)} (searched by its name; the sheet may state it in other words); the contractor is to provide it.")
             return {**r, "text_searched": True}
         return res(NEEDS_ENGINEER_REVIEW,
                    _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
                    get(field)[0])
-    if fact.get("is_blank"):
+    if blank_markers.fact_is_placeholder(fact, figure_wins=True):
         return res(MISSING_INFORMATION,
                    f"{_label(fact, field)} is marked '{_said(fact) or fact.get('blank_marker')}' "
                    f"on page {fact.get('page')}; the contractor is to provide the value.", fact)
+    if fact.get("combined_label"):
+        return datasheet_roles.combined_result(fact, field, res)
     if (doubt := implausible(fact, field, rules)) is not None:
         # R12 (#776): an impossible value is never "stated" or compared.
         return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)
@@ -739,21 +724,19 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'one of' if ok else 'not one of'}: {', '.join(rule['values'])}.{noted}",
                    fact)
+    if (doubt := _kind_doubt(fact, rule, _is_percent(fact))) is not None:  # #1512
+        return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)
     if kind == "percent_of" and rule.get("stated_as_percent") and _is_percent(fact):
-        # R13: a value the sheet states AS a percentage of the right-hand
-        # field ("built-up back pressure 8 %" of the set pressure) is compared
-        # as that percentage; the right-hand value is not needed.
+        # R13: a value stated AS a percentage ("back pressure 8 %") is compared as that.
         stated = _number_of_or_none(fact)
         if stated is None:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(f"'{_said(fact)}' is not a number"), fact)
-        ok = _OPS[rule["op"]](stated, float(rule["percent"]))
+        ok = _hold(rule["op"], stated, float(rule["percent"]), _OPS)
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['percent']}% of the "
                    f"{_pretty(rule['right']).lower()}.{noted}", fact)
     if kind == "constant" and rule.get("percent_of_role") and not _is_percent(fact):
-        # R13: a percentage limit on a value the sheet states as a PRESSURE
-        # ("overpressure 1.2 barg" against 10 % of the set pressure): the
-        # percentage is worked out from the set pressure, by code.
+        # R13: a percentage limit on a PRESSURE value is worked out from the set pressure.
         reference = rule["percent_of_role"]
         try:
             amount = _converted(fact, field, "pressure_kpa", rules)
@@ -765,7 +748,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(
                 f"{exc.reason}, so the percentage was not worked out"), fact)
         percent = amount / ref_kpa * 100.0
-        ok = _OPS[rule["op"]](percent, float(rule["value"]))
+        ok = _hold(rule["op"], percent, float(rule["value"]), _OPS)
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {percent:.1f}% of {_quoted(ref_fact, reference)}, which is "
                    f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['value']}%.{noted}", fact)
@@ -795,7 +778,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         if kind == "above_by":
             right_words = (f"{_label(other, rule['right']).lower()} {_said(other)} (page {other.get('page')}) "
                            f"plus the greater of {rule['percent']}% or {rule['at_least']} {rule['unit']}")
-        right_words = ((f"{rule['percent']}% of " if kind == "percent_of" else "")
+        right_words = right_words if kind == "above_by" else ((f"{rule['percent']}% of " if kind == "percent_of" else "")
                        + f"{_label(other, rule['right']).lower()} {_said(other)} (page {other.get('page')})")
     if (left is None or right is None or left[1] != right[1]
             or (left[2] and right[2] and left[2] != right[2])):
@@ -808,10 +791,10 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(
                 "the required margin is not on the same scale as the two values"), fact)
         margin = max(right[0] * float(rule["percent"]) / 100.0, floor[0])
-        ok = left[0] >= right[0] + margin
+        ok = _hold(">=", left[0], right[0] + margin, _OPS)
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'' if ok else 'not '}at least {right_words}.{noted}", fact)
-    ok = _OPS[rule["op"]](left[0], right[0] * factor)
+    ok = _hold(rule["op"], left[0], right[0] * factor, _OPS)
     return res(COMPLIANT if ok else NON_COMPLIANT,
                f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {right_words}.{noted}", fact)
 
@@ -941,6 +924,8 @@ def _is_percent(fact: dict) -> bool:
 def _overpressure_kpa(get, set_kpa_g: float, rules: dict) -> tuple[float, dict]:
     fact = _input(get, "overpressure")
     if _is_percent(fact):
+        if (doubt := _kind_doubt(fact)) is not None:  # #1512
+            raise _NotCalculated(doubt)
         return set_kpa_g * _number_of(fact, "overpressure") / 100.0, fact
     return _converted(fact, "overpressure", "pressure_kpa", rules), fact
 
@@ -1150,7 +1135,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     `label` (rule_trust, #947; None with the switch off): applied to each
     result AFTER the choice of which results become rows, so a held pass
     does not turn into a row a plain pass never was."""
-    from . import comparison, standard_clause_page
+    from . import comparison, degraded_read, read_elsewhere, standard_clause_page
     from . import review as review_mod
     written = []
     # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete and
@@ -1159,16 +1144,12 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
                  fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
                 for f in review_mod.rejected_in_run(review_run_id, ORIGIN)}
-    # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met
-    # checklist item (an R13 calculation included) is stored as a COMPLIANT
-    # finding with its item id, the fact, the page and the clause, so "Meets"
-    # is visible like any result. It is never a CRS comment (`crs_mapping`
-    # takes only breaches and gaps). Any OTHER check that held (a consistency
-    # pair, the revision block) still adds no row. "Does not apply" is not a
-    # result either (#746): the condition's reason is in the result, never a
-    # row. NOT CALCULATED is not a row either (R13): the inputs it lacked are
-    # asked for by their own `required` items.
-    for r in (x for x in results if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
+    # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met item (an R13 calculation included) is
+    # stored as a COMPLIANT finding with its item id, fact, page and clause, so "Meets" is visible like any result;
+    # never a CRS comment (`crs_mapping` takes only breaches and gaps). Any OTHER check that held adds no row.
+    # "Does not apply" and NOT CALCULATED are no rows either. 307.1: a value read for other tags is not "not read".
+    results = read_elsewhere.soften(results)
+    for r in (x for x in degraded_read.hold(results, submittal_id) if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
         if label is not None:
             r = label(r)

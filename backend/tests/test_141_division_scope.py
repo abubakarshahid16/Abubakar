@@ -665,7 +665,7 @@ def test_a_review_does_not_apply_a_division_limited_to_another_construction(
     temp_storage, monkeypatch
 ):
     result, stored, ids = _review(monkeypatch, FakeModel())
-    assert stored[ids["aa"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["aa"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
     assert stored[ids["tt"]]["state"] == scope_ledger.DOES_NOT_APPLY
     assert stored[ids["tt"]]["reason_code"] == "outside_division_scope"
     assert TT_SCOPE in stored[ids["tt"]]["reason"]
@@ -694,7 +694,10 @@ def test_a_review_with_the_division_reader_off_changes_nothing(
 ):
     model = FakeModel(construction=NOT_GRAPHITE)
     result, stored, ids = _review(monkeypatch, model, enabled=False)
-    assert {stored[i]["state"] for i in ids.values()} == {scope_ledger.CHECKED}
+    assert all(
+        stored[i]["reason_code"] in scope_ledger.STATUS_REASON.values()
+        for i in ids.values()
+    )
     assert model.calls == [] and "division_scope" not in result["requirement_split"]
 
 

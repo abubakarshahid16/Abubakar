@@ -29,6 +29,7 @@ import re
 from . import (
     crs_ai_drafts,
     crs_blank_fields,
+    crs_checklist,
     crs_item_series,
     crs_no_field,
     method_notes,
@@ -40,7 +41,19 @@ from . import (
 from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
-from . import paragraph_ids
+from . import paragraph_ids, procedure_text, spec_kit
+
+# isort: split
+from .crs_draft_lanes import (  # noqa: F401
+    AI_UNCONFIRMED_COMMENT,
+    CLAUSE_LANE,
+    UNCONFIRMED_COMMENTS,
+    WAITING_COMMENTS,
+    WEB_UNCONFIRMED_COMMENT,
+    lane,
+)
+from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
+from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -99,6 +112,13 @@ _WEB_CONFIRMED_BY = "Web check, confirmed by "
 #: yet confirmed"; these say so.
 _AI_UNCONFIRMED_BY = "AI - engineer to confirm"
 _WEB_UNCONFIRMED_BY = "Web check - engineer to confirm"
+#: The one-row draft origins: (confirmed byline, unconfirmed byline, row kind).
+_DRAFT_LANES = {
+    _AI_ORIGIN: (_AI_CONFIRMED_BY, _AI_UNCONFIRMED_BY, ROW_KIND_AI_ENGINEERING_CHECK),
+    _WEB_ORIGIN: (_WEB_CONFIRMED_BY, _WEB_UNCONFIRMED_BY, ROW_KIND_WEB_STANDARD_CHECK),
+    _CLAUSE_ORIGIN: CLAUSE_LANE,
+    spec_kit.ORIGIN: spec_kit.LANE,
+}
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
 #: literal, not imported from `comparison`, because this module stays pure
@@ -107,26 +127,20 @@ _MISSING_INFORMATION = "MISSING_INFORMATION"
 _NOT_IN_DOCUMENT_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
 
 #: The leading token `comparison.REQUIRES_OTHER_DOCUMENT` embeds in
-#: `ai_rationale` on a NOT_IN_DOCUMENT_SCOPE finding (issue #163). Duplicated
-#: here as a literal for the same reason as `_MISSING_INFORMATION` above:
-#: reading a stable, documented piece of text is not re-deciding the verdict
-#: that produced it. A NOT_IN_DOCUMENT_SCOPE finding without this marker is
-#: left out of the summary count rather than guessed into one - #165 found
-#: none in three real runs, but a future branch of `comparison._reconcile`
-#: could add one, and this module must not assume every reason for that
-#: status is "needs another document".
+#: `ai_rationale` on a NOT_IN_DOCUMENT_SCOPE finding (issue #163), a literal as
+#: `_MISSING_INFORMATION` above is: reading stable text is not re-deciding the
+#: verdict. A NOT_IN_DOCUMENT_SCOPE finding without it is left out of the
+#: summary count rather than guessed into one (#165): this module must not
+#: assume every reason for that status is "needs another document".
 _REQUIRES_OTHER_DOCUMENT_MARKER = "requires_other_document"
 
-#: B3. The reason code `comparison.UNREAD_PAGES` leads `ai_rationale` with on a
-#: finding whose value could sit on a page not yet read into fields. Duplicated
-#: as a literal for the same reason as the two above. Such a finding is an
-#: instruction to the ENGINEER, never a comment to the contractor, so it never
-#: enters the CRS as its own row.
+#: B3. `comparison.UNREAD_PAGES` leads `ai_rationale` on a finding whose value
+#: could sit on a page not yet read into fields (a literal, as above): an
+#: instruction to the ENGINEER, never its own CRS row.
 _UNREAD_PAGES_MARKER = "UNREAD_PAGES"
 ROW_KIND_PAGES_NOT_READABLE = "pages_not_readable"
-#: Honesty audit entry 68: `comparison.PAGE_READER_ONLY` - the value was not
-#: found on a page only the geometry/vision reader read. Engineer work, like
-#: UNREAD_PAGES, so never an individual row to the contractor.
+#: Audit entry 68: `comparison.PAGE_READER_ONLY` - not found on a page only the
+#: geometry/vision reader read. Engineer work, like UNREAD_PAGES: never a row.
 _PAGE_READER_ONLY_MARKER = "PAGE_READER_ONLY"
 ROW_KIND_PAGE_READER_ONLY = "page_reader_only"
 
@@ -173,9 +187,11 @@ def _no_datasheet_field(finding: dict) -> bool:
     return (
         finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
         and finding.get("origin")
-        not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, "chat")
+        not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN, "chat")
         and not (finding.get("fact_id") or finding.get("contractor_page"))
         and not _unread(finding)
+        and not procedure_text.is_row(finding)
+        and not spec_kit.is_row(finding)
         and not _page_reader_only(finding)
         and not _confirmed(finding)
         and not finding.get("rule_said")
@@ -221,6 +237,8 @@ def finding_comment_key(f: dict) -> str:
         return comment_key(
             origin, f.get("finding"), f.get("required_action"),
             f.get("contractor_page"), f.get("contractor_section"))
+    if origin in (_CLAUSE_ORIGIN, spec_kit.ORIGIN):
+        return comment_key(origin, f.get("standard_document_id"), f.get("requirement_id"))
     key = _group_key(f)
     if key[0] == "field":
         return field_comment_key(key[1], key[2])
@@ -250,6 +268,7 @@ _BYLINE_SHAPES = (
     re.compile(r"^(AI Review, (?:edited and )?confirmed by )(?P<who>.+?)()$"),
     re.compile("^(" + re.escape(_AI_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
     re.compile("^(" + re.escape(_WEB_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
+    re.compile("^(" + re.escape(_CLAUSE_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
     re.compile(r"^()(?P<who>.+?)( \(filed from chat\))$"),
 )
 
@@ -358,11 +377,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     apart from them, the statements no datasheet field was found for, which
     name no document (quick wins; they were counted as the first kind). Every
     count states its boundary: "of this run's requirements from <standard>".
-    Last, one note per requirement found NOT APPLICABLE because the
-    datasheet's own facts put it outside the requirement's condition, quoting
-    the condition and the value (and page) that decided it. Last of all,
-    rule_trust (#947): the fields no rule checked and the spot-check sample,
-    from the run's stored `outcome` (`rule_trust.review_notes`).
+    Then one note per requirement found NOT APPLICABLE because the datasheet's
+    own facts put it outside the requirement's condition (with the value and
+    page that decided it); last, rule_trust (#947) from the run's `outcome`.
     """
     notes: list[dict] = []
     for ref in missing_references:
@@ -414,6 +431,8 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
     notes.extend(crs_no_field.notes(findings))
+    notes.extend(procedure_text.notes(findings, _standard_reference))
+    notes.extend(spec_kit.notes(findings))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -538,7 +557,7 @@ def reasoning_text(group: list[dict]) -> str:
         reference = _standard_reference(f)
         if reference:
             bits.append(f"Clause: {reference}")
-        bits.extend(crs_reference.internal_bits(f))
+        bits.extend(crs_reference.internal_bits(f) + crs_checklist.draft_bits(f))
         status = f.get("compliance_status")
         if status:
             bits.append(f"Result: {_RESULT_WORDS.get(status, status)}")
@@ -549,9 +568,8 @@ def reasoning_text(group: list[dict]) -> str:
 
 
 def _page_section(group: list[dict]) -> str:
-    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)"; a value looked
-    for and not found: "Not found on pages 1-5 - <field>" (order 228.4). Never the standard's
-    file name or the chunk's section heading (on a ruled form, another cell's text)."""
+    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)"; a field never read: "Not read
+    from the datasheet"; read elsewhere: where (orders 228.4, 307). Never the standard's file name or heading."""
     f = group[0]
     pages = sorted(
         {g.get("contractor_page") for g in group if g.get("contractor_page")}
@@ -563,6 +581,7 @@ def _page_section(group: list[dict]) -> str:
         _items(group),
         {g.get("document_id") for g in group},
         any(g.get("fact_id") for g in group),
+        _field_label(f),
     )
 
 
@@ -666,6 +685,8 @@ def engineer_comment_text(group: list[dict]) -> str:
         f"p.{_page_list(pages)}," if pages else "",
         field or "", f"({', '.join(tags)})" if tags else "") if p)
     lead = f"{ref}: {_requirement_words(f)}"
+    if words := procedure_text.crs_words(f, lead):  # #1476
+        return words
     if not (f.get("fact_id") or f.get("contractor_page")):
         # NOT FOUND IS NOT "NOT STATED" (honesty audit 50): what is known is
         # that no field READ from the sheet answered it, with the pages that
@@ -987,25 +1008,6 @@ PRIORITY_WORDS = {
 #: internal to-do. Every other word is the same.
 ISSUE_PRIORITY_WORDS = {**PRIORITY_WORDS, PRIORITY_ENGINEER_TO_CHECK: "Clarification"}
 
-#: Spec e: COMPANY Comments of an UNCONFIRMED AI / web item. Plain words that
-#: the row is a suggestion awaiting an engineer - never the draft itself,
-#: which stays in "AI Review Comments" (owner order 2d/2f).
-AI_UNCONFIRMED_COMMENT = (
-    "AI suggestion awaiting an engineer's decision - its words are in "
-    "AI Review Comments. Not issued to the contractor until an engineer "
-    "confirms it."
-)
-WEB_UNCONFIRMED_COMMENT = (
-    "Web standards check suggestion awaiting an engineer's decision - its "
-    "words are in AI Review Comments. Not issued to the contractor until "
-    "an engineer confirms it."
-)
-
-#: The two waiting sentences. They are text ONLY beside the draft they point
-#: to (a row's "AI Review Comments"); anywhere else - a carried-forward
-#: snapshot, a row whose draft is gone - they say nothing true.
-WAITING_COMMENTS = frozenset({AI_UNCONFIRMED_COMMENT, WEB_UNCONFIRMED_COMMENT})
-
 
 def row_has_no_text(row: dict) -> bool:
     """Spec e, one home (rule 8): a CRS row with no comment text a contractor
@@ -1089,14 +1091,13 @@ def _bucket_of(f: dict) -> str | None:
         return None
     if origin == "chat":
         return BUCKET_CHAT
-    if origin == _AI_ORIGIN:
-        return BUCKET_AI
+    if origin in (_AI_ORIGIN, _CLAUSE_ORIGIN, spec_kit.ORIGIN):
+        return None if spec_kit.is_unfound(f) else BUCKET_AI
     if origin == _WEB_ORIGIN:
         return BUCKET_WEB
     if origin == _DATASHEET_ORIGIN:
-        # rule_trust (#947): a check held because its rule is not proven is
-        # still a row - the engineer decides it.
-        if status in ("NON_COMPLIANT", _MISSING_INFORMATION) or f.get("rule_said"):
+        # rows: a breach, a gap, a check held as unproven (#947), a checklist item held
+        if crs_checklist.is_row(status, f):
             return BUCKET_CHECK
     elif status == "NON_COMPLIANT":
         return BUCKET_BREACH
@@ -1112,6 +1113,7 @@ def _bucket_of(f: dict) -> str | None:
             not _unread(f)
             and not _page_reader_only(f)
             and not _no_datasheet_field(f)
+            and not procedure_text.is_unfound(f)
         ):
             return BUCKET_QUESTION
         return None
@@ -1593,7 +1595,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     # a verdict; a draft in its own column until an engineer confirms it.
     for f in _one_row_findings(items, BUCKET_AI, BUCKET_WEB):
         origin = f.get("origin")
-        if origin not in (_AI_ORIGIN, _WEB_ORIGIN) or f.get("approval_status") == "rejected":
+        if origin not in _DRAFT_LANES or f.get("approval_status") == "rejected":
             continue
         text = f.get("engineer_comment") or _finding_text(f)
         if origin == _AI_ORIGIN:
@@ -1611,14 +1613,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
         confirmed = bool(crs_decider.decider(f))
-        confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
-        unconfirmed_by = _AI_UNCONFIRMED_BY if origin == _AI_ORIGIN else _WEB_UNCONFIRMED_BY
-        row_kind = ROW_KIND_AI_ENGINEERING_CHECK if origin == _AI_ORIGIN else ROW_KIND_WEB_STANDARD_CHECK
-        # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
-        # says it awaits an engineer, the draft stays in "AI Review Comments".
-        unconfirmed_comment = (
-            AI_UNCONFIRMED_COMMENT if origin == _AI_ORIGIN else WEB_UNCONFIRMED_COMMENT
+        confirmed_by_prefix, unconfirmed_by, row_kind, unconfirmed_comment = lane(
+            f, _DRAFT_LANES, spec_kit.noun_of(f)
         )
         rows.append(
             {
@@ -1632,7 +1629,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     else unconfirmed_by
                 ),
                 "ai_review_comment": "" if confirmed else text,
-                "standard_reference": relates
+                "standard_reference": _standard_reference(f)
+                if origin == _CLAUSE_ORIGIN
+                else relates
                 if origin == _AI_ORIGIN and not f.get("engineer_comment")
                 else "",
                 "row_kind": row_kind,
@@ -1648,7 +1647,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             }
         )
         rows[-1].update(crs_ai_drafts.row_extras(f))
-        rank = row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB)
+        rank = row_priority(BUCKET_WEB if origin == _WEB_ORIGIN else BUCKET_AI)
         sort_keys.append(_rank_row(rows[-1], rank, [f]))
 
     # #754 F5b: the required-vs-cited result, one row per standard.

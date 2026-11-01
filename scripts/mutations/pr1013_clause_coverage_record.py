@@ -19,7 +19,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1013-02", phase=1013,
              description="the stored coverage counts a wrong denominator (does-not-apply inside it)",
              path=APP / "clause_coverage.py",
-             anchor="    applicable = sum(counts[s] for s in STATES)\n    adds_up = applicable + counts[DOES_NOT_APPLY] == len(decisions)\n",
+             anchor="    applicable = sum(counts[s] for s in STATES)\n    adds_up = applicable + counts[DOES_NOT_APPLY] + queries == len(decisions)\n",
              replacement="    applicable = len(decisions)\n    adds_up = True\n",
              target=_T, keyword="summarise_is_the_routes_arithmetic or stores_the_coverage", tags=_TAG),
     Mutation(id="M1013-03", phase=1013,

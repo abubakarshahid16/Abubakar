@@ -91,6 +91,8 @@ def test_the_origins_this_module_leaves_alone_are_the_ones_crs_mapping_names():
         crs_mapping._DATASHEET_ORIGIN,
         crs_mapping._AI_ORIGIN,
         crs_mapping._WEB_ORIGIN,
+        crs_mapping._CLAUSE_ORIGIN,
+        crs_mapping.spec_kit.ORIGIN,
         "chat",
     }
 

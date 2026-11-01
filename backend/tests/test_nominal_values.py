@@ -44,6 +44,22 @@ def test_when_unsure_a_sentence_is_not_a_nominal_value(sentence):
     assert limit is None or limit["operator"] != r.NOMINAL_OPERATOR
 
 
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The supply shall be 24 V DC, which is higher than the old 12 design.",
+        "The cable shall be 3 m, never longer than the tray.",
+        "The cable shall be 3 m, minimum.",
+    ],
+)
+def test_comparator_wording_the_limit_reader_misses_is_not_a_nominal_value(sentence):
+    """#1529: only the comparator check in `parse_nominal` stops these, since
+    the limit and range readers take none of them."""
+    assert r.parse_limit(sentence) is None and r.parse_range(sentence) is None
+    limit = _parse(sentence)
+    assert limit is None or limit["operator"] != r.NOMINAL_OPERATOR
+
+
 def test_a_nominal_value_that_hands_the_number_to_a_table_is_the_tables_row():
     sentence = "The supply shall be 24 V DC as given in Table 4."
     assert r.classify(sentence, _parse(sentence)) == r.TABLE_ROW

@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims, errors, numparse
+from . import claims, deferred_value, errors, numparse
 
 import logging
 
@@ -189,6 +189,9 @@ def evaluate(rule: dict, input_value: float, input_unit: str,
 # ---------------------------------------------------------------- parsing
 
 _NUM = r"(\d[\d,]*(?:\.\d+)?)"
+#: `_NUM` also reading a leading-dot number (".5") when LEADING_DOT_DECIMAL_ENABLED
+#: is on (#1518); a stranded dot (".5.3") matches neither alternative.
+_NUM_LEAD = r"(\.\d+(?![.,]?\d)|\d[\d,]*(?:\.\d+)?)"
 _UNIT = r"([a-zA-Z°]+[a-zA-Z0-9/°]*)"
 _BOUND = re.compile(
     r"^(?:(?:up\s*to|<=|≤|not\s+exceeding)\s*" + _NUM + r"\s*" + _UNIT + r"?"
@@ -197,6 +200,8 @@ _BOUND = re.compile(
     re.IGNORECASE)
 _TERM = re.compile(r"(?:" + _NUM + r"\s*(?:x|×|\*|times)\s*)?(?P<sym>[A-Za-z][A-Za-z .]{0,40}?)"
                    r"\s*(?:\+\s*" + _NUM + r"\s*" + _UNIT + r"?)?\s*$", re.IGNORECASE)
+_BOUND_LEAD = re.compile(_BOUND.pattern.replace(_NUM, _NUM_LEAD), re.IGNORECASE)
+_TERM_LEAD = re.compile(_TERM.pattern.replace(_NUM, _NUM_LEAD), re.IGNORECASE)
 
 
 def _n(text: str) -> float:
@@ -224,7 +229,7 @@ def _parse_expr(expr: str, symbols: list[str]) -> dict | None:
         return None
     terms = []
     for part in parts:
-        m = _TERM.match(part.strip())
+        m = numparse.lead_or(_TERM, _TERM_LEAD).match(part.strip())
         if not m:
             return None
         sym = " ".join(m.group("sym").split()).lower()
@@ -255,7 +260,7 @@ def _parse_rule(text: str, *, output: str, input_names: list[str], comparator: s
         line = " ".join(line.split())
         if not line:
             continue
-        m = _BOUND.match(line)
+        m = numparse.lead_or(_BOUND, _BOUND_LEAD).match(line)
         if not m:
             continue
         rest = line[m.end():].lstrip(" |:-–")
@@ -498,10 +503,11 @@ def _judge_one(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
         return ({"status": NEEDS_ENGINEER_REVIEW,
                  "rationale": f"{RULE_REASON}: the rule's structure is not one this system evaluates",
                  "limit": None, "observed": None, "exception_applied": None}, output)
-    return ({"status": result["status"], "rationale": result["rationale"],
-             "limit": result["required_value"], "observed": result["output_checked"],
-             "exception_applied": None, "input_used": result["input_used"],
-             "rows_used": result["rows_used"]}, output)
+    verdict = {"status": result["status"], "rationale": result["rationale"],
+               "limit": result["required_value"], "observed": result["output_checked"],
+               "exception_applied": None, "input_used": result["input_used"],
+               "rows_used": result["rows_used"]}
+    return deferred_value.hold_input(verdict, inp), output
 
 
 #: Which per-tag status decides a multi-tag verdict: a breach anywhere is a

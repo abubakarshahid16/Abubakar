@@ -13,7 +13,7 @@ that guard, as its own deliberate, manual action, reading the real
 `backend/.env` exactly as the running server does.
 
 WHAT IT COSTS. Each page is one call already metered by `claude_spend` under
-the owner's existing USD 5/step, USD 20 total caps (CLAUDE.md rule 1) - this
+the owner's existing USD 5/step caps and the total cap (CLAUDE.md rule 1) - this
 script adds no new spending path, it only calls the same `vision_reader.
 read_page` the app calls.
 

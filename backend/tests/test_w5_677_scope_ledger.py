@@ -99,16 +99,28 @@ def test_the_ledger_fails_loudly_when_it_does_not_add_up():
                                            scope_ledger.decision(reqs[1], "compared")])
 
 
-@pytest.mark.parametrize(("status", "state", "code"), [
-    ("COMPLIANT", scope_ledger.CHECKED, "compared"),
-    ("NON_COMPLIANT", scope_ledger.CHECKED, "compared"),
-    # #678: reaching the comparison is "checked"; the reason says how it ended
-    ("MISSING_INFORMATION", scope_ledger.CHECKED, "missing_information"),
-    ("NEEDS_ENGINEER_REVIEW", scope_ledger.CHECKED, "needs_engineer"),
-    ("NOT_IN_DOCUMENT_SCOPE", scope_ledger.CHECKED, "needs_other_document"),
-    ("NOT_APPLICABLE", scope_ledger.CHECKED, "not_applicable"),
-    ("SOMETHING_NEW", scope_ledger.CHECKED, "needs_engineer"),
-])
+@pytest.mark.parametrize(
+    ("status", "state", "code"),
+    [
+        ("COMPLIANT", scope_ledger.CHECKED, "compared"),
+        ("NON_COMPLIANT", scope_ledger.CHECKED, "compared"),
+        # order 260.1: only a comparison with a value is "checked"; the rest reached the
+        # comparison but are NOT checked (or, for not_applicable, do not apply)
+        (
+            "MISSING_INFORMATION",
+            scope_ledger.APPLIES_NOT_CHECKED,
+            "missing_information",
+        ),
+        ("NEEDS_ENGINEER_REVIEW", scope_ledger.APPLIES_NOT_CHECKED, "needs_engineer"),
+        (
+            "NOT_IN_DOCUMENT_SCOPE",
+            scope_ledger.APPLIES_NOT_CHECKED,
+            "needs_other_document",
+        ),
+        ("NOT_APPLICABLE", scope_ledger.DOES_NOT_APPLY, "not_applicable"),
+        ("SOMETHING_NEW", scope_ledger.APPLIES_NOT_CHECKED, "needs_engineer"),
+    ],
+)
 def test_a_finding_status_maps_to_one_state(status, state, code):
     d = scope_ledger.from_finding({"id": "r"}, status)
     assert (d["state"], d["reason_code"]) == (state, code)

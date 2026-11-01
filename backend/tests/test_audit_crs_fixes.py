@@ -308,6 +308,9 @@ def _rows(run, copy="internal"):
     return response.json()["rows"]
 
 
+REJECT = {"approval_status": "rejected", "reason": "wrong clause here"}
+
+
 def test_a_rejection_survives_a_re_run_and_is_not_proposed_again(world, monkeypatch):
     """M1445, M1446. The rejected finding stays, and no fresh draft of the
     same pair comes back on the sheet."""
@@ -317,7 +320,7 @@ def test_a_rejection_survives_a_re_run_and_is_not_proposed_again(world, monkeypa
     assert _noise_rows(run), "positive control: the comment is on the sheet"
     client = TestClient(app)
     assert client.patch(f"/api/reviews/findings/{finding_id}",
-                        json={"approval_status": "rejected"}).status_code == 200
+                        json=REJECT).status_code == 200
     assert not _noise_rows(run)
     comparison.run_comparison(run, allowed_document_ids=scope)
     kept = db.connect().execute(
@@ -351,7 +354,7 @@ def test_a_confirmed_then_rejected_comment_is_never_issued(world, monkeypatch):
     [row] = _noise_rows(run)
     ref = row["crs_ref"]
     assert ref.startswith("CRS-") and ref in [r["crs_ref"] for r in _rows(run, "issue")]
-    client.patch(f"/api/reviews/findings/{finding_id}", json={"approval_status": "rejected"})
+    client.patch(f"/api/reviews/findings/{finding_id}", json=REJECT)
     assert ref not in [r["crs_ref"] for r in _rows(run, "issue")]
     assert ref not in [r["crs_ref"] for r in _rows(run)]
     statuses = [r[0] for r in db.connect().execute("SELECT status FROM crs_comment_numbers")]
@@ -373,7 +376,7 @@ def test_a_withdrawn_comment_raised_again_by_a_new_run_is_only_a_draft(world, mo
     client.patch(f"/api/reviews/findings/{finding_id}", json={"confirmed": True})
     [row] = _noise_rows(run)
     ref = row["crs_ref"]
-    client.patch(f"/api/reviews/findings/{finding_id}", json={"approval_status": "rejected"})
+    client.patch(f"/api/reviews/findings/{finding_id}", json=REJECT)
     again = submittal_review.create_review_run(submittal_document_id=sub,
                                                allowed_document_ids=scope)
     with db.connect() as conn:

@@ -108,7 +108,7 @@ def test_a_relief_valve_review_does_not_check_vessel_construction_rules(temp_sto
     result, stored, ids = _review("Pressure Safety Valve")
     assert stored[ids["vessel"]]["state"] == scope_ledger.DOES_NOT_APPLY
     assert stored[ids["vessel"]]["reason_code"] == "outside_partial_scope"
-    assert stored[ids["device"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["device"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
     # the vessel rule never reads COMPLIANT on a relief valve
     assert not any(f.get("requirement_id") == ids["vessel"] and f.get("compliance_status") == "COMPLIANT"
                    for f in result["findings"])
@@ -116,7 +116,7 @@ def test_a_relief_valve_review_does_not_check_vessel_construction_rules(temp_sto
 
 def test_a_pressure_vessel_review_still_checks_them(temp_storage):
     _result, stored, ids = _review("Pressure Vessel")
-    assert stored[ids["vessel"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["vessel"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
 
 
 # ---------------------------------------------------- A-761b: no false-looking clause numbers

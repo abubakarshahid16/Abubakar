@@ -23,7 +23,7 @@ with the two switches set for the run and restored afterwards:
                   only on a quote proved on the page).
   hybrid:claude   the same with "claude": production's engine
                   (`datasheet_ai.model_call_for`), every call through
-                  `claude_spend` (USD 5 per step / USD 20 total, checked before
+                  `claude_spend` (USD 5 per step / USD 500 total in November, checked before
                   a call leaves), charged to production's step. USD reported.
   ai-only:ollama  DIAGNOSIS ONLY: the AI page reader alone over
   ai-only:claude  `datasheet_inputs.page_texts` of every file type, no rules;

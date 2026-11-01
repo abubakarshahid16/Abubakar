@@ -51,7 +51,7 @@ follow-up ("that pump").
 | N5 | Follow-ups resolve "that pump", "compare it", "the next clause" from conversation history, including the entity the previous answer established; the resolved query is stored and shown |
 | N6 | Internet research only through the authorised research path, on request, previewed per query (CLAUDE.md rule 1); web text labelled separately from the local standards library |
 | N7 | The model may explain or compare verified evidence; it may not invent counts, clauses, citations or pass/fail results. A sentence that cannot be cited is dropped or moved to the labelled general-knowledge part |
-| N8 | Claude use, if selected, goes only through `reader_transport` and the `claude_spend` caps (USD 5 per step, USD 20 total) |
+| N8 | Claude use, if selected, goes only through `reader_transport` and the `claude_spend` caps (USD 5 per step; USD 25 per converted standard and USD 500 in total for November 2026, 20 from 1 Dec; #805 plan change 4) |
 | N9 | Permissions, evidence rules and review safeguards stay as they are; classification only narrows |
 
 ## 4. Not allowed

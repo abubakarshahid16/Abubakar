@@ -154,6 +154,9 @@ def _new_run(sub, scope) -> str:
     return again
 
 
+REJECT = {"approval_status": "rejected", "reason": "wrong clause here"}
+
+
 def test_a_comment_rejected_on_an_earlier_run_is_marked_when_raised_again(world, monkeypatch):
     """M1606, M1607. The new run's draft is kept (not silently dropped), but
     its byline says who rejected it and when, so the engineer is not asked
@@ -167,7 +170,7 @@ def test_a_comment_rejected_on_an_earlier_run_is_marked_when_raised_again(world,
     assert "previously rejected" not in fresh["comment_by"], "positive control: nothing rejected yet"
 
     assert client.patch(f"/api/reviews/findings/{finding_id}",
-                        json={"approval_status": "rejected"}).status_code == 200
+                        json=REJECT).status_code == 200
     when = db.connect().execute("SELECT approved_at FROM review_findings WHERE id = ?",
                                 (finding_id,)).fetchone()[0][:10]
     third = _new_run(sub, scope)

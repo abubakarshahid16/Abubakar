@@ -4,11 +4,12 @@ Owner pass mark (PROOF FIRST, 13 Oct 2026): of the run's APPLICABLE
 requirements (after the applicability gates, including those a checklist
 covers), 100% sit in exactly one state:
 
-  checked        reached the comparison and ended in it (met, not met,
-                 conditional, the sheet states no value, or the comparison
-                 found it does not apply) - shown with its finding;
+  checked        COMPARED with a datasheet value (met, not met, conditional)
+                 - shown with its finding (order 260.1: one meaning of
+                 "checked", `scope_ledger.group_of`);
   engineer       sent to the engineer, with the reason;
-  not_checked    applies, but was not compared - with the reason.
+  not_checked    applies, but was not compared (including "the sheet states
+                 no value") - with the reason.
 
 A requirement a review CHECKLIST covers is counted in the denominator and
 listed apart, in words that say it is not proof the whole standard was
@@ -24,19 +25,23 @@ Ids, counts and reasons only; never clause text.
 from __future__ import annotations
 
 from .db import connect
-from . import scope_ledger
+from . import page_not_read, recommendations, scope_ledger
 
 CHECKED, ENGINEER, NOT_CHECKED, CHECKLIST, DOES_NOT_APPLY = (
     "checked", "engineer", "not_checked", "covered_by_checklist", "does_not_apply")
 STATES = (CHECKED, ENGINEER, NOT_CHECKED, CHECKLIST)
+#: Order 288.2: a recommendation raised as a query is advice, not a requirement: outside the denominator,
+#: counted and listed apart (like "does not apply"), so the headline of the standard's rules is untouched.
+QUERY = recommendations.CODE
 
 #: The ledger's reason code -> PF4's state. Every reason the ledger knows is
 #: here (`test_every_ledger_reason_has_one_pf4_state`), so a new reason cannot
 #: slip into no state.
 STATE_OF = {
-    "compared": CHECKED, "missing_information": CHECKED, "not_applicable": CHECKED,
+    "compared": CHECKED,
     "needs_engineer": ENGINEER, "needs_other_document": ENGINEER,
     "covered_by_checklist": CHECKLIST,
+    QUERY: QUERY,
 }
 _BY_LEDGER_STATE = {scope_ledger.APPLIES_NOT_CHECKED: NOT_CHECKED,
                     scope_ledger.DOES_NOT_APPLY: DOES_NOT_APPLY,
@@ -93,10 +98,14 @@ def summarise(decisions: list[dict]) -> dict:
     for the run record (`comparison` stores this at run end, PF4 step 1), so
     the two can never disagree (rule 8). Counts only; no clause text."""
     counts = {s: 0 for s in (*STATES, DOES_NOT_APPLY)}
+    queries = sum(1 for d in decisions if state_of(d) == QUERY)
     for d in decisions:
-        counts[state_of(d)] += 1
+        if state_of(d) != QUERY:
+            counts[state_of(d)] += 1
     applicable = sum(counts[s] for s in STATES)
-    adds_up = applicable + counts[DOES_NOT_APPLY] == len(decisions)
+    adds_up = applicable + counts[DOES_NOT_APPLY] + queries == len(decisions)
+    if queries:  # only a run that raised some carries the key
+        counts = {**counts, QUERY: queries}
     share = round(100 * counts[CHECKED] / applicable, 1) if applicable else None
     return {"applicable": applicable, "counts": counts, "checked_share": share,
             "adds_up": adds_up, "line": line(counts, applicable, adds_up)}
@@ -130,6 +139,8 @@ def line(counts: dict, applicable: int, adds_up: bool) -> str:
     if counts[CHECKLIST]:
         text += f"; {counts[CHECKLIST]} covered by a checklist (not proof the whole standard was checked)"
     text += f"; {counts[DOES_NOT_APPLY]} do not apply"
+    if counts.get(QUERY):
+        text += f"; {counts[QUERY]} recommendation(s) raised as queries (advice, not counted above)"
     return text + ("" if adds_up else "; THE COUNTS DO NOT ADD UP - report this run")
 
 
@@ -148,6 +159,7 @@ def outcome_notes(outcome: dict, findings: list[dict]) -> list[dict]:
     if outcome:
         from .rule_trust import review_notes as trust_notes
         notes.extend(trust_notes(outcome, findings))
+    notes.extend(page_not_read.notes(outcome))  # #1473
     notes.extend(review_notes(outcome))
     return notes
 

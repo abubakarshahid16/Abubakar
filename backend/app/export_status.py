@@ -144,3 +144,11 @@ def crs_header_note(status: str | None, reason: str | None,
         return ""
     return (f"REVIEW INCOMPLETE: run {status or 'unknown'} - {_reason(reason)}. "
             f"{unread_pages_line(unread)}. {missing_standards_line(missing)}.")
+
+
+def equipment_notes(submittal_id: str) -> list[dict]:
+    """The Review note when the equipment type waits for an engineer (the title block
+    named none or two types; `equipment_title_block`). Empty with the switch off."""
+    from . import equipment_title_block
+
+    return equipment_title_block.for_submittal(submittal_id)

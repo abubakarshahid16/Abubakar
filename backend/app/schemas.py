@@ -1,9 +1,8 @@
 """Typed response models.
 
-Every 200 was documented as `string` and every error as "Undocumented", which
-means the frontend types were guesses. The UI is generated against this
-contract, so an untyped contract is a UI that cannot be trusted to match the
-API.
+Every 200 was documented as `string` and every error as "Undocumented", which means the
+frontend types were guesses. The UI is generated against this contract, so an untyped
+contract is a UI that cannot be trusted to match the API.
 """
 
 from __future__ import annotations
@@ -13,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .paging import ListPage
+from .review_progress import ReviewProgressDetail
 
 DocStatus = Literal[
     "queued",
@@ -23,8 +23,8 @@ DocStatus = Literal[
     "ready",
     "no_searchable_content",
     #: A workbook: stored and previewable, deliberately never indexed. See
-    #: `states.STORED_NOT_INDEXED` for why this is its own state rather than a
-    #: document that failed to extract.
+    #: `states.STORED_NOT_INDEXED` for why this is its own state rather than a document
+    #: that failed to extract.
     "stored_not_indexed",
     "failed",
 ]
@@ -349,12 +349,12 @@ class StandardRequirement(BaseModel):
 #: three it writes for shapes it will not force into a limit
 #: (`APPLICABILITY_TRIGGER`, `RELATIVE_LIMIT`, `TABLE_ROW`). The response model
 #: listed only three, so a standard holding any of the others failed its
-#: requirements list with a 500 (found 2026-09-30 by the frontend contract
-#: check). `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home;
-#: tests/test_requirement_types_contract.py keeps them equal.
+#: requirements list with a 500 (found 2026-09-30 by the frontend contract check).
+#: `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home; tests/test_requirement_types_contract.py keeps them equal.
 RequirementType = Literal["numeric_limit", "statement", "table_value",
                           "applicability_trigger", "relative_limit", "table_row",
                           "definition", "table_range", "range_limit", "nominal_value", "cross_field_limit"]
+RequirementType = Literal[RequirementType, "recommendation"]  # order 288.2
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]
@@ -1320,11 +1320,10 @@ class SearchResult(BaseModel):
     seconds: float
     timings: dict[str, float]
     hits: list[Passage]
-    #: THE FILTER THAT WAS APPLIED, echoed so a reader can judge an absence.
-    #: "no evidence" and "no evidence in the slice you filtered to" are
-    #: different findings, and a screen that cannot tell them apart will show
-    #: the first when it means the second. Optional so a response predating
-    #: the filter still validates.
+    #: THE FILTER THAT WAS APPLIED, echoed so a reader can judge an absence. "no
+    #: evidence" and "no evidence in the slice you filtered to" are different findings,
+    #: and a screen that cannot tell them apart will show the first when it means the
+    #: second. Optional so a response predating the filter still validates.
     applied_scope: AppliedScope | None = None
 
 
@@ -2181,12 +2180,11 @@ class ReviewFindingUpdate(BaseModel):
     disposition: ReviewDisposition | None = None
     # B10: no `approved_by` / `approved_at` here. Who approved is the
     # authenticated caller, set by the route - the same rule as `confirmed_by`.
-    #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER,
-    #: taken from the authenticated scope and never from this body, because a
-    #: confirmation that can name someone else is not a confirmation. There is
-    #: no way to un-confirm through this route - a wrong pairing is REJECTED,
-    #: which is a different act with a different record.
+    #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER, never this body.
+    #: No un-confirm here - a wrong pairing is REJECTED, a different act and record.
     confirmed: bool | None = None
+    reason: str | None = Field(default=None, max_length=2000)  # #962
+    reason_code: str | None = None
 
 
 class ReviewScopeDecision(BaseModel):
@@ -2283,10 +2281,9 @@ class ReviewFinding(BaseModel):
     contractor_page: int | None = None
     contractor_section: str | None = None
     contractor_evidence_text: str | None = None
-    #: WHO STOOD BEHIND THE PAIRING. A model-paired finding is a guess until an
-    #: engineer says otherwise, and a confirmed finding is never deleted by a
-    #: re-run. Both are visible here so a reader can tell a confirmed pairing
-    #: from an unexamined one.
+    #: WHO STOOD BEHIND THE PAIRING. A model-paired finding is a guess until an engineer
+    #: says otherwise, and a confirmed finding is never deleted by a re-run. Both are
+    #: visible here so a reader can tell a confirmed pairing from an unexamined one.
     confirmed_by: str | None = None
     confirmed_at: str | None = None
     #: Where the finding came from when not the comparison: "chat" (an
@@ -2755,6 +2752,7 @@ class CompanyStandardConfirmed(BaseModel):
 
 
 class ReviewJobState(BaseModel):
+    progress_detail: ReviewProgressDetail | None = None
     id: str
     state: str
     progress_done: int | None = None

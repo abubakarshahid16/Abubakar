@@ -430,6 +430,27 @@ def decide_page(
     return _record(review_run_id, PAGE, str(int(page)), CHECKED, reason, actor)
 
 
+def reject_with_reason(finding: dict, changes: dict, actor: str | None) -> None:
+    """#962: the generic route that sets a finding of a run to "rejected" keeps a reason too, in the
+    same record as the issue gate's Reject, so one finding has one record whichever screen rejected
+    it. Takes `reason` / `reason_code` out of `changes` (they are not finding fields). A finding
+    already rejected, or one outside any run (no CRS), needs none. Raises IssueError without one."""
+    reason, code = changes.pop("reason", None), changes.pop("reason_code", None)
+    run = finding.get("review_run_id")
+    if changes.get("approval_status") != "rejected" or not run:
+        return
+    if finding.get("approval_status") == "rejected":
+        return
+    decide_finding(
+        run,
+        finding["id"],
+        REJECT,
+        reason=reason or "",
+        actor=actor or "",
+        reason_code=code,
+    )
+
+
 def decide_finding(
     review_run_id: str,
     finding_id: str,

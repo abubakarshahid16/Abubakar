@@ -1113,7 +1113,7 @@ def _figure_occurrences(text: str) -> list[dict]:
     binds nothing, so it can only make the check more lenient, never stricter.
     """
     bound: dict[int, str] = {}
-    for m in claims_mod._MEASUREMENT.finditer(text):
+    for m in numparse.with_leading_dot(claims_mod._MEASUREMENT).finditer(text):
         unit = m.group("unit")
         folded = claims_mod._fold_unit(unit)
         if not claims_mod._recognised_folded(folded):

@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .settings_ext import SettingsExt
+
 
 class ModelHostRefused(RuntimeError):
     """A model endpoint this system will not talk to.
@@ -158,8 +160,7 @@ def check_model_url(
 
     host = (parts.hostname or "").lower()
     if not host:
-        raise ModelHostRefused(
-            "answer model URL names no host; refusing to guess one")
+        raise ModelHostRefused("answer model URL names no host; refusing to guess one")
 
     # Credentials in the URL are refused rather than stripped. A value shaped
     # like `http://user:pass@host` is either an accident or a proxy nobody
@@ -247,7 +248,7 @@ def shared_backend_dir(backend: Path = BACKEND_DIR) -> Path:
     return candidate if common.name == ".git" and candidate.is_dir() else backend
 
 
-class Settings(BaseSettings):
+class Settings(SettingsExt, BaseSettings):
     # ANCHORED, like every other path in this class. It was `".env"` - a
     # relative path, resolved by pydantic-settings against the process working
     # directory - while `data_dir`, `db_path` and the model directories were
@@ -265,8 +266,7 @@ class Settings(BaseSettings):
     # under `demo_required` could not help, because it never saw
     # `demo_required` - the same mechanism that disabled the control also
     # bypassed its guard.
-    model_config = SettingsConfigDict(
-        env_file=BACKEND_DIR / ".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", extra="ignore")
 
     # Bind loopback only. Never 0.0.0.0 - document content must not be reachable.
     # ENFORCED, not only advised: a non-loopback bind under AUTH_MODE=disabled
@@ -433,8 +433,7 @@ class Settings(BaseSettings):
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
     #: #141 a part limited by its own scope sentence to one construction
-    #: (`ai_applicability.division_gate`). ON (#805 rule 1); off, nothing
-    #: changes; a part not read (or past the per-run limit) is HELD.
+    #: (`ai_applicability.division_gate`). ON (#805 rule 1); off: nothing changes; a part not read or past the limit is HELD.
     ai_division_scope_enabled: bool = True
     ai_answer_reuse_enabled: bool = True  # order 205: off for the final client test
     ai_division_scope_max_per_run: int = 120
@@ -446,20 +445,20 @@ class Settings(BaseSettings):
     #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True
     ai_clause_checks_max_per_run: int = 20
-    #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a
-    #: rule the AI compiled may decide a verdict WITHOUT one-by-one engineer
-    #: approval only when its family (standard x equipment type) has been
-    #: PROVEN on an answer key of at least `rule_proof_min_cases` cases with
-    #: no error (rule of three: 0 errors in 300 bounds the error rate at 1%
-    #: with 95% confidence), and the rule passes code's second check. OFF by
-    #: default: the owner switches it on after the first family is proven.
-    #: A share `rule_audit_rate` (clamped to 2-5%, at least one) of the
-    #: automatic findings is drawn for an engineer's spot-check; one audit
-    #: error drops the family back to unproven. The safety field list and the
-    #: condition words live in reference data, not in code.
+    #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
+    #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment
+    #: type) has been PROVEN on an answer key of at least `rule_proof_min_cases` cases with no error (rule
+    #: of three: 0 errors in 300 bounds the error rate at 1% with 95% confidence), and the rule passes
+    #: code's second check. OFF by default: the owner switches it on after the first family is proven.
+    #: A share `rule_audit_rate` (clamped 2-5%, at least one) of automatic findings is drawn for an engineer's
+    #: spot-check; one audit error drops the family to unproven. Safety fields and condition words: reference data.
     rule_auto_use_enabled: bool = False
+    #: Order 288.2: a recommendation of a standard the datasheet names is raised as a query (OFF: ignored).
+    recommendation_queries_enabled: bool = False
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
+    tested_cards_decide_enabled: bool = False  # order 306.1
+    deferred_value_is_query_enabled: bool = False  # D2, #1475
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md
@@ -538,18 +537,18 @@ class Settings(BaseSettings):
     #: #193 plan B4 (order 5.5): the geometry reader (`geometry_reader.py`)
     #: adds its form and table readings to `submittal_facts` during
     #: `datasheets.extract_facts`, as `extraction_method='geometry'` rows with
-    #: their boxes. OFF by default - OFF is the pre-B4 extraction, byte for
-    #: byte. When ON, a rule-reader fact for the same page and label always
-    #: wins; a geometry reading that DISAGREES with it is kept with
+    #: their boxes. OFF by default - OFF is the pre-B4 extraction, byte for byte. When ON, a rule-reader fact
+    #: for the same page and label always wins; a geometry reading that DISAGREES with it is kept with
     #: `validation_state='conflict'`, never used to overwrite it.
     #: B4 items 1-3 (same flag): the VISION READER (`vision_reader.py`, Claude
     #: only - it also needs REASONING_PROVIDER=claude and both standards-reader
     #: egress flags) adds page-image readings kept only where code proves them
     #: against the text layer (`extraction_method='vision'`); a code-only noise
-    #: filter (`row_noise.py`) drops page furniture from every reader; and
-    #: field naming covers blank fields too.
-    #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
+    #: filter (`row_noise.py`) drops page furniture from every reader. Env:
+    #: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
+    #: Order 259.5: field naming (`field_naming.py`) on its OWN switch. Env: FIELD_NAMING_ENABLED.
+    field_naming_enabled: bool = False
     #: #830 / #501: WHICH ENGINE the page-image (vision) reader uses under
     #: REASONING_PROVIDER=per_task. "ollama" (default): none - the local model
     #: reads no images, so under per_task no page image leaves. "claude":
@@ -732,10 +731,10 @@ class Settings(BaseSettings):
     #: "IMPELLER DIA." with "RATED *". The same precedence as the full flag
     #: applies - a rule-reader fact always wins, and a geometry reading never
     #: makes a page "read into fields" in the ledger.
-    #: Env: GEOMETRY_TABLE_READER_ENABLED. ON by default - owner decision
-    #: 2026-09-25, after the measurement above; set it false to go back to the
-    #: rule readers alone.
+    #: Env: GEOMETRY_TABLE_READER_ENABLED. ON by default (owner, 2026-09-25, after the
+    #: measurement above); false goes back to the rule readers alone.
     geometry_table_reader_enabled: bool = True
+    table_text_cells_enabled: bool = False  # order 271.4 fix B: standards re-extraction
     #: Datasheets that are NOT a PDF text layer (`datasheet_inputs.py`): an
     #: uploaded .docx is accepted, an .xlsx or .docx is INDEXED (its pages
     #: are the rendered sheets / document, read by `datasheet_inputs` instead
@@ -744,20 +743,19 @@ class Settings(BaseSettings):
     #: 'docx', and a scanned page's OCR text also yields table-shaped lines
     #: ("label  value  unit", "label | value | unit") beside "LABEL: VALUE",
     #: still at the OCR fallback's low confidence and engineer-review state.
-    #: Trade-off to measure before switching on: a CRS template workbook is
-    #: then indexed too. OFF by default - merging changes nothing.
-    #: Env: DATASHEET_OFFICE_INPUT.
+    #: Trade-off: a CRS template workbook is then indexed too. OFF. Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
+    procedure_path_enabled: bool = False  # #1476, see procedure_text
     #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
-    #: is accepted and indexed through the SAME pipeline as a PDF (pages,
-    #: chunks, search, citations, requirements, reviews), read by
-    #: `docx_reader` with its structure kept (heading levels, list numbers,
-    #: tables, headers and footers, tracked changes) and cited by heading path
-    #: and paragraph ("4.2 > para 3") because a Word file has no fixed pages.
-    #: OFF: a .docx is refused unless DATASHEET_OFFICE_INPUT is on. ON by
-    #: default since the tests in test_w5b_525_docx.py pass.
-    #: Env: DOCX_INPUT_ENABLED.
+    #: is accepted and indexed through the SAME pipeline as a PDF, read by
+    #: `docx_reader` with its structure kept and cited by heading path and
+    #: paragraph. OFF: refused unless DATASHEET_OFFICE_INPUT is on. Env: DOCX_INPUT_ENABLED.
     docx_input_enabled: bool = True
+    #: #1473: a page counts as READ when a recorded text or picture reading came
+    #: back for it, apart from "fields found" (`page_ledger.coverage` adds
+    #: `pages_read` / `pages_not_read`), and a Word file reaches the fact reader
+    #: through `word_flow`. OFF: nothing changes. Env: PAGE_READ_BY_READING_ENABLED.
+    page_read_by_reading_enabled: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow
@@ -1073,7 +1071,7 @@ class Settings(BaseSettings):
     #: `claude_context_tokens`; at claude-sonnet-5's USD 2 per million input
     #: tokens that is at most +USD 0.016 per Claude Tier 2 answer (typically
     #: ~+USD 0.004: 5 x 2,400 chars of prose is ~3,000 tokens against ~900).
-    #: Every call is still checked against the USD 5 per step / 20 total caps
+    #: Every call is still checked against the `claude_spend` USD caps
     #: by `claude_spend` before it leaves. Set these equal to the local values
     #: to pay nothing extra. Env: CLAUDE_CONTEXT_PASSAGES / _CHARS / _TOKENS.
     claude_context_passages: int = 5
@@ -1090,6 +1088,12 @@ class Settings(BaseSettings):
     # page number prepended to the text of nearly every chunk. The short-page
     # guard inside strip_running_lines keeps a wider window safe.
     running_line_scan_lines: int = 5
+
+    # #1474: decide a document's KIND (datasheet, procedure, specification,
+    # contract, ...) from its title block and cover, and stop the body-text
+    # equipment fallback for documents that are not datasheets. No model call.
+    # OFF by default; off, nothing is stored and nothing changes.
+    document_kind_enabled: bool = False
 
     # Content-quality gate. A chunk failing these does not read like natural
     # language and is stored but not retrievable. Tuned against known-good
@@ -1181,19 +1185,19 @@ class Settings(BaseSettings):
     #: Models that REJECT `temperature` (400 "deprecated for this model",
     #: measured on claude-sonnet-5, 2026-09-25). Prefix match on the id.
     claude_models_without_temperature: tuple[str, ...] = ("claude-sonnet-5",)
-    #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the
-    #: worst case of the next call must fit under both. Owner: 5 per step,
-    #: 20 in total.
+    #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the worst case of the next call must fit
+    #: under both. Owner: 5 per step; plan change 4 (#805, 28 Oct 2026): 25 per converted standard (the
+    #: `standards_convert:` steps) and 500 in total for November (`claude_spend.total_cap`: 20 again from 1 Dec).
     claude_budget_usd_per_step: float = 5.0
-    #: #806 S3: a Claude call is refused, before it leaves, unless every
-    #: document its prompt carries is on the owner's approved list
-    #: (`<data_dir>/claude_approved_documents.json`, by file sha256) - and when
-    #: its caller declared nothing (`claude_approved`). ON, and it stays on:
-    #: the switch exists for the test suite (pinned off in
-    #: `tests/env_isolation.py`, whose fakes carry invented documents) and for
-    #: a measurement on a copy. Env: CLAUDE_APPROVED_LIST_ENFORCED.
+    claude_budget_usd_per_standard: float = 25.0
+    #: Order 270.3: folder of the converter's draft files (outside the repo). Empty = the review reads none.
+    standards_converter_dir: str = ""
+    #: #806 S3: a Claude call is refused, before it leaves, unless every document its prompt carries is on the owner's
+    #: approved list (`<data_dir>/claude_approved_documents.json`, by file sha256) - and when its caller declared nothing
+    #: (`claude_approved`). ON, and it stays on: the switch exists for the test suite (pinned off in `tests/env_isolation.py`,
+    #: whose fakes carry invented documents) and for a measurement on a copy. Env: CLAUDE_APPROVED_LIST_ENFORCED.
     claude_approved_list_enforced: bool = True
-    claude_budget_usd_total: float = 20.0
+    claude_budget_usd_total: float = 500.0
     #: Local JSONL ledger: one line per call - time, step, model, tokens, cost,
     #: prompt digest. Never prompt or document text, never the key.
     #: ONE ledger per machine, not per checkout (#315): a worktree writes and
@@ -1209,12 +1213,11 @@ class Settings(BaseSettings):
     # OWNER ORDER 2026-09-26 (chat redesign). The chat answers through the
     # reasoning provider above (Claude when configured, else the local engine)
     # and every Claude call is charged to the step "chat" in the ledger.
-    #: The chat answer's output cap on the Claude lane. Was 250, which cut
-    #: a normal multi-point answer short; raised to 1500, then to 4000
-    #: (owner order 2026-09-27, Claude-first mode): a tool-use answer that
-    #: reads a document AND a standard needs more room than a single-passage
-    #: extract did. A CEILING, not a target. The local engine keeps
-    #: `max_output_tokens`: its 4096-token window has to hold the evidence
+    #: The chat answer's output cap on the Claude lane. Was 250, which cut a normal
+    #: multi-point answer short; raised to 1500, then to 4000 (owner order 2026-09-27,
+    #: Claude-first mode): a tool-use answer that reads a document AND a standard needs
+    #: more room than a single-passage extract did. A CEILING, not a target. The local
+    #: engine keeps `max_output_tokens`: its 4096-token window has to hold the evidence
     #: too (`context_budget` subtracts the output cap from it).
     chat_max_output_tokens: int = 4000
     #: Low for answers grounded in documents; a little warmer for general
@@ -1230,44 +1233,45 @@ class Settings(BaseSettings):
     #: The local engine's history budget. Its 4096-token window must hold the
     #: EVIDENCE first; memory never pushes a retrieved passage out.
     chat_history_local_token_budget: int = 600
-    #: Chat redesign PR 6: the "Web" switch in the chat composer. OFF BY
-    #: DEFAULT, and on its own it sends nothing: a chat web search also needs
-    #: the market lane's two egress flags (`market_live_enabled`,
-    #: `market_allow_public_egress`) and goes through that lane's whitelist,
-    #: host allowlist, rate limit and audit. FROM `.env` ONLY.
+    #: Chat redesign PR 6: the "Web" switch in the chat composer. OFF BY DEFAULT, and on
+    #: its own it sends nothing: a chat web search also needs the market lane's two
+    #: egress flags (`market_live_enabled`, `market_allow_public_egress`) and goes
+    #: through that lane's whitelist, host allowlist, rate limit and audit. FROM `.env`
+    #: ONLY.
     chat_web_enabled: bool = False
     #: Owner order 2026-09-26 (2d): the AI engineering check - Claude reads the
     #: datasheet and drafts observations a reviewer would raise, each gated
-    #: (ai_engineering_check.accept) and stored as a pending, unconfirmed draft
-    #: that never counts in the review code. ON BY DEFAULT since R26 step 7
-    #: (#763, owner rule "AI-first", 11 Oct): it runs on the configured model -
-    #: the Claude lane when it is on (REASONING_PROVIDER=claude, both
-    #: STANDARDS_READER_* egress flags and a key, within the USD caps), else the
-    #: LOCAL model, which sends nothing off the machine. A slow or failed call
-    #: is recorded on the run (a warning), never a failed review.
+    #: (ai_engineering_check.accept) and stored as a pending, unconfirmed draft that
+    #: never counts in the review code. ON BY DEFAULT since R26 step 7 (#763, owner rule
+    #: "AI-first", 11 Oct): it runs on the configured model - the Claude lane when it is
+    #: on (REASONING_PROVIDER=claude, both STANDARDS_READER_* egress flags and a key,
+    #: within the USD caps), else the LOCAL model, which sends nothing off the machine.
+    #: A slow or failed call is recorded on the run (a warning), never a failed review.
     #: Env: REVIEW_AI_CHECK_ENABLED (false turns it off).
     review_ai_check_enabled: bool = True
+    #: #1494: progress block of a running review (reads the jobs row only); off: no
+    #: `progress_detail`. Env: REVIEW_PROGRESS_BAR_ENABLED.
+    review_progress_bar_enabled: bool = False
+    review_progress_stall_amber_s: int = 120  # env REVIEW_PROGRESS_STALL_AMBER_S
     #: Seconds one LOCAL-model call of the AI engineering check may take before
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
     review_ai_check_local_timeout_s: float = 300.0
-    #: #501 (owner decision 2026-10-12): a SECOND, datasheet-only opinion by
-    #: the Claude API after the check has run. "ollama" (default) = none.
-    #: "claude" = asked only under REASONING_PROVIDER=per_task (or claude),
-    #: both egress flags and a key; the packet carries the datasheet alone -
-    #: no standard's text, no clause list - and declares only the submittal,
-    #: so the approved-document lock decides per datasheet.
+    #: #501 (owner decision 2026-10-12): a SECOND, datasheet-only opinion by the Claude
+    #: API after the check has run. "ollama" (default) = none. "claude" = asked only
+    #: under REASONING_PROVIDER=per_task (or claude), both egress flags and a key; the
+    #: packet carries the datasheet alone - no standard's text, no clause list - and
+    #: declares only the submittal, so the approved-document lock decides per datasheet.
     #: Env: REVIEW_AI_CHECK_ENGINE.
     review_ai_check_engine: str = "ollama"
     #: #844: seconds the AI engineering check may take in total on the LOCAL
     #: model (it asks one page per call); pages left are named on the run.
     #: Env: REVIEW_AI_CHECK_LOCAL_MAX_SECONDS.
     review_ai_check_local_max_seconds: float = 1200.0
-    #: #838: when a review's documents are not approved for the cloud model,
-    #: the re-check runs on the LOCAL model. Seconds one such call may take,
-    #: and seconds the whole run may take before it stops with what it has
-    #: (the route answers a waiting request).
-    #: Env: CLAUDE_RECHECK_LOCAL_TIMEOUT_S, CLAUDE_RECHECK_LOCAL_MAX_SECONDS.
+    #: #838: when a review's documents are not approved for the cloud model, the re-
+    #: check runs on the LOCAL model. Seconds one such call may take, and seconds the
+    #: whole run may take before it stops with what it has (the route answers a waiting
+    #: request). Env: CLAUDE_RECHECK_LOCAL_TIMEOUT_S, CLAUDE_RECHECK_LOCAL_MAX_SECONDS.
     claude_recheck_local_timeout_s: float = 120.0
     claude_recheck_local_max_seconds: float = 600.0
     #: Output token cap per `review_ai_check` call. Raised from 4000 (2026-09-27):
@@ -1276,14 +1280,13 @@ class Settings(BaseSettings):
     #: silently on every single run. Still finite (a worst-case estimate feeds
     #: `claude_spend.reserve` before the call leaves).
     review_ai_check_max_output_tokens: int = 12000
-    #: Owner order 2d-2: for a standard the datasheet cites but the library
-    #: does not hold, an OPTIONAL check against a PUBLIC web copy. OFF BY
-    #: DEFAULT. Never for a company standard (SAES/SAMSS/KOC-* and the like) -
-    #: those always read "Company standard - upload required" and nothing is
-    #: searched for them. On its own this flag sends nothing either: it also
-    #: needs the market lane's own two egress flags (`market_live_enabled`,
-    #: `market_allow_public_egress`) and a configured search tier, and goes
-    #: through that lane's host allowlist, rate limit and audit.
+    #: Owner order 2d-2: for a standard the datasheet cites but the library does not
+    #: hold, an OPTIONAL check against a PUBLIC web copy. OFF BY DEFAULT. Never for a
+    #: company standard (SAES/SAMSS/KOC-* and the like) - those always read "Company
+    #: standard - upload required" and nothing is searched for them. On its own this
+    #: flag sends nothing either: it also needs the market lane's own two egress flags
+    #: (`market_live_enabled`, `market_allow_public_egress`) and a configured search
+    #: tier, and goes through that lane's host allowlist, rate limit and audit.
     review_web_standards_enabled: bool = False
     #: Owner order 2a: let Claude turn a table/formula clause the code parser
     #: cannot read into rule_eval's structured form. Accepted ONLY when every
@@ -1317,14 +1320,13 @@ class Settings(BaseSettings):
     #: place, so "where can this talk to" has a single answer that can be read
     #: without grepping three provider modules.
     #:
-    #: CODE-LEVEL ALLOWLISTING IS DEFENCE IN DEPTH AND NOT THE CONTROL. A
-    #: process that can open a socket can reach any host it likes; this list
-    #: only stops the code in THIS repository from doing so by accident or
-    #: through a mistaken config value. The real control is an OS-level
-    #: firewall rule (or an egress proxy) restricting the backend process to
-    #: these hosts, applied outside the application, where the application
-    #: cannot edit it. This list is what makes an accident loud; the firewall
-    #: is what makes a deliberate exfiltration hard.
+    #: CODE-LEVEL ALLOWLISTING IS DEFENCE IN DEPTH AND NOT THE CONTROL. A process that
+    #: can open a socket can reach any host it likes; this list only stops the code in
+    #: THIS repository from doing so by accident or through a mistaken config value. The
+    #: real control is an OS-level firewall rule (or an egress proxy) restricting the
+    #: backend process to these hosts, applied outside the application, where the
+    #: application cannot edit it. This list is what makes an accident loud; the
+    #: firewall is what makes a deliberate exfiltration hard.
     #:
     #: No tier-1 host is listed by default because no tier-1 vendor is chosen.
     market_allowed_hosts: tuple[str, ...] = (
@@ -1334,15 +1336,14 @@ class Settings(BaseSettings):
 
     #: Tier 1, general web search. GENERIC NAME, not a vendor's.
     #:
-    #: The vendor originally suggested has started asking for a billing
-    #: address, so the choice is unsettled. A setting called
-    #: `tavily_api_key` would have to be renamed the day that changes, and
-    #: renaming an environment variable on a client's machine is a silent
-    #: breakage: the old name keeps being read from their `.env`, resolves to
-    #: nothing, and the tier reports itself unconfigured while the operator
-    #: believes they configured it. The vendor is named by
-    #: `market_search_provider` and the credential is generic, so swapping
-    #: vendors is a value change rather than a rename.
+    #: The vendor originally suggested has started asking for a billing address, so the
+    #: choice is unsettled. A setting called `tavily_api_key` would have to be renamed
+    #: the day that changes, and renaming an environment variable on a client's machine
+    #: is a silent breakage: the old name keeps being read from their `.env`, resolves
+    #: to nothing, and the tier reports itself unconfigured while the operator believes
+    #: they configured it. The vendor is named by `market_search_provider` and the
+    #: credential is generic, so swapping vendors is a value change rather than a
+    #: rename.
     #:
     #: EMPTY IS A NORMAL STATE, not an error. Tier 1 unconfigured means tier 1
     #: is not attempted, which is reported in `tiers_attempted`, and tiers 2
@@ -1360,22 +1361,20 @@ class Settings(BaseSettings):
     #: Tier 2, OpenAlex. THE OPERATOR'S ADDRESS, NEVER THE CLIENT'S, and
     #: EMPTY BY DEFAULT.
     #:
-    #: OpenAlex asks for a contact address to put a caller in its "polite
-    #: pool" - better rate limits in exchange for being identifiable. That is
-    #: a reasonable trade for whoever RUNS this software and an unreasonable
-    #: one to make on the client's behalf: their address in an outbound query
-    #: string tells OpenAlex which organisation is researching which
-    #: standards, which is exactly the kind of inference this product exists
-    #: to prevent. So it defaults to empty, the tier works without it on the
-    #: common pool, and if it is set it must be the address of the operator
-    #: deploying the system.
+    #: OpenAlex asks for a contact address to put a caller in its "polite pool" - better
+    #: rate limits in exchange for being identifiable. That is a reasonable trade for
+    #: whoever RUNS this software and an unreasonable one to make on the client's
+    #: behalf: their address in an outbound query string tells OpenAlex which
+    #: organisation is researching which standards, which is exactly the kind of
+    #: inference this product exists to prevent. So it defaults to empty, the tier works
+    #: without it on the common pool, and if it is set it must be the address of the
+    #: operator deploying the system.
     market_openalex_contact_email: str = ""
 
-    #: PER-TIER TIMEOUT. An offline-first product must not hang because
-    #: somebody's network is slow. These are deliberately short: the feature
-    #: is advisory background context, and a reader waiting on a spinner for a
-    #: "reference - background only" row is worse served than one told the
-    #: tier did not answer.
+    #: PER-TIER TIMEOUT. An offline-first product must not hang because somebody's
+    #: network is slow. These are deliberately short: the feature is advisory background
+    #: context, and a reader waiting on a spinner for a "reference - background only"
+    #: row is worse served than one told the tier did not answer.
     market_tier_timeout_seconds: float = 6.0
 
     #: PER-TIER RATE LIMIT, as a minimum interval between outbound calls to
@@ -1509,6 +1508,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# numparse may not import the app, so the app hands it the switch (#1515).
+from . import numparse as _numparse  # noqa: E402
+
+_numparse.LEADING_DOT_SWITCH = lambda: settings.leading_dot_decimal_enabled
 
 #: The settings that can change an ANSWER. Kept beside the settings so the list
 #: drifts with them rather than living in the reports module and going stale.

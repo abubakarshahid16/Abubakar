@@ -20,7 +20,7 @@ TWO ENGINES, ONE CALLABLE SHAPE (prompt -> raw text):
     says Claude may be used (REASONING_PROVIDER=claude AND both
     STANDARDS_READER_* egress flags AND a key), through
     `reader_transport.transport()` wrapped in `claude_spend.metered` (the USD
-    5 per step / USD 20 total caps are checked BEFORE each call leaves, and
+    5 per step / USD 500 total (November) caps are checked BEFORE each call leaves, and
     each call is written to the one ledger) and `claude_budget.Budget` (the
     per-run call cap). It is the `claude_api` routes' exact chain, plus the
     REASONING_PROVIDER check those routes lack. NOT through

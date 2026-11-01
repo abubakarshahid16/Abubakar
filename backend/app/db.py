@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS documents (
     -- units and a citation uses chunks.locator); NULL or 'fixed' for a PDF.
     pagination        TEXT
 );
-
+CREATE TABLE IF NOT EXISTS intake_reasons (document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, page_no INTEGER NOT NULL, code TEXT NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (document_id, page_no, code));
 -- W5b-02 (#526): what SORT of document this is (datasheet, procedure, study,
 -- report, FEED, letter). `kind` is NULL when the router could not decide and an
 -- engineer has been asked (state 'needs_engineer'); a kind is a SUGGESTION until

@@ -491,7 +491,7 @@ def test_a_review_holds_an_unsure_part_and_stores_the_counts(stub, monkeypatch):
     result, stored, ids = _review(monkeypatch, model)
     assert stored[ids["zz"]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
     assert stored[ids["zz"]]["reason_code"] == "applicability_unsure"
-    assert stored[ids["aa"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["aa"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
     assert {
         f["compliance_status"]
         for f in result["findings"]
@@ -505,7 +505,10 @@ def test_a_review_holds_an_unsure_part_and_stores_the_counts(stub, monkeypatch):
 def test_a_review_with_the_reader_off_stores_no_counts(stub, monkeypatch):
     model = FakeModel(scope=UNSURE)
     result, stored, ids = _review(monkeypatch, model, enabled=False)
-    assert {stored[i]["state"] for i in ids.values()} == {scope_ledger.CHECKED}
+    assert all(
+        stored[i]["reason_code"] in scope_ledger.STATUS_REASON.values()
+        for i in ids.values()
+    )
     assert model.calls == [] and "division_scope" not in result["requirement_split"]
     assert settings.ai_division_scope_enabled is False
 

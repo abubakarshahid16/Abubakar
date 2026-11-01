@@ -8,7 +8,7 @@ _M = APP / "datasheet_checks.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1056", phase=89, description="a failed consistency check is reported as met",
-             path=_M, anchor="            ok = _OPS[rule[\"op\"]](a[0], b[0])\n",
+             path=_M, anchor="            ok = _hold(rule[\"op\"], a[0], b[0], _OPS)\n",
              replacement="            ok = True\n",
              target=_T, keyword="below_operating_is_a_comment_with_the_calculation", tags=("honesty", "critical")),
     Mutation(id="M1057", phase=89, description="gauge and absolute pressures are compared as one scale",
@@ -27,9 +27,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1060", phase=89, description="a 'TBA' mandatory field passes as a value",
              path=_M,
              # Re-anchored 2026-09-27 (CRS quick wins): the one marker list,
-             # `blank_markers`, decides.
-             anchor=("                if fact.get(\"is_blank\") or (printed.strip()\n"
-                     "                                            and blank_markers.classify(printed)[0]):\n"),
+             # `blank_markers`, decides. Re-anchored again in PR 1402: through
+             # `fact_is_placeholder`.
+             anchor="                if blank_markers.fact_is_placeholder(fact):\n",
              replacement="                if False:\n",
              target=_T, keyword="absent_or_tba", tags=("honesty",)),
     Mutation(id="M1061", phase=89, description="a value without its unit passes",

@@ -51,6 +51,9 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
   const [disposition, setDisposition] = useState<ReviewDisposition | "">(finding.disposition ?? "");
   const [status, setStatus] = useState<ReviewStatus>(finding.status);
   const [approval, setApproval] = useState(finding.approval_status);
+  const [rejectWhy, setRejectWhy] = useState("");
+  // #962: rejecting a finding of a run keeps a reason, like the issue gate's Reject.
+  const needsWhy = approval === "rejected" && finding.approval_status !== "rejected" && Boolean(finding.review_run_id);
   const [owner, setOwner] = useState(finding.owner_user_id ?? "");
   const [dueDate, setDueDate] = useState(finding.due_date ?? "");
   const [saving, setSaving] = useState(false);
@@ -82,6 +85,7 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
         disposition: disposition || null,
         status,
         approval_status: approval,
+        ...(needsWhy ? { reason: rejectWhy.trim() } : {}),
         owner_user_id: owner.trim() || null,
         due_date: dueDate || null,
       });
@@ -159,6 +163,11 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
           <option value="rejected">Approval rejected</option>
           <option value="not_required">Approval not required</option>
         </select>
+        {needsWhy && (
+          <label className="text-xs text-slateish-500">Why rejected (10 characters or more)
+            <input value={rejectWhy} onChange={(e) => setRejectWhy(e.target.value)} className="ms-1 w-64 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" />
+          </label>
+        )}
         <button type="button" disabled={saving} onClick={() => void save()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-50">{saving ? "Saving…" : "Save response"}</button>
         {message !== null && <span className="text-xs text-slateish-400" role="status">{message}</span>}
         <button type="button" onClick={() => void showHistory()} disabled={loadingHistory} className="rounded-[var(--radius-xs)] border border-ink-600 px-3 py-1.5 text-xs text-slateish-300 hover:border-signal-500/60 disabled:opacity-50">{loadingHistory ? "Loading history…" : history === null ? "View history" : "Refresh history"}</button>

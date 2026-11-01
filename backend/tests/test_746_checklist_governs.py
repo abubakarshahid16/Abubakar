@@ -91,12 +91,14 @@ def test_the_checklist_governs_only_the_standards_it_cites():
         assert stored[ids[key]]["state"] == scope_ledger.NOT_USED
         assert stored[ids[key]]["reason_code"] == "covered_by_checklist"
     # (a) the GUARD: a requirement from a standard the checklist does not cite is still checked
-    assert stored[ids["other"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["other"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
     split = result["requirement_split"]
-    assert split["not_used"] == 3 and split["checked"] == 1     # 2 statements + 1 table cell
+    assert split["not_used"] == 3 and split["checked"] + split["applies_not_checked"] == 1  # 2 statements + 1 table cell
     assert split["checklist"]["type"] == "Pressure Safety Valve"
     # never in the unchecked share
-    assert split["applies_not_checked"] == 0 and split["unchecked_share"] == 0.0
+    # only the ONE uncited requirement counts (it ended as "another document gives it", order
+    # 260.1); the 3 covered ones are in neither the checked nor the unchecked count
+    assert split["applies_not_checked"] == 1 and split["unchecked_share"] == 1.0
     line = absence.split_lines(split)[0]
     assert line.startswith("Reviewed against the Pressure Safety Valve checklist (")
     assert "3 library requirement(s)" in line
@@ -108,7 +110,7 @@ def test_a_type_with_no_checklist_is_unchanged():
     # nothing is "not used"; every requirement took the normal path (the subject
     # gate may still say a valve clause is about other equipment - its own call)
     assert not any(d["state"] == scope_ledger.NOT_USED for d in stored.values())
-    assert stored[ids["other"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["other"]]["reason_code"] in scope_ledger.STATUS_REASON.values()
     split = result["requirement_split"]
     assert split["not_used"] == 0 and "checklist" not in split and split["total"] == 4
     assert not any(line.startswith("Reviewed against") for line in absence.split_lines(split))

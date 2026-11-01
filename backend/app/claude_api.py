@@ -36,7 +36,7 @@ screen as what it said.
 TWO LIMITS ON EVERY CALL, BOTH INSIDE `_model_call_or_409(step)` so no route
 can reach the transport without them:
 
-  1. The USD caps (owner rule 2026-09-25: USD 5 per step, USD 20 in total).
+  1. The USD caps (owner rule 2026-09-25: USD 5 per step; USD 500 in total for November, 20 before).
      The transport is wrapped in `claude_spend.metered(transport, step)`:
      each call's worst case is checked BEFORE it leaves, and each call is
      written to the one `claude_spend` ledger AFTER it returns, so the total

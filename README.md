@@ -23,7 +23,8 @@ Ask questions against your own PDFs and get answers that cite the exact page the
 **One owner-approved exception (owner decision 2026-09-25):** the Claude API,
 reached only through `reader_transport.py`, only when `REASONING_PROVIDER`
 turns it on, gated by the `STANDARDS_READER_*` egress flags and a key, and
-capped by `claude_spend` at USD 5 per step / USD 20 in total. No document
+capped by `claude_spend` at USD 5 per step, USD 25 per converted standard and USD 500 in total for November
+(USD 20 from 1 Dec). No document
 text ever reaches it in logs, issues, PRs or CI. Every other hosted-inference
 and cloud path stays forbidden. See CLAUDE.md rule 1.
 

@@ -899,6 +899,9 @@ export interface ReviewFindingUpdate {
   /** Owner order section 3: Edit. Saving it confirms the comment. */
   engineer_comment?: string;
   /** B10: no approved_by / approved_at - the server records the caller. */
+  /** #962: why a finding of a run is rejected (approval_status "rejected"); kept with the decision. */
+  reason?: string;
+  reason_code?: string;
 }
 
 export type DeliverableStatus = "planned" | "in_progress" | "submitted" | "under_review" | "approved" | "rejected" | "superseded";

@@ -26,6 +26,7 @@ import {
 } from "../components/review/sheet/sheetCards";
 import { useSheetKeys } from "../components/review/sheet/useSheetKeys";
 import { BehindTheScenes, PANEL_TITLES, type StandardsState } from "../components/review/panels/BehindTheScenes";
+import { ReviewProgressBlock } from "../components/review/progress/ReviewProgressBlock";
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
 import { RunIncompleteNotes } from "../components/review/panels/RunIncompleteNotes";
 import { RunReviewControl } from "../components/review/panels/RunReviewControl";
@@ -210,6 +211,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
               : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status)}
             {run.job?.cancel_requested ? " · cancellation requested, stopping at the next step" : ""}
           </p>
+          <ReviewProgressBlock job={run.job} />
           <ReviewJobControl run={run} onChanged={() => void refresh()} />
         </div>
       )}

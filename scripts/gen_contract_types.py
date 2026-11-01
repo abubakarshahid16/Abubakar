@@ -135,6 +135,7 @@ def _schema_modules() -> tuple[Module, ...]:
             sent_defaults=True,
             source="backend/app/schemas.py and backend/app/api/run_summary.py",
             models=(
+                (s.ReviewProgressDetail, "ReviewProgressDetail"),
                 (s.ReviewJobState, "ReviewJobState"),
                 (s.AiStepNumbers, "AiStepNumbers"),
                 (s.AiNumbers, "AiNumbers"),

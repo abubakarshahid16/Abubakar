@@ -8,8 +8,8 @@ _D = APP / "datasheet_checks.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M6401", phase=6401, description="the equipment type's checklist is never run",
-             path=_D, anchor="    checklist = checklist_for(equipment_type, rules)\n    if checklist:\n",
-             replacement="    checklist = checklist_for(equipment_type, rules)\n    if False:\n",
+             path=_D, anchor="checklist = checklist_for(equipment_type, rules)\n    if checklist:\n",
+             replacement="checklist = checklist_for(equipment_type, rules)\n    if False:\n",
              target=_T, keyword="rule_kind", tags=("checklist", "critical")),
     Mutation(id="M6402", phase=6402, description="an item's condition is ignored, so it applies everywhere",
              # re-anchored 2026-10-10: conditions may be a list (#746 SAES items)
@@ -28,10 +28,24 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_D, anchor="            or (left[2] and right[2] and left[2] != right[2])):\n",
              replacement="            ):\n",
              target=_T, keyword="two_scales", tags=("checklist", "units")),
-    Mutation(id="M6406", phase=6406, description="a 'does not apply' result is written as a finding",
-             path=_D, anchor="    for r in (x for x in results if x[\"status\"] not in (NOT_APPLICABLE, NOT_CALCULATED)\n",
-             replacement="    for r in (x for x in results if x[\"status\"] not in (NOT_CALCULATED,)\n",
-             target=_T, keyword="never_written", tags=("checklist", "honesty")),
+    Mutation(
+        id="M6406",
+        phase=6406,
+        description="a 'does not apply' result is written as a finding",
+        path=_D,
+        # re-anchored 2026-10-27 (order 261.2): the loop reads the results through the degraded-read hold
+        anchor=(
+            "    for r in (x for x in degraded_read.hold(results, submittal_id)"
+            ' if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)\n'
+        ),
+        replacement=(
+            "    for r in (x for x in degraded_read.hold(results, submittal_id)"
+            ' if x["status"] not in (NOT_CALCULATED,)\n'
+        ),
+        target=_T,
+        keyword="never_written",
+        tags=("checklist", "honesty"),
+    ),
     Mutation(id="M6407", phase=6407, description="an item without a source clause is run",
              path=_D, anchor="            raise ValueError(f\"checklist item {item.get('id')!r} needs an id, text and a source clause\")\n",
              replacement="            pass\n",

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -29,8 +30,10 @@ from . import (
     access,
     job_progress,
     job_queue,
+    nothing_read,
     provenance,
     reread_for_standards,
+    review_progress,
     submittal_fill,
 )
 from .config import config_version, settings
@@ -125,7 +128,9 @@ def job_for_run(review_run_id: str) -> dict | None:
         "SELECT id, state, progress_done, progress_total, progress_label, cancel_requested"
         " FROM jobs WHERE review_run_id = ? ORDER BY started_at DESC LIMIT 1",
         (review_run_id,)).fetchone()
-    return dict(row) if row else None
+    job = dict(row) if row else None
+    block = review_progress.for_job(job) if job else None  # #1494, switch off: None
+    return {**job, "progress_detail": block} if block else job
 
 
 _CLAIMABLE = ("(state = 'queued' OR (state = 'retrying'"
@@ -200,6 +205,32 @@ def _page(conn, job_id: str, done: int, total: int, heartbeat=None) -> None:
         conn.execute(sql, (label, _now(), job_id))
 
 
+def _clause(conn, job_id: str, number: int, total: int, heartbeat=None) -> None:
+    """#1494: the clause the AI clause review is on - "checking clause 12 of 60".
+    Same rules as `_page`: progress only, skipped inside an open transaction, the
+    worker heartbeat is not skipped. Numbers only, never clause text."""
+    if heartbeat is not None:
+        heartbeat()
+    if number == 1:
+        job_progress.CLAUSE_STARTED[job_id] = time.time()
+    if conn.in_transaction:
+        return
+    with conn:
+        sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
+        conn.execute(sql, (f"checking clause {number} of {total}", _now(), job_id))
+
+
+def _checks_reporting(conn, job_id: str, heartbeat, run_id, scope, missing) -> None:
+    """`_checks` with the clause review's "checking clause N of M" going to the job (#1494)."""
+    try:
+        with job_progress.reporting_clauses(
+            lambda n, t: _clause(conn, job_id, n, t, heartbeat)
+        ):
+            _checks(run_id, scope, missing)
+    finally:
+        job_progress.CLAUSE_STARTED.pop(job_id, None)
+
+
 def _reporting_pages(conn, job_id: str, heartbeat=None):
     """The reader's page reports go to this job's label for the block (3b)."""
     return job_progress.reporting(
@@ -245,6 +276,10 @@ def _record_check_failure(run_id: str, column: str, name: str, exc: BaseExceptio
     status = absence.check_failed_status(name, f"it failed ({type(exc).__name__})")
     assert column in ("ai_check_status", "web_check_status")
     try:
+        if column == "ai_check_status":
+            from . import clause_review
+
+            return clause_review.write_ai_status(run_id, status)
         conn = connect()
         with conn:
             conn.execute(f"UPDATE review_runs SET {column} = ?, updated_at = ? WHERE id = ?",
@@ -299,6 +334,17 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         _record_check_failure(run_id, "ai_check_status", "AI engineering check", exc)
 
 
+def _checks(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
+    """The review's optional checks, after the comparison. None fails the review."""
+    from . import clause_review, spec_kit, transmittal_kit
+
+    _ai_check(run_id, scope, missing)
+    _web_check(run_id, scope, missing)
+    clause_review.for_review(run_id, scope)
+    spec_kit.for_review(run_id, scope)  # #1479
+    transmittal_kit.for_review(run_id, scope)  # #1482
+
+
 def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     """Owner order 2d-2: the public web standards check, AFTER the comparison
     decided the code, only with its flag on. Drafts only (kind D); a failure
@@ -333,7 +379,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     Documents page as the worker having no heartbeat / "not moving", when it
     is in fact still working through this one job.
     """
-    from . import applicability, comparison, errors, review_trace, submittal_review
+    from . import applicability, comparison, errors, review_audit, review_trace
     conn = connect()
     job = conn.execute("SELECT * FROM jobs WHERE id = ? AND state = 'running' AND claimed_by = ?",
                        (job_id, worker_id)).fetchone()
@@ -347,7 +393,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
 
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
         with _phase(conn, job_id, 0, heartbeat, timings, "read"):
-            submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
+            nothing_read.read_phase(submittal, scope, run_id)
         with _phase(conn, job_id, 1, heartbeat, timings, "standards"):
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
@@ -365,21 +411,21 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             company_standard_confirm.record_on_run(run_id, held)
         _label(conn, job_id, FINISHING)
         with _phase(conn, job_id, None, heartbeat, timings, "checks"):
-            _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
-            _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+            missing = [m["identifier"] for m in selection["missing_references"]]
+            _checks_reporting(conn, job_id, heartbeat, run_id, scope, missing)
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
-        # R15 (#779): every CRS row of the finished run gets its permanent number
-        # (drafts not issued), then R26 step 8 (#763): the model words each CRS
-        # comment. Neither fails the run (see the helpers).
+        # R15 (#779) numbers every CRS row, R26 step 8 (#763) words each comment;
+        # neither fails the run (see the helpers).
         from .main import number_crs_rows, word_crs_rows
         with _phase(conn, job_id, None, heartbeat, timings, None):
             number_crs_rows(run_id, requester)
             word_crs_rows(run_id, requester)
-        # #791 part 1: the run's step-by-step trace, stored behind the run's
-        # access rules (reads only, never fails the run) ...
+        # #791: the run's stored trace (reads only, never fails the run), then REVIEW_DEBUG prints it.
         review_trace.store(run_id, requester, timings)
-        # ... and part 0: REVIEW_DEBUG prints it (off by default).
         review_trace.emit(run_id, requester)
+        review_audit.write(run_id, requester, timings)  # #1525
+    except nothing_read.StoredFileAbsent as exc:  # #1495
+        return nothing_read.fail_run(job_id, run_id, exc)
     except _Cancelled:
         with conn:
             from . import review as review_mod

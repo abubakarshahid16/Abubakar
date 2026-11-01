@@ -75,9 +75,9 @@ describe("the one-line comparison", () => {
       requirement_source_text: "Set pressure shall not exceed 10 barg.", compliance_status: "NON_COMPLIANT" })))
       .toBe('Set pressure: the datasheet says "12 barg"; the rule asks: Set pressure shall not exceed 10 barg. - Non-compliant');
   });
-  it("a value not on the datasheet is said so, never shown as 0", () => {
+  it("a value not read from the datasheet is said so, never shown as 0", () => {
     const line = comparisonLine(f({ matched_phrase: "Orifice", requirement: "Orifice letter shall be stated.", compliance_status: "MISSING_INFORMATION" }));
-    expect(line).toContain("Orifice: not found on the datasheet");
+    expect(line).toContain("Orifice: no value read from the datasheet");
     expect(line).not.toMatch(/\b0\b/);
   });
   it("nothing recorded gives an empty line (the drawer then shows none)", () => {

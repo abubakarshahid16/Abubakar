@@ -1,0 +1,348 @@
+{
+ "discipline": "pressure_vessel",
+ "label": "DRAFT - an engineer approves each item before it is relied on",
+ "title": "Pressure vessel specification",
+ "identify": [
+  "pressure vessel",
+  "vessel"
+ ],
+ "items": [
+  {
+   "id": "design_code",
+   "topic": "Design code, division and edition",
+   "terms": [
+    [
+     "asme",
+     "section viii"
+    ],
+    [
+     "asme",
+     "sec viii"
+    ],
+    [
+     "design code"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 6.1.2 (p13) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "design_pressure",
+   "topic": "Design pressure",
+   "terms": [
+    [
+     "design pressure"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 6.2.2 (p14) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "design_temperature",
+   "topic": "Design temperature",
+   "terms": [
+    [
+     "design temperature"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 6.3 asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "mdmt",
+   "topic": "Minimum design metal temperature",
+   "terms": [
+    [
+     "mdmt"
+    ],
+    [
+     "minimum design metal temperature"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 6.4 (p16) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "service",
+   "topic": "Service and process description",
+   "terms": [
+    [
+     "service fluid"
+    ],
+    [
+     "fluid service"
+    ],
+    [
+     "process description"
+    ],
+    [
+     "service description"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 6.5 (p16) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "joint_efficiency",
+   "topic": "Joint efficiency",
+   "terms": [
+    [
+     "joint efficiency"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-D-001",
+    "clause": "6.6",
+    "page": 16
+   }
+  },
+  {
+   "id": "corrosion_allowance",
+   "topic": "Corrosion allowance",
+   "terms": [
+    [
+     "corrosion allowance"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 6.7.1.2 (p16) is a design rule about cladding, not a statement a specification must make. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "wind_seismic",
+   "topic": "Wind and seismic design data",
+   "terms": [
+    [
+     "wind",
+     "seismic"
+    ],
+    [
+     "wind",
+     "earthquake"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 6.9.1 (p19) asks for it on the vessel data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "nozzle_ratings",
+   "topic": "Nozzle and flange ratings",
+   "terms": [
+    [
+     "nozzle",
+     "rating"
+    ],
+    [
+     "flange",
+     "rating"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 7.1.1 (p23) asks for it on the data sheet, not in a specification. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "hydrostatic_test",
+   "topic": "Hydrostatic test",
+   "terms": [
+    [
+     "hydrostatic"
+    ],
+    [
+     "hydrotest"
+    ],
+    [
+     "test pressure"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 9.5 (p32) is a support design rule for the test load. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "referenced_editions",
+   "topic": "Referenced standards with editions",
+   "terms": [
+    [
+     "edition",
+     "referenc"
+    ],
+    [
+     "edition cited"
+    ],
+    [
+     "latest edition"
+    ],
+    [
+     "edition",
+     "applies"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 cl. 3 (p7) says which edition of the references applies; it does not ask a specification to list them. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "materials",
+   "topic": "Materials of construction",
+   "terms": [
+    [
+     "materials of construction"
+    ],
+    [
+     "material specification"
+    ],
+    [
+     "material grade"
+    ],
+    [
+     "material",
+     "re:\\bastm\\s?[ab]\\s?-?\\d{2,3}\\b"
+    ],
+    [
+     "re:\\b(sa|sb)-?\\d{2,3}\\b",
+     "re:\\bgr(ade)?\\b"
+    ],
+    [
+     "materials shall"
+    ],
+    [
+     "re:\\bmaterials? (shall|must) (be|conform|comply)"
+    ]
+   ],
+   "draft_reason": "SAES-D-001 18.4 (p40) states material rules for the nameplate only; the vessel-materials clause was not identified. DRAFT."
+  },
+  {
+   "id": "scope",
+   "topic": "Scope and purpose of the specification",
+   "terms": [
+    [
+     "this specification",
+     "defines"
+    ],
+    [
+     "this specification",
+     "covers"
+    ],
+    [
+     "this specification",
+     "applies to"
+    ],
+    [
+     "this document",
+     "covers"
+    ],
+    [
+     "scope of this specification"
+    ],
+    [
+     "scope of this document"
+    ],
+    [
+     "scope of this standard"
+    ],
+    [
+     "purpose of this specification"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "documentation",
+   "topic": "Documentation and deliverables the supplier submits",
+   "terms": [
+    [
+     "documentation",
+     "shall"
+    ],
+    [
+     "data book",
+     "shall"
+    ],
+    [
+     "deliverable",
+     "shall"
+    ],
+    [
+     "shall submit",
+     "calculation"
+    ],
+    [
+     "shall submit",
+     "drawing"
+    ],
+    [
+     "shall submit",
+     "certificate"
+    ],
+    [
+     "shall submit",
+     "report"
+    ],
+    [
+     "shall be submitted",
+     "calculation"
+    ],
+    [
+     "shall be submitted",
+     "drawing"
+    ],
+    [
+     "shall be submitted",
+     "certificate"
+    ],
+    [
+     "shall be submitted",
+     "report"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "inspection_testing",
+   "topic": "Inspection and testing requirements",
+   "terms": [
+    [
+     "non-destructive",
+     "shall"
+    ],
+    [
+     "nondestructive",
+     "shall"
+    ],
+    [
+     "nde",
+     "shall"
+    ],
+    [
+     "radiograph",
+     "shall"
+    ],
+    [
+     "ultrasonic",
+     "shall"
+    ],
+    [
+     "rt",
+     "shall"
+    ],
+    [
+     "ut",
+     "shall"
+    ],
+    [
+     "mt",
+     "shall"
+    ],
+    [
+     "pt",
+     "shall"
+    ],
+    [
+     "examination",
+     "shall"
+    ],
+    [
+     "inspection",
+     "testing",
+     "shall"
+    ],
+    [
+     "re:\\btest(s|ed|ing)?\\b",
+     "shall"
+    ],
+    [
+     "inspection",
+     "acceptance"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  }
+ ]
+}

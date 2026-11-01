@@ -53,8 +53,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
-                page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
+                page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
+from . import equipment_scope as eqs, intake, kind_rules, procedure_text
 from .config import settings
+from .deferred_value import framing as _framing
+from .deferred_value import reason as _deferred_reason
 from .db import connect
 from .provenance import ai_quote_proved
 
@@ -541,8 +544,7 @@ def equipment_subject(classification: dict | None) -> str | None:
     return value or None
 
 
-#: The reason code on a breach held back because the datasheet VALUE it rests
-#: on is not yet trusted (audit 2026-09-30).
+#: The reason code on a breach held back: the datasheet VALUE is not yet trusted (2026-09-30).
 LOW_TRUST_VALUE = "LOW_TRUST_VALUE"
 #: `submittal_facts.validation_state` values that mean "not yet trusted":
 #: below the confidence threshold (the OCR fallback tier among them) and a
@@ -592,11 +594,11 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
     if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
         return verdict
     reason = low_trust_reason(fact)
-    if reason is None:
+    if reason is None and not (reason := _deferred_reason(fact)):
         return verdict
     return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
-        f"{LOW_TRUST_VALUE}: {reason}, so no verdict (neither compliant nor a "
-        f"breach) is stated until an engineer checks the value on the page; "
+        f"{_framing(reason)[0]}{reason}, so no verdict (neither compliant nor a "
+        f"breach) is stated{_framing(reason)[1]}; "
         f"the arithmetic on the value as read: "
         f"{verdict.get('rationale') or ''}")}
 
@@ -608,8 +610,7 @@ _HELD_ON_UNSURE_KIND = frozenset(
 )
 
 
-#: A rationale that already leads with its own machine reason ("unit_mismatch:",
-#: "LOW_TRUST_VALUE:"): an engineer question asked for that reason keeps it.
+#: A rationale that leads with its own machine reason ("unit_mismatch:") keeps it.
 _LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
 
 
@@ -787,23 +788,17 @@ def _compare(requirement: dict, fact: dict | None, *,
     # ISSUE #163, CRITERION 2 & 4 - BEFORE EVERY OTHER BRANCH, INCLUDING THE
     # ABSENT-FACT ONE AND THE TABLE-ROW ONE BELOW.
     #
-    # `required_evidence_type` is set only when the requirement's OWN
-    # SENTENCE names a document to hand over - "submit a calibration
-    # certificate", "furnish vendor drawings" - via
-    # `requirements_3b.required_evidence_type`. It has been extracted and
-    # stored on every `standard_requirements` row since #162 and read by
-    # nothing here: a numeric_limit clause that also demands a certificate
-    # ("... confirmed by a calibration certificate to within 0.5%") could be
-    # paired by field-name containment to an unrelated datasheet value and
-    # compared as arithmetic, emitting a COMPLIANT/NON_COMPLIANT verdict this
-    # engine has no evidence for - the datasheet is not the certificate the
-    # clause asked for. Everything this pipeline reads comes from the
-    # submittal's DATASHEET extraction (`datasheets.py`), so
-    # `DATA_SHEET_EVIDENCE` is the one value that names what is actually being
-    # compared; any other named document routes to `NOT_IN_DOCUMENT_SCOPE`
-    # exactly as B9 already routes a `statement` with no matching field -
-    # this is the same claim ("this submittal type cannot answer it") for a
-    # requirement that says so explicitly rather than by shape.
+    # `required_evidence_type` is set only when the requirement's OWN SENTENCE
+    # names a document to hand over ("submit a calibration certificate"), via
+    # `requirements_3b.required_evidence_type`. A numeric_limit clause that
+    # also demands a certificate could be paired to an unrelated datasheet
+    # value and compared as arithmetic: a COMPLIANT/NON_COMPLIANT verdict with
+    # no evidence, the datasheet not being the certificate asked for. Only
+    # `DATA_SHEET_EVIDENCE` names what is compared; any other named document
+    # routes to `NOT_IN_DOCUMENT_SCOPE`, as B9 routes an unmatched `statement`.
+    # #1476: a procedure's own text answers its own requirements (an engineer decides).
+    if routed := procedure_text.route(requirement, fact):
+        return routed
     required_evidence = requirement.get("required_evidence_type")
     if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:
         return {
@@ -1566,7 +1561,7 @@ def _prepare_finding(
         "finding": comment or method_notes.split_method_notes(rationale)[0],
         "required_action": _required_action(status),
         "confidence": _confidence_label(confidence),
-        "contractor_page": (fact or {}).get("page"),
+        "contractor_page": procedure_text.page_of(fact, rationale),
         "contractor_section": (fact or {}).get("section"),
         "contractor_evidence_text": (fact or {}).get("field_value"),
         "standard_document_id": requirement.get("standard_document_id"),
@@ -1607,6 +1602,7 @@ _REASON_CODES = (
     CONDITION_NOT_MET,
     "UNREAD_PAGES",
     "PAGE_READER_ONLY",
+    *procedure_text.REASON_CODES,  # #1476
     match_rules.QUANTITY_KIND_UNSURE,  # before its prefix, `quantity_kind`
     match_rules.QUANTITY_KIND,
 )
@@ -1854,19 +1850,10 @@ def completeness_for_run(
 
 
 def _unchecked_causes(counts: dict) -> str:
-    """Why the requirements that apply were not checked, each cause with its
-    count (#139): the cited-clause step's unsure ones are not "no field"."""
-    unsure = min(counts.get("unsure_citation", 0), counts.get("not_compared", 0))
-    rest = counts.get("not_compared", 0) - unsure
-    if not unsure:
-        return "no matching field, or text that could not be read"
-    causes = [
-        f"{unsure} because the datasheet's citation does not say for certain "
-        "which clauses of the standard apply - the engineer decides"
-    ]
-    if rest:
-        causes.append(f"{rest} with no matching field, or text that could not be read")
-    return "; ".join(causes)
+    """Why the requirements that apply were not checked, with counts (#139)."""
+    from . import requirement_split
+
+    return requirement_split.causes(counts)
 
 
 def recommend_code(findings: list[dict], completeness: dict, *,
@@ -1900,9 +1887,10 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             and result["code"] in (codes[0], codes[1])):
         unchecked_n = counts.get("not_compared", 0)
         applies_n = unchecked_n + counts.get("checked", 0)
+        why = _unchecked_causes(counts)
         result = {**result, "code": codes[3],
                   "reason": (f"Manual review: {unchecked_n} of {applies_n} requirements that apply "
-                             f"to this submittal were not checked ({_unchecked_causes(counts)}), "
+                             f"to this submittal were not checked ({why}), "
                              "so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
     # PF3 (#883): AN INCOMPLETE READING CANNOT BE APPROVED. A page the AI reader
@@ -1953,7 +1941,7 @@ def _pages_part(page_coverage: dict | None) -> str:
     total = (page_coverage or {}).get("pages_total")
     if not total:
         return ""
-    read = len((page_coverage or {}).get("fact_pages") or [])
+    read = intake.pages_read_count(page_coverage)
     return f" on {read} of {total} page{'s' if total != 1 else ''}"
 
 
@@ -2307,7 +2295,10 @@ def run_comparison(
     parsing, the matcher) carries the submittal's fields and the applied
     standards' clause text - those documents and no others."""
     from . import claude_approved
-    with claude_approved.carrying(claude_approved.review_documents(review_run_id)):
+    with (
+        claude_approved.carrying(claude_approved.review_documents(review_run_id)),
+        procedure_text.reading(review_run_id),  # #1476
+    ):
         return _run_comparison(
             review_run_id, allowed_document_ids=allowed_document_ids, subject=subject,
             reference_coverage=reference_coverage, model_opinions=model_opinions,
@@ -2360,23 +2351,20 @@ def _run_comparison(
     standard_ids = [a["standard_document_id"] for a in applicable]
 
     requirements: list[dict] = []
-    # #450: WHAT DID NOT REACH A FINDING IS ACCOUNTED FOR. A standard in scope
-    # that holds no requirement at all (extraction never ran) was not checked;
-    # requirements held back as definitions or unreadable text are counted.
+    # #450: WHAT DID NOT REACH A FINDING IS ACCOUNTED FOR. A standard in scope with no
+    # requirement (extraction never ran) was not checked; definitions and unreadable text are counted.
     unchecked_standards: list[str] = []
     held_back = {"definition": 0, "text_quality": 0}
     held_items: list[dict] = []     # #678: requirements that apply, held for unreadable text
-    # #677 THE SCOPE LEDGER: every requirement of every applicable standard
-    # (`in_scope_all`) ends in exactly one decision with a stored reason,
-    # built from the SAME items #678's counts are built from - one source.
-    from . import ai_requirements as ai_requirements_mod
-    from . import scope_ledger
+    # #677 THE SCOPE LEDGER: every requirement of every applicable standard (`in_scope_all`) ends in
+    # exactly one decision with a stored reason, built from the SAME items #678's counts are built from.
+    from . import converter_review, scope_ledger
     in_scope_all: list[dict] = []
-    extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
+    extra_not_applied: list[dict] = []  # #677: definitions, service gate, AI tier
+    design_standards = recommendations.named(applicable)
     for standard_id in standard_ids:
         from . import standards as standards_mod
-        # #596/#597: a definition, and text the quality gate holds, are not
-        # compared. They stay in the library; they never reach a finding.
+        # #596/#597/#288: a definition, unreadable text and a recommendation are never compared.
         loaded = standards_mod.list_requirements(
             standard_id, allowed_document_ids=allowed_document_ids)
         if not loaded:
@@ -2385,17 +2373,18 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
-        # OWNER DECISION (rule_trust, #947 steps 3-6), SWITCH OFF BY DEFAULT: a
-        # clause sentence with an undecided AI-compiled check is compared
-        # through that check, in the sentence's own place (same id). Empty
-        # with the switch off, so nothing below changes.
-        auto_rules = ai_requirements_mod.auto_use_rules(
-            standard_id, allowed_document_ids=allowed_document_ids)
+        # OWNER DECISION (rule_trust, #947), SWITCH OFF BY DEFAULT: a clause sentence with an
+        # AI-compiled check (a draft, else the converter's, order 274.1) is compared through it.
+        auto_rules = converter_review.rules_with_drafts(
+            standard_id, submittal_id, allowed_document_ids
+        )
         for r in loaded:
             if r["id"] in auto_rules:
                 r = {**r, **auto_rules[r["id"]]}
+            if recommendations.left_out(r, standard_id, design_standards, held_back):
+                continue  # #288: advice of a standard the sheet does not name takes no part
             in_scope_all.append(r)
-            if standards_mod.is_reviewable(r):
+            if standards_mod.is_reviewable(r) or recommendations.is_advice(r):
                 requirements.append(r)
             elif r.get("requirement_type") == "definition":
                 held_back["definition"] += 1
@@ -2437,6 +2426,7 @@ def _run_comparison(
     # engineer or the classifier gave one; the field names otherwise.
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
+    kn = kind_rules.for_run(submittal_id, allowed_document_ids, standard_ids)
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
     trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
@@ -2473,14 +2463,11 @@ def _run_comparison(
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
     # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a
-    # relief valve: its relief-device rules only). See `subject_scope.partial_gate`.
-    partial = subject_scope.partial_gate(
-        requirements,
-        equipment=subject_scope.submittal_equipment(stored, facts, subject_scope.vocabulary())[0],
-        standard_labels=standard_labels,
-        partial_standards=applicability_mod.governing_table()["partial_standards"])
-    requirements = partial["kept"]
-    extra_not_applied.extend(partial["items"])
+    # relief valve: its relief-device rules only). See `subject_scope.partial_gate` (in `eqs.gate_for_run`
+    # with the rules-by-equipment-scope gate).
+    requirements, es = eqs.gate_for_run(
+        requirements, stored, facts, submittal_id, standard_labels, extra_not_applied
+    )
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
     # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
     from . import ai_applicability as ai_div
@@ -2505,20 +2492,19 @@ def _run_comparison(
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
-    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746).
-    # When this submittal's equipment type has a review checklist, the library
-    # requirements of a standard the checklist CITES are not checked one by
-    # one: the checklist items are. They stay quotable. GUARD: only standards
-    # named in the checklist's own `source.standard` (`checklist_sources`) -
-    # a requirement from any other applicable standard keeps the normal path,
-    # and a type with no checklist is unchanged. AFTER the applicability gates
+    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this submittal's
+    # equipment type has a review checklist, the library requirements of a standard the checklist CITES
+    # are not checked one by one: the checklist items are. They stay quotable. GUARD: only standards
+    # named in the checklist's own `source.standard` (`checklist_sources`); any other applicable
+    # standard keeps the normal path, and a type with no checklist is unchanged. AFTER the applicability gates
     # (subject, service and clause conditions, AI): a clause that does not
     # apply keeps that stronger, reasoned decision; only what still applies -
     # the kept requirements and the table cells no field answered - is "not used".
     covered_items: list[dict] = []
     checklist_note = None
+    from . import checklist_scope
     from . import datasheet_checks as _checks
-    governing = _checks.checklist_sources(stored.get("equipment_type"))
+    governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
         if covered_ids:
@@ -2536,6 +2522,8 @@ def _run_comparison(
                 if i["requirement"].get("standard_document_id") not in covered_ids]}
             checklist_note = {"type": governing["key"], "items": governing["items"],
                               "standards": len(covered_ids)}
+    # #288: advice that still applies becomes an engineer's query, not a comparison
+    requirements = recommendations.hold_for_query(requirements, held_items)
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
@@ -2577,9 +2565,9 @@ def _run_comparison(
     # pre-B4 matching, untouched.
     field_names = None
     field_name_matches = 0
-    if settings.geometry_reader_enabled:
-        from . import field_naming
-        field_names = field_naming.ensure_names(requirements, facts)
+    if settings.geometry_reader_enabled or settings.field_naming_enabled:
+        from . import field_vocabulary
+        field_names = field_vocabulary.names_for(requirements, facts, stored)
     for requirement in requirements:
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
@@ -2947,9 +2935,7 @@ def _run_comparison(
     # must not be deleted by it.
     _write_run_findings(review_run_id, prepared_rows, replace=replace)
 
-    # #677 EVERY REQUIREMENT THAT REACHED THE COMPARISON: its finding's status
-    # decides its state; one with no finding (an engineer rejected the
-    # pairing) is an engineer's question, never silent.
+    # #677: a requirement's finding status decides its state; none is an engineer's question.
     status_of: dict = {}
     for row in prepared_rows:
         status_of.setdefault(row.get("requirement_id"), row.get("compliance_status"))
@@ -2980,20 +2966,16 @@ def _run_comparison(
             ai_requirements.undecided_statements(requirements, status_of),
             review_run_id=review_run_id, limit=settings.ai_clause_checks_max_per_run)
 
-    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
-    # itself, pure arithmetic, no standard needed. Written before the code is
-    # recommended, so a design pressure below the operating pressure counts
-    # like any other unmet requirement.
+    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against itself, pure
+    # arithmetic, no standard needed. Written before the code is recommended.
     from . import datasheet_checks
     page_texts = {r["page_no"]: r["text"] or "" for r in connect().execute(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
-                                              page_texts=page_texts)
-    # rule_trust (#947): every rule labelled, the checks too - a signed-off
-    # checklist item is an engineer's rule; every other check is held when it
-    # would decide (planner answer on #985). Nothing with the switch off.
+    check_results = kind_rules.gate(kn, checklist_scope, facts, stored, page_texts)
+    # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
+    # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
@@ -3023,30 +3005,31 @@ def _run_comparison(
         # (confirmed by code) and the definitions - the same items the
         # per-requirement ledger above is built from
         scoped["not_applied_items"] + extra_not_applied,
-        covered_items)
+        covered_items,
+        status_of=status_of,
+    )
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
-    if checklist_note:
-        split = {**split, "checklist": checklist_note}
+    split = {**split, **kind_rules.split_part(kn, checklist_note), **eqs.split_part(es)}
     if cited_scope["summary"]:  # #139: standards cited only for named clauses
         split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:
         split = {**split, "checklist_coverage": checklist_coverage}
     if divided["summary"]:  # #141: divisions limited by their own scope
         split = {**split, "division_scope": divided["summary"]}
-    # Owner order 2026-10-11: the run says which reader read the sheet - the
-    # AI engine and model, or "code readers only", and the pages the AI did
-    # not read (timed out, unavailable) with the reason.
-    reader = datasheets.latest_reader_summary(submittal_id)
-    if reader:
-        split = {**split, "reader": reader}
+    # Owner order 2026-10-11: the run says which reader read the sheet (engine,
+    # model or "code readers only") and the pages the AI did not read, with the reason.
+    from . import degraded_read
+
+    split = degraded_read.with_reader(split, submittal_id)
     ai_matcher = matcher_summary(matcher_counts, model_matches=model_matches,
                                  model_held=model_held, questions=ask_counts)
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
         "checked": split["checked"],
-        "unsure_citation": len(cited_scope["unsure"])}
+        "unsure_citation": len(cited_scope["unsure"]),
+        "reasons": split["applies_not_checked_reasons"]}
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
@@ -3594,15 +3577,16 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     None (fall through) when the requirement is unnamed or no fact passes.
     """
     if not is_matchable(requirement) or requirement.get("raw_value") in (None, ""):
-        return None
+        from . import statement_roles
+
+        return statement_roles.match(requirement, facts, names)  # 263.1
     field = (names.get("requirements") or {}).get(str(requirement.get("id")))
     if not field:
         return None
     fact_names = names.get("facts") or {}
     rejected = _rejected_keys_for(requirement)
     tag_scoped = facts_are_tag_scoped(facts)
-    # B4 item 2: a BLANK field pairs too - "the sheet leaves this to be
-    # provided" is an answer about the requirement's quantity.
+    # B4 item 2: a BLANK field pairs too ("left to be provided" answers the quantity).
     hits = [f for f in facts
             if (fact_has_number(f) or f.get("is_blank"))
             and fact_names.get(str(f.get("id"))) == field
@@ -3624,9 +3608,8 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     if len(allowed) > 1:
         filled = [f for f in allowed if fact_has_number(f) and not f.get("is_blank")]
         if not filled:
-            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the
-            # same - the sheet leaves this quantity to be provided. The one
-            # whose OWN label is the name comes first, then by page and label;
+            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the same (left to be
+            # provided). The one whose OWN label is the name comes first, then by page and label;
             # the others are NAMED; no value was chosen between.
             from .field_naming import own_names
             ordered = sorted(allowed, key=lambda f: (field not in own_names(f),

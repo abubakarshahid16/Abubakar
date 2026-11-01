@@ -58,7 +58,7 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
-from . import playbooks as playbooks_mod
+from . import playbooks as playbooks_mod, procedure_playbook_rows as ppr_mod
 from . import requirement_split as requirement_split_mod
 from . import auth as auth_mod, auth_session as auth_session_mod
 from . import errors
@@ -1283,7 +1283,7 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
     total = drafts = 0
     for row in connect().execute(
             f"SELECT compliance_status, {ai_check_drafts_mod.DRAFT_SQL} AS draft, COUNT(*) AS n FROM"
-            " review_findings WHERE review_run_id = ? GROUP BY compliance_status, draft", (run_id,)):
+            " review_findings WHERE review_run_id = ? AND origin IS NOT 'clause_review' AND origin IS NOT 'spec_kit' GROUP BY compliance_status, draft", (run_id,)):
         total += row["n"]
         if (status := row["compliance_status"]) is not None:
             by_status[status] = by_status.get(status, 0) + row["n"]
@@ -1741,25 +1741,19 @@ def update_review_finding(
     # unconfirmed edit would silently vanish with the rest.
     if changes.get("engineer_comment"):
         changes["confirmed"] = True
-    # CONFIRMATION IS THE CALLER'S OWN. `confirmed` is a flag on the body; the
-    # NAME comes from the authenticated scope and can never be supplied by the
-    # client, because a confirmation that can be attributed to someone else is
-    # worth nothing to the engineer whose name is on it. An anonymous caller
-    # cannot confirm - `_require_identity_to_write` above has already refused.
+    # CONFIRMATION IS THE CALLER'S OWN: `confirmed` is a flag on the body; the NAME comes from
+    # the authenticated scope, never the client (a confirmation attributable to someone else is
+    # worth nothing). An anonymous caller was already refused by `_require_identity_to_write`.
     if changes.pop("confirmed", None):
         if scope.user_id is None:
-            # AN ANONYMOUS CONFIRMATION IS NOT A CONFIRMATION, and accepting
-            # one would be worse than refusing it: `review.update` drops a
-            # None, so the route would answer 200 having recorded nothing and
-            # the engineer would believe the pairing was signed for.
+            # AN ANONYMOUS CONFIRMATION IS NOT ONE: `review.update` drops a None, so a 200 would
+            # record nothing and the engineer would believe the pairing was signed for.
             raise HTTPException(status_code=401, detail=errors.safe_error(
                 errors.UNAUTHENTICATED,
                 "a confirmation must name the engineer who made it"))
         changes["confirmed_by"] = scope.user_id
         changes["confirmed_at"] = review_mod.now_iso()
-    # B10: AN APPROVAL OR DISPOSITION IS THE CALLER'S OWN, for the same reason.
-    # The name is never read from the body (the schema has no field for it),
-    # and an anonymous caller cannot decide a finding.
+    # B10: AN APPROVAL OR DISPOSITION IS THE CALLER'S OWN, never read from the body.
     if changes.get("approval_status") in ("accepted", "rejected") or changes.get("disposition"):
         if scope.user_id is None:
             raise HTTPException(status_code=401, detail=errors.safe_error(
@@ -1767,14 +1761,18 @@ def update_review_finding(
                 "an approval must name the engineer who made it"))
         changes["approved_by"] = scope.user_id
         changes["approved_at"] = review_mod.now_iso()
-    updated = review_mod.update(
-        finding_id, changes, actor_user_id=scope.user_id
-    )
+    try:  # #962: a rejection of a finding of a run keeps a reason
+        crs_issue_mod.reject_with_reason(current, changes, scope.user_id)
+    except crs_issue_mod.IssueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc)),
+        ) from exc
+    updated = review_mod.update(finding_id, changes, actor_user_id=scope.user_id)
     if updated is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
-    # A confirmed, accepted or re-worded comment is the engineer's: it gets
-    # its permanent CRS number now, not at export (which writes nothing).
+    # A confirmed, accepted or re-worded comment gets its permanent CRS number now, not at export.
     _mint_crs_numbers(current.get("review_run_id"), scope)
     # r2 S2: the reply is a read of the finding too.
     review_mod.withhold_unreadable_standards([updated], scope.allowed_document_ids)
@@ -2794,16 +2792,15 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
 
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}
-    # B3: the pages this run could not read into fields, AS STORED ON THE RUN,
-    # so the CRS names the same pages the findings were decided on.
+    # B3: the pages this run could not read, AS STORED ON THE RUN (as the findings were decided on).
     unread = ((outcome.get("page_coverage") or {})
               .get("pages_not_read_into_fields") or [])
     missing = _missing_references(submittal_id, allowed)
-    # #754 F5b: required vs cited, recomputed like `missing` from the
-    # submittal's own text, facts and type (no stored copy to go stale).
+    # #754 F5b: required vs cited, recomputed like `missing` (no stored copy to go stale).
     check = applicability_mod.standards_check(submittal_id, allowed_document_ids=allowed)
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
+    rows, pb_notes = ppr_mod.merge(rows, submittal_id, submittal_name, allowed)  # #1522
     # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.
@@ -2957,7 +2954,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
-            {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
+            {"note": part["note"], "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
@@ -2968,6 +2965,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
+    meta["review_notes"] += pb_notes + export_status_mod.equipment_notes(submittal_id)
     return rows, meta, submittal_name, stamp
 
 
