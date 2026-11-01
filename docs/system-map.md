@@ -348,3 +348,4 @@ which are areas of their own today.
 
 **Order on the Mac, week 1:** `api/` first (no logic change, lowest risk), then `core/` and `ai/`, then
 `review/` (T2 proof per move), then the frontend `api/` and `features/`.
+| `rule_equipment_scope` | Which equipment type a stored rule is written for, read from its own clause wording or heading chain with quote, page and method; unknown stays unknown |

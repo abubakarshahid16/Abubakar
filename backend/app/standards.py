@@ -48,7 +48,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from . import chunker, claims, classification, orphan_guard, provenance, requirement_quality, requirements_3b
-from . import recommendations, submittal_review, table_cells
+from . import recommendations, rule_equipment_scope, submittal_review, table_cells
 from .config import settings
 from . import tables as tables_mod
 from .db import connect
@@ -635,7 +635,8 @@ def create_requirement(
     for key in ("requirement_type", "field", "operator", "value", "unit",
                 "raw_value", "raw_unit", "condition", "exceptions",
                 "discipline", "table_row", "subject", "required_evidence_type",
-                "unit_from", "identity_key", "value_low", "value_high"):
+                "unit_from", "identity_key", "value_low", "value_high",
+                "equipment_type", "equipment_scope_evidence"):
         row[key] = structured.get(key)
     row["evidence_pages"] = json.dumps(
         [{"page": row["page"], "chunk_id": chunk_id}]) if identity_key else None
@@ -663,7 +664,7 @@ def create_requirement(
                 table_row, subject, required_evidence_type,
                 extractor_version, input_hash,
                 identity_key, evidence_pages, unit_from, quality_reason,
-                extraction_run_id)
+                extraction_run_id, equipment_type, equipment_scope_evidence)
                VALUES (:id, :standard_document_id, :clause, :page, :chunk_id,
                        :requirement_text, :source_text, :category,
                        :extraction_method, :confidence, :created_at,
@@ -675,7 +676,8 @@ def create_requirement(
                        :required_evidence_type,
                        :extractor_version, :input_hash,
                        :identity_key, :evidence_pages, :unit_from,
-                       :quality_reason, :extraction_run_id)""", row)
+                       :quality_reason, :extraction_run_id,
+                       :equipment_type, :equipment_scope_evidence)""", row)
     row["upserted"] = "created"
     return row
 
@@ -925,6 +927,8 @@ def extract_requirements(
     inputs = provenance.input_hash(
         stored["sha256"] if stored else None, *(c["text"] for c in chunks))
 
+    scoper = (rule_equipment_scope.headings_from_sections(c["section"] for c in chunks)
+              if rule_equipment_scope.extract_enabled() else None)
     run_id = new_extraction_run_id()
     #: #640 the ACTIVE unconfirmed sentence rows this run may re-produce, by
     #: (clause, sentence). Met again: kept (same id). Not met: superseded.
@@ -1049,6 +1053,10 @@ def extract_requirements(
                     "subject": subject_of(sentence),
                     "required_evidence_type": requirements_3b.required_evidence_type(sentence),
                     **(limit or {}),
+                    **(rule_equipment_scope.stored_fields(rule_equipment_scope.scope_of(
+                        {"requirement_text": sentence, "clause": clause,
+                         "chunk_section": chunk["section"], "page": chunk["page_start"]},
+                        scoper)) if scoper is not None else {}),
                 }
                 category = "prohibition" if _PROHIBITION.search(sentence) else None
                 if key in reproducible:
