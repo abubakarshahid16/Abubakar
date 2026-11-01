@@ -525,8 +525,8 @@ def _one(found: list[dict]) -> tuple[dict | None, str | None]:
     """The one value a field states, or why there is not one."""
     if not found:
         return None, "absent"
-    # a unit left off one copy of the same number (switch `datasheet_label_match_enabled`)
-    if settings.datasheet_label_match_enabled:
+    # a unit left off one copy of the same number (switch `datasheet_label_join_enabled`)
+    if settings.datasheet_label_join_enabled:
         found = drop_unit_less_twins(found)
     if len({_key(f) for f in found}) != 1:
         return None, "two different values"

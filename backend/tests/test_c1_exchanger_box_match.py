@@ -1,6 +1,6 @@
 """A heat exchanger checklist box reads the value the sheet gives (finding on the TEMA proof run 79c0c68d).
 
-Two general causes, both behind `datasheet_label_match_enabled` (off by default):
+Two general causes, both behind `datasheet_label_join_enabled` (off by default):
 1. a split abbreviation: the stored name "tube o d" (printed "O.D.") matched no role, so "Tube outside
    diameter was not found" while the value was read;
 2. the same number printed twice, once without its unit, was "two different values".
@@ -21,7 +21,7 @@ HEX = "Heat Exchanger"
 
 @pytest.fixture
 def on(monkeypatch):
-    monkeypatch.setattr(settings, "datasheet_label_match_enabled", True)
+    monkeypatch.setattr(settings, "datasheet_label_join_enabled", True)
 
 
 def _row(facts, rule_id):
@@ -30,7 +30,7 @@ def _row(facts, rule_id):
 
 
 def test_switch_is_off_by_default():
-    assert settings.datasheet_label_match_enabled is False
+    assert settings.datasheet_label_join_enabled is False
 
 
 def test_joined_letters_joins_only_runs_of_single_letters():

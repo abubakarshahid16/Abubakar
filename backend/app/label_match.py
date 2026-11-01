@@ -1,5 +1,5 @@
 """Two general ways a datasheet field the sheet DOES give was reported missing or in conflict (switch
-`datasheet_label_match_enabled`, off by default; finding on the TEMA exchanger proof run 79c0c68d).
+`datasheet_label_join_enabled`, off by default; finding on the TEMA exchanger proof run 79c0c68d).
 
 1. SPLIT ABBREVIATIONS. The reader's normalised name drops dots to spaces, so a printed "O.D." is stored as
    "o d" and the role pattern `tube o.d.` (which allows a dot, not a space) never saw it: "Tube outside
