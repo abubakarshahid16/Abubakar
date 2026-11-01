@@ -1,6 +1,7 @@
 """Mutations for the leading-dot decimal reading (#1515, PR 1517): ".30" is 0.30,
 "-.5" is -0.5, ".5 mm" is a measurement, a stranded or glued dot is no value.
-Files: backend/app/numparse.py. Target: tests/test_leading_dot_decimal.py.
+Files: backend/app/numparse.py. Targets: tests/test_leading_dot_decimal.py,
+tests/test_leading_dot_readers.py (the readers, #1518, PR 1520).
 """
 
 from __future__ import annotations
@@ -8,6 +9,7 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _T = "tests/test_leading_dot_decimal.py"
+_R = "tests/test_leading_dot_readers.py"
 _TAG = ("leading_dot_decimal",)
 
 MUTATIONS: tuple[Mutation, ...] = (
@@ -64,6 +66,39 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="    lead = pattern.pattern",
         target=_T,
         keyword="measurement",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1520-01",
+        phase=1520,
+        description="the readers ignore the switch and never read a leading-dot value (#1518)",
+        path=APP / "numparse.py",
+        anchor="    return lead if leading_dot_enabled() else plain",
+        replacement="    return plain",
+        target=_R,
+        keyword="on_the_datasheet_reader or on_a_rule_table_reads or on_an_answer_figure",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1520-02",
+        phase=1520,
+        description="the readers read a leading-dot value with the switch OFF (#1518)",
+        path=APP / "numparse.py",
+        anchor="    return lead if leading_dot_enabled() else plain",
+        replacement="    return lead",
+        target=_R,
+        keyword="off_",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1520-04",
+        phase=1520,
+        description="a leading-dot cell ('.5', '< .25') is not a numeric cell with the switch on (#1518)",
+        path=APP / "numparse.py",
+        anchor='CELL_LEAD = re.compile(r"^\\s*[<>=~±]{0,2}\\s*[-+]?(?:\\.\\d+|\\d[\\d,]*(?:\\.\\d+)?)\\s*$")',
+        replacement='CELL_LEAD = re.compile(r"^\\s*[<>=~±]{0,2}\\s*[-+]?(?:\\d[\\d,]*(?:\\.\\d+)?)\\s*$")',
+        target=_R,
+        keyword="on_the_datasheet_reader",
         tags=_TAG,
     ),
 )

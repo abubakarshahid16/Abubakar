@@ -380,6 +380,20 @@ def with_leading_dot(pattern: re.Pattern) -> re.Pattern:
     return _leading_dot_pattern(pattern) if leading_dot_enabled() else pattern
 
 
+#: Leading-dot variants of the datasheet reader's value patterns (#1518); a
+#: stranded dot (".5.3", "...5") matches neither alternative.
+VALUE_UNIT_LEAD = re.compile(
+    r"^(?P<value>[-+]?(?:\.\d+(?![.,]?\d)|\d[\d.,]*))\s*"
+    r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?"
+)
+CELL_LEAD = re.compile(r"^\s*[<>=~±]{0,2}\s*[-+]?(?:\.\d+|\d[\d,]*(?:\.\d+)?)\s*$")
+
+
+def lead_or(plain: re.Pattern, lead: re.Pattern) -> re.Pattern:
+    """`lead` when LEADING_DOT_DECIMAL_ENABLED is on (#1518), else `plain`."""
+    return lead if leading_dot_enabled() else plain
+
+
 def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -> float | None:
     """Parse a written number. Anything unparseable or ambiguous is None,
     never a guess.
