@@ -1509,6 +1509,11 @@ class Settings(SettingsExt, BaseSettings):
 
 settings = Settings()
 
+# numparse may not import the app, so the app hands it the switch (#1515).
+from . import numparse as _numparse  # noqa: E402
+
+_numparse.LEADING_DOT_SWITCH = lambda: settings.leading_dot_decimal_enabled
+
 #: The settings that can change an ANSWER. Kept beside the settings so the list
 #: drifts with them rather than living in the reports module and going stale.
 #: Deliberately excludes host, port, paths and auth: a report generated on a

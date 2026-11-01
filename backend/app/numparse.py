@@ -351,12 +351,14 @@ def as_number(text: str | float | int | None) -> float | None:
 _SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
 
 
-def leading_dot_enabled() -> bool:
-    """LEADING_DOT_DECIMAL_ENABLED (#1515, default off); read lazily so this
-    module keeps importing nothing from the app at load time."""
-    from .config import settings
+#: Reads LEADING_DOT_DECIMAL_ENABLED; app.config sets it, so this module still
+#: imports nothing from the app. Unset (numparse used alone) means off.
+LEADING_DOT_SWITCH = None
 
-    return bool(settings.leading_dot_decimal_enabled)
+
+def leading_dot_enabled() -> bool:
+    """LEADING_DOT_DECIMAL_ENABLED (#1515, default off)."""
+    return LEADING_DOT_SWITCH is not None and bool(LEADING_DOT_SWITCH())
 
 
 _NUM_PART = r"[-+]?\d[\d.,\s]*"

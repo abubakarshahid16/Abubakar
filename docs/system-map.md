@@ -207,6 +207,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
 | `pump_kit` | #1478 preparation: the pump kit's name, data file and public names over `kit_core`; box list and DRAFT pump cards from held standards, read only behind `pump_kit_draft_enabled` (off by default); never decide |
 | `at_limit` | #1475 finding: compares a value with a worked-out limit (factor or percentage) with float noise removed, behind `at_limit_precision_enabled` (off by default); local only, no model or socket |
+| `percent_kind` | #1512: a value printed under a % label with a fraction-sized number ("0.30 %") is not decided on a percent card, it goes to the engineer; behind `percent_kind_check_enabled` (off by default); local only, no model or socket |
 | `kit_core` | The shared mechanism of an equipment kit (#1478, #1480): data file, loader hook, tests, the held-for-the-engineer rule for every kit row; local only |
 | `vessel_kit` | #1480 preparation (parked kit, milestone 58): box list and DRAFT vessel cards from held standards (SAES-D-001), read only behind `vessel_kit_draft_enabled` (off by default); every row held, never decide |
 | `exchanger_kit` | #1481 preparation (parked kit, milestone 58): box list and DRAFT heat exchanger cards from the held standard SAES-E-004, read only behind `exchanger_kit_draft_enabled` (off by default); every row held, never decide |
@@ -217,7 +218,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `pageimage` | On-demand page rendering |
 | `passages` | Small-to-big: search small, show big |
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |
-| `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default |
+| `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default. Also routes a parked KIND (`reference/kind_kits/`, drawing from SAES-A-202, #1484) behind `parked_kits_draft_enabled` |
 | `procedure_text` | A procedure submittal's own page text answers its requirements: engineer row with a verified quote, or missing; never compliant (#1476) |
 | `progress` | What the machine is doing right now, recorded when it actually happens |
 | `provenance` | Which code read which input: provenance for extracted rows (issue #177) |

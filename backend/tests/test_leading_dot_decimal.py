@@ -138,3 +138,12 @@ def test_on_a_maximum_passes_a_leading_dot_value_below_it(on):
 
 def test_off_a_maximum_is_falsely_failed_by_a_misread_leading_dot(off):
     assert _status("<=", "3", ".5") != comparison.COMPLIANT
+
+
+def test_the_switch_reaches_numparse_without_numparse_importing_the_app(on):
+    # numparse must stay free of app imports (test_w2_number_parser); the
+    # switch arrives through app.config instead (#1517 CI).
+    from app import numparse
+
+    assert numparse.LEADING_DOT_SWITCH is not None
+    assert numparse.parse_value(".5") == 0.5
