@@ -69,7 +69,11 @@ def test_the_next_run_carries_on_where_the_last_stopped(standard):
     first = Recording(EMPTY, EMPTY)
     report = run(first)
     assert read(first) == [0, 1]
-    assert (report["chunks"], report["standard_chunks"], report["not_yet_read"]) == (2, 3, 1)
+    assert (report["chunks"], report["standard_chunks"], report["not_yet_read"]) == (
+        2,
+        3,
+        1,
+    )
 
     second = Recording(EMPTY)
     report = run(second)

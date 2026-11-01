@@ -293,7 +293,9 @@ def extract_standard(
     if resume:
         _ensure_reads(conn)
         chunks = conn.execute(
-            "SELECT id, page_start, page_end, text" + _UNREAD + " ORDER BY ordinal LIMIT ?",
+            "SELECT id, page_start, page_end, text"
+            + _UNREAD
+            + " ORDER BY ordinal LIMIT ?",
             (standard_document_id, standard_document_id, reader, max(max_chunks, 0)),
         ).fetchall()
     else:
