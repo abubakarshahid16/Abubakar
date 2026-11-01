@@ -56,6 +56,17 @@ def _plain(fact: dict) -> bool:
     return around is not None and _plain_note(*around)
 
 
+def unit_readings(found: list[dict]) -> list[dict]:
+    """The readings the unit check (DS-U1) looks at: with the switch on, without the unit-less copy
+    `_one` already united with its twin that has the unit (rule 8: both homes read the field alike).
+    """
+    from .config import settings
+
+    if not settings.datasheet_label_join_enabled:
+        return found
+    return drop_unit_less_twins(found)
+
+
 def drop_unit_less_twins(found: list[dict]) -> list[dict]:
     """`found` without the readings that carry no unit where readings with a unit state the same number.
     Unchanged when no such pair exists or the united readings do not all agree on number and unit."""

@@ -78,7 +78,7 @@ def test_on_an_unsure_sheet_leaves_out_only_a_rule_about_none_of_its_readings(sc
 
 def test_on_a_sheet_not_in_doubt_is_unchanged(scope_on):
     plain = [fact("design code", "API 660", label="Design code", page=5)]
-    equipment, source, doubt = subject_scope.narrowing_equipment(
+    equipment, source, doubt = equipment_scope.narrowing_equipment(
         CLASSIFICATION, plain, subject_scope.vocabulary()
     )
     assert (

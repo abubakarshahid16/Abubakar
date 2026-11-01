@@ -45,7 +45,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import numparse
+from . import equipment_scope, numparse
 
 VOCABULARY_PATH = Path(__file__).parent / "reference" / "equipment_vocabulary.json"
 
@@ -120,35 +120,6 @@ def submittal_equipment(
     (empty, "unsure") when the reading is in doubt (`read_equipment`)."""
     equipment, source, _doubt = read_equipment(classification, facts, vocab)
     return equipment, source
-
-
-SOURCE_EVERY_READING = "unsure: every reading"
-
-
-def narrowing_equipment(
-    classification: dict | None, facts: list[dict], vocab: Vocabulary
-) -> tuple[set[str], str | None, dict | None]:
-    """`read_equipment`, for the gates that leave a rule OUT by equipment type.
-
-    With `rules_by_equipment_scope_enabled` and the reading in doubt, the types are EVERY reading
-    the sheet gives: the type it is named as AND the types the codes it states govern (a heat
-    exchanger stating a pressure-vessel code as its design code reads heat exchanger and pressure
-    vessel). Only a rule about NONE of them is left out, which each reading on its own would also
-    leave out, so the doubt never decides which reading wins. Off, or no doubt: `read_equipment`."""
-    equipment, source, doubt = read_equipment(classification, facts, vocab)
-    from .config import settings
-
-    if not doubt or not settings.rules_by_equipment_scope_enabled:
-        return equipment, source, doubt
-    every = set(doubt["named"]) | {
-        t for code in doubt["declared"] for t in code["governs"]
-    }
-    reason = doubt["reason"].split(" An engineer should confirm")[0] + (
-        " An engineer should confirm the equipment type; until then it is read as "
-        f"{' / '.join(sorted(every))}, and only a requirement about none of them is ruled "
-        "out by equipment type."
-    )
-    return every, SOURCE_EVERY_READING, {**doubt, "reason": reason}
 
 
 def read_equipment(
@@ -454,7 +425,7 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     "summary": {...counts...}}. Order of `kept` is the order given.
     """
     vocab = vocab or vocabulary()
-    equipment, source, doubt = narrowing_equipment(classification, facts, vocab)
+    equipment, source, doubt = equipment_scope.narrowing_equipment(classification, facts, vocab)
     headings_by_standard = headings_by_standard or {}
     kept: list[dict] = []
     summary = {"submittal_equipment": sorted(equipment), "equipment_source": source,

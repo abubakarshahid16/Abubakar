@@ -154,6 +154,31 @@ def gate(
     return {"kept": kept, "items": items, "summary": summary}
 
 
+SOURCE_EVERY_READING = "unsure: every reading"
+
+
+def narrowing_equipment(classification, facts, vocab):
+    """`subject_scope.read_equipment`, for the gates that leave a rule OUT by equipment type.
+
+    With the switch on and the reading in doubt, the types are EVERY reading the sheet gives: the
+    type it is named as AND the types the codes it states govern (a heat exchanger stating a
+    pressure-vessel code as its design code reads heat exchanger and pressure vessel). Only a rule
+    about NONE of them is left out, which each reading on its own would also leave out, so the
+    doubt never decides which reading wins. Off, or no doubt: `read_equipment` unchanged."""
+    equipment, source, doubt = subject_scope.read_equipment(classification, facts, vocab)
+    if not doubt or not enabled():
+        return equipment, source, doubt
+    every = set(doubt["named"]) | {
+        t for code in doubt["declared"] for t in code["governs"]
+    }
+    reason = doubt["reason"].split(" An engineer should confirm")[0] + (
+        " An engineer should confirm the equipment type; until then it is read as "
+        f"{' / '.join(sorted(every))}, and only a requirement about none of them is ruled "
+        "out by equipment type."
+    )
+    return every, SOURCE_EVERY_READING, {**doubt, "reason": reason}
+
+
 def split_part(result: dict | None) -> dict:
     """What the run stores in `requirement_split`; nothing when off."""
     summary = (result or {}).get("summary")
@@ -198,7 +223,7 @@ def gate_for_run(
     # partial gate above keeps the plain reading, since it narrows a standard to one type's part
     result = gate(
         partial["kept"],
-        equipment=subject_scope.narrowing_equipment(stored, facts, vocab)[0],
+        equipment=narrowing_equipment(stored, facts, vocab)[0],
         kind=submittal_kind(submittal_id),
         standard_labels=standard_labels,
     )
