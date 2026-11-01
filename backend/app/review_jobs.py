@@ -336,12 +336,13 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 def _checks(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     """The review's optional checks, after the comparison. None fails the review."""
-    from . import clause_review, spec_kit
+    from . import clause_review, spec_kit, transmittal_kit
 
     _ai_check(run_id, scope, missing)
     _web_check(run_id, scope, missing)
     clause_review.for_review(run_id, scope)
     spec_kit.for_review(run_id, scope)  # #1479
+    transmittal_kit.for_review(run_id, scope)  # #1482
 
 
 def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
@@ -378,7 +379,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     Documents page as the worker having no heartbeat / "not moving", when it
     is in fact still working through this one job.
     """
-    from . import applicability, comparison, errors, review_trace
+    from . import applicability, comparison, errors, review_audit, review_trace
     conn = connect()
     job = conn.execute("SELECT * FROM jobs WHERE id = ? AND state = 'running' AND claimed_by = ?",
                        (job_id, worker_id)).fetchone()
@@ -422,6 +423,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         # #791: the run's stored trace (reads only, never fails the run), then REVIEW_DEBUG prints it.
         review_trace.store(run_id, requester, timings)
         review_trace.emit(run_id, requester)
+        review_audit.write(run_id, requester, timings)  # #1525
     except nothing_read.StoredFileAbsent as exc:  # #1495
         return nothing_read.fail_run(job_id, run_id, exc)
     except _Cancelled:

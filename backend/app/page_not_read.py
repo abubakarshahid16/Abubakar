@@ -37,9 +37,66 @@ def unread_page_words(row: dict, *, dropped_content: bool = False) -> str:
     return str(row["facts_reason"] or "no reading came back for this page")
 
 
+NOTE_PAGE_READ_IN_PART = "Page read in part - some cells or rows were left out"
+_PART_MARK = "column rows:"
+NOTE_FILE_PARTLY_READ = "File not fully read"
+
+
+def partly_read(outcome: dict | None) -> dict[str, str]:
+    """{page: what was left out} for pages the column-row reading (#1478) left
+    cells or rows out of; from the run's reading gaps (`failed_pages`)."""
+    cov = (outcome or {}).get("page_coverage") or {}
+    failed = (cov.get("reading") or {}).get("failed_pages") or {}
+    unread = {str(p) for p in cov.get("pages_not_read_why") or {}}
+    return {
+        str(p): w[w.index(_PART_MARK) :].rstrip(") ")
+        for p, w in failed.items()
+        if _PART_MARK in str(w) and str(p) not in unread
+    }
+
+
+def _intake_note(coverage: dict) -> list[dict]:
+    """ONE_INTAKE_ENABLED: what intake left out of a workbook (a cut sheet, a
+    hidden sheet, a formula with no stored result), each with its reason."""
+    found = coverage.get("intake_reasons") or {}
+    if not found:
+        return []
+    parts = [
+        ("the file" if p == "0" else f"page {p}") + ": " + "; ".join(found[p])
+        for p in sorted(found, key=int)
+    ]
+    return [
+        {
+            "note": NOTE_FILE_PARTLY_READ,
+            "standard": "",
+            "count": len(found),
+            "detail": "Not read or only partly read - " + " | ".join(parts) + ".",
+        }
+    ]
+
+
 def notes(outcome: dict | None) -> list[dict]:
-    """One CRS note naming the unread pages and each reason. Only a run stored
-    with PAGE_READ_BY_READING_ENABLED carries `pages_not_read_why`."""
+    """The CRS notes naming the unread pages and each reason (only a run stored
+    with PAGE_READ_BY_READING_ENABLED carries `pages_not_read_why`), then one
+    note for pages read in part, then what intake left out (only a document
+    read with ONE_INTAKE_ENABLED carries `intake_reasons`)."""
+    out = _unread_note(outcome)
+    part = partly_read(outcome)
+    if part:
+        order = sorted(part, key=int)
+        out.append(
+            {
+                "note": NOTE_PAGE_READ_IN_PART,
+                "standard": "",
+                "count": len(order),
+                "detail": "; ".join(f"page {p}: {part[p]}" for p in order) + ".",
+            }
+        )
+    out.extend(_intake_note((outcome or {}).get("page_coverage") or {}))
+    return out
+
+
+def _unread_note(outcome: dict | None) -> list[dict]:
     why = ((outcome or {}).get("page_coverage") or {}).get("pages_not_read_why") or {}
     if not why:
         return []

@@ -29,11 +29,14 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `clause_scope` | Choose the standards that apply to a submittal |
 | `division_text` | Choose the standards that apply to a submittal |
 | `same_value` | When two readings of a field are one value: the same number and unit with a plain note; a note that changes the meaning stays a second value |
+| `label_match` | A split abbreviation ("tube o d") is joined before the roles table is read; a reading with no unit beside the same number with one is one value (switch `datasheet_label_join_enabled`) |
 | `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai_check_drafts` | The AI checks' drafts keep no status, are counted as "AI observations (draft, no verdict)", and an exact repeat is marked |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
+| `ai_requirement_chunks` | #645 slice 3: the local model reads a held standard's chunks (tables too) and proposes single limits; code verifies quote, value, unit, comparator and condition; kept as DRAFTS (statement row + `clause_check_drafts`); off by default (`ai_requirement_extraction_enabled`) |
+| `ai_requirement_tables` | #645 slice 2: a table row with no comparator in its words; the direction is read by code from the column header (or caption), the unit from the cell or header; the quote carries header + row, each taken from the chunk; same switch as `ai_requirement_chunks` |
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
 | `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
@@ -62,6 +65,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `auth` | WHO a request is. `access.py` decides WHAT it may see |
 | `auth_session` | The browser's sign-in (order 164.2): HttpOnly cookie, CSRF layers, where Secure is set, sign-out that ends the token on the server |
 | `blank_markers` | ONE HOME for "this datasheet cell says the value is not provided yet" |
+| `blank_form` | A blank form (label lines, no value): the document kind never comes from a label |
 | `chat` | Conversations, messages, and follow-up resolution |
 | `chat_actions` | What a reader does WITH a chat answer: rate it, and file a drafted comment |
 | `chat_answers` | The chat's non-document answers: general knowledge, rewrites, actions, records |
@@ -75,9 +79,11 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `chat_web` | The chat's web lane: ask first, send one phrase, cite what came back |
 | `chunker` | Step 3 - structure-aware chunking |
 | `data_page` | Step 3 - a body-text or measured-values page is never set aside as front matter |
+| `figure_page` | Step 2b - a drawing page with only a running header goes to recognition |
 | `answer_prompts` | Wording variants of the local answer prompt, off by default; measured by `eval/answer_quality/` (order 189) |
 | `citations` | Shared [S#] citation-marker syntax, used by both answer.py and synthesis.py |
 | `cited_edition` | R7 (#771): a note when the edition year a submittal prints after a standard differs from the held library copy's, never silently the same |
+| `equipment_title_block` | Owner decision 1 Nov (#1478): only the title block sets the equipment type; none or two types there = empty, marked engineer to confirm, with a Review note. Switch `equipment_from_title_block_enabled`, off by default |
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
@@ -154,6 +160,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
+| `intake` | One intake layer (#525, ONE_INTAKE_ENABLED): PDF, Word, Excel and image files read into one page shape; every unread page or refused file states its reason |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
@@ -177,6 +184,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
 | `geometry_blank_cells` | An empty ruled cell beside a label is a blank only when the geometry proves it (order 228.9) |
 | `geometry_index_cells` | A side-by-side numbered form is read as two lists; a lone index number is never an answer (order 228.9b) |
+| `page_columns` | A header line of unit-bearing names over lines of numbers gives label/value rows; stacked label lines in a cell are never joined (#1478, off by default) |
 | `glossary` | Engineering synonyms: the words people type -> the words documents print |
 | `held_standards` | Marks and counts the standards a review held for the engineer (equipment type unsure), with the caller's boundary |
 | `heavy_lock` | One lock for the heavy jobs on a machine (#680) |
@@ -223,6 +231,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `passages` | Small-to-big: search small, show big |
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |
 | `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default. Also routes a parked KIND (`reference/kind_kits/`, drawing from SAES-A-202, #1484) behind `parked_kits_draft_enabled` |
+| `transmittal_kit` | #1482: a transmittal's header fields, listed documents (revision, sheets) against the held documents' covers and page counts, and a required-submissions list named at run time (client data, local DB only); no model; engineer rows only, never a verdict; behind `transmittal_kit_enabled` (off by default) |
 | `procedure_text` | A procedure submittal's own page text answers its requirements: engineer row with a verified quote, or missing; never compliant (#1476) |
 | `procedure_playbook_rows` | #1522 (b): a procedure's CRS rows from the matching review playbooks, as engineer rows (never compliant, no model), behind `procedure_playbook_rows_enabled` |
 | `progress` | What the machine is doing right now, recorded when it actually happens |
@@ -250,6 +259,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
 | `review_progress` | #1494: the progress block of a running review (pages, elapsed, stall) from the jobs row; read-only, behind a switch |
 | `review_recovery` | Put back, or cancel, the review jobs a dead process left running; at startup every claim of another process (order 231) |
+| `review_audit` | One local AUDIT.md + AUDIT.json per finished review (pages, standards, rules, AI use, gates, CRS), behind REVIEW_AUDIT_REPORT_ENABLED (#1525) |
+| `deferred_pass` | Step 6 - a Pass on a 'By Contractor'/TBA value (owner D2 = Query), one test for the bench and the audit |
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
 | `row_noise` | Page furniture and fragments that are not fields (#193 plan B4, item 3) |

@@ -39,8 +39,11 @@ def reader_mode() -> str:
 def equipment_type_of(document_id: str, chunks: list) -> str | None:
     """The document's recorded equipment type; else what its own text names
     (`classification.suggest_equipment_type`); else None (the generic form).
+    With `equipment_from_title_block_enabled` on, a NULL type stays None: the
+    body text (a 'MOTOR DATA' panel) never names it (owner, 1 Nov).
     A database error is a None (the generic form), never a crash."""
     from . import classification
+    from .config import settings
 
     try:
         row = (
@@ -55,6 +58,8 @@ def equipment_type_of(document_id: str, chunks: list) -> str | None:
         row = None
     if row is not None and (row["equipment_type"] or "").strip():
         return row["equipment_type"]
+    if settings.equipment_from_title_block_enabled:
+        return None
     suggestion = classification.suggest_equipment_type([dict(c) for c in chunks])
     return suggestion.equipment_type if suggestion is not None else None
 

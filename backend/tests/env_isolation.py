@@ -152,6 +152,7 @@ EGRESS_SAFE: dict[str, object] = {
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,
+    "ai_requirement_extraction_enabled": False,
     # #141: a local model call per division of a standard a review holds.
     "ai_division_scope_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
@@ -194,6 +195,8 @@ EGRESS_SAFE: dict[str, object] = {
     "table_text_cells_enabled": False,
     # --- local only: reads an uploaded Word file with the standard library
     "docx_input_enabled": True,
+    # --- local only, no model or socket: one intake layer for every file type (off by default)
+    "one_intake_enabled": False,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,
@@ -213,14 +216,22 @@ EGRESS_SAFE: dict[str, object] = {
     "clause_review_whole_document_enabled": False,
     # --- read-only display of the jobs row, no model or socket (#1494, off by default)
     "review_progress_bar_enabled": False,
+    # --- local files only, no model or socket: a per-review audit report (#1525, off by default)
+    "review_audit_report_enabled": False,
+    "review_audit_dir": "",  # empty = the default audit folder outside the repo (#1525)
     # --- local only, no model or socket: a review that read nothing fails (#1495, off by default)
     "nothing_read_fails_enabled": False,
     # --- local only, no model or socket: a specification is checked against a must-contain list (#1479, off by default)
     "spec_kit_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
+    # --- local only, no model or socket: a split abbreviation is joined; a unit left off one copy is one value (off by default)
+    "datasheet_label_join_enabled": False,
     # --- local only, no model or socket: a drawing is checked against a DRAFT must-contain list (#1484, off by default)
     "parked_kits_draft_enabled": False,
+    # --- local only, no model or socket: a transmittal is checked against the held documents and a named list (#1482, off by default)
+    "transmittal_kit_enabled": False,
+    "transmittal_required_list_document_ids": "",
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
@@ -241,6 +252,12 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
     "leading_dot_decimal_enabled": False,
     "data_page_not_frontmatter_enabled": False,
+    # --- local only, no model or socket: a drawing page with a header only is routed to recognition (off by default)
+    "figure_page_ocr_enabled": False,
+    # --- local only, no model or socket: duty-point style column rows and stacked labels (#1478, off by default)
+    "page_column_rows_enabled": False,
+    # --- local only, no model or socket: only the title block sets the equipment type (1 Nov, off by default)
+    "equipment_from_title_block_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: a procedure's CRS gets its playbook rows as engineer rows (#1522 b, off by default)

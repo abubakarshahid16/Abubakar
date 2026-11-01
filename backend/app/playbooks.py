@@ -320,11 +320,26 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             "elements": results, "counts": counts, "ai": ai}
 
 
+_REFERENCE_HEADING = re.compile(
+    r"(definitions?|glossary( of terms)?|abbreviations?( and (acronyms|definitions))?|acronyms|"
+    r"terminology|nomenclature|(normative )?references?|bibliography|"
+    r"((table of|report) )?contents)"
+)
+
+
 def own_section(element: Element, chunk: dict) -> bool:
     """#1522: does the passage's NEAREST heading (its own section title, else the last
     heading of its chain; never a parent or document title) hold a cue of the element?"""
     chain = [p for p in re.split(r"\s*>\s*", chunk.get("context") or "") if p]
     nearest = (chunk.get("section") or "").strip() or (chain[-1] if chain else "")
+    parent = ""
+    if chain:
+        up = chain[:-1] if chain[-1] == nearest else chain
+        parent = up[-1] if up else ""
+    # only a heading that is WHOLLY such a title counts, and only the nearest or its parent
+    titles = [re.sub(r"^[\d\s]+", "", _norm(h)) for h in (nearest, parent)]
+    if any(_REFERENCE_HEADING.fullmatch(t) for t in titles):
+        return False  # an entry of a definitions or contents list is not a section about the element
     return any(_hits(phrases, nearest) for _, phrases in element.groups)
 
 

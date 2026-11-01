@@ -40,7 +40,7 @@ from pathlib import Path
 
 from . import claims, procedure_text
 from .config import settings
-from .crs_draft_lanes import SPEC_LANE
+from .crs_draft_lanes import KIND_NOUNS, SPEC_LANE
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -55,7 +55,8 @@ FOUND = "spec_kit_found"
 NOT_FOUND = "spec_kit_not_found"
 MISMATCH = "spec_kit_numeric_mismatch"
 NOT_RUN = "spec_kit_not_run"
-REASON_CODES = (FOUND, NOT_FOUND, MISMATCH, NOT_RUN)
+TRANSMITTAL = "spec_kit_transmittal"  # #1482, rows made by transmittal_kit.py
+REASON_CODES = (FOUND, NOT_FOUND, MISMATCH, NOT_RUN, TRANSMITTAL)
 
 MAX_QUOTE = 400
 #: Two values are "the same" within this relative tolerance after unit conversion.
@@ -117,6 +118,20 @@ def _fold(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+#: a contents-page line ("Scope ........ 6"): a heading's address, not the clause itself
+_LEADER = re.compile(r"\.{4,}")
+
+
+def _has(word: str, folded: str) -> bool:
+    """One word of a term group: `re:<pattern>` is a regex, a word of three letters or fewer
+    (rt, ut) must stand alone, any other is a substring."""
+    if word.startswith("re:"):
+        return re.search(word[3:], folded) is not None
+    if len(word) <= 3 and word.isalnum():
+        return re.search(rf"\b{re.escape(word)}\b", folded) is not None
+    return word in folded
+
+
 def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
     """{page, quote} of the first passage holding every word of one of the item's word
     groups, or None. The quote is cut from the stored page text and checked to be in it."""
@@ -124,8 +139,12 @@ def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
     for page_no, text in pages:
         for part in procedure_text._SENTENCE_END.split(text):
             folded = _fold(part)
-            if not folded or not any(
-                all(word in folded for word in group) for group in item["terms"]
+            if (
+                not folded
+                or _LEADER.search(part)
+                or not any(
+                    all(_has(word, folded) for word in group) for group in item["terms"]
+                )
             ):
                 continue
             quote = " ".join(part.split())[:MAX_QUOTE]
@@ -414,7 +433,11 @@ def _store(review_run_id: str, doc: str, rows: list[dict]) -> None:
     conn = connect()
     kind = procedure_text.document_kind(doc)
     # a parked kind's rows carry the kind in their requirement id: the one place the noun is read from
-    prefix = f"{ORIGIN}:{kind}:" if kind in kind_kits() else f"{ORIGIN}:"
+    prefix = (
+        f"{ORIGIN}:{kind}:"
+        if kind in kind_kits() or kind in KIND_NOUNS
+        else f"{ORIGIN}:"
+    )
     with conn:
         conn.execute(
             "DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"
@@ -473,6 +496,8 @@ def noun_of(finding: dict) -> str:
     parts = str(finding.get("requirement_id") or "").split(":")
     if len(parts) >= 3 and parts[0] == ORIGIN and parts[1] in kind_kits():
         return kind_kits()[parts[1]]["noun"]
+    if len(parts) >= 3 and parts[0] == ORIGIN and parts[1] in KIND_NOUNS:
+        return parts[1]
     return "specification"
 
 
@@ -480,11 +505,16 @@ def notes(findings: list[dict]) -> list[dict]:
     """ONE review note per run for the items no passage was found for."""
     not_run = [f for f in findings if is_row(f) and _code(f).startswith(NOT_RUN)]
     if not_run:
-        said = str(not_run[0].get("ai_rationale") or "")
-        text = (
-            said.split(": ", 1)[1] if said.startswith(NOT_RUN + ": ") else NOT_RUN_NOTE
-        )
-        return [{"note": text, "standard": "", "count": 1, "detail": text + "."}]
+        out = []
+        for f in not_run:  # one note per not-run row (#1482: a run may have several)
+            said = str(f.get("ai_rationale") or "")
+            text = (
+                said.split(": ", 1)[1]
+                if said.startswith(NOT_RUN + ": ")
+                else NOT_RUN_NOTE
+            )
+            out.append({"note": text, "standard": "", "count": 1, "detail": text + "."})
+        return out
     rows = [f for f in findings if is_unfound(f)]
     if not rows:
         return []
