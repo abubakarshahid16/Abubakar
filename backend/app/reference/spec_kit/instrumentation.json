@@ -1,0 +1,167 @@
+{
+ "discipline": "instrumentation",
+ "label": "DRAFT - an engineer approves each item before it is relied on",
+ "title": "Instrumentation specification",
+ "identify": [
+  "instrument",
+  "instrumentation",
+  "control valve",
+  "transmitter"
+ ],
+ "items": [
+  {
+   "id": "sizing_calculation",
+   "topic": "Sizing calculation standard for flow elements",
+   "terms": [
+    [
+     "sizing"
+    ],
+    [
+     "iso 5167"
+    ],
+    [
+     "aga-3"
+    ],
+    [
+     "api 14.3"
+    ]
+   ],
+   "draft_reason": "SAES-J-100 5.1 (p7) is a calculation-method rule. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "wake_frequency",
+   "topic": "Wake frequency and stress calculation for intruding elements",
+   "terms": [
+    [
+     "wake frequency"
+    ],
+    [
+     "thermowell"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-J-100",
+    "clause": "4.1",
+    "page": 6
+   }
+  },
+  {
+   "id": "over_range",
+   "topic": "Over-range protection of pressure devices",
+   "terms": [
+    [
+     "over-range"
+    ],
+    [
+     "overrange"
+    ],
+    [
+     "over range"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-J-100",
+    "clause": "6.1",
+    "page": 12
+   }
+  },
+  {
+   "id": "siphons",
+   "topic": "Siphons in steam and hot condensable services",
+   "terms": [
+    [
+     "siphon"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-J-100",
+    "clause": "6.3",
+    "page": 13
+   }
+  },
+  {
+   "id": "data_sheet",
+   "topic": "Instrument specification sheet / data sheet",
+   "terms": [
+    [
+     "data sheet"
+    ],
+    [
+     "datasheet"
+    ],
+    [
+     "specification sheet"
+    ]
+   ],
+   "draft_reason": "SAES-J-100 does not ask for a data sheet in the clause first cited; not re-cited. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "process_conditions",
+   "topic": "Process conditions (pressure, temperature, fluid)",
+   "terms": [
+    [
+     "process",
+     "pressure",
+     "temperature"
+    ],
+    [
+     "operating",
+     "pressure"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "calibration",
+   "topic": "Calibration and accuracy",
+   "terms": [
+    [
+     "calibration"
+    ],
+    [
+     "accuracy"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "scope",
+   "topic": "Scope and purpose of the specification",
+   "terms": [
+    [
+     "scope"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "documentation",
+   "topic": "Documentation and deliverables the supplier submits",
+   "terms": [
+    [
+     "documentation"
+    ],
+    [
+     "deliverable"
+    ],
+    [
+     "data book"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "inspection_testing",
+   "topic": "Inspection and testing requirements",
+   "terms": [
+    [
+     "inspection"
+    ],
+    [
+     "testing"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  }
+ ]
+}

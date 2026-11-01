@@ -1,0 +1,152 @@
+{
+ "discipline": "piping",
+ "label": "DRAFT - an engineer approves each item before it is relied on",
+ "title": "Piping specification",
+ "identify": [
+  "piping",
+  "pipeline",
+  "pipe class",
+  "line class"
+ ],
+ "items": [
+  {
+   "id": "line_class",
+   "topic": "Line classes covered",
+   "terms": [
+    [
+     "line class"
+    ],
+    [
+     "piping class"
+    ],
+    [
+     "pipe class"
+    ]
+   ],
+   "draft_reason": "SAES-L-105 cl. 2 (p6) is the scope paragraph on unlisted line classes. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "design_limits",
+   "topic": "Pressure and temperature limits of each line class",
+   "terms": [
+    [
+     "pressure",
+     "temperature",
+     "limit"
+    ],
+    [
+     "pressure rating"
+    ]
+   ],
+   "draft_reason": "SAES-L-105 line class tables (p255) are a data table, not a requirement to state limits. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "corrosion_allowance",
+   "topic": "Corrosion allowance",
+   "terms": [
+    [
+     "corrosion allowance"
+    ]
+   ],
+   "draft_reason": "SAES-L-105 6.1.3 (p12) is a design rule on how the allowance is determined. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "wall_thickness",
+   "topic": "Wall thickness and schedule calculation",
+   "terms": [
+    [
+     "wall thickness"
+    ],
+    [
+     "schedule"
+    ]
+   ],
+   "draft_reason": "SAES-L-105 6.1.3 (p12) is a design rule on how the thickness is calculated. No held clause requires a specification to contain it. DRAFT."
+  },
+  {
+   "id": "pwht",
+   "topic": "Post-weld heat treatment",
+   "terms": [
+    [
+     "postweld"
+    ],
+    [
+     "post weld"
+    ],
+    [
+     "pwht"
+    ],
+    [
+     "stress relief"
+    ]
+   ],
+   "held": {
+    "standard": "SAES-L-105",
+    "clause": "7.1.6",
+    "page": 13
+   }
+  },
+  {
+   "id": "design_code",
+   "topic": "Piping design code and edition",
+   "terms": [
+    [
+     "b31"
+    ],
+    [
+     "design code"
+    ]
+   ],
+   "draft_reason": "SAES-L-105 names codes by line class (p255) but the clause that requires a specification to state the code edition was not identified. DRAFT."
+  },
+  {
+   "id": "materials",
+   "topic": "Pipe, fitting and valve materials",
+   "terms": [
+    [
+     "material"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "scope",
+   "topic": "Scope and purpose of the specification",
+   "terms": [
+    [
+     "scope"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "documentation",
+   "topic": "Documentation and deliverables the supplier submits",
+   "terms": [
+    [
+     "documentation"
+    ],
+    [
+     "deliverable"
+    ],
+    [
+     "data book"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  },
+  {
+   "id": "inspection_testing",
+   "topic": "Inspection and testing requirements",
+   "terms": [
+    [
+     "inspection"
+    ],
+    [
+     "testing"
+    ]
+   ],
+   "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
+  }
+ ]
+}
