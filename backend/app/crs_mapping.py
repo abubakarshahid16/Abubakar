@@ -188,8 +188,7 @@ def _no_datasheet_field(finding: dict) -> bool:
         not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, _CLAUSE_ORIGIN, "chat")
         and not (finding.get("fact_id") or finding.get("contractor_page"))
         and not _unread(finding)
-        and not procedure_text.is_row(finding)
-        and not spec_kit.is_row(finding)
+        and not (procedure_text.is_row(finding) or spec_kit.is_row(finding))
         and not _page_reader_only(finding)
         and not _confirmed(finding)
         and not finding.get("rule_said")
@@ -235,7 +234,7 @@ def finding_comment_key(f: dict) -> str:
         return comment_key(
             origin, f.get("finding"), f.get("required_action"),
             f.get("contractor_page"), f.get("contractor_section"))
-    if origin in (_CLAUSE_ORIGIN, spec_kit.ORIGIN):  # the requirement: a re-run keeps the number
+    if origin in (_CLAUSE_ORIGIN, spec_kit.ORIGIN):
         return comment_key(origin, f.get("standard_document_id"), f.get("requirement_id"))
     key = _group_key(f)
     if key[0] == "field":
@@ -428,8 +427,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "check each against the datasheet, or the document "
                                  "that governs it.")})
     notes.extend(_field_not_identified_notes(findings))
-    notes.extend(crs_no_field.notes(findings) + spec_kit.notes(findings))
+    notes.extend(crs_no_field.notes(findings))
     notes.extend(procedure_text.notes(findings, _standard_reference))
+    notes.extend(spec_kit.notes(findings))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
