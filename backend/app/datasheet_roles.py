@@ -64,3 +64,38 @@ def wanted_roles(equipment_type: str | None, rules: dict) -> frozenset:
 
     walk([[i.get("rule"), i.get("condition")] for i in items])
     return frozenset(found & set(roles))
+
+
+_JOINERS = re.compile(r"\s*(?:/|,|&|;|\band\b)\s*")
+
+
+def combined_roles(label: str, rules: dict, wanted: frozenset) -> list[str]:
+    """#1472: the TEXT roles a combined label names ("a / b, c" lists three attributes).
+
+    A part answers a role when its words are the tail of the role's own name
+    ("rating" ends "inlet rating") AND it ends exactly one wanted text role - a part
+    that ends several ("type", "size", "material") answers none, and a part that is a
+    complete field name on its own is not an attribute of a longer line. Only text
+    roles: a numeric field ("design / operating pressure") is never answered by a line
+    that holds two numbers. The caller decides what such a line may say.
+    """
+    from .datasheet_checks import _fold
+
+    parts = [_fold(p) for p in _JOINERS.split(label or "")]
+    parts = [p for p in parts if p]
+    if len(parts) < 2:
+        return []
+    text_roles = [
+        r
+        for r, spec in rules["roles"].items()
+        if spec.get("kind") == "text" and r in wanted
+    ]
+    found: list[str] = []
+    for part in parts:
+        if roles_of(part, rules):
+            continue
+        words = part.split()
+        ends = [r for r in text_roles if r.split("_")[-len(words) :] == words]
+        if len(ends) == 1 and ends[0] not in found:
+            found.append(ends[0])
+    return found

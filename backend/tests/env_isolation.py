@@ -211,6 +211,8 @@ EGRESS_SAFE: dict[str, object] = {
     "clause_review_enabled": False,
     # --- local only, no model or socket: a review that read nothing fails (#1495, off by default)
     "nothing_read_fails_enabled": False,
+    # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
+    "datasheet_one_value_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,

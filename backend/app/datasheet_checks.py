@@ -219,6 +219,24 @@ def revision_check_not_run(equipment_type: str | None, page_texts: dict) -> str 
     return None
 
 
+def _add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
+    """#1472 (switch `datasheet_one_value_enabled`): a combined label ("a / rating / c")
+    answers the text attribute it names, for a tag with no value of its own under that
+    role. The copy carries `combined_label`; `evaluate_item` never decides on it."""
+    from .config import settings
+
+    if not settings.datasheet_one_value_enabled:
+        return
+    shared = by_tag.get(None, {})
+    for fact in facts:
+        label = str(fact.get("field_label") or fact.get("field_name") or "")
+        for role in datasheet_roles.combined_roles(label, rules, wanted):
+            tag = fact.get("equipment_tag")
+            mine = by_tag.setdefault(tag, {})
+            if not mine.get(role) and not shared.get(role):
+                mine.setdefault(role, []).append({**fact, "combined_label": label})
+
+
 def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[int, str],
              rules: dict | None = None) -> list[dict]:
     """Every check's result for one datasheet. Pure."""
@@ -234,6 +252,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
             qualified.setdefault(fact.get("equipment_tag"), {}).setdefault(under, []).append(fact)
     if not by_tag:
         by_tag[None] = {}
+    _add_combined(facts, by_tag, rules, wanted)
     out: list[dict] = []
     # GENERIC_FALLBACK (2026-09-27): `equipment_type` is unknown/unconfirmed
     # on almost every submittal today (nothing wrote it before B9, and B9's
@@ -724,6 +743,12 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(MISSING_INFORMATION,
                    f"{_label(fact, field)} is marked '{_said(fact) or fact.get('blank_marker')}' "
                    f"on page {fact.get('page')}; the contractor is to provide the value.", fact)
+    if fact.get("combined_label"):
+        # #1472: the value sits inside a line that lists several attributes; code
+        # cannot say which part is this field's, so it is an engineer's question.
+        return res(NEEDS_ENGINEER_REVIEW, _sentence(
+            f"the {_pretty(field).lower()} is given inside the combined line '{_label(fact, field)}' "
+            f"(page {fact.get('page')}): '{_said(fact)}'; engineer to check that part"), fact)
     if (doubt := implausible(fact, field, rules)) is not None:
         # R12 (#776): an impossible value is never "stated" or compared.
         return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)

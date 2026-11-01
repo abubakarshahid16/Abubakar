@@ -30,3 +30,8 @@ class SettingsExt(BaseModel):
     #: completed. Pages read with no datasheet field are NOT failed. OFF: nothing
     #: changes. Env: NOTHING_READ_FAILS_ENABLED.
     nothing_read_fails_enabled: bool = False
+    #: #1472 (kept here so `config.py` does not grow): the datasheet checks read ONE value where
+    #: a sheet prints a range twice (a plain note on one reading), and a combined "a / b / c"
+    #: label answers each text attribute it names. OFF: nothing changes.
+    #: Env: DATASHEET_ONE_VALUE_ENABLED.
+    datasheet_one_value_enabled: bool = False
