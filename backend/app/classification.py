@@ -655,7 +655,10 @@ def classify_equipment_type_for_submittal(
          function's to override, the same principle `write_suggestion` already
          applies to `doc_type`/`discipline`.
       3. No pattern matched. Returns None; the stored value, including NULL,
-         is left exactly as it was.
+         is left exactly as it was - except with
+         `equipment_from_title_block_enabled` on, where a title block naming
+         no type (or two) overwrites it with NULL marked "engineer to confirm"
+         (`equipment_title_block.store_to_confirm`, the old value audited).
 
     RECLASSIFICATION IS VERSIONED. When the new evidence's `equipment_type`
     differs from a PREVIOUSLY STORED VALUE (not from NULL - a first
@@ -670,6 +673,8 @@ def classify_equipment_type_for_submittal(
     quote behind - but nothing is audited, because nothing about the STORED
     VALUE changed.
     """
+    from . import equipment_title_block
+
     kind_on = _record_kind_first(document_id)
     conn = connect()
     existing = conn.execute(
@@ -686,14 +691,9 @@ def classify_equipment_type_for_submittal(
     pages = [dict(r) for r in conn.execute(
         "SELECT page_no, text FROM pages WHERE document_id = ?"
         " ORDER BY page_no", (document_id,))]
-    evidence = suggest_equipment_type_from_title(title_block_lines(pages))
-    role = existing["document_role"]
-    if evidence is None and not _body_fallback_ok(kind_on, pages, document_id, role):
-        # #1474: a body sentence naming equipment does not make a procedure,
-        # a specification or a contract an equipment datasheet.
-        return None
-    if evidence is None:
-        evidence = _equipment_from_body(conn, document_id, kind_on)
+    evidence = equipment_title_block.decide(
+        conn, document_id, pages, kind_on, existing["document_role"]
+    )
     if evidence is None:
         return None
 

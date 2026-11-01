@@ -178,3 +178,9 @@ class SettingsExt(BaseModel):
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
     ai_requirement_extraction_enabled: bool = False
+    #: Owner decision 1 Nov (part of #1478): ONLY the title block (`classification.title_block_lines`) sets
+    #: the equipment type; a section or panel heading in the page body never does (a pump sheet's 'MOTOR
+    #: DATA' panel made it a Motor). None or two different types in the title block: the type is NULL,
+    #: marked 'engineer to confirm', with a Review note; no checklist is chosen. OFF: unchanged.
+    #: Env: EQUIPMENT_FROM_TITLE_BLOCK_ENABLED.
+    equipment_from_title_block_enabled: bool = False
