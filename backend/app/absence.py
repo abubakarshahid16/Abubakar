@@ -313,7 +313,8 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         # `detail` lines explain another part (the reasons behind the unchecked
         # share); they are listed on the internal copy and are not counted as
         # parts that could not be checked.
-        parts.append({"part": part, "line": line, **({"detail": True} if detail else {})})
+        extra = {"detail": True} if detail else {}
+        parts.append({"part": part, "line": line, "note": "Not checked", **extra})
 
     if run_status != "completed":
         why = (outcome.get("error") or "").strip().rstrip(".")
