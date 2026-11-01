@@ -114,9 +114,13 @@ _STANDARD_LINE = re.compile(
     r"[-\s]?[A-Z]{0,3}[-\s]?\d",
     re.I,
 )
+#: A kind word followed by number / no. / ref is a label naming ANOTHER
+#: document ("P&ID NUMBER", "Drawing No"), not this document's title.
+_REFERENCE_AFTER = re.compile(r"\s*(?:number|no\b\.?|nr\b\.?|ref\b\.?|reference)", re.I)
 _STANDARD_WORDS = re.compile(r"\bstandard\b", re.I)
 _CONTRACT_BODY = re.compile(r"\bthis\s+(?:contract|agreement)\b", re.I)
 _COVER_LINES = 25
+_COVER_PAGES = 2  # the cover and the title page
 _TITLE_WORDS_MAX = 14
 
 
@@ -147,9 +151,12 @@ class DocumentKindEvidence:
 
 
 def _cover_lines(pages: Sequence[dict]) -> list[tuple[int, str]]:
-    """The title block (as `title_block_lines`) plus the first lines of page 1."""
-    out = list(title_block_lines(pages))
+    """The title block (as `title_block_lines`) on the cover and title pages
+    only, plus the first lines of page 1. Owner decision 1 Nov (#1476): a later
+    page - an attachment's own heading on page 51 - never decides the kind."""
     ordered = sorted(pages, key=lambda p: p["page_no"])
+    cover_pages = {p["page_no"] for p in ordered[:_COVER_PAGES]}
+    out = [(pg, ln) for pg, ln in title_block_lines(pages) if pg in cover_pages]
     if ordered:
         first = ordered[0]
         lines = [
@@ -180,7 +187,7 @@ def _title_cue_hit(lines: Sequence[tuple[int, str]]) -> tuple[str, int, str] | N
         if not text or ":" in text or len(text.split()) > _TITLE_WORDS_MAX:
             continue
         for kind, pattern in _KIND_CUES:
-            if pattern.search(text):
+            if any(not _REFERENCE_AFTER.match(text, m.end()) for m in pattern.finditer(text)):
                 return kind, page, text
         if _STANDARD_LINE.match(text) or (
             _STANDARD_WORDS.search(text) and len(text.split()) <= 6
