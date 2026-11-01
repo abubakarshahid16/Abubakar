@@ -462,4 +462,33 @@ def coverage_part(document_id: str) -> dict:
         if r["page_no"] in own and r["code"] != "page_not_read":
             continue
         by_page.setdefault(str(r["page_no"]), []).append(r["reason"])
-    return {"intake_reasons": by_page} if by_page else {}
+    if not by_page:
+        return {}
+    partly = {
+        str(r["page_no"]): r["reason"]
+        for r in reasons_for(document_id)
+        if r["code"] == "page_not_read" and r["reason"].startswith("partly read:")
+    }
+    return {
+        "intake_reasons": by_page,
+        **({"pages_partly_read": partly} if partly else {}),
+    }
+
+
+def split_partly(coverage: dict) -> dict:
+    """A page intake read only in part is not fully read: it leaves `pages_read`
+    (and `pages_not_read`, a reading did come back) for `pages_partly_read`, with
+    its reason. `pages_total` stays the denominator, so read + partly read + not
+    read add up to it."""
+    partly = coverage.get("pages_partly_read")
+    if not partly or "pages_read" not in coverage:
+        return coverage
+    out = dict(coverage)
+    for key in ("pages_read", "pages_not_read"):
+        out[key] = [p for p in coverage.get(key, []) if str(p) not in partly]
+    out["pages_not_read_why"] = {
+        p: w
+        for p, w in coverage.get("pages_not_read_why", {}).items()
+        if p not in partly
+    }
+    return out

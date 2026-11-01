@@ -299,6 +299,49 @@ def test_the_crs_note_names_a_truncated_sheet_and_a_hidden_sheet(tmp_path):
     assert "the file: not read: hidden sheet 3" in note["detail"]
 
 
+def test_a_partly_read_sheet_is_counted_apart_from_the_fully_read_ones(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
+    doc_id = _index_xlsx(_big_hidden_workbook(tmp_path / "split.xlsx"), "split.xlsx")
+    page_ledger.refresh(doc_id)
+    cov = page_ledger.coverage(doc_id)
+    assert cov["pages_partly_read"] == {
+        "1": "partly read: rows after row 5000 not read: row limit 5000"
+    }
+    assert 1 not in cov["pages_read"] and 1 not in cov["pages_not_read"]
+    assert "1" not in cov["pages_not_read_why"]
+    assert (
+        2 in cov["pages_read"] + cov["pages_not_read"]
+    )  # the other sheet is still counted
+    assert cov["pages_total"] == 2  # the denominator is unchanged
+    # the split itself, on a record where page 1 had counted as read
+    split = intake.split_partly({"pages_read": [1, 2], "pages_partly_read": {"1": "x"}})
+    assert split["pages_read"] == [2]
+
+
+def test_switch_off_leaves_pages_read_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", True)
+    doc_id = _index_xlsx(_big_hidden_workbook(tmp_path / "soff.xlsx"), "soff.xlsx")
+    settings.one_intake_enabled = False
+    page_ledger.refresh(doc_id)
+    cov = page_ledger.coverage(doc_id)
+    assert (
+        "pages_partly_read" not in cov
+        and 1 in cov["pages_read"] + cov["pages_not_read"]
+    )
+
+
+def test_review_trace_read_step_carries_the_partly_read_note(tmp_path):
+    from app import page_not_read
+
+    doc_id = _index_xlsx(_big_hidden_workbook(tmp_path / "trace.xlsx"), "trace.xlsx")
+    page_ledger.refresh(doc_id)
+    cov = page_ledger.coverage(doc_id)
+    detail = page_not_read.notes({"page_coverage": cov})[0]["detail"]
+    assert "page 1: partly read" in detail and cov["pages_partly_read"]
+
+
 def test_with_the_switch_off_the_ledger_and_the_crs_note_do_not_change(tmp_path):
     from app import page_not_read
 

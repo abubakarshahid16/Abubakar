@@ -667,7 +667,7 @@ def coverage(document_id: str) -> dict:
             },
         }
     return {
-        **by_reading,
+        **intake.split_partly(by_reading),
         "pages_total": len(ledger),
         "native": count("native_status"),
         "ocr": count("ocr_status"),
