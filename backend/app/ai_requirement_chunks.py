@@ -27,9 +27,12 @@ Slice 4, behind `settings.ai_requirement_extraction_resume_enabled`: a run
 reads only chunks THIS model has not read yet (`ai_requirement_chunk_reads`),
 so the next run carries on where the last stopped instead of reading the same
 first chunks again; a chunk with a passage the model could not read is not
-marked and is read again. A different model reads every chunk afresh. The
-answer then says how many of the standard's chunks this model has still to
-read. OFF: the first `max_chunks` chunks, every run, as before.
+marked and is read again, at most `MAX_ATTEMPTS` times, then given up (it
+waits for another model or task version; counted). Marks are per model AND
+task version: a different model, or a changed prompt, reads every chunk
+afresh; a provider with no model name marks nothing. The answer says how many
+of the standard's chunks this model has still to read, and how many it gave
+up on. OFF: the first `max_chunks` chunks, every run, as before.
 
 What passes is stored as a `statement` row for the quote plus a DRAFT in
 `clause_check_drafts`, the table the engineer's accept/reject (#869) already
@@ -62,10 +65,14 @@ class ExtractionCounts(BaseModel):
     refused: dict[str, int]
     could_not_read: int
     model: str | None = None
-    #: slice 4, resume switch on only (else null): the standard's chunks, and
-    #: how many of them this model has still to read after this run
+    #: slice 4, resume switch on only (else null; null too for a standard with
+    #: no chunks, or a model with no name). `standard_chunks`: the chunks OF
+    #: THIS STANDARD. Of those, FOR THIS MODEL (and task version):
+    #: `not_yet_read` still to read after this run; `gave_up` failed to read
+    #: whole `MAX_ATTEMPTS` times, skipped until another model or version.
     standard_chunks: int | None = None
     not_yet_read: int | None = None
+    gave_up: int | None = None
 
 
 NOT_A_SINGLE_LIMIT = "the requirement is not a single limit with a comparator"
@@ -238,21 +245,75 @@ def _take(conn, standard_document_id: str, chunk, item: dict, report: dict) -> N
             report["proposed"] += 1
 
 
-def _ensure_reads(conn) -> None:
+#: A chunk this model and task version failed to read whole this many times is
+#: given up (counted as `gave_up`) so it cannot hold a run in place: with answer
+#: reuse the same reply would come back every time. It waits for another model
+#: or a new task version.
+MAX_ATTEMPTS = 2
+
+
+def ensure_reads_schema() -> None:
+    """Slice 4's read marks: one row per (chunk, model, task version). A row
+    goes with its standard's document and with its chunk (re-ingest)."""
+    from .db import connect
+
+    conn = connect()
     with conn:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS ai_requirement_chunk_reads ("
-            " chunk_id TEXT NOT NULL, standard_document_id TEXT NOT NULL,"
-            " model TEXT NOT NULL, read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
-            " PRIMARY KEY (chunk_id, model))"
+            " chunk_id TEXT NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,"
+            " standard_document_id TEXT NOT NULL"
+            " REFERENCES documents(id) ON DELETE CASCADE,"
+            " model TEXT NOT NULL, task_version TEXT NOT NULL,"
+            " read_whole INTEGER NOT NULL DEFAULT 0,"
+            " failed_reads INTEGER NOT NULL DEFAULT 0,"
+            " read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+            " PRIMARY KEY (chunk_id, model, task_version))"
         )
 
 
-#: chunks of a standard this model has not read whole yet (slice 4)
-_UNREAD = (
-    " FROM chunks WHERE document_id = ? AND id NOT IN (SELECT chunk_id"
-    " FROM ai_requirement_chunk_reads WHERE standard_document_id = ? AND model = ?)"
+def _task_version() -> str:
+    return f"{air.TASK.name}:{air.TASK.version}"
+
+
+_MARKS = (
+    "SELECT chunk_id FROM ai_requirement_chunk_reads WHERE standard_document_id = ?"
+    " AND model = ? AND task_version = ?"
 )
+#: chunks of a standard this model (and task version) has neither read whole
+#: nor given up on (slice 4)
+_UNREAD = (
+    " FROM chunks WHERE document_id = ? AND id NOT IN ("
+    + _MARKS
+    + " AND (read_whole = 1 OR failed_reads >= ?))"
+)
+_GAVE_UP = (
+    "SELECT COUNT(*) FROM chunks WHERE document_id = ? AND id IN ("
+    + _MARKS
+    + " AND read_whole = 0 AND failed_reads >= ?)"
+)
+
+
+def _mark(
+    conn, chunk_id: str, standard_document_id: str, reader: str, whole: bool
+) -> None:
+    with conn:
+        conn.execute(
+            "INSERT INTO ai_requirement_chunk_reads (chunk_id, standard_document_id,"
+            " model, task_version, read_whole, failed_reads) VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT (chunk_id, model, task_version) DO UPDATE SET"
+            " read_whole = MAX(read_whole, excluded.read_whole),"
+            " failed_reads = failed_reads + excluded.failed_reads,"
+            " read_at = CURRENT_TIMESTAMP",
+            (
+                chunk_id,
+                standard_document_id,
+                reader,
+                _task_version(),
+                int(whole),
+                int(not whole),
+            ),
+        )
 
 
 def extract_standard(
@@ -279,6 +340,7 @@ def extract_standard(
         "model": None,
         "standard_chunks": None,
         "not_yet_read": None,
+        "gave_up": None,
     }
     if (
         not settings.ai_requirement_extraction_enabled
@@ -288,15 +350,24 @@ def extract_standard(
     conn = connect()
     provider = provider or ai_task_runner.make_provider()
     report["model"] = getattr(provider, "requested_model", None)
-    resume = bool(settings.ai_requirement_extraction_resume_enabled)
-    reader = str(report["model"] or "")
+    reader = report["model"]
+    # no model name: nothing can say which model read a chunk, so nothing is
+    # marked and the run reads the first chunks, as with the switch off
+    resume = bool(settings.ai_requirement_extraction_resume_enabled) and bool(reader)
+    keys = (
+        standard_document_id,
+        standard_document_id,
+        reader,
+        _task_version(),
+        MAX_ATTEMPTS,
+    )
     if resume:
-        _ensure_reads(conn)
+        ensure_reads_schema()
         chunks = conn.execute(
             "SELECT id, page_start, page_end, text"
             + _UNREAD
             + " ORDER BY ordinal LIMIT ?",
-            (standard_document_id, standard_document_id, reader, max(max_chunks, 0)),
+            (*keys, max(max_chunks, 0)),
         ).fetchall()
     else:
         chunks = conn.execute(
@@ -313,21 +384,25 @@ def extract_standard(
                 report["could_not_read"] += len(found["could_not_read"])
                 for item in found["requirements"]:
                     _take(conn, standard_document_id, chunk, item, report)
-                if resume and not found["could_not_read"]:
-                    with conn:
-                        conn.execute(
-                            "INSERT OR IGNORE INTO ai_requirement_chunk_reads"
-                            " (chunk_id, standard_document_id, model) VALUES (?, ?, ?)",
-                            (chunk["id"], standard_document_id, reader),
-                        )
+                if resume:
+                    _mark(
+                        conn,
+                        chunk["id"],
+                        standard_document_id,
+                        reader,
+                        not found["could_not_read"],
+                    )
         finally:
             (unload or ai_task_runner._unload)(provider)
+    total = 0
     if resume:
-        report["standard_chunks"] = conn.execute(
+        total = conn.execute(
             "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (standard_document_id,)
         ).fetchone()[0]
+    if total:  # a standard with no chunks: null, never "0 of 0 left"
+        report["standard_chunks"] = total
         report["not_yet_read"] = conn.execute(
-            "SELECT COUNT(*)" + _UNREAD,
-            (standard_document_id, standard_document_id, reader),
+            "SELECT COUNT(*)" + _UNREAD, keys
         ).fetchone()[0]
+        report["gave_up"] = conn.execute(_GAVE_UP, keys).fetchone()[0]
     return report
