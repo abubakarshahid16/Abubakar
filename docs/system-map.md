@@ -35,6 +35,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_check_drafts` | The AI checks' drafts keep no status, are counted as "AI observations (draft, no verdict)", and an exact repeat is marked |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
+| `ai_requirement_chunks` | #645 slice 3: the local model reads a held standard's chunks (tables too) and proposes single limits; code verifies quote, value, unit, comparator and condition; kept as DRAFTS (statement row + `clause_check_drafts`); off by default (`ai_requirement_extraction_enabled`) |
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
 | `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
