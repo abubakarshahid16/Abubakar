@@ -590,7 +590,7 @@ def test_compare_d2_on_a_value_marked_by_contractor_is_a_query_either_way(value,
         _datasheet_fact(value, "C", note="By Contractor"),
     )
     assert verdict["status"] == "NEEDS_ENGINEER_REVIEW"
-    assert verdict["rationale"].startswith(deferred_value.DEFERRED_VALUE)
+    assert deferred_value.DEFERRED_VALUE in verdict["rationale"]
     assert verdict["limit"] and verdict["observed"]
 
 

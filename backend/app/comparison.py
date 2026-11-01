@@ -591,7 +591,7 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
     question, missing information) passes unchanged."""
     if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
         return verdict
-    reason = low_trust_reason(fact)
+    reason = low_trust_reason(fact) or deferred_value.reason(fact)
     if reason is None:
         return verdict
     return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
@@ -674,9 +674,9 @@ def compare(requirement: dict, fact: dict | None, *,
             submittal_facts: list[dict] | None = None) -> dict:
     """`_compare`'s verdict, with a breach on an untrusted value held for an
     engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
-    verdict = deferred_value.hold(_hold_low_trust_breach(
+    verdict = _hold_low_trust_breach(
         _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
-        fact), fact)
+        fact)
     box = ai_quote_proved(fact) if fact and not fact.get("confirmed_by") else None
     if box and verdict.get("status") in _VERDICTS_HELD_ON_LOW_TRUST:
         # THE TRACE SAYS THE SOURCE: an AI-read value decided this verdict.

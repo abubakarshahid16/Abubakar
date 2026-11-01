@@ -34,7 +34,8 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, deferred_value, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, severity_rule
+from . import deferred_value
 from .checklist_scope import governs, standards
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
@@ -352,8 +353,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
             out.append(_result(rule["id"], COMPLIANT if ok else NON_COMPLIANT, rule["text"],
                                calc, left[0], rule["left"], tag))
     # ---- revision block: two or more of the revision table's own headings
-    # Two DISTINCT revision-table headings on one page (row_noise's markers,
-    # read line by line): the rule row_noise uses to recognise the block.
+    # Two DISTINCT revision-table headings on one page (row_noise's markers) make a block.
     from .row_noise import _REVISION_TABLE_MARKERS
     def _block(text: str) -> bool:
         lines = (text or "").splitlines()

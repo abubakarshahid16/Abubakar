@@ -8,7 +8,7 @@ CRS showed a Pass on a number the sheet itself says is not final.
 Behind `settings.deferred_value_is_query_enabled` (OFF by default) such a value becomes
 NEEDS_ENGINEER_REVIEW, whether the numbers read pass or breach, in both deciders:
 
-  * `hold(verdict, fact)`: the standards comparison (`comparison.compare`);
+  * `reason(fact)`: the standards comparison (`comparison._hold_low_trust_breach` asks it);
   * `hold_results(results, facts, rules, wanted)`: the datasheet checks (`datasheet_checks.evaluate`), for the
     value a result is about and for the value it is checked against (the right-hand role of its rule).
 
@@ -32,24 +32,16 @@ def note_of(fact: dict | None) -> str | None:
     return note if note and blank_markers.names_a_marker(note) else None
 
 
-def hold(verdict: dict, fact: dict | None) -> dict:
-    """`verdict`, or a query when it is a decided verdict on a deferred value (switch ON)."""
-    if (
-        not settings.deferred_value_is_query_enabled
-        or verdict.get("status") not in _DECIDED
-    ):
-        return verdict
+def reason(fact: dict | None) -> str | None:
+    """Why a decided verdict on this value must wait (switch ON), or None. Read by the comparison's existing
+    hold (`comparison._hold_low_trust_breach`), which turns COMPLIANT and NON_COMPLIANT into a query that keeps
+    the arithmetic in the words."""
+    if not settings.deferred_value_is_query_enabled:
+        return None
     note = note_of(fact)
     if note is None:
-        return verdict
-    return {
-        **verdict,
-        "status": _QUERY,
-        "rationale": (
-            f"{DEFERRED_VALUE}: the datasheet marks this value {note!r}, so it is deferred and not judged by "
-            f"code. The numbers read {verdict['status']}; an engineer decides. {verdict.get('rationale') or ''}"
-        ).strip(),
-    }
+        return None
+    return f"{DEFERRED_VALUE}: the datasheet marks this value {note!r}, so it is a deferred value"
 
 
 def _right_roles(rules: dict) -> dict[str, str]:
