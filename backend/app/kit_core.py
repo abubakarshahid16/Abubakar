@@ -1,4 +1,4 @@
-"""The shared mechanism of an equipment KIT: a box list and DRAFT rule cards read from a data file (#1478 pump, #1480 vessel).
+"""The shared mechanism of an equipment KIT: a box list and DRAFT rule cards read from a data file (#1478 pump, #1480 vessel, #1481 exchanger).
 
 A kit is preparation only: no engineer sign-off, no real document of that type yet. Each kit is OFF unless its own
 `settings.<name>_kit_draft_enabled` is on. Local only: no model, no network, no database.
@@ -136,7 +136,7 @@ class Kit:
         }
 
 
-#: Every kit, filled in by the kit modules (`pump_kit`, `vessel_kit`) as they are imported (`_kits` imports them).
+#: Every kit, filled in by the kit modules (`pump_kit`, `vessel_kit`, `exchanger_kit`) as they are imported (`_kits` imports them).
 KITS: list[Kit] = []
 
 
@@ -147,6 +147,7 @@ def register(kit: Kit) -> Kit:
 
 def _kits() -> list[Kit]:
     from . import (  # noqa: F401  (importing a kit module registers it)
+        exchanger_kit,
         pump_kit,
         vessel_kit,
     )
