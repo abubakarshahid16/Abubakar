@@ -12,18 +12,11 @@
 > replacing an AI step with a rules-only path, needs the owner's written
 > approval on #692.
 
-## Where we are (facts only; the live state is in the files named here)
+## Where we are (pointers only)
 
-- Live state, read first: `~/project/planner/WHERE-WE-ARE.md` (rewritten daily), then the day's `mirror/daily/<date>.md`.
-- The plan: #805 (PLAN ONE, plan change 9 applied); Cycle 1 is milestone 56, Cycle 2 is milestone 57, Parking is milestone 58.
-- Cycle 1 runs 1 to 8 Nov 2026 (build); Cycle 2 runs 9 to 15 Nov 2026 (prove on real documents).
-- The done-gate is the bench: `scripts/crs_bench.py`. It decides "done", not a builder's say-so.
-- The measure is standard rules decided Pass/Fail by code on real documents with 0 wrong verdicts; query/engineer rows do not count.
-- Design: recognise kind, read every page, find rules, AI review clause by clause, code verifies every quote, kit checks decide, engineer approves.
-- A fix is general, never per-layout (rule 13); the converter's Claude lane stays off (rule 1).
-- Moved long passages of this file: `docs/claude-md-detail.md`.
-- The current defect list: `docs/code-review/README.md`; recorded false claims: `docs/status-honesty-audit.md`.
-- When this header and the planner file differ, the planner file and #805 win.
+- The plan: #805 is the only plan. The bench `scripts/crs_bench.py` is the done-gate.
+- Live state: `~/project/planner/WHERE-WE-ARE.md` (on the owner's Mac, outside the repo).
+- Defect list: `docs/code-review/README.md`. Long passages moved out of this file: `docs/claude-md-detail.md`.
 
 Read this first, every session. It is short on purpose; the long version is
 `docs/HANDOVER.md`, and the current defect list is `docs/code-review/README.md`.
@@ -114,6 +107,7 @@ carries the client's name; only the owner can rename it.
    another). Before closing a fix, grep for the claim.
 9. **"Super user"** is a display label only; the internal identifier stays `admin`.
 10. **Dashboard stays a focused operational dashboard, not a metrics dump.**
+    Exactly four primary cards; nothing else gets added to Dashboard without updating this rule first.
     [continued verbatim in `docs/claude-md-detail.md`, section "Standing rule 10 (continued)"]
 11. Merge commits, not squash. Conventional prefixes (`feat:`, `fix:`, `test:`,
     `docs:`). Issues, milestones, PRs with `Closes #N`. Free tools only.
@@ -163,17 +157,36 @@ When a mistake is called out on #692, add one line here in your next PR.
 ## Tooling traps that have already bitten
 
 - Backend needs **Python 3.12 exactly**; `run.py` refuses others.
-  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: Cowork VM item (continued)"]
-  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: WAL item (continued)"]
-  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: only the server writes the live DB (continued)"]
-  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: heredoc and AUTH_MODE items"]
+- The Cowork device shell is a **Linux VM** bridged to the Windows folder:
+  Python 3.10, cannot reach Windows localhost, **cannot run the backend suite**.
+  `npx`/`npm` from that VM installs **Linux** native binaries into
+  `node_modules` and breaks `npm run dev` on Windows (happened once — fixed
+  with `npm install lightningcss-win32-x64-msvc@1.32.0`). Do not run npm/npx
+  against the repo from the VM. `node node_modules/typescript/bin/tsc` is safe.
+- SQLite is **WAL mode**: the DB is three files (`.sqlite`, `-wal`, `-shm`).
+  Copying only one loses documents. Never open the live DB from the VM
+  (disk I/O error).
+- **Only the server writes the live DB.** Start it with `python run.py` (it
+  marks the process; uvicorn directly would be refused its own database).
+  Any other process that must write `backend/data/rag_intelligence.sqlite`
+  calls `app.live_guard.prepare_live_write(path, reason=...)`, which takes a
+  verified online backup and runs a restore drill first; `db.connect()`
+  refuses otherwise. Read-only work: `sqlite3 "file:...?mode=ro"`, or
+  `live_guard.diagnostic_copy()`. A script run from a git worktree once wrote
+  the main checkout's live DB (2026-09-24) - this is why.
+- Shell heredocs eat backslashes in regexes. Write Python patch scripts to a
+  file, or use quoted heredocs (`<<'EOF'`).
+  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: AUTH_MODE item"]
 
 ## Heavy checks: one lock, batched (#680)
 
-[continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: one lock, batched (#680), opening paragraph"]
+[continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: one lock, batched (#680), paragraph before the last sentence"]
+Never write a second waiter.
 
 1. GitHub CI is the first gate for every PR.
-   [continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: numbered item 2 (P1 batching)"]
+2. P1 on the PC runs ONCE per merge round on the merged result of a small batch
+   of green PRs, plus per PR only when it touches retrieval, answer, review or
+   eval code.
 3. Every P1, test run and AI batch unloads its models at the end (#666).
    [continued verbatim in `docs/claude-md-detail.md`, section "Heavy checks: numbered item 4 (mutation runs)"]
 
@@ -185,11 +198,8 @@ When a mistake is called out on #692, add one line here in your next PR.
 | Architecture as the code actually is | `docs/architecture-call-graph.md` (current); `docs/architecture.md` (older, stale line refs) |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
 | Recorded false claims | `docs/status-honesty-audit.md` |
-| The review score (recall, precision, false compliant, citations; answer-key format) | `eval/review/README.md`, `scripts/review_score.py` |
-| Review playbooks (HAZOP, SIL procedures; data files, clause-cited, standard not held is never met) | `docs/playbooks.md` |
-| The scored model tier of P1 (figures, clause, could-not-read; PC only) | `eval/p1ai/README.md` |
+| (moved rows) | `docs/claude-md-detail.md`, section "Where to look: rows for review score, playbooks, scored model tier" |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
-| How a night's PRs become a release (roles, reviews, the Mac proof, merging) | `.claude/skills/release-train/SKILL.md` |
-| Demo script and safe questions | `docs/HANDOVER.md` § Demo |
+| (moved rows) | `docs/claude-md-detail.md`, section "Where to look: rows for release train and demo script" |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |
 
