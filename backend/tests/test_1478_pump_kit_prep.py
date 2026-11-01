@@ -469,7 +469,7 @@ def test_a_relief_valve_margin_text_also_states_its_margin():
 def test_a_percent_rule_text_is_unchanged():
     sheet = [("built up back pressure", "8", "%"), ("set pressure", "10", "barg")]
     facts = [
-        _fact(n, v, u) for n, v, u in sheet + [("valve type", "conventional", None)]
+        _fact(n, v, u) for n, v, u in [*sheet, ("valve type", "conventional", None)]
     ]
     res = {
         r["rule_id"]: r
