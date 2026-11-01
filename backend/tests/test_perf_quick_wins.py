@@ -110,6 +110,49 @@ def test_a_second_ensure_schema_issues_one_statement_not_a_hundred():
     assert trace.count(r"PRAGMA schema_version") >= 3
 
 
+def test_a_proven_schema_answers_with_one_statement_without_waiting_on_a_migration():
+    """THE MUTATION TARGET (M1330, issue #1555). A memo hit is answered by
+    one `PRAGMA schema_version` OUTSIDE the migration lock, so a read never
+    waits behind another thread's migration. Counting statements alone
+    cannot see the mutant (the re-check under the lock issues the same one
+    PRAGMA), so this holds the lock in another thread and asks: does the
+    proven schema still answer at once?"""
+    review.ensure_schema()
+    review.ensure_schema()  # settled: proven against its own DDL
+    held, release = threading.Event(), threading.Event()
+
+    def migrating():
+        with db._migration_lock:
+            held.set()
+            release.wait(timeout=30)
+
+    holder = threading.Thread(target=migrating)
+    holder.start()
+    assert held.wait(timeout=10)
+    answered = threading.Event()
+    statements: list[str] = []
+
+    def reader():
+        conn = db.connect()
+        conn.set_trace_callback(statements.append)
+        try:
+            review.ensure_schema()
+            answered.set()
+        finally:
+            conn.set_trace_callback(None)
+
+    reading = threading.Thread(target=reader)
+    try:
+        reading.start()
+        waited = not answered.wait(timeout=3)
+    finally:
+        release.set()
+        holder.join(timeout=30)
+        reading.join(timeout=30)
+    assert not waited, "a proven schema waited on the migration lock"
+    assert statements == ["PRAGMA schema_version"], statements
+
+
 def test_the_memo_is_exact_a_dropped_table_is_recreated():
     """Keyed on SQLite's own schema counter, not on "ran once": a DROP from
     anywhere changes the version and the next call rebuilds."""
