@@ -74,7 +74,9 @@ WAITING_COMMENTS = frozenset(
 )
 
 
-def lane(f: dict, lanes: dict, noun: str = "specification") -> tuple[str, str, str, str]:
+def lane(
+    f: dict, lanes: dict, noun: str = "specification"
+) -> tuple[str, str, str, str]:
     """(confirmed byline prefix, unconfirmed byline, row kind, waiting comment) of a draft
     finding's origin; a kit row (#1484) uses its document kind's noun (`spec_kit.noun_of`),
     a specification's wording is unchanged."""
