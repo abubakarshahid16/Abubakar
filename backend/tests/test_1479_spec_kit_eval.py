@@ -85,3 +85,28 @@ def test_a_scope_clause_needs_scope_of_this_document_not_scope_of_supply():
         ],
     )
     assert got["page"] == 1
+
+
+def test_ordinary_wording_of_materials_documentation_and_inspection_is_found():
+    assert _found("materials", [(1, "Shell material: SA-516 Gr 70.")])["page"] == 1
+    assert _found("materials", [(1, "Plates shall be of ASTM A 240 material.")])
+    docs = [(2, "Vendor shall submit design calculations and drawings.")]
+    assert _found("documentation", docs)["page"] == 2
+    nde = [
+        (
+            3,
+            "All butt welds shall be 100% RT inspected. Inspection and testing per ASME.",
+        )
+    ]
+    assert _found("inspection_testing", nde)["page"] == 3
+    assert _found("inspection_testing", [(3, "Vessels shall be tested with water.")])
+
+
+def test_a_register_or_revision_mention_is_not_the_clause():
+    assert _found("documentation", [(1, "Deliverables register is attached.")]) is None
+    assert (
+        _found("documentation", [(1, "Documentation from the supplier is on file.")])
+        is None
+    )
+    assert _found("scope", [(1, "The scope of this revision is editorial.")]) is None
+    assert _found("inspection_testing", [(1, "The part is in the art of ut.")]) is None

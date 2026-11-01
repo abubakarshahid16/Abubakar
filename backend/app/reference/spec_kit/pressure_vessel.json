@@ -182,7 +182,18 @@
      "material grade"
     ],
     [
+     "material",
+     "re:\\bastm\\s?[ab]\\s?-?\\d{2,3}\\b"
+    ],
+    [
+     "re:\\b(sa|sb)-?\\d{2,3}\\b",
+     "re:\\bgr(ade)?\\b"
+    ],
+    [
      "materials shall"
+    ],
+    [
+     "re:\\bmaterials? (shall|must) (be|conform|comply)"
     ]
    ],
    "draft_reason": "SAES-D-001 18.4 (p40) states material rules for the nameplate only; the vessel-materials clause was not identified. DRAFT."
@@ -208,7 +219,13 @@
      "covers"
     ],
     [
-     "scope of this"
+     "scope of this specification"
+    ],
+    [
+     "scope of this document"
+    ],
+    [
+     "scope of this standard"
     ],
     [
      "purpose of this specification"
@@ -221,22 +238,48 @@
    "topic": "Documentation and deliverables the supplier submits",
    "terms": [
     [
-     "data book"
-    ],
-    [
      "documentation",
-     "supplier"
+     "shall"
     ],
     [
-     "documentation",
-     "vendor"
+     "data book",
+     "shall"
     ],
     [
-     "documentation",
-     "contractor"
+     "deliverable",
+     "shall"
     ],
     [
-     "deliverable"
+     "shall submit",
+     "calculation"
+    ],
+    [
+     "shall submit",
+     "drawing"
+    ],
+    [
+     "shall submit",
+     "certificate"
+    ],
+    [
+     "shall submit",
+     "report"
+    ],
+    [
+     "shall be submitted",
+     "calculation"
+    ],
+    [
+     "shall be submitted",
+     "drawing"
+    ],
+    [
+     "shall be submitted",
+     "certificate"
+    ],
+    [
+     "shall be submitted",
+     "report"
     ]
    ],
    "draft_reason": "No held standard clause identified for this topic in the preparation pass; needs a standard we do not hold (or a clause not yet found). DRAFT until an engineer approves the item."
@@ -254,11 +297,44 @@
      "shall"
     ],
     [
+     "nde",
+     "shall"
+    ],
+    [
      "radiograph",
      "shall"
     ],
     [
+     "ultrasonic",
+     "shall"
+    ],
+    [
+     "rt",
+     "shall"
+    ],
+    [
+     "ut",
+     "shall"
+    ],
+    [
+     "mt",
+     "shall"
+    ],
+    [
+     "pt",
+     "shall"
+    ],
+    [
      "examination",
+     "shall"
+    ],
+    [
+     "inspection",
+     "testing",
+     "shall"
+    ],
+    [
+     "re:\\btest(s|ed|ing)?\\b",
      "shall"
     ],
     [

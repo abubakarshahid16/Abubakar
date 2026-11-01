@@ -119,7 +119,17 @@ def _fold(text: str) -> str:
 
 
 #: a contents-page line ("Scope ........ 6"): a heading's address, not the clause itself
-_LEADER = re.compile(r"\.{4,}|(?:\.\s){4,}")
+_LEADER = re.compile(r"\.{4,}")
+
+
+def _has(word: str, folded: str) -> bool:
+    """One word of a term group: `re:<pattern>` is a regex, a word of three letters or fewer
+    (rt, ut) must stand alone, any other is a substring."""
+    if word.startswith("re:"):
+        return re.search(word[3:], folded) is not None
+    if len(word) <= 3 and word.isalnum():
+        return re.search(rf"\b{re.escape(word)}\b", folded) is not None
+    return word in folded
 
 
 def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
@@ -133,7 +143,7 @@ def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
                 not folded
                 or _LEADER.search(part)
                 or not any(
-                    all(word in folded for word in group) for group in item["terms"]
+                    all(_has(word, folded) for word in group) for group in item["terms"]
                 )
             ):
                 continue
