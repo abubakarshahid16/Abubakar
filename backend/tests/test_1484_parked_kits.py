@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import crs_mapping, db, procedure_text, spec_kit
+from app import crs_draft_lanes, crs_mapping, db, procedure_text, spec_kit
 from app.config import settings
 from tests.test_1479_spec_kit import _doc, _rows
 from tests.test_b3_page_ledger import _review, temp_storage  # noqa: F401 - autouse
@@ -24,9 +24,9 @@ def on(monkeypatch):
     monkeypatch.setattr(settings, "parked_kits_draft_enabled", True)
 
 
-def _world(kind="drawing", pages=(DRAWING_PAGE1, DRAWING_PAGE2)):
+def _world(kind="drawing", pages=(DRAWING_PAGE1, DRAWING_PAGE2), equipment="piping"):
     sub = "doc_dwg"
-    _doc(sub, list(pages), kind, number="DWG-1", equipment="piping")
+    _doc(sub, list(pages), kind, number="DWG-1", equipment=equipment)
     run, scope = _review(sub)
     return sub, run, frozenset(scope)
 
@@ -164,3 +164,52 @@ def test_a_kind_kit_row_goes_through_the_same_unfound_hooks(on):
     with db.connect() as conn:
         conn.execute("UPDATE document_kinds SET kind = 'transmittal'")
     assert not spec_kit.applies(_sub)
+
+
+def _lane_row(sub, run, scope):
+    spec_kit.for_review(run, scope)
+    rows = _rows(run)
+    found = next(r for r in rows if r["contractor_page"])
+    built = crs_mapping.build_crs_rows(rows, [], "x.pdf")
+    return [b for b in built if b.get("row_kind") == "spec_kit"], found
+
+
+def test_a_drawing_rows_crs_byline_and_waiting_comment_say_drawing(on):
+    sub, run, scope = _world()
+    lane, _ = _lane_row(sub, run, scope)
+    assert lane
+    for row in lane:
+        assert row["comment_by"] == "Drawing check (DRAFT list) - engineer to confirm"
+        assert row["comment"].startswith("Drawing check suggestion")
+        assert row["comment"] in crs_mapping.WAITING_COMMENTS
+        assert "Specification" not in row["comment_by"] + row["comment"]
+
+
+def test_a_specification_rows_crs_byline_is_unchanged(monkeypatch):
+    monkeypatch.setattr(settings, "spec_kit_enabled", True)
+    sub, run, scope = _world(
+        kind="specification",
+        pages=("Design pressure shall be 12 bar.",),
+        equipment="pressure vessel",
+    )
+    lane, _ = _lane_row(sub, run, scope)
+    assert lane
+    for row in lane:
+        assert (
+            row["comment_by"]
+            == "Specification check (DRAFT list) - engineer to confirm"
+        )
+        assert row["comment"] == crs_draft_lanes.SPEC_UNCONFIRMED_COMMENT
+
+
+def test_the_lane_words_of_every_kit_noun_are_known_to_the_waiting_set():
+    from app import crs_draft_lanes as lanes
+
+    assert lanes.spec_lane_words() == (
+        lanes.SPEC_CONFIRMED_BY,
+        lanes.SPEC_UNCONFIRMED_BY,
+        lanes.SPEC_UNCONFIRMED_COMMENT,
+    )
+    for kit in spec_kit.kind_kits().values():
+        assert kit["noun"] in lanes.KIND_NOUNS
+        assert lanes.spec_lane_words(kit["noun"])[2] in lanes.WAITING_COMMENTS

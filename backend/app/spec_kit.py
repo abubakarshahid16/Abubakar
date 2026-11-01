@@ -467,7 +467,7 @@ def is_unfound(finding: dict) -> bool:
 _NOUN = re.compile(r"^A ([a-z]+) states: ")
 
 
-def _noun(finding: dict) -> str:
+def noun_of(finding: dict) -> str:
     found = _NOUN.match(finding.get("requirement") or "")
     return found.group(1) if found else "specification"
 
@@ -484,7 +484,7 @@ def notes(findings: list[dict]) -> list[dict]:
     rows = [f for f in findings if is_unfound(f)]
     if not rows:
         return []
-    noun = _noun(rows[0])
+    noun = noun_of(rows[0])
     topics = [_NOUN.sub("", f.get("requirement") or "").split(" (")[0] for f in rows]
     listed = "; ".join(topics[:8]) + (
         f"; and {len(topics) - 8} more" if len(topics) > 8 else ""

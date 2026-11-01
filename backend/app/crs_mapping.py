@@ -50,6 +50,7 @@ from .crs_draft_lanes import (  # noqa: F401
     UNCONFIRMED_COMMENTS,
     WAITING_COMMENTS,
     WEB_UNCONFIRMED_COMMENT,
+    spec_lane_words,
 )
 from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
 from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
@@ -1617,6 +1618,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
         # says it awaits an engineer, the draft stays in "AI Review Comments".
         unconfirmed_comment = UNCONFIRMED_COMMENTS[origin]
+        if origin == spec_kit.ORIGIN:  # #1484: the kind's noun, "specification" unchanged
+            confirmed_by_prefix, unconfirmed_by, unconfirmed_comment = spec_lane_words(
+                spec_kit.noun_of(f)
+            )
         rows.append(
             {
                 "finding_id": f.get("id") or "",
