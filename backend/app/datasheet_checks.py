@@ -31,6 +31,7 @@ code; never by a model).
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -52,6 +53,23 @@ NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
 
 _OPS = {">=": lambda a, b: a >= b, ">": lambda a, b: a > b,
         "<=": lambda a, b: a <= b, "<": lambda a, b: a < b}
+#: A limit worked out with a factor or a percentage ("1.1 x the MAWP", "10 % above") is
+#: compared with the unit conversion's float noise removed: two numbers that agree to 1e-9
+#: of their size are the same number (a printed figure never carries nine digits), so a
+#: value exactly AT the limit is at it in every unit.
+AT_LIMIT_REL_TOL = 1e-9
+
+
+def _hold(op: str, left: float, right: float) -> bool:
+    """`left op right`; switch on (AT_LIMIT_PRECISION_ENABLED) a value at the limit to
+    within float noise counts as equal, so it passes `<=`/`>=` and fails `<`/`>`.
+    Off: today's plain float comparison."""
+    from .config import settings
+    if settings.at_limit_precision_enabled and math.isclose(left, right, rel_tol=AT_LIMIT_REL_TOL, abs_tol=0.0):
+        return op in (">=", "<=")
+    return _OPS[op](left, right)
+
+
 _OP_WORDS = {">=": "at least", ">": "above", "<=": "at most", "<": "below"}
 _GAUGE = re.compile(r"(g|\(g\)|gauge)$")
 _ABSOLUTE = re.compile(r"(a|\(a\)|abs)$")
@@ -744,7 +762,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         stated = _number_of_or_none(fact)
         if stated is None:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(f"'{_said(fact)}' is not a number"), fact)
-        ok = _OPS[rule["op"]](stated, float(rule["percent"]))
+        ok = _hold(rule["op"], stated, float(rule["percent"]))
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['percent']}% of the "
                    f"{_pretty(rule['right']).lower()}.{noted}", fact)
@@ -763,7 +781,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(
                 f"{exc.reason}, so the percentage was not worked out"), fact)
         percent = amount / ref_kpa * 100.0
-        ok = _OPS[rule["op"]](percent, float(rule["value"]))
+        ok = _hold(rule["op"], percent, float(rule["value"]))
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {percent:.1f}% of {_quoted(ref_fact, reference)}, which is "
                    f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['value']}%.{noted}", fact)
@@ -806,10 +824,10 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             return res(NEEDS_ENGINEER_REVIEW, _sentence(
                 "the required margin is not on the same scale as the two values"), fact)
         margin = max(right[0] * float(rule["percent"]) / 100.0, floor[0])
-        ok = left[0] >= right[0] + margin
+        ok = _hold(">=", left[0], right[0] + margin)
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'' if ok else 'not '}at least {right_words}.{noted}", fact)
-    ok = _OPS[rule["op"]](left[0], right[0] * factor)
+    ok = _hold(rule["op"], left[0], right[0] * factor)
     return res(COMPLIANT if ok else NON_COMPLIANT,
                f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {right_words}.{noted}", fact)
 
