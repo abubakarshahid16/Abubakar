@@ -221,6 +221,8 @@ EGRESS_SAFE: dict[str, object] = {
     "parked_kits_draft_enabled": False,
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
+    # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
+    "rules_by_equipment_scope_enabled": False,
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
     "pump_kit_draft_enabled": False,
     # --- local only, no model or socket: a value at a percent limit is at it in every unit (#1475, off by default)

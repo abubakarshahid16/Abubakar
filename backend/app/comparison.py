@@ -2471,6 +2471,13 @@ def _run_comparison(
         partial_standards=applicability_mod.governing_table()["partial_standards"])
     requirements = partial["kept"]
     extra_not_applied.extend(partial["items"])
+    # RULES BY EQUIPMENT SCOPE (switch): a rule for another equipment type or kind is counted, not checked.
+    from . import equipment_scope
+    es = equipment_scope.gate(
+        requirements, equipment=subject_scope.submittal_equipment(stored, facts, subject_scope.vocabulary())[0],
+        kind=equipment_scope.submittal_kind(submittal_id), standard_labels=standard_labels)
+    requirements = es["kept"]
+    extra_not_applied.extend(es["items"])
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
     # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
     from . import ai_applicability as ai_div
@@ -3014,6 +3021,7 @@ def _run_comparison(
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
     split = {**split, **kind_rules.split_part(kn, checklist_note)}
+    split = {**split, **equipment_scope.split_part(es)}
     if cited_scope["summary"]:  # #139: standards cited only for named clauses
         split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:

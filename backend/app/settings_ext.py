@@ -52,6 +52,11 @@ class SettingsExt(BaseModel):
     #: unknown / undecided keeps today's behaviour, marked. OFF: nothing changes.
     #: Env: KIND_CHOOSES_RULES_ENABLED.
     kind_chooses_rules_enabled: bool = False
+    #: Rules by equipment scope (`equipment_scope.py`): a rule whose own scope (its stored equipment
+    #: type, its single-equipment standard, or its document kind) names a DIFFERENT equipment type or
+    #: kind than the submittal's is left out and counted in a note; unknown scope stays in. Narrowing
+    #: only. OFF: nothing changes. Env: RULES_BY_EQUIPMENT_SCOPE_ENABLED.
+    rules_by_equipment_scope_enabled: bool = False
     #: #1478 pump kit PREPARATION: append the DRAFT pump cards of `reference/pump_kit_draft.json`
     #: (a held standard requires the value, not already in the checklist) to the Centrifugal Pump
     #: checklist. Draft only, never decides, local only. OFF: nothing changes. Env: PUMP_KIT_DRAFT_ENABLED.

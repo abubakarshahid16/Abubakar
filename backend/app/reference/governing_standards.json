@@ -63,6 +63,14 @@
    "IEC 60076"
   ]
  },
+ "scope_only_standards": {
+  "pump": ["API 610", "API 674", "API 675", "API 676", "API 682"],
+  "compressor": ["API 617", "API 618", "API 619"],
+  "steam turbine": ["API 611", "API 612"],
+  "gas turbine": ["API 616"],
+  "heat exchanger": ["API 660", "API 661"],
+  "relief valve": ["API 520 Part I", "API 520 Part II", "API 526", "API 527"]
+ },
  "materials_standards": [
   "NACE MR0175",
   "ISO 15156",
