@@ -21,6 +21,8 @@ import json
 import logging
 from pathlib import Path
 
+from . import kind_rules
+
 _log = logging.getLogger(__name__)
 
 ANSWERED = "answered"
@@ -329,6 +331,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         add("datasheet_check_not_run",
             "The datasheet revision-block check could not be checked: "
             + str(outcome["datasheet_check_not_run"]) + ".")
+    parts.extend(kind_rules.lines(outcome))
     stds = outcome.get("standards_not_checked") or []
     if stds:
         add("standards_not_checked",
@@ -375,9 +378,9 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
 
 def notice_for(parts: list[dict]) -> str:
     """The one line a sheet prints when something could not be checked."""
+    parts = [p for p in parts if not p.get("detail")]
     if not parts:
         return ""
-    parts = [p for p in parts if not p.get("detail")]
     notice = (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
               "- this sheet is not a complete review.")
     # The unchecked share, with its denominator, is part of the notice on every

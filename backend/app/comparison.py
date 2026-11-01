@@ -2426,7 +2426,7 @@ def _run_comparison(
     # engineer or the classifier gave one; the field names otherwise.
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
-    stored, kn = kind_rules.for_run(submittal_id, stored)
+    kn = kind_rules.for_run(submittal_id, allowed_document_ids, standard_ids)
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
     trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
@@ -3046,7 +3046,7 @@ def _run_comparison(
                        unchecked_standards=unchecked_standards,
                        requirements_not_applied=requirements_not_applied,
                        applicability=applicability_summary,
-                       datasheet_check_not_run=kind_rules.not_run(kn, datasheet_check_not_run),
+                       datasheet_check_not_run=datasheet_check_not_run,
                        ai_matcher=ai_matcher,
                        unchecked_counts=unchecked_counts,
                        requirement_split=split,

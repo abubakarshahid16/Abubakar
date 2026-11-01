@@ -9,19 +9,19 @@ import json
 
 import pytest
 
-from app import applicability, comparison, db, kind_rules, submittal_review
+from app import absence, applicability, comparison, db, kind_rules, submittal_review
 from app.config import settings
 from tests.test_754_required_vs_cited import _psv
 from tests.test_applicability import _doc, _scope, temp_storage  # noqa: F401
 from tests.test_field_naming import _world
 
 
-def _set_kind(doc_id, kind, state="suggested"):
+def _set_kind(doc_id, kind, state="suggested", guess=False):
     with db.connect() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO document_kinds (document_id, kind, state, routed_at)"
-            " VALUES (?,?,?,?)",
-            (doc_id, kind, state, "2026-11-01"),
+            "INSERT OR REPLACE INTO document_kinds"
+            " (document_id, kind, state, evidence, routed_at) VALUES (?,?,?,?,?)",
+            (doc_id, kind, state, json.dumps({"guess": guess}), "2026-11-01"),
         )
 
 
@@ -94,10 +94,45 @@ def test_switch_off_changes_nothing():
     )
 
 
-def test_a_kind_never_adds_a_standard(on):
-    result, std = _select("procedure")
-    # every candidate offered is one the old path also offered
-    assert {r["standard_document_id"] for r in result["selected"]} <= {std}
+def test_a_kind_never_adds_a_standard(on, monkeypatch):
+    docs = [
+        _doc(
+            "std_520",
+            "API-520-I.pdf",
+            "COMPANY_STANDARD",
+            document_number="API 520 Part I",
+        ),
+        _doc(
+            "std_cls",
+            "Relief-Code.pdf",
+            "COMPANY_STANDARD",
+            document_number="ZZ 999",
+            equipment_type="relief valve",
+        ),
+        _doc(
+            "std_cited", "ISO-9999.pdf", "COMPANY_STANDARD", document_number="ISO 9999"
+        ),
+        _doc("std_other", "Other.pdf", "COMPANY_STANDARD", document_number="QQ 1"),
+    ]
+    sub = _psv(text="Sizing per ISO 9999. Set pressure 340 psig.")
+    scope = _scope(sub, *docs)
+    monkeypatch.setattr(settings, "kind_chooses_rules_enabled", False)
+    old = {
+        r["standard_document_id"]
+        for r in applicability.select(sub, allowed_document_ids=scope, persist=False)[
+            "selected"
+        ]
+    }
+    monkeypatch.setattr(settings, "kind_chooses_rules_enabled", True)
+    _set_kind(sub, "procedure")
+    new = {
+        r["standard_document_id"]
+        for r in applicability.select(sub, allowed_document_ids=scope, persist=False)[
+            "selected"
+        ]
+    }
+    assert {"std_520", "std_cls", "std_cited"} <= old
+    assert new <= old and "std_cited" in new and not {"std_520", "std_cls"} & new
 
 
 def test_a_standard_classified_for_the_equipment_type_is_dropped_for_a_procedure(on):
@@ -119,18 +154,43 @@ def test_a_standard_classified_for_the_equipment_type_is_dropped_for_a_procedure
     ] == [std]
 
 
-def test_the_run_records_the_equipment_type_as_not_used_only_for_a_non_datasheet(on):
-    sub = _psv()
-    _set_kind(sub, "procedure")
-    cls, note = kind_rules.for_run(sub, {"equipment_type": "relief valve", "x": 1})
-    assert cls == {"equipment_type": "relief valve", "x": 1}  # subject gates keep it
-    assert note["equipment_type"] == (
-        "equipment type 'relief valve' not used to choose the checklist or the "
-        "standards: the document is a procedure"
+def test_the_run_note_names_the_unused_standards_and_the_equipment_type(on):
+    std = _doc(
+        "std_520", "API-520-I.pdf", "COMPANY_STANDARD", document_number="API 520 Part I"
     )
+    sub = _psv()
+    _set_kind(sub, "procedure", "confirmed")
+    scope = _scope(std, sub)
+    note = kind_rules.for_run(sub, scope, [])
+    assert note["checklist"] == (
+        "Datasheet checklist not applied: the document is a procedure (confirmed)."
+    )
+    assert note["standards"] == (
+        "1 standard(s) chosen for an equipment type were not used: API 520 Part I, "
+        "because the document is a procedure."
+    )
+    assert "still decides which requirements apply by subject" in note["equipment_type"]
+    assert kind_rules.for_run(sub, scope, [std])["standards"] is None  # applied anyway
     _set_kind(sub, "datasheet")
-    cls, note = kind_rules.for_run(sub, {"equipment_type": "relief valve"})
-    assert cls == {"equipment_type": "relief valve"} and note is None
+    assert kind_rules.for_run(sub, scope, []) is None
+
+
+def test_a_guessed_kind_keeps_the_datasheet_rules_and_says_so(on):
+    std = _doc(
+        "std_520", "API-520-I.pdf", "COMPANY_STANDARD", document_number="API 520 Part I"
+    )
+    sub = _psv()
+    scope = _scope(std, sub)
+    _set_kind(sub, "contract", "suggested", guess=True)
+    assert kind_rules.blocked(sub) is None
+    assert std in _included(
+        applicability.select(sub, allowed_document_ids=scope, persist=False)
+    )
+    assert (
+        kind_rules.unknown_mark(sub) == "document kind is a guess; datasheet rules kept"
+    )
+    _set_kind(sub, "contract", "confirmed", guess=True)  # a person confirmed it
+    assert kind_rules.blocked(sub) is not None
 
 
 def test_kind_rules_helper_words():
@@ -180,13 +240,38 @@ def _review(kind, state="suggested"):
 def test_a_procedure_review_runs_no_checklist_and_says_so(world, on):
     rows, outcome = _review("procedure")
     assert rows == []
-    assert outcome["datasheet_check_not_run"] == (
-        "datasheet checklist not applied: the document is a procedure"
-    )
+    assert "not applied" not in str(outcome["datasheet_check_not_run"])
     note = outcome["requirement_split"]["kind_rules"]
     assert note["blocked"] is True
     assert outcome["requirement_split"].get("checklist_coverage") is None
-    assert "not used" in note["equipment_type"]
+    assert note["checklist"].startswith("Datasheet checklist not applied:")
+    lines = [
+        p["line"]
+        for p in absence.unchecked_parts(run_status="completed", outcome=outcome)
+    ]
+    assert note["checklist"] in lines
+    assert not any("could not be checked: datasheet checklist" in x for x in lines)
+    kind_only = [
+        p
+        for p in absence.unchecked_parts(run_status="completed", outcome=outcome)
+        if p["part"] == "document_kind"
+    ]
+    assert len(kind_only) == 2 and absence.notice_for(kind_only) == ""
+
+
+def test_the_crs_review_notes_carry_the_kind_line_on_the_internal_copy(world, on):
+    from app import access, main
+
+    _req, _fact, run, scope = _world("Set pressure", "10 barg")
+    _set_kind("sub-1", "procedure", "confirmed")
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    who = access.AccessScope(user_id="eng-1", allowed_document_ids=scope)
+    _rows, meta, *_ = main._crs_content(run, who, "internal")
+    notes = {n["detail"]: n["note"] for n in meta["review_notes"]}
+    line = "Datasheet checklist not applied: the document is a procedure (confirmed)."
+    assert notes[line] == "Document kind"
+    assert any("subject" in d for d in notes)
+    assert line in meta["unchecked_parts"]
 
 
 def test_a_datasheet_review_still_runs_the_checklist(world, on):

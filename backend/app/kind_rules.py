@@ -13,6 +13,7 @@ function here answers "not blocked" and the review is exactly as before.
 
 from __future__ import annotations
 
+import json
 from contextvars import ContextVar
 
 from .db import connect
@@ -21,18 +22,26 @@ DATASHEET = "datasheet"
 _IGNORE: ContextVar[bool] = ContextVar("kind_rules_ignore", default=False)
 
 
-def _lookup(document_id: str | None) -> tuple[str | None, str | None]:
+def _lookup(document_id: str | None) -> tuple[str | None, str | None, bool]:
+    """`(kind, state, guess)` the router's table holds; `guess` is the
+    classifier's own flag in the stored evidence."""
     if not document_id:
-        return None, None
+        return None, None, False
     row = (
         connect()
         .execute(
-            "SELECT kind, state FROM document_kinds WHERE document_id = ?",
+            "SELECT kind, state, evidence FROM document_kinds WHERE document_id = ?",
             (document_id,),
         )
         .fetchone()
     )
-    return (None, None) if row is None else (row["kind"], row["state"])
+    if row is None:
+        return None, None, False
+    try:
+        guess = bool(json.loads(row["evidence"] or "{}").get("guess"))
+    except (TypeError, ValueError, AttributeError):
+        guess = False
+    return row["kind"], row["state"], guess
 
 
 def enabled() -> bool:
@@ -41,26 +50,33 @@ def enabled() -> bool:
     return bool(settings.kind_chooses_rules_enabled)
 
 
+def _known(kind: str | None) -> bool:
+    return bool(kind) and kind not in (DATASHEET, "unknown")
+
+
 def blocked(document_id: str | None) -> dict | None:
-    """`{"kind", "state", "reason"}` when the document's kind is known and is not
-    a datasheet (equipment rules are not applied), else None (switch off,
-    datasheet, unknown, needs an engineer, or no kind stored)."""
+    """`{"kind", "state", "reason"}` when the document's kind is known, is not a
+    datasheet, and is either confirmed by an engineer or a suggestion the
+    classifier did not mark as a guess. Else None (switch off, datasheet,
+    unknown, needs an engineer, no kind stored, or a guessed kind)."""
     if not enabled() or _IGNORE.get():
         return None
-    kind, state = _lookup(document_id)
-    if not kind or kind in (DATASHEET, "unknown"):
+    kind, state, guess = _lookup(document_id)
+    if not _known(kind) or (guess and state != "confirmed"):
         return None
     return {"kind": kind, "state": state, "reason": f"the document is a {kind}"}
 
 
 def unknown_mark(document_id: str | None) -> str | None:
-    """A plain-words mark when the kind is unknown / not decided and the old
-    equipment rules therefore still run; None when off, datasheet or known."""
-    if not enabled():
+    """A plain-words mark when the equipment rules still run because the kind is
+    not decided or is only a guess; None when off, datasheet or decided."""
+    if not enabled() or blocked(document_id) or _IGNORE.get():
         return None
-    kind, state = _lookup(document_id)
-    if kind == DATASHEET or (kind and kind != "unknown"):
+    kind, state, guess = _lookup(document_id)
+    if kind == DATASHEET:
         return None
+    if _known(kind) and guess:
+        return "document kind is a guess; datasheet rules kept"
     return (
         "document kind not decided ("
         + (state or "not routed")
@@ -78,11 +94,6 @@ def standards_exclusion(document_id: str | None) -> str | None:
     return None if b is None else f"chosen for an equipment type; {b['reason']}"
 
 
-def not_run(note: dict | None, other: str | None) -> str | None:
-    """The plain-words reason the checklist was not applied, from a run note."""
-    return note["checklist"] if note and note["blocked"] else other
-
-
 def split_part(note: dict | None, checklist: dict | None = None) -> dict:
     """What the run stores of the note, in `requirement_split`."""
     return {
@@ -91,32 +102,57 @@ def split_part(note: dict | None, checklist: dict | None = None) -> dict:
     }
 
 
-def for_run(document_id: str, classification: dict | None) -> tuple[dict, dict | None]:
-    """`(classification, note)` for one review run. A non-datasheet kind: the note
-    says, in plain words, what was not applied (checklist, equipment-type
-    standards, the equipment type as a chooser). The classification itself is
-    left whole: blanking it also switched off the requirement subject gates and
-    sent 236 more requirements to "needs another document" on the saved HAZOP
-    run (bench, 1 Nov), which widens the review. Unknown kind: unchanged, the
-    note marks it. Off or datasheet: unchanged, no note."""
-    classification = classification or {}
+def for_run(document_id: str, allowed, applied: list[str]) -> dict | None:
+    """The note of one review run, in plain words: what the document's kind
+    chose. `applied` = the standards the run applies. Blocked: what was not
+    applied (checklist; the equipment-type standards the run did not use). The
+    equipment type still gates requirement subjects: blanking it switched those
+    gates off and sent 236 more requirements to "needs another document" on the
+    saved HAZOP run (bench, 1 Nov). Unknown or guessed kind: marked, nothing
+    changes. Off or datasheet: None."""
     b = blocked(document_id)
     if b is None:
         mark = unknown_mark(document_id)
-        return classification, ({"blocked": False, "mark": mark} if mark else None)
-    used = classification.get("equipment_type")
-    return classification, {
+        return {"blocked": False, "mark": mark} if mark else None
+    unused = [
+        row.get("identifier") or row["standard_document_id"]
+        for row in profile(document_id, allowed)[1][0]
+        if row["standard_document_id"] not in applied
+    ]
+    kind, state = b["kind"], b["state"] or "suggested"
+    return {
         "blocked": True,
-        "kind": b["kind"],
-        "checklist": checklist_not_applied(document_id),
-        "standards": standards_exclusion(document_id),
-        "equipment_type": (
-            f"equipment type '{used}' not used to choose the checklist or the "
-            f"standards: {b['reason']}"
-            if used
+        "kind": kind,
+        "checklist": (
+            f"Datasheet checklist not applied: the document is a {kind} ({state})."
+        ),
+        "standards": (
+            f"{len(unused)} standard(s) chosen for an equipment type were not "
+            f"used: {', '.join(unused[:8])}, because the document is a {kind}."
+            if unused
             else None
         ),
+        "equipment_type": (
+            "The equipment type still decides which requirements apply by "
+            "subject; it was not used to choose the checklist or the standards."
+        ),
     }
+
+
+def lines(outcome: dict | None) -> list[dict]:
+    """The note's plain lines for the run summary and the CRS review notes
+    (`absence.unchecked_parts`, detail lines: not counted as unchecked parts)."""
+    note = ((outcome or {}).get("requirement_split") or {}).get("kind_rules") or {}
+    texts = (
+        [note.get(k) for k in ("checklist", "standards", "equipment_type")]
+        if note.get("blocked")
+        else [note.get("mark")]
+    )
+    return [
+        {"part": "document_kind", "line": t, "detail": True, "note": "Document kind"}
+        for t in texts
+        if t
+    ]
 
 
 def reading_for(document_id: str, equipment: set, source, doubt, facts) -> tuple:
