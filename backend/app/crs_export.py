@@ -171,11 +171,6 @@ STANDARDS_SHEET = "Applicable standards"
 STANDARDS_COLUMNS = ("Standard", "Status", "Method", "Reason", "Evidence")
 #: Owner order 2f: the engineer's internal notes, on their own sheet - never
 #: in COMPANY Comments, and not in the copy issued to the contractor.
-#: #1503: internal-only content (Reasoning, Rule trust, the standards considered
-#: and not applied) - never in the contractor copy.
-INTERNAL_SHEET = "Internal"
-INTERNAL_ROW_COLUMNS = ("Item No", "Row ref", "Reasoning (internal)", "Rule trust (internal)")
-INTERNAL_CONSIDERED_COLUMNS = ("Standard considered, not applied", "Status", "Method", "Reason")
 REVIEW_NOTES_SHEET = "Review notes"
 REVIEW_NOTES_COLUMNS = ("Note", "Standard", "Count", "Detail")
 #: The status words that sheet prints.
@@ -364,14 +359,11 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     company = meta.get("company_name", default_company())
     project = meta.get("project", "")
 
-    # Item numbers are assigned HERE, not taken from the caller, so they are
-    # always 1..N with no gaps whatever the caller sends - and the preview
-    # numbers the rows the way the workbook does, not the way a browser
-    # happens to iterate.
-    # The per-row system-generated number. Minted HERE, in the one builder
-    # both renderings read, so the .xlsx the client receives and the preview
-    # on screen quote the same reference for the same comment - and so a
-    # re-export of this run quotes it again rather than issuing a new one.
+    # Item numbers are assigned HERE, always 1..N with no gaps whatever the
+    # caller sends, so the preview numbers rows the way the workbook does. The
+    # per-row reference is minted HERE too, in the one builder both renderings
+    # read: the .xlsx and the preview quote the same reference for the same
+    # comment, and a re-export of this run quotes it again.
     run_id = meta.get("review_run_id", "")
     copy = meta.get("copy") or COPY_INTERNAL
     if copy not in COPIES:

@@ -39,6 +39,21 @@ from .rule_trust import UNPROVEN_REASON
 
 AI_COLUMN = "AI Review Comments"  # crs_export.AI_COLUMN
 COMMENT_LIMIT = 350
+#: Internal-only content (Reasoning, Rule trust, the standards considered and
+#: not applied): never in the contractor copy.
+INTERNAL_SHEET = "Internal"
+INTERNAL_ROW_COLUMNS = (
+    "Item No",
+    "Row ref",
+    "Reasoning (internal)",
+    "Rule trust (internal)",
+)
+INTERNAL_CONSIDERED_COLUMNS = (
+    "Standard considered, not applied",
+    "Status",
+    "Method",
+    "Reason",
+)
 
 # ----------------------------------------------------------------- priority
 
@@ -282,11 +297,14 @@ def enabled() -> bool:
 
 
 def prepare(
-    findings: list[dict], internal: bool, has_no_text
+    findings: list[dict], copy: str, has_no_text, on: bool
 ) -> tuple[list[dict], int, int]:
-    """Rules 2 and 1, before the rows are built: (rows, dropped, merged)."""
+    """Rules 2 and 1, before the rows are built: (rows, dropped, merged);
+    the rows untouched when the switch is off."""
+    if not on:
+        return findings, 0, 0
     dropped = 0
-    if internal:
+    if copy == "internal":
         findings, dropped = drop_no_comment(findings, has_no_text)
     findings, merged = merge_duplicates(findings)
     return findings, dropped, merged
@@ -296,14 +314,12 @@ def _note(note: str, count: int, detail: str) -> dict:
     return {"note": note, "standard": "", "count": count, "detail": detail}
 
 
-def finish(view: dict, dropped: int, merged: int) -> dict:
-    """Rules 3 to 7 on the view `build_crs_view` made (switch on only)."""
-    from . import crs_export as ce
-
-    internal = view["crs_copy"] == ce.COPY_INTERNAL
+def _finish_rows(rows: list[dict], ref_label: str) -> tuple[set[str], bool]:
+    """Rules 3, 4 and 7 on each row: (rows that had the unproven flag,
+    whether any comment overflowed into the AI column)."""
     flagged: set[str] = set()
     overflowed = False
-    for entry in view["rows"]:
+    for entry in rows:
         for field in ("comment", "ai_review_comment"):
             entry[field], gone = strip_unproven_flag(entry[field])
             if gone:
@@ -315,9 +331,7 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
         if entry["comment_missing"]:
             continue
         first, _, tail = entry["comment"].partition("\n")
-        prefix = (
-            first + "\n" if first.startswith(f"{ce.ROW_REF_LABEL}: ") and tail else ""
-        )
+        prefix = first + "\n" if first.startswith(f"{ref_label}: ") and tail else ""
         head, rest = split_comment(
             entry["comment"][len(prefix) :], COMMENT_LIMIT - len(prefix)
         )
@@ -325,6 +339,64 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
             entry["comment"] = prefix + head
             entry["ai_review_comment"] = move_overflow(entry["ai_review_comment"], rest)
             overflowed = True
+    return flagged, overflowed
+
+
+def _internal_extras(
+    view: dict, considered: list[dict], flagged: set[str], counts: tuple
+):
+    """The internal copy's notes and Internal-sheet content: (notes, sheet)."""
+    dropped, merged = counts
+    notes = [
+        {**n, "note": not_in_library_note(n["standard"], n["note"])}
+        if n["note"] == NOTE_MISSING_STANDARD
+        else n
+        for n in view["review_notes"]
+    ]
+    if dropped:
+        notes.append(
+            _note(
+                "Rows dropped: no comment",
+                dropped,
+                "rows with no comment text are not exported",
+            )
+        )
+    if merged:
+        notes.append(
+            _note(
+                "Rows merged into an earlier row",
+                merged,
+                "same document, section and standard clause",
+            )
+        )
+    if considered:
+        notes.append(
+            _note(
+                "Standards considered, not applied",
+                len(considered),
+                "listed on the Internal sheet",
+            )
+        )
+    rows = [
+        {
+            "item_no": e["item_no"],
+            "row_ref": e["row_ref"],
+            "reasoning": e["reasoning"],
+            "rule_trust": e["rule_trust"]
+            + (f" - {UNPROVEN_REASON}" if e["row_ref"] in flagged else ""),
+        }
+        for e in view["rows"]
+        if e["reasoning"] or e["rule_trust"] or e["row_ref"] in flagged
+    ]
+    return notes, {"rows": rows, "considered": considered}
+
+
+def finish(view: dict, dropped: int, merged: int) -> dict:
+    """Rules 3 to 7 on the view `build_crs_view` made (switch on only)."""
+    from . import crs_export as ce
+
+    internal = view["crs_copy"] == ce.COPY_INTERNAL
+    flagged, overflowed = _finish_rows(view["rows"], ce.ROW_REF_LABEL)
     standards, considered = split_standards(
         view["applicable_standards"], ce.STATUS_CONSIDERED
     )
@@ -333,50 +405,7 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
             s["status"] = not_in_library_status(s["standard"])
     notes, inner = view["review_notes"], {}
     if internal:
-        notes = [
-            {**n, "note": not_in_library_note(n["standard"], n["note"])}
-            if n["note"] == NOTE_MISSING_STANDARD
-            else n
-            for n in notes
-        ]
-        if dropped:
-            notes.append(
-                _note(
-                    "Rows dropped: no comment",
-                    dropped,
-                    "rows with no comment text are not exported",
-                )
-            )
-        if merged:
-            notes.append(
-                _note(
-                    "Rows merged into an earlier row",
-                    merged,
-                    "same document, section and standard clause",
-                )
-            )
-        if considered:
-            notes.append(
-                _note(
-                    "Standards considered, not applied",
-                    len(considered),
-                    "listed on the Internal sheet",
-                )
-            )
-        inner = {
-            "rows": [
-                {
-                    "item_no": e["item_no"],
-                    "row_ref": e["row_ref"],
-                    "reasoning": e["reasoning"],
-                    "rule_trust": e["rule_trust"]
-                    + (f" - {UNPROVEN_REASON}" if e["row_ref"] in flagged else ""),
-                }
-                for e in view["rows"]
-                if e["reasoning"] or e["rule_trust"] or e["row_ref"] in flagged
-            ],
-            "considered": considered,
-        }
+        notes, inner = _internal_extras(view, considered, flagged, (dropped, merged))
     base = view["columns"][: len(ce.HEADERS) + 2]
     view.update(
         columns=base + ([ce.AI_COLUMN] if internal or overflowed else []),
@@ -401,12 +430,10 @@ def tail_cells(view: dict, entry: dict) -> list:
 def write_internal_sheet(wb, inner: dict, write) -> None:
     """The Internal sheet: the reasoning and rule trust behind each row, then
     the standards considered and not applied. `write` is `crs_export._write`."""
-    from . import crs_export as ce
-
-    sheet = wb.create_sheet(ce.INTERNAL_SHEET)
+    sheet = wb.create_sheet(INTERNAL_SHEET)
     wrap = Alignment(wrap_text=True, vertical="top")
     r = 1
-    for col, header in enumerate(ce.INTERNAL_ROW_COLUMNS, start=1):
+    for col, header in enumerate(INTERNAL_ROW_COLUMNS, start=1):
         write(sheet, r, col, header).font = Font(bold=True)
     for entry in inner.get("rows", []):
         r += 1
@@ -415,7 +442,7 @@ def write_internal_sheet(wb, inner: dict, write) -> None:
         ):
             write(sheet, r, col, entry[key]).alignment = wrap
     r += 2
-    for col, header in enumerate(ce.INTERNAL_CONSIDERED_COLUMNS, start=1):
+    for col, header in enumerate(INTERNAL_CONSIDERED_COLUMNS, start=1):
         write(sheet, r, col, header).font = Font(bold=True)
     for entry in inner.get("considered", []):
         r += 1
