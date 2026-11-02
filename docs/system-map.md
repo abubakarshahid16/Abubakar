@@ -196,6 +196,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `compiled_rule_pages` | #1584: a standard's pages read into sentences, clause headings and chunks sized to the output room of the request; pure functions |
 | `compiled_rule_context` | #1584: why a proven compiled rule may still not stand alone: a table row, scope in a heading, caption or next sentence; a flag an approval path can refuse on |
 | `compiled_rule_field` | #1584: whether a compiled rule's field name belongs to its quote: strict with a figure, one word without |
+| `compiled_rule_shape` | #1584: whether a compiled rule may store its figure: an allow-list of plain sentence shapes; anything else keeps the sentence and no limit |
 | `compiled_rule_report` | #1584: a standard's page text as the app cites it, where each page's text came from, its table rows, and version 1 beside version 2 with how the version 2 run ended; reads only, counts only |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |

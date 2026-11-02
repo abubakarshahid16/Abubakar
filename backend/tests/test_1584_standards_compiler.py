@@ -21,6 +21,7 @@ from app import (
     claude_spend,
     comparison,
     compiled_rule_proof,
+    compiled_rule_shape,
     converter_gates,
     db,
     numparse,
@@ -534,7 +535,7 @@ def test_a_changed_text_is_compiled_again_and_the_old_rules_stay():
 
 def test_results_out_of_order_land_on_their_own_chunk():
     pages = tuple(
-        f"{n}.1 Part\nThe invented part{n} pressure shall not exceed {n}0 bar.\n"
+        f"{n}.1 Part\nThe invented part{'abcdefg'[n]} pressure shall not exceed {n}0 bar.\n"
         + "padding line\n" * 1200
         for n in range(1, 7)
     )
@@ -544,9 +545,9 @@ def test_results_out_of_order_land_on_their_own_chunk():
             condition=None,
             page=n,
             clause=f"{n}.1",
-            field=f"part{n} pressure",
+            field=f"part{'abcdefg'[n]} pressure",
             limit=f"{n}0",
-            quote=f"The invented part{n} pressure shall not exceed {n}0 bar.",
+            quote=f"The invented part{'abcdefg'[n]} pressure shall not exceed {n}0 bar.",
         )
         for n in range(1, 7)
     ]
@@ -1865,7 +1866,7 @@ def test_applies_to_is_marked_verified_only_when_the_page_says_it():
 def test_the_strength_is_kept_apart(verb, strength):
     sentence = f"The pressure {verb} not exceed 200 psi."
     rule, why = _outcome(sentence)
-    assert why is None and rule["strength"] == strength
+    assert why is None and rule["sentence_strength"] == strength
 
 
 def test_need_not_exceed_is_not_a_limit():
@@ -2376,11 +2377,9 @@ def test_a_lone_figure_before_a_lowercase_line_is_not_a_heading():
 )
 def test_words_that_finish_the_property_are_not_a_lost_condition(sentence, over):
     rule, why = _verify_on(f"7.3 Part\n{sentence}", sentence, **over)
-    assert (
-        why is None
-        and rule["condition_text"] is None
-        and rule["limit_value"] == float(over["limit"])
-    )
+    plain = sentence == "The widgets shall be of 5-inch size."
+    assert why is None and rule["condition_text"] is None
+    assert rule["limit_value"] == (float(over["limit"]) if plain else None)
 
 
 @pytest.mark.parametrize(
@@ -2569,7 +2568,7 @@ def test_not_exceed_by_more_than_is_one_limit():
     rule, why = _verify_on(
         f"7.3 Part\n{sentence}", sentence, field="pressure rise", limit="7", unit="%"
     )
-    assert why is None and rule["comparator"] == "<="
+    assert why is None and rule["comparator"] is None and rule["limit_value"] is None
 
 
 def test_more_than_alone_still_says_more_than():
@@ -2728,7 +2727,7 @@ def test_a_qualifier_inside_the_field_does_not_contradict_the_comparator():
         "unit": "%",
     }
     rule, why = _verify_on(f"7.3 Part\n{sentence}", sentence, **over)
-    assert why is None and rule["comparator"] == "<"
+    assert why is None and rule["comparator"] is None and rule["limit_value"] is None
 
 
 def test_two_comparators_outside_the_field_stay_refused():
@@ -2767,7 +2766,7 @@ def test_a_bracket_in_the_words_after_a_limit_is_not_read_as_a_condition():
         "unit": "inch",
     }
     rule, why = _verify_on(f"7.3 Part\n{sentence}", sentence, **over)
-    assert why is None and rule["limit_value"] == 2.0
+    assert why is None and rule["limit_value"] is None
 
 
 def test_what_is_left_after_a_captured_condition_is_not_a_range():
@@ -3214,7 +3213,7 @@ def test_words_read_as_the_property_are_flagged_not_lost(tail):
 def test_words_the_field_already_names_are_not_flagged():
     sentence = "The pressure shall not exceed 6% of the gauge."
     rule, why = _plain(sentence, field="pressure of the gauge", limit="6", unit="%")
-    assert why is None and rule["context_flag"] is None
+    assert why is None and rule["context_flag"] == "figure_not_stored"
 
 
 def test_must_be_met_by_is_a_scope():
@@ -3337,7 +3336,7 @@ def test_part_of_that_scope_is_still_not_a_clause():
 def test_is_not_exceeded_is_not_flagged_as_a_lost_scope():
     sentence = "The drain shall hold a maximum thickness of 77 Poise is not exceeded."
     rule, why = _plain(sentence, field="maximum thickness", limit="77", unit="Poise")
-    assert why is None and rule["context_flag"] is None
+    assert why is None and rule["context_flag"] == "figure_not_stored"
 
 
 @pytest.mark.parametrize(
@@ -4473,7 +4472,8 @@ def test_the_whole_subject_as_condition_leaves_a_limit_named_after_the_modal():
         "unit": "m",
     }
     rule, why = _plain(sentence, condition="Widgets in sour plants", **over)
-    assert why is None and rule["limit_value"] == 7.0
+    assert why is None and rule["limit_value"] is None
+    assert rule["condition_text"] == "widgets in sour plants"
 
 
 def test_the_whole_subject_as_condition_cannot_take_the_field_with_it():
@@ -4665,3 +4665,198 @@ def test_the_next_sentence_after_a_wrapped_one_is_not_swallowed():
         "The widget shall be red.\nCovers shall be red."
     )
     assert len(sentences) == 2
+
+
+# ---- A figure is stored only from a sentence of a plain shape (allow-list); anything else keeps the sentence, no limit.
+
+FIGURE = {"limit": "5", "unit": "bar", "comparator": "<=", "field": "pressure"}
+
+
+def _stored(sentence, page=None, **over):
+    rule, why = _verify_on(
+        page or f"7.3 Part\n{sentence}", sentence, **{**FIGURE, **over}
+    )
+    assert why is None, why
+    return rule
+
+
+@pytest.mark.parametrize(
+    "sentence, over",
+    [
+        ("The pressure shall not exceed 5 bar.", {}),
+        ("The pressure must be at most 5 bar.", {}),
+        ("The pressure shall be no more than 5 bar.", {}),
+        ("The maximum pressure shall be 5 bar.", {"field": "maximum pressure"}),
+        ("The pressure shall be at least 5 bar.", {"comparator": ">="}),
+        (
+            "The wall shall have a minimum thickness of 5 mm.",
+            {"comparator": ">=", "unit": "mm", "field": "wall thickness"},
+        ),
+        ("The pressure shall be 5 bar.", {"comparator": "="}),
+        ("The pressure shall not exceed 5 bar (72 psi).", {}),
+    ],
+)
+def test_a_figure_in_a_plain_sentence_is_stored(sentence, over):
+    rule = _stored(sentence, **over)
+    assert rule["limit_value"] == 5
+    assert "figure_not_stored" not in (rule["context_flag"] or "")
+
+
+def test_a_held_condition_does_not_stop_a_plain_figure():
+    sentence = "When the rails are wet, the pressure shall not exceed 5 bar."
+    rule = _stored(sentence, condition="When the rails are wet")
+    assert (
+        rule["limit_value"] == 5 and rule["condition_text"] == "when the rails are wet"
+    )
+
+
+@pytest.mark.parametrize(
+    "sentence, over",
+    [
+        ("The pressure cannot exceed 5 bar.", {}),
+        ("It is prohibited that the pressure shall exceed 5 bar.", {"comparator": ">"}),
+        ("The pressure may exceed 5 bar.", {"comparator": ">"}),
+        ("The pressure will not exceed 5 bar.", {}),
+        ("The pressure shall be held and the rate shall not exceed 5 bar.", {}),
+        ("The pressure shall not exceed 5 bar or the rate.", {}),
+        ("The pressure and the rate shall not exceed 5 bar.", {}),
+        ("The pressure of the widget shall not exceed 5 bar.", {"field": "widget"}),
+        ("The pressure shall not exceed 5 bar (wet rails).", {}),
+        ("The pressure shall be vented to not exceed 5 bar.", {}),
+        ("The pressure cannot be less than 5 bar.", {"comparator": "<"}),
+    ],
+)
+def test_a_figure_in_any_other_sentence_keeps_the_rule_and_stores_no_figure(
+    sentence, over
+):
+    facts = {**FIGURE, **over}
+    assert not compiled_rule_shape.figure_is_plain(
+        sentence,
+        sentence,
+        "5",
+        "bar",
+        facts["comparator"],
+        facts["field"],
+        sentence,
+        f"7.3 Part\n{sentence}",
+    )
+    rule, why = _verify_on(f"7.3 Part\n{sentence}", sentence, **facts)
+    if why is None:  # an older check may drop it first; a figure is never stored
+        assert rule["limit_value"] is None and rule["limit_text"] is None
+        assert rule["comparator"] is None and rule["unit"] is None
+        assert rule["quote"] == sentence
+        assert "figure_not_stored" in rule["context_flag"]
+        assert rule["strength"] == "context_dependent"
+
+
+def test_most_sentences_of_an_unplain_shape_stay_as_rules_for_the_engineer():
+    for sentence, over in [
+        ("It is prohibited that the pressure shall exceed 5 bar.", {"comparator": ">"}),
+        ("The pressure of the widget shall not exceed 5 bar.", {"field": "widget"}),
+        ("The pressure will not exceed 5 bar.", {}),
+    ]:
+        rule, why = _verify_on(f"7.3 Part\n{sentence}", sentence, **{**FIGURE, **over})
+        assert why is None and rule["limit_value"] is None, sentence
+
+
+@pytest.mark.parametrize(
+    "sentence, over",
+    [
+        (
+            "The pressure shall not exceed 5 bar at the outlet.",
+            {"condition": "at the outlet"},
+        ),
+        (
+            "The pressure shall not exceed 5 bar in the first hour.",
+            {"exceptions": "in the first hour"},
+        ),
+    ],
+)
+def test_what_the_rule_holds_is_not_a_figure_shape_problem(sentence, over):
+    assert _stored(sentence, **over)["limit_value"] == 5
+
+
+@pytest.mark.parametrize(
+    "sentence, over, why",
+    [
+        ("The pressure cannot exceed 5 bar.", {}, "comparator_not_in_quote"),
+        (
+            "The pressure shall not exceed 5 bar or the rate.",
+            {},
+            "condition_not_captured",
+        ),
+    ],
+)
+def test_a_figure_the_older_proof_refuses_still_drops(sentence, over, why):
+    assert _verify_on(f"7.3 Part\n{sentence}", sentence, **{**FIGURE, **over}) == (
+        None,
+        why,
+    )
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "7.3 Part\nThe pressure shall not exceed 5 bar; the rate shall be 7 bar.",
+        "7.3 Part\nThe rate shall be 7 bar; The pressure shall not exceed 5 bar.",
+        "7.3 Part\nUse this:\nThe pressure shall not exceed 5 bar.",
+    ],
+)
+def test_a_clause_beside_the_quote_stores_no_figure(page):
+    assert (
+        _stored("The pressure shall not exceed 5 bar", page=page)["limit_value"] is None
+    )
+
+
+@pytest.mark.parametrize(
+    "after",
+    [
+        "Alternatively 7 bar is allowed.",
+        "Otherwise 7 bar is allowed.",
+        "However wet rails are left out.",
+    ],
+)
+def test_a_next_sentence_that_takes_it_back_stores_no_figure(after):
+    sentence = "The pressure shall not exceed 5 bar."
+    assert (
+        _stored(sentence, page=f"7.3 Part\n{sentence}\n{after}")["limit_value"] is None
+    )
+
+
+def test_scope_outside_the_sentence_stores_no_figure():
+    sentence = "The pressure shall not exceed 5 bar."
+    page = f"7.3 Part\nThis applies to wet rails only.\n{sentence}"
+    rule = _stored(sentence, page=page)
+    assert rule["limit_value"] is None and "adjacent_scope" in rule["context_flag"]
+
+
+def test_a_rule_with_no_figure_is_not_marked():
+    rule = _stored("The widget shall be red.", **NO_FIGURE)
+    assert "figure_not_stored" not in (rule["context_flag"] or "")
+
+
+def test_the_flagged_figure_is_counted_and_left_out_of_the_stored_number():
+    assert compiled_rule_shape.FIGURE_NOT_STORED == "figure_not_stored"
+
+
+@pytest.mark.parametrize(
+    "opener", ["In wet rails", "For wet rails", "During wet rails"]
+)
+def test_an_unrelated_exception_does_not_excuse_an_opening_scope(opener):
+    sentence = f"{opener} the widget shall be red."
+    page = f"7.3 Part\n{sentence}\nHubs apart from covers are left out."
+    assert _verify_on(page, sentence, exceptions="apart from covers", **NO_FIGURE) == (
+        None,
+        "condition_not_captured",
+    )
+
+
+def test_an_opening_scope_that_is_held_with_an_exception_stands():
+    sentence = "When the rails are wet the widget shall be red, except for covers."
+    rule, why = _plain(
+        sentence,
+        condition="When the rails are wet",
+        exceptions="except for covers",
+        **NO_FIGURE,
+    )
+    assert why is None and rule["exception_text"] == "except for covers"

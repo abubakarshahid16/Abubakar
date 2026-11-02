@@ -36,6 +36,8 @@ from .compiled_rule_pages import (
     sentences_of,
     whole_sentence,
 )
+from .compiled_rule_shape import FIGURE_NOT_STORED, figure_is_plain
+from .compiled_rule_shape import cue_spans as _cue_spans
 from .converter_gates import fold as _fold
 from .converter_gates import in_example, quote_unreadable
 from .datasheet_ai import unit_in_quote
@@ -125,8 +127,6 @@ _LEADING_PREPOSITION = re.compile(
     r"^(?P<clause>(?:for|during|above|below|at|except|within|after|before|on|with|without|once|until|while|given|"
     r"having|providing|should|as\s+long\s+as|in\s+case)\s+[^,;:.]{3,140}),\s"
 )
-#: "of" is `comparators_said`'s weak cue; it never binds a figure ("pressure of a 100 mm nozzle").
-_BIND_CUES = {**sc._CUES, "=": ("equal", "shall be", "must be", "is", "are", "=")}
 #: Words that take the obligation away, and the strength of the rest. "must" is as binding as "shall".
 _NOT_A_LIMIT = re.compile(
     r"\bneed\s+not\b|\bdoes\s+not\s+need\s+to\b|\bnot\s+required\s+to\b"
@@ -315,15 +315,6 @@ def _main_clause(quote: str, *held: str) -> str:
 
 def _unhyphen(text: str) -> str:
     return re.sub(r"(?<=\d)-(?=[a-z])", " ", text)
-
-
-def _cue_spans(comparator: str, text: str) -> list[tuple[int, int]]:
-    spans = []
-    for cue in _BIND_CUES.get(comparator, ()):
-        word = cue[0].isalpha()
-        pattern = rf"(?<![a-z]){re.escape(cue)}(?![a-z])" if word else re.escape(cue)
-        spans += [m.span() for m in re.finditer(pattern, text)]
-    return spans
 
 
 def _bound_to_comparator(number, unit: str, comparator: str, quote: str) -> bool:
@@ -602,16 +593,15 @@ def _condition_captured(
     if ai_requirements._is_conditional(plain):
         return False
     leading = _leading_scope(sentence)
-    if said:
-        return (
-            not leading
-            or leading in said
-            or any(
-                leading.startswith(_unhyphen(_fold(x)).strip(" ,"))
-                for x in _parts(condition)
-            )
-        )
-    return not leading and not _OPENS_WITH_SCOPE.match(sentence)
+    held = [_unhyphen(_fold(x)).strip(" ,") for x in _parts(condition)]
+    if leading:
+        return leading in said or any(leading.startswith(x) for x in held)
+    if not _OPENS_WITH_SCOPE.match(sentence):
+        return True
+    start = _unhyphen(
+        _fold(sentence)
+    )  # an exception held from elsewhere says nothing about the scope in front
+    return any(start.startswith(x) for x in held)
 
 
 def _lead_in(pages: dict[int, str], page: int, quote: str) -> str:
@@ -766,6 +756,17 @@ def verify(
         flags.append("exception_reworded")
     if limit and _tail_read_as_property(limit, unit, body, glossed):
         flags.append("tail_after_limit")
+    if (
+        limit
+        and (
+            flags
+            or not figure_is_plain(
+                whole, body, limit, unit, comparator, name, quote, text
+            )
+        )
+    ):  # the sentence stays for the engineer; a figure from a shape code does not understand is not stored
+        flags.append(FIGURE_NOT_STORED)
+        limit, unit, comparator = "", "", ""
     facts = {
         "quote": quote,
         "limit": limit,

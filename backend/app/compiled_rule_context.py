@@ -21,7 +21,7 @@ _REFERS_BACK = re.compile(
 )
 #: The next sentence takes the rule back, in part.
 _NEXT_EXCEPTION = re.compile(
-    r"^\W*(?:exception|exceptions|except|however|but|unless|this\s+(?:\w+\s+)?does\s+not)\b"
+    r"^\W*(?:exception|exceptions|except|however|but|unless|or|alternatively|otherwise|instead|this\s+(?:\w+\s+)?does\s+not)\b"
 )
 
 
