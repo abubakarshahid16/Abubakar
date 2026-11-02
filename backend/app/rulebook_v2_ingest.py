@@ -162,8 +162,9 @@ def _source(row, digest: str) -> dict:
     }
 
 
-def _readings(rows, standard: str, pages) -> tuple[list[Reading], Counter]:
-    """The rows that pass, each with its key. The same reading twice in one compile is one reading."""
+def _readings(rows, standard: str, pages) -> tuple[list[tuple], Counter]:
+    """(compiled row id, reading) for the rows that pass, each with its key. The same reading twice in one compile is
+    one reading."""
     dropped, readings, places, seen = Counter(), [], Counter(), set()
     for row in rows:
         digest, why = _proved(row, pages)
@@ -188,19 +189,18 @@ def _readings(rows, standard: str, pages) -> tuple[list[Reading], Counter]:
             continue
         seen.add(content)
         identity = _identity(row)
-        readings.append(
-            Reading(
-                rule_key=_key_of(standard, identity, places[identity]),
-                standard=standard,
-                requirement=requirement,
-                strength=row["strength"],
-                sentence_strength=row["sentence_strength"],
-                context_flag=row["context_flag"],
-                applicability=applicability,
-                exceptions=exceptions,
-                provenance=_source(row, digest),
-            )
+        reading = Reading(
+            rule_key=_key_of(standard, identity, places[identity]),
+            standard=standard,
+            requirement=requirement,
+            strength=row["strength"],
+            sentence_strength=row["sentence_strength"],
+            context_flag=row["context_flag"],
+            applicability=applicability,
+            exceptions=exceptions,
+            provenance=_source(row, digest),
         )
+        readings.append((row["id"], reading))
         places[identity] += 1
     return readings, dropped
 
@@ -218,7 +218,11 @@ def ingest_latest(conn, document_id: str) -> dict:
     )
     actor = _ACTOR_PREFIX + run["prompt_version"]
     with conn:
-        written = Counter(rulebook_v2.append_reading(conn, r, actor) for r in readings)
+        written = Counter()
+        for row_id, reading in readings:
+            what, version_id = rulebook_v2.append_reading(conn, reading, actor)
+            written[what] += 1
+            rulebook_v2.link_compiled_row(conn, run["id"], row_id, version_id)
         counts = {
             "compiled_rows": len(rows),
             "written": dict(sorted(written.items())),
