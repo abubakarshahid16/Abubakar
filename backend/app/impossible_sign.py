@@ -1,0 +1,130 @@
+"""A value that should not be negative, printed negative, never gives a Pass (#1607).
+
+Every limit check here is one-sided: "at most 10% of the set pressure" holds for -0.5 barg,
+and "is stated" holds for anything. The planted-defect scorer read such a sheet as a Pass.
+A role marked `never_negative` in `reference/datasheet_checks.json` says a negative value is
+not to be passed unread: nearly always an error, and where it is real (a vacuum relief set
+pressure, CDTP or superimposed back pressure) the engineer confirms it. Hence a Query, never
+a Fail. Why each kind is in or out is written beside the data.
+
+PURELY STOPS A FALSE PASS, so no switch: COMPLIANT becomes NEEDS_ENGINEER_REVIEW and every
+other status is left alone. A Fail stays a Fail. The arithmetic stays in the words. General:
+it reads the role table and the printed sign, never a layout or a sheet (rule 13).
+
+Two homes call the one test: `datasheet_checks.evaluate` (`hold_results`, reached through
+`deferred_value.hold_results`, its one exit) and the library
+standards' `comparison._hold_low_trust_breach` (`hold_pass`).
+"""
+
+from __future__ import annotations
+
+from . import claims, numparse
+from .deferred_value import CALC_INPUT_ROLES
+
+_PASS = "COMPLIANT"
+_QUERY = "NEEDS_ENGINEER_REVIEW"
+
+
+def is_negative(fact: dict | None) -> bool:
+    """The value as printed is a number below zero. A range, a word, a blank are not."""
+    if not fact or fact.get("is_blank") or fact.get("raw_value") is None:
+        return False
+    text = str(fact["raw_value"]).strip()
+    # Both readers: `as_number` reads a Unicode hyphen and "-.5" as the minus they are.
+    readings = (claims.parse_value(text), numparse.as_number(text))
+    return any(number is not None and number < 0 for number in readings)
+
+
+def _why(fact: dict, role: str) -> str:
+    name = role.replace("_", " ")
+    return (
+        f"the sheet prints the {name} as {fact.get('raw_value')} (page {fact.get('page')}), and a negative "
+        f"value here is unusual (it fits only a case such as vacuum service)"
+    )
+
+
+def _roles_read(rules: dict) -> dict[str, set[str]]:
+    """rule id -> the fields it reads, from the rule data."""
+    out = {
+        r["id"]: {r[k] for k in ("left", "right") if r.get(k)}
+        for r in rules.get("consistency", [])
+    }
+    for checklist in (rules.get("checklists") or {}).values():
+        for item in checklist.get("items", []) if isinstance(checklist, dict) else []:
+            rule = item.get("rule") or {}
+            read = {
+                rule[k]
+                for k in ("field", "left", "right", "percent_of_role")
+                if rule.get(k)
+            }
+            out[item["id"]] = read | (
+                set(CALC_INPUT_ROLES) if rule.get("kind") == "calc" else set()
+            )
+    return out
+
+
+def _impossible(facts: list[dict], rules: dict, wanted) -> list[tuple[dict, str]]:
+    from .datasheet_checks import role_of
+
+    roles = rules.get("roles") or {}
+    found = []
+    for fact in facts:
+        if not is_negative(fact):
+            continue
+        role = role_of(fact.get("field_name") or "", rules, wanted)
+        if role and (roles.get(role) or {}).get("never_negative"):
+            found.append((fact, role))
+    return found
+
+
+def hold_results(
+    results: list[dict], facts: list[dict], rules: dict, wanted
+) -> list[dict]:
+    """The datasheet checks: every Pass that reads an impossible value becomes a Query."""
+    found = _impossible(facts, rules, wanted)
+    if not found:
+        return results
+    reads = _roles_read(rules)
+    out = []
+    for r in results:
+        hit = None
+        if r.get("status") == _PASS:
+            tag, read = r.get("equipment_tag"), reads.get(r.get("rule_id"), set())
+            hit = next(
+                (
+                    (fact, role)
+                    for fact, role in found
+                    if fact.get("id") == r.get("fact_id")
+                    or (role in read and fact.get("equipment_tag") in (tag, None))
+                ),
+                None,
+            )
+        if hit is None:
+            out.append(r)
+            continue
+        out.append(
+            {
+                **r,
+                "status": _QUERY,
+                "detail": f"Could not be judged: {_why(*hit)}. Engineer to check the value. "
+                f"The numbers read {_PASS}: {r.get('detail') or ''}".strip(),
+            }
+        )
+    return out
+
+
+def hold_pass(verdict: dict, fact: dict | None) -> dict:
+    """A library standard's verdict on one value: a Pass on an impossible value is a Query."""
+    if verdict.get("status") != _PASS or not is_negative(fact):
+        return verdict
+    from .datasheet_checks import load_rules
+
+    found = _impossible([fact], load_rules(), frozenset())
+    if not found:
+        return verdict
+    return {
+        **verdict,
+        "status": _QUERY,
+        "rationale": f"{_why(*found[0])}, so no verdict is stated; the arithmetic on the value "
+        f"as read: {verdict.get('rationale') or ''}",
+    }

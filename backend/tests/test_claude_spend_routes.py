@@ -63,10 +63,11 @@ def _fake_transport(monkeypatch, usage=None, text="{}"):
     return sent
 
 
-def _seed_ledger(step: str, usd: float) -> None:
+def _seed_ledger(step: str, usd: float, run: str | None = None) -> None:
     path = settings.claude_spend_log
+    line = {"step": step, "cost_usd": usd, **({"run": run} if run else {})}
     with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"step": step, "cost_usd": usd}) + "\n")
+        fh.write(json.dumps(line) + "\n")
 
 
 # ------------------------------------------------ the check, per route step
@@ -153,7 +154,8 @@ ROUTES = [
 def test_a_route_over_the_cap_answers_409_and_sends_nothing(method, path, step, monkeypatch):
     sent = _fake_transport(monkeypatch)
     _stub_modules(monkeypatch)
-    _seed_ledger(step, 4.9999)              # this route's step is at its cap
+    # This route's step is at its cap, on this run (#1584).
+    _seed_ledger(step, 4.9999, run="run-x")
     response = getattr(TestClient(app), method)(path)
     assert response.status_code == 409, response.text
     detail = response.json()["detail"]
@@ -234,7 +236,7 @@ def test_a_usd_limit_mid_run_returns_the_paid_results_marked_incomplete(monkeypa
 def test_a_usd_limit_on_the_first_call_of_a_real_loop_is_still_a_409(monkeypatch):
     sent = _fake_transport(monkeypatch)
     stored = _real_recheck_over_three_findings(monkeypatch)
-    _seed_ledger(claude_api.STEP_RECHECK, 4.9999)
+    _seed_ledger(claude_api.STEP_RECHECK, 4.9999, run="run-x")
     response = TestClient(app).post("/api/reviews/runs/run-x/claude/recheck")
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == claude_api.MODEL_DISABLED

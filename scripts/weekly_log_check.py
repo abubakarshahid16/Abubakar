@@ -76,7 +76,7 @@ def spend_section(since: datetime) -> list[str]:
     if not calls:
         lines.append("- The ledger has no calls (file missing or empty).")
         return lines
-    lines += ["", "| Step | Calls this window | USD this window | USD all time | Step cap |",
+    lines += ["", "| Step | Calls this window | USD this window | USD all time | Step cap (per review run; all time outside one) |",
               "|---|---|---|---|---|"]
     week_calls = Counter(e.get("step") for e in week)
     week_usd: Counter = Counter()

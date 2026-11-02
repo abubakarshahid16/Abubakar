@@ -67,7 +67,9 @@ def test_every_other_step_keeps_its_5_dollar_cap():
         )  # only the exact prefix earns the larger cap
 
 
-def test_the_total_is_500_not_20():
+def test_the_total_is_500_not_20(monkeypatch):
+    # The spend of many days: the USD 100 a day has its own tests (test_claude_cost_controls).
+    monkeypatch.setattr(claude_spend.report_mod, "day_cap", lambda: 1000.0)
     _hold("requirement-matcher", 4.0)
     for n in range(19):  # 4 + 19 * 25 = 479
         _hold(f"standards_convert:S-{n}", 25.0)

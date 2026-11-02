@@ -231,6 +231,8 @@ EGRESS_SAFE: dict[str, object] = {
     "spec_kit_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
+    # --- local only, no socket: the bench also prints the planted-defect table (#1607, off by default)
+    "planted_defects_bench_enabled": False,
     # --- local only, no model or socket: a split abbreviation is joined; a unit left off one copy is one value (off by default)
     "datasheet_label_join_enabled": False,
     # --- local only, no model or socket: a drawing is checked against a DRAFT must-contain list (#1484, off by default)
@@ -278,6 +280,7 @@ EGRESS_SAFE: dict[str, object] = {
     "procedure_crs_fields_enabled": False,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own
     "claude_auto_approve_reviews_enabled": False,
+    "claude_cost_controls_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: presence check of a playbook whose standard is not held (#1522, off by default)
