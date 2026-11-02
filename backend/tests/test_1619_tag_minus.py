@@ -19,6 +19,11 @@ def test_a_minus_directly_after_a_letter_is_no_sign(text, minus):
     assert numparse.parse_value(text.format(minus)) is None
 
 
+@pytest.mark.parametrize("text", ["T--5", "A_-5", "A.-5", "A/-5", "%-5", "+-5", "--5"])
+def test_no_sign_outside_the_sign_leads(text):
+    assert numparse.parse_value(text) is None
+
+
 @pytest.mark.parametrize("minus", ["-", U_MINUS])
 def test_a_tag_shaped_value_has_no_measurement_value(minus):
     measured = claims.normalise(f"A{minus}5", "mm")
@@ -98,56 +103,46 @@ def test_the_stated_figure_is_not_found_in_a_tag_as_a_negative():
     assert not numparse.value_in_text("-5", "Grade A-5 applies")
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "Grade A-5 mm or less applies.",
-        "MDMT-29 C or lower",
-        "Grade A-15 C or lower",
-        "P-101 mm or less",
-        "A-5.5 mm or less",
-        "A-1,5 mm or less",
-        "5mm-10 mm or less",
-    ],
-)
-def test_a_trailing_limit_never_restarts_inside_a_joined_number(text):
-    assert requirements_3b.parse_limit(text) is None
+#: Every case the three review rounds of #1635 found: no reading of the value is safe.
+NO_LIMIT = [
+    ("Grade A-5 mm or less applies.", "mm"),
+    ("MDMT-29 C or lower", "C"),
+    ("Grade A-15 C or lower", "C"),
+    ("P-101 mm or less", "mm"),
+    ("A-5.5 mm or less", "mm"),
+    ("A-1,5 mm or less", "mm"),
+    ("5mm-10 mm or less", "mm"),
+    ("A1-29 C or lower", "C"),
+    ("Zone 2-29 C or lower", "C"),
+    ("No.2-29 C or lower", "C"),
+    ("150-29 C or lower", "C"),
+    ("T1-15 C or lower", "C"),
+    ("Item 3-15 C or lower", "C"),
+    ("3-5 mm or less", "mm"),
+    ("-20--10 C or lower", "C"),
+    ("5--10 C or lower", "C"),
+    ("A--29 C or lower", "C"),
+    ("Zone 2--29 C or lower", "C"),
+    ("T--5 C or lower", "C"),
+]
+
+#: (text, unit, the value read). A real negative or positive keeps its value.
+REAL_LIMIT = [
+    ("The design value is -5 C or less.", "C", "-5"),
+    ("-5 C or less", "C", "-5"),
+    ("-20 - -10 C or lower", "C", "-10"),
+    ("T=-29 C or lower", "C", "-29"),
+    ("T = -29 C or lower", "C", "-29"),
+    ("T: -29 C or lower", "C", "-29"),
+    ("(-15 C or lower", "C", "-15"),
+    ("3 -5 C or lower", "C", "-5"),
+    ("The design value is 5 C or less.", "C", "5"),
+    ("The design value is +5 C or less.", "C", "+5"),
+    ("The thickness is 1,5 mm or less.", "mm", "1,5"),
+]
 
 
-@pytest.mark.parametrize(
-    "text, raw", [("-5 C or less", "-5"), ("5 C or less", "5"), ("+5 C or less", "+5")]
-)
-def test_a_trailing_limit_keeps_a_real_value(text, raw):
-    limit = requirements_3b.parse_limit("The design value is " + text + ".")
-    assert limit is not None and limit["raw_value"] == raw
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "A1-29 C or lower",
-        "Zone 2-29 C or lower",
-        "No.2-29 C or lower",
-        "150-29 C or lower",
-        "T1-15 C or lower",
-        "Item 3-15 C or lower",
-        "3-5 mm or less",
-    ],
-)
-def test_a_digit_then_hyphen_then_digit_is_no_trailing_limit(text):
-    assert requirements_3b.parse_limit(text) is None
-
-
-@pytest.mark.parametrize(
-    "text, value, unit, expected",
-    [
-        ("MDMT-29 C or lower", "5", "C", comparison.NEEDS_ENGINEER_REVIEW),
-        ("MDMT-29 C or lower", "-40", "C", comparison.NEEDS_ENGINEER_REVIEW),
-        ("A1-29 C or lower", "5", "C", comparison.NEEDS_ENGINEER_REVIEW),
-        ("3-5 mm or less", "4", "mm", comparison.NEEDS_ENGINEER_REVIEW),
-    ],
-)
-def test_an_unreadable_limit_goes_to_review(text, value, unit, expected):
+def _verdict(text: str, value: str, unit: str) -> str:
     limit = requirements_3b.parse_limit(text)
     requirement = {
         "id": "r",
@@ -170,4 +165,28 @@ def test_an_unreadable_limit_goes_to_review(text, value, unit, expected):
         "is_blank": 0,
         "blank_marker": None,
     }
-    assert comparison.compare(requirement, fact)["status"] == expected
+    return comparison.compare(requirement, fact)["status"]
+
+
+@pytest.mark.parametrize("text, unit", NO_LIMIT)
+def test_a_joined_number_gives_no_trailing_limit(text, unit):
+    assert requirements_3b.parse_limit(text) is None
+
+
+@pytest.mark.parametrize("value", ["-40", "0", "5", "25"])
+@pytest.mark.parametrize("text, unit", NO_LIMIT)
+def test_a_joined_number_goes_to_review(text, unit, value):
+    assert _verdict(text, value, unit) == comparison.NEEDS_ENGINEER_REVIEW
+
+
+@pytest.mark.parametrize("text, unit, raw", REAL_LIMIT)
+def test_real_limits_keep_their_value(text, unit, raw):
+    assert requirements_3b.parse_limit(text)["raw_value"] == raw
+
+
+@pytest.mark.parametrize(
+    "text, unit, raw", [r for r in REAL_LIMIT if r[2].startswith("-")]
+)
+def test_real_negative_limits_still_decide(text, unit, raw):
+    assert _verdict(text, "25", unit) == comparison.NON_COMPLIANT
+    assert _verdict(text, "-40", unit) == comparison.COMPLIANT
