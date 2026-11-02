@@ -169,6 +169,22 @@ def title_only() -> bool:
     return settings.equipment_from_title_block_enabled
 
 
+def _names_the_sheet(pages: list[dict], line: str) -> bool:
+    """Switch on: a heading is the title only when it calls itself a data sheet and sits in
+    the title block. A section or panel heading ("MOTOR DATA") never does (owner, 1 Nov)."""
+    text = " ".join(line.lower().split())
+    if not _DATA_SHEET.search(text):
+        return False
+    titles = (
+        " ".join(ln.lower().split())
+        for _p, ln in classification.title_block_lines(pages)
+    )
+    return any(
+        t and (t == text or (len(t.split()) > 1 and text.startswith(f"{t} ")))
+        for t in titles
+    )
+
+
 def fill(document_id: str) -> dict:
     """Write the heading as the title, and as the equipment type when that is
     still empty. Returns `{field: value}` for what was written (empty when
@@ -195,7 +211,7 @@ def fill(document_id: str) -> dict:
         )
     ]
     found = heading(pages)
-    if found is None:
+    if found is None or (title_only() and not _names_the_sheet(pages, found[1])):
         return {}
     page, line = found
     now = _now()

@@ -21,6 +21,11 @@ from .db import connect
 
 NOTE = "Equipment type not read from the title block - engineer to confirm"
 METHOD = "engineer_to_confirm"
+TO_CONFIRM = "equipment type: engineer to confirm"
+KEPT = (
+    f"{TO_CONFIRM}; kept for the review because the type could not be used to choose, "
+    "not because its scope was checked"
+)
 #: A line that calls itself a sheet or a labelled title: where a second type may be named.
 _SHEET_WORDS = re.compile(
     r"data[\s\-]*sheet|specification|^\s*(?:document\s+)?title\s*:", re.I
@@ -204,29 +209,80 @@ def store_to_confirm(document_id: str, reading: TitleReading) -> None:
         )
 
 
-def for_submittal(submittal_id: str) -> list[dict]:
-    """The Review note when the submittal's equipment type waits for an engineer
-    (NULL, marked). Nothing otherwise, and nothing with the switch off."""
+def _marked(document_id: str) -> dict | None:
+    """The stored "engineer to confirm" evidence: switch on, type NULL, nobody confirmed."""
     from .config import settings
 
     if not settings.equipment_from_title_block_enabled:
-        return []
+        return None
     row = (
         connect()
         .execute(
             "SELECT equipment_type, equipment_type_evidence, confirmed_by"
             " FROM document_classification WHERE document_id = ?",
-            (submittal_id,),
+            (document_id,),
         )
         .fetchone()
     )
     if row is None or row["equipment_type"] or row["confirmed_by"]:
-        return []
+        return None
     try:
         evidence = json.loads(row["equipment_type_evidence"] or "null")
     except ValueError:
-        return []
-    if not isinstance(evidence, dict) or evidence.get("method") != METHOD:
+        return None
+    return (
+        evidence
+        if isinstance(evidence, dict) and evidence.get("method") == METHOD
+        else None
+    )
+
+
+def keep_without_type(
+    document_id: str, selected: dict, not_run: str | None
+) -> str | None:
+    """The standards step with no equipment term: the sentence for "why the scope clauses were
+    not checked"; `not_run` unchanged when the type is not waiting for the engineer.
+
+    The scope question compares a standard's scope with a type, so it has no subject here and
+    no model is asked; no type is taken from the body, stored or proposed (owner, 1 Nov). What
+    remains is what the sheet's own words already matched (`applicability._match_semantic`, a
+    short ranked list). Those rows are kept and say why, so the rules are reviewed instead of
+    a silent 0, and the engineer who confirms the type can remove any of them."""
+    if _marked(document_id) is None:
+        return not_run
+    for row in selected.values():
+        if row["method"] == "semantic":
+            row["kept_without_type"] = True
+            row["reason"] = f"{row['reason']}; {KEPT}"
+    return f"scope clauses not checked: {TO_CONFIRM}"
+
+
+def unknown_type_words(document_id: str) -> dict:
+    """The review's words when no rule asked the sheet for a value and the type waits for
+    the engineer (`comparison.plain_reason`, `_insufficient_reason`). Empty otherwise."""
+    if _marked(document_id) is None:
+        return {}
+    why = (
+        "equipment type is unknown (engineer to confirm), so which standards apply "
+        "is not settled, and no rule checked asked this datasheet for a value"
+    )
+    return {"unknown_type_plain": f"The {why}.", "unknown_type_technical": f"the {why}"}
+
+
+def title_as_equipment(record: dict) -> str | None:
+    """The title as a source of the equipment reading (`subject_scope.read_equipment`).
+    Switch on: none. The stored type is the title block's answer; a title that gets here may
+    be a section heading stored by an older ingest."""
+    from .config import settings
+
+    return None if settings.equipment_from_title_block_enabled else record.get("title")
+
+
+def for_submittal(submittal_id: str) -> list[dict]:
+    """The Review note when the submittal's equipment type waits for an engineer
+    (NULL, marked). Nothing otherwise, and nothing with the switch off."""
+    evidence = _marked(submittal_id)
+    if evidence is None:
         return []
     seen = evidence.get("types") or []
     detail = (
@@ -242,7 +298,8 @@ def for_submittal(submittal_id: str) -> list[dict]:
             "detail": (
                 f"{detail}, so the equipment type is left empty and the equipment-type "
                 "checklist was not chosen. A section heading inside the page never sets it. "
-                "Confirm the equipment type on the classification."
+                "Any standard kept for this review was matched by the sheet's own words, not by a "
+                "scope check. Confirm the equipment type on the classification."
             ),
         }
     ]

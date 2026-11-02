@@ -188,6 +188,8 @@ class SettingsExt(BaseModel):
     #: Owner decision 1 Nov (part of #1478): ONLY the title block (`classification.title_block_lines`) sets
     #: the equipment type; a section or panel heading in the page body never does (a pump sheet's 'MOTOR
     #: DATA' panel made it a Motor). None or two different types in the title block: the type is NULL,
-    #: marked 'engineer to confirm', with a Review note; no checklist is chosen. OFF: unchanged.
+    #: marked 'engineer to confirm', with a Review note; no checklist is chosen. The standards step still runs with no equipment term: the
+    #: standards the sheet's own words matched are kept and say so; no type is taken from the body. A section
+    #: heading never sets the title either. OFF: unchanged.
     #: Env: EQUIPMENT_FROM_TITLE_BLOCK_ENABLED.
     equipment_from_title_block_enabled: bool = False

@@ -45,7 +45,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import numparse
+from . import equipment_title_block, numparse
 
 VOCABULARY_PATH = Path(__file__).parent / "reference" / "equipment_vocabulary.json"
 
@@ -134,7 +134,7 @@ def read_equipment(
     classification = classification or {}
     sources = (
         ("classification", classification.get("equipment_type")),
-        ("title", classification.get("title")),
+        ("title", equipment_title_block.title_as_equipment(classification)),
         (
             "fields",
             " ; ".join(
