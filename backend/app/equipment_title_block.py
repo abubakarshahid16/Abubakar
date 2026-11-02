@@ -22,10 +22,17 @@ from .db import connect
 NOTE = "Equipment type not read from the title block - engineer to confirm"
 METHOD = "engineer_to_confirm"
 TO_CONFIRM = "equipment type: engineer to confirm"
+#: At most this many STANDARDS are kept when no type can choose. Not "all that match": the
+#: match is any of the sheet's distinctive words, which most of a library meets. What the limit
+#: leaves out is named on the run's notes.
+KEEP_LIMIT = 5
 KEPT = (
     f"{TO_CONFIRM}; kept for the review because the type could not be used to choose, "
     "not because its scope was checked"
 )
+LEFT_OUT = f"not checked: engineer to confirm (only the first {KEEP_LIMIT} standards by match are kept)"
+#: Every match, however deep: the ranked standards are counted, never a page of chunks.
+_ALL_MATCHES = 10_000_000
 #: A line that calls itself a sheet or a labelled title: where a second type may be named.
 _SHEET_WORDS = re.compile(
     r"data[\s\-]*sheet|specification|^\s*(?:document\s+)?title\s*:", re.I
@@ -238,22 +245,39 @@ def _marked(document_id: str) -> dict | None:
 
 
 def keep_without_type(
-    document_id: str, selected: dict, not_run: str | None
+    document_id: str,
+    selected: dict,
+    not_run: str | None,
+    library: list,
+    allowed: frozenset,
 ) -> str | None:
     """The standards step with no equipment term: the sentence for "why the scope clauses were
     not checked"; `not_run` unchanged when the type is not waiting for the engineer.
 
     The scope question compares a standard's scope with a type, so it has no subject here and
     no model is asked; no type is taken from the body, stored or proposed (owner, 1 Nov). What
-    remains is what the sheet's own words already matched (`applicability._match_semantic`, a
-    short ranked list). Those rows are kept and say why, so the rules are reviewed instead of
-    a silent 0, and the engineer who confirms the type can remove any of them."""
+    remains is what the sheet's own words match (`applicability._match_semantic`), ranked by
+    standard. The first `KEEP_LIMIT` standards are kept and say why, so the rules are reviewed
+    instead of a silent 0; the rest are recorded as left out, and `for_submittal` names them.
+    A standard another route already found keeps that reason and takes no place."""
     if _marked(document_id) is None:
         return not_run
-    for row in selected.values():
-        if row["method"] == "semantic":
+    from . import applicability
+
+    matched = applicability._match_semantic(
+        document_id, library, allowed, limit=_ALL_MATCHES
+    )
+    ranked = [
+        sid
+        for sid, row in matched.items()
+        if selected.get(sid, row)["method"] == row["method"]
+    ]
+    for place, sid in enumerate(ranked):
+        row = selected.setdefault(sid, dict(matched[sid]))
+        row["satisfies_reference"] = False
+        if place < KEEP_LIMIT:
             row["kept_without_type"] = True
-            row["reason"] = f"{row['reason']}; {KEPT}"
+        row["reason"] = f"{row['reason']}; {KEPT if place < KEEP_LIMIT else LEFT_OUT}"
     return f"scope clauses not checked: {TO_CONFIRM}"
 
 
@@ -269,18 +293,69 @@ def unknown_type_words(document_id: str) -> dict:
     return {"unknown_type_plain": f"The {why}.", "unknown_type_technical": f"the {why}"}
 
 
-def title_as_equipment(record: dict) -> str | None:
-    """The title as a source of the equipment reading (`subject_scope.read_equipment`).
-    Switch on: none. The stored type is the title block's answer; a title that gets here may
-    be a section heading stored by an older ingest."""
+def equipment_sources(sources: tuple) -> tuple:
+    """The sources of the equipment reading (`subject_scope.read_equipment`). Switch on: the
+    stored type alone, which is the title block's answer. A stored title may be a section
+    heading from an older ingest, and a body field ("Type: ... motor") may be about a part."""
     from .config import settings
 
-    return None if settings.equipment_from_title_block_enabled else record.get("title")
+    if not settings.equipment_from_title_block_enabled:
+        return sources
+    return tuple(s for s in sources if s[0] == "classification")
 
 
-def for_submittal(submittal_id: str) -> list[dict]:
-    """The Review note when the submittal's equipment type waits for an engineer
-    (NULL, marked). Nothing otherwise, and nothing with the switch off."""
+def _run_rows(review_run_id: str, allowed: frozenset) -> list:
+    """This run's standards that the words matched, by name; only those the caller may read."""
+    rows = (
+        connect()
+        .execute(
+            "SELECT a.standard_document_id AS id, a.selection_reason AS reason, a.included,"
+            " c.document_number, d.filename FROM review_applicable_standards a"
+            " JOIN documents d ON d.id = a.standard_document_id"
+            " LEFT JOIN document_classification c ON c.document_id = a.standard_document_id"
+            " WHERE a.review_run_id = ? ORDER BY a.standard_document_id",
+            (review_run_id,),
+        )
+        .fetchall()
+    )
+    return [r for r in rows if r["id"] in allowed]
+
+
+def _limit_notes(review_run_id: str, allowed: frozenset) -> tuple[str, list[dict]]:
+    """(the count sentence for the main note, the note naming what the limit left out)."""
+    rows = _run_rows(review_run_id, allowed)
+    kept = [r for r in rows if r["included"] and KEPT in r["reason"]]
+    left = [r for r in rows if not r["included"] and LEFT_OUT in r["reason"]]
+    total = len(kept) + len(left)
+    where = "in the library this reviewer may read"
+    if not total:
+        return f" No standard {where} matched the sheet's own words.", []
+    count = (
+        f" Kept: {len(kept)} of the {total} standards that matched {where} "
+        f"(limit {KEEP_LIMIT} standards)."
+    )
+    if not left:
+        return count, []
+    names = ", ".join(r["document_number"] or r["filename"] for r in left)
+    return count, [
+        {
+            "note": f"{len(left)} more matched and were not checked: engineer to confirm",
+            "standard": "",
+            "count": len(left),
+            "detail": f"Matched the sheet's own words {where}, over the limit of "
+            f"{KEEP_LIMIT} standards: {names}.",
+        }
+    ]
+
+
+def for_submittal(
+    submittal_id: str,
+    review_run_id: str | None = None,
+    allowed: frozenset = frozenset(),
+) -> list[dict]:
+    """The Review notes when the submittal's equipment type waits for an engineer (NULL,
+    marked): with a run, how many standards were kept and which the limit left out, for the
+    standards in `allowed`. Nothing otherwise, and nothing with the switch off."""
     evidence = _marked(submittal_id)
     if evidence is None:
         return []
@@ -289,6 +364,9 @@ def for_submittal(submittal_id: str) -> list[dict]:
         "The title block names two different equipment types (" + " / ".join(seen) + ")"
         if evidence.get("reason") == "ambiguous"
         else "The title block names no equipment type"
+    )
+    count, left_out = (
+        _limit_notes(review_run_id, allowed) if review_run_id else ("", [])
     )
     return [
         {
@@ -299,7 +377,8 @@ def for_submittal(submittal_id: str) -> list[dict]:
                 f"{detail}, so the equipment type is left empty and the equipment-type "
                 "checklist was not chosen. A section heading inside the page never sets it. "
                 "Any standard kept for this review was matched by the sheet's own words, not by a "
-                "scope check. Confirm the equipment type on the classification."
+                f"scope check.{count} Confirm the equipment type on the classification."
             ),
-        }
+        },
+        *left_out,
     ]

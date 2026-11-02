@@ -11,6 +11,7 @@ from app import (
     applicability,
     classification,
     comparison,
+    datasheets,
     db,
     equipment_title_block,
     fts_index,
@@ -165,6 +166,143 @@ def test_a_type_the_title_block_names_keeps_nothing_by_similar_words(on):
     classification.classify_equipment_type_for_submittal("sub")
     _result, rows = _select(frozenset({"sub", "std"}))
     assert "std" not in rows or rows["std"]["included"] is False
+
+
+def _std(doc_id, chunks=1):
+    """A standard with the sheet's words, in `chunks` chunks."""
+    _add(doc_id, "COMPANY_STANDARD", f"Rules for the {WORDS}.", document_number=doc_id)
+    with db.connect() as conn:
+        for i in range(1, chunks):
+            conn.execute(
+                "INSERT INTO chunks (id, document_id, filename, ordinal, page_start, page_end,"
+                " text, token_count, content_hash, retrievable) VALUES (?,?,'f',?,1,1,?,1,?,1)",
+                (f"{doc_id}_c{i}", doc_id, i, f"{WORDS} {WORDS}", f"{doc_id}{i}"),
+            )
+    fts_index.index_document(doc_id)
+
+
+def _many(n):
+    """A sheet that names no type, and `n` standards with the same words."""
+    _add("sub", "CONTRACTOR_SUBMITTAL", _page())
+    ids = [f"ZZ-{i}" for i in range(n)]
+    for doc_id in ids:
+        _std(doc_id)
+    classification.classify_equipment_type_for_submittal("sub")
+    return frozenset({"sub", *ids})
+
+
+def _kept(rows):
+    return [sid for sid, row in rows.items() if row["included"]]
+
+
+def test_the_limit_counts_standards_and_a_long_standard_takes_one_place(on):
+    allowed = frozenset({"sub", "LONG", *[f"ZZ-{i}" for i in range(4)]})
+    _add("sub", "CONTRACTOR_SUBMITTAL", _page())
+    _std("LONG", chunks=12)
+    for i in range(4):
+        _std(f"ZZ-{i}")
+    classification.classify_equipment_type_for_submittal("sub")
+    _result, rows = _select(allowed)
+    assert len(_kept(rows)) == 5
+
+
+def test_what_the_limit_leaves_out_is_on_the_result_and_never_included(on):
+    _result, rows = _select(_many(8))
+    assert len(_kept(rows)) == equipment_title_block.KEEP_LIMIT == 5
+    left = [r for r in rows.values() if not r["included"]]
+    assert len(left) == 3
+    assert all("not checked: engineer to confirm" in r["reason"] for r in left)
+
+
+def test_the_crs_names_what_the_limit_left_out_and_states_the_boundary(on, monkeypatch):
+    from app import access
+    from app.main import app
+    from tests.test_crs_endpoint import _client
+    from tests.test_crs_endpoint import _run as _review_run
+
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    allowed = _many(8)
+    run_id = _review_run("sub")
+    applicability.select("sub", allowed_document_ids=allowed, review_run_id=run_id)
+    try:
+        view = _client(*allowed).get(f"/api/reviews/runs/{run_id}/crs/preview").json()
+    finally:
+        app.dependency_overrides.clear()
+    notes = {n["note"]: n for n in view["review_notes"]}
+    left = notes["3 more matched and were not checked: engineer to confirm"]
+    assert left["count"] == 3
+    named = [f"ZZ-{i}" for i in range(8) if f"ZZ-{i}" in left["detail"]]
+    assert len(named) == 3
+    kept = notes[equipment_title_block.NOTE]["detail"]
+    assert "5 of the 8 standards" in kept and "library this reviewer may read" in kept
+
+
+def test_a_caller_who_may_not_read_a_left_out_standard_never_sees_its_name(on):
+    allowed = _many(8)
+    run_id = "run-1"
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at,"
+            " updated_at) VALUES (?,'sub','pending','2026-11-02','2026-11-02')",
+            (run_id,),
+        )
+    applicability.select("sub", allowed_document_ids=allowed, review_run_id=run_id)
+    all_notes = equipment_title_block.for_submittal("sub", run_id, allowed)
+    left = all_notes[1]["detail"]
+    hidden = next(f"ZZ-{i}" for i in range(8) if f"ZZ-{i}" in left)
+    notes = equipment_title_block.for_submittal("sub", run_id, allowed - {hidden})
+    assert hidden not in " ".join(n["detail"] for n in notes)
+
+
+def _driver_fact():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at,"
+            " updated_at) VALUES ('run-f','sub','pending','2026-11-02','2026-11-02')"
+        )
+    datasheets.create_fact(
+        submittal_document_id="sub",
+        chunk_id="sub_c",
+        field_label="Type",
+        raw_value="TEFC induction motor",
+        page=1,
+        review_run_id="run-f",
+    )
+
+
+@pytest.mark.parametrize("switch", [True, False])
+def test_a_body_field_never_reads_as_the_type_with_the_switch_on(monkeypatch, switch):
+    monkeypatch.setattr(settings, "equipment_from_title_block_enabled", switch)
+    found, source, _doubt = subject_scope.read_equipment(
+        {"equipment_type": None, "title": None},
+        [{"field_label": "Type", "raw_value": "TEFC induction motor"}],
+        subject_scope.vocabulary(),
+    )
+    assert (found, source) == ((set(), None) if switch else ({"motor"}, "fields"))
+
+
+def test_a_body_field_asks_for_no_motor_standard_with_the_switch_on(on):
+    allowed = _world()
+    _driver_fact()
+    result, _rows = _select(allowed)
+    named = [g["identifier"] for g in result["governing_not_held"]]
+    assert "IEC 60034" not in named
+
+
+def test_switch_off_the_same_body_field_still_asks_for_the_motor_standard():
+    allowed = _world()
+    _driver_fact()
+    result, _rows = _select(allowed)
+    assert "IEC 60034" in [g["identifier"] for g in result["governing_not_held"]]
+
+
+def test_a_type_the_title_block_named_still_reads_with_the_switch_on(on):
+    found, source, _doubt = subject_scope.read_equipment(
+        {"equipment_type": "Centrifugal Pump", "title": None},
+        [],
+        subject_scope.vocabulary(),
+    )
+    assert source == "classification" and found
 
 
 # ---------------------------------------------------- 2: a panel heading

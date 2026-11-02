@@ -1266,8 +1266,7 @@ def select(
 
     governing, governing_missing = governing_standards(
         submittal_document_id, library, allowed_document_ids)
-    # #754 F5b: required vs cited FIRST. A standard a declared service
-    # condition requires, held but not cited, is reviewed anyway.
+    # #754 F5b: required vs cited FIRST; what a declared condition requires is reviewed anyway.
     check = standards_check(submittal_document_id, allowed_document_ids=allowed_document_ids,
                             library=library)
     for r in check["required_not_cited"]:
@@ -1282,8 +1281,7 @@ def select(
         _match_referenced(library, referenced),
         library_citations(library, submittal_text),
         equipment_subtype.by_type(library, profile, submittal_document_id, allowed_document_ids),
-        # After the classification match: a tie keeps the standard's own
-        # equipment classification as the reason (both are included).
+        # After the classification match: a tie keeps its equipment classification as the reason.
         governing,
         _match_attribute(library, profile, "service", METHOD_SERVICE),
         _match_attribute(library, profile, "project", METHOD_PROJECT),
@@ -1323,7 +1321,9 @@ def select(
     else:
         scope_candidates = library
         decisions, scope_not_run = scope_decisions(library, profile)
-    scope_not_run = keep_no_type(submittal_document_id, selected, scope_not_run)
+    scope_not_run = keep_no_type(
+        submittal_document_id, selected, scope_not_run, library, allowed_document_ids
+    )
     from . import applicability_v2 as v2
     for standard_id, decision in decisions.items():
         verdict = decision.get("decision")

@@ -39,7 +39,7 @@ MUTATIONS: tuple[Mutation, ...] = (
        "subject_scope.py", "                    self.phrases.setdefault(folded, set()).add(canonical)\n",
        "                    self.phrases[folded] = {canonical}\n"),
     _m(3110, "the submittal's title no longer names its equipment",
-       "subject_scope.py", '        ("title", equipment_title_block.title_as_equipment(classification)),\n', '        ("title", None),\n'),
+       "subject_scope.py", '        ("title", classification.get("title")),\n', '        ("title", None),\n'),
     _m(3111, "the submittal's classification no longer names its equipment",
        "subject_scope.py", '        ("classification", classification.get("equipment_type")),\n',
        '        ("classification", None),\n'),

@@ -146,9 +146,9 @@ def crs_header_note(status: str | None, reason: str | None,
             f"{unread_pages_line(unread)}. {missing_standards_line(missing)}.")
 
 
-def equipment_notes(submittal_id: str) -> list[dict]:
-    """The Review note when the equipment type waits for an engineer (the title block
+def equipment_notes(submittal_id: str, run_id: str, allowed: frozenset) -> list[dict]:
+    """The Review notes when the equipment type waits for an engineer (the title block
     named none or two types; `equipment_title_block`). Empty with the switch off."""
     from . import equipment_title_block
 
-    return equipment_title_block.for_submittal(submittal_id)
+    return equipment_title_block.for_submittal(submittal_id, run_id, allowed)

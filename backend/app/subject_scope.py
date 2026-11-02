@@ -134,7 +134,7 @@ def read_equipment(
     classification = classification or {}
     sources = (
         ("classification", classification.get("equipment_type")),
-        ("title", equipment_title_block.title_as_equipment(classification)),
+        ("title", classification.get("title")),
         (
             "fields",
             " ; ".join(
@@ -146,7 +146,7 @@ def read_equipment(
             ),
         ),
     )
-    for source, text in sources:
+    for source, text in equipment_title_block.equipment_sources(sources):
         found = vocab.equipment_in(text)
         if found:
             doubt = equipment_doubt(classification, facts, found, source, vocab)
