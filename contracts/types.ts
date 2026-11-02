@@ -792,6 +792,13 @@ export interface PageCoverage {
    *  checklist field on - read, but not in `fact_pages` (pages fields were read
    *  from). Absent on a run stored before this. */
   pages_read_no_field?: number[];
+  /** #1473/#1550: present only on a run stored with PAGE_READ_BY_READING_ENABLED.
+   *  "Not read" then means no reading came back for the page - the meaning the
+   *  CRS footer and the issue gate count; `pages_not_read_into_fields` is then
+   *  the pages no datasheet field was taken from, never called "not read". */
+  pages_read?: number[];
+  pages_not_read?: number[];
+  pages_not_read_why?: Record<string, string>;
   /** PF3 (#883): the pages the configured AI reader did not read, and why. */
   pages_ai_not_read?: number[];
   ai_not_read_reasons?: Record<string, string>;
@@ -1396,6 +1403,8 @@ export interface Me {
   email: string;
   display_name: string;
   roles: string[];
+  /** Server switch SESSION_EXPIRED_NOTICE_ENABLED: say so when a sign-in runs out. */
+  session_expired_notice?: boolean;
 }
 
 /** Whether signing in is required here, and who is signed in.

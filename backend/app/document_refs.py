@@ -89,6 +89,10 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
         FK_CASCADE, "requirements of this standard; guarded by orphan_guard.check"),
     ("standard_scope_records", "standard_document_id"): (
         FK_CASCADE, "scope reading of this standard"),
+    ("ai_requirement_chunk_reads", "standard_document_id"): (
+        FK_CASCADE,
+        "which chunks of this standard the local model has read (#645 slice 4)",
+    ),
     ("review_applicable_standards", "standard_document_id"): (
         FK_CASCADE, "applicability choice naming this standard"),
     ("applicability_scope_decision_cache", "standard_document_id"): (

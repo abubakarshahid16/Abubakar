@@ -248,3 +248,52 @@ def test_the_crs_of_a_completed_run_is_unchanged(world):
                    {r: d.height for r, d in b.row_dimensions.items()}
         cells = _sheet_cells(crs_export.build_crs(rows, {**meta, "copy": copy}))
         assert "INCOMPLETE: run" not in str(cells.get((1, 1)))
+
+
+# ------------------------------------------- #1550: one meaning of "not read"
+
+ON_COVERAGE = {
+    "pages_total": 3,
+    "fact_pages": [],
+    "pages_not_read_into_fields": [1, 2, 3],
+    "pages_read": [1, 3],
+    "pages_not_read": [2],
+    "pages_not_read_why": {"2": "blank page"},
+}
+
+
+def test_the_crs_row_one_counts_the_reading_of_a_run_stored_with_the_switch(world):
+    run_id = _failed_run(world)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+            (json.dumps({"error": "x", "page_coverage": ON_COVERAGE}), run_id),
+        )
+    _rows, meta, _name, _stamp = main_mod._crs_content(
+        run_id, world["access"], "internal"
+    )
+    assert "Unread pages: 1 page(s) not read (2)." in meta["run_status_note"]
+    assert "into fields" not in meta["run_status_note"]
+
+
+@pytest.mark.parametrize(
+    "on, words",
+    [
+        (True, "Unread pages: 1 page(s) not read (2)"),
+        (False, "Unread pages: 1 page(s) not read into fields (2)"),
+    ],
+)
+def test_the_pdf_header_says_the_switchs_meaning(world, monkeypatch, on, words):
+    ledger = export_status.page_ledger
+    monkeypatch.setattr(settings, "page_read_by_reading_enabled", on)
+    monkeypatch.setattr(
+        ledger,
+        "readiness_pages",
+        lambda _d: {
+            "unread_pages": [2],
+            "ledger_state": ledger.CURRENT,
+            "ledger_note": None,
+        },
+    )
+    _run, lines = export_status.pdf_header_lines(world["sub"], world["scope"])
+    assert words in lines

@@ -28,6 +28,7 @@ from pathlib import Path
 
 from . import (
     access,
+    ai_call_ledger,
     job_progress,
     job_queue,
     nothing_read,
@@ -45,6 +46,51 @@ STAGE = "review_run"
 STEPS = ("reading the datasheet", "selecting the applicable standards",
          "comparing requirements with the datasheet")
 ACTIVE_RUN = ("queued", "running")
+
+#: The word a progress line uses for the submittal: its CONFIRMED kind, else
+#: "document" (a suggested kind is a guess, rule 4). the live review: a procedure's
+#: review said "reading the datasheet".
+_KIND_WORDS = {
+    "datasheet": "datasheet",
+    "procedure": "procedure",
+    "specification": "specification",
+    "drawing": "drawing",
+    "transmittal": "transmittal",
+    "contract": "contract",
+    "feed": "FEED",
+}
+#: (noun, unit) when nothing is known: neutral, and a PDF's unit.
+NEUTRAL_WORDS = ("document", "page")
+
+
+def document_words(document_id: str) -> tuple[str, str]:
+    """(noun, unit) for the progress lines of a review of `document_id`. The
+    unit is "part" for a Word file (`pagination = 'flow'`: no fixed pages, its
+    reading units are parts), else "page"."""
+    from . import doc_router, document_kind
+
+    stored = document_kind.stored_kind(document_id)
+    confirmed = stored is not None and stored[1] == doc_router.STATE_CONFIRMED
+    noun = _KIND_WORDS.get(stored[0] or "", "document") if confirmed else "document"
+    row = (
+        connect()
+        .execute("SELECT pagination FROM documents WHERE id = ?", (document_id,))
+        .fetchone()
+    )
+    unit = "part" if row is not None and row["pagination"] == "flow" else "page"
+    return noun, unit
+
+
+def _job_words(job_id: str) -> tuple[str, str]:
+    """`document_words` of the job's submittal; neutral when the job is gone."""
+    sql = "SELECT document_id FROM jobs WHERE id = ?"
+    row = connect().execute(sql, (job_id,)).fetchone()
+    return document_words(row["document_id"]) if row else NEUTRAL_WORDS
+
+
+def step_label(index: int, words: tuple[str, str] = NEUTRAL_WORDS) -> str:
+    """STEPS[index] with the submittal's own noun in place of "datasheet"."""
+    return STEPS[index].replace("datasheet", words[0])
 
 
 class ReviewAlreadyActive(RuntimeError):
@@ -173,7 +219,7 @@ def _scope_of(user_id: str | None) -> frozenset[str]:
     return access.scope_for_user(user_id).allowed_document_ids
 
 
-def _step(conn, job_id: str, index: int, heartbeat=None) -> None:
+def _step(conn, job_id: str, index: int, heartbeat=None, words=NEUTRAL_WORDS) -> None:
     """Record progress and honour a cancellation - between steps, never inside one."""
     if heartbeat is not None:
         heartbeat()
@@ -181,14 +227,19 @@ def _step(conn, job_id: str, index: int, heartbeat=None) -> None:
         row = conn.execute("SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if row and row["cancel_requested"]:
             raise _Cancelled()
-        conn.execute("UPDATE jobs SET progress_done = ?, progress_label = ?, claimed_at = ?,"
-                     " updated_at = ? WHERE id = ?",
-                     (index, STEPS[index], _now(), _now(), job_id))
+        conn.execute(
+            "UPDATE jobs SET progress_done = ?, progress_label = ?, claimed_at = ?,"
+            " updated_at = ? WHERE id = ?",
+            (index, step_label(index, words), _now(), _now(), job_id),
+        )
 
 
-def _page(conn, job_id: str, done: int, total: int, heartbeat=None) -> None:
+def _page(
+    conn, job_id: str, done: int, total: int, heartbeat=None, words=NEUTRAL_WORDS
+) -> None:
     """Order 95 piece 3b: the page the reader is on, inside step 1's label -
-    "reading the datasheet, page 3 of 11". Progress only: the step index and
+    "reading the procedure, page 3 of 11" ("part" for a Word file, `words`).
+    Progress only: the step index and
     the job's claim are left as they are.
 
     SKIPPED INSIDE AN OPEN TRANSACTION. The reader shares this thread's
@@ -199,7 +250,7 @@ def _page(conn, job_id: str, done: int, total: int, heartbeat=None) -> None:
         heartbeat()
     if conn.in_transaction:
         return
-    label = f"{STEPS[0]}, page {done} of {total}"
+    label = f"{step_label(0, words)}, {words[1]} {done} of {total}"
     with conn:
         sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
         conn.execute(sql, (label, _now(), job_id))
@@ -231,10 +282,10 @@ def _checks_reporting(conn, job_id: str, heartbeat, run_id, scope, missing) -> N
         job_progress.CLAUSE_STARTED.pop(job_id, None)
 
 
-def _reporting_pages(conn, job_id: str, heartbeat=None):
+def _reporting_pages(conn, job_id: str, heartbeat=None, words=NEUTRAL_WORDS):
     """The reader's page reports go to this job's label for the block (3b)."""
     return job_progress.reporting(
-        lambda done, total: _page(conn, job_id, done, total, heartbeat)
+        lambda done, total: _page(conn, job_id, done, total, heartbeat, words)
     )
 
 
@@ -244,15 +295,18 @@ def _phase(
 ):
     """A phase of the run: a beat of the worker's heartbeat at its start, the
     step recorded when it has an `index`, timed in the trace when it has a
-    `name`, and its reader page reports are also heartbeats."""
+    `name`, and its reader page reports are also heartbeats. Its lines name the
+    submittal's own kind and unit (the live review: never "datasheet" on a
+    procedure, never "page" on a Word file)."""
     from . import review_trace
 
+    words = _job_words(job_id)
     if index is not None:
-        _step(conn, job_id, index, heartbeat)
+        _step(conn, job_id, index, heartbeat, words)
     elif heartbeat is not None:
         heartbeat()
     timed = review_trace.timed(timings, name) if name else contextlib.nullcontext()
-    with timed, _reporting_pages(conn, job_id, heartbeat):
+    with timed, _reporting_pages(conn, job_id, heartbeat, words):
         yield
 
 
@@ -367,6 +421,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         _record_check_failure(run_id, "web_check_status", "Web standards check", exc)
 
 
+@ai_call_ledger.recorded  # #1525: only with REVIEW_AUDIT_REPORT_ENABLED on
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     """Run one claimed review job to its end. Returns the job's final state.
 
