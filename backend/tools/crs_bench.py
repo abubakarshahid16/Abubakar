@@ -30,7 +30,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import datasheet_checks, deferred_pass
+from app import deferred_pass
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
@@ -52,7 +52,6 @@ MATCH_KEYS = (
     "page",
 )
 VALUE_STATES = ("absent", "present")
-_CHECK_ID = re.compile(rf"{re.escape(datasheet_checks.LABEL)} (\S+):")
 
 
 class ModelCallRefused(RuntimeError):
@@ -63,7 +62,10 @@ class ModelCallRefused(RuntimeError):
 
 
 def _check_id(finding: dict) -> str | None:
-    found = _CHECK_ID.match(finding.get("requirement_source_text") or "")
+    from app.datasheet_checks import LABEL
+
+    source = finding.get("requirement_source_text") or ""
+    found = re.match(rf"{re.escape(LABEL)} (\S+):", source)
     return found.group(1) if found else None
 
 
