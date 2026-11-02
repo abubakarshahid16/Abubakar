@@ -16,7 +16,6 @@ from . import numparse
 from . import standards_converter as sc
 from .compiled_rule_context import quote_span
 from .compiled_rule_field import _field_words
-from .converter_gates import fold as _fold
 
 FIGURE_NOT_STORED = "figure_not_stored"
 _MODAL = re.compile(r"\b(?:shall|must|should|may|will)\b")
@@ -31,6 +30,11 @@ _NOT_PLAIN = re.compile(
 )
 _BRACKET = re.compile(r"\(([^)]*)\)")
 _CLAUSE_NUMBER = re.compile(r"\d+(?:\.\d+)+\.?")
+_NUMBERED_LINE = re.compile(r"\d+(?:\.\d+)+\.?\s+[A-Z]")
+#: What a sentence that begins with its subject may open with, beside a word of the field itself.
+_OPENS_A_SUBJECT = frozenset({"the", "a", "an", "each", "every", "all", "any"})
+#: An adverb in a subject says when or how far the figure holds ("normally", "typically").
+_ADVERB = re.compile(r"\b[a-z]+ly\b")
 #: A conversion ("360 psi") or a note on how a figure reads ("g", "s"): the only brackets a plain sentence holds.
 _CONVERSION = re.compile(r"^\W*-?\d[\d.,/]*\s*\S{0,10}\W*$")
 _READING_NOTE = re.compile(r"^\W*(?:s|es|g|a|ga|abs|absolute|gauge)\W*$")
@@ -74,7 +78,10 @@ def _subject_is_the_field(subject: str, span: str, field: str) -> bool:
     """A plain noun, and the field is on it: "the diameter of the pipe" is about a diameter, not about a pipe. A property
     named after the modal needs only the plain noun: "the wall shall have a minimum thickness of 5 mm"."""
     words = subject.strip(" ,")
-    if not words or _NOT_A_NOUN.search(words):
+    if not words or _NOT_A_NOUN.search(words) or _ADVERB.search(words):
+        return False
+    first = words.split()[0]
+    if first not in _OPENS_A_SUBJECT and not _is_named(first, _field_words(field)):
         return False
     head = _ENDS_HEAD.split(words, maxsplit=1)[0].split()
     named = _field_words(field)
@@ -105,16 +112,14 @@ def _comparator_right_after(
     return span.split() == ["be"] and bool(cue_spans(comparator, subject))
 
 
-def _semicolon_beside(quote: str, page: str) -> bool:
-    """A clause of the same sentence stands next to the quote: it may offer another figure, or say when this one holds."""
-    folded, wanted = _fold(page), _fold(quote)
-    bare = wanted.rstrip(" ;:")
-    at = folded.find(bare)
-    if at < 0 or wanted != bare:
-        return True
-    return folded[at + len(bare) :].lstrip()[:1] in {";", ":"} or folded[:at].rstrip()[
-        -1:
-    ] in {";", ":"}
+def _dangling_above(printed: str) -> bool:
+    """Is the printed line above unfinished? A prefix alone on it ("SA-516", "Class 2") would scope the figure below. Only
+    a line closed by a stop, or a numbered heading, is known not to."""
+    lines = [line for line in printed.splitlines() if line.strip()]
+    if not lines:
+        return False
+    above = lines[-1].strip()
+    return not above.endswith(".") and not _NUMBERED_LINE.match(above)
 
 
 def _printed_whole(quote: str, page: str) -> bool:
@@ -126,6 +131,8 @@ def _printed_whole(quote: str, page: str) -> bool:
         return False
     before = page[page.rfind("\n", 0, start) + 1 : start].strip()
     if before and not _CLAUSE_NUMBER.fullmatch(before) and not before.endswith("."):
+        return False
+    if not before and _dangling_above(page[:start]):
         return False
     after = page[end:]
     if not quote.rstrip().endswith("."):
@@ -149,7 +156,7 @@ def figure_is_plain(
         return False
     if _NOT_PLAIN.search(whole) or not _brackets_plain(whole):
         return False
-    if not unit or _semicolon_beside(quote, page) or not _printed_whole(quote, page):
+    if not unit or not _printed_whole(quote, page):
         return False
     text = " ".join(_BRACKET.sub(" ", numparse.fold(body).lower()).split())
     figures = _figures(text)

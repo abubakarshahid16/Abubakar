@@ -5321,3 +5321,76 @@ def test_a_near_label_is_not_the_label_once_hyphens_stay():
 def test_a_broken_clause_kept_as_the_model_wrote_it():
     rule, why = _labelled("Part-a 4 Rails\nThe widget shall be red.", "Part-a 4")
     assert why is None and rule["clause"] == "Part-a 4"
+
+
+@pytest.mark.parametrize(
+    "above",
+    [
+        "SA-516",
+        "Class 2",
+        "(ht)",
+        "For wet rails",
+        "Widget Rules",
+        "XY-12 Part",
+        "Use this:",
+        "SA-516\n",
+    ],
+)
+def test_a_prefix_alone_on_the_line_above_stores_no_figure(above):
+    quote = "The pressure shall not exceed 5 bar."
+    assert _stored(quote, page=f"7.3 Part\n{above}\n{quote}")["limit_value"] is None
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "7.3 Part\nThe pressure shall not exceed 5 bar.",
+        "7.3 Part\nThe rail is blue.\nThe pressure shall not exceed 5 bar.",
+        "7.3 Part\nSA-516\nThe rail is blue. The pressure shall not exceed 5 bar.",
+    ],
+)
+def test_a_closed_line_or_a_numbered_heading_above_keeps_the_figure(page):
+    assert (
+        _stored("The pressure shall not exceed 5 bar.", page=page)["limit_value"] == 5
+    )
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Normally the pressure shall not exceed 5 bar.",
+        "Typically pressure shall not exceed 5 bar.",
+        "Often the pressure shall not exceed 5 bar.",
+        "Here the pressure shall not exceed 5 bar.",
+        "The pressure normally shall not exceed 5 bar.",
+        "Wet rail pressure shall not exceed 5 bar.",
+        "The normally wet pressure shall not exceed 5 bar.",
+    ],
+)
+def test_a_sentence_that_does_not_begin_with_its_subject_stores_no_figure(sentence):
+    assert not compiled_rule_shape.figure_is_plain(
+        sentence,
+        sentence,
+        ("5", "bar", "<=", "pressure"),
+        sentence,
+        f"7.3 Part\n{sentence}",
+    )
+
+
+@pytest.mark.parametrize(
+    "sentence, field",
+    [
+        ("Pressure shall not exceed 5 bar.", "pressure"),
+        ("Each pressure shall not exceed 5 bar.", "pressure"),
+        ("Rail pressure shall not exceed 5 bar.", "rail pressure"),
+    ],
+)
+def test_a_sentence_that_begins_with_its_subject_keeps_the_figure(sentence, field):
+    assert _stored(sentence, field=field)["limit_value"] == 5
+
+
+def test_a_quote_at_the_top_of_its_page_has_nothing_above_it_on_that_page():
+    sentence = "The pressure shall not exceed 5 bar."
+    assert compiled_rule_shape.figure_is_plain(
+        sentence, sentence, ("5", "bar", "<=", "pressure"), sentence, sentence
+    )
