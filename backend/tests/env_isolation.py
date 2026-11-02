@@ -268,6 +268,8 @@ EGRESS_SAFE: dict[str, object] = {
     "equipment_from_title_block_enabled": False,
     # --- read by the page only, one local /api/auth/me a minute, no model or socket (order 4b, off by default)
     "session_expired_notice_enabled": False,
+    # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
+    "one_checked_definition_enabled": False,
     # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
     "procedure_crs_fields_enabled": False,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own
