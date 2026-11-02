@@ -390,19 +390,14 @@ def _lifted(env=None) -> tuple[str, ...]:
     return LOCK3_PINNED if (os.environ if env is None else env).get(LIFT_ENV) else ()
 
 
+EGRESS_SAFE.update(dict.fromkeys(_lifted(), True))
+
+
 def unsafe_fields(target: Settings) -> list[str]:
     """Fields of `target` not at their safe value. Names only, never values."""
-    lifted = _lifted()
-    return sorted(
-        n
-        for n, safe in EGRESS_SAFE.items()
-        if n not in lifted
-        and (
-            getattr(target, n) not in safe
-            if isinstance(safe, OneOf)
-            else getattr(target, n) != safe
-        )
-    )
+    return sorted(n for n, safe in EGRESS_SAFE.items()
+                  if (getattr(target, n) not in safe if isinstance(safe, OneOf)
+                      else getattr(target, n) != safe))
 
 
 def paths_outside(target: Settings, root: Path) -> list[str]:
