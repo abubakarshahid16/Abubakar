@@ -209,6 +209,20 @@ def _core(sentence: str) -> str:
     return _STRIP_PREFIX.sub("", _fold(sentence)).rstrip(" .;:,")
 
 
+def core_of(sentence: str) -> str:
+    return _core(sentence)
+
+
+def shall_sentences(pages: dict[int, str]) -> set[str]:
+    """Every sentence with shall or must on these pages, as a quote of it would be compared."""
+    return {
+        _core(s)
+        for text in pages.values()
+        for s in sentences_of(text)
+        if re.search(r"\b(?:shall|must)\b", s)
+    }
+
+
 def whole_sentence(quote: str, page: str) -> str | None:
     """The sentence when the quote is all of it (a clause number and final stop aside), else None."""
     wanted = _core(quote)
@@ -216,6 +230,13 @@ def whole_sentence(quote: str, page: str) -> str | None:
         if _core(sentence) == wanted:
             return wanted
     return None
+
+
+def is_heading_line(line: str, following: str) -> bool:
+    """A clause heading: a number and words, or a number alone with a line in capitals after it."""
+    return bool(_CLAUSE_HEADING.match(line)) or bool(
+        _LONE_NUMBER.match(line) and following.strip()[:1].isupper()
+    )
 
 
 def _headings(text: str) -> list[tuple[int, str, str]]:

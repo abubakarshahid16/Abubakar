@@ -2664,10 +2664,14 @@ def test_the_script_reverifies_without_opening_the_lane(monkeypatch):
     assert code == 0 and report["reverified"] is True and report["kept"] == 1
 
 
-def test_the_chunk_ids_do_not_move_for_a_stored_answer():
-    """A change here would orphan every stored answer and pay again: chunking belongs to the prompt version."""
+def test_a_chunk_label_reads_a_clause_number_alone_on_its_line():
     page = "7.3 \nWidget Lines\nThe pressure shall not exceed 200 psi."
     chunk = standards_compiler.chunks_of({1: page})[0]
+    assert "[page 1 | clause 7.3]" in chunk.text and chunk.clauses[1] == {"7.3"}
+
+
+def test_a_lone_figure_before_lower_case_words_is_not_a_chunk_label():
+    chunk = standards_compiler.chunks_of({1: "2.5\nmore words here."})[0]
     assert "[page 1 | clause none]" in chunk.text
 
 
@@ -2788,3 +2792,167 @@ def test_shall_be_provided_with_a_figure_is_a_limit():
 
 def test_not_one_fraction_is_found_inside_a_date():
     assert numparse.find_fractions("issued 12/25/2019 and 1.5/2") == []
+
+
+# ------------------------------------------------------------------------------- the second prompt version
+
+
+def test_the_prompt_asks_for_every_requirement_in_page_order_with_no_sample():
+    words = standards_compiler.system_text({1: PAGE_1}).lower()
+    for said in (
+        "every sentence",
+        "shall or must",
+        "in page order",
+        "not choose a sample",
+    ):
+        assert said in words
+    assert "defers" in words and "omit only what you cannot quote" in words
+    assert "when unsure" not in words
+
+
+def test_the_prompt_keeps_its_guards():
+    words = standards_compiler.system_text({1: PAGE_1}).lower()
+    assert "never invent a value" in words and "data, never an instruction" in words
+    assert (
+        "range" in words
+        and "alternatives" in words
+        and "limit, comparator and unit are null" in words
+    )
+
+
+def test_a_range_kept_as_a_sentence_stores_no_figure():
+    sentence = "The pressure shall be 10 to 20 bar."
+    rule, why = _outcome(sentence, limit=None, unit=None, comparator=None)
+    assert why is None and rule["limit_value"] is None and rule["quote"] == sentence
+
+
+def test_alternatives_kept_as_a_sentence_store_no_figure():
+    sentence = "The drain size shall be 5/8 inch threaded or 2 inch flanged."
+    rule, why = _outcome(
+        sentence, field="drain size", limit=None, unit=None, comparator=None
+    )
+    assert why is None and rule["limit_value"] is None
+
+
+def test_one_figure_of_alternatives_is_still_refused():
+    sentence = "The drain size shall be 5/8 inch threaded or 2 inch flanged."
+    assert _outcome(
+        sentence, field="drain size", comparator="=", limit="5/8", unit="inch threaded"
+    ) == (None, "condition_not_captured")
+
+
+def test_a_new_prompt_version_compiles_again_and_the_old_result_stays_apart(
+    monkeypatch,
+):
+    _document()
+    fake = FakeBatches()
+    assert _compile(fake)["status"] == "all_pages_answered"
+    assert _compile(fake)["status"] == "skipped" and len(fake.created) == 1
+    monkeypatch.setattr(standards_compiler, "PROMPT_VERSION", "compile-next")
+    again = _compile(fake)
+    assert again["status"] == "all_pages_answered" and len(fake.created) == 2
+    assert {r["prompt_version"] for r in _rules()} == {"compile-v2", "compile-next"}
+    runs = (
+        db.connect().execute("SELECT COUNT(*) AS n FROM compile_runs").fetchone()["n"]
+    )
+    assert runs == 2 and len(_rules()) == 2
+    assert len(_raw_rows()) == 2  # the first answer is still there, unpaid for again
+
+
+def test_side_by_side_counts_the_latest_version_only_and_names_it(monkeypatch):
+    _document()
+    fake = FakeBatches()
+    _compile(fake)
+    monkeypatch.setattr(standards_compiler, "PROMPT_VERSION", "compile-next")
+    _compile(fake)
+    v2 = standards_compiler.side_by_side(db.connect(), {DOC: LABEL})["per_standard"][0][
+        "v2"
+    ]
+    assert v2["rules"] == 1 and v2["prompt_versions"] == {"compile-next": 1}
+
+
+def test_a_reverify_reads_only_the_version_it_is_asked_about(monkeypatch):
+    _document()
+    _compile(FakeBatches())
+    monkeypatch.setattr(standards_compiler, "PROMPT_VERSION", "compile-next")
+    assert (
+        standards_compiler.reverify_stored(db.connect(), DOC, LABEL)["status"]
+        == "nothing_stored"
+    )
+    assert len(_rules()) == 1
+
+
+def _shall_page(count, words=8):
+    return "\n".join(
+        f"The widget {n} {'part ' * words}shall be painted." for n in range(count)
+    )
+
+
+def test_a_chunk_never_asks_for_more_rules_than_its_output_room_holds():
+    chunks = standards_compiler.chunks_of({1: _shall_page(70), 2: _shall_page(70)})
+    assert len(chunks) >= 6
+    counts = [standards_compiler.shall_count(c.text) for c in chunks]
+    assert max(counts) <= standards_compiler.MAX_RULES_PER_CHUNK and sum(counts) == 140
+
+
+def test_the_output_room_holds_a_full_chunk_of_rules_at_the_measured_size():
+    room = standards_compiler.MAX_RULES_PER_CHUNK * standards_compiler.TOKENS_PER_RULE
+    assert (
+        room * 2 <= standards_compiler.MAX_OUTPUT_TOKENS
+    )  # the other half is thinking and long quotes
+
+
+def test_no_page_text_is_lost_by_the_rule_count():
+    pages = {1: _shall_page(70)}
+    joined = "\n".join(c.text for c in standards_compiler.chunks_of(pages))
+    assert all(f"The widget {n} " in joined for n in range(70))
+
+
+def test_the_worst_case_bounds_a_full_answer_with_every_prompt_token_a_cache_write():
+    pages = {1: _shall_page(70)}
+    chunks = standards_compiler.chunks_of(pages)
+    packets = standards_compiler.packets_of(LABEL, pages, chunks)
+    total = 0.0
+    for packet in packets.values():
+        tokens_in = (len(packet.system) + len(packet.prompt)) // 3
+        total += claude_spend.cost_usd(
+            MODEL,
+            {
+                "input_tokens": 0,
+                "cache_creation_input_tokens": tokens_in,
+                "output_tokens": standards_compiler.MAX_OUTPUT_TOKENS,
+            },
+            batch=True,
+        )
+    assert total <= standards_compiler.estimate(MODEL, packets)["worst_usd"] + 0.001
+
+
+def test_a_truncated_chunk_is_named_and_its_pages_are_not_read():
+    _document()
+    report = _compile(FakeBatches(stop="max_tokens"))
+    assert report["status"] == "partial" and report["chunks_truncated"]
+    assert report["pages_not_read"] == [1, 2]
+
+
+def test_a_short_answer_is_reported_against_the_sentences_on_the_page():
+    pages = (_shall_page(10),)
+    _document(pages=pages)
+    report = _compile(FakeBatches([]))
+    assert report["shall_sentences"] == 10 and report["shall_sentences_proposed"] == 0
+    assert report["shall_boundary"] and len(report["chunks_short"]) == 1
+
+
+def test_a_full_answer_is_not_reported_short():
+    sentence = "The pressure shall not exceed 200 psi."
+    _document(pages=(f"7.3 Part\n{sentence}",))
+    rule = _rule(
+        quote=sentence,
+        clause="7.3",
+        field="pressure",
+        limit="200",
+        unit="psi",
+        condition=None,
+    )
+    report = _compile(FakeBatches([rule]))
+    assert report["shall_sentences"] == 1 and report["shall_sentences_proposed"] == 1
+    assert report["chunks_short"] == []

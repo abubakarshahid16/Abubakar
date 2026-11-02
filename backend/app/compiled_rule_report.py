@@ -119,28 +119,33 @@ def _v1_row(conn, document_id: str, pages: dict[int, str]) -> dict:
     }
 
 
-def _latest_run(conn, document_id: str) -> tuple[str, dict]:
+def _latest_run(conn, document_id: str) -> tuple[str, dict, str | None]:
     if not _has_table(conn, "compile_runs"):
-        return NOT_COMPILED, {}
+        return NOT_COMPILED, {}, None
     found = conn.execute(
-        "SELECT status, counts_json FROM compile_runs WHERE standard_document_id = ?"
+        "SELECT id, status, counts_json FROM compile_runs WHERE standard_document_id = ?"
         " ORDER BY created_at DESC, rowid DESC LIMIT 1",
         (document_id,),
     ).fetchone()
     if found is None:
-        return NOT_COMPILED, {}
-    return found["status"] or NOT_RECORDED, json.loads(found["counts_json"] or "{}")
+        return NOT_COMPILED, {}, None
+    return (
+        found["status"] or NOT_RECORDED,
+        json.loads(found["counts_json"] or "{}"),
+        found["id"],
+    )
 
 
 def _v2_row(conn, document_id: str, pages: dict[int, str]) -> dict:
+    """The latest compile only: an older prompt version's rules stay stored and are not added to it."""
+    status, counts, run_id = _latest_run(conn, document_id)
     rows = []
-    if _has_table(conn, "compiled_rules"):
+    if run_id is not None:
         rows = conn.execute(
             "SELECT field, comparator, limit_value, unit, quote, page, model, prompt_version, batch_id, status"
-            " FROM compiled_rules WHERE standard_document_id = ?",
-            (document_id,),
+            " FROM compiled_rules WHERE run_id = ?",
+            (run_id,),
         ).fetchall()
-    status, counts = _latest_run(conn, document_id)
     return {
         "run_status": status,
         "run_statuses": {status: 1},
