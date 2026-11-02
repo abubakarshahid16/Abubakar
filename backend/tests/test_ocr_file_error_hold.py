@@ -27,6 +27,7 @@ from app import (
     page_not_read,
     reading_state,
     states,
+    stored_paths,
 )
 from app.config import settings
 from tests.fake_tokenizer import install_if_missing
@@ -194,24 +195,27 @@ def test_a_spawned_worker_finds_a_relative_stored_path_only_with_the_switch_on(
     doc.save(tmp_path / unique)
     doc.close()
 
-    assert any("invented" in t for _, _, t in _spawned_read(unique, ocr.pool_options()))
+    assert any(
+        "invented" in t
+        for _, _, t in _spawned_read(unique, stored_paths.pool_options())
+    )
 
     monkeypatch.setattr(settings, "ocr_file_error_hold_enabled", False)
     with pytest.raises(Exception) as off:
-        _spawned_read(unique, ocr.pool_options())
+        _spawned_read(unique, stored_paths.pool_options())
     assert page_not_read.is_file_error(f"{type(off.value).__name__}: {off.value}")
 
 
 def test_both_recognition_pools_start_with_the_carried_directory(tmp_path, monkeypatch):
     monkeypatch.setattr(_InlinePool, "seen", [])
     _ingest(_pdf(tmp_path), monkeypatch)
-    assert _InlinePool.seen[-1]["initializer"] is ocr._carry_data_dir
+    assert _InlinePool.seen[-1]["initializer"] is stored_paths.carry_data_dir
     assert _InlinePool.seen[-1]["initargs"] == (str(tmp_path.resolve()),)
 
     _InlinePool.seen.clear()
     monkeypatch.setattr(ocr, "recognise_page_lines", lambda *_a: [])
     ocr.page_lines("uploads/a.pdf", "a" * 64, 1)
-    assert _InlinePool.seen == [ocr.pool_options()]
+    assert _InlinePool.seen == [stored_paths.pool_options()]
 
 
 def test_with_the_switch_off_the_pools_start_as_before(tmp_path, monkeypatch):
@@ -219,12 +223,12 @@ def test_with_the_switch_off_the_pools_start_as_before(tmp_path, monkeypatch):
     monkeypatch.setattr(_InlinePool, "seen", [])
     _ingest(_pdf(tmp_path), monkeypatch)
     assert _InlinePool.seen == [{}]
-    assert ocr.pool_options() == {}
+    assert stored_paths.pool_options() == {}
 
 
 def test_the_carried_directory_reaches_the_worker_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "other")
-    ocr._carry_data_dir(str(tmp_path))
+    stored_paths.carry_data_dir(str(tmp_path))
     assert settings.data_dir == tmp_path
 
 

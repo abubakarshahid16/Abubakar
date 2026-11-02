@@ -287,7 +287,7 @@ class SettingsExt(BaseModel):
     one_checked_definition_enabled: bool = False
     #: #1568: a page recognition failed on because the stored file could not be opened holds the document
     #: at partially_searchable with the reason (`reading_state`, `page_not_read.is_file_error`), and the OCR
-    #: pools carry the parent's data directory to their workers (`ocr.pool_options`). Any other recognition
+    #: pools carry the parent's data directory to their workers (`stored_paths.pool_options`). Any other recognition
     #: failure stays as it was. Works with ONE_CHECKED_DEFINITION_ENABLED on or off. OFF: byte-identical,
     #: and at the next start a document it held goes back. Env: OCR_FILE_ERROR_HOLD_ENABLED.
     ocr_file_error_hold_enabled: bool = False

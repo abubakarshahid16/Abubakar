@@ -432,6 +432,20 @@ def file_error_pages(document_id: str) -> list[int]:
     return [r["page_no"] for r in rows if is_file_error(r["error"])]
 
 
+def recognised_nothing_words(document_id: str, pages: int, tried: int) -> str:
+    """Why a document of only scans has nothing searchable, after recognition ran."""
+    unopened = file_error_pages(document_id)
+    if unopened:
+        return (
+            f"all {pages} pages are scanned images; recognition could not "
+            f"open the stored file for {len(unopened)} of them"
+        )
+    return (
+        f"all {pages} pages are scanned images; recognition ran on "
+        f"{tried} of them and found no usable text"
+    )
+
+
 def _decides(document_id: str) -> bool:
     return settings.one_checked_definition_enabled or bool(
         file_error_pages(document_id)
