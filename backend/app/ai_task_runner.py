@@ -48,7 +48,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
-from . import ai_call_ledger, heavy_lock, model_transport, progress
+from . import ai_call_ledger, heavy_lock, local_engine_bar, model_transport, progress
 from .ai import output_limits
 from .config import settings
 from .db import connect
@@ -176,6 +176,8 @@ def model_identity(requested: str) -> str | None:
     if hit is not None and now - hit[0] < IDENTITY_TTL_S:
         return hit[1]
     identity: str | None = None
+    if local_engine_bar.active():
+        return None  # not asked in a Claude-lane run; never remembered as the engine's answer
     try:
         tags = model_transport.get_json("/api/tags", timeout=3.0, required=False) or {}
         # The ENGINE's version joins the identity (order 205): a new Ollama can
@@ -330,6 +332,8 @@ def _installed_tags() -> set[str] | None:
     hit = _tags_cache.get("entry")
     if hit and now - hit[0] < _TAGS_TTL_S:
         return hit[1]
+    if local_engine_bar.active():
+        return None  # not asked in a Claude-lane run; never remembered as the engine's answer
     try:
         tags = model_transport.get_json("/api/tags", timeout=3.0)
         names = {str(m.get("name", "")) for m in (tags or {}).get("models", [])}
@@ -425,6 +429,8 @@ def _failed(spec: TaskSpec, model: str, reason: str, attempts: int = 0) -> TaskR
 def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True) -> TaskResult:
     """Run one task. Never raises for a model problem; never guesses."""
     ensure_schema()
+    if provider is None and local_engine_bar.refuses(f"ai_task:{spec.name}"):
+        return _failed(spec, "not loaded", local_engine_bar.NOTE)
     provider = provider or make_provider()
     model = getattr(provider, "requested_model", None) or model_in_use()
     text = (text or "").strip()

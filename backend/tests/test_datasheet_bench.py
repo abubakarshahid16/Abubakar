@@ -329,6 +329,8 @@ def claude_lane(tmp_path, monkeypatch):
     from app import reader_transport
     from app.config import settings
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    # Its own folder: a stored answer from another test would be served before the cap.
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "claude_budget_usd_per_step", 5.0)
     monkeypatch.setattr(settings, "claude_budget_usd_total", 20.0)
     monkeypatch.setenv("STANDARDS_READER_ENABLED", "true")

@@ -201,6 +201,13 @@ class SettingsExt(BaseModel):
     #: cannot read is refused with a reason. Local only, no model, no socket. OFF: nothing changes.
     #: Env: ONE_INTAKE_ENABLED.
     one_intake_enabled: bool = False
+    #: A Word file's real pages (`docx_reader`): its saved page markers number its blocks, its tables
+    #: and pictures are counted against what reached the reader, and an embedded picture goes to the
+    #: local OCR engine (`word_pictures`; no Claude lane, no reader model). No markers: the section
+    #: heading is shown in the page cells, but comment text can still say a part number is a page, so
+    #: this must not go on for Word files with no markers. OFF: reading parts as before, nothing recognised,
+    #: nothing stored. Env: WORD_PAGE_MARKERS_ENABLED.
+    word_page_markers_enabled: bool = False
     #: #525 slice 2 (with ONE_INTAKE_ENABLED on as well): the upload accepts PNG, JPEG and TIFF images
     #: (stored as picture-only PDF pages beside the original, so OCR reads them like a scanned page) and
     #: indexes .xlsx workbooks, each sheet chunked with a sheet + cell-range citation. Local only, no

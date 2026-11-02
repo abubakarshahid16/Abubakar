@@ -44,7 +44,7 @@ SHA = "b54474a2"
 @pytest.fixture(autouse=True)
 def _ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
 
 
 def _row(text: str, **over) -> dict:
