@@ -662,8 +662,11 @@ def _local_status(now: float) -> dict | None:
     if claude_spend_report.enabled():
         day = claude_spend_report.charged_today(claude_spend.entries())
         if day >= claude_spend_report.day_cap():
-            return _status("BUDGET_REACHED", now=now,
-                           detail=f"today (UTC): ${day:.2f} of ${claude_spend_report.day_cap():.2f}")
+            return _status(
+                "BUDGET_REACHED",
+                now=now,
+                detail=f"today (UTC): ${day:.2f} of ${claude_spend_report.day_cap():.2f}",
+            )
     return None
 
 

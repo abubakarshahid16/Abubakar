@@ -35,7 +35,9 @@ from app.reasoning_provider import claude_unavailable  # noqa: E402
 
 _refused, _why = claude_unavailable()
 if _refused is not None:
-    print(f"REFUSED: the Claude lane is shut for this script ({_refused}); nothing was read or sent.")
+    print(
+        f"REFUSED: the Claude lane is shut for this script ({_refused}); nothing was read or sent."
+    )
     sys.exit(2)
 
 LIVE = Path(settings.db_path)

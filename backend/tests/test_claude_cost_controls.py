@@ -759,7 +759,7 @@ def test_the_bench_refuses_on_ollama(monkeypatch):
     sys.modules[spec.name] = bench
     try:
         spec.loader.exec_module(bench)
-        with pytest.raises(bench.ReaderUnavailable, match="provider|PROVIDER"):
+        with pytest.raises(bench.ReaderUnavailable, match="PROVIDER"):
             bench.build_model_call("ai-only:claude")
     finally:
         del sys.modules[spec.name]
