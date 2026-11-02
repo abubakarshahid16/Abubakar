@@ -6,7 +6,6 @@ environment exactly like every other setting (`Settings` inherits them).
 
 from pydantic import BaseModel, Field
 
-
 #: Settings that change a review's answer only when moved off their default. They join
 #: `config_version` only then, so adding one leaves every recorded hash and baseline as it was.
 ANSWER_AFFECTING_WHEN_CHANGED = ("ai_division_scope_engine",)
