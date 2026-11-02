@@ -154,7 +154,8 @@ ROUTES = [
 def test_a_route_over_the_cap_answers_409_and_sends_nothing(method, path, step, monkeypatch):
     sent = _fake_transport(monkeypatch)
     _stub_modules(monkeypatch)
-    _seed_ledger(step, 4.9999, run="run-x")  # this route's step is at its cap, on this run (#1584)
+    # This route's step is at its cap, on this run (#1584).
+    _seed_ledger(step, 4.9999, run="run-x")
     response = getattr(TestClient(app), method)(path)
     assert response.status_code == 409, response.text
     detail = response.json()["detail"]

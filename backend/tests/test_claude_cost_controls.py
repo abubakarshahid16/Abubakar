@@ -863,7 +863,7 @@ def test_the_vision_status_at_the_step_cap_keeps_its_own_words(monkeypatch):
     _write(_settled(5.0, step=vision_reader.VISION_STEP))
     state = _vision_block()
     assert state["state"] == "BUDGET_REACHED" and "CLAUDE_BUDGET" in state["fix"]
-    assert "outside a review run, all time" in state["detail"]
+    assert "all time, no run" in state["detail"]
     with claude_spend.for_run("run-1"):
         assert _vision_block() is None, "that spend is not this run's"
 

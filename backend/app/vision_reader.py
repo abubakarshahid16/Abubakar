@@ -660,10 +660,10 @@ def _local_status(now: float) -> dict | None:
         return _status(code, now=now)
     caps = claude_spend.Caps.from_settings()
     step, total = claude_spend.step_spent(VISION_STEP), claude_spend.spent()
-    whose = " in this review run" if claude_spend.current_run() else ", outside a review run, all time"
+    whose = "this review run" if claude_spend.current_run() else "all time, no run"
     if step >= caps.per_step:
         return _status("BUDGET_REACHED", now=now,
-                       detail=f"vision step{whose}: ${step:.2f} of ${caps.per_step:.2f}")
+                       detail=f"vision step ({whose}): ${step:.2f} of ${caps.per_step:.2f}")
     if total >= caps.total:
         return _status("BUDGET_REACHED", now=now,
                        detail=f"total: ${total:.2f} of ${caps.total:.2f}")

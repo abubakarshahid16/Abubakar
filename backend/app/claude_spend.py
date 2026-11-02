@@ -52,7 +52,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timezone
 from pathlib import Path
 
@@ -333,13 +333,15 @@ def spent(step: str | None = None) -> float:
 
 def _in_step_key(entry: dict, run: str | None) -> bool:
     """Whether a ledger line counts toward the step cap of a call in `run`. No run, or a standard's step: every line."""
-    return not run or str(entry.get("step") or "").startswith(STANDARD_STEP_PREFIX) or entry.get("run") == run
+    step = str(entry.get("step") or "")
+    return not run or step.startswith(STANDARD_STEP_PREFIX) or entry.get("run") == run
 
 
 def step_spent(step: str) -> float:
     """What the step cap reads for a call made here and now, holds included (`_in_step_key`). `spent(step)` is every run."""
     run = current_run()
-    return round(sum(float(e.get("cost_usd") or 0) for e in entries() if e.get("step") == step and _in_step_key(e, run)), 6)
+    lines = [e for e in entries() if e.get("step") == step and _in_step_key(e, run)]
+    return round(sum(float(e.get("cost_usd") or 0) for e in lines), 6)
 
 
 def _today() -> date:
@@ -471,7 +473,7 @@ class Reservation:
     started: float
     batch: bool = False
     #: The run it was held for: its settlement counts on that run's step cap, wherever it is settled.
-    run: str | None = None
+    run: str | None = field(default_factory=lambda: _RUN.get())
 
 
 #: What the reader is told when #806 S3 stopped a Claude answer. One wording,
@@ -546,7 +548,8 @@ def reserve_all(
         run = current_run()
         for e in current:
             if _in_step_key(e, run):
-                per_step[e.get("step")] = per_step.get(e.get("step"), 0.0) + float(e.get("cost_usd") or 0)
+                key = e.get("step")
+                per_step[key] = per_step.get(key, 0.0) + float(e.get("cost_usd") or 0)
         day = report_mod.charged_today(current)
         for step, worst in items:
             _check(
@@ -561,7 +564,7 @@ def reserve_all(
             per_step[step] = per_step.get(step, 0.0) + worst
             total += worst
             day += worst
-            out.append(Reservation(uuid.uuid4().hex, step, model, float(worst), prompt_sha256, now, batch, run))
+            out.append(Reservation(uuid.uuid4().hex, step, model, float(worst), prompt_sha256, now, batch))
         for r in out:
             line = _entry(step=r.step, model=model, usage=None, prompt_sha256=prompt_sha256,
                           wall_time_s=0.0, finish_reason="reserved", batch=batch,
