@@ -67,12 +67,14 @@ import json
 import logging
 import math
 import re
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
 from . import (
     ai_requirements,
     card_trust,
+    deferred_value,
     field_links,
     field_naming,
     requirements_3b,
@@ -319,23 +321,40 @@ def _owner_tier(rule: dict) -> bool:
     return isinstance(approval, dict) and approval.get("tier") == OWNER_TIER
 
 
+def _signed(approval: dict) -> bool:
+    """A named signer and a time that reads as one: the approval has to say who and when."""
+    by, at = approval.get("by"), approval.get("at")
+    if not isinstance(by, str) or not by.strip() or not isinstance(at, str):
+        return False
+    try:
+        datetime.fromisoformat(at.strip())
+    except ValueError:
+        return False
+    return True
+
+
 def tier_for_approved(approval: dict | None, rule: dict) -> str:
     """The label of a rule from an approved rulebook (#1584). OWNER_APPROVED only with the switch on, a whole owner
     approval (`tier`, `by`, `at`) and a rule that passes `second_check` (the label says quote-verified, so code must
     have verified it); UNPROVEN otherwise, an unknown tier included. It says what the rule may decide, never who may
     read a document (CLAUDE.md rule 5)."""
-    return OWNER_APPROVED if owner_signed(approval) and second_check(rule)[0] else UNPROVEN
+    if not settings.owner_approved_rules_decide_enabled or not isinstance(
+        approval, dict
+    ):
+        return UNPROVEN
+    if approval.get("tier") != OWNER_TIER or not _signed(approval):
+        return UNPROVEN
+    return OWNER_APPROVED if second_check(rule)[0] else UNPROVEN
 
 
 def owner_signed(approval: dict | None) -> bool:
-    """The switch is on and this is a whole owner approval. `second_check` needs a figure; a rule checked by words has
-    its own proof (`rule_typed_check.verify`)."""
+    """The same signature `tier_for_approved` reads, with the switch on. `second_check` needs a figure; a rule checked
+    by words has its own proof (`rule_typed_check.verify`)."""
     return (
         settings.owner_approved_rules_decide_enabled
         and isinstance(approval, dict)
         and approval.get("tier") == OWNER_TIER
-        and bool(approval.get("by"))
-        and bool(approval.get("at"))
+        and _signed(approval)
     )
 
 
@@ -416,7 +435,7 @@ def label_finding(
         return finding
     out = apply_trust(finding, trust_label(rule, proof))
     if out["trust_label"] == OWNER_APPROVED:
-        out = _hold_without_a_value(out, fact)
+        out = deferred_value.hold_owner_rule(_hold_without_a_value(out, fact), fact)
     level, why = tier(rule)
     out.update(tier=level, tier_reason=why,
                show_for_engineer_tick=level == SAFETY and out.get("status") == COMPLIANT)
@@ -441,6 +460,87 @@ def label_check(result: dict) -> dict:
             show_for_engineer_tick=is_safety and out.get("status") == COMPLIANT,
         )
     return out
+
+
+def run_has_a_record(rows: list[dict]) -> bool:
+    """Whether a run that made a `_RuleTrust` stores `rule_trust`. Yes, except for the one run this exists for: the new
+    switch alone with no owner-approved row, which changes no output of the run."""
+    return (
+        not settings.owner_approved_rules_decide_enabled
+        or settings.rule_auto_use_enabled
+        or any(r.get("trust_label") == OWNER_APPROVED for r in rows)
+    )
+
+
+def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) -> dict:
+    """An owner-approved rule's safety Pass an engineer has not ticked is not an approval (owner's words on #1584):
+    a sheet that would be approved, with or without comments, is a manual review until it is ticked. A breach stays a
+    breach. Findings carrying the owner's label only: every other run's code stays as it was."""
+    still_open = [
+        f
+        for f in findings
+        if f.get("trust_label") == OWNER_APPROVED
+        and f.get("show_for_engineer_tick")
+        and f.get("compliance_status") == COMPLIANT
+        and not f.get("confirmed_by")
+    ]
+    if not still_open or result["code"] not in (codes[0], codes[1]):
+        return result
+    n = len(still_open)
+    return {
+        **result,
+        "code": codes[3],
+        "reason": (
+            # dated: the reason is stored, and a tick after this time does not rewrite it
+            f"Manual review: at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this review ran, {n} safety "
+            f"value{'s' if n != 1 else ''} met an owner-approved rule and "
+            f"{'were' if n != 1 else 'was'} waiting for an engineer's tick, so the sheet was not called approved"
+        ),
+        "open_safety_ticks": n,
+    }
+
+
+def run_summary(
+    review_run_id: str, facts: list[dict], requirements: list[dict], rows: list[dict]
+) -> dict | None:
+    """Steps 7 and 10 of the owner decision, for the run's record. Field NAMES of
+    this machine's own datasheet; never values.
+
+    `rows` are EVERY finding written for this run - the rule rows and the
+    datasheet checks - so `held_unproven` is every verdict rule_trust held,
+    not the main loop's share of them (s2's real-group run of 17 Oct found
+    51 reported against 1,555 held). `findings_counted` states the boundary.
+    """
+    if not run_has_a_record(rows):
+        return None
+    # A stored fact carries its value as `field_value`; the pure function
+    # reads `raw_value`. One translation, here, never a second reader.
+    shaped = [
+        {
+            "field_name": f.get("field_label") or f.get("field_name"),
+            "raw_value": f.get("field_value"),
+            "is_blank": f.get("is_blank"),
+        }
+        for f in facts
+    ]
+    read = [f for f in shaped if not f["is_blank"] and f["raw_value"] not in (None, "")]
+    uncovered = uncovered_fields(shaped, requirements)
+    auto_ids = [r["id"] for r in rows if r.get("trust_label") == AUTO_PROVEN]
+    labels: dict[str, int] = {}
+    for r in rows:
+        if r.get("trust_label"):
+            labels[r["trust_label"]] = labels.get(r["trust_label"], 0) + 1
+    return {
+        "fields_read": len(read),
+        "uncovered_fields": [f.get("field_name") or f.get("name") for f in uncovered],
+        "labels": labels,
+        "findings_counted": len(rows),
+        "held_unproven": sum(1 for r in rows if r.get("rule_said")),
+        "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
+        "auto_proven": len(auto_ids),
+        "audit_sample": audit_sample(auto_ids, seed=review_run_id),
+        **decided_by_tier(rows),
+    }
 
 
 def decided_by_tier(rows: list[dict]) -> dict:

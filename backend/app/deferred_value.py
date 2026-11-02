@@ -12,8 +12,8 @@ NEEDS_ENGINEER_REVIEW, whether the numbers read pass or breach, in both deciders
   * `hold_results(results, facts, rules, wanted)`: the datasheet checks (`datasheet_checks.evaluate`), for the
     value a result is about and for the value it is checked against (the right-hand role of its rule).
 
-The owner-approved tier (`settings.owner_approved_rules_decide_enabled`, #1584) turns the same hold on: a deferred
-value is a query whenever an owner-approved rule may decide.
+An owner-approved rule (#1584) holds its own verdict on a deferred value whatever this switch says
+(`hold_owner_rule`); no other rule's verdict changes.
 
 Only COMPLIANT and NON_COMPLIANT are held; every other status passes unchanged. The arithmetic stays in the
 words so the engineer sees what the numbers said.
@@ -27,13 +27,6 @@ from .config import settings
 DEFERRED_VALUE = "deferred_value"
 _DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 _QUERY = "NEEDS_ENGINEER_REVIEW"
-
-
-def _on() -> bool:
-    return (
-        settings.deferred_value_is_query_enabled
-        or settings.owner_approved_rules_decide_enabled
-    )
 
 
 def note_of(fact: dict | None) -> str | None:
@@ -53,7 +46,7 @@ def reason(fact: dict | None) -> str | None:
     """Why a decided verdict on this value must wait (switch ON), or None. Read by the comparison's existing
     hold (`comparison._hold_low_trust_breach`), which turns COMPLIANT and NON_COMPLIANT into a query that keeps
     the arithmetic in the words."""
-    if not _on():
+    if not settings.deferred_value_is_query_enabled:
         return None
     note = note_of(fact)
     return None if note is None else _words(note)
@@ -70,10 +63,18 @@ def framing(reason: str) -> tuple[str, str]:
 
 def hold_input(verdict: dict, fact: dict | None) -> dict:
     """A rule-evaluated verdict (`rule_eval`) whose INPUT value is deferred: a query, either way (switch ON)."""
-    if verdict.get("status") not in _DECIDED:
-        return verdict
-    why = reason(fact)
-    if why is None:
+    return _held(verdict, reason(fact))
+
+
+def hold_owner_rule(verdict: dict, fact: dict | None) -> dict:
+    """An owner-approved rule's verdict on a deferred value, or on a table rule's deferred input (`rule_eval` names
+    it `input_deferred`): a query, either way, whatever D2's own switch says. Owner's words on #1584."""
+    note = note_of(fact) or verdict.get("input_deferred")
+    return _held(verdict, _words(note) if note else None)
+
+
+def _held(verdict: dict, why: str | None) -> dict:
+    if verdict.get("status") not in _DECIDED or why is None:
         return verdict
     return {
         **verdict,
@@ -123,7 +124,7 @@ def hold_results(
     results: list[dict], facts: list[dict], rules: dict, wanted
 ) -> list[dict]:
     """`results` with every decided result about a deferred value turned into a query (switch ON)."""
-    if not _on() or not results:
+    if not settings.deferred_value_is_query_enabled or not results:
         return results
     from .datasheet_checks import role_of
 

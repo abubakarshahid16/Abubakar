@@ -6,7 +6,6 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _C = APP / "comparison.py"
-_D = APP / "deferred_value.py"
 _P = APP / "coverage_pair.py"
 _R = APP / "rule_trust.py"
 _T = "tests/test_owner_approved_tier.py"
@@ -52,8 +51,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         3,
         "any approval tier counts as the owner's",
         _R,
-        '        approval.get("tier") != OWNER_TIER\n        or not approval.get("by")\n',
-        '        not approval.get("by")\n',
+        '    if approval.get("tier") != OWNER_TIER or not _signed(approval):\n',
+        "    if not _signed(approval):\n",
         "whole_owner_approval",
     ),
     _m(
@@ -76,8 +75,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         6,
         "an owner rule's verdict stands with no read value",
         _R,
-        "        out = _hold_without_a_value(out, fact)\n",
-        "        pass\n",
+        "        out = deferred_value.hold_owner_rule(_hold_without_a_value(out, fact), fact)\n",
+        "        out = deferred_value.hold_owner_rule(out, fact)\n",
         "no_read_value",
     ),
     _m(
@@ -107,17 +106,17 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         10,
         "the run record does not say which tier decided",
-        _C,
-        "        **rule_trust.decided_by_tier(rows),\n",
+        _R,
+        "        **decided_by_tier(rows),\n",
         "",
         "run_record_states_who_decided",
     ),
     _m(
         11,
         "with the switch on a deferred value is judged as final",
-        _D,
-        "        or settings.owner_approved_rules_decide_enabled\n",
-        "",
+        _R,
+        "        out = deferred_value.hold_owner_rule(_hold_without_a_value(out, fact), fact)\n",
+        "        out = _hold_without_a_value(out, fact)\n",
         "deferred_value_is_a_query",
     ),
     _m(
@@ -146,10 +145,74 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         15,
-        "with both switches off a run labels findings and stores a rule_trust record",
+        "with the switch off an owner rule's finding is labelled and held",
+        _R,
+        "    owner_rule = settings.owner_approved_rules_decide_enabled and _owner_tier(rule)\n",
+        "    owner_rule = _owner_tier(rule)\n",
+        "off_the_hook",
+    ),
+    _m(
+        16,
+        "a blank or non-string signer gains the tier",
+        _R,
+        "    if not isinstance(by, str) or not by.strip() or not isinstance(at, str):\n",
+        "    if not by or not isinstance(at, str):\n",
+        "whole_owner_approval",
+    ),
+    _m(
+        17,
+        "a time that does not read as one gains the tier",
+        _R,
+        "        datetime.fromisoformat(at.strip())\n",
+        "        pass\n",
+        "whole_owner_approval",
+    ),
+    _m(
+        18,
+        "an unticked safety Pass on an owner rule gives an approved code",
         _C,
-        "        settings.rule_auto_use_enabled or settings.owner_approved_rules_decide_enabled\n",
-        "        True\n",
-        "byte_identical",
+        "    result = rule_trust.hold_open_ticks(result, findings, codes)\n",
+        "",
+        "unticked_safety_pass",
+    ),
+    _m(
+        19,
+        "a ticked safety Pass still holds the code",
+        _R,
+        '        and not f.get("confirmed_by")\n',
+        "",
+        "ticked_safety_pass_no_longer",
+    ),
+    _m(
+        20,
+        "the switch on with no owner rule stores a record and prints new CRS notes",
+        _R,
+        "    if not run_has_a_record(rows):\n        return None\n",
+        "",
+        "no_owner_rule_is_byte_identical",
+    ),
+    _m(
+        21,
+        "a table rule's deferred input goes unnoticed",
+        APP / "rule_eval.py",
+        '        verdict["input_deferred"] = note\n',
+        "        pass\n",
+        "deferred_input",
+    ),
+    _m(
+        22,
+        "a sheet of several tags hides one tag's deferred input",
+        APP / "rule_eval.py",
+        '**({"input_deferred": deferred} if deferred else {}),',
+        "",
+        "deferred_input_on_any_tag",
+    ),
+    _m(
+        23,
+        "the stored reason states an open tick with no time, stale after the tick",
+        _R,
+        "at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this review ran, ",
+        "",
+        "unticked_safety_pass_is_never_an_approved",
     ),
 )
