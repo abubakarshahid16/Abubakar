@@ -54,6 +54,13 @@ def _known(kind: str | None) -> bool:
     return bool(kind) and kind not in (DATASHEET, "unknown")
 
 
+def not_a_datasheet(document_id: str | None) -> bool:
+    """The document's kind is known and is not a datasheet (confirmed, or a
+    suggestion that is not a guess), whatever `kind_chooses_rules_enabled` says."""
+    kind, state, guess = _lookup(document_id)
+    return _known(kind) and not (guess and state != "confirmed")
+
+
 def blocked(document_id: str | None) -> dict | None:
     """`{"kind", "state", "reason"}` when the document's kind is known, is not a
     datasheet, and is either confirmed by an engineer or a suggestion the

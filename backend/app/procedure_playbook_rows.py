@@ -156,6 +156,8 @@ def _row(playbook, report, entry, submittal_name: str) -> dict:
         ),
         "priority": crs_mapping.PRIORITY_ENGINEER_TO_CHECK,
         "playbook_state": entry["state"],
+        # Never printed: the quote the page cell is proved from (`procedure_crs`).
+        **({"quote": ev.get("quote")} if settings.procedure_crs_fields_enabled else {}),
     }
 
 

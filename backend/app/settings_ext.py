@@ -191,3 +191,8 @@ class SettingsExt(BaseModel):
     #: marked 'engineer to confirm', with a Review note; no checklist is chosen. OFF: unchanged.
     #: Env: EQUIPMENT_FROM_TITLE_BLOCK_ENABLED.
     equipment_from_title_block_enabled: bool = False
+    #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
+    #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
+    #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion
+    #: marked as a guess, else NO-NUMBER. OFF: byte-identical. Env: PROCEDURE_CRS_FIELDS_ENABLED.
+    procedure_crs_fields_enabled: bool = False

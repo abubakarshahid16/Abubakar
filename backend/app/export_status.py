@@ -149,6 +149,8 @@ def crs_header_note(status: str | None, reason: str | None,
 def equipment_notes(submittal_id: str) -> list[dict]:
     """The Review note when the equipment type waits for an engineer (the title block
     named none or two types; `equipment_title_block`). Empty with the switch off."""
-    from . import equipment_title_block
+    from . import equipment_title_block, procedure_crs
 
+    if procedure_crs.no_equipment(submittal_id):
+        return []
     return equipment_title_block.for_submittal(submittal_id)

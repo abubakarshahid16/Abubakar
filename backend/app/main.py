@@ -59,6 +59,7 @@ from .api_utils import (
 from . import access
 from . import admin as admin_mod
 from . import playbooks as playbooks_mod, procedure_playbook_rows as ppr_mod
+from . import procedure_crs as procedure_crs_mod
 from . import requirement_split as requirement_split_mod
 from . import auth as auth_mod, auth_session as auth_session_mod
 from . import errors
@@ -2797,10 +2798,14 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
               .get("pages_not_read_into_fields") or [])
     missing = _missing_references(submittal_id, allowed)
     # #754 F5b: required vs cited, recomputed like `missing` (no stored copy to go stale).
-    check = applicability_mod.standards_check(submittal_id, allowed_document_ids=allowed)
+    no_type = procedure_crs_mod.no_equipment(submittal_id)  # order 4c
+    check = applicability_mod.standards_check(
+        submittal_id, allowed_document_ids=allowed, no_equipment=no_type
+    )
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
     rows, pb_notes = ppr_mod.merge(rows, submittal_id, submittal_name, allowed)  # #1522
+    procedure_crs_mod.fill_pages(rows, findings, submittal_id)
     # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.
@@ -2949,7 +2954,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             crs_export_mod.CODE_DECIDED_BY_ENGINEER if run.get("engineer_final_code")
             else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
             else ""),
-        "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
+        "applicable_standards": procedure_crs_mod.standards_sheet(
+            _crs_standards(review_run_id, submittal_id, allowed), submittal_id
+        ),
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
@@ -2966,6 +2973,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += pb_notes + export_status_mod.equipment_notes(submittal_id)
+    meta["review_notes"] += procedure_crs_mod.number_notes(
+        submittal_id, crs_scope, _crs_label
+    )
     return rows, meta, submittal_name, stamp
 
 
@@ -3490,7 +3500,11 @@ def _crs_comment(review_run_id: str, crs_ref: str, scope: access.AccessScope) ->
     run is."""
     crs_scope, label, _submittal = _crs_run_scope(review_run_id, scope)
     parsed = crs_numbers_mod.parse_ref(crs_ref)
-    if parsed is None or parsed[0] != label or crs_numbers_mod.get(crs_scope, parsed[1]) is None:
+    if (
+        parsed is None
+        or not crs_numbers_mod.ref_label_ok(parsed[0], label, crs_scope)
+        or crs_numbers_mod.get(crs_scope, parsed[1]) is None
+    ):
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no CRS comment with that number on this run"))
     return crs_scope, parsed[1]
@@ -3639,7 +3653,9 @@ def import_crs_reply(
         parsed = crs_numbers_mod.parse_ref(reply["item"])
         if parsed is None:
             key, outcome = "not_a_crs_number", "not a CRS number"
-        elif parsed[0] != label:
+        elif not crs_numbers_mod.ref_label_ok(
+            parsed[0], label, crs_scope
+        ) or procedure_crs_mod.other_document(parsed[0], reply, _submittal):
             key, outcome = "other_submittal", "another submittal's number"
         elif crs_numbers_mod.get(crs_scope, parsed[1]) is None:
             key, outcome = "unknown_number", "no such number"

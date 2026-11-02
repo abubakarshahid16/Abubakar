@@ -259,6 +259,8 @@ EGRESS_SAFE: dict[str, object] = {
     "page_column_rows_enabled": False,
     # --- local only, no model or socket: only the title block sets the equipment type (1 Nov, off by default)
     "equipment_from_title_block_enabled": False,
+    # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
+    "procedure_crs_fields_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: a procedure's CRS gets its playbook rows as engineer rows (#1522 b, off by default)
