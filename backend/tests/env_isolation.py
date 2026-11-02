@@ -214,6 +214,8 @@ EGRESS_SAFE: dict[str, object] = {
     "page_read_by_reading_enabled": False,
     # --- local only, no model or socket: a procedure is checked against its own text (#1476, off by default)
     "procedure_path_enabled": False,
+    # --- Claude through reader_transport only, on a database copy, a script's switch (#1584, off by default)
+    "standards_compiler_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
     "clause_review_enabled": False,
     # --- local model only, no socket but model_transport: whole-document clause review (off by default)
@@ -271,6 +273,7 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,
+    "owner_approved_rules_decide_enabled": False,
     # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
     "procedure_crs_fields_enabled": False,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own
