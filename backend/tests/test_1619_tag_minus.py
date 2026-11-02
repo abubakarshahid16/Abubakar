@@ -314,52 +314,19 @@ def test_a_readable_exception_still_decides(exception, value, subject, expected)
 
 
 @pytest.mark.parametrize(
-    "text, raw, value",
+    "text",
     [
-        ("for 1/2 in or larger", "1/2", 0.5),
-        ("for 2-1/2 in or larger", "2-1/2", 2.5),
-        ("for 2 1/2 in or larger", "2 1/2", 2.5),
-        ("NPS 3/4 in or larger", "3/4", 0.75),
+        "for 1/2 in or larger",
+        "for 2-1/2 in or larger",
+        "for 2 1/2 in or larger",
+        "NPS 3/4 in or larger",
+        "The temperature shall not exceed 40 C for 1/2 in or larger",
     ],
 )
-def test_a_plain_fraction_is_read_whole(text, raw, value):
-    limit = requirements_3b.parse_limit(text)
-    assert limit["raw_value"] == raw
-    expected = requirements_3b.measure(str(value), "in")
-    assert limit["value"] == pytest.approx(expected.normalized_value)
-    assert limit["operator"] == ">="
-
-
-def test_a_plain_fraction_keeps_the_general_limit():
-    text = "The temperature shall not exceed 40 C for 1/2 in or larger"
-    assert requirements_3b.parse_limit(text)["raw_value"] == "40"
-
-
-@pytest.mark.parametrize("value", ["0.25", "1", "3"])
-def test_a_plain_fraction_limit_gives_no_verdict_on_the_wrong_number(value):
-    text = "for 1/2 in or larger"
-    limit = requirements_3b.parse_limit(text)
-    requirement = {
-        **limit,
-        "id": "r",
-        "clause": "1",
-        "requirement_type": requirements_3b.classify(text, limit),
-        "requirement_text": text,
-        "source_text": text,
-        "field": "size",
-    }
-    fact = {
-        "id": "f",
-        "field_name": "size",
-        "field_label": "Size",
-        "field_value": f"{value} in",
-        "raw_value": value,
-        "raw_unit": "in",
-        "is_blank": 0,
-        "blank_marker": None,
-    }
-    status = comparison.compare(requirement, fact)["status"]
-    assert status == comparison.NEEDS_ENGINEER_REVIEW
+def test_a_fraction_gives_no_limit_and_goes_to_review(text):
+    assert requirements_3b.parse_limit(text) is None
+    assert requirements_3b.parse_limit_or_range(text) is None
+    assert _verdict(text, "1", "in") == comparison.NEEDS_ENGINEER_REVIEW
 
 
 @pytest.mark.parametrize("text", ["10/5 mm or less", "12/25/2019 mm or less"])

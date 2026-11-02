@@ -17,9 +17,9 @@ _FIRST = "        if direction is not None and raw_unit:\n"
 _RANGE = "    if limit is None and own_value_limit.trailing_refused(sentence):\n"
 _CROSS = "        return own_value_limit.trailing_refused(text)\n"
 _GENERAL = "    if own_value_limit.trailing_refused(sentence):\n"
-_APPEND = "        starts.append(fraction.start if fraction else match.start())\n"
-_SLASH = '    if sentence[match.start() - 1 : match.start()] not in ("/", "\\u2044"):\n'
-_PROPER = '        if fraction.end == match.end("value") and int(top) < int(bottom):\n'
+_STARTS = (
+    "    starts = [found[0].start() for found in _trailing_candidates(sentence)]\n"
+)
 _HELD = "        if not (is_negative(fact) or _glued_number(fact)):\n"
 _LIBRARY = '    if verdict.get("status") != _PASS or not (is_negative(fact) or _glued_number(fact)):\n'
 _DOUBT = "    if not _glued_number(fact):\n        return None\n    from .datasheet_checks import _label, _said\n"
@@ -136,39 +136,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAG,
     ),
     Mutation(
-        id="M1635-25",
-        phase=1635,
-        description="a fraction start is not checked, so a glued one is read",
-        path=_OWN,
-        anchor=_APPEND,
-        replacement="        starts.append(0 if fraction else match.start())\n",
-        target=_T,
-        keyword="glued_fraction",
-        tags=_TAG,
-    ),
-    Mutation(
-        id="M1635-26",
-        phase=1635,
-        description="a plain fraction is refused",
-        path=_OWN,
-        anchor=_SLASH,
-        replacement="    if True:\n",
-        target=_T,
-        keyword="plain_fraction_is_read",
-        tags=_TAG,
-    ),
-    Mutation(
-        id="M1635-27",
-        phase=1635,
-        description="an improper fraction is read as a size",
-        path=_OWN,
-        anchor=_PROPER,
-        replacement='        if fraction.end == match.end("value"):\n',
-        target=_T,
-        keyword="improper_fraction",
-        tags=_TAG,
-    ),
-    Mutation(
         id="M1635-28",
         phase=1635,
         description="a glued number passes a required item",
@@ -206,8 +173,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1635,
         description="any later limit no longer refuses a sentence",
         path=_OWN,
-        anchor=_APPEND,
-        replacement="        starts.append(fraction.start if fraction else match.start())\n        break\n",
+        anchor=_STARTS,
+        replacement="    starts = [found[0].start() for found in _trailing_candidates(sentence)][:1]\n",
         target=_T,
         keyword="later_unreadable",
         tags=_TAG,
