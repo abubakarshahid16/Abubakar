@@ -624,14 +624,14 @@ FROZEN_HEADLINE = [
     " | 0/376 | 0/376 | 0/4964 | 0/5051 |",
     "| Fail rows | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |",
     "| sent to 'needs another document' | 45 | 45 | 274 | 274 | 266 | 265 | 259"
-    " | 259 | 2161 | 1328 |",
+    " | 259 | 2161 | 19 |",
     "| verified-quote rate | 109/113 | 108/112 | 2/2 | 2/2 | 0/0 | 0/0 | 17/19"
     " | 15/17 | 27/27 | 6/6 |",
     "| pages read | 5/5 | 5/5 | 50/69 | 50/69 | 0/25 | 0/25 | 7/7 | 7/7 | 11/11"
     " | 11/11 |",
     "| kind recognised | yes (datasheet) | yes (datasheet) | NO (datasheet)"
     " | NO (datasheet) | yes (procedure) | yes (procedure) | yes (datasheet)"
-    " | yes (datasheet) | NO (datasheet) | NO (datasheet) |",
+    " | yes (datasheet) | NO (datasheet) | yes (specification) |",
     "| Pass on 'By Contractor'/TBA (D2) | 6 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |",
     "| CRS lines | 82 | 75 | 50 | 49 | 4 | 4 | 37 | 26 | 13 | 3 |",
 ]

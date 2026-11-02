@@ -4,6 +4,8 @@
 name: nightly-default-switches
 
 on:
+  push:
+    branches: [c1/lock3-switches-on]
   schedule:
     - cron: "47 3 * * *"
   workflow_dispatch:

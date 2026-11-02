@@ -7,6 +7,7 @@ clause review: its own text is still checked. The documents here are invented.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from tools import crs_bench
@@ -14,6 +15,7 @@ from tools import crs_bench
 from app import clause_review, db, document_kind, procedure_text
 from app.config import settings
 
+REPO = Path(__file__).resolve().parents[2]
 DATASHEET_COVER = {
     "page_no": 1,
     "text": "MECHANICAL DATASHEET\nDRUM\nDOC NO: SITE-2003-SP-0001\nRev. 00\n",
@@ -107,3 +109,36 @@ def test_the_bench_kind_is_the_one_the_review_acts_on(monkeypatch):
     assert crs_bench.effective_kind(conn, "a", "drawing") == "drawing"
     monkeypatch.setattr(settings, "procedure_path_enabled", False)
     assert crs_bench.effective_kind(conn, "a", "specification") == "datasheet"
+
+
+def test_the_baseline_holds_the_specifications_real_path():
+    """The refresh tightens the gate: the procedure path leaving it reads as worse."""
+    base = json.loads((REPO / "eval" / "bench" / "baseline.json").read_text())
+    entry = next(b for b in base if b["case"].get("kind") == "specification")
+    assert entry["replay"]["kind_ok"] is True
+    worse = {**entry["replay"], "sent_away": entry["replay"]["sent_away"] + 1}
+    reasons = crs_bench.gate(
+        [
+            {
+                "case": entry["case"],
+                "config": entry["config"],
+                "stored": entry["stored"],
+                "replay": worse,
+            }
+        ],
+        base,
+    )
+    assert any("sent_away" in r for r in reasons)
+    moved = {**entry["replay"], "kind": "datasheet", "kind_ok": False}
+    reasons = crs_bench.gate(
+        [
+            {
+                "case": entry["case"],
+                "config": entry["config"],
+                "stored": entry["stored"],
+                "replay": moved,
+            }
+        ],
+        base,
+    )
+    assert any("kind was right" in r for r in reasons)
