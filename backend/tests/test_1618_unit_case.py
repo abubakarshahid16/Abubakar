@@ -592,3 +592,11 @@ def test_a_stated_limit_in_a_pressure_stays_a_pressure():
 def test_a_datasheet_cell_in_a_viscosity_unit_is_not_a_pressure(cell):
     _value_read, _unit_read, measured = datasheets.measure_value(cell)
     assert measured is None or measured.normalized_value is None
+
+
+@pytest.mark.parametrize("low,high,same", [("mPa", "MPa", False), ("MPa", "MPA", True)])
+def test_a_range_in_the_two_units_is_not_one_range(low, high, same):
+    read = requirements_3b.parse_range(
+        f"The pressure shall be between 5 {low} and 10 {high}."
+    )
+    assert (read is not None) is same
