@@ -112,3 +112,26 @@ describe("CrsFooter held-for-the-engineer note", () => {
     expect(footer(sentence).text).toBe(today.text!.replace("On this sheet", `${sentence}On this sheet`));
   });
 });
+
+describe("one meaning of checked (plan change 6 B)", () => {
+  const split = { checked: 292, applies_not_checked: 84, does_not_apply: 39 };
+
+  it("prints the server's pair in place of the old counts when the run carries one", () => {
+    const { getByTestId, container } = render(<CrsFooter run={runOf({
+      requirement_split: split,
+      coverage_pair: { line: "Standard rules decided: 0 of 376 that apply.", checklist_line: "Checklist apart.", boundary: "Boundary." },
+    } as never)} counts={counts} standards={null} missing={[]} standardsError={null} rejected={0} />);
+    expect(getByTestId("crs-footer-pair").textContent).toContain("0 of 376");
+    expect(container.textContent).not.toContain("292 checked");
+    cleanup();
+  });
+
+  it("keeps the old counts with the switch off (no pair)", () => {
+    const { queryByTestId, container } = render(<CrsFooter run={runOf({
+      requirement_split: split, coverage_pair: null,
+    } as never)} counts={counts} standards={null} missing={[]} standardsError={null} rejected={0} />);
+    expect(queryByTestId("crs-footer-pair")).toBeNull();
+    expect(container.textContent).toContain("292 checked");
+    cleanup();
+  });
+});

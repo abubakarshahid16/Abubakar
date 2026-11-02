@@ -77,8 +77,13 @@ export function CrsFooter({ run, counts, standards, missing, standardsError, rej
       {heldNote && <p data-testid="crs-footer-held">{heldNote}</p>}
       <p>
         On this sheet: {count(counts.comment, "comment", "comments")}, {counts.needsYou} {counts.needsYou === 1 ? "needs" : "need"} your judgement, {counts.met} met the standard, {counts.notApplicable} not applicable, {counts.anotherDocument} for another document
-        {run.requirement_split ? ` · requirements: ${run.requirement_split.checked} checked, ${run.requirement_split.applies_not_checked} apply but not checked, ${run.requirement_split.does_not_apply} not applicable` : ""}.
+        {!run.coverage_pair && run.requirement_split ? ` · requirements: ${run.requirement_split.checked} checked, ${run.requirement_split.applies_not_checked} apply but not checked, ${run.requirement_split.does_not_apply} not applicable` : ""}.
       </p>
+      {run.coverage_pair && (
+        <p data-testid="crs-footer-pair">
+          {run.coverage_pair.line} {run.coverage_pair.checklist_line} {run.coverage_pair.boundary}
+        </p>
+      )}
       {rejected > 0 && (
         <p data-testid="crs-rejected">
           Left off this sheet: {rejected} {rejected === 1 ? "finding" : "findings"} already rejected by an engineer.

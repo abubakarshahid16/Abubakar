@@ -1,7 +1,7 @@
 // GENERATED from backend/app/api/run_summary.py by scripts/gen_contract_types.py.
 // Do not edit: change the backend model and run the script (order 119.1).
 
-import type { AiStepNumbers, PageCoverage, RequirementSplit, ReviewRunSummary } from "../types";
+import type { AiStepNumbers, PageCoverage, RequirementSplit, ReviewRunSummary, RunCoveragePair } from "../types";
 
 export type RunSummaryTier = "A" | "B" | "C";
 export type RunSummaryTierLabel = "Met" | "Not applicable" | "Another document" | "Comment" | "Needs you";
@@ -69,6 +69,8 @@ export interface RunSummaryStandardClauses {
 /** The stored fields, as the run detail returns them; null when not stored. */
 export interface RunSummaryHowReviewed {
   requirement_split?: RequirementSplit | null;
+  /** Plan change 6 B: risk and coverage from the one function; null with the switch off. */
+  coverage_pair?: RunCoveragePair | null;
   page_coverage?: PageCoverage | null;
   completeness?: ReviewRunSummary["completeness"] | null;
   reader?: AiStepNumbers | null;
