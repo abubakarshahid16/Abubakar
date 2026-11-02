@@ -326,6 +326,16 @@ def _rank_cells(finding: dict, copy: str) -> dict:
     return {"priority": priority, "priority_label": priority_word(priority, copy)}
 
 
+def _copy_and_rows(findings: list[dict], meta: dict) -> tuple[str, list[dict]]:
+    """Which copy this is, and its rows."""
+    copy = meta.get("copy") or COPY_INTERNAL
+    if copy not in COPIES:
+        raise ValueError(f"unknown CRS copy {copy!r}")
+    if copy == COPY_INTERNAL:  # never numbered, never on the issue copy (`rulebook_v2_crs`, its switch)
+        findings = [*findings, *(meta.get("rulebook_v2_rows") or [])]
+    return copy, findings
+
+
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
     """What a CRS says, with nothing in it about how it is drawn.
 
@@ -366,11 +376,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     # read: the .xlsx and the preview quote the same reference for the same
     # comment, and a re-export of this run quotes it again.
     run_id = meta.get("review_run_id", "")
-    copy = meta.get("copy") or COPY_INTERNAL
-    if copy not in COPIES:
-        raise ValueError(f"unknown CRS copy {copy!r}")
-    if copy == COPY_INTERNAL:  # never numbered, never on the issue copy (`rulebook_v2_crs`, its switch)
-        findings = [*findings, *(meta.get("rulebook_v2_rows") or [])]
+    copy, findings = _copy_and_rows(findings, meta)
 
     # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED (read
     # before the "Ref:" line is added). The issue copy leaves it out and counts
