@@ -438,6 +438,14 @@ def _rulebook_v2(part: dict, findings: list[dict], wrong_ids: set[int] | None) -
         if reference
         else ""
     )
+    held_back = part.get("withheld") or {}
+    no_grant = held_back.get("not_readable_by_this_reader") or 0
+    by_book = held_back.get("withheld_by_the_book") or 0
+    if no_grant or by_book:
+        told += (
+            f" Approved rules left out, not counted above: {no_grant} this reader may not read, {by_book} withheld"
+            " by the rulebook."
+        )
     return {
         "state": part.get("state"),
         "equipment_type": part.get("equipment_type"),
@@ -454,7 +462,7 @@ def _rulebook_v2(part: dict, findings: list[dict], wrong_ids: set[int] | None) -
             f" for this equipment type decided (pass {passed}, fail {failed}, query {rules - decided})."
             f" Risk: {said}.{told}"
             if rules
-            else f"Rulebook version 2 read no rule: {part.get('state')}."
+            else f"Rulebook version 2 read no rule: {part.get('state')}.{told}"
         ),
     }
 

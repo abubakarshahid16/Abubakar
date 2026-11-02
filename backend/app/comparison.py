@@ -2919,7 +2919,7 @@ def _run_comparison(
     held_findings.add(held_items, pending, prepared_rows, findings, run)
 
     # #805 plan change 6, switch off: approved version 2 rules beside version 1, before the write.
-    rulebook = run_parts.rulebook(run, stored, facts, prepared_rows, findings)
+    rulebook = run_parts.rulebook(run, stored, facts, prepared_rows, findings, allowed_document_ids)
 
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
     # datasheet self-checks below, which add their own rows to this run and

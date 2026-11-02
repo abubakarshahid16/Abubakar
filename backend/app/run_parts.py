@@ -11,7 +11,12 @@ from .db import connect
 
 
 def rulebook(
-    run: tuple, stored: dict, facts: list, prepared: list[dict], findings: list[dict]
+    run: tuple,
+    stored: dict,
+    facts: list,
+    prepared: list[dict],
+    findings: list[dict],
+    allowed: frozenset[str],
 ):
     """The run's approved version 2 rules, decided; None with the switch off. `run` starts (run id, submittal id). A
     version 1 row that disagrees with a rule on its field becomes a Query here, before it is written."""
@@ -19,7 +24,9 @@ def rulebook(
         return None
     from . import rulebook_v2_review
 
-    reviewed = rulebook_v2_review.begin(connect(), run[0], run[1], stored, facts)
+    reviewed = rulebook_v2_review.begin(
+        connect(), run[0], run[1], stored, facts, allowed
+    )
     reviewed.settle_with_findings(prepared, findings)
     return reviewed
 

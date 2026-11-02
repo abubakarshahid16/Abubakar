@@ -122,7 +122,7 @@ def _rule(field="Set pressure", comparator="<=", value=10.0, unit="barg", **over
         applicability=(),
         exceptions=(),
         provenance={
-            "standard_document_id": "std-book",
+            "standard_document_id": "std-1",
             "edition": "2026",
             "clause": "4.1",
             "page": 3,
@@ -171,6 +171,7 @@ def _rule(field="Set pressure", comparator="<=", value=10.0, unit="barg", **over
         "quote": quote,
         "quote_sha256": digest,
         "standard": "SAES-Z-901",
+        "document_id": "std-1",
         "edition": "2026",
         "context_flag": None,
         "strength": "shall",
@@ -682,6 +683,36 @@ def test_a_checklist_item_that_disagrees_is_held_with_the_rule():
 
 
 # ------------------------------------------------------------------------------------- recorded and stated
+
+
+def test_a_rule_whose_source_this_reader_may_not_read_is_dropped_and_counted(
+    monkeypatch,
+):
+    run, scope = _sheet()
+    secret = {**_rule(), "document_id": "std-this-reader-has-no-grant-on"}
+    missing = {k: v for k, v in _rule().items() if k != "document_id"}
+    result = _review(monkeypatch, run, scope, secret, missing, _rule())
+    assert len(_ours(result)) == 1
+    part = coverage_pair.for_run(_conn(), run)["rulebook_v2"]
+    assert part["rules"] == 1
+    assert "2 this reader may not read" in part["line"]
+
+
+def test_a_rule_the_book_withholds_is_stated_as_a_count(monkeypatch):
+    run, scope = _sheet()
+    monkeypatch.setattr(
+        rulebook_v2, "withheld_rules", lambda _c, _t: [{"rule_id": "r"}]
+    )
+    _review(monkeypatch, run, scope, _rule())
+    line = coverage_pair.for_run(_conn(), run)["rulebook_v2"]["line"]
+    assert "1 withheld by the rulebook" in line
+
+
+def test_every_rule_withheld_or_ungranted_still_says_so(monkeypatch):
+    run, scope = _sheet()
+    _review(monkeypatch, run, scope, {**_rule(), "document_id": "std-no-grant"})
+    part = coverage_pair.for_run(_conn(), run)["rulebook_v2"]
+    assert part["rules"] == 0 and "1 this reader may not read" in part["line"]
 
 
 def test_each_finding_cites_its_rule_and_the_run_records_its_snapshot(monkeypatch):

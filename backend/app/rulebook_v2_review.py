@@ -570,6 +570,7 @@ class Review:
     rows: list[Row] = field(default_factory=list)
     rules: int = 0
     reference_version: str | None = None
+    withheld: dict = field(default_factory=dict)
 
     def settle_with_findings(self, prepared: list[dict], findings: list[dict]) -> None:
         settle_with_findings(self, prepared, findings)
@@ -585,7 +586,12 @@ class Review:
 
 
 def begin(
-    conn, review_run_id: str, document_id: str, record: dict, facts: list[dict]
+    conn,
+    review_run_id: str,
+    document_id: str,
+    record: dict,
+    facts: list[dict],
+    allowed: frozenset[str],
 ) -> Review:
     """Decide every approved rule for this document and record the book the run used. No finding is written here, so a
     disagreement with version 1 can still change both sides."""
@@ -599,7 +605,13 @@ def begin(
     if approved is None:
         rulebook_v2.record_run(conn, review_run_id)
         return Review(review_run_id, document_id, BOOK_NOT_READY, equipment_type)
-    rules = approved(conn, equipment_type)
+    book = approved(conn, equipment_type)
+    # a rule only narrows what this reader may already read (rule 5): no grant on its source, no rule
+    rules = [rule for rule in book if rule.get("document_id") in allowed]
+    withheld = {
+        "not_readable_by_this_reader": len(book) - len(rules),
+        "withheld_by_the_book": len(rulebook_v2.withheld_rules(conn, equipment_type)),
+    }
     reference = (
         material_reference.signed(conn) if settings.material_reference_enabled else None
     )
@@ -631,6 +643,7 @@ def begin(
         rows,
         len(rules),
         reference.version if reference else None,
+        withheld,
     )
 
 
@@ -813,6 +826,7 @@ def summary(review: Review) -> dict:
         "snapshot_id": review.snapshot_id,
         "rules": review.rules,
         "reasons": dict(sorted(reasons.items())),
+        "withheld": review.withheld,
         **(
             {"material_reference": review.reference_version}
             if review.reference_version

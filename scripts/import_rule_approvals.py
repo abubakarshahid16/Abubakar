@@ -5,11 +5,13 @@
 
 The ticks are read, never retyped, and it changes no rule's text. "Checked OK" is an approval for the equipment type
 the file's kind names. "Wrong" and "Not applicable" are recorded as rejections. An empty tick is nothing at all. Who
-signed and in what capacity come only from the two flags, and the signer must be an active user of this database.
+signed and in what capacity come only from the two flags, and the signer must be an active user of this database;
+--tier owner also needs the `admin` role there, the one record of who may sign for the owner.
 
 All or none. Refused, with nothing written: a live-shaped --db; a file whose stamp differs from the current rules (the
 changed rows are listed, ids only); a row whose words were edited; a tick outside the list; a tick on a row with no
-rule id; an approval of a context-dependent rule with no comment saying what was checked.
+rule id; an approval of a context-dependent rule with no comment saying what was checked. A file showing another
+limit or unit than the rule's own is refused as edited, whatever its row check says.
 
 Stdout is one line of JSON, counts and ids only. Sends nothing, calls no model.
 Exit: 0 recorded; 2 bad input or signer; 3 stamp differs; 4 file edited or a tick refused; 6 switch off.
@@ -20,6 +22,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +32,9 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 import openpyxl  # noqa: E402
 from rehearse_requirement_reextraction import refuse_live  # noqa: E402
+
+from app import numparse  # noqa: E402
+from app.rulebook_v2_check import DEFERS_TO, LIMIT, NO_UNIT, RANGE  # noqa: E402
 
 EXIT_BAD, EXIT_STALE, EXIT_EDITED, EXIT_OFF = 2, 3, 4, 6
 OK, WRONG, NOT_APPLICABLE = "Checked OK", "Wrong", "Not applicable"
@@ -120,9 +126,20 @@ def _rows_now(conn, snapshots: set[str]) -> tuple[set[tuple], list[str]]:
     return now, old
 
 
+def _holds_owner_role(conn, signer: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.name = 'admin'",
+            (signer,),
+        ).fetchone()
+        is not None
+    )
+
+
 def _version_of(conn, rule_id: str, version: int):
     return conn.execute(
-        "SELECT id, quote_sha256, strength, (SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = ?)"
+        "SELECT id, quote_sha256, strength, (SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = ?),"
+        " kind, comparator, value, value_text, unit"
         " FROM rulebook_version WHERE rule_id = ? AND version_no = ?",
         (rule_id, rule_id, version),
     ).fetchone()
@@ -133,6 +150,29 @@ def _version_number(row: dict) -> int | None:
         return int(_text(row.get(C_VERSION)))
     except ValueError:
         return None
+
+
+def _shows_the_rules_limit(row: dict, version) -> bool:
+    """The Limit and Unit cells say what this version holds: what the signer saw is what is approved."""
+    kind, comparator, value, words, unit = version[4:9]
+    cell = _text(row.get("Limit"))
+    if kind == LIMIT:
+        said = cell.split(None, 1)
+        return (
+            len(said) == 2
+            and said[0] == comparator
+            and numparse.as_limit(said[1]) == value
+            and _text(row.get("Unit")) == ("" if unit == NO_UNIT else _text(unit))
+        )
+    written = _text(words)
+    if kind == RANGE and _text(row.get("Unit")) != (
+        "" if unit == NO_UNIT else _text(unit)
+    ):
+        return False
+    if not any(c.isdigit() for c in written) or kind == DEFERS_TO:
+        # The generator prints a figure only: no figure, no limit cell.
+        return cell == ""
+    return cell == written or cell.endswith(f" {written}")
 
 
 def _edited(conn, rows: list[dict]) -> list[str]:
@@ -146,6 +186,7 @@ def _edited(conn, rows: list[dict]) -> list[str]:
             _text(row.get(C_CHECK)) != row_check(row)
             or version is None
             or version[1] != digest
+            or not _shows_the_rules_limit(row, version)
         ):
             out.append(_text(row[C_RULE]))
     return out
@@ -199,6 +240,18 @@ def _refused_ticks(conn, rows: list[dict]) -> dict:
     return {k: v for k, v in out.items() if v}
 
 
+def _sources_shown(conn, version: str, row: dict) -> tuple[str, ...]:
+    """The source this row showed: its compile's document, and its page. Another edition's source was shown to no one."""
+    found = conn.execute(
+        "SELECT p.id, p.page FROM rulebook_provenance p WHERE p.rule_version_id = ? AND p.standard_document_id ="
+        " (SELECT standard_document_id FROM rulebook_snapshot WHERE id = ?) ORDER BY p.rowid",
+        (version, _text(row.get(C_SNAPSHOT))),
+    ).fetchall()
+    page = re.match(r"\d+", _text(row.get("Page")))
+    on_page = [s[0] for s in found if page and s[1] == int(page.group())]
+    return tuple(on_page or [s[0] for s in found])
+
+
 def _decisions(
     conn, ticked, signer, tier, equipment_type, digest
 ) -> tuple[list[dict], int]:
@@ -218,9 +271,7 @@ def _decisions(
         ):
             already += 1
             continue
-        sources = conn.execute(
-            "SELECT id FROM rulebook_provenance WHERE rule_version_id = ?", (version,)
-        ).fetchall()
+        sources = _sources_shown(conn, version, row)
         comment = _text(row.get(C_COMMENT))
         out.append(
             {
@@ -229,7 +280,7 @@ def _decisions(
                 "engineer_id": signer,
                 "tier": tier,
                 "equipment_type": equipment_type,
-                "provenance_viewed": tuple(s[0] for s in sources),
+                "provenance_viewed": sources,
                 "note": f"{row[C_TICK]}: {comment}" if comment else row[C_TICK],
                 "source_sha256": digest,
                 "signed_content": signing if word == rulebook_v2.APPROVE else None,
@@ -313,6 +364,8 @@ def run(
         return stop(
             EXIT_BAD, "the file names no equipment type or rulebook stamp; rebuild it"
         )
+    if tier == rulebook_v2.OWNER and not _holds_owner_role(conn, signer):
+        return stop(EXIT_BAD, "--tier owner needs a signer with the admin role here")
     with_rule = [r for r in rows if _text(r.get(C_RULE))]
     changed = _stale(conn, cover, with_rule)
     if changed:
