@@ -40,6 +40,10 @@ class SettingsExt(BaseModel):
     #: caps. Anything else stays on the local model; in a Claude-lane run that is skipped and
     #: listed as not checked. Env: AI_DIVISION_SCOPE_ENGINE.
     ai_division_scope_engine: str = "ollama"
+    #: #805 plan change 6, part A: the rulebook's version 2 tables (`rulebook_v2.py`, `scripts/rulebook_v2.py`), on a
+    #: database COPY. No verdict reads them; no rule is in force until a person approves it. OFF: nothing is read,
+    #: created or written. Env: RULEBOOK_V2_ENABLED.
+    rulebook_v2_enabled: bool = False
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, on the local model unless its engine says otherwise, every
