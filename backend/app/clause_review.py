@@ -188,11 +188,12 @@ def verify_quote(quote, page_text) -> bool:
     return folded in _fold(page_text)
 
 
-_STOP = frozenset(
-    (
-        "shall must should will with that this from have been were their there which when where each every into than then also such only other more less those these they them being under over about after before between"
-    ).split()
-)
+_STOP = frozenset((
+    "shall", "must", "should", "will", "with", "that", "this", "from", "have", "been",
+    "were", "their", "there", "which", "when", "where", "each", "every", "into", "than",
+    "then", "also", "such", "only", "other", "more", "less", "those", "these", "they",
+    "them", "being", "under", "over", "about", "after", "before", "between",
+))  # fmt: skip
 
 
 def _terms(text: str) -> list[str]:
