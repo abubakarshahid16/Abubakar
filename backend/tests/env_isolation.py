@@ -154,6 +154,7 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_clause_checks_enabled": False,
     "ai_requirement_extraction_enabled": False,
     "ai_requirement_quote_page_enabled": False,
+    "ai_requirement_extraction_resume_enabled": False,
     # #141: a local model call per division of a standard a review holds.
     "ai_division_scope_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
