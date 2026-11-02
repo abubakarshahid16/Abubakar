@@ -380,3 +380,15 @@ describe("section 3: comments grouped by topic", () => {
     expect(groups[0].findings).toHaveLength(2);
   });
 });
+
+describe("#1638 stated, not checked", () => {
+  it("a stated-only row is not a Meets, and says what it is", () => {
+    const row = { compliance_status: "COMPLIANT", origin: "datasheet_check", stated_only: true };
+    const totals = summaryTotals([row, { compliance_status: "COMPLIANT", origin: "datasheet_check" }]);
+    expect(totals.meets).toBe(1);
+    expect(totals.stated).toBe(1);
+    expect(totals.counted).toBe(2);
+    expect(findingLabel(row)).toBe("Stated, not checked");
+    expect(findingLabel({ compliance_status: "COMPLIANT" })).toBe("Compliant");
+  });
+});

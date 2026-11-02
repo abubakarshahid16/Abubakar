@@ -27,7 +27,13 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import ai_call_ledger, deferred_pass, review_audit_detail, review_audit_rows
+from . import (
+    ai_call_ledger,
+    deferred_pass,
+    presence_check,
+    review_audit_detail,
+    review_audit_rows,
+)
 from .config import settings
 
 NOT_RECORDED = "not recorded"
@@ -38,6 +44,7 @@ BOUNDARY = (
 )
 #: The plain verdict names (the bench's words) for the stored compliance codes.
 VERDICT = {
+    presence_check.STATUS: presence_check.WORDS,
     "COMPLIANT": "Pass",
     "NON_COMPLIANT": "Fail",
     "MISSING_INFORMATION": "Query",
@@ -242,13 +249,13 @@ def _deferred_part(findings: list[dict], passes: int) -> dict:
 def _rules_section(
     findings: list[dict], allowed=frozenset(), equipment: str | None = None
 ) -> dict:
-    counts = Counter(f.get("compliance_status") for f in findings)
+    counts = Counter(presence_check.status_of(f) for f in findings)  # #1638
     rows = review_audit_detail.rule_rows(findings, allowed, equipment)
     return {
         "rows_total": len(rows),
         "rows": rows,
         "verdict_counts": {VERDICT.get(k, k): v for k, v in counts.items() if k},
-        **_deferred_part(findings, counts.get("COMPLIANT", 0)),
+        **_deferred_part(presence_check.split(findings)[0], counts.get("COMPLIANT", 0)),
         "in_scope_by_standard": review_audit_detail.in_scope_by_standard(findings),
     }
 
