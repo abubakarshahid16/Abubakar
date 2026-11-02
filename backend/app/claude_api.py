@@ -36,7 +36,7 @@ screen as what it said.
 TWO LIMITS ON EVERY CALL, BOTH INSIDE `_model_call_or_409(step)` so no route
 can reach the transport without them:
 
-  1. The USD caps (owner rule 2026-09-25: USD 5 per step; USD 500 in total for November, 20 before).
+  1. The USD caps (per review run, #1584: USD 5 per step, USD 10 for AI clause review, at most USD 15 in all; USD 100 a day; USD 500 in total for November, 20 before).
      The transport is wrapped in `claude_spend.metered(transport, step)`:
      each call's worst case is checked BEFORE it leaves, and each call is
      written to the one `claude_spend` ledger AFTER it returns, so the total
@@ -64,7 +64,7 @@ from pydantic import BaseModel, ConfigDict
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import access, errors
-from . import claude_approved, claude_budget, claude_spend
+from . import claude_approved, claude_budget, claude_spend, claude_spend_report
 from . import claude_datasheet, claude_recheck, claude_selection
 from . import classification as classification_mod
 from . import datasheets
@@ -251,18 +251,26 @@ def _settle(transport, result: dict, exhausted: bool | str | None, model_call) -
         "call_cap": getattr(model_call, "max_calls", None),
         "usage": usage,
         "spend_total": claude_budget.record(usage),
-        "usd_spent": _usd_spent(getattr(model_call, "step", None)),
+        "usd_spent": _usd_spent(getattr(model_call, "step", None), result.get("review_run_id")),
     }
 
 
-def _usd_spent(step: str | None) -> dict:
+def _usd_spent(step: str | None, review_run_id: str | None = None) -> dict:
     """What the `claude_spend` ledger - the one the USD caps read - says has
     been spent on this route's step and in total, beside the caps."""
     caps = claude_spend.Caps.from_settings()
+    with claude_spend.for_run(review_run_id):
+        step_usd = claude_spend.step_spent(step) if step else None
+        run_usd = claude_spend.run_spent() if review_run_id else None
     return {"step": step,
-            "step_usd": claude_spend.spent(step) if step else None,
+            "step_usd": step_usd,
+            "step_boundary": "this review run" if review_run_id else "every call on this step",
+            "run_usd": run_usd,
             "total_usd": claude_spend.spent(),
-            "cap_per_step_usd": caps.per_step, "cap_total_usd": caps.total}
+            "today_usd": claude_spend_report.charged_today(claude_spend.entries()),
+            "cap_per_step_usd": caps.per_step, "cap_total_usd": caps.total,
+            "cap_per_run_usd": claude_spend_report.run_cap(),
+            "cap_per_day_usd": claude_spend_report.day_cap()}
 
 
 def _by_finding(findings) -> dict:
@@ -327,11 +335,17 @@ def claude_select_standards(
     # #806 S3: the prompt carries the submittal's summary and, for EVERY
     # selectable standard, its number, title and a scope excerpt.
     from . import claude_approved
-    with claude_approved.carrying([run["submittal_document_id"],
-                                   *(c.get("document_id") for c in candidates)]):
+    with (
+        claude_approved.carrying(
+            [run["submittal_document_id"], *(c.get("document_id") for c in candidates)]
+        ),
+        claude_spend_report.for_route(review_run_id),
+    ):
         result, exhausted = _capped(
-            model_call, lambda call: claude_selection.select_standards(summary, candidates, call),
-            transport)
+            model_call,
+            lambda call: claude_selection.select_standards(summary, candidates, call),
+            transport,
+        )
     stored = claude_selection.store_selection(
         review_run_id, result.get("accepted", []), candidates,
         allowed_document_ids=scope.allowed_document_ids)
@@ -357,9 +371,16 @@ def claude_read_datasheet(
     run = _run_or_404(review_run_id, scope)
     model_call, transport = _model_call_or_409(STEP_READ_DATASHEET)
     submittal_id = run["submittal_document_id"]
-    result, exhausted = _capped(model_call, lambda call: claude_datasheet.read_datasheet(
-        submittal_id, allowed_document_ids=scope.allowed_document_ids, model_call=call),
-        transport)
+    with claude_spend_report.for_route(review_run_id):
+        result, exhausted = _capped(
+            model_call,
+            lambda call: claude_datasheet.read_datasheet(
+                submittal_id,
+                allowed_document_ids=scope.allowed_document_ids,
+                model_call=call,
+            ),
+            transport,
+        )
     stored = claude_datasheet.store_facts(
         review_run_id, submittal_id, result.get("accepted", []),
         allowed_document_ids=scope.allowed_document_ids)
@@ -391,8 +412,14 @@ def claude_recheck_findings(
         local_instead = claude_approved.local_instead()
     if local_instead:
         model_call, transport = _local_recheck_call(), None
-    result, exhausted = _capped(model_call, lambda call: claude_recheck.recheck_run(
-        review_run_id, call, allowed_document_ids=scope.allowed_document_ids), transport)
+    with claude_spend_report.for_route(review_run_id):
+        result, exhausted = _capped(
+            model_call,
+            lambda call: claude_recheck.recheck_run(
+                review_run_id, call, allowed_document_ids=scope.allowed_document_ids
+            ),
+            transport,
+        )
     stored = 0
     for finding_id, per in _by_finding(result.get("findings")).items():
         if claude_recheck.store_recheck(finding_id, per) is not None:
@@ -443,9 +470,14 @@ def review_ai_check(
     if not ok:
         raise HTTPException(status_code=409, detail=errors.safe_error(MODEL_DISABLED, why))
     try:
-        result = ai_engineering_check.run_check(
-            review_run_id, allowed_document_ids=scope.allowed_document_ids,
-            cited=_missing_references(run["submittal_document_id"], scope.allowed_document_ids))
+        with claude_spend_report.for_route(review_run_id):
+            result = ai_engineering_check.run_check(
+                review_run_id,
+                allowed_document_ids=scope.allowed_document_ids,
+                cited=_missing_references(
+                    run["submittal_document_id"], scope.allowed_document_ids
+                ),
+            )
     except (claude_spend.BudgetExceeded, rp.ProviderRefused) as exc:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             MODEL_DISABLED, f"the AI engineering check did not run: {type(exc).__name__}")) from None
