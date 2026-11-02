@@ -31,6 +31,7 @@ from . import (
     ai_call_ledger,
     job_progress,
     job_queue,
+    local_engine_bar,
     nothing_read,
     provenance,
     reread_for_standards,
@@ -422,6 +423,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 
 @ai_call_ledger.recorded  # #1525: only with REVIEW_AUDIT_REPORT_ENABLED on
+@local_engine_bar.barring_local_engine  # a Claude-lane run never loads the local engine
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     """Run one claimed review job to its end. Returns the job's final state.
 
@@ -469,8 +471,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             missing = [m["identifier"] for m in selection["missing_references"]]
             _checks_reporting(conn, job_id, heartbeat, run_id, scope, missing)
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
-        # R15 (#779) numbers every CRS row, R26 step 8 (#763) words each comment;
-        # neither fails the run (see the helpers).
+        # R15 (#779) numbers every CRS row, R26 step 8 (#763) words each comment; neither fails it.
         from .main import number_crs_rows, word_crs_rows
         with _phase(conn, job_id, None, heartbeat, timings, None):
             number_crs_rows(run_id, requester)

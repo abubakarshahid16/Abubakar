@@ -104,9 +104,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M571", phase=61,
         description="the response cache is never read, so a repeat call is bought again",
-        path=APP / "reasoning_provider.py",
-        anchor="        cached = _cache_read(key)\n",
-        replacement="        cached = None\n",
+        path=APP / "claude_answer_cache.py",
+        anchor="        return cached if _usable(path, cached, valid) else None\n",
+        replacement="        return None\n",
         target="tests/test_claude_provider.py",
         keyword="served_from_cache",
         tags=("budget",),

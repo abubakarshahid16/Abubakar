@@ -329,6 +329,7 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
             "fresh": row["fresh"],
             "failed": row["failed"],
             "reused": row["reused"],
+            **review_audit_rows.not_sent(row),
         }
         for row in ledger
     ]
@@ -419,8 +420,17 @@ def _ai_section(
         if step["state"] == "failed"
         else "see the findings; code decides"
     )
-    steps = [step, *_stored_steps(status, wording), *_ledger_steps(ledger)]
-    return {"steps": steps, "totals": _totals(steps)}
+    steps = [
+        step,
+        *_stored_steps(status, wording),
+        *_ledger_steps(ledger),
+        *review_audit_rows.skipped_steps(_loads(run.get("outcome_json"))),
+    ]
+    return {
+        "steps": steps,
+        "totals": _totals(steps),
+        **review_audit_rows.cache_figures(run),
+    }
 
 
 def _gates_section(outcome: dict, steps: dict) -> dict:
@@ -634,12 +644,14 @@ def _md_ai(audit: dict) -> list[str]:
         f"reused answers {_v(totals['reused'])}",
         f"  - {totals['boundary']}",
     ]
+    out += review_audit_rows.cache_lines(audit["ai_use"])
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
             f"{_v(s['fresh'])}; failed calls {_v(s.get('failed'))}; reused answers "
             f"{_v(s['reused'])}"
         )
+        out += [f"  - {s['not_sent']}"] if s.get("not_sent") else []
         if "clauses_read_of_total" not in s:
             continue
         out[-1] += (

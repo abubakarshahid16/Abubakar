@@ -171,6 +171,31 @@ def for_review(fn):
     return declared
 
 
+def carried_hashes() -> dict[str, str | None] | None:
+    """The documents declared for this prompt with their file hashes, for the answer
+    cache's file; None when nobody declared. Ids and hashes only."""
+    ids = carried()
+    if ids is None:
+        return None
+    return _hashes_of(ids) if ids else {}
+
+
+def still_holds(documents: dict[str, str] | None) -> bool:
+    """Whether a stored answer written under `documents` may still be served: each
+    is in the library as the same file and, with the list enforced, still approved.
+    A document deleted, replaced, withdrawn or blocked means no. Asked ON TOP of
+    `refusal()`, which only knows what THIS caller declares."""
+    if not documents:
+        return True
+    if _hashes_of(frozenset(documents)) != documents:
+        return False
+    if not settings.claude_approved_list_enforced:
+        return True
+    if _REQUEST_CONSENT.get():
+        return frozenset(documents) <= (carried() or frozenset())
+    return frozenset(documents.values()) <= approved_hashes()
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name."""
