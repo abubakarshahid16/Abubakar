@@ -299,15 +299,9 @@ def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
     clause = status.get(STATUS_KEY)
     if isinstance(clause, dict):
         out.append(
-            {
-                "name": "clause_review",
-                "state": "completed" if clause.get("ran") else NOT_RECORDED,
-                "model": clause.get("model"),
-                "calls": clause.get("calls"),
-                "fresh": clause.get("calls"),
-                "reused": clause.get("cache_hits"),
-                **review_audit_detail.clause_figures(clause),
-            }
+            review_audit_rows.clause_step(
+                clause, NOT_RECORDED, review_audit_detail.clause_figures(clause)
+            )
         )
     if wording and wording.get("enabled"):
         tried = wording.get("tried")
@@ -624,6 +618,7 @@ def _md_ai(audit: dict) -> list[str]:
             f"{_v(s['reused'])}"
         )
         out += [f"  - {s['not_sent']}"] if s.get("not_sent") else []
+        out += [f"  - {s['plain']}"] if s.get("plain") else []
         if "clauses_read_of_total" not in s:
             continue
         out[-1] += (

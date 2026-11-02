@@ -169,6 +169,7 @@ EGRESS_SAFE: dict[str, object] = {
     "datasheet_ai_reader": "off",
     "match_engine": "ollama",  # "claude" sends clause text out
     "review_ai_check_engine": "ollama",  # #501: "claude" sends datasheet pages out
+    "ai_clause_review_engine": "ollama",  # "claude" sends requirement text and small passages out
     "crs_ai_wording_engine": "ollama",  # #819: "claude" sends CRS rows (standard references) out
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
