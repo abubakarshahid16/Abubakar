@@ -60,9 +60,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         4,
         "a row that is not a Pass, or not from a checklist, is taken as stated",
         _S,
-        '    if finding.get("origin") != ORIGIN or finding.get("compliance_status") != PASS:\n'
-        "        return False\n",
-        "",
+        '    return finding.get("compliance_status") == PASS and _only_asks_stated(finding)\n',
+        "    return _only_asks_stated(finding)\n",
         "not_every_row_of_the_item",
     ),
     _m(
