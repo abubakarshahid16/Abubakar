@@ -692,6 +692,10 @@ def _first_page_text(pdf_path: Path) -> str:
             from . import docx_reader
 
             pages = docx_reader.read_structure(pdf_path).pages
+            if (
+                settings.word_page_markers_enabled
+            ):  # a real page 1 can hold only a picture
+                return next((p for p in pages if p.strip()), "")
             return pages[0] if pages else ""
         if settings.datasheet_office_input or _slice2_workbook(KIND_XLSX):
             # DATASHEET_OFFICE_INPUT seam (and #525 slice 2): an office file's page

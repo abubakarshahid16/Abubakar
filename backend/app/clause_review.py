@@ -51,7 +51,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from . import clause_review_status, job_progress, scope_quote
+from . import clause_review_status, job_progress, local_engine_bar, scope_quote
 from .config import settings
 from .crs_draft_lanes import CLAUSE_ORIGIN
 from .db import connect
@@ -609,6 +609,10 @@ def for_review(review_run_id: str, scope: frozenset[str]) -> None:
     qualifying kind. A failure never fails the review: it is logged by kind (never
     text) and recorded on the run."""
     if not settings.clause_review_enabled:
+        return
+    if local_engine_bar.refuses(STEP):  # LOCAL ONLY (owner decision D1): said, not run
+        plain = f"AI clause review {local_engine_bar.NOTE}"
+        _store_status(review_run_id, {"ran": False, "plain": plain})
         return
     try:
         run(review_run_id, allowed_document_ids=scope)

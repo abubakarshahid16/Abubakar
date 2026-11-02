@@ -21,6 +21,7 @@ review needs that an extraction does not:
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import time
 import uuid
@@ -32,11 +33,13 @@ from . import (
     claude_auto_approve,
     job_progress,
     job_queue,
+    local_engine_bar,
     nothing_read,
     provenance,
     reread_for_standards,
     review_progress,
     submittal_fill,
+    word_pages,
 )
 from .config import config_version, settings
 from .db import connect
@@ -66,8 +69,8 @@ NEUTRAL_WORDS = ("document", "page")
 
 def document_words(document_id: str) -> tuple[str, str]:
     """(noun, unit) for the progress lines of a review of `document_id`. The
-    unit is "part" for a Word file (`pagination = 'flow'`: no fixed pages, its
-    reading units are parts), else "page"."""
+    unit is "part" for a Word file read in parts (`pagination = 'flow'`), else "page".
+    WORD_PAGE_MARKERS_ENABLED: a Word file shows pages, "part" only with no page marks."""
     from . import doc_router, document_kind
 
     stored = document_kind.stored_kind(document_id)
@@ -79,6 +82,8 @@ def document_words(document_id: str) -> tuple[str, str]:
         .fetchone()
     )
     unit = "part" if row is not None and row["pagination"] == "flow" else "page"
+    if settings.word_page_markers_enabled:
+        unit = word_pages.unit(document_id)
     return noun, unit
 
 
@@ -423,7 +428,24 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         _record_check_failure(run_id, "web_check_status", "Web standards check", exc)
 
 
+def _review_scope(job):
+    """A Claude-lane run never loads the local engine, and its spend lines name the run."""
+    barred = local_engine_bar.barring_local_engine(job)
+
+    @functools.wraps(job)
+    def wrapper(job_id, *args, **kwargs):
+        from . import claude_spend
+
+        sql = "SELECT review_run_id FROM jobs WHERE id = ?"
+        row = connect().execute(sql, (job_id,)).fetchone()
+        with claude_spend.for_run(row["review_run_id"] if row else None):
+            return barred(job_id, *args, **kwargs)
+
+    return wrapper
+
+
 @ai_call_ledger.recorded  # #1525: only with REVIEW_AUDIT_REPORT_ENABLED on
+@_review_scope  # the bar on the local engine; ledger lines carry the run's id
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     """Run one claimed review job to its end. Returns the job's final state.
 
@@ -470,8 +492,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             missing = [m["identifier"] for m in selection["missing_references"]]
             _checks_reporting(conn, job_id, heartbeat, run_id, scope, missing)
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
-        # R15 (#779) numbers every CRS row, R26 step 8 (#763) words each comment;
-        # neither fails the run (see the helpers).
+        # R15 (#779) numbers every CRS row, R26 step 8 (#763) words each comment; neither fails it.
         from .main import number_crs_rows, word_crs_rows
         with _phase(conn, job_id, None, heartbeat, timings, None):
             number_crs_rows(run_id, requester)

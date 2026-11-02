@@ -146,6 +146,28 @@ def test_a_numbered_bold_heading_is_found_with_the_standard_held(tmp_path):
     assert _entry("n1")["state"] == playbooks.PRESENT
 
 
+@pytest.mark.parametrize("markers", [False, True])
+def test_found_on_a_pdf_names_the_true_page(tmp_path, monkeypatch, markers):
+    """The Word page switch (#1581) leaves a PDF's real page alone."""
+    monkeypatch.setattr(settings, "word_page_markers_enabled", markers)
+    _store(
+        tmp_path,
+        "p2",
+        [
+            [
+                ("1. AIMS OF THE WORK", "hebo", BODY),
+                *PLANT,
+                ("2. TERMS USED", "hebo", BODY),
+                *PLANT,
+            ],
+            [("3. PLANT NODES", "hebo", BODY), (CUE, "helv", BODY), *PLANT],
+        ],
+    )
+    entry = _entry("p2")
+    assert entry["section_state"] == playbooks.PRESENT
+    assert entry["reason"].startswith("section found at page 2 ")
+
+
 def test_a_numbered_bold_heading_is_a_guess_when_the_file_cannot_be_read(tmp_path):
     _numbered_bold_section(tmp_path)
     (tmp_path / "uploads" / "n1.pdf").unlink()

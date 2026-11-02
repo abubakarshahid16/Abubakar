@@ -42,7 +42,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import ai_check_drafts, errors
+from . import ai_check_drafts, errors, local_engine_bar
 from .config import settings
 
 LOGGER_NAME = "review.debug"
@@ -513,6 +513,7 @@ def store(review_run_id: str, scope, timings: dict | None = None) -> dict | None
     changes a review. Returns the stored trace (None when it failed)."""
     from .db import connect
     try:
+        local_engine_bar.record_on_run(review_run_id)  # what a Claude-lane run skipped
         trace = build(review_run_id, scope)
         for step in trace["steps"]:
             step["timing"] = (timings or {}).get(PHASE_OF.get(step["step"], ""))

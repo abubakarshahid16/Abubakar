@@ -39,7 +39,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import pdf_headings
+from . import pdf_headings, word_pages
 from .config import settings
 from .db import connect
 
@@ -405,12 +405,19 @@ def _chunk_of(ev: dict, body: list[dict]) -> dict:
     return next((c for c in body if _where(c) == ev["locator"]), {})
 
 
-def _place(ev: dict, body: list[dict], page: int | None = None) -> str:
+def _place(
+    ev: dict, body: list[dict], page: int | None = None, document_id: str = ""
+) -> str:
     """'page N (heading "...")' of an evidence passage, the heading as written."""
     chunk = _chunk_of(ev, body)
     page, heading = page or chunk.get("page_start"), _heading_of(chunk)
     named = f' (heading "{heading[:QUOTE_MAX]}")' if heading else ""
-    return (f"page {page}" if page else ev["locator"]) + named
+    group = [
+        {"document_id": document_id, "contractor_evidence_text": ev.get("quote") or ""}
+    ]
+    return (
+        word_pages.page_cell(f"page {page}", [page], group) if page else ev["locator"]
+    ) + named
 
 
 def _verified_quote(
@@ -444,7 +451,7 @@ def _cited(ev: dict, body: list[dict], document_id: str) -> tuple[str, int | Non
     """(the words citing the passage, the page they cite: the CRS page column's too)."""
     page, quote = _verified_quote(ev, body, document_id)
     said = f': "{quote}"' if quote else "; no quote could be verified on the page text"
-    return _place(ev, body, page) + said, page
+    return _place(ev, body, page, document_id) + said, page
 
 
 NO_HEADINGS = "no section heading was read from this document"
@@ -500,7 +507,7 @@ def _section_without_standard(
     if found["state"] == PRESENT:
         out["evidence"] = ev[:1]
         out["reason"] = (
-            f"section found at {_place(ev[0], body)}; its content is not checked "
+            f"section found at {_place(ev[0], body, None, document_id)}; its content is not checked "
             f"because {std} is not held; engineer to confirm"
         )
     elif not read_in_full or not _headings_read(body):

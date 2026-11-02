@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1571,
+ "total": 1569,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -51,7 +51,6 @@
   "backend/app/chunker.py::RUF021": 1,
   "backend/app/chunker.py::SIM102": 3,
   "backend/app/chunker.py::SIM103": 2,
-  "backend/app/chunker.py::SIM118": 1,
   "backend/app/chunker.py::SIM905": 1,
   "backend/app/chunker.py::UP017": 1,
   "backend/app/claims.py::B007": 2,
@@ -642,7 +641,6 @@
   "backend/tests/test_w1_deliverable_org_wide.py::F811": 5,
   "backend/tests/test_w1_deliverable_org_wide.py::I001": 1,
   "backend/tests/test_w1_document_refs_registry.py::F811": 6,
-  "backend/tests/test_w1_document_refs_registry.py::I001": 1,
   "backend/tests/test_w1_standard_text_search_and_pdf.py::F811": 6,
   "backend/tests/test_w2b_598_review_table_filter.py::E702": 2,
   "backend/tests/test_w2b_598_review_table_filter.py::E741": 1,

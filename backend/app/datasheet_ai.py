@@ -200,12 +200,12 @@ def _ollama_call(packet_shape: dict | None = None):
     """`packet_shape` (form reader, #form-reader): the JSON schema, prompt
     version and answer budget of a caller with its own answer shape. None -
     this reader's own `_SCHEMA` and sizes, exactly as before."""
-    from . import ai_task_runner, model_transport
+    from . import ai_task_runner, local_engine_bar, model_transport
     from .reasoning_provider import OllamaProvider, Packet, schema_errors
 
-    # The same gate every request passes (`model_transport.endpoint` ->
-    # `config.check_model_url`), asked once up front so a refused host is a
-    # reason for the whole document rather than a failure on every page.
+    if local_engine_bar.refuses(STEP):  # named here, so the CRS line names this reader
+        return None, local_engine_bar.NOTE
+    # The gate every request passes, asked once: a refused host is one reason for the document.
     try:
         model_transport.endpoint("/api/generate")
     except Exception as exc:  # noqa: BLE001 - a refused host is a reason, not a crash

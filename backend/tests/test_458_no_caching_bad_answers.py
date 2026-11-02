@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from app import claude_spend
+from app import claude_answer_cache, claude_spend
 from app import reasoning_provider as rp
 from app.config import settings
 from tests.test_chat import temp_storage  # noqa: F401 - the fixture is autouse
@@ -28,9 +28,9 @@ SCHEMA = {"type": "object", "required": ["answer"],
 
 
 @pytest.fixture(autouse=True)
-def _env(tmp_path, monkeypatch):
+def _env(temp_storage, tmp_path, monkeypatch):  # noqa: F811 - temp_storage first: it moves data_dir
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.setattr(settings, "anthropic_api_key", KEY)
     monkeypatch.setattr(settings, "standards_reader_enabled", True)
@@ -82,9 +82,19 @@ def test_a_valid_answer_is_still_cached():
 
 def test_a_bad_answer_cached_before_the_fix_is_a_miss():
     packet = _packet()
-    key = rp.cache_key(MODEL, packet)
-    rp._cache_write(key, {"text": "not json at all", "model_tag": MODEL,
-                          "finish_reason": "stop", "tokens_in": 1, "tokens_out": 1})
+    body = rp.ClaudeProvider(MODEL)._request(packet)[1]
+    key = claude_answer_cache.key_of(packet.step, packet.prompt_version, body)
+    claude_answer_cache.write(
+        key,
+        step=packet.step,
+        cost_usd=0.1,
+        payload={
+            "model": MODEL,
+            "stop_reason": "end_turn",
+            "usage": {},
+            "content": [{"type": "text", "text": "not json at all"}],
+        },
+    )
     send, calls = _counting('{"answer": "yes"}')
     answer = rp.ClaudeProvider(MODEL, transport=send).reason(packet)
     assert len(calls) == 1, "the stale invalid entry was served instead of asking again"

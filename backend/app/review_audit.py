@@ -212,12 +212,18 @@ def _pages_section(sub: str) -> dict:
             entry["not_read_reason"] = why
             not_read.append({"page": r["page_no"], "reason": why})
         per_page.append(entry)
+    from . import word_pages
+
+    extra = {}
+    if (word_read := word_pages.read_proof(sub)) is not None:
+        extra["word_read"] = word_read
     return {
         "total": len(rows),
         "read_text": text,
         "read_picture": picture,
         "not_read": not_read,
         "per_page": per_page,
+        **extra,
     }
 
 
@@ -329,6 +335,7 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
             "fresh": row["fresh"],
             "failed": row["failed"],
             "reused": row["reused"],
+            **review_audit_rows.not_sent(row),
         }
         for row in ledger
     ]
@@ -336,7 +343,7 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
 
 def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
     """The steps whose own stored status counts their calls: the clause review
-    (with its stored answers) and the CRS wording (it keeps no answers to reuse)."""
+    (with its stored answers) and the CRS wording (stored Claude answers: `fold_stored_hits`)."""
     from .clause_review import STATUS_KEY
 
     out = []
@@ -407,7 +414,7 @@ def _ai_section(
             "rejected": status.get("rejected"),
         }
     step["name"] = "ai_engineering_check"
-    # This step's answers are never stored, so none can be reused: a true 0.
+    # Stored Claude answers are moved here by `fold_stored_hits`; otherwise a true 0.
     step["fresh"] = step["calls"]
     step["reused"] = None if step["calls"] is None else 0
     step["clauses_read_of_total"] = NOT_RECORDED
@@ -419,8 +426,15 @@ def _ai_section(
         if step["state"] == "failed"
         else "see the findings; code decides"
     )
-    steps = [step, *_stored_steps(status, wording), *_ledger_steps(ledger)]
-    return {"steps": steps, "totals": _totals(steps)}
+    figures = review_audit_rows.cache_figures(run)
+    own = [step, *_stored_steps(status, wording)]
+    ledger = review_audit_rows.fold_stored_hits(own, ledger, figures)
+    steps = [
+        *own,
+        *_ledger_steps(ledger),
+        *review_audit_rows.skipped_steps(_loads(run.get("outcome_json"))),
+    ]
+    return {"steps": steps, "totals": _totals(steps), **figures}
 
 
 def _gates_section(outcome: dict, steps: dict) -> dict:
@@ -571,7 +585,30 @@ def _md_pages(audit: dict) -> list[str]:
         for p in (pages["per_page"] or [])
         if p.get("rule")
     ]
+    if pages.get("word_read"):
+        out += _md_word_read(pages["word_read"])
     return [*out, ""]
+
+
+def _md_word_read(word: dict) -> list[str]:
+    """A Word file's own count against what reached the reader (rule 4: a picture
+    with no text back is not read; a part is not a page)."""
+    from . import word_pages
+
+    saved = word["word_saved_pages"]
+    out = [
+        f"- Word page numbers: {word['page_source']} ({word['saved_markers']} saved marks, "
+        f"{word['typed_breaks']} typed breaks, Word saved {_v(saved)} pages, "
+        f"marks reach {'no page: none available' if word['pages'] is None else word['pages']})",
+        f"- tables in the file: {word['tables_in_file']}; read: {word['tables_read']}",
+        f"- pictures in the file: {word['pictures_in_file']}; with a reading: "
+        f"{word['pictures_read']}; in headers and footers, not sent: {word['furniture_pictures']}",
+    ]
+    out += [
+        f"  - {n['kind']} not read, {word_pages.place(n)}: {n['reason']}"
+        for n in word["not_read"]
+    ]
+    return out
 
 
 def _md_standards(audit: dict) -> list[str]:
@@ -634,12 +671,14 @@ def _md_ai(audit: dict) -> list[str]:
         f"reused answers {_v(totals['reused'])}",
         f"  - {totals['boundary']}",
     ]
+    out += review_audit_rows.cache_lines(audit["ai_use"])
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
             f"{_v(s['fresh'])}; failed calls {_v(s.get('failed'))}; reused answers "
             f"{_v(s['reused'])}"
         )
+        out += [f"  - {s['not_sent']}"] if s.get("not_sent") else []
         if "clauses_read_of_total" not in s:
             continue
         out[-1] += (

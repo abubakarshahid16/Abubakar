@@ -90,6 +90,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
+| `claude_answer_cache` | The stored answer of every Claude call: the same request is never bought twice |
 | `claude_approved` | Which documents the owner approved for the cloud model, and the refusal for any other (#806 S3) |
 | `claude_models` | What a Claude model id accepts, and the models a run record names |
 | `claude_auto_approve` | #1584: a document uploaded for review, and a standard its review cites, join the approved list by themselves unless blocked; behind `claude_auto_approve_reviews_enabled` |
@@ -167,6 +168,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `intake` | One intake layer (#525, ONE_INTAKE_ENABLED): PDF, Word, Excel and image files read into one page shape; every unread page or refused file states its reason |
+| `docx_pages` | A Word file's own page numbers from its saved markers, and its tables and pictures counted against what was read (WORD_PAGE_MARKERS_ENABLED) |
 | `sheet_chunks` | Chunks for an Excel workbook (#525 slice 2, INTAKE_IMAGES_XLSX_ENABLED): each chunk cited by sheet and cell range |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
@@ -211,6 +213,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `market_phrase` | The only text that may leave this machine, built by whitelist |
 | `market_providers` | Three tiers of public information, one row shape, and no socket in sight |
 | `market_transport` | The one place in this codebase that may open a socket to the public internet |
+| `local_engine_bar` | A review on the Claude lane never loads the local engine, and says what it skipped |
+| `match_claude` | The matcher's question through the one Claude lane |
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
 | `closing_noun` | Reads the quantity a sentence names LAST ("... of its travel") so a label that runs from it into the subject can be paired (#913) |
 | `method_notes` | Order 159: marks the notes on HOW a pairing was made, so the engineer's copy keeps them and the contractor's copy leaves them off |
@@ -323,6 +327,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `work_budget` | A hard work budget for a request that can grow with the library (#606) |
 | `workbook` | Read an xlsx into sheets for a read-only preview. Standard library only |
 | `word_flow` | #1473: a Word file read as `docx_reader` pages for the datasheet fact reader (PAGE_READ_BY_READING_ENABLED) |
+| `word_pages` | What a reviewer is told about a Word file's pages, tables and pictures: real page, partial, or the section heading (WORD_PAGE_MARKERS_ENABLED) |
+| `word_pictures` | A Word file's pictures read by the local OCR engine, stored per file; no Claude lane, no reader model (WORD_PAGE_MARKERS_ENABLED) |
 
 ## Target structure (planner order 71c on #692; the design for #736)
 

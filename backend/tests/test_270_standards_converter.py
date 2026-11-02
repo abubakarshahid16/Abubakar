@@ -40,7 +40,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "convert.sqlite")
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
