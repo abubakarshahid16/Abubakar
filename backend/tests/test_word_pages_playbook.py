@@ -222,19 +222,33 @@ def _cited_doubles(rows: list[dict]) -> list[str]:
     ]
 
 
-def test_a_pdf_cell_is_left_as_it_was_with_this_switch_on(monkeypatch):
-    """The PDF double is not this PR's: this switch only touches Word files."""
-    monkeypatch.setattr(settings, "word_page_markers_enabled", True)
+@pytest.mark.parametrize("markers", [True, False], ids=["markers-on", "markers-off"])
+def test_a_pdf_cell_says_its_page_once_with_the_default_pair_on(monkeypatch, markers):
+    """#1652: with the default-on pair (#1630) a PDF playbook cell printed
+    "p.5 - page 5". The verified lead is the page; the page already named in
+    words beside it is taken off, for any file, so the cell says it once."""
+    monkeypatch.setattr(settings, "word_page_markers_enabled", markers)
     monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
-    assert _cited_doubles(_rows(pdf_doc("pdf4", HAZOP_SECTIONS)))
+    rows = _rows(pdf_doc(f"pdf4-{markers}", HAZOP_SECTIONS))
+    assert not _cited_doubles(rows)
+    numbered = [r["page_section"] for r in rows if PAGE_WORDS.search(r["page_section"])]
+    assert numbered, "anti-vacuity: some playbook row must still print a page"
+    for cell in numbered:
+        assert len(PAGE_WORDS.findall(cell)) == 1, cell
 
 
-def test_switch_off_a_word_cell_is_left_as_it_was_with_fields_on(tmp_path, monkeypatch):
+def test_switch_off_a_word_cell_says_its_page_once_with_fields_on(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
     pages = len(HAZOP_SECTIONS) + 1
     doc_id = _word_doc(tmp_path, "off", marks=True, saved_pages=pages)
+    # This module's own lead is still a Word-file matter only...
     assert word_pages.without_lead("page 2, a > para 1", doc_id) == "page 2, a > para 1"
-    assert _rows(doc_id)
+    rows = _rows(doc_id)
+    assert rows
+    # ...but the cell never says its page twice (#1652).
+    assert not _cited_doubles(rows)
+    for row in rows:
+        assert len(PAGE_WORDS.findall(row["page_section"])) <= 1, row["page_section"]
 
 
 @pytest.mark.parametrize("held_standard", [True, False])
