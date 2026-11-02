@@ -6,6 +6,20 @@ environment exactly like every other setting (`Settings` inherits them).
 
 from pydantic import BaseModel, Field
 
+#: Settings that change a review's answer only when moved off their default. They join
+#: `config_version` only then, so adding one leaves every recorded hash and baseline as it was.
+ANSWER_AFFECTING_WHEN_CHANGED = ("ai_division_scope_engine",)
+
+
+def answer_affecting_when_changed(settings) -> dict:
+    """The settings above that are off their default, for `config_version`."""
+    fields = type(settings).model_fields
+    return {
+        k: getattr(settings, k)
+        for k in ANSWER_AFFECTING_WHEN_CHANGED
+        if getattr(settings, k) != fields[k].default
+    }
+
 
 class SettingsExt(BaseModel):
     #: #1584 standards compiler (`standards_compiler.py`, `scripts/compile_standards.py`): Claude turns a held
@@ -20,6 +34,12 @@ class SettingsExt(BaseModel):
     #: The default of `--max-usd`: the owner's USD 100 a day, across every standard, read from the spend ledger.
     #: Env: STANDARDS_COMPILER_MAX_USD_PER_DAY.
     standards_compiler_max_usd_per_day: float = Field(100.0, gt=0)
+    #: Division scope's OWN engine (owner decision, 2 Nov 2026): `claude` reads a standard's
+    #: part scopes on the Claude API (`division_text.claude_reader`), under the provider
+    #: switch, both egress flags, the approved and block lists, the answer cache and the USD
+    #: caps. Anything else stays on the local model; in a Claude-lane run that is skipped and
+    #: listed as not checked. Env: AI_DIVISION_SCOPE_ENGINE.
+    ai_division_scope_engine: str = "ollama"
     #: #805 plan change 6, part A: the rulebook's version 2 tables (`rulebook_v2.py`, `scripts/rulebook_v2.py`), on a
     #: database COPY. No verdict reads them; no rule is in force until a person approves it. OFF: nothing is read,
     #: created or written. Env: RULEBOOK_V2_ENABLED.
@@ -323,3 +343,14 @@ class SettingsExt(BaseModel):
     #: lane's own gates stay. OFF: no hook writes and an automatic row does not count; blocks still apply.
     #: Env: CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED.
     claude_auto_approve_reviews_enabled: bool = False
+    #: #805 plan change 6 E (`claude_spend_report`): each review run's spend per step in its record and audit. OFF:
+    #: nothing is written. The USD 100 a day does not read this: it always binds (owner, #1584).
+    #: Env: CLAUDE_COST_CONTROLS_ENABLED.
+    claude_cost_controls_enabled: bool = False
+    #: Owner, #1584 (2 Nov 2026, 15:05 PKT): inside one review run the AI clause review step has USD 10 (other steps
+    #: `claude_budget_usd_per_step`), and the whole run at most USD 15, its steps together.
+    #: Env: CLAUDE_BUDGET_USD_CLAUSE_REVIEW, CLAUDE_BUDGET_USD_PER_RUN.
+    claude_budget_usd_clause_review: float = Field(10.0, gt=0)
+    claude_budget_usd_per_run: float = Field(15.0, gt=0)
+    #: The day cap; it can only narrow the owner's USD 100 (`claude_spend_report.day_cap`). Env: CLAUDE_BUDGET_USD_PER_DAY.
+    claude_budget_usd_per_day: float = Field(100.0, gt=0)
