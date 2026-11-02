@@ -78,11 +78,11 @@ def key_words(text: str | None) -> frozenset[str]:
     )
 
 
-def document_kind(document_id: str) -> str | None:
+def document_kind(document_id: str, conn=None) -> str | None:
     """The router's kind (`document_kinds`, #1474/#1488): a confirmed kind, or a
     suggestion. `needs_engineer`, no row or no kind = None: no procedure path."""
     row = (
-        connect()
+        (conn or connect())
         .execute(
             "SELECT kind, state FROM document_kinds WHERE document_id = ?",
             (document_id,),
@@ -90,10 +90,6 @@ def document_kind(document_id: str) -> str | None:
         .fetchone()
     )
     if row is None or row["state"] == "needs_engineer":
-        return None
-    from . import document_kind as kinds
-
-    if kinds.contested(document_id):
         return None
     return (row["kind"] or "").lower() or None
 

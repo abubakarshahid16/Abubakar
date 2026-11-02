@@ -96,8 +96,8 @@ def score(
         "model": run["model_name"] or (outcome.get("ai_matcher") or {}).get("model"),
         "findings": len(findings),
         **measures,
-        "kind": kind,
-        "kind_ok": kind == case.get("kind"),
+        "kind": effective_kind(conn, doc, kind),
+        "kind_ok": effective_kind(conn, doc, kind) == case.get("kind"),
         # Informational, below the headline: one count per place a decision or
         # an engineer row is made, never added together (`finding_sources`).
         "sources": finding_sources(conn, findings),
@@ -346,6 +346,23 @@ def system_kind(conn: sqlite3.Connection, doc: str) -> str:
     if row is None:
         return "unclassified"
     return "datasheet" if row["equipment_type"] else "unclassified"
+
+
+def effective_kind(conn: sqlite3.Connection, doc: str, kind: str) -> str:
+    """The kind the review acts on, not only the one stored. A stored procedure or
+    specification that does not take the procedure path is reviewed on the equipment
+    rules, so it counts as a datasheet here."""
+    from app import procedure_text
+    from app.config import settings
+
+    if kind not in procedure_text.PROCEDURE_KINDS:
+        return kind
+    try:
+        routed = procedure_text.document_kind(doc, conn=conn)
+    except sqlite3.OperationalError:  # a copy from before the router
+        routed = None
+    taken = settings.procedure_path_enabled and routed in procedure_text.PROCEDURE_KINDS
+    return kind if taken else "datasheet"
 
 
 # ----------------------------------------------------------------- replay

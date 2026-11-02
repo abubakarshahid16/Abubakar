@@ -598,8 +598,6 @@ def eligible(submittal_id: str) -> tuple[str | None, str | None]:
     stored = document_kind.stored_kind(submittal_id)
     if stored is None or stored[0] not in KINDS:
         return None, "its document kind is not a procedure or a specification"
-    if document_kind.contested(submittal_id):
-        return None, "its document kind is a guess with a conflict"
     if not examples(stored[0]):
         return None, f"there are no decision examples for a {stored[0]}"
     return stored[0], stored[1]

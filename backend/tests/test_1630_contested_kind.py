@@ -1,6 +1,7 @@
-"""#1630: a kind that is only a guess with a conflict decides nothing, until an engineer confirms it.
+"""#1630: a kind that is only a guess with a conflict does not close the body path.
 
-The number says one kind and the title another. The documents here are invented.
+The number says one kind and the title another. It keeps its procedure path and its
+clause review: its own text is still checked. The documents here are invented.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import json
 import pytest
 
 from app import clause_review, db, document_kind, procedure_text
+from tools import crs_bench
 from app.config import settings
 
 DATASHEET_COVER = {
@@ -76,21 +78,6 @@ def test_a_guess_with_a_conflict_is_contested_until_confirmed():
     assert not document_kind.contested("e")
 
 
-def test_a_contested_kind_takes_no_procedure_path():
-    _doc("a", evidence=CONFLICT)
-    _doc("b", state="confirmed", evidence=CONFLICT)
-    assert not procedure_text.is_procedure_submittal("a")
-    assert procedure_text.is_procedure_submittal("b")
-
-
-def test_a_contested_kind_gets_no_clause_review():
-    _doc("a", evidence=CONFLICT)
-    _doc("b", evidence={})
-    assert clause_review.eligible("a")[0] is None
-    assert "a guess with a conflict" in clause_review.eligible("a")[1]
-    assert clause_review.eligible("b")[0] == "specification"
-
-
 def test_the_body_guess_is_marked_on_a_contested_kind_and_the_kind_is_kept():
     _doc("a", evidence=CONFLICT)
     document_kind.mark_equipment_guessed_from_body("a")
@@ -103,3 +90,20 @@ def test_the_body_guess_is_marked_on_a_contested_kind_and_the_kind_is_kept():
     )
     assert (row["kind"], row["state"]) == ("specification", "suggested")
     assert json.loads(row["evidence"])["equipment_guessed_from_body"] is True
+
+
+def test_a_contested_kind_keeps_its_procedure_path_and_clause_review():
+    _doc("a", evidence=CONFLICT)
+    assert procedure_text.is_procedure_submittal("a")
+    assert clause_review.eligible("a")[0] == "specification"
+
+
+def test_the_bench_kind_is_the_one_the_review_acts_on(monkeypatch):
+    _doc("a")
+    _doc("b", state="needs_engineer")
+    conn = db.connect()
+    assert crs_bench.effective_kind(conn, "a", "specification") == "specification"
+    assert crs_bench.effective_kind(conn, "b", "specification") == "datasheet"
+    assert crs_bench.effective_kind(conn, "a", "drawing") == "drawing"
+    monkeypatch.setattr(settings, "procedure_path_enabled", False)
+    assert crs_bench.effective_kind(conn, "a", "specification") == "datasheet"
