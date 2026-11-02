@@ -2966,7 +2966,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed
     )
-    return rows, clause_coverage_mod.crs_meta(meta, run["id"], allowed), submittal_name, stamp
+    meta = clause_coverage_mod.crs_meta(meta, run["id"], allowed)
+    return rows, meta, submittal_name, stamp
 
 
 def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:
