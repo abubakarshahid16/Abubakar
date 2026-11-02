@@ -1,22 +1,61 @@
 """#1584: the proof of one compiled rule. The answer is a claim; these functions decide. Pure, no database, no model.
 
-The quote must stand on the cited page's stored text; the limit and the unit inside the quote (`numparse`,
-`datasheet_ai.unit_in_quote`); the comparator in the quote's own words; a scope written after the limit becomes the
-rule's condition. `quote_verified` is THE quote check, run over version 1 and version 2 alike.
+THE QUOTE must stand on the cited page's stored text and be a WHOLE sentence of it, so nothing before or after it can
+hide. A leading or trailing condition of that sentence must be in the rule's `condition`, or the rule is dropped as
+`condition_not_captured`: code never writes the condition for the model and never stores a conditional limit bare.
+
+THE VALUE is the pair the sentence binds to its comparator: the number and unit standing together
+(`standards_converter.limit_scope`, the converter's own check), and the first number after the comparator's words or
+right before them. A number of another thing, a conversion or one end of a range is dropped and counted. Numbers
+through `numparse`, units through `datasheet_ai.unit_in_quote`.
+
+`quote_verified` is THE quote check, run over version 1 and version 2 alike.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 
-from . import claims, numparse, standards_converter
+from . import ai_requirements, claims, conditions, field_vocabulary, numparse
+from . import standards_converter as sc
 from .ai_requirement_tables import quote_on_page
+from .converter_gates import _CLAUSE_HEADING, in_example, quote_unreadable
 from .converter_gates import fold as _fold
-from .converter_gates import in_example, quote_unreadable
 from .datasheet_ai import unit_in_quote
 
 MIN_QUOTE_CHARS = 8
+#: A line this short that is followed by one starting in capitals is a title or a table row, not a wrapped sentence.
+_TITLE_CHARS = 60
+#: A period after one of these does not end a sentence.
+_ABBREVIATED = (
+    "max.",
+    "min.",
+    "no.",
+    "nos.",
+    "fig.",
+    "approx.",
+    "ref.",
+    "e.g.",
+    "i.e.",
+)
+_LEADING_PREPOSITION = re.compile(
+    r"^(?P<clause>(?:for|during|above|below|at|except|within|after|before|on|with|without)\s+[^,;:.]{3,140}),\s"
+)
+_STRIP_PREFIX = re.compile(r"^\W*(?:\d+(?:\.\d+)+\.?\s+|\(?[0-9a-z]{1,3}\)\s+)?")
+#: "of" is `comparators_said`'s weak cue; it never binds a figure ("pressure of a 100 mm nozzle").
+_BIND_CUES = {**sc._CUES, "=": ("equal", "shall be", "must be", "is", "are", "=")}
+#: Words that take the obligation away, and the strength of the rest. "must" is as binding as "shall".
+_NOT_A_LIMIT = re.compile(
+    r"\bneed\s+not\b|\bdoes\s+not\s+need\s+to\b|\bnot\s+required\s+to\b"
+)
+_STRENGTHS = (
+    ("shall", "shall"),
+    ("must", "shall"),
+    ("should", "should"),
+    ("may", "may"),
+)
 
 
 @dataclass
@@ -38,64 +77,212 @@ def quote_verified(quote: object, page_text: str | None) -> bool:
     )
 
 
-def _unit_left_out(limit: str, quote: str) -> bool:
-    """A number with a recognised unit right after it in the quote, and the answer gave no unit."""
-    text = numparse.fold(quote)
+def _blocks_of(text: str) -> list[str]:
+    """Runs of lines that may hold one sentence: broken at a blank line, a clause heading, and after a short line
+    followed by one in capitals. A wrapped line stays with the sentence it belongs to."""
+    blocks: list[list[str]] = [[]]
+    before = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            blocks.append([])
+            before = ""
+            continue
+        title = before and len(before) <= _TITLE_CHARS and line[0].isupper()
+        if title or _CLAUSE_HEADING.match(line):
+            blocks.append([])
+        blocks[-1].append(line)
+        before = line
+    return [" ".join(b) for b in blocks if b]
+
+
+def sentences_of(text: str) -> list[str]:
+    """The page's sentences, folded."""
+    out: list[str] = []
+    for block in _blocks_of(text):
+        held = ""
+        for piece in re.split(r"(?<=[.;])\s+", block):
+            held = f"{held} {piece}" if held else piece
+            if not held.lower().endswith(_ABBREVIATED):
+                out.append(_fold(held))
+                held = ""
+        if held:
+            out.append(_fold(held))
+    return out
+
+
+def _core(sentence: str) -> str:
+    return _STRIP_PREFIX.sub("", _fold(sentence)).rstrip(" .;:,")
+
+
+def whole_sentence(quote: str, page: str) -> str | None:
+    """The sentence when the quote is all of it (a clause number and final stop aside), else None."""
+    wanted = _core(quote)
+    for sentence in sentences_of(page):
+        if _core(sentence) == wanted:
+            return wanted
+    return None
+
+
+def _clause_labels(text: str) -> list[tuple[int, str]]:
+    """(where in the folded page, clause number) of each heading on a page."""
+    out, at = [], 0
+    for line in text.splitlines():
+        if _CLAUSE_HEADING.match(line):
+            out.append((at, line.split()[0].rstrip(".")))
+        at += len(_fold(line)) + 1 if line.strip() else 0
+    return out
+
+
+def _clause_in_force(pages: dict[int, str], page: int, at: int) -> str | None:
+    """The nearest clause heading before position `at` of `page`, running back over earlier pages."""
+    here = [c for where, c in _clause_labels(pages[page]) if where <= at]
+    if here:
+        return here[-1]
+    for earlier in sorted((p for p in pages if p < page), reverse=True):
+        labels = _clause_labels(pages[earlier])
+        if labels:
+            return labels[-1][1]
+    return None
+
+
+def _clause_problem(clause: str, quote: str, page: int, pages) -> str | None:
+    """The cited clause is the label nearest before the quote. With no heading to read, it must carry a number and
+    be printed before the quote on that page."""
+    if clause.lower() in sc.PLACEHOLDER_CLAUSES:
+        return "no_clause"
+    folded = _fold(pages[page])
+    at = max(folded.find(_fold(quote)), 0)
+    nearest = _clause_in_force(pages, page, at)
+    if nearest is not None:
+        return None if clause == nearest else "clause_not_nearest"
+    printed = numparse.contains_whole(folded[:at], _fold(clause))
+    return None if printed and re.search(r"\d", clause) else "clause_not_nearest"
+
+
+def _written(limit: str, quote: str):
+    """The number in the quote that is this limit, however it is printed ("1000" and "1,000"), or None."""
     wanted = numparse.as_number(limit)
-    for number in numparse.find_numbers(text):
-        if wanted is not None and number.value == wanted:
-            after = text[number.end :].split()
-            if after and claims.unit_dimension(after[0].strip(",.;:()")):
-                return True
+    if wanted is None:
+        return None
+    text = numparse.fold(quote)
+    return next((n for n in numparse.find_numbers(text) if n.value == wanted), None)
+
+
+def _cue_spans(comparator: str, text: str) -> list[tuple[int, int]]:
+    spans = []
+    for cue in _BIND_CUES.get(comparator, ()):
+        word = cue[0].isalpha()
+        pattern = rf"(?<![a-z]){re.escape(cue)}(?![a-z])" if word else re.escape(cue)
+        spans += [m.span() for m in re.finditer(pattern, text)]
+    return spans
+
+
+def _bound_to_comparator(number, unit: str, comparator: str, quote: str) -> bool:
+    """Is this the figure the comparator's words bind: the first number after them, or right before them?"""
+    text = numparse.fold(quote).lower()
+    numbers = numparse.find_numbers(text)
+    tail = (
+        re.match(rf"\s*{re.escape(unit.lower())}", text[number.end :]) if unit else None
+    )
+    end = number.end + (tail.end() if tail else 0)
+    for start, stop in _cue_spans(comparator, text):
+        between = [n for n in numbers if stop <= n.start < number.start]
+        if stop <= number.start and not between:
+            return True
+        if start >= end and not re.search(r"\w", text[end:start]):
+            return True
     return False
 
 
-def _sentence_from(quote: str, page: str) -> str:
-    """The quote and what follows it on the page, up to the sentence end or the next clause number."""
-    folded, q = _fold(page), _fold(quote)
-    at = folded.find(q)
-    if at < 0:
-        return q
-    tail = re.split(
-        r"[.;](?:\s|$)|\s\d+(?:\.\d+)+\s", folded[at + len(q) :], maxsplit=1
-    )[0]
-    return q + tail
+def _is_range(number, unit: str, quote: str) -> bool:
+    """One end of a range: another number straight after this one, or straight before it, joined by a range word."""
+    text = numparse.fold(quote).lower()
+    after = text[number.end :]
+    if unit:
+        after = re.sub(rf"^\s*{re.escape(unit.lower())}", "", after)
+    joined = rf"\s*(?:to|and|through|[{re.escape(numparse.DASH_LIKE)}])\s*"
+    before = text[: number.start]
+    return bool(
+        re.match(joined + r"[\d.]", after)
+        or re.search(r"[\d.]\s*" + joined + r"$", before)
+    )
 
 
-def _scope(
-    condition: str, quote: str, page: str, limit: str, unit: str
-) -> tuple[str | None, bool]:
-    """(condition, ok). A scope written after the limit is kept as the condition (order 289.2), so a quote cut right
-    at the limit never makes a conditional rule unconditional. Two different scopes are for the engineer."""
-    sentence = _sentence_from(quote, page)
-    scope = standards_converter.limit_scope(sentence, quote, limit, unit) or ""
-    said = _fold(condition)
-    if scope and said and said not in scope and scope not in said:
-        return None, False
-    return (max(scope, said, key=len) or None), True
+def _unit_left_out(number, quote: str) -> bool:
+    """A recognised unit right after the number in the quote, and the answer gave no unit."""
+    after = numparse.fold(quote)[number.end :].split()
+    return bool(after and claims.unit_dimension(after[0].strip(",.;:()")))
 
 
-def _limit_problem(
-    condition, limit, unit, comparator, quote, text
-) -> tuple[str | None, str | None]:
-    """(reason, condition) for a rule that states a limit."""
-    if any(w in _sentence_from(quote, text) for w in standards_converter.DEFAULT_WORDS):
-        return "default_not_limit", None
+def _limit_problem(limit, unit, comparator, quote, sentence) -> str | None:
+    """Why this limit is not the one the sentence states, or None."""
+    if any(w in sentence for w in sc.DEFAULT_WORDS):
+        return "default_not_limit"
     if not numparse.value_in_text(limit, quote):
-        return "limit_not_in_quote", None
+        return "limit_not_in_quote"
     if unit and not unit_in_quote(unit, quote):
-        return "unit_not_in_quote", None
-    if not unit and _unit_left_out(limit, quote):
-        return "unit_left_out", None
-    if (
-        comparator not in standards_converter.COMPARATORS
-        or not standards_converter._comparator_says(quote, comparator)
-    ):
-        return "comparator_not_in_quote", None
-    if not unit:
-        return None, condition
-    cut, ok = _scope(condition, quote, text, limit, unit)
-    return (None, cut or "") if ok else ("two_conditions", None)
+        return "unit_not_in_quote"
+    number = _written(limit, quote)
+    if number is not None and not unit and _unit_left_out(number, quote):
+        return "unit_left_out"
+    if comparator not in sc.COMPARATORS or not sc._comparator_says(quote, comparator):
+        return "comparator_not_in_quote"
+    if number is None:
+        return None
+    if _is_range(number, unit, quote):
+        return "range_not_single"
+    if sc.limit_scope(sentence, sentence, number.raw, unit) is None:
+        return "number_and_unit_apart"
+    if not _bound_to_comparator(number, unit, comparator, quote):
+        return "limit_not_bound"
+    return None
+
+
+def _conditions_in(sentence: str, limit: str, unit: str, quote: str) -> list[str]:
+    """Every scope the sentence states before its subject or after its limit, the words of the sentence."""
+    found = []
+    leading = conditions._LEADING_CONDITION.match(
+        sentence
+    ) or _LEADING_PREPOSITION.match(sentence)
+    if leading:
+        found.append(_fold(leading.group("clause")))
+    number = _written(limit, quote) if limit else None
+    if number is not None:
+        tail = sc.limit_scope(sentence, sentence, number.raw, unit)
+        if tail:
+            found.append(_fold(tail).rstrip(" .;:,"))
+    return found
+
+
+def _condition_captured(
+    condition: str, sentence: str, limit: str, unit: str, quote: str
+) -> bool:
+    said = _fold(condition)
+    needed = _conditions_in(sentence, limit, unit, quote)
+    if said:
+        return all(part in said for part in needed)
+    return not needed and not ai_requirements._is_conditional(sentence)
+
+
+def quote_span(quote: str, text: str) -> tuple[int | None, int | None]:
+    """Where the quote stands in the stored page: its words, any white space between, any case."""
+    pattern = r"\s+".join(re.escape(word) for word in quote.split())
+    found = re.search(pattern, text, re.IGNORECASE)
+    return found.span() if found else (None, None)
+
+
+def _condition_on_page(condition: str, text: str) -> bool:
+    """Each part (two conditions are written "a; b") stands on the page."""
+    folded = _fold(text)
+    return all(_fold(part) in folded for part in condition.split(";") if part.strip())
+
+
+def strength_of(sentence: str) -> str:
+    for word, strength in _STRENGTHS:
+        if re.search(rf"\b{word}\b", sentence):
+            return strength
+    return "stated"
 
 
 def _quote_problem(answer: dict, chunk: Chunk, pages: dict[int, str]) -> str | None:
@@ -113,14 +300,12 @@ def _quote_problem(answer: dict, chunk: Chunk, pages: dict[int, str]) -> str | N
         {"requirement_text": quote, "source_text": quote, "chunk_text": text}
     ):
         return "example_not_requirement"
-    clause = str(answer.get("clause") or "").strip()
-    if clause.lower() in standards_converter.PLACEHOLDER_CLAUSES:
-        return "no_clause"
-    if clause not in chunk.clauses.get(page, set()) and not numparse.contains_whole(
-        _fold(text), _fold(clause)
-    ):
-        return "clause_not_on_page"
-    return None
+    return _clause_problem(str(answer.get("clause") or "").strip(), quote, page, pages)
+
+
+def _applies_to_on_page(applies_to: str, text: str) -> bool:
+    wanted = set(field_vocabulary._tokens(applies_to))
+    return bool(wanted) and wanted <= set(field_vocabulary._tokens(text))
 
 
 def verify(
@@ -140,35 +325,52 @@ def verify(
     name = " ".join(str(answer.get("field") or "").split())
     if not name:
         return None, "no_field"
-    if not standards_converter._names_field(quote, name):
+    if not sc._names_field(quote, name):
         return None, "field_not_in_quote"
     condition = " ".join(str(answer.get("condition") or "").split())
-    if condition and _fold(condition) not in _fold(text):
+    if condition and not _condition_on_page(condition, text):
         return None, "condition_not_on_page"
+    exception = " ".join(str(answer.get("exceptions") or "").split())
+    if exception and not _condition_on_page(exception, text):
+        return None, "exception_not_on_page"
     limit = "" if answer.get("limit") is None else str(answer.get("limit")).strip()
     unit = str(answer.get("unit") or "").strip()
     comparator = str(answer.get("comparator") or "").strip()
+    sentence = whole_sentence(quote, text)
+    if sentence is None:
+        return None, "condition_not_captured"
+    if _NOT_A_LIMIT.search(sentence):
+        return None, "need_not_is_not_a_limit"
     if limit:
-        reason, condition = _limit_problem(
-            condition, limit, unit, comparator, quote, text
-        )
+        reason = _limit_problem(limit, unit, comparator, quote, sentence)
         if reason:
             return None, reason
     elif comparator or unit:
         return None, "comparator_without_limit"
+    if not _condition_captured(
+        "; ".join(p for p in (condition, exception) if p), sentence, limit, unit, quote
+    ):
+        return None, "condition_not_captured"
+    start, end = quote_span(quote, text)
     return (
         {
             "applies_to": applies_to,
-            "condition_text": condition or None,
+            "applies_to_verified": _applies_to_on_page(applies_to, text),
+            "condition_text": _fold(condition) or None,
+            "exception_text": _fold(exception) or None,
             "field": name,
             "comparator": comparator or None,
             "limit_text": limit or None,
             "limit_value": numparse.as_number(limit) if limit else None,
             "unit": unit or None,
             "unit_dimension": claims.unit_dimension(unit) if unit else None,
+            "strength": strength_of(sentence),
             "clause": str(answer.get("clause")).strip(),
             "page": page,
             "quote": quote,
+            "quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+            "quote_start": start,
+            "quote_end": end,
         },
         None,
     )

@@ -59,6 +59,9 @@ SCHEMA = (
         job TEXT NOT NULL, custom_id TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
         state TEXT NOT NULL, batch_row TEXT, reservation_id TEXT, worst_usd REAL, step TEXT, failure TEXT,
         answer TEXT, model TEXT, finish_reason TEXT, api_batch_id TEXT, cache_key TEXT, PRIMARY KEY (job, custom_id))""",
+    """CREATE TABLE IF NOT EXISTS claude_batch_answers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, job TEXT NOT NULL, custom_id TEXT NOT NULL, prompt_version TEXT NOT NULL,
+        model TEXT, api_batch_id TEXT, raw_json TEXT NOT NULL, received_at TEXT NOT NULL)""",
 )
 
 
@@ -78,6 +81,8 @@ class Outcome:
     #: A batch had not ended when the wait ran out; the next run polls it.
     waiting: bool = False
     unknown_results: int = 0
+    #: custom_ids left out because their worst case did not fit the budget.
+    over_budget: list[str] = field(default_factory=list)
 
 
 def ensure_schema(conn) -> None:
@@ -94,6 +99,17 @@ def worst_usd(model: str, packet: Packet) -> float:
             json.dumps(packet.json_schema, separators=(",", ":"))
         )
     return claude_spend.worst_case_usd(model, chars, packet.num_predict, batch=True)
+
+
+def _fitting(worsts: list[tuple[str, float]], room: float) -> int:
+    """How many requests, from the first, fit `room` at their worst case together."""
+    total, count = 0.0, 0
+    for _step, worst in worsts:
+        total += worst
+        if total > room:
+            break
+        count += 1
+    return count
 
 
 def _now() -> str:
@@ -132,6 +148,25 @@ def _failed(conn, job: str, row: dict, why: str) -> None:
     """Re-queue once, then give up. The failure is a closed word."""
     state = "gave_up" if row["attempts"] >= MAX_ATTEMPTS else "retry"
     _set(conn, job, row["custom_id"], state=state, failure=why)
+
+
+def _keep_raw(conn, job, custom_id, packet, model, api_batch_id, message) -> None:
+    """Every answer as the API sent it, cut off or dropped by the proof too, never replaced: a later reading of the
+    answers (a new table shape, a stricter proof) needs no second payment. Local copy only."""
+    with conn:
+        conn.execute(
+            "INSERT INTO claude_batch_answers (job, custom_id, prompt_version, model, api_batch_id, raw_json,"
+            " received_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                job,
+                custom_id,
+                packet.prompt_version,
+                model,
+                api_batch_id,
+                json.dumps(message, ensure_ascii=False, sort_keys=True),
+                _now(),
+            ),
+        )
 
 
 def _from_cache(conn, job: str, custom_id: str, hit) -> None:
@@ -197,7 +232,7 @@ def _submit(
     packets,
     todo,
     client,
-    may_send,
+    room,
     out: Outcome,
     cache_system: bool,
 ) -> str | None:
@@ -224,6 +259,9 @@ def _submit(
             _from_cache(
                 conn, job, custom_id, provider._response(stored, packet, 0.0, 0.0)
             )
+            _keep_raw(
+                conn, job, custom_id, packet, stored.get("model"), FROM_CACHE, stored
+            )
             out.from_cache += 1
             continue
         keys.append(key)
@@ -232,8 +270,19 @@ def _submit(
         sending.append(custom_id)
     if not to_send:
         return None
-    if may_send is not None:
-        may_send(sum(worst for _step, worst in worsts))
+    if (
+        room is not None
+    ):  # the first requests that fit go; the rest are named, never sent
+        fits = _fitting(worsts, room())
+        out.over_budget += sending[fits:]
+        to_send, worsts, sending, keys = (
+            to_send[:fits],
+            worsts[:fits],
+            sending[:fits],
+            keys[:fits],
+        )
+    if not to_send:
+        return None
     held = claude_spend.reserve_all(worsts, model=model, batch=True)
     batch_row = _hold(conn, job, model, sending, held, keys)
     try:
@@ -267,6 +316,16 @@ def _take_result(
     reservation = _reservation(held, model)
     if kind == "succeeded":
         packet = packets[custom_id]
+        message = result.get("message") or {}
+        _keep_raw(
+            conn,
+            job,
+            custom_id,
+            packet,
+            message.get("model"),
+            held["api_batch_id"],
+            message,
+        )
         answer = provider._answered(
             result.get("message"),
             packet,
@@ -353,6 +412,24 @@ def _collect(
     return True
 
 
+def _reopen(conn, job: str, usable) -> None:
+    """A new run reads again what the last one left unread: requests given up, and answers it could not use (cut off,
+    unreadable). Once per run, before anything is collected, so nothing is re-bought inside a run."""
+    for custom_id, row in _state(conn, job).items():
+        answered = {"text": row["answer"], "finish_reason": row["finish_reason"]}
+        bad = row["state"] == "answered" and usable is not None and not usable(answered)
+        if row["state"] == "gave_up" or bad:
+            _set(
+                conn,
+                job,
+                custom_id,
+                state="retry",
+                attempts=0,
+                failure=None,
+                answer=None,
+            )
+
+
 def _open_batches(conn, job: str) -> list[str]:
     rows = conn.execute(
         "SELECT id FROM claude_batches WHERE job = ? AND state = 'open' ORDER BY created_at, id",
@@ -416,7 +493,8 @@ def run(
     packets: dict[str, Packet],
     *,
     client=None,
-    may_send=None,
+    room=None,
+    usable=None,
     poll_seconds: float = 60.0,
     max_wait_s: float = 86400.0,
     sleep=time.sleep,
@@ -424,7 +502,7 @@ def run(
     cache_system: bool = True,
 ) -> Outcome:
     """Answer every packet, or say which were not. Open batches of this job are read first, so a run after a crash
-    polls what it already paid for; only then is anything new sent. `may_send(worst_usd)` may raise to refuse."""
+    polls what it already paid for; only then is anything new sent. `room()` is the USD still free: what does not fit is left out."""
     ensure_schema(conn)
     if client is None:
         from . import reader_transport
@@ -436,6 +514,7 @@ def run(
         client = reader_transport
     out = Outcome()
     _mark_unconfirmed(conn, job)
+    _reopen(conn, job, usable)
     waits = {
         "poll_seconds": poll_seconds,
         "deadline": time.time() + max_wait_s,
@@ -450,11 +529,15 @@ def run(
     again = ("retry", "not_sent") + (("unconfirmed",) if resend_unconfirmed else ())
     while True:
         rows = _state(conn, job)
-        todo = [c for c in packets if c not in rows or rows[c]["state"] in again]
+        todo = [
+            c
+            for c in packets
+            if (c not in rows or rows[c]["state"] in again) and c not in out.over_budget
+        ]
         if not todo:
             return _finish(conn, job, packets, out)
         batch_row = _submit(
-            conn, provider, job, packets, todo, client, may_send, out, cache_system
+            conn, provider, job, packets, todo, client, room, out, cache_system
         )
         if batch_row is not None and not _collect(
             conn, provider, job, packets, batch_row, client, **waits
