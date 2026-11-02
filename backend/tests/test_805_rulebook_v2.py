@@ -924,7 +924,7 @@ def test_only_the_rulebook_modules_name_its_tables():
     assert named == _OURS
 
 
-def test_no_route_retrieval_or_verdict_module_imports_the_rulebook():
+def test_no_route_or_retrieval_module_imports_the_rulebook_and_a_verdict_only_behind_its_switch():
     imports = re.compile(
         r"\b(?:from\s+[.\w]*\s+import\s+[^\n]*|import\s+[^\n]*)\brulebook_v2"
     )
@@ -934,9 +934,43 @@ def test_no_route_retrieval_or_verdict_module_imports_the_rulebook():
         if p.name not in {*_OURS, "rulebook_v2_check.py"}
         and imports.search(p.read_text(encoding="utf-8"))
     }
-    # the report's counts, and (when added) the compiler's two seams; both only write the book or count it
-    assert importers <= {"compiled_rule_report.py", "standards_compiler.py"}
+    # the report's counts, the compiler's two seams, and the review's module behind RULEBOOK_V2_REVIEW_ENABLED
+    assert importers <= {
+        "compiled_rule_report.py",
+        "standards_compiler.py",
+        "rulebook_v2_review.py",
+        "run_parts.py",
+        "coverage_pair.py",
+        "rulebook_v2_findings.py",
+        # no route, no retrieval, reads no rule: it imports only `rulebook_v2_stated`'s words, and `run_parts.crs_part`
+        # alone reaches it, behind RULEBOOK_V2_REVIEW_ENABLED (held just below)
+        "rulebook_v2_crs.py",
+    }
     assert "compiled_rule_report.py" in importers
+    crs = (APP / "rulebook_v2_crs.py").read_text(encoding="utf-8")
+    assert not re.search(r"\bimport\s+[^\n]*\brulebook_v2\b", crs)
+    assert not re.search(r"APIRouter|fts_index|retrieval", crs)
+    assert {
+        p.name
+        for p in APP.rglob("*.py")
+        if p.name != "rulebook_v2_crs.py"
+        and "rulebook_v2_crs" in p.read_text(encoding="utf-8")
+    } == {"run_parts.py"}
+    assert re.search(
+        r"if not settings\.rulebook_v2_review_enabled:\n\s+return meta\n\s+from \. import rulebook_v2_crs\n",
+        (APP / "run_parts.py").read_text(encoding="utf-8"),
+    )
+    assert "rulebook_v2" not in (APP / "comparison.py").read_text(encoding="utf-8")
+    source = (APP / "run_parts.py").read_text(encoding="utf-8")
+    assert source.count("import rulebook_v2_review") == 1
+    assert re.search(
+        r"if not settings\.rulebook_v2_review_enabled:\n\s+return None\n\s+from \. import rulebook_v2_review\n",
+        source,
+    )
+    # coverage_pair names the origin only, and only for a run whose outcome stored the rulebook's part
+    held = (APP / "coverage_pair.py").read_text(encoding="utf-8")
+    assert held.count("from .rulebook_v2_stated import rulebook_part") == 1
+    assert 'part = (split or {}).get("rulebook_v2")' in held
 
 
 def _written_tables(conn, action):
@@ -1017,9 +1051,10 @@ def _findings(result):
     )
 
 
-def test_a_filled_rulebook_changes_no_verdict_and_a_review_reads_none_of_it(
+def test_switch_off_a_filled_rulebook_changes_no_verdict_and_a_review_reads_none_of_it(
     monkeypatch,
 ):
+    assert settings.rulebook_v2_review_enabled is False
     _req, _fact, run, scope = _world("Set pressure", "10 barg")
     before = comparison.run_comparison(run, allowed_document_ids=scope)
     outcome_before = _rows("SELECT status FROM review_runs WHERE id = ?", run)
@@ -1156,6 +1191,15 @@ def test_a_review_run_records_which_rulebook_it_used_through_the_seam():
 
 
 CONTRACT_KEYS = {
+    "field_role",
+    "field_role_state",
+    "field_role_reason",
+    "check_op",
+    "check_values",
+    "check_state",
+    "check_reason",
+    "sentence_strength",
+    "signed_matches",
     "rule_id",
     "version",
     "field",
@@ -1211,7 +1255,7 @@ def test_an_approved_rule_comes_out_with_every_field_of_the_contract():
     assert len(rule["quote_sha256"]) == 64 and rule["standard"] == LABEL
     assert rule["strength"] == version["strength"]
     assert "context_flag" in rule and "edition" in rule
-    assert set(rule["approval"]) == {"by", "at", "tier"}
+    assert set(rule["approval"]) == {"by", "at", "tier", "note"}
     assert rule["approval"]["by"] == "An Invented Signer"
     assert rule["approval"]["tier"] == rulebook_v2.OWNER and rule["approval"]["at"]
 
