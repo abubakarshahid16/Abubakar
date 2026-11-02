@@ -106,6 +106,66 @@ def test_a_listed_part_must_itself_be_a_signed_entry():
     )
 
 
+NO_GRADE = Table(
+    "v",
+    (
+        Entry("ASME SA1000", "N/A", "carbon steel", False),
+        Entry("ASME SA2000", "", "stainless steel", False),
+        Entry("ASME SA2000X", "", "stainless steel", False),
+        Entry("ASTM A48", "N/A", "cast iron", False),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("value", "family"),
+    [
+        ("ASME SA 1000", "carbon steel"),
+        ("SA-1000", "carbon steel"),
+        ("ASME SA2000", "stainless steel"),
+        ("ASME SA1000 Class 5", None),  # a grade the entry does not name
+        ("SA100", None),  # a partial token
+        ("SA10000", None),
+        ("N/A", None),
+    ],
+)
+def test_a_specification_with_no_grade_matches_its_whole_token(value, family):
+    assert family_of(NO_GRADE, value) == family
+
+
+@pytest.mark.parametrize(
+    ("value", "status"),
+    [
+        ("ASME SA 1000 / 2000", "COMPLIANT"),  # the later part keeps the letters
+        ("ASME SA 1000 / SA 2000", "COMPLIANT"),
+        ("ASME SA 1000 / 2000X", "COMPLIANT"),  # a variant only because it is a row
+        ("ASME SA 1000 / 2000Y", None),  # not a row: nothing strips the letter
+        (
+            "ASME SA 1000 / 48",
+            None,
+        ),  # the earlier part's letters, not another specification's
+        ("2000", None),  # no earlier part to keep letters from
+    ],
+)
+def test_a_later_part_keeps_the_letters_of_the_part_before_it_only(value, status):
+    assert is_not(NO_GRADE, FORBID, value)[0] == status
+
+
+def test_the_letters_do_not_cross_values():
+    assert is_not(NO_GRADE, FORBID, "ASME SA 1000")[0] == "COMPLIANT"
+    assert is_not(NO_GRADE, FORBID, "2000")[0] is None
+
+
+def test_a_grade_of_one_letter_is_still_a_grade():
+    table = Table("v", (Entry("ASTM A3000", "N", "carbon steel", False),))
+    assert family_of(table, "ASTM A3000 N") == "carbon steel"
+    assert family_of(table, "ASTM A3000") is None
+
+
+def test_a_variant_with_no_row_is_never_stripped_to_its_base():
+    assert family_of(NO_GRADE, "ASME SA1000N") is None
+
+
 def test_a_bare_grade_matches_only_where_the_table_says_it_is_unambiguous():
     assert family_of(TABLE, "CF8M") == "stainless steel"
 
@@ -229,6 +289,35 @@ def test_an_answer_cut_at_the_limit_says_so_and_stores_nothing(engine):
     report = _propose(Cut(_proposal()))
     assert report["status"] == "no_usable_answer" and "length" in report["why"]
     assert material_reference.sheet_rows(db.connect()) == []
+
+
+def test_the_prompt_asks_for_forms_as_rows_and_names_no_designation_beyond_its_families():
+    words = material_reference.SYSTEM
+    assert "its own entry for each form" in words and "empty grade" in words
+    assert not [
+        w
+        for w in words.split()
+        if any(c.isdigit() for c in w) and w != str(material_reference.MAX_ENTRIES)
+    ]
+
+
+def test_an_entry_with_an_empty_grade_is_kept(engine):
+    material_reference.ensure_schema(db.connect())
+    said = material_reference.store_proposal(
+        db.connect(),
+        {
+            "entries": [
+                {
+                    "specification": "ASTM A1000",
+                    "grade": "",
+                    "family": "carbon steel",
+                    "bare_grade_unambiguous": False,
+                }
+            ]
+        },
+        "m",
+    )
+    assert said == {"kept": 1, "dropped": 0}
 
 
 def test_the_prompt_bounds_the_list_and_the_output_has_room_for_it():

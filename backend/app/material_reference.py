@@ -30,8 +30,8 @@ from .reasoning_provider import ClaudeProvider, Packet, schema_errors
 
 LABEL = "owner-signed reference"
 NOT_CONFIRMED = f"{LABEL}, not engineer-confirmed"
-#: v1 asked for no limit, and its one answer stopped at the output limit, so it could not be read.
-PROMPT_VERSION = "material-reference-v2"
+#: v1 asked for no limit, and its one answer stopped at the output limit. v3 asks for the written variants as rows.
+PROMPT_VERSION = "material-reference-v3"
 STEP = "material-reference"
 ENGINE_CLAUDE = "claude"
 SOURCE = "AI proposed"
@@ -50,9 +50,11 @@ FAMILIES = (
 )
 #: The words a specification or grade is written with that say nothing about which one it is.
 _NO_MEANING = frozenset({"astm", "asme", "gr", "grade", "type", "uns"})
+#: How an entry says its specification has no grade. A lone "N" is a real grade, so it is not here.
+_NO_GRADE = frozenset({"", "n a", "na", "none", "not applicable"})
 _LIST_SEPARATOR = re.compile(r"\s*[/;,]\s*|\s+and\s+", re.IGNORECASE)
-MAX_ENTRIES = 100
-MAX_OUTPUT_TOKENS = 12000
+MAX_ENTRIES = 200
+MAX_OUTPUT_TOKENS = 16000
 SHEET = "Material reference"
 COVER_STAMP = "Material reference stamp"
 C_SPEC, C_GRADE, C_FAMILY, C_BARE, C_SOURCE = (
@@ -125,7 +127,9 @@ ANSWER_SCHEMA = {
 SYSTEM = (
     "You know materials engineering. List the material specifications and grades commonly used for the bodies of"
     " pressure relief valves, as a reference table. Include both the ASTM and the ASME SA designation as separate"
-    " entries, castings and forgings, and the iron grades too. Each entry gives its family, exactly one of: "
+    " entries, castings and forgings, and the iron grades too. A designation commonly written in another form, such as"
+    " with a letter after it for its heat-treatment condition, gets its own entry for each form. A specification with"
+    " no grade gets an empty grade. Each entry gives its family, exactly one of: "
     f"{', '.join(FAMILIES)}. The family {CAST_IRON} includes grey, ductile and malleable iron. Set"
     " bare_grade_unambiguous true only when the grade alone, with no specification, names one material whatever"
     f" specification it appears under. Leave out anything you are not sure of. At most {MAX_ENTRIES} entries, the most"
@@ -196,28 +200,48 @@ class Table:
     entries: tuple[Entry, ...]
 
 
-def family_of(table: Table, stated: str | None) -> str | None:
-    """The one family this value's whole tokens name, or None: not in the signed table, or it could be two."""
-    said = tokens(stated)
+def _no_grade(grade: str | None) -> bool:
+    """A specification with no grade: its entry's grade is empty, or a word for nothing ("N/A")."""
+    return " ".join(tokens(grade)) in _NO_GRADE
+
+
+def _family_of_tokens(table: Table, said: tuple[str, ...]) -> str | None:
     if not said:
         return None
-    hits = {
-        e.family
-        for e in table.entries
-        if said == tokens(e.specification) + tokens(e.grade)
-        or (e.bare and said == tokens(e.grade))
-    }
+    hits = set()
+    for e in table.entries:
+        grade = () if _no_grade(e.grade) else tokens(e.grade)
+        if said == tokens(e.specification) + grade or (
+            e.bare and grade and said == grade
+        ):
+            hits.add(e.family)
     return next(iter(hits)) if len(hits) == 1 else None
 
 
-def parts_of(stated: str | None) -> list[str]:
-    """The specifications a value lists, split on its list separator."""
-    return [p for p in _LIST_SEPARATOR.split(str(stated or "")) if tokens(p)]
+def family_of(table: Table, stated: str | None) -> str | None:
+    """The one family this value's whole tokens name, or None: not in the signed table, or it could be two."""
+    return _family_of_tokens(table, tokens(stated))
+
+
+def parts_of(stated: str | None) -> list[tuple[str, ...]]:
+    """The tokens of each specification a value lists, split on its list separator. A later part that starts with the
+    number keeps the letters the part before it started with, inside this value only ("SA 1 / 2" is SA1 and SA2). Any
+    other change to a designation is a row of the table, signed like any row, never a rule here."""
+    out: list[tuple[str, ...]] = []
+    for part in _LIST_SEPARATOR.split(str(stated or "")):
+        said = tokens(part)
+        if not said:
+            continue
+        letters = re.match(r"[a-z]+", out[-1][0]) if out else None
+        if letters and said[0][0].isdigit():
+            said = (letters.group(0) + said[0], *said[1:])
+        out.append(said)
+    return out
 
 
 def families_of(table: Table, stated: str | None) -> list[str | None]:
     """One family, or None, per listed part."""
-    return [family_of(table, part) for part in parts_of(stated)]
+    return [_family_of_tokens(table, said) for said in parts_of(stated)]
 
 
 def is_not(table: Table, forbidden: list[str], stated: str) -> tuple[str | None, str]:
@@ -288,7 +312,7 @@ def _packet() -> Packet:
 
 
 def store_proposal(conn, reply: dict, model: str) -> dict:
-    """Code's word on each entry: a family off the list, or a specification or grade with no token, is dropped and
+    """Code's word on each entry: a family off the list, or a specification with no token, is dropped and
     counted. Everything kept is unsigned."""
     kept = dropped = 0
     with conn:
@@ -296,7 +320,7 @@ def store_proposal(conn, reply: dict, model: str) -> dict:
             spec, grade = str(item["specification"]).strip(), str(item["grade"]).strip()
             family = " ".join(str(item["family"]).casefold().split())
             bare = bool(item["bare_grade_unambiguous"])
-            if family not in FAMILIES or not tokens(spec) or not tokens(grade):
+            if family not in FAMILIES or not tokens(spec):
                 dropped += 1
                 continue
             conn.execute(

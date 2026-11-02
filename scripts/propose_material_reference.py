@@ -66,6 +66,9 @@ def count_on(conn, sheet: Path, document: str, role: str, equipment_type: str) -
         "role": role,
         "values": len(found),
         "parts_per_value": sorted(len(ref.parts_of(v)) for v in found),
+        "parts_in_the_table_per_value": sorted(
+            sum(1 for f in ref.families_of(every, v) if f) for v in found
+        ),
         "every_part_in_the_table_signed_or_not": sum(
             1 for v in found if known(every, v)
         ),
