@@ -42,6 +42,7 @@ from tests.test_1584_standards_compiler import (
     QUOTE,
     FakeBatches,
     _document,
+    _review_run,
     _rule,
     lane,  # noqa: F401 - autouse: a temporary copy, the compiler's switches on
 )
@@ -54,12 +55,15 @@ REPO = Path(__file__).resolve().parents[2]
 APP = REPO / "backend" / "app"
 PAGE_2 = "4.2 Bolts\nThe invented bolt torque shall be at least 40 Nm."
 ENGINEER = "user-eng"
+THE_SEAM = rulebook_v2_ingest.after_compile
 PSV = "Invented Relief Device"
 
 
 @pytest.fixture(autouse=True)
 def switched_on(lane, monkeypatch):  # noqa: F811
     monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
+    # These tests move a compile into the book themselves, to see each step; the seam has its own tests below.
+    monkeypatch.setattr(rulebook_v2_ingest, "after_compile", lambda *_a: None)
 
 
 def _conn():
@@ -1036,7 +1040,12 @@ def test_a_filled_rulebook_changes_no_verdict_and_a_review_reads_none_of_it(
     finally:
         conn.set_authorizer(None)
     assert read, "the spy saw the review's reads"
-    assert not {t for t in read if t.startswith("rulebook_")}
+    # the run says which book it used; that record is all a review touches, and no rule is read
+    assert {t for t in read if t.startswith("rulebook_")} <= {
+        "rulebook_run",
+        "rulebook_snapshot",
+        "rulebook_event",
+    }
     assert before["findings"] and _findings(after) == _findings(before)
     assert _rows("SELECT status FROM review_runs WHERE id = ?", run) == outcome_before
 
@@ -1107,11 +1116,40 @@ def test_the_compilers_seam_fills_the_book_on_and_does_nothing_off(monkeypatch):
         _conn(), DOC, LABEL, client=FakeBatches([_rule()]), sleep=lambda _s: None
     )
     monkeypatch.setattr(settings, "rulebook_v2_enabled", False)
-    rulebook_v2_ingest.after_compile(_conn(), DOC)
+    THE_SEAM(_conn(), DOC)
     assert not rulebook_v2.has_schema(_conn())
     monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
-    rulebook_v2_ingest.after_compile(_conn(), DOC)
+    THE_SEAM(_conn(), DOC)
     assert len(_rows("SELECT id FROM rulebook_rule")) == 1
+
+
+def test_a_compile_fills_the_book_through_the_seam(monkeypatch):
+    monkeypatch.setattr(rulebook_v2_ingest, "after_compile", THE_SEAM)
+    _document()
+    standards_compiler.compile_standard(
+        _conn(), DOC, LABEL, client=FakeBatches([_rule()]), sleep=lambda _s: None
+    )
+    assert len(_rows("SELECT id FROM rulebook_rule")) == 1
+    assert len(_rows("SELECT id FROM rulebook_snapshot")) == 1
+
+
+def test_a_compile_with_the_switch_off_makes_no_table_through_the_seam(monkeypatch):
+    monkeypatch.setattr(rulebook_v2_ingest, "after_compile", THE_SEAM)
+    monkeypatch.setattr(settings, "rulebook_v2_enabled", False)
+    _document()
+    standards_compiler.compile_standard(
+        _conn(), DOC, LABEL, client=FakeBatches([_rule()]), sleep=lambda _s: None
+    )
+    assert not rulebook_v2.has_schema(_conn())
+
+
+def test_a_review_run_records_which_rulebook_it_used_through_the_seam():
+    first = _compile()["snapshot_id"]
+    _review_run()
+    standards_compiler.record_rule_version("run-1")
+    (row,) = _rows("SELECT * FROM rulebook_run")
+    assert (row["review_run_id"], row["used_version"]) == ("run-1", rulebook_v2.V1)
+    assert row["snapshot_id"] is None and row["latest_snapshot_id"] == first
 
 
 # ------------------------------------------------------------------------- the contract for a review (piece 3)

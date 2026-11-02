@@ -57,6 +57,8 @@ from . import (
     claude_batch_run,
     claude_spend,
     numparse,
+    rulebook_v2,
+    rulebook_v2_ingest,
     standards_converter,
 )
 from .ai.json_reply import unfenced
@@ -463,6 +465,7 @@ def _store(
                     rule["context_flag"],
                 ),
             )
+    rulebook_v2_ingest.after_compile(conn, document_id)
     return run_id
 
 
@@ -779,6 +782,7 @@ def record_rule_version(review_run_id: str) -> None:
     ).fetchone()
     if row is None:
         return
+    rulebook_v2.record_run(conn, review_run_id)
     documents = claude_approved.review_documents(review_run_id)
     held = 0
     if documents and _has_table(conn, "compiled_rules"):
