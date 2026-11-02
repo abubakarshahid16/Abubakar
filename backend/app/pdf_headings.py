@@ -77,7 +77,8 @@ _SECTION_NO = re.compile(
 #: A dotted section number: 1.2, 4.5.1.3, A.1 - never a lone list number.
 _DOTTED = re.compile(r"^(?:[A-Z]\.\d{1,2}(?:\.\d{1,2})*|\d{1,2}(?:\.\d{1,2})+)\.?\s")
 _REQUIREMENT_WORD = re.compile(
-    r"\b(?:must|shall|should|do not|not exceed|not to exceed)\b", re.I
+    r"\b(?:must|shall|should|will|is to|are to|do not|not exceed|not to exceed)\b",
+    re.I,
 )
 _ENDINGS = (".", ";", ",", ":")
 #: A figure or table caption names a picture or a table, not a section.
@@ -192,11 +193,13 @@ def states_a_value(text: str) -> bool:
 
 
 def states_a_requirement(text: str) -> bool:
-    """A requirement word, or a number with a unit, past the section label: a limit."""
+    """A requirement word, or a number with a unit past the section label: a limit.
+    A bare integer is no label here: "10 Bar Maximum" is a value, "4.2 Bar Screens" is not."""
     if _REQUIREMENT_WORD.search(text):
         return True
     label = _SECTION_NO.match(text)
-    words = (text[label.end() :] if label else text).split()
+    bare = not label or label.group().isdigit()
+    words = (text if bare else text[label.end() :]).split()
     return any(
         numparse.as_number(word) is not None and claims.is_unit(after.strip(",;()"))
         for word, after in pairwise(words)

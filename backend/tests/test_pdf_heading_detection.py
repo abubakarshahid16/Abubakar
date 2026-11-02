@@ -221,6 +221,8 @@ def test_a_requirement_or_a_limit_is_not_a_heading():
         "Do Not Exceed 10 Bar",
         "Not To Exceed Rating",
         "Maximum 10 Bar",
+        "10 Bar Maximum",
+        "Valves Will Be Tested",
         "4.1 Lines Shall Be Drained",
     ):
         assert pdf_headings.states_a_requirement(text), text
@@ -231,6 +233,13 @@ def test_a_requirement_or_a_limit_is_not_a_heading():
         "Part 2 In Service",
     ):
         assert not pdf_headings.states_a_requirement(text), text
+
+
+def test_a_title_with_a_dotted_number_and_a_unit_word_is_kept():
+    # past a dotted or dotted-off number a unit word can open a title; a bare integer cannot
+    assert not pdf_headings.states_a_requirement("4.2 Bar Screens")
+    assert not pdf_headings.states_a_requirement("1. Bar Screens")
+    assert pdf_headings.states_a_requirement("25 Psi Rating")
 
 
 def test_a_label_alone_is_a_title():
