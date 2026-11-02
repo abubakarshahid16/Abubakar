@@ -42,6 +42,16 @@ STEP_WORDS = {
     "scope-reasoning-decide": "AI scope reasoning",
     "rule_equipment_scope": "AI equipment scope of a rule",
 }
+#: A gate-level note names a path, not a step: the words never print the path.
+GATE_WORDS = "A local-engine AI step"
+
+
+def _words(step: str) -> str:
+    if step.startswith("ai_task:"):
+        return f"AI {step.removeprefix('ai_task:').replace('_', ' ')}"
+    return GATE_WORDS if step.startswith("local engine") else STEP_WORDS.get(step, step)
+
+
 #: Already listed under its own status (`absence.check_failed_status`).
 SAYS_ITSELF = frozenset({"review_ai_check"})
 
@@ -98,7 +108,7 @@ def unchecked_lines(outcome: dict) -> list[dict]:
     return [
         {
             "part": f"skipped:{row['step']}",
-            "line": f"{STEP_WORDS.get(row['step'], row['step'])}: {NOT_CHECKED}.",
+            "line": f"{_words(row['step'])}: {NOT_CHECKED}.",
             "note": "Not checked",
         }
         for row in outcome.get(OUTCOME_KEY) or []

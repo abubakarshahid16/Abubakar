@@ -290,9 +290,8 @@ def test_a_barred_probe_is_not_remembered_as_the_engines_answer(engine_calls):
 
 def test_the_datasheet_reader_on_the_local_engine_is_skipped(engine_calls):
     with local_engine_bar.bar():
-        call, why = datasheet_ai.model_call_for("ollama")
-        assert call is None and "LocalEngineNotLoaded" in why
-        assert local_engine_bar.stated()[0]["note"] == NOTE
+        assert datasheet_ai.model_call_for("ollama") == (None, NOTE)
+        assert local_engine_bar.stated()[0]["step"] == datasheet_ai.STEP
     assert engine_calls == []
 
 

@@ -223,6 +223,22 @@ def test_each_skipped_step_is_listed_as_not_checked():
     assert any(ln.startswith("AI field naming:") for ln in lines)
 
 
+def test_a_skipped_step_is_named_in_plain_words_never_by_a_path_or_a_key():
+    steps = {
+        "datasheet-ai-reader": "AI datasheet reading:",
+        "ai_task:division_scope": "AI division scope:",
+        "local engine /api/generate": "A local-engine AI step:",
+    }
+    outcome = {
+        local_engine_bar.OUTCOME_KEY: [
+            {"step": s, "calls_not_made": 1, "note": local_engine_bar.NOTE}
+            for s in steps
+        ]
+    }
+    lines = [ln for ln in _lines(outcome) if SKIP_WORDS in ln]
+    assert [ln.split(" not checked")[0] for ln in lines] == list(steps.values())
+
+
 def test_the_ai_check_skip_is_listed_once():
     from app import ai_engineering_check
 
