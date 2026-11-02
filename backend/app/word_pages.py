@@ -212,10 +212,13 @@ def place(item: dict) -> str:
 
 
 def review_notes(findings: list[dict]) -> list[dict]:
-    """The Review notes of the submittal behind these findings. Nothing when off."""
+    """The Review notes of the submittal behind these findings, with what was read of it
+    (`reading_state`, its own switch). Nothing when both are off."""
+    from . import reading_state
+
+    notes: list[dict] = reading_state.review_notes(findings)
     if not settings.word_page_markers_enabled:
-        return []
-    notes: list[dict] = []
+        return notes
     for document_id in sorted(
         {f.get("document_id") for f in findings if f.get("document_id")}
     ):

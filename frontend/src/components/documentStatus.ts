@@ -34,6 +34,9 @@ export function presentStatus(doc: DocumentRecord): StatusPresentation {
     case "indexing_keyword":
       return { label: "building keyword index", tone: "progress", answerable: false };
     case "partially_searchable":
+      if (doc.reading && doc.reading.unaccounted > 0) {
+        return { label: doc.reading.line, tone: "warning", answerable: true };
+      }
       return { label: "partially searchable", tone: "progress", answerable: true };
     case "ready":
       // ONE status, and never "ready" beside "2 awaiting OCR". The README makes
@@ -50,6 +53,13 @@ export function presentStatus(doc: DocumentRecord): StatusPresentation {
         return {
           label: `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting for OCR`,
           tone: "neutral",
+          answerable: true,
+        };
+      }
+      if (doc.reading) {
+        return {
+          label: `ready: ${doc.reading.line}`,
+          tone: doc.reading.fully_read ? "success" : "neutral",
           answerable: true,
         };
       }

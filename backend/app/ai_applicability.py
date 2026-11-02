@@ -38,6 +38,7 @@ import re
 from . import (
     ai_task_runner,
     division_text,
+    local_engine_bar,
     requirement_quality,
     scope_ledger,
     scope_quote,
@@ -46,6 +47,8 @@ from . import (
     subject_scope,
 )
 from .ai import output_limits
+from .division_claude import NAMES_ITSELF, rejections
+from .division_claude import read as _read
 from .division_text import (  # noqa: F401 - re-exported: the names tests and callers use
     NOT_READ_COUNTS,
     SCOPE_WORDS,
@@ -293,11 +296,6 @@ def _stated_lines(text: str) -> list[str]:
     return [line[2:] for line in text.splitlines() if line.startswith("- ")]
 
 
-#: Said about a model "no" whose own quoted stated line shares a word with the
-#: construction: the sheet speaks against the model's "no" (`_read` marks it).
-NAMES_ITSELF = "the quoted line names the construction itself"
-
-
 def _construction_problems(data: dict, text: str) -> list[str]:
     """Code's check of a "no": the quote is one of the stated lines, and that
     line's value does not itself name the construction."""
@@ -337,28 +335,12 @@ def _construction_text(construction: str, quote: str, stated: list[str]) -> str:
     )
 
 
-#: A model that does not answer in time, or cannot be reached: no further
-#: division of the run is asked (each would wait `ai_task_timeout_s`).
-_MODEL_DOWN = ("the model did not answer in time", "the model could not be reached")
 #: A LAYER on a base material (cladding, an overlay, a lining, a coating,
 #: galvanising, plating): true of any document, a layer does not change what
 #: the base is made of, so a value naming one never excludes - it is held.
 _LAYER = re.compile(
     r"\b(?:clad\w*|overlay\w*|lin(?:ed|ing)|coat\w*|galvani[sz]\w*|plat(?:ed|ing))\b"
 )
-
-
-def _read(task, text: str, provider, run: dict) -> dict | None:
-    """One task, unless the model already stopped answering in this run."""
-    if run.get("stopped"):
-        return None
-    result = ai_task_runner.run_task(task, text, provider=provider)
-    if result.state == ai_task_runner.STATE_OK:
-        return result.data
-    run["contradicted"] = NAMES_ITSELF in (result.reason or "")
-    if (result.reason or "").startswith(_MODEL_DOWN):
-        run["stopped"] = result.reason
-    return None
 
 
 def _yes_is_stated(reply: dict, stated: list[str], construction: str) -> bool:
@@ -443,6 +425,7 @@ def division_gate_for_run(
         classification=classification,
         facts=facts,
         standard_labels=standard_labels,
+        provider=division_text.claude_reader(),
         limit=settings.ai_division_scope_max_per_run,
     )
 
@@ -760,6 +743,8 @@ def _division_gate(
     if stopped := ctx["run"].get("stopped"):
         summary["stopped"] = f"{stopped}; the divisions after it were not read"
         summary["model_unavailable"] = stopped
+        step = f"ai_task:{SCOPE_TASK.name}"
+        local_engine_bar.at_least(step, summary["could_not_read"])
     marks = {
         "unplaced": unplaced,
         "screen_failed": ctx["screen_failed"],
@@ -776,6 +761,7 @@ def _division_gate(
     # the denominator of every requirement count: the requirements of the
     # standards in this review, and nothing else
     summary.update(does_not_apply=len(items), held=len(held), **counts)
+    summary.update(rejections(ctx["run"]))
     if questions:
         summary["questions"] = questions
     summary["requirements_gated"] = len(requirements)

@@ -20,6 +20,8 @@ the screen print.
 
 Checklist decisions are stated apart and never added: a checklist clause is text,
 not linked to a stored rule (the same lane as the bench's source row, PR #1566).
+Version 2 rulebook rows (`rulebook_v2_review`) are on neither lane: stated apart, with
+their own denominator, and never added. Only a run that read the rulebook has them.
 
 Read only. Counts only: no document text leaves this module except the gate
 reasons a run stored, which the bench and the board never get (`public_view`).
@@ -32,7 +34,14 @@ import re
 import sqlite3
 from pathlib import Path
 
-from . import deferred_pass, deferred_value, requirement_split, scope_ledger, spec_kit
+from . import (
+    deferred_pass,
+    deferred_value,
+    presence_check,
+    requirement_split,
+    scope_ledger,
+    spec_kit,
+)
 from .config import settings
 from .db import connect
 
@@ -195,6 +204,13 @@ def _stated_split(outcome: dict) -> dict | None:
     )
 
 
+def _applicable(split: dict | None) -> int | None:
+    """The rules a run states apply: the pair's denominator, and the footer's."""
+    if split is None:
+        return None
+    return int(split.get("checked") or 0) + int(split.get("applies_not_checked") or 0)
+
+
 def _left_out(split: dict | None) -> dict:
     split = split or {}
     return {
@@ -304,7 +320,20 @@ def _line(pair: dict) -> str:
             f"Standard rules decided: {pair['decided']}, more than the {pair['applicable']}"
             " this run states apply, so no coverage is given"
         )
-    return f"{head}. Risk: {risk_text(pair)}.{_checklist_wrong(pair)}{_outside_words(pair)}"
+    return f"{head}. Risk: {risk_text(pair)}.{_checklist_wrong(pair)}{_outside_words(pair)}{_tier_words(pair)}"
+
+
+def _tier_words(pair: dict) -> str:
+    """Who stands behind the decided rules, when the owner's did (#1584): apart, never one count."""
+    tiers = pair.get("decided_by_tier")
+    if not tiers:
+        return ""
+    from .rule_trust import OWNER_APPROVED_WORDS
+
+    return (
+        f" Of these decided: {tiers['owner_approved']} by rules labelled {OWNER_APPROVED_WORDS};"
+        f" {tiers['engineer_approved']} by engineer-approved rules, counted apart."
+    )
 
 
 def _checklist_wrong(pair: dict) -> str:
@@ -330,10 +359,19 @@ def _tally(
     checklist = {"decided": 0, "rows": 0, "pass": 0, "fail": 0, "wrong": 0}
     for f in findings:
         lane = _lane(f, rules)
+        # #1638: the one count, a safety-tick row included (the bench's `finding_source` agrees)
+        stated = presence_check.is_stated_only(f) and not _is_kit_card(f)
+        if stated:
+            checklist["stated"] = checklist.get("stated", 0) + 1
+            checklist["stated_deferred"] = checklist.get("stated_deferred", 0) + int(
+                value_is_deferred(conn, f)
+            )
         if lane is None:
             continue
         if lane == "checklist":
             checklist["rows"] += 1
+            if stated:  # never decided
+                continue
         status = f.get("compliance_status")
         if status not in DECIDED:
             continue
@@ -379,9 +417,41 @@ def _wrong_verdicts(
         f
         for f in rows
         if _lane(f, rules) is None
+        or presence_check.is_stated_only(f)
         or (f.get("compliance_status") == PASS and value_is_deferred(conn, f))
     ]
     return {"all": len(rows), "outside": len(outside)}
+
+
+def _decided_by_tier(
+    conn: sqlite3.Connection,
+    findings: list[dict],
+    rules: dict[str, dict],
+    decided: set[str],
+) -> dict:
+    """Of the decided rules, which the owner's label stands behind and which an engineer's; a rule with both counts
+    as the owner's (the weaker claim). {} when none is the owner's: every other pair stays as it was."""
+    from .rule_trust import ENGINEER_CONFIRMED, OWNER_APPROVED
+
+    keys: dict[str, set[str]] = {OWNER_APPROVED: set(), ENGINEER_CONFIRMED: set()}
+    for f in findings:
+        label = f.get("trust_label")
+        status = f.get("compliance_status")
+        if label not in keys or status not in DECIDED or _lane(f, rules) != "rule":
+            continue
+        if status == PASS and value_is_deferred(conn, f):
+            continue
+        key = requirement_split.requirement_key(rules[f["requirement_id"]])
+        if key in decided:
+            keys[label].add(key)
+    if not keys[OWNER_APPROVED]:
+        return {}
+    return {
+        "decided_by_tier": {
+            "owner_approved": len(keys[OWNER_APPROVED]),
+            "engineer_approved": len(keys[ENGINEER_CONFIRMED] - keys[OWNER_APPROVED]),
+        }
+    }
 
 
 def compute(
@@ -413,11 +483,7 @@ def compute(
     )
     passed -= failed  # a rule with a Pass on one row and a Fail on another is a Fail
     decided = len(passed) + len(failed)
-    applicable = (
-        None
-        if split is None
-        else int(split.get("checked") or 0) + int(split.get("applies_not_checked") or 0)
-    )
+    applicable = _applicable(split)
     fits = applicable is not None and decided <= applicable
     wrong = None if wrong_ids is None else len(wrong_rules)
     if wrong_ids is None:
@@ -440,12 +506,26 @@ def compute(
         "left_out": left,
         "boundary": _boundary(left),
         "by_gate_reason": _gate_rows(split, decided, wrong),
+        **_decided_by_tier(conn, findings, rules, passed | failed),
     }
     pair["line"] = _line(pair)
     pair["checklist_line"] = (
         f"Checklist, stated apart, not added to the rules: {checklist['decided']} of"
-        f" {checklist['rows']} items decided.{_checklist_wrong(pair)}"
+        f" {checklist['rows']} items decided."
+        + (
+            f" {checklist['stated']} {presence_check.WORDS.lower()}."
+            if checklist.get("stated")
+            else ""
+        )
+        + _checklist_wrong(pair)
     )
+    part = (split or {}).get("rulebook_v2")
+    if part:
+        from .rulebook_v2_stated import rulebook_part
+
+        pair["rulebook_v2"] = rulebook_part(part, findings, wrong_ids)
+        # the headline is never "0 of N" alone beside a rule that did decide
+        pair["line"] = f"{pair['line']} {pair['rulebook_v2']['line']}"
     return pair
 
 
@@ -569,13 +649,19 @@ def screen_coverage(coverage: dict, conn: sqlite3.Connection, run_id: str) -> di
     return coverage if pair is None else {**coverage, "line": pair["line"]}
 
 
-def reason_words(text: str | None) -> str | None:
-    """The approval reason a run stored, as a person reads it. With the switch on, the
-    sentence does not call the rest checked. Words only: the code it explains, and the
-    rule that chose the code, do not change. Reads no database, so a list of runs can
-    use it."""
+def reason_words(
+    text: str | None, outcome: dict | None = None, run_id: str | None = None
+) -> str | None:
+    """The reason a run stored, as a person reads it. With the switch on, the approval
+    sentence does not call the rest checked, and (given the run's `outcome` and id) the
+    "found" sentence says `values_sentence`. Words only: the code it explains, and the
+    rule that chose the code, do not change. Off: reads no database."""
     if text is None or not settings.one_checked_definition_enabled:
         return text
+    if run_id is not None:
+        from .coverage_values import found_words
+
+        text = found_words(text, outcome, run_id)
     return text.replace(REASON_OLD, REASON_NEW)
 
 
@@ -585,10 +671,17 @@ def trace_view(trace: dict | None, run_id: str) -> dict | None:
     pair = None if trace is None else for_screen(connect(), run_id)
     if pair is None:
         return trace
+    runs = _rows(
+        connect(), "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
+    )
+    outcome = json.loads((runs[0]["outcome_json"] if runs else None) or "{}")
     steps = []
     for step in trace.get("steps") or []:
         if step.get("step") == "CODE":  # prints the stored reason
-            step = {**step, "summary": reason_words(step.get("summary")) or ""}
+            step = {
+                **step,
+                "summary": reason_words(step.get("summary"), outcome, run_id) or "",
+            }
         if step.get("step") == "RULES":
             words = (step.get("summary") or "").replace(
                 "not checked or not applying:",
@@ -660,7 +753,9 @@ def crs_meta(meta: dict, conn: sqlite3.Connection, run_id: str) -> dict:
     ]
     return {
         **meta,
-        "recommended_code_reason": reason if typed else reason_words(reason),
+        "recommended_code_reason": reason
+        if typed
+        else reason_words(reason, outcome, run_id),
         "review_notes": notes,
         "unchecked_parts": [swap(p) for p in meta.get("unchecked_parts") or []],
         "incomplete_notice": swap(meta.get("incomplete_notice") or ""),

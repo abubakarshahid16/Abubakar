@@ -57,8 +57,10 @@ from . import (absence, claims, closing_noun, conditions, datasheets, errors, fi
 from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
 from .claude_auto_approve import notes_after
 from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
+from . import presence_check
 from .config import settings
 from .deferred_value import framing as _framing, reason as _deferred_reason
+from .impossible_sign import hold_pass as _hold_impossible_pass
 from .db import connect
 from .provenance import ai_quote_proved
 
@@ -592,6 +594,7 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
     (CLAUDE.md rule 4); the same value read as "within the limit" was
     accepted, which is the same guess. Every other status (already a
     question, missing information) passes unchanged."""
+    verdict = _hold_impossible_pass(verdict, fact)  # #1607
     if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
         return verdict
     reason = low_trust_reason(fact)
@@ -1375,6 +1378,13 @@ def create_finding(
             "citation_resolves": not unresolved}
 
 
+def _rule_trust_on() -> bool:
+    """Does this run label anything? The second switch (#1584) labels only the rules the owner approved."""
+    return (
+        settings.rule_auto_use_enabled or settings.owner_approved_rules_decide_enabled
+    )
+
+
 class _RuleTrust:
     """One run's view of `rule_trust` (#947), switch ON only: the family
     proof per (standard, equipment type) and the compiling model, read once
@@ -1384,6 +1394,8 @@ class _RuleTrust:
 
     def __init__(self, equipment_type: str | None) -> None:
         self.equipment_type = equipment_type
+        #: Standards a draft checklist kept in scope (Lock 2): labelled whatever the switches say.
+        self.kept: set[str] = set()
         self._proofs: dict[tuple[str, str], dict | None] = {}
         self._revisions: dict[str, str | None] = {}
 
@@ -1406,9 +1418,10 @@ class _RuleTrust:
                 model_id=model, standard_revision=self._revision(standard_id))
         return self._proofs[key]
 
-    def label(self, verdict: dict, rule: dict) -> dict:
+    def label(self, verdict: dict, rule: dict, fact: dict | None = None) -> dict:
         from . import rule_trust
-        return rule_trust.label_finding(verdict, rule, self.proof(rule))
+        always = rule.get("standard_document_id") in self.kept
+        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact, always=always)
 
 
 def _trust_columns(verdict: dict, status: str | None) -> dict:
@@ -1426,37 +1439,11 @@ def _trust_columns(verdict: dict, status: str | None) -> dict:
 def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
                         requirements: list[dict], rows: list[dict]) -> dict | None:
     """Steps 7 and 10 of the owner decision, for the run's record. None with
-    the switch off. Field NAMES of this machine's own datasheet; never values.
-
-    `rows` are EVERY finding written for this run - the rule rows and the
-    datasheet checks - so `held_unproven` is every verdict rule_trust held,
-    not the main loop's share of them (s2's real-group run of 17 Oct found
-    51 reported against 1,555 held). `findings_counted` states the boundary.
-    """
+    the switch off."""
     if trust is None:
         return None
     from . import rule_trust
-    # A stored fact carries its value as `field_value`; the pure function
-    # reads `raw_value`. One translation, here, never a second reader.
-    shaped = [{"field_name": f.get("field_label") or f.get("field_name"),
-               "raw_value": f.get("field_value"), "is_blank": f.get("is_blank")} for f in facts]
-    read = [f for f in shaped if not f["is_blank"] and f["raw_value"] not in (None, "")]
-    uncovered = rule_trust.uncovered_fields(shaped, requirements)
-    auto_ids = [r["id"] for r in rows if r.get("trust_label") == rule_trust.AUTO_PROVEN]
-    labels: dict[str, int] = {}
-    for r in rows:
-        if r.get("trust_label"):
-            labels[r["trust_label"]] = labels.get(r["trust_label"], 0) + 1
-    return {
-        "fields_read": len(read),
-        "uncovered_fields": [f.get("field_name") or f.get("name") for f in uncovered],
-        "labels": labels,
-        "findings_counted": len(rows),
-        "held_unproven": sum(1 for r in rows if r.get("rule_said")),
-        "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
-        "auto_proven": len(auto_ids),
-        "audit_sample": rule_trust.audit_sample(auto_ids, seed=review_run_id),
-    }
+    return rule_trust.run_summary(review_run_id, facts, requirements, rows)
 
 
 def _prepare_finding(
@@ -1857,6 +1844,7 @@ def _unchecked_causes(counts: dict) -> str:
     return requirement_split.causes(counts)
 
 
+@presence_check.says_how_many  # #1638
 def recommend_code(findings: list[dict], completeness: dict, *,
                    codes: tuple[str, ...] | None = None,
                    missing_references: list[str] | tuple[str, ...] = (),
@@ -1905,6 +1893,8 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                   "reason": (f"Manual review: the reading is incomplete ({pages}, "  # 1550
                              "see the run's page coverage), so the rest cannot be called met"),
                   "reading_incomplete": True}
+    from . import rule_trust
+    result = rule_trust.hold_open_ticks(result, findings, codes)
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
         # A PROVEN BREACH, IN AN ENGINEER'S WORDS, with what else is open.
@@ -2032,6 +2022,7 @@ def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
                         missing), reason
 
 
+@presence_check.not_a_pass  # #1638
 def _recommend_code(findings: list[dict], completeness: dict, *,
                     codes: tuple[str, ...] = DEFAULT_CODES,
                     missing_references: list[str] | tuple[str, ...] = (),
@@ -2434,7 +2425,7 @@ def _run_comparison(
     kn = kind_rules.for_run(submittal_id, allowed_document_ids, standard_ids)
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
-    trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
+    trust = _RuleTrust(stored.get("equipment_type")) if _rule_trust_on() else None
     # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
     # except pressure relief valves 115 dB(A)"); derived HERE, once, so no
     # caller can forget it (audit 2026-09-30); a caller's own subject wins.
@@ -2512,21 +2503,13 @@ def _run_comparison(
     governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
+        # Lock 2: a DRAFT checklist cannot decide, so it sets nothing aside (`checklist_scope.keeps_standards`).
+        if checklist_scope.keeps_standards(governing):
+            trust = trust or _RuleTrust(stored.get("equipment_type"))
+            trust.kept, covered_ids = covered_ids, set()
         if covered_ids:
-            detail = (f"the {governing['key']} review checklist governs this standard "
-                      f"({governing['items']} items); not checked one by one")
-            governed_cells = [i for i in gated["not_compared_items"]
-                              if i["requirement"].get("standard_document_id") in covered_ids]
-            covered_items = ([{"requirement": dict(r), "code": "covered_by_checklist", "detail": detail}
-                              for r in requirements if r.get("standard_document_id") in covered_ids]
-                             + [{"requirement": i["requirement"], "code": "covered_by_checklist",
-                                 "detail": detail} for i in governed_cells])
-            requirements = [r for r in requirements if r.get("standard_document_id") not in covered_ids]
-            gated = {**gated, "not_compared_items": [
-                i for i in gated["not_compared_items"]
-                if i["requirement"].get("standard_document_id") not in covered_ids]}
-            checklist_note = {"type": governing["key"], "items": governing["items"],
-                              "standards": len(covered_ids)}
+            covered_items, requirements, gated, checklist_note = checklist_scope.set_aside(
+                governing, covered_ids, requirements, gated)
     # #288: advice that still applies becomes an engineer's query, not a comparison
     requirements = recommendations.hold_for_query(requirements, held_items)
     applicability_summary = scoped["summary"]
@@ -2904,7 +2887,7 @@ def _run_comparison(
             # the rule's own verdict kept as `rule_said`); a SAFETY-tier
             # COMPLIANT is flagged for an engineer's tick.
             if trust is not None:
-                verdict = trust.label(verdict, requirement)
+                verdict = trust.label(verdict, requirement, fact)
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`
             # applies every gate `create_finding` would (duplicate check against
@@ -2930,11 +2913,14 @@ def _run_comparison(
                              "citation_resolves": not unresolved})
 
     # ORDER 210 FIX 3: a held requirement is also an engineer-review row.
-    from . import held_findings
+    from . import held_findings, run_parts
 
     run = (review_run_id, submittal_id, replace, standard_labels)
     held_findings.add(held_items, pending, prepared_rows, findings, run)
 
+    rulebook = run_parts.rulebook(
+        run, stored, facts, prepared_rows, findings, allowed_document_ids
+    )
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
     # datasheet self-checks below, which add their own rows to this run and
     # must not be deleted by it.
@@ -2979,12 +2965,14 @@ def _run_comparison(
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
     check_results = kind_rules.gate(kn, checklist_scope, facts, stored, page_texts)
+    check_results = run_parts.checks(rulebook, check_results)
     # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
     # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
         label=rule_trust_mod.label_check if trust is not None else None))
+    findings.extend(run_parts.written(rulebook))
 
     # rule_trust (#947) steps 7 and 10, switch ON only: the datasheet fields
     # read with a value that no applicable rule targets (the CRS lists them
@@ -3016,12 +3004,7 @@ def _run_comparison(
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
     split = {**split, **kind_rules.split_part(kn, checklist_note), **eqs.split_part(es)}
-    if cited_scope["summary"]:  # #139: standards cited only for named clauses
-        split = {**split, "cited_clauses": cited_scope["summary"]}
-    if checklist_coverage:
-        split = {**split, "checklist_coverage": checklist_coverage}
-    if divided["summary"]:  # #141: divisions limited by their own scope
-        split = {**split, "division_scope": divided["summary"]}
+    split = run_parts.stated(split, cited_scope, checklist_coverage, divided, rulebook)
     # Owner order 2026-10-11: the run says which reader read the sheet (engine,
     # model or "code readers only") and the pages the AI did not read, with the reason.
     from . import degraded_read
@@ -3097,7 +3080,7 @@ def _run_comparison(
         "rule_refusals": rule_refusals,
         "findings": findings,
         "by_status": {
-            status: sum(1 for f in findings if f["compliance_status"] == status)
+            status: sum(1 for f in findings if presence_check.status_of(f) == status)
             for status in (COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION,
                            CONDITIONAL, NOT_APPLICABLE, NEEDS_ENGINEER_REVIEW,
                            NOT_IN_DOCUMENT_SCOPE)

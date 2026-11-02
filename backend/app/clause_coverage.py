@@ -139,19 +139,25 @@ def for_screen(review_run_id: str, allowed_document_ids: frozenset[str]) -> dict
     )
 
 
-def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
+def plain_outcome(
+    outcome: dict, run_id: str | None = None
+) -> tuple[str | None, str | None]:
     """`comparison.plain_outcome`, in the one meaning of "checked" with the switch on."""
     from . import comparison, coverage_pair
 
     reason, details = comparison.plain_outcome(outcome)
-    return coverage_pair.reason_words(reason), coverage_pair.reason_words(details)
+    return (
+        coverage_pair.reason_words(reason, outcome, run_id),
+        coverage_pair.reason_words(details, outcome, run_id),
+    )
 
 
-def crs_meta(meta: dict, review_run_id: str) -> dict:
+def crs_meta(meta: dict, review_run_id: str, allowed: frozenset[str]) -> dict:
     """The CRS meta: with the switch on the pair replaces this module's review note."""
-    from . import coverage_pair
+    from . import coverage_pair, run_parts
 
-    return coverage_pair.crs_meta(meta, connect(), review_run_id)
+    told = run_parts.crs_part(meta, connect(), review_run_id, allowed)
+    return coverage_pair.crs_meta(told, connect(), review_run_id)
 
 
 def line(counts: dict, applicable: int, adds_up: bool) -> str:
@@ -186,6 +192,9 @@ def outcome_notes(outcome: dict, findings: list[dict]) -> list[dict]:
         from .rule_trust import review_notes as trust_notes
         notes.extend(trust_notes(outcome, findings))
     notes.extend(page_not_read.notes(outcome))  # #1473
+    from .presence_check import review_notes as stated_notes
+
+    notes.extend(stated_notes(findings))  # #1638
     notes.extend(review_notes(outcome))
     return notes
 

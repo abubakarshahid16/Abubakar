@@ -21,6 +21,7 @@ export function SheetCountsLine({ numbers }: SheetCountsLineProps) {
     <Part key="y" n={numbers.needsYou} one="needs you" many="need you" count="needsYou" />,
   ];
   if (numbers.met > 0) parts.push(<Part key="m" n={numbers.met} one="met" many="met" count="met" />);
+  if (numbers.stated > 0) parts.push(<Part key="s" n={numbers.stated} one="stated, not checked" many="stated, not checked" count="stated" />);
   // Comments on the sheet and parts of the standards are different things,
   // so each is said in its own words (W1: no "rows" or "clauses").
   if (numbers.notApplicableRows > 0) {

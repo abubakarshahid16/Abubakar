@@ -26,6 +26,7 @@ import type { WatchEvent, WatchStatus } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import { formatAge, presentStatus } from "../components/documentStatus";
+import { useDocumentReading } from "../components/useDocumentReading";
 import { LIST_MAX, totalFromResponse } from "../components/review/reviewFormat";
 import type { ApiError, DocStatus, DocumentRecord, Metrics } from "../types/api";
 
@@ -136,7 +137,8 @@ function Step({
 }
 
 function DocumentProgress({ doc }: { doc: DocumentRecord }) {
-  const status = presentStatus(doc);
+  const reading = useDocumentReading()[doc.id];
+  const status = presentStatus(reading ? { ...doc, reading } : doc);
   const answerable = reached(doc, "partially_searchable");
 
   if (OFF_TRACK.includes(doc.status)) {

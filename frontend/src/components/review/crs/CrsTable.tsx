@@ -54,7 +54,7 @@ export interface CrsTableProps {
 
 export function CrsTable(props: CrsTableProps) {
   const { rows, counts, depth, onDepth, showMet, onShowMet, spot, selectedKey, decisions, mode } = props;
-  const hidden = counts.met + counts.notApplicable + counts.anotherDocument;
+  const hidden = counts.met + (counts.stated ?? 0) + counts.notApplicable + counts.anotherDocument;
   const metShown = depth === "everything" || showMet;
   // How many rows to draw; back to one page when the depth changes, and
   // always far enough to include the selected row (J / K can reach past it).
@@ -121,7 +121,7 @@ export function CrsTable(props: CrsTableProps) {
 
       {hidden > 0 && depth !== "everything" && (
         <p className="text-sm text-slateish-300" data-testid="met-line">
-          {counts.met.toLocaleString()} met, {counts.notApplicable.toLocaleString()} not applicable
+          {counts.met.toLocaleString()} met, {counts.stated ? `${counts.stated.toLocaleString()} stated, not checked, ` : ""}{counts.notApplicable.toLocaleString()} not applicable
           {counts.anotherDocument > 0 ? `, ${counts.anotherDocument.toLocaleString()} for another document` : ""}
           {!showMet && spot.size > 0 ? ` (${spot.size} shown above as a sample to check)` : ""}:{" "}
           <button type="button" onClick={() => onShowMet(!showMet)} className="text-signal-300 underline-offset-2 hover:underline">

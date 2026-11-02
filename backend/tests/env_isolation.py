@@ -214,6 +214,8 @@ EGRESS_SAFE: dict[str, object] = {
     "page_read_by_reading_enabled": False,
     # --- local only, no model or socket: a procedure is checked against its own text (#1476, off by default)
     "procedure_path_enabled": False,
+    # --- Claude through reader_transport only, on a database copy, a script's switch (#1584, off by default)
+    "standards_compiler_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
     "clause_review_enabled": False,
     # --- local model only, no socket but model_transport: whole-document clause review (off by default)
@@ -229,6 +231,8 @@ EGRESS_SAFE: dict[str, object] = {
     "spec_kit_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
+    # --- local only, no socket: the bench also prints the planted-defect table (#1607, off by default)
+    "planted_defects_bench_enabled": False,
     # --- local only, no model or socket: a split abbreviation is joined; a unit left off one copy is one value (off by default)
     "datasheet_label_join_enabled": False,
     # --- local only, no model or socket: a drawing is checked against a DRAFT must-contain list (#1484, off by default)
@@ -251,6 +255,7 @@ EGRESS_SAFE: dict[str, object] = {
     "percent_kind_check_enabled": False,
     # --- local only, no model or socket: CRS export quality, export only (#1503, off by default)
     "crs_export_quality_enabled": False,
+    "crs_export_quality_strict_enabled": False,
     # --- local only, no model or socket: a row with no page says its section or field (#1591, off by default)
     "crs_page_cell_field_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
@@ -271,12 +276,26 @@ EGRESS_SAFE: dict[str, object] = {
     "word_page_markers_enabled": False,
     # --- read by the page only, one local /api/auth/me a minute, no model or socket (order 4b, off by default)
     "session_expired_notice_enabled": False,
+    # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
+    "crs_plain_notes_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,
+    # --- local only, no model or socket: a recognition file error holds the document (#1568, off by default)
+    "ocr_file_error_hold_enabled": False,
+    # --- local only, no model or socket: the rulebook tables on a database copy (plan change 6 A, off by default)
+    "rulebook_v2_enabled": False,
+    "owner_approved_rules_decide_enabled": False,
+    "presence_not_pass_enabled": False,
+    "rulebook_v2_review_enabled": False,
+    "owner_note_lifts_context_flag_enabled": False,
+    "material_reference_enabled": False,
     # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
     "procedure_crs_fields_enabled": False,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own
     "claude_auto_approve_reviews_enabled": False,
+    # --- local only, no socket of its own: a draft checklist leaves its standards in scope (Lock 2, off by default)
+    "draft_checklist_keeps_standards_enabled": False,
+    "claude_cost_controls_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: presence check of a playbook whose standard is not held (#1522, off by default)

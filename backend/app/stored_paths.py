@@ -17,6 +17,7 @@ verified backup when the database is a live one.
 
 from __future__ import annotations
 
+import concurrent.futures as cf
 import logging
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -57,6 +58,28 @@ def local(value: str | None) -> str | None:
         if candidate.is_file():
             return str(candidate)
     return value
+
+
+def carry_data_dir(data_dir: str) -> None:
+    """Pool initializer: a spawned worker reads its settings afresh, so a data directory
+    set only in the parent never reached it, and the worker looked for the stored file
+    and the page-image cache in its own default directory (#1568). Runs in the WORKER."""
+    settings.data_dir = Path(data_dir)
+
+
+def pool_options() -> dict:
+    """How a recognition pool starts. OCR_FILE_ERROR_HOLD_ENABLED off: as before."""
+    if not settings.ocr_file_error_hold_enabled:
+        return {}
+    return {
+        "initializer": carry_data_dir,
+        "initargs": (str(settings.data_dir.resolve()),),
+    }
+
+
+def recognition_pool(workers: int) -> cf.ProcessPoolExecutor:
+    """The process pool recognition runs in, started with `pool_options`."""
+    return cf.ProcessPoolExecutor(max_workers=workers, **pool_options())
 
 
 def of_document(document_id: str) -> str | None:

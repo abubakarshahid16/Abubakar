@@ -79,7 +79,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1478", phase=1478,
              description="reserve_all checks each request alone: a batch crosses a cap together",
              path=_SPEND,
-             anchor="            per_step[step] = per_step.get(step, 0.0) + worst\n"
+             anchor="            report_mod.charge(per_step, step, run, worst)\n"
                     "            total += worst\n",
              replacement="            pass\n",
              target=_T, keyword="reserved_as_a_whole", tags=("budget",)),

@@ -88,6 +88,7 @@ def quote_unreadable(quote: str, sentence: str) -> bool:
             letters.isalpha()
             and len(letters) >= 4
             and not letters.isupper()
+            and not re.fullmatch(r"[A-Z]{2,}s", letters)  # a plural acronym
             and (
                 not re.search(r"[aeiouyAEIOUY]", letters)
                 or re.search(r"[b-df-hj-np-tv-xzB-DF-HJ-NP-TV-XZ]{6,}", letters)

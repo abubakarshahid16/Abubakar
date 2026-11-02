@@ -22,7 +22,7 @@ from . import acronyms as acronyms_mod
 from . import claude_auto_approve
 from . import doc_router, errors, intake, job_queue, page_ledger, sheet_chunks, states
 from .chunker import chunk_document
-from . import telemetry
+from . import reading_state, telemetry
 from .db import connect
 from . import fts_index
 from . import ocr
@@ -594,7 +594,6 @@ class IngestionWorker(ReviewDrain):
                         "SELECT status FROM documents WHERE id = ?", (doc_id,)
                     ).fetchone()["status"]
                     if after == states.PARTIALLY_SEARCHABLE:  # nothing more to do now
-                        # nothing further can be done in this pass
                         return result
                     continue
 
@@ -739,10 +738,7 @@ class IngestionWorker(ReviewDrain):
                     f"all {pages} pages are scanned images with no extractable "
                     "text; recognition has not run on them yet"
                 )
-            return (
-                f"all {pages} pages are scanned images; recognition ran on "
-                f"{unread} of them and found no usable text"
-            )
+            return reading_state.recognised_nothing_words(doc_id, pages, unread)
         if doc["chunk_count_total"]:
             top = conn.execute(
                 """SELECT rule, COUNT(*) n FROM exclusions
@@ -834,10 +830,10 @@ class IngestionWorker(ReviewDrain):
             return
 
         if row["embedded_count"] >= row["chunk_count"]:
+            finish = reading_state.finish_status(doc_id)
             with conn:
-                # Recount and advance in ONE transaction, guarded by the status
-                # we expect, so the terminal stamp can never be applied on the
-                # strength of a count that changed underneath it.
+                # Recount and advance in ONE transaction, guarded by the status we expect,
+                # so the stamp can never rest on a count that changed underneath it.
                 conn.execute(
                     f"""UPDATE documents SET
                          embedded_count = (SELECT COUNT(*) FROM chunk_vectors v
@@ -846,7 +842,7 @@ class IngestionWorker(ReviewDrain):
                                            WHERE v.document_id = ? AND v.model IN ({_tag_marks()})),
                          status = ?, indexed_at = ?
                        WHERE id = ? AND status = ?""",
-                    (doc_id, *searchable_tags(), states.READY, _now(), doc_id,
+                    (doc_id, *searchable_tags(), finish, _now(), doc_id,
                      states.PARTIALLY_SEARCHABLE),
                 )
                 _finish_ingestion_jobs(conn, doc_id)
@@ -902,7 +898,7 @@ def on_role_changed(document_id: str, *, classify: bool = True) -> None:
     except Exception as exc:  # noqa: BLE001 - assigning a role must not fail here
         errors.record_failure(exc, document_id=document_id, stage="role_changed")
         return
-    if row is None or row["status"] != states.READY:
+    if row is None or not reading_state.hooks_may_run(document_id, row["status"]):
         return
     _queue_extraction_if_standard(document_id)
     if classify:  # BEFORE the facts are read (order 211, audit R1)
@@ -1102,6 +1098,7 @@ def get_worker() -> IngestionWorker:
 
 
 def start_worker() -> IngestionWorker:
+    reading_state.release_held()
     w = get_worker()
     w.start()
     return w

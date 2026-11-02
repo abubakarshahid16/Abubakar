@@ -32,6 +32,22 @@ describe("the trust line", () => {
       "Checked by a proven rule · safety field: read the clause and the value on the page, then confirm it or reject it");
   });
 
+  it("#1584: an owner-approved rule prints the owner's words, never an engineer's, and keeps the safety tick", () => {
+    render(<FindingDetail finding={finding({ trust_label: "OWNER_APPROVED", tier: "SAFETY", show_for_engineer_tick: true })} documents={[]} onChanged={vi.fn()} />);
+    const line = screen.getByTestId("rule-trust").textContent ?? "";
+    expect(line).toContain("AI-built, quote-verified, owner-approved");
+    expect(line).toContain("safety field: read the clause and the value on the page");
+    expect(line).not.toMatch(/engineer|proven/i);
+  });
+
+  it("#1584: a rule decided on the owner's note prints the owner's exact label, not its code", () => {
+    render(<FindingDetail finding={finding({ trust_label: "OWNER_NOTE_CONTEXT" })}
+      documents={[]} onChanged={vi.fn()} />);
+    const line = screen.getByTestId("rule-trust").textContent ?? "";
+    expect(line).toContain("AI-built, quote-verified, owner-approved; owner note: context confirmed");
+    expect(line).not.toContain("OWNER_NOTE_CONTEXT");
+  });
+
   it("says what an unproven rule said and that the engineer decides", () => {
     render(<FindingDetail finding={finding({ compliance_status: "NEEDS_ENGINEER_REVIEW", trust_label: "UNPROVEN", rule_said: "COMPLIANT" })}
       documents={[]} onChanged={vi.fn()} />);

@@ -143,6 +143,10 @@ DECLARED_BY = {
     "applicability.py": "applicability.py",
     "applicability_reasoning.py": "applicability.py",  # called per standard from there
     "chat_answers.py": "chat_answers.py",
+    "standards_compiler.py": "standards_compiler.py",
+    "rule_field_naming.py": "claude_batch_run.py",
+    "rule_typed_check.py": "claude_batch_run.py",
+    "material_reference.py": "material_reference.py",
     "chat_claude_first.py": "chat_claude_first.py",
     "chat_model.py": "chat.py",  # the engine call; chat.ask and its callers declare
     "claude_api.py": "claude_api.py",
@@ -151,6 +155,7 @@ DECLARED_BY = {
     "claude_selection.py": "claude_api.py",  # the route builds the call
     "comparison.py": "comparison.py",  # MATCH_ENGINE=claude, inside run_comparison
     "match_claude.py": "comparison.py",  # its Claude ask
+    "division_text.py": "comparison.py",  # the division gate, inside run_comparison
     "crs_wording.py": "crs_wording.py",
     "datasheet_ai.py": "datasheets.py",  # read per document from extract_facts
     "field_naming.py": "comparison.py",  # inside run_comparison

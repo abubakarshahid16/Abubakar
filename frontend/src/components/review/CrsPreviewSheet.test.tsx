@@ -55,8 +55,39 @@ describe("CrsPreviewSheet Priority column (order 139 part 2)", () => {
       "2 rows were left off this copy because they have no comment text.");
   });
 
+  it("#805: prints the note on a decided rule, and nothing when there is none", () => {
+    const { unmount } = render(
+      <CrsPreviewSheet preview={sheet({ rulebook_v2_note: "An invented note." })} runId="run-1" onChanged={vi.fn()} readOnly />,
+    );
+    expect(screen.getByTestId("crs-rulebook-note")).toHaveTextContent("An invented note.");
+    unmount();
+    render(<CrsPreviewSheet preview={sheet()} runId="run-1" onChanged={vi.fn()} readOnly />);
+    expect(screen.queryByTestId("crs-rulebook-note")).toBeNull();
+  });
+
   it("says nothing about withheld rows when none were", () => {
     render(<CrsPreviewSheet preview={sheet({ rows_withheld_no_text: 0 })} runId="run-1" onChanged={vi.fn()} readOnly />);
     expect(screen.queryByTestId("crs-withheld-no-text")).toBeNull();
+  });
+});
+
+describe("CrsPreviewSheet Internal sheet (#1503)", () => {
+  it("shows what the file's Internal sheet says", () => {
+    const internal_preview = {
+      rows: [{ item_no: 1, row_ref: "RF-1", reasoning: "Invented chain.", rule_trust: "invented trust" }],
+      considered: [{ standard: "STD-INV.pdf", status: "Considered, not applied", method: "m", reason: "r" }],
+    };
+    render(<CrsPreviewSheet preview={sheet({ internal_preview })} runId="run-1" onChanged={vi.fn()} readOnly />);
+    const section = screen.getByTestId("crs-internal-sheet");
+    expect(section).toHaveTextContent("Invented chain.");
+    expect(section).toHaveTextContent("invented trust");
+    expect(section).toHaveTextContent("STD-INV.pdf");
+  });
+
+  it("shows no Internal sheet when the server sends none", () => {
+    render(<CrsPreviewSheet preview={sheet({ internal_preview: {} })} runId="run-1" onChanged={vi.fn()} readOnly />);
+    expect(screen.queryByTestId("crs-internal-sheet")).toBeNull();
+    render(<CrsPreviewSheet preview={sheet()} runId="run-1" onChanged={vi.fn()} readOnly />);
+    expect(screen.queryByTestId("crs-internal-sheet")).toBeNull();
   });
 });
