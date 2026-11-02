@@ -1103,6 +1103,8 @@ def _parse_trailing_limit(sentence: str) -> dict | None:
     from . import comparators
 
     for match in _TRAILING_LIMIT.finditer(sentence or ""):
+        if match.group("value").startswith("-") and sentence[: match.start()][-1:].isalpha():
+            continue  # "A-5 mm or less": a joining hyphen, not a sign (#1619)
         direction = comparators.direction_of(match.group(0))
         raw_unit = unit_token(match.group("unit"))
         if direction is None or not raw_unit:
