@@ -70,3 +70,24 @@ describe("CrsPreviewSheet Priority column (order 139 part 2)", () => {
     expect(screen.queryByTestId("crs-withheld-no-text")).toBeNull();
   });
 });
+
+describe("CrsPreviewSheet Internal sheet (#1503)", () => {
+  it("shows what the file's Internal sheet says", () => {
+    const internal_preview = {
+      rows: [{ item_no: 1, row_ref: "RF-1", reasoning: "Invented chain.", rule_trust: "invented trust" }],
+      considered: [{ standard: "STD-INV.pdf", status: "Considered, not applied", method: "m", reason: "r" }],
+    };
+    render(<CrsPreviewSheet preview={sheet({ internal_preview })} runId="run-1" onChanged={vi.fn()} readOnly />);
+    const section = screen.getByTestId("crs-internal-sheet");
+    expect(section).toHaveTextContent("Invented chain.");
+    expect(section).toHaveTextContent("invented trust");
+    expect(section).toHaveTextContent("STD-INV.pdf");
+  });
+
+  it("shows no Internal sheet when the server sends none", () => {
+    render(<CrsPreviewSheet preview={sheet({ internal_preview: {} })} runId="run-1" onChanged={vi.fn()} readOnly />);
+    expect(screen.queryByTestId("crs-internal-sheet")).toBeNull();
+    render(<CrsPreviewSheet preview={sheet()} runId="run-1" onChanged={vi.fn()} readOnly />);
+    expect(screen.queryByTestId("crs-internal-sheet")).toBeNull();
+  });
+});

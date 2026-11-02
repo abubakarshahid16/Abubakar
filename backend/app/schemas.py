@@ -2631,8 +2631,7 @@ class CrsPreview(BaseModel):
     download come from `crs_export.build_crs_view` over the rows
     `crs_mapping.build_crs_rows` returns; the export then draws that view into
     the client's template. A preview that could disagree with the file the
-    client receives would be worse than no preview at all, so there is no
-    second path that could decide something different.
+    client receives would be worse than no preview at all: there is no second path.
     """
 
     title: str
@@ -2666,6 +2665,7 @@ class CrsPreview(BaseModel):
     #: comment text - the issue copy only (0 when none; always 0 on the
     #: internal copy, which prints them with a sentence saying so).
     rows_withheld_no_text: int = 0
+    internal_preview: dict = {}  #: #1503 (strict switch, internal copy): the Internal sheet.
 
 
 class ReviewRunStandard(BaseModel):
