@@ -449,15 +449,15 @@ class Settings(SettingsExt, BaseSettings):
     #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment
     #: type) has been PROVEN on an answer key of at least `rule_proof_min_cases` cases with no error (rule
     #: of three: 0 errors in 300 bounds the error rate at 1% with 95% confidence), and the rule passes
-    #: code's second check. OFF by default: the owner switches it on after the first family is proven.
+    #: code's second check. ON by default since Lock 3 (#1626): off, no trust label holds a draft result.
     #: A share `rule_audit_rate` (clamped 2-5%, at least one) of automatic findings is drawn for an engineer's
     #: spot-check; one audit error drops the family to unproven. Safety fields and condition words: reference data.
-    rule_auto_use_enabled: bool = False
+    rule_auto_use_enabled: bool = True
     #: Order 288.2: a recommendation of a standard the datasheet names is raised as a query (OFF: ignored).
     recommendation_queries_enabled: bool = True
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
-    tested_cards_decide_enabled: bool = False  # order 306.1
+    tested_cards_decide_enabled: bool = True  # order 306.1
     deferred_value_is_query_enabled: bool = True  # D2, #1475
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 

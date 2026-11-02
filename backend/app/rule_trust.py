@@ -47,7 +47,7 @@ PURE WHERE IT CAN BE. Only `ensure_schema`, `save_proof`, `load_proof` and
 `record_audit_outcome` touch the database. No model, no network.
 
 WIRING (#985, BEHIND THE SWITCH). The hooks return their input unchanged
-unless `settings.rule_auto_use_enabled` (OFF by default), so a review with
+unless `settings.rule_auto_use_enabled` (ON by default, #1626), so a review with
 the switch off stores what it stored before. The call sites:
   * `comparison._run_comparison`: every verdict from `compare(...)` passes
     through `label_finding` with the family proof (`comparison._RuleTrust`,

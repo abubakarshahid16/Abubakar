@@ -11,6 +11,8 @@ import pytest
 from app.config import Settings
 
 TURNED_ON = (
+    "rule_auto_use_enabled",
+    "tested_cards_decide_enabled",
     "at_limit_precision_enabled",
     "clause_review_enabled",
     "crs_export_quality_enabled",
@@ -39,11 +41,9 @@ TURNED_ON = (
     "transmittal_kit_enabled",
 )
 
-#: Each stays off for a stated reason (#1626): a known block, verdict power, or an egress gate.
+#: Each stays off for a stated reason (#1626): a known block, verdict power before Lock 1, or an egress gate.
 STAYS_OFF = (
     "word_page_markers_enabled",
-    "rule_auto_use_enabled",
-    "tested_cards_decide_enabled",
     "owner_approved_rules_decide_enabled",
     "equipment_from_title_block_enabled",
     "market_live_enabled",

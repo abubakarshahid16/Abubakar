@@ -105,6 +105,9 @@ TEST_PINS: dict[str, object] = {
     "geometry_reader_enabled": False,
     # On by default since Lock 3 (#1626); in tests it would be writes files under the home folder for each finished review.
     "review_audit_report_enabled": False,
+    # On by default since Lock 3 (#1626); tests of the trust tiers turn them on themselves.
+    "rule_auto_use_enabled": False,
+    "tested_cards_decide_enabled": False,
 }
 
 #: The only values these fields may hold when a test session starts. A test
