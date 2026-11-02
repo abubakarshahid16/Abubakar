@@ -797,7 +797,7 @@
       "sq.in.": 645.16
     }
   },
-  "_never_negative": "#1607 (`impossible_sign.py`): a role marked never_negative has no negative reading, so a Pass on one printed negative becomes a Query. In: pressures that only exist above atmosphere on these sheets (set, MAWP, CDTP, test, back pressures, allowable drop), flows and capacities, lengths, areas, speeds, powers, weights, counts, fluid properties, overpressure. Out, because a negative is real: design and operating pressure (vacuum service), temperatures (below 0 is ordinary), NPSH available (a computed margin), heat duty (a sign convention).",
+  "_never_negative": "#1607 (`impossible_sign.py`): a role marked never_negative is not passed unread when printed negative: a Pass becomes a Query. A negative is nearly always an error here, and where it is real (vacuum relief set pressure, CDTP, superimposed back pressure) the engineer confirms it. In: set, MAWP, CDTP, test, back pressures, allowable drop, flows and capacities, lengths, areas, speeds, powers, weights, counts, fluid properties, overpressure. Out, because a negative is ordinary there: design and operating pressure (vacuum service), temperatures (below 0 is ordinary), NPSH available (a computed margin), heat duty (a sign convention).",
   "_placeholders": "Moved 2026-09-27 to app/blank_markers.py - the ONE list of not-provided markers every datasheet reader and these checks read (CLAUDE.md rule 8).",
   "consistency": [
     {

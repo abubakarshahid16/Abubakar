@@ -1,4 +1,4 @@
-"""#1607: a value that cannot be negative, printed negative, never gives a Pass.
+"""#1607: a value that should not be negative, printed negative, never gives a Pass.
 
 A negative built-up back pressure met its "at most 10% of set pressure" limit, so the
 planted-defect scorer read it as a Pass. The gap was not one check's: every check whose
@@ -72,7 +72,7 @@ def results(**changes):
 def test_the_sheet_the_scorer_found_is_a_query_with_the_reason():
     r = results(built_up_back_pressure=("-0.5", "barg"))["PSV-29"]
     assert r["status"] == "NEEDS_ENGINEER_REVIEW"
-    assert "cannot be negative" in r["detail"] and "-0.5" in r["detail"]
+    assert "a negative value here is unusual" in r["detail"] and "-0.5" in r["detail"]
 
 
 @pytest.mark.parametrize(
@@ -114,7 +114,7 @@ def test_a_fail_stays_a_fail():
     """Purely stopping a false Pass: no breach is softened."""
     r = results(set_pressure=("-10", "barg"))
     assert r["PSV-S03"]["status"] == "NON_COMPLIANT"
-    assert "cannot be negative" not in r["PSV-S03"]["detail"]
+    assert "a negative value here is unusual" not in r["PSV-S03"]["detail"]
 
 
 @pytest.mark.parametrize(
@@ -148,6 +148,34 @@ def test_zero_a_range_and_words_are_not_negative(value):
 )
 def test_a_printed_minus_is_negative(value):
     assert impossible_sign.is_negative({"raw_value": value}) is True
+
+
+HYPHEN, NON_BREAKING_HYPHEN = chr(0x2010), chr(0x2011)
+
+
+@pytest.mark.parametrize(
+    "value", [HYPHEN + "0.5", NON_BREAKING_HYPHEN + "0.5", "-.5", chr(0x2212) + ".5"]
+)
+def test_every_spelling_of_a_minus_is_negative(value):
+    assert impossible_sign.is_negative({"raw_value": value}) is True
+
+
+@pytest.mark.parametrize("minus", [HYPHEN, NON_BREAKING_HYPHEN])
+def test_a_unicode_hyphen_gives_no_pass_on_the_sheet_the_scorer_found(minus):
+    r = results(built_up_back_pressure=(minus + "0.5", "barg"))["PSV-29"]
+    assert r["status"] == "NEEDS_ENGINEER_REVIEW"
+
+
+def test_a_leading_dot_minus_gives_no_pass_on_a_compare():
+    assert results(set_pressure=("-.5", "barg"))["PSV-24"]["status"] != "COMPLIANT"
+
+
+def test_the_words_do_not_say_impossible():
+    """Vacuum relief is real, so the row asks; it never says the value cannot be."""
+    detail = results(cdtp=("-10", "barg"))["PSV-30"]["detail"]
+    assert "cannot" not in detail and "vacuum" in detail and "-10" in detail
+    out = impossible_sign.hold_pass(verdict(), lib_fact("cdtp", "-10"))
+    assert "cannot" not in out["rationale"] and "vacuum" in out["rationale"]
 
 
 def test_a_blank_or_absent_value_is_not_negative():
@@ -208,7 +236,7 @@ def test_a_library_rule_gives_no_pass_on_a_negative_value():
     )
     assert out["status"] == "NEEDS_ENGINEER_REVIEW"
     assert (
-        "cannot be negative" in out["rationale"]
+        "a negative value here is unusual" in out["rationale"]
         and "within the limit" in out["rationale"]
     )
 

@@ -1,9 +1,11 @@
-"""A value that cannot be negative, printed negative, never gives a Pass (#1607).
+"""A value that should not be negative, printed negative, never gives a Pass (#1607).
 
 Every limit check here is one-sided: "at most 10% of the set pressure" holds for -0.5 barg,
 and "is stated" holds for anything. The planted-defect scorer read such a sheet as a Pass.
-A role marked `never_negative` in `reference/datasheet_checks.json` says the kind of value
-has no negative reading; why each kind is in or out is written beside the data.
+A role marked `never_negative` in `reference/datasheet_checks.json` says a negative value is
+not to be passed unread: nearly always an error, and where it is real (a vacuum relief set
+pressure, CDTP or superimposed back pressure) the engineer confirms it. Hence a Query, never
+a Fail. Why each kind is in or out is written beside the data.
 
 PURELY STOPS A FALSE PASS, so no switch: COMPLIANT becomes NEEDS_ENGINEER_REVIEW and every
 other status is left alone. A Fail stays a Fail. The arithmetic stays in the words. General:
@@ -16,7 +18,7 @@ standards' `comparison._hold_low_trust_breach` (`hold_pass`).
 
 from __future__ import annotations
 
-from . import claims
+from . import claims, numparse
 from .deferred_value import CALC_INPUT_ROLES
 
 _PASS = "COMPLIANT"
@@ -27,13 +29,18 @@ def is_negative(fact: dict | None) -> bool:
     """The value as printed is a number below zero. A range, a word, a blank are not."""
     if not fact or fact.get("is_blank") or fact.get("raw_value") is None:
         return False
-    number = claims.parse_value(str(fact["raw_value"]).strip())
-    return number is not None and number < 0
+    text = str(fact["raw_value"]).strip()
+    # Both readers: `as_number` reads a Unicode hyphen and "-.5" as the minus they are.
+    readings = (claims.parse_value(text), numparse.as_number(text))
+    return any(number is not None and number < 0 for number in readings)
 
 
 def _why(fact: dict, role: str) -> str:
     name = role.replace("_", " ")
-    return f"the {name} cannot be negative, and the sheet prints {fact.get('raw_value')} (page {fact.get('page')})"
+    return (
+        f"the sheet prints the {name} as {fact.get('raw_value')} (page {fact.get('page')}), and a negative "
+        f"value here is unusual (it fits only a case such as vacuum service)"
+    )
 
 
 def _roles_read(rules: dict) -> dict[str, set[str]]:

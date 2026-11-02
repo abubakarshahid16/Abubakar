@@ -1,4 +1,4 @@
-"""#1607 (PR #1615): a value that cannot be negative, printed negative, never gives a Pass
+"""#1607 (PR #1615): a value that should not be negative, printed negative, never gives a Pass
 (impossible_sign.py, deferred_value.py, comparison.py, reference/datasheet_checks.json;
 danger zone). Ids M1615-01.. (CLAUDE.md rule 12)."""
 
@@ -39,8 +39,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1615,
         description="zero counts as negative",
         path=_SIGN,
-        anchor="    return number is not None and number < 0\n",
-        replacement="    return number is not None and number <= 0\n",
+        anchor="    return any(number is not None and number < 0 for number in readings)\n",
+        replacement="    return any(number is not None and number <= 0 for number in readings)\n",
         target=_T,
         keyword="zero_a_range_and_words",
         tags=_TAG,
@@ -54,6 +54,28 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="",
         target=_T,
         keyword="blank_or_absent",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1615-12",
+        phase=1615,
+        description="a Unicode hyphen or a leading-dot minus is read by parse_value alone, as a plus",
+        path=_SIGN,
+        anchor="    readings = (claims.parse_value(text), numparse.as_number(text))\n",
+        replacement="    readings = (claims.parse_value(text),)\n",
+        target=_T,
+        keyword="spelling_of_a_minus",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1615-13",
+        phase=1615,
+        description="the row says the value cannot be negative, which is false for vacuum relief",
+        path=_SIGN,
+        anchor='a negative "\n        f"value here is unusual (it fits only a case such as vacuum service)"',
+        replacement='this cannot "\n        f"be negative"',
+        target=_T,
+        keyword="words_do_not_say_impossible",
         tags=_TAG,
     ),
     Mutation(
