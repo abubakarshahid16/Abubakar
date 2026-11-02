@@ -16,7 +16,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M985-10", phase=985,
              description="the switch is ignored: a review labels findings with it OFF",
              path=_C,
-             anchor='    trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None\n',
+             anchor='    trust = _RuleTrust(stored.get("equipment_type")) if _rule_trust_on() else None\n',
              replacement='    trust = _RuleTrust(stored.get("equipment_type"))\n',
              target=_T, keyword="off_uses_no_draft", tags=("honesty", "critical")),
     Mutation(id="M985-11", phase=985,
