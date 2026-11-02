@@ -21,5 +21,9 @@ export function RunCoverageLine({ runId }: { runId: string }) {
   }, [runId]);
 
   if (line === null) return null;
+  // Plan change 6 B: with the switch on the server's line is the pair and carries its own words.
+  if (line.startsWith("Standard rules decided")) {
+    return <p data-testid="run-coverage" className="text-xs text-slateish-300">{line}</p>;
+  }
   return <p data-testid="run-coverage" className="text-xs text-slateish-300">Clause coverage: {line}.</p>;
 }

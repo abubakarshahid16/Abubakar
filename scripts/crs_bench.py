@@ -137,7 +137,7 @@ def _main(argv: list[str] | None = None) -> int:
         results, truth, title=args.title, baseline=baseline
     )
     if args.save:
-        Path(args.save).write_text(json.dumps(results, indent=1, default=str))
+        crs_bench.save_results(Path(args.save), results)
     code = 1 if crs_bench.gate(results, baseline) else 0
     if args.out:  # last: exit 3 means no table (#1574)
         Path(args.out).write_text(text)

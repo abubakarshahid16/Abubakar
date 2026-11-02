@@ -19,6 +19,7 @@ from app import (
     claude_batch_run,
     claude_spend,
     comparison,
+    compiled_rule_proof,
     converter_gates,
     db,
     numparse,
@@ -326,7 +327,16 @@ def test_a_requirement_with_no_number_is_kept_with_no_limit():
     words = "The widget shall be painted."
     _compile(
         FakeBatches(
-            [_rule(quote=words, field="widget", limit=None, unit=None, comparator=None)]
+            [
+                _rule(
+                    condition=None,
+                    quote=words,
+                    field="widget",
+                    limit=None,
+                    unit=None,
+                    comparator=None,
+                )
+            ]
         )
     )
     rule = _rules()[0]
@@ -1589,9 +1599,10 @@ def test_a_range_is_dropped_and_counted_never_one_end(limit):
 
 def test_a_range_with_the_unit_written_twice_is_named_a_range():
     sentence = "The pressure shall be 10 bar to 20 bar."
-    assert _outcome(
-        sentence, limit="10", unit="bar", comparator="=", condition="to 20 bar"
-    ) == (None, "range_not_single")
+    assert _outcome(sentence, limit="10", unit="bar", comparator="=") == (
+        None,
+        "range_not_single",
+    )
 
 
 def test_a_dashed_range_is_dropped_too():
@@ -2123,10 +2134,10 @@ def test_a_skipped_rerun_still_shows_the_drops():
 
 
 def test_the_conditional_gate_alone_drops_a_condition_in_the_middle():
-    sentence = "The widget, when hot, shall be painted."
+    sentence = "The widget in gas service shall be painted."
     over = {"field": "widget", "limit": None, "unit": None, "comparator": None}
     assert _outcome(sentence, **over) == (None, "condition_not_captured")
-    assert _outcome(sentence, **over, condition="when hot")[1] is None
+    assert _outcome(sentence, **over, condition="in gas service")[1] is None
 
 
 # ------------------------------------------------------------ table rows and scope outside the sentence
@@ -2410,7 +2421,7 @@ def test_a_condition_wholly_outside_the_sentence_does_not_cover_its_own_scope():
     page = f"7.3 Part\nSome other words here.\n{sentence}"
     assert (
         _verify_on(page, sentence, condition="Some other words")[1]
-        == "condition_not_captured"
+        == "condition_not_a_clause"
     )
 
 
@@ -2676,7 +2687,7 @@ def test_a_lone_figure_before_lower_case_words_is_not_a_chunk_label():
 
 
 def test_a_qualifier_inside_the_field_does_not_contradict_the_comparator():
-    sentence = "The maximum widget load is less than 4% of the rail load."
+    sentence = "The maximum widget load shall be less than 4% of the rail load."
     over = {
         "field": "maximum widget load",
         "comparator": "<",
@@ -2688,7 +2699,7 @@ def test_a_qualifier_inside_the_field_does_not_contradict_the_comparator():
 
 
 def test_two_comparators_outside_the_field_stay_refused():
-    sentence = "The widget load at the minimum is less than 4% of the rail load."
+    sentence = "The widget load at the minimum shall be less than 4% of the rail load."
     over = {
         "field": "widget load",
         "comparator": "<",
@@ -2717,7 +2728,7 @@ def test_material_is_a_generic_field_word():
 def test_a_bracket_in_the_words_after_a_limit_is_not_read_as_a_condition():
     sentence = "The drain shall be a 2-inch low drain (sump hole) at the low end."
     over = {
-        "field": "low drain end (sump hole) size",
+        "field": "low drain end (sump hole)",
         "comparator": "=",
         "limit": "2",
         "unit": "inch",
@@ -2838,7 +2849,7 @@ def test_one_figure_of_alternatives_is_still_refused():
     sentence = "The drain size shall be 5/8 inch threaded or 2 inch flanged."
     assert _outcome(
         sentence, field="drain size", comparator="=", limit="5/8", unit="inch threaded"
-    ) == (None, "condition_not_captured")
+    ) == (None, "alternative_not_one_figure")
 
 
 def test_a_new_prompt_version_compiles_again_and_the_old_result_stays_apart(
@@ -2956,3 +2967,380 @@ def test_a_full_answer_is_not_reported_short():
     report = _compile(FakeBatches([rule]))
     assert report["shall_sentences"] == 1 and report["shall_sentences_proposed"] == 1
     assert report["chunks_short"] == []
+
+
+# ---------------------------------------------------------------- second review: wrong rules the relaxed proof kept
+
+
+def _plain(sentence, **over):
+    return _verify_on(f"7.3 Part\n{sentence}", sentence, **over)
+
+
+PLAIN = "The pressure shall not exceed 25 bar for gas service in winter."
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "2",
+        "25",
+        "5 bar",
+        "for gas",
+        "gas service",
+        "The pressure shall not exceed 25 bar",
+    ],
+)
+def test_a_condition_that_is_not_a_whole_clause_of_the_sentence_drops_the_rule(
+    condition,
+):
+    assert _plain(PLAIN, limit="25", unit="bar", condition=condition) == (
+        None,
+        "condition_not_a_clause",
+    )
+
+
+def test_a_digit_as_condition_cannot_turn_one_figure_into_another():
+    sentence = "The pressure shall not exceed 225 bar."
+    assert _plain(sentence, limit="25", unit="bar", condition="2")[0] is None
+
+
+def test_a_main_clause_as_condition_cannot_let_a_proviso_figure_stand():
+    sentence = "The cover shall not be used provided the pressure is 5 bar."
+    over = {
+        "limit": "5",
+        "unit": "bar",
+        "comparator": "=",
+        "condition": "The cover shall not be used",
+    }
+    assert _plain(sentence, **over)[0] is None
+
+
+def test_an_exception_that_is_part_of_a_clause_drops_the_rule():
+    sentence = (
+        "The pressure shall not exceed 25 bar unless the owner agrees in writing."
+    )
+    over = {"limit": "25", "unit": "bar", "exceptions": "the owner"}
+    assert _plain(sentence, **over) == (None, "condition_not_a_clause")
+
+
+def test_an_exception_elsewhere_on_the_page_is_kept_apart():
+    sentence = "The pressure shall not exceed 25 bar."
+    page = f"7.3 Part\n{sentence}\nException:\nCold widgets are not covered."
+    rule, why = _verify_on(
+        page,
+        sentence,
+        limit="25",
+        unit="bar",
+        exceptions="Cold widgets are not covered",
+    )
+    assert why is None and rule["exception_text"]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The cover shall be closed while the pressure is 5 bar.",
+        "The cover shall be closed until the pressure is 5 bar.",
+        "The cover shall be closed once the pressure is 5 bar.",
+        "The cover shall be closed as long as the pressure is 5 bar.",
+        "The cover shall be closed in case the pressure is 5 bar.",
+        "The cover shall be closed providing the pressure is 5 bar.",
+        "The cover shall be closed given that the pressure is 5 bar.",
+        "Should the pressure be 5 bar, the cover shall be closed.",
+        "The pressure of the cover shall be tested at 5 bar.",
+        "The pressure shall be tested for loads of 5 bar.",
+        "The pressure shall be checked with 5 bar.",
+        "The pressure shall be read over 5 bar.",
+        "Covers having a pressure of 5 bar shall be closed.",
+    ],
+)
+def test_a_figure_the_modal_does_not_bind_is_not_a_limit(sentence):
+    rule, why = _plain(
+        sentence, field="pressure", comparator="=", limit="5", unit="bar"
+    )
+    assert rule is None, why
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The pressure shall not exceed 200 psi once tested.",
+        "The pressure shall not exceed 200 psi until tested.",
+        "Once tested, the pressure shall not exceed 200 psi.",
+        "The pressure, once tested, shall not exceed 200 psi.",
+        "For pumps the pressure shall not exceed 200 psi.",
+        "Pumps having 5 kW rating, the pressure shall not exceed 200 psi.",
+        "Pumps over 5 kW pressure shall not exceed 200 psi.",
+    ],
+)
+def test_a_scope_around_a_bound_limit_is_not_lost(sentence):
+    assert _plain(sentence)[0] is None
+
+
+def test_a_field_after_the_modal_with_an_equal_figure_drops():
+    assert (
+        _plain(
+            "The widget shall have a drain of 2 inch.",
+            field="drain",
+            comparator="=",
+            limit="2",
+            unit="inch",
+        )[0]
+        is None
+    )
+
+
+def test_a_field_named_by_the_comparator_after_the_modal_is_bound():
+    rule, why = _plain("The widget shall have a maximum pressure of 200 psi.")
+    assert why is None and rule["limit_value"] == 200.0
+
+
+@pytest.mark.parametrize(
+    "sentence, over",
+    [
+        ("The pressure shall be 25 bar or 30 bar.", {"condition": "or 30 bar"}),
+        ("The pressure shall be 25 bar or 30 bar.", {"exceptions": "or 30 bar"}),
+        (
+            "The pressure shall exceed the rail load by 25 bar or 30 bar, whichever is greater.",
+            {"condition": "whichever is greater"},
+        ),
+        (
+            "The pressure shall be 25 bar, whichever is greater.",
+            {"exceptions": "whichever is greater"},
+        ),
+        ("The pressure shall be 25 bar (or 30 bar).", {}),
+        ("The pressure shall be 25 bar (30 bar in winter).", {}),
+    ],
+)
+def test_an_alternative_never_keeps_one_figure(sentence, over):
+    rule, why = _plain(sentence, comparator="=", limit="25", unit="bar", **over)
+    assert rule is None and why == "alternative_not_one_figure"
+
+
+def test_an_alternative_with_no_figure_stored_is_kept_as_a_sentence():
+    sentence = "The pressure shall be 25 bar or 30 bar."
+    rule, why = _plain(sentence, limit=None, unit=None, comparator=None)
+    assert why is None and rule["limit_value"] is None
+
+
+def test_a_conversion_in_brackets_is_not_an_alternative():
+    _rule_kept, why = _plain(
+        "The pressure shall not exceed 25 bar (360 psi).", limit="25", unit="bar"
+    )
+    assert why is None
+
+
+def test_a_bracketed_scope_does_not_vanish():
+    sentence = "The pressure shall not exceed 25 bar (for gas service)."
+    assert _plain(sentence, limit="25", unit="bar") == (None, "condition_not_captured")
+    assert (
+        _plain(sentence, limit="25", unit="bar", condition="for gas service")[1] is None
+    )
+
+
+def test_a_bracketed_scope_earlier_in_the_sentence_does_not_vanish():
+    sentence = "The pressure (for gas service) shall not exceed 25 bar."
+    assert _plain(sentence, limit="25", unit="bar") == (None, "condition_not_captured")
+
+
+@pytest.mark.parametrize(
+    "sentence, comparator",
+    [
+        ("The maximum pressure shall be 200 psi.", "="),
+        ("The minimum pressure shall be 200 psi.", "="),
+        ("The maximum pressure shall exceed 200 psi.", ">"),
+        ("The minimum pressure shall be less than 200 psi.", "<"),
+    ],
+)
+def test_a_comparator_that_conflicts_with_the_sentence_is_refused(sentence, comparator):
+    field = "maximum pressure" if "maximum" in sentence else "minimum pressure"
+    assert _plain(sentence, field=field, comparator=comparator) == (
+        None,
+        "comparator_not_in_quote",
+    )
+
+
+def test_the_maximum_a_sentence_states_is_read_as_a_maximum():
+    rule, why = _plain(
+        "The maximum pressure shall be 200 psi.", field="maximum pressure"
+    )
+    assert why is None and rule["comparator"] == "<="
+
+
+@pytest.mark.parametrize(
+    "tail",
+    ["to gas lines", "from gas lines", "of gas lines"],
+)
+def test_words_read_as_the_property_are_flagged_not_lost(tail):
+    sentence = f"The pressure shall not exceed 200 psi {tail}."
+    rule, why = _plain(sentence)
+    assert why is None and "tail_after_limit" in rule["context_flag"]
+    assert rule["strength"] == "context_dependent"
+
+
+def test_words_the_field_already_names_are_not_flagged():
+    sentence = "The pressure shall not exceed 6% of the gauge."
+    rule, why = _plain(sentence, field="pressure of the gauge", limit="6", unit="%")
+    assert why is None and rule["context_flag"] is None
+
+
+def test_must_be_met_by_is_a_scope():
+    sentence = "The pressure shall not exceed 200 psi must be met by pumps."
+    assert _plain(sentence) == (None, "condition_not_captured")
+
+
+def test_a_reverify_counts_the_rows_it_replaces():
+    _document()
+    _compile(FakeBatches())
+    report = standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+    assert report["rules_replaced"] == 1
+
+
+@pytest.mark.parametrize("status", ["approved", "rejected"])
+def test_a_reverify_refuses_a_rule_that_is_no_longer_held(status):
+    _document()
+    _compile(FakeBatches())
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE compiled_rules SET status = ?, approved_by = 'x'", (status,)
+        )
+    with pytest.raises(standards_compiler.NotHeld):
+        standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+    assert _rules()[0]["status"] == status
+
+
+def test_the_script_reports_a_refused_reverify():
+    _document()
+    _compile(FakeBatches())
+    with db.connect() as conn:
+        conn.execute("UPDATE compiled_rules SET status = 'approved'")
+    said = []
+    code = compile_standards.run(
+        _copy_db(), [LABEL], reverify=True, emit=said.append, note=lambda _s: None
+    )
+    assert (
+        code == compile_standards.EXIT_REFUSED
+        and "held" in json.loads(said[0])["stopped"]
+    )
+
+
+def test_an_older_prompt_versions_answers_can_be_proved_again(monkeypatch):
+    _document()
+    _compile(FakeBatches())
+    monkeypatch.setattr(standards_compiler, "PROMPT_VERSION", "compile-next")
+    report = standards_compiler.reverify_stored(
+        db.connect(), DOC, LABEL, prompt_version="compile-v2"
+    )
+    assert report["kept"] == 1 and report["prompt_version"] == "compile-v2"
+    assert {r["prompt_version"] for r in _rules()} == {"compile-v2"}
+
+
+# ------------------------------------------------------------------------------------- should-haves
+
+
+def test_a_generic_word_does_not_admit_a_property_the_quote_does_not_print_for_a_figure():
+    sentence = "The widget pressure shall not exceed 200 psi."
+    assert _plain(sentence, field="widget size") == (None, "field_not_in_quote")
+
+
+def test_a_lone_decimal_out_of_sequence_is_not_a_heading():
+    quote = "The pressure shall not exceed 200 psi."
+    page = f"7.3 Part\nSome words here.\n2.5\nMore words here.\n{quote}"
+    assert _verify_on(page, quote)[1] is None
+
+
+def test_a_lone_number_in_sequence_is_a_heading():
+    quote = "The pressure shall not exceed 200 psi."
+    page = f"7.3 Part\nSome words here.\n8.1\nWidget Lines\n{quote}"
+    assert _verify_on(page, quote, clause="8.1")[1] is None
+
+
+def test_a_negation_in_the_lead_in_drops_the_rule():
+    pages = {
+        1: "7.3 Part\nWhen the widget is wet, the drain shall not",
+        2: "hold a maximum thickness of 77 Poise.",
+    }
+    over = {
+        "field": "maximum thickness",
+        "limit": "77",
+        "unit": "Poise",
+        "condition": "When the widget is wet",
+    }
+    assert _verify_on(pages, pages[2], **over) == (None, "lead_in_holds_the_obligation")
+
+
+def test_a_rule_on_a_low_confidence_page_is_flagged_and_not_gated():
+    _scanned(conf=0.4)
+    report = _compile(FakeBatches())
+    rule = _rules()[0]
+    assert report["kept"] == 1 and "low_ocr_confidence" in rule["context_flag"]
+    assert (
+        report["ocr_lowest_confidence"] == 0.4
+        and report["kept_with_context_flag"]["low_ocr_confidence"] == 1
+    )
+
+
+def test_a_rule_on_a_clear_page_is_not_flagged_for_confidence():
+    _scanned(conf=0.95)
+    _compile(FakeBatches())
+    assert "low_ocr_confidence" not in (_rules()[0]["context_flag"] or "")
+
+
+def test_a_scope_in_the_subject_is_a_clause_up_to_its_modal():
+    sentence = "Covers for sour lines or wet lines shall be painted."
+    over = {"field": "covers", "limit": None, "unit": None, "comparator": None}
+    rule, why = _plain(sentence, **over, condition="sour lines or wet lines")
+    assert why is None and rule["condition_text"] == "sour lines or wet lines"
+
+
+def test_part_of_that_scope_is_still_not_a_clause():
+    sentence = "Covers for sour lines or wet lines shall be painted."
+    over = {"field": "covers", "limit": None, "unit": None, "comparator": None}
+    assert (
+        _plain(sentence, **over, condition="sour lines")[1] == "condition_not_a_clause"
+    )
+
+
+def test_is_not_exceeded_is_not_flagged_as_a_lost_scope():
+    sentence = "The drain shall hold a maximum thickness of 77 Poise is not exceeded."
+    rule, why = _plain(sentence, field="maximum thickness", limit="77", unit="Poise")
+    assert why is None and rule["context_flag"] is None
+
+
+@pytest.mark.parametrize(
+    "sentence", ["The pressure is 5 bar.", "The pressure of the rail is 5 bar."]
+)
+def test_a_figure_with_no_modal_the_modal_does_not_bind(sentence):
+    assert _plain(sentence, comparator="=", limit="5", unit="bar") == (
+        None,
+        "limit_not_bound",
+    )
+
+
+def test_a_cue_behind_a_scope_word_the_modal_does_not_bind():
+    sentence = "The pressure shall be vented for loads of at most 200 psi."
+    assert _plain(sentence) == (None, "limit_not_bound")
+
+
+def test_a_digit_is_never_a_clause():
+    assert (
+        compiled_rule_proof._clause_span("5", "the load, 5, shall be painted") is None
+    )
+
+
+def test_a_modal_inside_a_condition_is_not_a_clause():
+    sentence = "the load shall be low, the pressure shall be high"
+    assert compiled_rule_proof._clause_span("the load shall be low", sentence) is None
+
+
+def test_a_bracket_with_no_condition_word_still_holds_a_scope():
+    sentence = "The pressure shall not exceed 25 bar (during frost)."
+    assert _plain(sentence, limit="25", unit="bar") == (None, "condition_not_captured")
+    assert _plain(sentence, limit="25", unit="bar", condition="during frost")[1] is None
+
+
+def test_a_sentence_opening_on_a_scope_word_with_no_comma_holds_a_scope():
+    assert _plain("During frost the pressure shall not exceed 200 psi.") == (
+        None,
+        "condition_not_captured",
+    )

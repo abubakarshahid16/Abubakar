@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import time
 import uuid
 from collections import Counter
@@ -60,15 +59,18 @@ from . import (
     standards_converter,
 )
 from .ai.json_reply import unfenced
-from .compiled_rule_proof import (
-    ANSWER_SCHEMA,
+from .compiled_rule_pages import (
+    CHUNK_CHARS,  # noqa: F401
+    HEAD_CHARS,
+    MAX_RULES_PER_CHUNK,  # noqa: F401
+    TOKENS_PER_RULE,  # noqa: F401
     Chunk,
+    chunks_of,
     core_of,
-    is_heading_line,
-    is_table_row,
+    shall_count,
     shall_sentences,
-    verify,
 )
+from .compiled_rule_proof import ANSWER_SCHEMA, is_table_row, verify
 from .compiled_rule_report import (
     NOT_RECORDED,  # noqa: F401
     _has_table,
@@ -84,7 +86,6 @@ from .db import add_column_if_missing
 from .reasoning_provider import ClaudeProvider, Packet, schema_errors
 
 V1, V2 = 1, 2
-_SHALL = re.compile(r"\b(?:shall|must)\b", re.IGNORECASE)
 #: v1 sampled: on the first real compile it proposed 22 of 170 requirement sentences and stopped by itself. A new version
 #: compiles every standard again and keeps the old result and its raw answers.
 PROMPT_VERSION = "compile-v2"
@@ -94,13 +95,6 @@ PAGES_DENOMINATOR = (
     "pages_answered of pages_total: every page of this document in this database copy"
 )
 STEP_PREFIX = claude_spend.STANDARD_STEP_PREFIX
-#: Characters of pages in one request, and of the stable start of the standard before the cache breakpoint.
-CHUNK_CHARS = 12_000
-HEAD_CHARS = 6_000
-#: Rules a chunk may ask for: a chunk also ends here, so a dense page cannot outgrow its output room. Measured: about 200
-#: output tokens a rule on the first real compile. The rest of `MAX_OUTPUT_TOKENS` is thinking and long quotes.
-MAX_RULES_PER_CHUNK = 25
-TOKENS_PER_RULE = 200
 #: Output room per request. Thinking counts inside it. A cut answer was paid for and is counted, not re-bought.
 MAX_OUTPUT_TOKENS = 12_000
 #: Below this the API silently does not cache (512 on the 5.5 models); ~4 characters per token here.
@@ -127,6 +121,10 @@ SCHEMA = (
 
 class SwitchedOff(RuntimeError):
     """STANDARDS_COMPILER_ENABLED is off, so nothing was read or sent."""
+
+
+class NotHeld(RuntimeError):
+    """A rule of this compile is no longer held: someone decided on it. Nothing here may delete a decision."""
 
 
 class TooDear(claude_spend.BudgetExceeded):
@@ -157,79 +155,6 @@ def ensure_schema(conn) -> None:
 def text_hash(pages: dict[int, str]) -> str:
     joined = "\f".join(f"{n}\n{t}" for n, t in sorted(pages.items()))
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
-
-
-def _blocks(pages: dict[int, str]) -> list[tuple[int, str, str]]:
-    """(page, clause, text): each page cut at its clause headings; a clause keeps its number across a page."""
-    out: list[tuple[int, str, str]] = []
-    clause = ""
-    for page, text in sorted(pages.items()):
-        lines: list[str] = []
-        rows = text.splitlines()
-        for n, line in enumerate(rows):
-            following = rows[n + 1] if n + 1 < len(rows) else ""
-            if is_heading_line(line, following):
-                if lines:
-                    out.append((page, clause, "\n".join(lines)))
-                clause, lines = line.split()[0].rstrip("."), []
-            lines.append(line)
-        if lines:
-            out.append((page, clause, "\n".join(lines)))
-    return out
-
-
-def shall_count(text: str) -> int:
-    """How many rules this text asks for: one per shall or must."""
-    return len(_SHALL.findall(text))
-
-
-def _pieces(text: str) -> list[str]:
-    """A block over the chunk size or the rule count, cut at line ends. No text is lost; one line never splits."""
-    out, now, size, rules = [], [], 0, 0
-    for line in text.splitlines():
-        more = shall_count(line)
-        if now and (
-            size + len(line) + 1 > CHUNK_CHARS or rules + more > MAX_RULES_PER_CHUNK
-        ):
-            out.append("\n".join(now))
-            now, size, rules = [], 0, 0
-        now.append(line)
-        size += len(line) + 1
-        rules += more
-    return [*out, "\n".join(now)] if now else out
-
-
-def chunks_of(pages: dict[int, str]) -> list[Chunk]:
-    """Consecutive clause blocks up to `CHUNK_CHARS`, each labelled with its page and clause, ids stable for a text."""
-    parts: list[tuple[int, str, str]] = []
-    for page, clause, text in _blocks(pages):
-        parts += [(page, clause, piece) for piece in _pieces(text)]
-    groups: list[list[tuple[int, str, str]]] = []
-    size = rules = 0
-    for part in parts:
-        more = shall_count(part[2])
-        if (
-            not groups
-            or size + len(part[2]) > CHUNK_CHARS
-            or rules + more > MAX_RULES_PER_CHUNK
-        ):
-            groups.append([])
-            size = rules = 0
-        groups[-1].append(part)
-        size += len(part[2])
-        rules += more
-    out = []
-    for n, group in enumerate(groups):
-        text = "\n".join(f"[page {p} | clause {c or 'none'}]\n{t}" for p, c, t in group)
-        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-        chunk = Chunk(f"c{n:05d}-{digest}", text)
-        for page, clause, _text in group:
-            chunk.pages.add(page)
-            chunk.clauses.setdefault(page, set())
-            if clause:
-                chunk.clauses[page].add(clause)
-        out.append(chunk)
-    return out
 
 
 def system_text(pages: dict[int, str]) -> str:
@@ -418,12 +343,17 @@ def _read_answers(
                     duplicates += 1
                     continue
                 seen.add(key)
+                rule = {**rule, **origin[rule["page"]]}
+                conf = rule["page_min_conf"]
+                if conf is not None and conf < settings.ocr_low_conf_threshold:
+                    flags = [rule["context_flag"], "low_ocr_confidence"]
+                    rule["context_flag"] = ",".join(f for f in flags if f)
                 flagged.update(
                     (rule["context_flag"] or "").split(",")
                     if rule["context_flag"]
                     else []
                 )
-                kept.append(({**rule, **origin[rule["page"]]}, answer))
+                kept.append((rule, answer))
     sentences = shall_sentences(pages)
     quoted = [
         core_of(str(p.get("quote") or ""))
@@ -446,10 +376,24 @@ def _read_answers(
     }
 
 
-def _drop_partial(conn, document_id: str, digest: str) -> None:
-    """A later run of the same text holds every answer the partial one had, so its rows are replaced, not doubled."""
+def _rows_to_replace(conn, document_id: str, digest: str, version: str) -> int:
+    """How many rules a new reading of the same text replaces. Refuses (raises) when any is no longer held."""
+    rows = conn.execute(
+        "SELECT status FROM compiled_rules WHERE standard_document_id = ? AND prompt_version = ? AND text_sha256 = ?",
+        (document_id, version, digest),
+    ).fetchall()
+    decided = sum(1 for r in rows if r["status"] != "held")
+    if decided:
+        raise NotHeld(
+            f"{decided} of {len(rows)} rule(s) of this compile are no longer held; nothing was replaced"
+        )
+    return len(rows)
+
+
+def _drop_partial(conn, document_id: str, digest: str, version: str) -> None:
+    """A later run of the same text holds every answer the earlier one had, so its rows are replaced, not doubled."""
     where = "standard_document_id = ? AND prompt_version = ? AND text_sha256 = ?"
-    args = (document_id, PROMPT_VERSION, digest)
+    args = (document_id, version, digest)
     conn.execute(
         f"DELETE FROM compiled_rules WHERE run_id IN (SELECT id FROM compile_runs WHERE {where})",
         args,
@@ -458,7 +402,7 @@ def _drop_partial(conn, document_id: str, digest: str) -> None:
 
 
 def _store(
-    conn, document_id, label, digest, kept, counts, models, batch_ids, status
+    conn, document_id, label, digest, kept, counts, models, batch_ids, status, version
 ) -> str:
     run_id, now = uuid.uuid4().hex, datetime.now(UTC).isoformat(timespec="seconds")
     found = conn.execute(
@@ -467,7 +411,7 @@ def _store(
     ).fetchone()
     edition = found["revision"] if found else None
     with conn:  # one transaction: a crash leaves no half-compiled standard
-        _drop_partial(conn, document_id, digest)
+        _drop_partial(conn, document_id, digest, version)
         conn.execute(
             "INSERT INTO compile_runs (id, standard_document_id, standard, rule_version, prompt_version,"
             " text_sha256, models, batch_ids, counts_json, created_at, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -476,7 +420,7 @@ def _store(
                 document_id,
                 label,
                 V2,
-                PROMPT_VERSION,
+                version,
                 digest,
                 ", ".join(models),
                 ", ".join(batch_ids),
@@ -510,7 +454,7 @@ def _store(
                     rule["page"],
                     rule["quote"],
                     answer["model"],
-                    PROMPT_VERSION,
+                    version,
                     answer["batch_id"],
                     digest,
                     now,
@@ -564,7 +508,9 @@ def _sent_counts(outcome, chunks: int, worst: dict, label: str) -> dict:
     }
 
 
-def _finish(conn, document_id, label, digest, outcome, chunks, readable) -> dict:
+def _finish(
+    conn, document_id, label, digest, outcome, chunks, readable, version=None
+) -> dict:
     """Every answer is in: verify all of them, then store rules and the run in one transaction."""
     origin = page_origin(conn, document_id)
     tables = page_table_texts(conn, document_id)
@@ -597,6 +543,8 @@ def _finish(conn, document_id, label, digest, outcome, chunks, readable) -> dict
     }
     if outcome.over_budget:
         counts |= {"stopped_at_cap": True}
+    version = version or PROMPT_VERSION
+    counts["rules_replaced"] = _rows_to_replace(conn, document_id, digest, version)
     run_id = _store(
         conn,
         document_id,
@@ -607,6 +555,7 @@ def _finish(conn, document_id, label, digest, outcome, chunks, readable) -> dict
         models,
         outcome.batch_ids,
         status,
+        version,
     )
     return {
         **counts,
@@ -721,25 +670,38 @@ def compile_standard(
     }
 
 
-def reverify_stored(conn, document_id: str, label: str) -> dict:
+def reverify_stored(
+    conn, document_id: str, label: str, prompt_version: str | None = None
+) -> dict:
     """Prove the answers this copy already holds again and replace its rules. NOTHING IS SENT AND NOTHING IS SPENT, so a
-    fix to the proof reaches paid answers for USD 0. Same prompt version and text only: another text has other chunks.
-    Answers the proof could not read stay unread; a rerun of the compile, not this, pays for those."""
+    fix to the proof reaches paid answers for USD 0. The same text only: another text has other chunks. An older prompt
+    version's chunks are not rebuilt, so its answers are read against all pages. Refuses rules no longer held. Answers
+    the proof could not read stay unread; a rerun of the compile, not this, pays for those."""
     if not settings.standards_compiler_enabled:
         raise SwitchedOff("STANDARDS_COMPILER_ENABLED is off; nothing was read or sent")
     ensure_schema(conn)
     claude_batch_run.ensure_schema(conn)
+    version = prompt_version or PROMPT_VERSION
     readable = {n: t for n, t in pages_of(conn, document_id).items() if t.strip()}
     digest = text_hash(readable)
-    report = {**_base_report(conn, document_id, label), "reverified": True}
-    chunks = chunks_of(readable)
-    outcome = claude_batch_run.stored_outcome(
-        conn, f"{document_id}:{PROMPT_VERSION}:{digest}", {c.custom_id for c in chunks}
-    )
+    report = {
+        **_base_report(conn, document_id, label),
+        "prompt_version": version,
+        "reverified": True,
+    }
+    job = f"{document_id}:{version}:{digest}"
+    if version == PROMPT_VERSION:
+        chunks = chunks_of(readable)
+    else:
+        chunks = [
+            Chunk(custom_id, "", pages=set(readable))
+            for custom_id in claude_batch_run.stored_ids(conn, job)
+        ]
+    outcome = claude_batch_run.stored_outcome(conn, job, {c.custom_id for c in chunks})
     if not outcome.answers:
         return {**report, "status": "nothing_stored", "answered": 0}
     before = claude_spend.spent(standards_converter.step_for(label))
-    done = _finish(conn, document_id, label, digest, outcome, chunks, readable)
+    done = _finish(conn, document_id, label, digest, outcome, chunks, readable, version)
     spent = claude_spend.spent(standards_converter.step_for(label)) - before
     return {**report, **done, "answered": len(outcome.answers), "usd_this_step": spent}
 

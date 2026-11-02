@@ -16,30 +16,23 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field
 
 from . import ai_requirements, claims, conditions, field_vocabulary, numparse
 from . import standards_converter as sc
 from .ai_requirement_tables import quote_on_page
-from .converter_gates import _CLAUSE_HEADING, in_example, quote_unreadable
+from .compiled_rule_pages import (
+    Chunk,
+    _clause_in_force,
+    _core,
+    _headings,
+    sentences_of,
+    whole_sentence,
+)
 from .converter_gates import fold as _fold
+from .converter_gates import in_example, quote_unreadable
 from .datasheet_ai import unit_in_quote
 
 MIN_QUOTE_CHARS = 8
-#: A line this short that is followed by one starting in capitals is a title or a table row, not a wrapped sentence.
-_TITLE_CHARS = 60
-#: A period after one of these does not end a sentence.
-_ABBREVIATED = (
-    "max.",
-    "min.",
-    "no.",
-    "nos.",
-    "fig.",
-    "approx.",
-    "ref.",
-    "e.g.",
-    "i.e.",
-)
 #: The strength of a rule whose scope may sit outside its own sentence. An approval path can refuse it by this word.
 CONTEXT_DEPENDENT = "context_dependent"
 _CAPTION = re.compile(r"^\s*(?:table|figure|fig\.?|note)\s+\w", re.IGNORECASE)
@@ -50,8 +43,6 @@ _REFERS_BACK = re.compile(
     r"^\W*(?:this|these|those|such|they|it|the\s+above|the\s+foregoing|the\s+same)\b",
     re.IGNORECASE,
 )
-#: A clause number alone on its line; the next line starts in capitals and is the heading's words.
-_LONE_NUMBER = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s*$")
 #: Field words that name a kind of property, not a thing: the quote need not print them.
 _GENERIC_FIELD_WORDS = frozenset(
     {
@@ -97,21 +88,52 @@ _FIELD_SMALL_WORDS = frozenset(
 )
 #: What may follow a limit and finish the property, not scope it: "6% of the gauge reading", "7 m from any fence",
 #: "77 Poise is not exceeded".
-_COMPLEMENT = re.compile(r"^\W*(?:of|from|to|per|than|is|are|shall|must|be)\b")
+_COMPLEMENT = re.compile(r"^\W*(?:of|from|to|per|than|is\s+not\s+exceeded)\b")
 #: The openers that scope a rule, whatever else the tail says.
 _SCOPE_OPENER = re.compile(r"^\W*(?:at|above|below)\b")
 _SCOPE_ANYWHERE = re.compile(
-    r"\b(?:in|on|during|under|within|with|without|while|after|before|except|unless|provided)\b"
+    r"\b(?:in|on|during|under|within|with|without|while|until|once|after|before|except|unless|provided|providing|"
+    r"having|given|as\s+long\s+as|in\s+case)\b"
 )
-#: A figure after these words is what a condition tests, not what the rule demands: "no cover is needed provided the
-#: rail heat is -22 C". "shall be provided with" is a verb and is not here.
 _INSIDE_A_CONDITION = re.compile(
-    r"\b(?:if|when|whenever|unless|where|provided\s+(?:that|the|all|it))\b"
+    r"\b(?:if|when|whenever|unless|where|while|until|once|as\s+long\s+as|in\s+case|providing|given\s+that|"
+    r"provided\s+(?:that|the|all|it))\b|^\W*should\b"
 )
+#: The verbs that carry an obligation. A limit is what one of these binds; a figure outside its reach only says when.
+_MODAL = re.compile(r"\b(?:shall|must|should|may|will)\b")
+#: A clause whose first word the model left out: "covers for [sour lines]".
+_ENDS_ON_OPENER = re.compile(r"\b(?:for|when|if|at|in|during|with|under|while|unless)$")
+_NON_MODAL_VERB = re.compile(r"\b(?:is|are|was|were|be|has|have|had)\b")
+#: Words that open a scope between a modal and its figure. Unsure means not bound.
+_OPENS_SCOPE = re.compile(
+    r"\b(?:at|for|with|without|over|under|above|below|when|whenever|where|if|while|until|once|unless|during|in|on|"
+    r"within|having|given|providing|provided|after|before|except|as\s+long\s+as)\b"
+)
+#: A cue that is also a preposition binds only straight after the verb: "shall be above 5", never "vented above 5".
+_WEAK_CUES = frozenset({"above", "over", "below", "under", "exceed", "up to"})
+#: What may stand between a modal and an equal figure.
+_EQUAL_SPAN = frozenset(["be", "of", "a", "an", "the", "equal", "to", "set", "at"]) - {
+    "at"
+}
+_NO_MORE_THAN_WORDS = 8
+#: A figure after these, before the modal, is what the rule is scoped to: "pumps over 5 kW pressure shall ...".
+_FIGURE_SCOPE = re.compile(
+    r"\b(?:at|for|with|over|above|below|under|having)\b[^,]{0,40}?\d"
+)
+#: A sentence opening with one of these has its scope in front, comma or not.
+_OPENS_WITH_SCOPE = re.compile(
+    r"^\W*(?:for|at|with|over|having|during|under|above|below)\b"
+)
+#: Two figures for one property. One stored figure would be wrong for the other.
+_ALTERNATIVE = re.compile(r"\bwhichever\b|\d[^,;.()]{0,30}\bor\s+(?:\w+\s+)?\d")
+_BRACKET = re.compile(r"\(([^)]*)\)")
+#: A conversion: one figure, one unit word. "(360 psi)". Anything more in a bracket beside a figure is not one.
+_CONVERSION = re.compile(r"^\W*-?\d[\d.,/]*\s*\S{0,10}\W*$")
+_LEAD_HOLDS = re.compile(r"\b(?:shall|must|not|never|no|should|may)\b")
 _LEADING_PREPOSITION = re.compile(
-    r"^(?P<clause>(?:for|during|above|below|at|except|within|after|before|on|with|without)\s+[^,;:.]{3,140}),\s"
+    r"^(?P<clause>(?:for|during|above|below|at|except|within|after|before|on|with|without|once|until|while|given|"
+    r"having|providing|should|as\s+long\s+as|in\s+case)\s+[^,;:.]{3,140}),\s"
 )
-_STRIP_PREFIX = re.compile(r"^\W*(?:\d+(?:\.\d+)+\.?\s+|\(?[0-9a-z]{1,3}\)\s+)?")
 #: "of" is `comparators_said`'s weak cue; it never binds a figure ("pressure of a 100 mm nozzle").
 _BIND_CUES = {**sc._CUES, "=": ("equal", "shall be", "must be", "is", "are", "=")}
 #: Words that take the obligation away, and the strength of the rest. "must" is as binding as "shall".
@@ -152,15 +174,6 @@ ANSWER_SCHEMA = {
 }
 
 
-@dataclass
-class Chunk:
-    custom_id: str
-    text: str
-    pages: set[int] = field(default_factory=set)
-    #: page -> the clauses in force on it: printed there, or running on from an earlier page.
-    clauses: dict[int, set[str]] = field(default_factory=dict)
-
-
 def quote_verified(quote: object, page_text: str | None) -> bool:
     """THE quote check, for version 1 and version 2 alike: the words stand on the cited page's stored text."""
     words = " ".join(str(quote or "").split())
@@ -169,105 +182,6 @@ def quote_verified(quote: object, page_text: str | None) -> bool:
         and bool(page_text)
         and quote_on_page(words, page_text)
     )
-
-
-def _blocks_of(text: str) -> list[str]:
-    """Runs of lines that may hold one sentence: broken at a blank line, a clause heading, and after a short line
-    followed by one in capitals. A wrapped line stays with the sentence it belongs to."""
-    blocks: list[list[str]] = [[]]
-    before = ""
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line:
-            blocks.append([])
-            before = ""
-            continue
-        title = before and len(before) <= _TITLE_CHARS and line[0].isupper()
-        if title or _CLAUSE_HEADING.match(line) or _LONE_NUMBER.match(line):
-            blocks.append([])
-        blocks[-1].append(line)
-        before = line
-    return [" ".join(b) for b in blocks if b]
-
-
-def sentences_of(text: str) -> list[str]:
-    """The page's sentences, folded."""
-    out: list[str] = []
-    for block in _blocks_of(text):
-        held = ""
-        for piece in re.split(r"(?<=[.;])\s+", block):
-            held = f"{held} {piece}" if held else piece
-            if not held.lower().endswith(_ABBREVIATED):
-                out.append(_fold(held))
-                held = ""
-        if held:
-            out.append(_fold(held))
-    return out
-
-
-def _core(sentence: str) -> str:
-    return _STRIP_PREFIX.sub("", _fold(sentence)).rstrip(" .;:,")
-
-
-def core_of(sentence: str) -> str:
-    return _core(sentence)
-
-
-def shall_sentences(pages: dict[int, str]) -> set[str]:
-    """Every sentence with shall or must on these pages, as a quote of it would be compared."""
-    return {
-        _core(s)
-        for text in pages.values()
-        for s in sentences_of(text)
-        if re.search(r"\b(?:shall|must)\b", s)
-    }
-
-
-def whole_sentence(quote: str, page: str) -> str | None:
-    """The sentence when the quote is all of it (a clause number and final stop aside), else None."""
-    wanted = _core(quote)
-    for sentence in sentences_of(page):
-        if _core(sentence) == wanted:
-            return wanted
-    return None
-
-
-def is_heading_line(line: str, following: str) -> bool:
-    """A clause heading: a number and words, or a number alone with a line in capitals after it."""
-    return bool(_CLAUSE_HEADING.match(line)) or bool(
-        _LONE_NUMBER.match(line) and following.strip()[:1].isupper()
-    )
-
-
-def _headings(text: str) -> list[tuple[int, str, str]]:
-    """(where in the folded page, clause number, the heading's words) of each heading on a page. A number alone on its
-    line is a heading when the next line starts in capitals; a lone figure before lower-case words is not."""
-    lines = text.splitlines()
-    out, at = [], 0
-    for n, line in enumerate(lines):
-        following = lines[n + 1].strip() if n + 1 < len(lines) else ""
-        if _CLAUSE_HEADING.match(line):
-            out.append((at, line.split()[0].rstrip("."), line))
-        elif _LONE_NUMBER.match(line) and following[:1].isupper():
-            out.append((at, line.split()[0].rstrip("."), f"{line.strip()} {following}"))
-        at += len(_fold(line)) + 1 if line.strip() else 0
-    return out
-
-
-def _clause_labels(text: str) -> list[tuple[int, str]]:
-    return [(where, clause) for where, clause, _words in _headings(text)]
-
-
-def _clause_in_force(pages: dict[int, str], page: int, at: int) -> str | None:
-    """The nearest clause heading before position `at` of `page`, running back over earlier pages."""
-    here = [c for where, c in _clause_labels(pages[page]) if where <= at]
-    if here:
-        return here[-1]
-    for earlier in sorted((p for p in pages if p < page), reverse=True):
-        labels = _clause_labels(pages[earlier])
-        if labels:
-            return labels[-1][1]
-    return None
 
 
 def _clause_problem(clause: str, quote: str, page: int, pages) -> str | None:
@@ -306,15 +220,57 @@ def _written(limit: str, quote: str):
     )
 
 
-def _main_clause(quote: str, *parts: str) -> str:
-    """The quote with what the rule already holds as condition or exception taken out, so a figure or a comparator word
-    in the scope is not read as the limit's. A number joined to its unit by a hyphen stands apart from it here."""
+def _clause_span(part: str, sentence: str) -> tuple[int, int] | None:
+    """Where this part stands as a WHOLE clause of the sentence: at word boundaries, opening at a clause boundary or on a
+    word that opens a scope, closing at a clause boundary, with words enough and no obligation of its own. Else None."""
+    words = _unhyphen(_fold(part)).strip(" .,;:")
+    text = _unhyphen(_fold(sentence))
+    if len(words.split()) < 2 or re.search(r"\b(?:shall|must)\b", words):
+        return None
+    if not re.search(r"[a-z]", words):
+        return None
+    for found in re.finditer(rf"(?<!\w){re.escape(words)}(?!\w)", text):
+        left, right = text[: found.start()].rstrip(), text[found.end() :].lstrip()
+        opens = (
+            not left
+            or left[-1] in ",;:("
+            or re.search(r"\b(?:and|or|but)$", left)
+            or _OPENS_SCOPE.match(words)
+            or _SCOPE_ANYWHERE.match(words)
+        )
+        closes = (
+            not right
+            or right[0] in ",;:.)"
+            or re.match(r"(?:and|or|but)\b", right)
+            or (_MODAL.match(right) and _SCOPE_ANYWHERE.match(words))
+        )
+        # "covers for [sour lines or wet lines] shall": all of it, up to the modal, or it is only a part.
+        whole_subject_scope = _ENDS_ON_OPENER.search(left) and _MODAL.match(right)
+        if (opens and closes) or whole_subject_scope:
+            return found.span()
+    return None
+
+
+def _is_in_sentence(part: str, sentence: str) -> bool:
+    words = _unhyphen(_fold(part)).strip(" .,;:")
+    return bool(words) and bool(
+        re.search(rf"(?<!\w){re.escape(words)}(?!\w)", _unhyphen(_fold(sentence)))
+    )
+
+
+def _parts(text: str) -> list[str]:
+    return [p for p in text.split(";") if p.strip()]
+
+
+def _main_clause(quote: str, *held: str) -> str:
+    """The quote with what the rule holds as condition or exception taken out, whole clauses only, so a figure or a
+    comparator word in the scope is not read as the limit's. A number joined to its unit by a hyphen stands apart here."""
     body = _unhyphen(_fold(quote))
-    for part in parts:
-        for piece in part.split(";"):
-            words = _unhyphen(_fold(piece)).rstrip(" .,")
-            if words:
-                body = body.replace(words, " ")
+    for text in held:
+        for part in _parts(text):
+            span = _clause_span(part, body)
+            if span:
+                body = f"{body[: span[0]]} {body[span[1] :]}"
     if (
         "not exceed" in body
     ):  # "shall not exceed X by more than 10%" states one ceiling, not a floor
@@ -366,6 +322,63 @@ def _is_range(number, unit: str, quote: str) -> bool:
     )
 
 
+def _modal_binds(number, comparator: str, body: str, field: str) -> bool:
+    """IS THIS FIGURE WHAT THE OBLIGATION DEMANDS? Between the last modal before it and the figure stands only a comparator
+    naming it, or for "=" only the verb. A figure further off says when the rule holds, not what it demands: unsure means
+    not bound. A row with no verb at all has no modal to bind it, and goes by its own cue."""
+    text = numparse.fold(body).lower()
+    modals = [m for m in _MODAL.finditer(text) if m.end() <= number.start]
+    if not modals:
+        if _MODAL.search(text) or _NON_MODAL_VERB.search(text):
+            return False
+        return _bound_to_comparator(number, "", comparator, body)
+    modal = modals[-1]
+    span = text[modal.end() : number.start]
+    between = [
+        n for n in numparse.find_numbers(text) if modal.end() <= n.start < number.start
+    ]
+    if between:
+        return False
+    if comparator == "=":
+        return _equal_binds(
+            span, f"{text[: modal.start()]} {text[number.end :]}", field
+        )
+    for start, stop in sorted(_cue_spans(comparator, span), reverse=True):
+        cue, pre, post = span[start:stop], span[:start], span[stop:]
+        pre = re.sub(r"\bat\s+an?\s*$", " ", pre)
+        if _OPENS_SCOPE.search(post) or len(post.split()) > _NO_MORE_THAN_WORDS:
+            continue
+        if cue in _WEAK_CUES:
+            if set(pre.split()) <= {"be", "not"}:
+                return True
+            continue
+        if not _OPENS_SCOPE.search(pre):
+            return True
+    # The cue is the field's own, before the modal: "the maximum pressure shall be 200".
+    return set(span.split()) <= _EQUAL_SPAN and bool(
+        _cue_spans(comparator, text[: modal.start()])
+    )
+
+
+def _equal_binds(span: str, around: str, field: str) -> bool:
+    """Only the verb stands between modal and figure ("shall be of 2 inch"), and the field is named outside that span."""
+    if not set(span.split()) <= _EQUAL_SPAN:
+        return False
+    named = {w for w in _field_words(field) if w not in _GENERIC_FIELD_WORDS}
+    return named <= _field_words(around)
+
+
+def has_alternative(sentence: str) -> bool:
+    """Two figures for one property, written out or in brackets. Enforced here: the prompt only asks."""
+    text = numparse.fold(sentence).lower()
+    if _ALTERNATIVE.search(text):
+        return True
+    return any(
+        re.search(r"\d", inner) and not _CONVERSION.match(inner)
+        for inner in _BRACKET.findall(text)
+    )
+
+
 def _unit_left_out(number, quote: str) -> bool:
     """A recognised unit right after the number in the quote, and the answer gave no unit."""
     after = numparse.fold(quote)[number.end :].split()
@@ -373,13 +386,19 @@ def _unit_left_out(number, quote: str) -> bool:
 
 
 def _comparator_said(body: str, comparator: str, field: str) -> bool:
-    """The clause's words say this comparator. "the maximum load is less than" says two, and the first names
-    the property: so when they disagree, the words outside the field's own decide. A field holding the only cue
-    ("a maximum thickness of 77") is answered by the first test."""
+    """The clause's words say this comparator and nothing against it. "the maximum load shall be less than" says two, and
+    the first names the property: so the words outside the field's decide, unless the field's own word points the other
+    way. "=" never passes on that road: "the maximum pressure shall be 200" says a maximum."""
     if sc._comparator_says(body, comparator):
         return True
-    rest = body.replace(_fold(field), " ")
-    return rest != body and sc._comparator_says(rest, comparator)
+    if comparator == "=":
+        return False
+    words = _fold(field)
+    rest = body.replace(words, " ")
+    if rest == body or not sc._comparator_says(rest, comparator):
+        return False
+    against = {"<": ">=", "<=": ">=", ">": "<=", ">=": "<="}[comparator]
+    return against not in sc.comparators_said(words)
 
 
 def _limit_problem(limit, unit, comparator, body, sentence, field) -> str | None:
@@ -410,7 +429,7 @@ def _limit_problem(limit, unit, comparator, body, sentence, field) -> str | None
         return "range_not_single"
     if sc.limit_scope(body, body, number.raw, unit) is None:
         return "number_and_unit_apart"
-    if not _bound_to_comparator(number, unit, comparator, body):
+    if not _modal_binds(number, comparator, body, field):
         return "limit_not_bound"
     return None
 
@@ -442,17 +461,46 @@ def _trailing_scope(limit: str, unit: str, body: str, field: str) -> str | None:
     return tail
 
 
+def _tail_read_as_property(limit: str, unit: str, body: str, field: str) -> bool:
+    """Words kept after the limit as part of the property, which the field does not name: they may be a scope. Flagged."""
+    number = _written(limit, body) if limit else None
+    if number is None:
+        return False
+    tail = sc.limit_scope(body, body, number.raw, unit)
+    if not tail or re.match(r"^\W*is\s+not\s+exceeded\b", tail):
+        return False
+    return not _field_words(tail) <= _field_words(field)
+
+
+def _bracketed_scope(sentence: str) -> list[str]:
+    """A scope in brackets anywhere in the sentence: `limit_scope` passes over them."""
+    return [
+        _unhyphen(_fold(inner))
+        for inner in _BRACKET.findall(_fold(sentence))
+        if not _CONVERSION.match(inner)
+        and (_is_scope(inner) or _SCOPE_ANYWHERE.search(inner))
+    ]
+
+
 def _condition_captured(
     condition: str, sentence: str, limit, unit, body, field
 ) -> bool:
     """Every scope of the sentence is held by the rule. The trailing one is read off the main clause, so what is held
-    has left it already; what is still there is lost."""
+    has left it already; what is still there is lost. A figure in the subject scoped by a preposition, or a proviso before
+    the limit, is still there too when nobody captured it."""
     if _trailing_scope(limit, unit, body, field):
         return False
     said = _unhyphen(_fold(condition))
+    head = _MODAL.split(body, maxsplit=1)[0]
+    if _FIGURE_SCOPE.search(head) or _INSIDE_A_CONDITION.search(head):
+        return False
+    if any(part not in said for part in _bracketed_scope(sentence)):
+        return False
     leading = _leading_scope(sentence)
     if said:
         return not leading or leading in said
+    if _OPENS_WITH_SCOPE.match(sentence):
+        return False
     return not leading and not ai_requirements._is_conditional(sentence)
 
 
@@ -517,15 +565,13 @@ def _field_words(words: str) -> set[str]:
     } - _FIELD_SMALL_WORDS
 
 
-def _names_field(quote: str, name: str) -> bool:
+def _names_field(quote: str, name: str, numeric: bool = False) -> bool:
     """Every word of the field that says WHICH thing is printed in the quote, plurals aside. A generic word (size, type)
-    and a qualifier (maximum) need not be; a field of nothing else must still be printed."""
+    and a qualifier (maximum) need not be, unless the rule states a figure: then the figure's property must be printed."""
     words = _field_words(name)
-    named = {
-        w
-        for w in words
-        if w not in _GENERIC_FIELD_WORDS and w not in sc.field_naming._QUALIFIERS
-    }
+    qualifiers = sc.field_naming._QUALIFIERS
+    skip = qualifiers if numeric else (_GENERIC_FIELD_WORDS | qualifiers)
+    named = {w for w in words if w not in skip}
     return (named or words) <= _field_words(quote) and bool(words)
 
 
@@ -605,6 +651,45 @@ def context_flags(
     return flags
 
 
+def _scope_problem(condition: str, exception: str, whole_text: str) -> str | None:
+    """A condition must be a whole clause of the sentence. An exception may stand elsewhere, but not as part of a clause."""
+    if any(not _clause_span(part, whole_text) for part in _parts(condition)):
+        return "condition_not_a_clause"
+    if any(
+        _is_in_sentence(part, whole_text) and not _clause_span(part, whole_text)
+        for part in _parts(exception)
+    ):
+        return "condition_not_a_clause"
+    return None
+
+
+def _kept_rule(answer, facts: dict, flags: list[str], stated: str, text: str) -> dict:
+    """The stored row of a proven rule."""
+    quote, limit, unit = facts["quote"], facts["limit"], facts["unit"]
+    start, end = quote_span(quote, text)
+    return {
+        "applies_to": facts["applies_to"],
+        "applies_to_verified": _applies_to_on_page(facts["applies_to"], text),
+        "condition_text": _fold(facts["condition"]) or None,
+        "exception_text": _fold(facts["exception"]) or None,
+        "field": facts["name"],
+        "comparator": facts["comparator"] or None,
+        "limit_text": limit or None,
+        "limit_value": numparse.as_limit(limit) if limit else None,
+        "unit": unit or None,
+        "unit_dimension": claims.unit_dimension(unit) if unit else None,
+        "strength": CONTEXT_DEPENDENT if flags else stated,
+        "sentence_strength": stated,
+        "context_flag": ",".join(flags) or None,
+        "clause": str(answer.get("clause")).strip(),
+        "page": answer["page"],
+        "quote": quote,
+        "quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+        "quote_start": start,
+        "quote_end": end,
+    }
+
+
 def verify(
     answer: object, chunk: Chunk, pages: dict[int, str], tables=None
 ) -> tuple[dict | None, str | None]:
@@ -619,12 +704,13 @@ def verify(
     applies_to = " ".join(str(answer.get("applies_to") or "").split())
     if not applies_to:
         return None, "no_applies_to"
-    name = " ".join(str(answer.get("field") or "").split())
-    if not name:
+    glossed = " ".join(str(answer.get("field") or "").split())
+    if not glossed:
         return None, "no_field"
-    if not _names_field(quote, _without_gloss(name)):
+    name = _without_gloss(glossed)
+    limit = "" if answer.get("limit") is None else str(answer.get("limit")).strip()
+    if not _names_field(quote, name, numeric=answer.get("limit") is not None):
         return None, "field_not_in_quote"
-    name = _without_gloss(name)
     lead_in = _lead_in(pages, page, quote)
     readable = f"{lead_in}\n{text}" if lead_in else text
     condition = " ".join(str(answer.get("condition") or "").split())
@@ -633,12 +719,19 @@ def verify(
     exception = " ".join(str(answer.get("exceptions") or "").split())
     if exception and not _condition_on_page(exception, readable):
         return None, "exception_not_on_page"
-    limit = "" if answer.get("limit") is None else str(answer.get("limit")).strip()
     unit = str(answer.get("unit") or "").strip()
     comparator = str(answer.get("comparator") or "").strip()
     sentence = whole_sentence(quote, text)
     if sentence is None:
         return None, "condition_not_captured"
+    if lead_in and _LEAD_HOLDS.search(lead_in):
+        return None, "lead_in_holds_the_obligation"
+    if limit and has_alternative(sentence):
+        return None, "alternative_not_one_figure"
+    whole = f"{lead_in} {sentence}" if lead_in else sentence
+    scope = _scope_problem(condition, exception, whole)
+    if scope:
+        return None, scope
     if _NOT_A_LIMIT.search(sentence):
         return None, "need_not_is_not_a_limit"
     body = _main_clause(quote, condition, exception)
@@ -648,36 +741,23 @@ def verify(
             return None, reason
     elif comparator or unit:
         return None, "comparator_without_limit"
-    whole = f"{lead_in} {sentence}" if lead_in else sentence
     held = "; ".join(p for p in (condition, exception) if p)
     if not _condition_captured(held, whole, limit, unit, body, name):
         return None, "condition_not_captured"
-    start, end = quote_span(quote, text)
     stated = strength_of(sentence)
     flags = context_flags(answer, sentence, stated, pages, tables)
     if lead_in:
         flags.append("crosses_page")
-    return (
-        {
-            "applies_to": applies_to,
-            "applies_to_verified": _applies_to_on_page(applies_to, text),
-            "condition_text": _fold(condition) or None,
-            "exception_text": _fold(exception) or None,
-            "field": name,
-            "comparator": comparator or None,
-            "limit_text": limit or None,
-            "limit_value": numparse.as_limit(limit) if limit else None,
-            "unit": unit or None,
-            "unit_dimension": claims.unit_dimension(unit) if unit else None,
-            "strength": CONTEXT_DEPENDENT if flags else stated,
-            "sentence_strength": stated,
-            "context_flag": ",".join(flags) or None,
-            "clause": str(answer.get("clause")).strip(),
-            "page": page,
-            "quote": quote,
-            "quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
-            "quote_start": start,
-            "quote_end": end,
-        },
-        None,
-    )
+    if limit and _tail_read_as_property(limit, unit, body, glossed):
+        flags.append("tail_after_limit")
+    facts = {
+        "quote": quote,
+        "limit": limit,
+        "unit": unit,
+        "applies_to": applies_to,
+        "condition": condition,
+        "exception": exception,
+        "name": name,
+        "comparator": comparator,
+    }
+    return _kept_rule(answer, facts, flags, stated, text), None
