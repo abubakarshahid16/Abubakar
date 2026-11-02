@@ -3,14 +3,14 @@
 > **#805 overrides this file and every other file, except the privacy and
 > safety rules 1 to 5 in CLAUDE.md and the security controls in #806.** No
 > issue, comment or plan overrides those; changing them needs the owner's
-> written approval on #692. #805 (PLAN ONE) is the only plan; where anything
+> written approval on #692 and #1584. #805 (PLAN ONE) is the only plan; where anything
 > else here, in `docs/` or in `.cowork/` differs from it, #805 wins.
 >
 > **Top rule - AI-first (owner, 11 Oct 2026; #805 rule 1):** the review is
 > AI-first. AI reads, understands and proposes; code verifies and decides
 > pass/fail; the engineer decides. Switching any AI step off by default, or
 > replacing an AI step with a rules-only path, needs the owner's written
-> approval on #692.
+> approval on #692 and #1584.
 
 ## Where we are (pointers only)
 
@@ -130,7 +130,7 @@ carries the client's name; only the owner can rename it.
 ## Mistakes not to repeat (26 Oct)
 
 One line each; the fix is an order, and a machine now checks what it can.
-When a mistake is called out on #692, add one line here in your next PR.
+When a mistake is called out on #692 or #1584, add one line here in your next PR.
 
 - Pushed unformatted code, so CI sent the PR back (order 215 R1; `.githooks/pre-push`).
 - Formatted a whole old file: never whole-file format, only the lines you touched (order 216.4; `quality_ratchet.py format-check --base origin/main` is the test).
