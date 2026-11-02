@@ -56,6 +56,7 @@ from . import (
     claude_spend,
     field_naming,
     field_vocabulary,
+    numparse,
     rule_roles,
 )
 from .ai.json_reply import unfenced
@@ -328,7 +329,10 @@ def _has_unit(quote: str, unit: str) -> bool:
     if not u:
         return False
     return bool(
-        re.search(r"(?<![a-z0-9])" + re.escape(u) + r"(?![a-z0-9])", _fold(quote))
+        re.search(
+            rf"(?<![a-z0-9{numparse.CASE_KEPT_MARK}])" + re.escape(u) + r"(?![a-z0-9])",
+            _fold(quote),
+        )
     )
 
 
@@ -381,7 +385,7 @@ def limit_scope(sentence: str, quote: str, limit: str, unit: str) -> str | None:
         r"(?<![\w.])"
         + re.escape(limit.strip().lower())
         + r"\s*"
-        + re.escape(unit.strip().lower())
+        + re.escape(_fold(unit))
         + r"(?![a-z0-9])",
         q,
     )

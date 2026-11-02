@@ -30,7 +30,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from . import claims, numparse, own_value_limit, recommendations
+from . import claims, numparse, own_value_limit, recommendations, unit_case
 
 #: What kind of thing a requirement states. Enforced in Pydantic
 #: (`schemas.RequirementType`), stored as plain TEXT.
@@ -940,7 +940,7 @@ def parse_range(sentence: str) -> dict | None:
     if match is None or _NEGATED_BEFORE.search(sentence[:match.start()]):
         return None
     low_raw, high_raw = match.group("low"), match.group("high")
-    first, second = unit_token(match.group("u1")), unit_token(match.group("u2"))
+    first, second = unit_token(unit_case.unit_in_match(match, "u1")), unit_token(unit_case.unit_in_match(match, "u2"))
     if first and second and re.sub(r"\s+", "", first).lower() != re.sub(r"\s+", "", second).lower():
         return None
     unit = second or first
@@ -987,7 +987,7 @@ def parse_nominal(sentence: str) -> dict | None:
         return None
     if parse_limit(text) is not None or parse_range(text) is not None:
         return None
-    raw_value, raw_unit = match.group("value"), unit_token(match.group("unit"))
+    raw_value, raw_unit = match.group("value"), unit_token(unit_case.unit_in_match(match))
     half = _half_unit(raw_value)
     value = claims.parse_value(raw_value)
     if not raw_unit or half is None or value is None:
@@ -1061,7 +1061,7 @@ def parse_cross_field(sentence: str) -> dict | None:
     offset, unit = 0.0, None
     if match.group("ov"):
         offset = claims.parse_value(match.group("ov"))
-        unit = unit_token(match.group("ou"))
+        unit = unit_token(unit_case.unit_in_match(match, "ou"))
         if offset is None or not unit:
             return None
         offset = -offset if match.group("sign").lower() == "minus" else offset
@@ -1104,7 +1104,7 @@ def _parse_trailing_limit(sentence: str) -> dict | None:
 
     for match in _TRAILING_LIMIT.finditer(sentence or ""):
         direction = comparators.direction_of(match.group(0))
-        raw_unit = unit_token(match.group("unit"))
+        raw_unit = unit_token(unit_case.unit_in_match(match))
         if direction is None or not raw_unit:
             continue
         measurement = measure(match.group("value"), raw_unit)
@@ -1126,7 +1126,7 @@ def parse_limit(sentence: str) -> dict | None:
     operator = _OPERATOR.get(phrase)
     if operator is None:
         return None
-    raw_unit = unit_token(match.group("unit"))
+    raw_unit = unit_token(unit_case.unit_in_match(match))
     raw_value = _ungrouped(match.group("value"), raw_unit)
     measurement = measure(raw_value, raw_unit)
     return {"operator": operator, "raw_value": raw_value, "raw_unit": raw_unit,

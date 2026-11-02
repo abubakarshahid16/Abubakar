@@ -173,8 +173,8 @@ def build_prompt(page_text: str, page_no: int, known_fields: list[str]) -> str:
 # -------------------------------------------------------- text, folded
 
 def _fold(text: str) -> str:
-    """Whitespace-insensitive, case-insensitive form. `reader_api._fold`."""
-    return re.sub(r"\s+", " ", str(text)).strip().lower()
+    """Whitespace- and case-insensitive form, mPa apart from MPa. `reader_api._fold`."""
+    return re.sub(r"\s+", " ", numparse.mark_case_kept(text)).strip().lower()
 
 
 def _contains(haystack: str, needle: str) -> bool:

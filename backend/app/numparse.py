@@ -522,8 +522,11 @@ def fold(text: object) -> str:
 CASE_KEPT_UNITS = frozenset(
     {
         "mPa",
+        "mPA",
         "mPag",
         "mPaa",
+        "mPaG",
+        "mPaA",
         "mPa·s",
         "mPa.s",
         "mPa-s",
@@ -548,13 +551,20 @@ _CASE_KEPT_WORD = re.compile(
 #: Set before a case-kept unit so that it stays apart from its other-case twin
 #: once the text is folded. A letter, so "mpa" is not a whole word beside it, and
 #: one no engineering document prints.
-_CASE_KEPT_MARK = "\u0283"
+CASE_KEPT_MARK = "\u0283"
 
 
 def mark_case_kept(text: object) -> str:
     """`text` ready for a case-insensitive match that must still tell a case-kept
-    unit from its other-case twin: "10 mPa" stops matching "10 MPa" or "MPa"."""
-    return _CASE_KEPT_WORD.sub(lambda m: _CASE_KEPT_MARK + m.group(0), str(text))
+    unit from its other-case twin: "10 mPa" stops matching "10 MPa" or "MPa". Every
+    gate's fold starts with this, on the text as printed: once lower-cased, the
+    case is gone. Text already folded this way passes through unchanged."""
+    return _CASE_KEPT_WORD.sub(lambda m: CASE_KEPT_MARK + m.group(0), str(text))
+
+
+def case_kept_words(text: object) -> list[str]:
+    """The case-kept units `text` prints, in order."""
+    return _CASE_KEPT_WORD.findall(str(text))
 
 
 def contains_whole(haystack: str, needle: str) -> bool:

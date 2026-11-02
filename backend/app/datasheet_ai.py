@@ -56,7 +56,6 @@ from . import (
     datasheets,
     errors,
     job_progress,
-    numparse,
 )
 from .ai import output_limits
 from .claude_spend import StopRun
@@ -854,10 +853,10 @@ def ai_unit(fact: dict) -> str | None:
 def unit_in_quote(unit: str, quote: str | None) -> bool:
     """Does the AI's proved QUOTE print this unit? Whole, case-folded; a number may
     touch it ("75kW"), a letter may not ("Nm3/h" is not "m3/h"), nor "mPa" be "MPa"."""
-    folded = claude_datasheet._fold(numparse.mark_case_kept(unit))
+    folded = claude_datasheet._fold(unit)
     return bool(folded) and re.search(
         r"(?<![^\W\d_])" + re.escape(folded) + r"(?![^\W_])",
-        claude_datasheet._fold(numparse.mark_case_kept(quote or ""))) is not None
+        claude_datasheet._fold(quote or "")) is not None
 
 
 def same_unit(a: str, b: str) -> bool:

@@ -23,6 +23,7 @@ from .numparse import CASE_KEPT_UNITS
 #: bare "MWh" is not a unit either; it is here only as the top of a rate.
 UNCONVERTED: dict[str, str | None] = {
     "mPa": "pressure",
+    "mPA": "pressure",
     "mW": None,
     "mJ": None,
     "mS": None,
@@ -40,12 +41,17 @@ UNCONVERTED: dict[str, str | None] = {
 }
 
 #: The reference suffix forms (`claims._REFERENCE_SUFFIX`).
-REFERENCE_SUFFIX = {"mPag": ("mPa", "gauge"), "mPaa": ("mPa", "absolute")}
+REFERENCE_SUFFIX = {
+    "mPag": ("mPa", "gauge"),
+    "mPaa": ("mPa", "absolute"),
+    "mPaG": ("mPa", "gauge"),
+    "mPaA": ("mPa", "absolute"),
+}
 
 #: What makes a pascal unit a viscosity, not a pressure: "5 mPa.s", "5 Pa·s".
 #: Lower case only and no gap after the full stop, so "5 MPa. Second" stays a
-#: pressure.
-_PASCAL_SECOND = re.compile(r"(?:\s?[·⋅]\s?|[.\-])s(?:ec)?(?![A-Za-z0-9])")
+#: pressure. "5 mPa s" is the SI spelling with a space.
+_PASCAL_SECOND = re.compile(r"(?:\s?[·⋅]\s?|\s|[.\-])s(?:ec)?(?![A-Za-z0-9])")
 
 
 def fold_unit(unit: object) -> str:
@@ -55,6 +61,12 @@ def fold_unit(unit: object) -> str:
     text = " ".join(str(unit or "").split())
     top, slash, rest = text.replace(" ", "").partition("/")
     return top + slash + rest.lower() if top in CASE_KEPT_UNITS else text.lower()
+
+
+def unit_in_match(match: re.Match, group: str = "unit") -> str | None:
+    """`unit_at` for a regex match that captured a unit in `group`."""
+    unit = match.group(group)
+    return unit_at(match.string, unit, match.end(group)) if unit else unit
 
 
 def calc_key(unit: str | None) -> str:
@@ -72,4 +84,10 @@ def unit_at(sentence: str, unit: str, end: int) -> str:
     second = _PASCAL_SECOND.match(sentence, end)
     if second is None:
         return unit
-    return (unit + second.group(0)).replace("⋅", "·").replace(" ", "")
+    tail = second.group(0).replace("⋅", "·")
+    # A space alone is the multiplication dot.
+    return unit + (
+        "·" + tail.strip()
+        if tail[0].isspace() and "·" not in tail
+        else tail.replace(" ", "")
+    )

@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import re
 
-from . import claims, condition_choice, condition_stated, field_links
+from . import claims, condition_choice, condition_stated, field_links, unit_case
 
 #: The condition is established and holds — the comparison may proceed.
 SATISFIED = "SATISFIED"
@@ -359,7 +359,7 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
     if not match:
         return _result(UNKNOWN, SHAPE_NUMERIC, condition,
                        "the threshold could not be parsed")
-    unit = (match.group("unit") or "").strip()
+    unit = (unit_case.unit_in_match(match) or "").strip()
     if not unit:
         return _result(UNKNOWN, SHAPE_NUMERIC, condition,
                        "the threshold carries no unit, so nothing can be "

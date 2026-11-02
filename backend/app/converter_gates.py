@@ -13,9 +13,11 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from .numparse import mark_case_kept
+
 
 def fold(text: str | None) -> str:
-    return " ".join((text or "").lower().split())
+    return " ".join(mark_case_kept(text or "").lower().split())
 
 
 _fold = fold

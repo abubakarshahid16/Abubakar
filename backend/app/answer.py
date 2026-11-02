@@ -1114,7 +1114,7 @@ def _figure_occurrences(text: str) -> list[dict]:
     """
     bound: dict[int, str] = {}
     for m in numparse.with_leading_dot(claims_mod._MEASUREMENT).finditer(text):
-        unit = m.group("unit")
+        unit = claims_mod.unit_at(text, m.group("unit"), m.end("unit"))
         folded = claims_mod._fold_unit(unit)
         if not claims_mod._recognised_folded(folded):
             if "/" in unit:

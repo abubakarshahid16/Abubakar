@@ -9,18 +9,27 @@ from __future__ import annotations
 import pytest
 
 from app import (
+    ai_requirements,
     answerability,
     applicability_v2,
     claims,
+    claude_datasheet,
+    compiled_rule_context,
     condition_choice,
     datasheet_ai,
     datasheet_checks,
+    datasheets,
     dual_unit_form,
     field_copies,
+    form_reader,
+    form_reader_fields,
     label_match,
     numparse,
+    reader_api,
+    requirements_3b,
     rule_eval,
     same_value,
+    standards_converter,
     unit_case,
 )
 
@@ -360,3 +369,226 @@ def test_a_dual_unit_cell_in_two_case_spellings_is_two_units():
 def test_a_passage_conflict_keeps_the_two_units_apart():
     found = answerability._quantities("rated 5 mPa and rated 7 MPa")
     assert found.get("mPa") == {"5"} and found.get("mpa") == {"7"}
+
+
+# ------------------------------------------------- through the real gates
+
+PRESSURE = "design pressure"
+TRUE_READINGS = ["10 mPa", "5 mPa.s", "2 mW", "4-20 MA", "10 MPa", "10 MPA", "20 mA"]
+
+
+def _accept(value, quote, page=None, unit=None):
+    proposal = {"field": PRESSURE, "value": value, "kind": "offered", "quote": quote}
+    if unit:
+        proposal["unit"] = unit
+    done = claude_datasheet.accept([proposal], page or f"{quote}\n")
+    return [r["reason"] for r in done["rejected"]]
+
+
+def _form(value, quote, page=None, unit=""):
+    field = form_reader_fields.Field("design_pressure", PRESSURE, None, ())
+    item = {"value": value, "unit": unit, "quote": quote, "status": "found"}
+    rules = datasheet_checks.load_rules()
+    return form_reader.verify(field, item, page or f"{quote}\n", rules)
+
+
+def _api(value, quote, sentence=None):
+    proposal = {"kind": "statement", "value": value, "quote": quote}
+    done = reader_api.accept([proposal], sentence or quote)
+    return [r["reason"] for r in done["rejected"]]
+
+
+@pytest.mark.parametrize("value", TRUE_READINGS)
+def test_a_true_reading_passes_every_gate(value):
+    quote = f"{PRESSURE} {value}"
+    assert _accept(value, quote) == []
+    assert _form(value, quote) is None
+    assert _api(value, quote) == []
+
+
+@pytest.mark.parametrize(
+    "value,printed",
+    [("10 MPa", "10 mPa"), ("10 mPa", "10 MPa"), ("5 mW", "5 MW"), ("20 mA", "20 MA")],
+)
+def test_a_value_is_not_proved_by_the_other_unit(value, printed):
+    quote = f"{PRESSURE} {printed}"
+    assert _accept(value, quote) == [claude_datasheet.Reason.VALUE_NOT_IN_QUOTE.value]
+    assert _form(value, quote) is form_reader.Reason.VALUE_NOT_IN_QUOTE
+    assert _api(value, quote) == [reader_api.Reason.VALUE_NOT_IN_QUOTE.value]
+
+
+def test_a_quote_retyped_in_the_other_case_is_not_on_the_page():
+    quote, page = f"{PRESSURE} 10 MPa", f"{PRESSURE} 10 mPa\n"
+    assert _accept("10 MPa", quote, page) == [
+        claude_datasheet.Reason.QUOTE_NOT_ON_PAGE.value
+    ]
+    assert _form("10 MPa", quote, page) is form_reader.Reason.QUOTE_NOT_ON_PAGE
+    assert _api("10 MPa", quote, page) == [
+        reader_api.Reason.QUOTE_NOT_IN_SENTENCE.value
+    ]
+
+
+def test_a_unit_is_not_proved_by_the_other_unit():
+    quote = f"{PRESSURE} 10 mPa"
+    assert _accept("10", quote, unit="MPa") == [
+        claude_datasheet.Reason.UNIT_NOT_IN_QUOTE.value
+    ]
+    assert _form("10", quote, unit="MPa") is form_reader.Reason.UNIT_NOT_IN_QUOTE
+    assert _accept("10", quote, unit="mPa") == []
+    assert _form("10", quote, unit="mPa") is None
+
+
+def test_a_column_header_does_not_prove_the_other_unit():
+    page = f"Item | mPa\n{PRESSURE} | 10\n"
+    quote = f"{PRESSURE} | 10"
+    assert _accept("10", quote, page, unit="MPa") == [
+        claude_datasheet.Reason.UNIT_NOT_IN_QUOTE.value
+    ]
+    assert _accept("10", quote, page, unit="mPa") == []
+
+
+def _requirement(value, unit, sentence, quote=None):
+    proposal = {
+        "has_limit": True,
+        "field": PRESSURE,
+        "operator": "<=",
+        "value": value,
+        "unit": unit,
+        "quote": quote or sentence,
+    }
+    return ai_requirements.verify_proposal(proposal, sentence)
+
+
+def test_ai_requirements_tells_the_two_units_apart():
+    said = f"The {PRESSURE} shall not exceed 10 mPa."
+    assert _requirement("10", "MPa", said)[1] == ai_requirements.UNIT_NOT_IN_QUOTE
+    assert _requirement("10 MPa", None, said)[1] == ai_requirements.VALUE_NOT_IN_QUOTE
+    retyped = f"The {PRESSURE} shall not exceed 10 MPa."
+    assert (
+        _requirement("10", "MPa", said, retyped)[1]
+        == ai_requirements.QUOTE_NOT_IN_SOURCE
+    )
+    check, why = _requirement("10", "mPa", said)
+    assert why is None and check["unit"] == "mPa"
+    check, why = _requirement("10", "MPa", retyped)
+    assert why is None and check["unit"] == "mpa"
+
+
+def test_the_figure_reader_does_not_read_a_viscosity_as_a_pressure():
+    read = ai_requirements.read_figures("viscosity shall not exceed 5 MPa.s")
+    assert not [f for f in read if f["unit"] == "mpa"]
+
+
+def test_the_converter_unit_gate_tells_the_two_units_apart():
+    assert not standards_converter._has_unit("shall not exceed 10 mPa", "MPa")
+    assert not standards_converter._has_unit("shall not exceed 10 MPa", "mPa")
+    assert standards_converter._has_unit("shall not exceed 10 mPa", "mPa")
+    assert standards_converter._has_unit("shall not exceed 10 MPA", "MPa")
+
+
+def _converter(unit, sentence):
+    names = [PRESSURE]
+    answer = {
+        "condition": None,
+        "field": 0,
+        "comparator": "<=",
+        "limit": "10",
+        "unit": unit,
+        "quote": f"{PRESSURE} shall not exceed 10 {sentence}",
+    }
+    row = {
+        "requirement_text": f"The casing {answer['quote']}.",
+        "clause": "6.1",
+        "requirement_type": "statement",
+    }
+    return standards_converter.verify(
+        answer, row, names, {PRESSURE: "design_pressure"}, {PRESSURE: ("pressure",)}
+    )
+
+
+def test_the_converter_verifies_only_the_printed_unit():
+    assert _converter("MPa", "mPa")[:2] == ("unproven", "unit_not_in_quote")
+    assert _converter("mPa", "mPa")[0] == "verified"
+    assert _converter("MPa", "MPa")[0] == "verified"
+
+
+def test_a_compiled_rule_quote_is_not_placed_on_the_other_unit():
+    page = "Rated 10 mPa here. Rated 10 MPa there."
+    assert compiled_rule_context.quote_span("Rated 10 MPa", page) == (19, 31)
+    assert compiled_rule_context.quote_span("rated 10 mPa", page) == (0, 12)
+    assert compiled_rule_context.quote_span("Rated 7 MPa", page) == (None, None)
+
+
+# ------------------------------------------------- the spellings around mPa
+
+
+@pytest.mark.parametrize("unit", ["mPA", "mPaG", "mPaA"])
+def test_a_lower_case_m_on_a_pascal_is_never_mega(unit):
+    assert _value("5", unit) is None
+    assert claims.unit_dimension(unit) == "pressure"
+
+
+@pytest.mark.parametrize(
+    "text,dimension",
+    [
+        ("viscosity 5 mPa s at 20 C", "viscosity"),
+        ("viscosity 5 Pa s at 20 C", "viscosity"),
+    ],
+)
+def test_a_pascal_second_with_a_space_is_a_viscosity(text, dimension):
+    read = claims.extract_measurements(text)
+    assert claims.unit_dimension(read[0].raw_unit) == dimension
+    assert read[0].normalized_value is None
+
+
+def test_a_megapascal_second_with_a_space_is_not_a_pressure():
+    assert not [
+        m
+        for m in claims.extract_measurements("viscosity 5 MPa s")
+        if m.normalized_unit == "MPa"
+    ]
+
+
+def test_a_word_after_a_pressure_is_not_a_second():
+    read = claims.extract_measurements("rated 5 MPa steady")
+    assert read[0].normalized_value == pytest.approx(5.0)
+
+
+# ------------------------------------------------- the known cost, pinned
+
+
+@pytest.mark.parametrize("unit", ["MA", "ML/MIN", "MV"])
+def test_a_capitals_sheet_loses_the_number_and_goes_to_review(unit):
+    """A bare capital unit cannot say whether its sheet is all capitals, and on a
+    capitals sheet the case says nothing either way: no number, no verdict."""
+    assert _value("20", unit) is None
+
+
+@pytest.mark.parametrize("unit,expected", [("MPA", 5.0), ("BAR", 0.5), ("KPA", 0.005)])
+def test_a_capitals_sheet_still_reads_a_unit_with_no_clash(unit, expected):
+    assert _value("5", unit) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "said", ["5 MPa s", "5 MPa.s", "5 MPa·s", "5 Pa s", "5 Pa.s", "5 mPa s", "5 mPa.s"]
+)
+def test_a_stated_limit_in_a_viscosity_unit_is_not_a_pressure(said):
+    read = requirements_3b.parse_limit(f"The viscosity shall not exceed {said}.")
+    assert read["unit"] != "MPa" and read["value"] is None
+
+
+def test_a_stated_limit_in_a_pressure_stays_a_pressure():
+    read = requirements_3b.parse_limit("The pressure shall not exceed 5 MPa.")
+    assert read["unit"] == "MPa" and read["value"] == pytest.approx(5.0)
+    assert (
+        requirements_3b.parse_limit("The level shall not exceed 5 mm.")["raw_unit"]
+        == "mm"
+    )
+
+
+@pytest.mark.parametrize(
+    "cell", ["5 MPa s", "5 Pa s", "5 MPa.s", "5 Pa.s", "5 mPa.s", "5 mPa s"]
+)
+def test_a_datasheet_cell_in_a_viscosity_unit_is_not_a_pressure(cell):
+    _value_read, _unit_read, measured = datasheets.measure_value(cell)
+    assert measured is None or measured.normalized_value is None
