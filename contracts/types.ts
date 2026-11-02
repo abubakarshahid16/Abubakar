@@ -646,6 +646,10 @@ export interface RunClauseCoverageSummary {
   adds_up: boolean; line: string;
 }
 
+/** `ReviewRunSummary.coverage_pair` (plan change 6 B): risk and coverage from the one
+ *  function; null with ONE_CHECKED_DEFINITION_ENABLED off. The words are the server's. */
+export interface RunCoveragePair { line: string; checklist_line: string; boundary: string }
+
 /** `ReviewRunSummary.applicability` (#453). */
 export interface RunApplicability {
   submittal_equipment: string[]; equipment_source: string | null;

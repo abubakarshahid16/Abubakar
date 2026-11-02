@@ -55,13 +55,19 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
             + `${applicability.kept_equipment_unknown.toLocaleString()} kept because the equipment ${applicability.equipment_unsure ? "type is unsure" : "was unknown"}, ${applicability.not_applied.toLocaleString()} not applied.`
           : NOT_RECORDED}
       </p>
-      <p className="text-sm text-slateish-300" data-testid="clauses-coverage-line">
-        Clause coverage as the engine stored it (from clause_coverage.line):{" "}
-        {run.clause_coverage ? run.clause_coverage.line : NOT_RECORDED}
-        {run.clause_coverage && !run.clause_coverage.adds_up && (
-          <span className="text-warn-500"> The stored counts do not add up; the engine flagged this itself.</span>
-        )}
-      </p>
+      {run.coverage_pair ? (
+        <p className="text-sm text-slateish-300" data-testid="clauses-coverage-pair">
+          {run.coverage_pair.line} {run.coverage_pair.checklist_line} {run.coverage_pair.boundary}
+        </p>
+      ) : (
+        <p className="text-sm text-slateish-300" data-testid="clauses-coverage-line">
+          Clause coverage as the engine stored it (from clause_coverage.line):{" "}
+          {run.clause_coverage ? run.clause_coverage.line : NOT_RECORDED}
+          {run.clause_coverage && !run.clause_coverage.adds_up && (
+            <span className="text-warn-500"> The stored counts do not add up; the engine flagged this itself.</span>
+          )}
+        </p>
+      )}
     </HowSection>
   );
 }

@@ -19,6 +19,7 @@ from . import scan_quality
 from . import applicability as applicability_mod, cited_edition as cited_edition_mod
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
+from . import coverage_pair as coverage_pair_mod
 from . import crs_export as crs_export_mod
 from . import crs_ai_cell as crs_ai_cell_mod
 from . import crs_issue as crs_issue_mod
@@ -1366,6 +1367,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
                               or requirement_split_mod.from_counts(outcome.get("unchecked_counts"))),
         # PF4 (#884): the clause coverage the run stored; null on an older run, never 0.
         "clause_coverage": outcome.get("clause_coverage"),
+        # Plan change 6 B: the pair, one definition; null with the switch off.
+        "coverage_pair": coverage_pair_mod.for_screen(connect(), run["id"]),
         "applicability": outcome.get("applicability"),
         # P3: the background job running this review - progress and cancel.
         "job": job,
@@ -2966,6 +2969,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed
     )
+    # Plan change 6 B: one denominator on the sheet (switch off: the notes as they were).
+    meta["review_notes"] = coverage_pair_mod.crs_notes(
+        meta["review_notes"], connect(), review_run_id
+    )
     return rows, meta, submittal_name, stamp
 
 
@@ -3433,8 +3440,10 @@ def review_run_coverage(
             review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
-    return clause_coverage_mod.for_run(review_run_id,
-                                       allowed_document_ids=scope.allowed_document_ids)
+    return coverage_pair_mod.screen_coverage(
+        clause_coverage_mod.for_run(review_run_id,
+                                    allowed_document_ids=scope.allowed_document_ids),
+        connect(), review_run_id)
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs/preview",

@@ -2872,6 +2872,8 @@ class ReviewRunSummary(BaseModel):
     #: two. For a run that predates it only the counts are known and every reason is "no reason recorded".
     requirement_split: dict | None = None
     clause_coverage: dict | None = None  # PF4 (#884): as the run stored it at its end; null before the record
+    #: Plan change 6 B: risk and coverage from the one function; null with ONE_CHECKED_DEFINITION_ENABLED off.
+    coverage_pair: dict | None = None
     #: #453: how the requirements that stayed were decided (general, matching,
     #: kept because the equipment is unknown). Null for a run that predates it.
     applicability: dict | None = None
