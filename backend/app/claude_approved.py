@@ -28,6 +28,21 @@ nothing approved = no document content leaves. An entry counts only with
 A change to the file is written to the audit table (`sync_audit`): counts and
 hashes only, never a title.
 
+#1584 (owner decision, behind `claude_auto_approve_reviews_enabled`, off by
+default; off, none of this applies). `claude_auto_approve` adds documents to the
+list by itself, and the list stays the record. Here, at the gate:
+
+  * BLOCKS WIN, and before the chat consent below: a hash with a `blocked` row on
+    the list, a hash in `<data_dir>/claude_blocked_hashes.json` (outside git;
+    `{"blocked_sha256": ["..."]}`), or a document named like the register
+    (CLAUDE.md rule 3), in any case or spacing.
+  * FAIL CLOSED: if the list cannot be read, or the block file is missing or
+    cannot be read, nothing carrying a document is sent. The block file must
+    exist before the switch is turned on; an empty list in it is a valid answer.
+  * EVERY SEND IS RECORDED on its spend-ledger line (`sent_documents`: id and
+    hash, with the line's step, model and time; never a title). A later
+    `releases` line for that reservation means the call provably did no work.
+
 This module opens no socket and reads no document text.
 """
 from __future__ import annotations
@@ -35,6 +50,8 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import re
+import unicodedata
 from contextvars import ContextVar
 from pathlib import Path
 
@@ -42,6 +59,11 @@ from .config import settings
 
 LIST_NAME = "claude_approved_documents.json"
 APPROVED = "approved"
+BLOCKED = "blocked"
+BLOCK_FILE_NAME = "claude_blocked_hashes.json"
+#: The register file of CLAUDE.md rule 3, letters and digits only, lower case.
+REGISTER_NAME_KEY = "engineeringdeliverables"
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 AUDIT_ACTION = "claude_approved_list_changed"
 
 #: Why a call was refused, as the first word of the reason (and the ledger).
@@ -110,11 +132,79 @@ def _entries() -> list[dict]:
     return [r for r in (rows or []) if isinstance(r, dict)]
 
 
+def auto_approve_on() -> bool:
+    return bool(settings.claude_auto_approve_reviews_enabled)
+
+
+def block_file_path() -> Path:
+    return Path(settings.data_dir) / BLOCK_FILE_NAME
+
+
+class BlockListUnreadable(Exception):
+    """The list or the block file could not be read. Never carries their content."""
+
+
+def is_register_name(filename: str | None) -> bool:
+    """Is this file named like the register, in any case, spacing or punctuation,
+    with anything around it ("Copy of ... (1).pdf")? Errs toward blocking."""
+    folded = unicodedata.normalize("NFKC", filename or "").casefold()
+    return REGISTER_NAME_KEY in "".join(c for c in folded if c.isalnum())
+
+
+def read_list_strict() -> dict:
+    """The whole list, or `BlockListUnreadable`; an absent list is an empty one.
+    Unlike `_entries`, a damaged file is an answer of its own: it can hold a block
+    that could not be seen, so it must not read as "nothing is blocked"."""
+    path = list_path()
+    if not path.is_file():
+        return {"documents": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise BlockListUnreadable("the approved list cannot be read") from exc
+    rows = data.get("documents") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise BlockListUnreadable("the approved list has the wrong shape")
+    return data
+
+
+def blocked_hashes() -> frozenset[str]:
+    """Every blocked hash: `blocked` rows on the list and the block file's. Raises
+    `BlockListUnreadable` when either cannot be read, a block file that is absent
+    included, and for a value that is not a hash: a typo must not unblock."""
+    try:
+        data = json.loads(block_file_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise BlockListUnreadable("the block file cannot be read") from exc
+    listed = data.get("blocked_sha256") if isinstance(data, dict) else None
+    if not isinstance(listed, list):
+        raise BlockListUnreadable("the block file has the wrong shape")
+    found = [str(h).strip().lower() for h in listed]
+    found += [
+        str(r.get("sha256") or "").strip().lower()
+        for r in read_list_strict()["documents"]
+        if str(r.get("status") or "").strip().lower() == BLOCKED
+    ]
+    if not all(_SHA256.fullmatch(h) for h in found):
+        raise BlockListUnreadable("a blocked entry does not hold a sha256")
+    return frozenset(found)
+
+
 def approved_hashes() -> frozenset[str]:
-    """The sha256 of every document the owner approved."""
-    return frozenset(str(r.get("sha256") or "").strip().lower() for r in _entries()
-                     if str(r.get("status") or "").strip().lower() == APPROVED
-                     and str(r.get("sha256") or "").strip())
+    """The sha256 of every document the owner approved. With the #1584 switch on,
+    never a blocked one, and none at all when the blocks cannot be read."""
+    approved = frozenset(
+        str(r.get("sha256") or "").strip().lower()
+        for r in _entries()
+        if str(r.get("status") or "").strip().lower() == APPROVED
+        and str(r.get("sha256") or "").strip()
+    )
+    if not auto_approve_on():
+        return approved
+    try:
+        return approved - blocked_hashes()
+    except BlockListUnreadable:
+        return frozenset()
 
 
 def counts() -> dict[str, int]:
@@ -133,6 +223,36 @@ def _hashes_of(document_ids: frozenset[str]) -> dict[str, str | None]:
         f"SELECT id, sha256 FROM documents WHERE id IN ({marks})", sorted(document_ids)).fetchall()
     found = {r["id"]: (r["sha256"] or "").strip().lower() or None for r in rows}
     return {d: found.get(d) for d in document_ids}
+
+
+def _blocked_ids(hashes: dict[str, str | None]) -> frozenset[str]:
+    """The documents among `hashes` (id -> sha256) that are blocked. Raises
+    `BlockListUnreadable`. Off the #1584 switch, none."""
+    if not auto_approve_on():
+        return frozenset()
+    from .db import connect
+
+    blocks = blocked_hashes()
+    marks = ",".join("?" for _ in hashes)
+    rows = (
+        connect()
+        .execute(
+            f"SELECT id, filename FROM documents WHERE id IN ({marks})", sorted(hashes)
+        )
+        .fetchall()
+    )
+    named = {r["id"] for r in rows if is_register_name(r["filename"])}
+    return frozenset(d for d, h in hashes.items() if h in blocks or d in named)
+
+
+def sent_documents() -> list[dict]:
+    """#1584: what the call being reserved carries, for its ledger line: id and
+    hash, never a title. Empty with the switch off or with no document content."""
+    ids = carried()
+    if not auto_approve_on() or not ids:
+        return []
+    hashes = _hashes_of(ids)
+    return [{"document_id": d, "sha256": hashes[d]} for d in sorted(ids)]
 
 
 def review_documents(review_run_id: str) -> list[str]:
@@ -187,6 +307,20 @@ def refusal() -> tuple[str, str] | None:
     if unknown:
         return UNKNOWN_DOCUMENT, (f"{len(unknown)} declared document(s) are not in the library "
                                   f"(ids: {', '.join(unknown)}), so nothing is sent")
+    # #1584: a block wins over everything below, the chat consent included. The
+    # code stays NOT_APPROVED so a review step runs locally instead (#838).
+    try:
+        blocked = sorted(_blocked_ids(hashes))
+    except BlockListUnreadable:
+        return (
+            NOT_APPROVED,
+            "the approved list or the block file cannot be read, so nothing is sent (fail closed)",
+        )
+    if blocked:
+        return NOT_APPROVED, (
+            f"{len(blocked)} of {len(ids)} document(s) in this prompt are blocked "
+            f"for the cloud model (ids: {', '.join(blocked)}), so nothing is sent"
+        )
     # Chat collection-summary consent is explicit, per request and per selected
     # file. It waives only the static owner list for this narrowly scoped call;
     # egress flags, API-key checks and spend limits remain enforced downstream.
@@ -222,16 +356,22 @@ def local_instead() -> str | None:
         return None
     ids = carried() or frozenset()
     approved = approved_hashes()
-    missing = sum(1 for h in _hashes_of(ids).values() if h not in approved)
+    hashes = _hashes_of(ids)
+    try:
+        blocked = _blocked_ids(hashes)
+    except BlockListUnreadable:
+        blocked = ids
+    missing = sum(1 for d, h in hashes.items() if h not in approved or d in blocked)
     return LOCAL_INSTEAD.format(n=missing, of=len(ids))
 
 
-def sync_audit() -> bool:
+def sync_audit(actor: str = "file edit (owner)") -> bool:
     """Write an audit row when the list file's content changed since the last
-    row (who = the file, what = how many entries per status and the list's own
-    hash). Returns True when a row was written. Called at startup and by the
-    route that reports the list; an edit made with a text editor is recorded
-    the next time either runs."""
+    row (who = `actor`, what = how many entries per status and the list's own
+    hash). Returns True when a row was written. Called by `claude_auto_approve`
+    (#1584 switch on): after an entry is added and when a review starts, so an
+    edit made with a text editor is recorded then. Nothing else calls it: with
+    the switch off the list's changes are not audited (A-1584)."""
     from .db import connect
     path = list_path()
     digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "absent"
@@ -247,7 +387,7 @@ def sync_audit() -> bool:
         conn.execute(
             "INSERT INTO audit_events (at, actor_user_id, actor_username, action, resource_type,"
             " resource_id, outcome, detail) VALUES (?, NULL, ?, ?, ?, ?, 'ok', ?)",
-            (datetime.now(UTC).isoformat(timespec="seconds"), "file edit (owner)", AUDIT_ACTION,
+            (datetime.now(UTC).isoformat(timespec="seconds"), actor, AUDIT_ACTION,
              "claude_approved_list", digest, json.dumps({"entries_by_status": counts()}, sort_keys=True)))
     return True
 

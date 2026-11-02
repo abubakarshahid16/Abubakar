@@ -420,9 +420,13 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # Named from the VALIDATED kind, not from what the caller called the file.
     filename = sanitise_filename(raw_filename, kind)
 
+    from . import claude_auto_approve
+
     existing = find_by_hash(sha256)
     if existing is not None:
         temp_path.unlink(missing_ok=True)
+        # #1584: its new name can be a blocked one
+        claude_auto_approve.on_upload(existing["id"], filename)
         return existing, None, existing["id"]
 
     final_path = settings.upload_dir / f"{sha256}{_SUFFIX_FOR_KIND[kind]}"
@@ -505,6 +509,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
         existing = find_by_hash(sha256)
         if existing is None:
             raise
+        claude_auto_approve.on_upload(existing["id"], filename)
         return existing, None, existing["id"]
 
     row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
@@ -516,6 +521,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
         _suggest_classification(doc_id, filename, read_path)
     else:
         _stored_not_indexed(doc_id, filename, kind, read_path)
+    claude_auto_approve.on_upload(doc_id, filename)  # #1584
     return row, (job_id if indexed else None), None
 
 

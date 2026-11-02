@@ -132,6 +132,9 @@ def enqueue(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
              requested_by, review_code_version(), config_version(), run_id, len(STEPS)))
         job_queue.audit(conn, "job.queued", job_id, actor_user_id=requested_by,
                         detail=f"stage={STAGE} run={run_id}")
+    from . import claude_auto_approve
+
+    claude_auto_approve.on_review_start(run_id)  # #1584
     return run_id, job_id
 
 

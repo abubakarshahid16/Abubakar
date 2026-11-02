@@ -222,3 +222,9 @@ class SettingsExt(BaseModel):
     #: marked as a guess, else NO-NUMBER. OFF: byte-identical, except that rows numbered while it was on
     #: keep printing NO-NUMBER and the reply guard stays for them. Env: PROCEDURE_CRS_FIELDS_ENABLED.
     procedure_crs_fields_enabled: bool = False
+    #: #1584 (owner decision, 2 Nov): a document uploaded for review joins the Claude approved list by itself
+    #: (`claude_auto_approve`), and so does a standard its review cites; a blocked hash and the register file
+    #: (rule 3) never do. Needs `<data_dir>/claude_blocked_hashes.json` to exist: without it nothing carrying a
+    #: document is sent. It sends nothing by itself: the Claude lane's own gates stay. OFF: exactly as before.
+    #: Env: CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED.
+    claude_auto_approve_reviews_enabled: bool = False
