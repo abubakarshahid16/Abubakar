@@ -169,7 +169,7 @@ def test_submittal_kind_only_when_decided(temp_storage, state, guess, expected):
 # ------------------------------------------- the real review path (wiring in comparison)
 
 
-def _review(equipment_type, standard_file):
+def _review(equipment_type, standard_file, design_code=None):
     import uuid
 
     from app import comparison, datasheets, standards
@@ -209,6 +209,14 @@ def _review(equipment_type, standard_file):
         raw_value="10 barg",
         page=1,
     )
+    if design_code:
+        datasheets.create_fact(
+            submittal_document_id="sub",
+            chunk_id="fc",
+            field_label="Design code",
+            raw_value=design_code,
+            page=1,
+        )
     run = str(uuid.uuid4())
     with db.connect() as conn:
         conn.execute(

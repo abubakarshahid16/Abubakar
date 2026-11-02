@@ -45,7 +45,6 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import equipment_scope as eqs
 from . import numparse
 
 VOCABULARY_PATH = Path(__file__).parent / "reference" / "equipment_vocabulary.json"
@@ -131,7 +130,7 @@ def read_equipment(
     The first of classification, title and equipment-describing fields that
     names an equipment type is the reading. When `equipment_doubt` finds the
     datasheet itself disagrees, the equipment is read as UNKNOWN (empty) with
-    source "unsure", so nothing is ruled out by equipment type."""
+    source "unsure": nothing is ruled out by type (`equipment_scope.hold_unsure` holds, never drops)."""
     classification = classification or {}
     sources = (
         ("classification", classification.get("equipment_type")),
@@ -423,9 +422,10 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     """Split `requirements` into what the review checks and what does not apply.
 
     Returns {"kept": [...], "not_applied": [one grouped line per subject],
-    "summary": {...counts...}}. Order of `kept` is the order given."""
+    "summary": {...counts...}}. Order of `kept` is the order given.
+    """
     vocab = vocab or vocabulary()
-    equipment, source, doubt = eqs.narrowing_equipment(classification, facts, vocab)
+    equipment, source, doubt = read_equipment(classification, facts, vocab)
     headings_by_standard = headings_by_standard or {}
     kept: list[dict] = []
     summary = {"submittal_equipment": sorted(equipment), "equipment_source": source,
