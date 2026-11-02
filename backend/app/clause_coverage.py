@@ -187,6 +187,9 @@ def outcome_notes(outcome: dict, findings: list[dict]) -> list[dict]:
         from .rule_trust import review_notes as trust_notes
         notes.extend(trust_notes(outcome, findings))
     notes.extend(page_not_read.notes(outcome))  # #1473
+    from .presence_check import review_notes as stated_notes
+
+    notes.extend(stated_notes(findings))  # #1638
     notes.extend(review_notes(outcome))
     return notes
 
