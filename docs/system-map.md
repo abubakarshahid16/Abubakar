@@ -98,6 +98,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_recheck` | Recheck findings: the model gives a SECOND OPINION on an engine verdict, and Python decides what that opinion |
 | `claude_selection` | Choose the standards that apply to a submittal |
 | `claude_spend` | What the Claude API has cost, and the refusal before it costs more |
+| `claude_spend_report` | What the Claude lane really cost per step, from settled ledger lines, and the USD 100 a day |
 | `company_standard_confirm` | Hold a non-admin's Company standard for an administrator's confirmation before reviews use it (#620) |
 | `comparison` | Phase 5B: does this submittal meet the requirements that govern it |
 | `comparators` | The one vocabulary of limit-direction words: which way does a sentence say a limit points (#915) |

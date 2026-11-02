@@ -1,11 +1,10 @@
 """What the Claude API has cost, and the refusal before it costs more.
 
-OWNER RULE 2026-09-25: USD 5 per step, USD 20 in total; stop BEFORE exceeding
-either. Plan change 4 (#805, 28 Oct 2026): USD 25 per converted standard, and USD 500
-in total for November 2026 only (`total_cap`: from 1 Dec it is 20 again). So the check is made before a call leaves, on the WORST CASE of that
-call (every prompt token uncached, every allowed output token spent), against
-what the ledger says was already spent. A call that could cross a cap is
-refused - it never goes out and then gets reported as over budget.
+OWNER RULE 2026-09-25: USD 5 per step, USD 20 in total; stop BEFORE exceeding either. Plan change 4 (#805,
+28 Oct 2026): USD 25 per converted standard, USD 500 in total for November 2026 only (`total_cap`). Plan change 6:
+USD 100 a day (`claude_spend_report`, behind its switch). The check is made before a call leaves, on the WORST CASE
+of that call (every prompt token uncached, every allowed output token spent), against what the ledger says was
+already spent. A call that could cross a cap is refused, never sent and then reported as over budget.
 
 THE LEDGER is a local JSONL file (`settings.claude_spend_log`), one line per
 call: time, step, model, token counts, cost, and a digest of the prompt. It is
@@ -63,6 +62,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timezone
 from pathlib import Path
 
+from . import claude_spend_report as report_mod
 from .config import settings
 
 #: (input, output, 5-minute cache write, cache read) USD per million tokens.
@@ -377,6 +377,8 @@ def ensure_affordable(step: str, worst_case: float, caps: Caps | None = None) ->
         spent(step),
         spent(),
     )
+    if over := report_mod.over_day_cap(worst_case, report_mod.charged_today(entries())):
+        raise BudgetExceeded(over)
 
 
 def _check(step: str, worst_case: float, caps: Caps, step_spent: float, total_spent: float) -> None:
@@ -536,6 +538,7 @@ def reserve_all(
         per_step: dict[str, float] = {}
         for e in current:
             per_step[e.get("step")] = per_step.get(e.get("step"), 0.0) + float(e.get("cost_usd") or 0)
+        day = report_mod.charged_today(current)
         for step, worst in items:
             _check(
                 step,
@@ -544,8 +547,11 @@ def reserve_all(
                 round(per_step.get(step, 0.0), 6),
                 round(total, 6),
             )
+            if over := report_mod.over_day_cap(worst, round(day, 6)):
+                raise BudgetExceeded(over)
             per_step[step] = per_step.get(step, 0.0) + worst
             total += worst
+            day += worst
             out.append(Reservation(uuid.uuid4().hex, step, model, float(worst), prompt_sha256, now, batch))
         for r in out:
             line = _entry(step=r.step, model=model, usage=None, prompt_sha256=prompt_sha256,

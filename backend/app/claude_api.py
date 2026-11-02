@@ -64,7 +64,7 @@ from pydantic import BaseModel, ConfigDict
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import access, errors
-from . import claude_approved, claude_budget, claude_spend
+from . import claude_approved, claude_budget, claude_spend, claude_spend_report
 from . import claude_datasheet, claude_recheck, claude_selection
 from . import classification as classification_mod
 from . import datasheets
@@ -327,11 +327,17 @@ def claude_select_standards(
     # #806 S3: the prompt carries the submittal's summary and, for EVERY
     # selectable standard, its number, title and a scope excerpt.
     from . import claude_approved
-    with claude_approved.carrying([run["submittal_document_id"],
-                                   *(c.get("document_id") for c in candidates)]):
+    with (
+        claude_approved.carrying(
+            [run["submittal_document_id"], *(c.get("document_id") for c in candidates)]
+        ),
+        claude_spend_report.for_route(review_run_id),
+    ):
         result, exhausted = _capped(
-            model_call, lambda call: claude_selection.select_standards(summary, candidates, call),
-            transport)
+            model_call,
+            lambda call: claude_selection.select_standards(summary, candidates, call),
+            transport,
+        )
     stored = claude_selection.store_selection(
         review_run_id, result.get("accepted", []), candidates,
         allowed_document_ids=scope.allowed_document_ids)
@@ -357,9 +363,16 @@ def claude_read_datasheet(
     run = _run_or_404(review_run_id, scope)
     model_call, transport = _model_call_or_409(STEP_READ_DATASHEET)
     submittal_id = run["submittal_document_id"]
-    result, exhausted = _capped(model_call, lambda call: claude_datasheet.read_datasheet(
-        submittal_id, allowed_document_ids=scope.allowed_document_ids, model_call=call),
-        transport)
+    with claude_spend_report.for_route(review_run_id):
+        result, exhausted = _capped(
+            model_call,
+            lambda call: claude_datasheet.read_datasheet(
+                submittal_id,
+                allowed_document_ids=scope.allowed_document_ids,
+                model_call=call,
+            ),
+            transport,
+        )
     stored = claude_datasheet.store_facts(
         review_run_id, submittal_id, result.get("accepted", []),
         allowed_document_ids=scope.allowed_document_ids)
@@ -391,8 +404,14 @@ def claude_recheck_findings(
         local_instead = claude_approved.local_instead()
     if local_instead:
         model_call, transport = _local_recheck_call(), None
-    result, exhausted = _capped(model_call, lambda call: claude_recheck.recheck_run(
-        review_run_id, call, allowed_document_ids=scope.allowed_document_ids), transport)
+    with claude_spend_report.for_route(review_run_id):
+        result, exhausted = _capped(
+            model_call,
+            lambda call: claude_recheck.recheck_run(
+                review_run_id, call, allowed_document_ids=scope.allowed_document_ids
+            ),
+            transport,
+        )
     stored = 0
     for finding_id, per in _by_finding(result.get("findings")).items():
         if claude_recheck.store_recheck(finding_id, per) is not None:
@@ -443,9 +462,14 @@ def review_ai_check(
     if not ok:
         raise HTTPException(status_code=409, detail=errors.safe_error(MODEL_DISABLED, why))
     try:
-        result = ai_engineering_check.run_check(
-            review_run_id, allowed_document_ids=scope.allowed_document_ids,
-            cited=_missing_references(run["submittal_document_id"], scope.allowed_document_ids))
+        with claude_spend_report.for_route(review_run_id):
+            result = ai_engineering_check.run_check(
+                review_run_id,
+                allowed_document_ids=scope.allowed_document_ids,
+                cited=_missing_references(
+                    run["submittal_document_id"], scope.allowed_document_ids
+                ),
+            )
     except (claude_spend.BudgetExceeded, rp.ProviderRefused) as exc:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             MODEL_DISABLED, f"the AI engineering check did not run: {type(exc).__name__}")) from None

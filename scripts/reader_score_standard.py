@@ -64,7 +64,15 @@ print(f"\ncopy: {copy.name}")
 from app.config import settings  # noqa: E402
 
 settings.db_path = copy
-from app import claims, db, reader_api, reader_transport, standards  # noqa: E402
+from app import (  # noqa: E402
+    claims,
+    claude_approved,
+    claude_spend,
+    db,
+    reader_api,
+    reader_transport,
+    standards,
+)
 from app.standards import (  # noqa: E402
     _INLINE_CLAUSE,
     clause_number,
@@ -116,6 +124,10 @@ except reader_api.ReaderRefused as exc:
     print(f"\nREFUSED before any call: {exc}")
     sys.exit(2)
 print(f"model            : {cfg.model}   host: api.anthropic.com   timeout {cfg.timeout_seconds}s")
+# THE SAME CAPS AND LEDGER AS EVERY OTHER CLAUDE CALL: this script used to hold the raw transport.
+send = claude_spend.metered(
+    send, "reader-score-standard", unbilled=reader_transport.unbilled
+)
 
 # EVERY RAW ANSWER IS CACHED, so re-scoring never costs a second paid run.
 # The cache is keyed by model and prompt; `--replay` reads it and makes no
@@ -156,7 +168,8 @@ def model_call(prompt: str) -> str:
 
 t0 = time.perf_counter()
 by_sentence = {s: (cid, cl, pg) for s, cid, cl, pg in work}
-result = reader_api.read_sentences([w[0] for w in work], model_call)
+with claude_approved.carrying({DOC}):
+    result = reader_api.read_sentences([w[0] for w in work], model_call)
 elapsed = time.perf_counter() - t0
 CACHE.write_text(_json.dumps(cache), encoding="utf-8")
 print(f"cache: {len(cache)} answers held, {misses[0]} paid for on this run")

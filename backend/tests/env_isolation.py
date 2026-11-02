@@ -270,6 +270,7 @@ EGRESS_SAFE: dict[str, object] = {
     "procedure_crs_fields_enabled": False,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own
     "claude_auto_approve_reviews_enabled": False,
+    "claude_cost_controls_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: presence check of a playbook whose standard is not held (#1522, off by default)
