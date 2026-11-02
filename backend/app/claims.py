@@ -270,6 +270,15 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     # actual one by its reference conditions (see `nm3` above), so `scfh`
     # converts to nothing.
     "cp": "viscosity", "scfh": None,
+    # #1618: `numparse.CASE_KEPT_UNITS`, each the unit its folded spelling is
+    # NOT. RECOGNISED, NOT CONVERTED, on purpose. A pressure printed in mPa is
+    # far more likely a mistyped MPa than a real millipascal, and converting it
+    # would pass any maximum; with no number it gets no verdict and the engineer
+    # reads it. Two values in one of these units still compare as written.
+    "mPa": "pressure", "mW": None, "mJ": None, "mS": None,
+    "MA": "current", "MV": "voltage", "Mg": None, "ML": None,
+    "mPa·s": "viscosity", "mPa.s": "viscosity", "mPa-s": "viscosity", "mPas": "viscosity",
+    "pa·s": "viscosity", "pa.s": "viscosity", "pa-s": "viscosity",
 }
 _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
 
@@ -346,8 +355,9 @@ def is_rate_unit(unit_str: str) -> bool:
     if folded.count("/") != 1:
         return False
     top, bottom = folded.split("/")
+    # The grammar asks what KIND the top is, and "mW" is a power as "MW" is.
     return any((a, b) in _RATE_QUANTITIES
-               for a in _families(top, _RATE_NUMERATOR)
+               for a in _families(top.lower(), _RATE_NUMERATOR)
                for b in _families(bottom, _RATE_DENOMINATOR))
 
 
@@ -361,7 +371,8 @@ def _fold_unit(unit_str: str) -> str:
     # original casing, so "deg C" folded to `degc` and matched while "Deg C" -
     # the spelling a form actually uses in a column header - fell through to
     # `deg c` and matched nothing.
-    u = unit_str.strip().lower().replace("µ", "u").replace("μ", "u").replace("°", "")
+    # `numparse.fold_unit`: a unit whose case is its meaning keeps it (#1618).
+    u = numparse.fold_unit(unit_str).replace("µ", "u").replace("μ", "u").replace("°", "")
     # "m³/h" and "m3/h" are one unit; a superscript is printing, not identity.
     u = u.replace("²", "2").replace("³", "3")
     u = u.replace("deg ", "deg").replace("degrees", "deg").replace("degree", "deg")
@@ -381,6 +392,7 @@ _REFERENCE_SUFFIX = {
     "psig": ("psi", "gauge"), "psia": ("psi", "absolute"),
     "kpag": ("kpa", "gauge"), "kpaa": ("kpa", "absolute"),
     "mpag": ("mpa", "gauge"), "mpaa": ("mpa", "absolute"),
+    "mPag": ("mPa", "gauge"), "mPaa": ("mPa", "absolute"),
     # The same suffix on a compound pressure. "kg/cm2g" is a gauge reading
     # and differs from "kg/cm2" by an atmosphere, exactly as barg does.
     "kg/cm2g": ("kg/cm2", "gauge"), "kg/cm2a": ("kg/cm2", "absolute"),
@@ -564,6 +576,12 @@ _MEASUREMENT = re.compile(
     r"[A-Za-zµμ°%][A-Za-z°]*(?:[0-9²³](?![0-9]))?"
     r"(?:\([A-Za-z]\)|/[A-Za-zµμ][A-Za-z]*(?:[0-9²³](?![0-9]))?)?)"
 )
+
+
+#: What makes a pascal unit a viscosity, not a pressure: "5 mPa.s", "5 Pa·s".
+#: The measurement pattern stops at the pascal. Lower case only and no gap after
+#: the full stop, so "5 MPa. Second" stays a pressure.
+_PASCAL_SECOND = re.compile(r"(?:\s?[·⋅]\s?|[.\-])s(?:ec)?(?![A-Za-z0-9])")
 
 
 def parse_comparator(text: str) -> str | None:
@@ -866,6 +884,12 @@ def extract_measurements(sentence: str, skips: dict[str, int] | None = None) -> 
         if inside and not _is_measurement_not_code(sentence, inside, start, end, m.group("value")):
             continue
         unit = m.group("unit")
+        # #1618: read a pascal-second whole. "5 MPa.s" has no entry and is then
+        # no measurement, never 5 MPa.
+        if unit.lower() in ("pa", "kpa", "mpa"):
+            second = _PASCAL_SECOND.match(sentence, m.end("unit"))
+            if second is not None:
+                unit = (unit + second.group(0)).replace("⋅", "·").replace(" ", "")
         # "5 in the vessel" is the English word, not 5 inches. Inches are
         # written "5 in.", "5 in)", "5 in x 3 in", "5 in" at the end.
         if unit.lower() == "in" and _ENGLISH_IN.match(sentence, m.end("unit")):

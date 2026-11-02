@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, kit_core, numparse, severity_rule
 from .at_limit import hold as _hold
 from .checklist_scope import governs, standards
 from .config import settings
@@ -830,7 +830,7 @@ class _NotCalculated(Exception):
 
 
 def _unit_key(unit: str | None) -> str:
-    return (str(unit or "").lower().replace(" ", "").replace("²", "2").replace("³", "3")
+    return (numparse.fold_unit(unit).replace(" ", "").replace("²", "2").replace("³", "3")
             .replace("°", "deg").replace("μ", "u").replace("µ", "u"))
 
 

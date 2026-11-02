@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 
+from . import numparse
 from .config import settings
 from .rule_eval import same_value_key
 
@@ -94,7 +95,7 @@ def _range_key(fact: dict) -> tuple | None:
         "r",
         round(float(low), 9),
         round(float(high), 9),
-        " ".join(unit.lower().split()),
+        numparse.fold_unit(unit),
     )
 
 
