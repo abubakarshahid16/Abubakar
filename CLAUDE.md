@@ -39,10 +39,10 @@ carries the client's name; only the owner can rename it.
 1. **Privacy is the product.** No document text, filename, page reference or
    anything derived from a document may leave the machine - with ONE
    owner-approved lanes: the **Claude API**, only through
-   `reader_transport.py`, only under the budget of **USD 5 per step, USD 25 per
-   converted standard / USD 500 in total for November** (owner, #805 plan
-   change 4, 28 Oct 2026; it was USD 20 in total; the USD 500 ends on 30 Nov
-   unless the owner says otherwise; enforced in `claude_spend`), and with **no
+   `reader_transport.py`, only under the budget of **per review run USD 5 per step, except the AI clause
+   review step USD 10, and at most USD 15 for one whole review run; USD 25 per
+   standard, USD 100 per day and USD 500 for November** (owner, #1584, 2 Nov
+   2026; the USD 500 ends on 30 Nov unless the owner says otherwise; enforced in `claude_spend`), and with **no
    document text in logs, GitHub issues, PRs or CI**. **The standards
    converter's Claude lane is off by owner decision of 28 Oct 2026 (order 277);
    its caps apply only when the owner opens it.** Until then the converter runs

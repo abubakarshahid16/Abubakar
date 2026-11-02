@@ -36,7 +36,7 @@ from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
 from .at_limit import hold as _hold
-from .checklist_scope import governs, standards
+from .checklist_scope import governs, sources
 from .config import settings
 from .datasheet_coverage import (
     coverage,  # noqa: F401  (moved out to keep this file shrinking)
@@ -445,8 +445,7 @@ def checklist_sources(equipment_type: str | None, rules: dict | None = None) -> 
     checklist = checklist_for(equipment_type, rules or load_rules())
     if not checklist:
         return None
-    return {"key": checklist["key"], "items": len(checklist["items"]),
-            "standards": standards(checklist)}
+    return sources(checklist)
 
 
 def _measure(fact: dict):

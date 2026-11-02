@@ -1393,6 +1393,8 @@ class _RuleTrust:
 
     def __init__(self, equipment_type: str | None) -> None:
         self.equipment_type = equipment_type
+        #: Standards a draft checklist kept in scope (Lock 2): labelled whatever the switches say.
+        self.kept: set[str] = set()
         self._proofs: dict[tuple[str, str], dict | None] = {}
         self._revisions: dict[str, str | None] = {}
 
@@ -1417,7 +1419,8 @@ class _RuleTrust:
 
     def label(self, verdict: dict, rule: dict, fact: dict | None = None) -> dict:
         from . import rule_trust
-        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact)
+        always = rule.get("standard_document_id") in self.kept
+        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact, always=always)
 
 
 def _trust_columns(verdict: dict, status: str | None) -> dict:
@@ -2497,21 +2500,13 @@ def _run_comparison(
     governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
+        # Lock 2: a DRAFT checklist cannot decide, so it sets nothing aside (`checklist_scope.keeps_standards`).
+        if checklist_scope.keeps_standards(governing):
+            trust = trust or _RuleTrust(stored.get("equipment_type"))
+            trust.kept, covered_ids = covered_ids, set()
         if covered_ids:
-            detail = (f"the {governing['key']} review checklist governs this standard "
-                      f"({governing['items']} items); not checked one by one")
-            governed_cells = [i for i in gated["not_compared_items"]
-                              if i["requirement"].get("standard_document_id") in covered_ids]
-            covered_items = ([{"requirement": dict(r), "code": "covered_by_checklist", "detail": detail}
-                              for r in requirements if r.get("standard_document_id") in covered_ids]
-                             + [{"requirement": i["requirement"], "code": "covered_by_checklist",
-                                 "detail": detail} for i in governed_cells])
-            requirements = [r for r in requirements if r.get("standard_document_id") not in covered_ids]
-            gated = {**gated, "not_compared_items": [
-                i for i in gated["not_compared_items"]
-                if i["requirement"].get("standard_document_id") not in covered_ids]}
-            checklist_note = {"type": governing["key"], "items": governing["items"],
-                              "standards": len(covered_ids)}
+            covered_items, requirements, gated, checklist_note = checklist_scope.set_aside(
+                governing, covered_ids, requirements, gated)
     # #288: advice that still applies becomes an engineer's query, not a comparison
     requirements = recommendations.hold_for_query(requirements, held_items)
     applicability_summary = scoped["summary"]
