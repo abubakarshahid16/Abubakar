@@ -6,6 +6,20 @@ environment exactly like every other setting (`Settings` inherits them).
 
 from pydantic import BaseModel, Field
 
+#: Settings that change a review's answer only when moved off their default. They join
+#: `config_version` only then, so adding one leaves every recorded hash and baseline as it was.
+ANSWER_AFFECTING_WHEN_CHANGED = ("ai_division_scope_engine",)
+
+
+def answer_affecting_when_changed(settings) -> dict:
+    """The settings above that are off their default, for `config_version`."""
+    fields = type(settings).model_fields
+    return {
+        k: getattr(settings, k)
+        for k in ANSWER_AFFECTING_WHEN_CHANGED
+        if getattr(settings, k) != fields[k].default
+    }
+
 
 class SettingsExt(BaseModel):
     #: #1584 standards compiler (`standards_compiler.py`, `scripts/compile_standards.py`): Claude turns a held
@@ -20,6 +34,37 @@ class SettingsExt(BaseModel):
     #: The default of `--max-usd`: the owner's USD 100 a day, across every standard, read from the spend ledger.
     #: Env: STANDARDS_COMPILER_MAX_USD_PER_DAY.
     standards_compiler_max_usd_per_day: float = Field(100.0, gt=0)
+    #: Division scope's OWN engine (owner decision, 2 Nov 2026): `claude` reads a standard's
+    #: part scopes on the Claude API (`division_text.claude_reader`), under the provider
+    #: switch, both egress flags, the approved and block lists, the answer cache and the USD
+    #: caps. Anything else stays on the local model; in a Claude-lane run that is skipped and
+    #: listed as not checked. Env: AI_DIVISION_SCOPE_ENGINE.
+    ai_division_scope_engine: str = "ollama"
+    #: #805 plan change 6, part A: the rulebook's version 2 tables (`rulebook_v2.py`, `scripts/rulebook_v2.py`), on a
+    #: database COPY. No verdict reads them; no rule is in force until a person approves it. OFF: nothing is read,
+    #: created or written. Env: RULEBOOK_V2_ENABLED.
+    rulebook_v2_enabled: bool = False
+    #: #805 plan change 6: a review reads the approved version 2 rules for the document's equipment type beside version
+    #: 1 (`rulebook_v2_review.py`). Needs RULEBOOK_V2_ENABLED and the tables, so a database copy today. OFF: a review
+    #: reads none of it and is byte-identical. Env: RULEBOOK_V2_REVIEW_ENABLED.
+    rulebook_v2_review_enabled: bool = False
+    #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
+    #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
+    #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
+    rule_field_naming_engine: str = "off"
+    #: #1584, the proof run only: a rule forbidding a material decides through the owner-signed grade table
+    #: (`material_reference.py`), and each finding says it is not engineer-confirmed. Env: MATERIAL_REFERENCE_ENABLED.
+    material_reference_enabled: bool = False
+    #: Who proposes that table: "off" sends nothing. One call, no document text. Env: MATERIAL_REFERENCE_ENGINE.
+    material_reference_engine: str = "off"
+    #: Sonnet, not Haiku: one short call, and a wrong family is what a verdict would rest on. Env: MATERIAL_REFERENCE_MODEL.
+    material_reference_model: str = "claude-sonnet-5-5"
+    #: #805 plan change 6, the owner's to turn on: an owner's written note on a context-dependent rule lets that rule
+    #: decide, and the finding says so. It lifts the context flag only, never an unverifiable condition or a low reading
+    #: confidence. OFF: such a rule is a Query. Env: OWNER_NOTE_LIFTS_CONTEXT_FLAG_ENABLED.
+    owner_note_lifts_context_flag_enabled: bool = False
+    #: The model of that step. Env: RULE_FIELD_NAMING_MODEL.
+    rule_field_naming_model: str = "claude-haiku-5-5"
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every

@@ -13,7 +13,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Job | Modules |
 |---|---|
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
-| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_text` |
+| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
 
 ## Modules
@@ -27,6 +27,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `admin_explorer` | Read-only database explorer for the Administration page. Phase 8 |
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `clause_scope` | Choose the standards that apply to a submittal |
+| `division_claude` | Choose the standards that apply to a submittal |
 | `division_text` | Choose the standards that apply to a submittal |
 | `same_value` | When two readings of a field are one value: the same number and unit with a plain note; a note that changes the meaning stays a second value |
 | `label_match` | A split abbreviation ("tube o d") is joined before the roles table is read; a reading with no unit beside the same number with one is one value (switch `datasheet_label_join_enabled`) |
@@ -201,6 +202,19 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `compiled_rule_shape` | #1584: whether a compiled rule may store its figure: an allow-list of plain sentence shapes; anything else keeps the sentence and no limit |
 | `compiled_rule_rescue` | #1584: the rules still readable in a paid answer that does not parse as a whole; says whether anything was lost |
 | `compiled_rule_report` | #1584: a standard's page text as the app cites it, where each page's text came from, its table rows, and version 1 beside version 2 with how the version 2 run ended; reads only, counts only |
+| `rulebook_v2` | #805 plan change 6, part A: the rulebook's version 2 tables on a database copy: stable rules, append-only versions, applicability and exceptions apart, provenance, a person's decisions, trigger-written events, a snapshot per compile, the snapshot a run used; off by default; no verdict reads them |
+| `rulebook_v2_check` | #805 plan change 6, part A: one rule's requirement against one submitted value: meets, does not meet or cannot tell; pure; not mentioned is never compliant |
+| `rulebook_v2_review` | #805 plan change 6: a review reads approved version 2 rules beside version 1: pairs each to a read value by field, decides through `comparison.compare`, a Query with a named reason when unsure; `pair_rule_to_document` is the pairing alone, read only; off by default |
+| `rule_field_naming` | #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list, code verifies it; a rule no field answers is kept, marked not on a datasheet; off by default |
+| `rule_typed_check` | #805 plan change 6: a rule with a verified field role and no figure gets a typed check proposed from its quote; code verifies it and decides with the readers the project has; off by default |
+| `material_reference` | #1584: specification grade to material family, proposed from general knowledge with no document text, signed by the owner's tick, read only with its switch on; a grade not in the signed table is a Query |
+| `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |
+| `rulebook_v2_findings` | #805 plan change 6: a review's version 2 rows as findings of the run, each citing its rule, with the safety tier and open tick |
+| `rulebook_v2_signed` | #805 plan change 6: a compiled rule's field role and typed check, and what a tick records of them |
+| `rulebook_v2_stated` | #805 plan change 6: a run's version 2 rows as `coverage_pair` states them, apart, with their denominator |
+| `run_parts` | what a review run states beside its three groups, and its door to the version 2 rulebook, shut with the switch off |
+| `rulebook_v2_ingest` | #805 plan change 6, part A: a compile's verified rows become rows of the version 2 tables, each quote checked again and what fails counted by reason; counts for the version-1-beside-version-2 table |
+| `rulebook_v2_schema` | #805 plan change 6, part A: the statements of the version 2 tables and their guards, and the words they allow |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
