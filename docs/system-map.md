@@ -167,6 +167,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `intake` | One intake layer (#525, ONE_INTAKE_ENABLED): PDF, Word, Excel and image files read into one page shape; every unread page or refused file states its reason |
+| `docx_pages` | A Word file's own page numbers from its saved markers, and its tables and pictures counted against what was read (WORD_PAGE_MARKERS_ENABLED) |
 | `sheet_chunks` | Chunks for an Excel workbook (#525 slice 2, INTAKE_IMAGES_XLSX_ENABLED): each chunk cited by sheet and cell range |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
@@ -325,6 +326,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `work_budget` | A hard work budget for a request that can grow with the library (#606) |
 | `workbook` | Read an xlsx into sheets for a read-only preview. Standard library only |
 | `word_flow` | #1473: a Word file read as `docx_reader` pages for the datasheet fact reader (PAGE_READ_BY_READING_ENABLED) |
+| `word_pages` | What a reviewer is told about a Word file's pages, tables and pictures: real page, partial, or the section heading (WORD_PAGE_MARKERS_ENABLED) |
+| `word_pictures` | A Word file's pictures read by the local OCR engine, stored per file; no Claude lane, no reader model (WORD_PAGE_MARKERS_ENABLED) |
 
 ## Target structure (planner order 71c on #692; the design for #736)
 

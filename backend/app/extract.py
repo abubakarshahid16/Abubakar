@@ -327,7 +327,15 @@ def _non_pdf_rows(path: str, doc_id: str | None = None) -> tuple[list[tuple] | N
     before. With DATASHEET_OFFICE_INPUT on, a Word file keeps the datasheet
     reader's own pages (its facts cite them); otherwise it is read with its
     structure. A PDF never takes this branch.
+
+    WORD_PAGE_MARKERS_ENABLED: one numbering wherever a Word file is read, and its
+    pictures go to the local OCR engine first, so their text is on the pages below.
     """
+    if settings.word_page_markers_enabled and doc_id:
+        from . import datasheet_inputs, word_pictures
+
+        if datasheet_inputs.office_kind(path) == datasheet_inputs.KIND_DOCX:
+            word_pictures.read_document(path)
     if settings.one_intake_enabled:
         from . import intake
 
@@ -337,8 +345,12 @@ def _non_pdf_rows(path: str, doc_id: str | None = None) -> tuple[list[tuple] | N
         if doc_id:  # what was not read, or only partly, is stored with the document
             intake.store(doc_id, result)
         return intake.as_rows(result), result.flow
-    docx_rows = (_docx_rows(path)
-                 if settings.docx_input_enabled and not settings.datasheet_office_input else None)
+    docx_rows = (
+        _docx_rows(path)
+        if settings.docx_input_enabled
+        and (settings.word_page_markers_enabled or not settings.datasheet_office_input)
+        else None
+    )
     if docx_rows is not None:
         return docx_rows, True
     return (_office_rows(path) if settings.datasheet_office_input else None), False
@@ -403,6 +415,22 @@ EXTRACT_STAGES = ("extract", "chunk")
 _STAGE_MARKS = ",".join("?" * len(EXTRACT_STAGES))
 
 
+def _mark_flow(conn, doc_id: str, pages: int) -> None:
+    """A Word document is flow. WORD_PAGE_MARKERS_ENABLED: a file read before the
+    switch held reading parts; its pages are now the file's own, and no row of the
+    old numbering may stay behind."""
+    with conn:
+        conn.execute("UPDATE documents SET pagination = 'flow' WHERE id = ?", (doc_id,))
+        if settings.word_page_markers_enabled:
+            conn.execute(
+                "UPDATE documents SET page_count = ? WHERE id = ?", (pages, doc_id)
+            )
+            conn.execute(
+                "DELETE FROM pages WHERE document_id = ? AND page_no > ?",
+                (doc_id, pages),
+            )
+
+
 def extract_document(doc_id: str, progress=None) -> dict:
     """Extract one document, resuming from its last completed batch.
 
@@ -443,8 +471,7 @@ def extract_document(doc_id: str, progress=None) -> dict:
 
     office_rows, flow = _non_pdf_rows(pdf_path, doc_id)
     if flow:
-        with conn:
-            conn.execute("UPDATE documents SET pagination = 'flow' WHERE id = ?", (doc_id,))
+        _mark_flow(conn, doc_id, len(office_rows))
     total = (len(office_rows) if office_rows is not None
              else doc["page_count"] or page_count(pdf_path))
     if doc["page_count"] is None:
