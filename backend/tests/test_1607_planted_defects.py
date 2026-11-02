@@ -494,13 +494,13 @@ def test_the_scorer_can_report_a_pass_through_the_real_path(base, copy_db, tmp_p
 def test_a_clean_sheet_read_by_the_stand_in_has_no_false_alarm(base, copy_db, tmp_path):
     small = _small(base, ())
     result = pd.score(copy_db, [small], reader="fake", work=tmp_path / "w")
-    assert result["controls"][0] == {
+    control = result["controls"][0]
+    assert {k: control[k] for k in ("sheet", "fail", "query")} == {
         "sheet": "relief_valve-01.pdf",
         "fail": 0,
         "query": 0,
-        "fail_library": 0,
-        "query_library": 0,
     }
+    assert control["fail_library"] == 0 and control["query_library"] == 0
 
 
 def test_the_scorer_refuses_the_live_database(tmp_path, monkeypatch):
@@ -603,3 +603,245 @@ def test_the_script_writes_a_set(tmp_path, capsys):
     spec.loader.exec_module(module)
     assert module.main(["generate", "--out", str(tmp_path)]) == 0
     assert (tmp_path / "relief_valve" / "manifest.json").is_file()
+    assert (tmp_path / "centrifugal_pump" / "manifest.json").is_file()
+
+
+# ------------------------------------------------------------------ the pump base
+
+
+@pytest.fixture(scope="module")
+def pump() -> dict:
+    return pd.load_base(pd.BASES / "centrifugal_pump.json")
+
+
+def test_the_pump_base_is_invented_and_plants_all_seven_kinds(pump, tmp_path):
+    assert pump["source"] == "invented"
+    assert pump["equipment_type"] == "Centrifugal Pump"
+    manifest = pd.write_set(pump, tmp_path)
+    planted = [s for s in manifest["sheets"] if not s["control"]]
+    assert {s["defect"] for s in planted} == SEVEN
+    assert manifest["equipment_type"] == "Centrifugal Pump"
+
+
+@pytest.mark.parametrize("name", ["relief_valve", "centrifugal_pump"])
+def test_every_printed_label_is_read_as_the_field_the_base_says(name):
+    """Otherwise a plant lands on a row the review cannot see, and scores as a miss
+    of the reader when the base is what is wrong."""
+    from app import datasheet_checks as dc
+
+    rules = dc.load_rules()
+    base = pd.load_base(pd.BASES / f"{name}.json")
+    known = {r["role"]: r["field"] for p in base["pages"] for r in p["rows"]}
+    wrong = {
+        role: label
+        for role, label in known.items()
+        if dc.role_of(label, rules, frozenset(known)) != role
+    }
+    assert not wrong
+
+
+def test_the_pump_base_prints_every_field_its_checklist_asks_for(pump):
+    from app import datasheet_checks as dc
+
+    items = dc.load_rules()["checklists"][pump["equipment_type"]]["items"]
+    printed = {r["role"] for p in pump["pages"] for r in p["rows"]}
+    assert {i["rule"]["field"] for i in items} <= printed
+
+
+def test_the_scorer_module_names_no_equipment_type():
+    """Rule 13: a new kind of equipment is a new base file, never new code here."""
+    import re
+
+    from app import datasheet_checks as dc
+
+    source = (REPO / "backend" / "tools" / "planted_defects.py").read_text().lower()
+    types = [t for t in dc.load_rules()["checklists"] if not t.startswith("_")]
+    assert not [t for t in types if t.lower() in source]
+    assert not re.search(r"\b(pump|valve|vessel|exchanger)\b", source)
+
+
+def test_a_pump_sheet_goes_through_the_real_review_and_is_typed_as_a_pump(
+    pump, copy_db, tmp_path
+):
+    small = _small(pump, (("over_limit", "operating_pressure"),))
+    result = pd.score(copy_db, [small], reader="rules", work=tmp_path / "w")
+    sheet, control = result["sheets"][0], result["controls"][0]
+    assert sheet["got"] == "fail", sheet
+    assert sheet["equipment_type"] == "Centrifugal Pump"
+    assert sheet["typed_as"] == "Centrifugal Pump"
+    assert control["typed_as"] == "Centrifugal Pump"
+    assert control["fail"] == 0 and control["query"] == 0, control
+    assert control["checklist"]["rows"] >= 17, "the pump checklist ran"
+
+
+# ------------------------------------------------------------------ risk and coverage
+
+
+def _sheet(got, kind="Centrifugal Pump", **extra):
+    return {
+        "defect": "over_limit",
+        "equipment_type": kind,
+        "typed_as": kind,
+        "got": got,
+        "as_wanted": False,
+        "false_new": 0,
+        "also_passed": 0,
+        **extra,
+    }
+
+
+def _clean(kind="Centrifugal Pump", *, rows=17, decided=17, fail=0, **extra):
+    return {
+        "sheet": "s",
+        "equipment_type": kind,
+        "typed_as": kind,
+        "fail": fail,
+        "query": rows - decided,
+        "fail_library": 0,
+        "query_library": 0,
+        "checklist": {"rows": rows, "decided": decided, "fail": fail},
+        **extra,
+    }
+
+
+def test_a_fail_is_decided_and_right_a_pass_is_decided_and_wrong():
+    got = pd.per_type(
+        [_sheet("fail"), _sheet("fail"), _sheet("wrongly_passed")], [_clean()]
+    )["Centrifugal Pump"]
+    assert got["planted"]["decided"] == 3 and got["planted"]["applicable"] == 3
+    assert got["planted"]["risk"]["wrong"] == 1
+    assert got["planted"]["risk"]["decided"] == 3
+
+
+def test_a_query_or_no_row_is_not_decided_and_never_wrong():
+    got = pd.per_type([_sheet("query"), _sheet("missed"), _sheet("fail")], [])[
+        "Centrifugal Pump"
+    ]
+    assert got["planted"]["applicable"] == 3 and got["planted"]["decided"] == 1
+    assert got["planted"]["risk"]["wrong"] == 0
+
+
+def test_a_sheet_that_did_not_run_is_out_of_both_numbers_and_is_said():
+    got = pd.per_type([_sheet("not_run"), _sheet("fail")], [])["Centrifugal Pump"]
+    assert got["planted"]["applicable"] == 1 and got["not_run"] == 1
+
+
+def test_a_fail_on_a_clean_sheet_is_the_wrong_side_of_the_risk():
+    """Not vacuous: a review that fails everything has no wrong plant, so the clean
+    side has to count, or it would read as 0 risk."""
+    got = pd.per_type([_sheet("fail")], [_clean(rows=17, decided=10, fail=4)])[
+        "Centrifugal Pump"
+    ]
+    assert got["clean"]["applicable"] == 17 and got["clean"]["decided"] == 10
+    assert got["clean"]["risk"]["wrong"] == 4
+    assert got["planted"]["risk"]["wrong"] == 0, "the two sides are never added"
+
+
+def test_a_clean_sheet_that_did_not_run_is_not_counted_as_clean():
+    got = pd.per_type([], [_clean(rows=0, decided=0, not_run="not read")])[
+        "Centrifugal Pump"
+    ]
+    assert got["clean"] is None and got["not_run"] == 1
+
+
+def _result(sheets, controls):
+    return {"reader": "rules", "base": "b", "sheets": sheets, "controls": controls}
+
+
+def _line(text, kind):
+    return next(r for r in text.splitlines() if r.startswith(f"| {kind} |"))
+
+
+def test_one_type_cannot_hide_another():
+    text = pd.render(
+        _result(
+            [
+                _sheet("fail", "Pressure Safety Valve"),
+                _sheet("fail", "Pressure Safety Valve"),
+                _sheet("wrongly_passed"),
+                _sheet("query"),
+            ],
+            [_clean("Pressure Safety Valve", rows=47, decided=40), _clean()],
+        )
+    )
+    assert "Risk and coverage per equipment type" in text
+    psv, pmp = _line(text, "Pressure Safety Valve"), _line(text, "Centrifugal Pump")
+    assert "2 of 2" in psv and "0 of 2" in psv and "40 of 47" in psv
+    assert "1 of 2" in pmp and "17 of 17" in pmp
+    assert text.index("Risk and coverage per equipment type") < text.index(
+        "| over_limit |"
+    )
+
+
+def test_the_kind_table_is_per_type_too():
+    text = pd.render(
+        _result([_sheet("fail", "Pressure Safety Valve"), _sheet("wrongly_passed")], [])
+    )
+    assert text.count("| over_limit |") == 2
+    assert "Pressure Safety Valve: per defect kind" in text
+    assert "Centrifugal Pump: per defect kind" in text
+
+
+def test_nothing_decided_is_not_measured_never_zero_risk():
+    """Rule 4: a type of Queries only has made no decision that could be wrong."""
+    line = _line(
+        pd.render(_result([_sheet("query")], [_clean(rows=0, decided=0)])),
+        "Centrifugal Pump",
+    )
+    cells = [c.strip() for c in line.strip("|").split("|")]
+    assert cells[1] == "0 of 1" and cells[2] == "not measured"
+    assert cells[3] == "" and cells[4] == "not measured", "null renders as nothing"
+
+
+def test_a_type_with_nothing_run_gives_no_coverage_and_no_risk():
+    line = _line(pd.render(_result([_sheet("not_run")], [])), "Centrifugal Pump")
+    cells = [c.strip() for c in line.strip("|").split("|")]
+    assert cells[1] == "" and cells[2] == "not measured" and cells[5] == "1"
+
+
+def test_a_sheet_the_review_typed_as_something_else_is_said():
+    """The type on the row is the base's. If the review read another, that type's
+    checklist never ran: it stays in the number, as what the review did, and is said."""
+    other = _sheet("missed", typed_as="Pressure Vessel")
+    none = _clean(typed_as=None)
+    line = _line(
+        pd.render(_result([other, _sheet("fail")], [none])), "Centrifugal Pump"
+    )
+    cells = [c.strip() for c in line.strip("|").split("|")]
+    assert cells[7] == "2"
+
+
+def test_the_table_says_no_percentage():
+    text = pd.render(_result([_sheet("fail")], [_clean()]))
+    assert "%" not in text
+
+
+def test_the_bench_prints_the_pair_per_type_through_the_real_scorer(
+    base, pump, copy_db, tmp_path, monkeypatch, capsys
+):
+    from tools import crs_bench
+
+    truth = tmp_path / "truth.json"
+    truth.write_text(json.dumps({"cases": []}))
+    monkeypatch.setattr(crs_bench, "run_bench", lambda *_a, **_k: [])
+    monkeypatch.setattr(crs_bench, "render_markdown", lambda *_a, **_k: "BENCH TABLE")
+    monkeypatch.setattr(crs_bench, "gate", lambda *_a, **_k: ["red before the table"])
+    monkeypatch.setattr(settings, "planted_defects_bench_enabled", True)
+    monkeypatch.setattr(
+        pd,
+        "all_bases",
+        lambda: [
+            _small(base, (("over_limit", "set_pressure"),)),
+            _small(pump, (("over_limit", "operating_pressure"),)),
+        ],
+    )
+    script = _bench()
+    monkeypatch.setattr(script, "_settings_file", lambda _g: None)
+    code = script.main(["--db", str(copy_db), "--truth", str(truth), "--stored-only"])
+    out = capsys.readouterr().out
+    assert code == 1, (
+        "the bench's own gate decides the exit code, not the planted table"
+    )
+    assert "Risk and coverage per equipment type" in out
+    assert _line(out, "Pressure Safety Valve") and _line(out, "Centrifugal Pump")
+    assert "not run (" not in out
