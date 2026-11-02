@@ -259,6 +259,11 @@ class SettingsExt(BaseModel):
     #: the signed-in user (`Me.session_expired_notice`). OFF: the form with no reason and no extra
     #: request, as before. Env: SESSION_EXPIRED_NOTICE_ENABLED.
     session_expired_notice_enabled: bool = False
+    #: #1608 (plan change 6 G): at the end of each comparison the run stores its rulebook (version used, rules applied,
+    #: fingerprint) and the ticks imported; the internal CRS gets a "Run record" sheet with those, the run's models and
+    #: the could-not-check list, which says so when empty (`run_record`). OFF: nothing stored, no sheet.
+    #: Env: RUN_RECORD_ENABLED.
+    run_record_enabled: bool = False
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print

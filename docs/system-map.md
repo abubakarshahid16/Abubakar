@@ -119,6 +119,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
+| `run_record` | Record on a review run its rulebook, models and ticks imported, and make the internal CRS's Run record sheet with the could-not-check list |
 | `crs_checklist` | Make a checklist item held for the engineer a CRS row, and say when it is a draft |
 | `recommendations` | A "should" sentence of a standard is stored as a recommendation with no limit; no review reads it (order 288.2) |
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |

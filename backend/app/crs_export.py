@@ -172,6 +172,8 @@ STANDARDS_SHEET = "Applicable standards"
 STANDARDS_COLUMNS = ("Standard", "Status", "Method", "Reason", "Evidence")
 #: Owner order 2f: the engineer's internal notes, on their own sheet - never
 #: in COMPANY Comments, and not in the copy issued to the contractor.
+RUN_RECORD_SHEET = "Run record"
+RUN_RECORD_COLUMNS = ("Section", "Item", "Detail")
 REVIEW_NOTES_SHEET = "Review notes"
 REVIEW_NOTES_COLUMNS = ("Note", "Standard", "Count", "Detail")
 #: The status words that sheet prints.
@@ -522,6 +524,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # included and the cited ones not held (MISSING_LOCALLY). Drawn on a
         # sheet of its own so the client's seven-column comment sheet is
         # unchanged.
+        # #1608: the run record and its could-not-check list, internal copy only (#633).
+        "run_record": meta.get("run_record") if copy == COPY_INTERNAL else None,
         "applicable_standards": [
             {"standard": str(s.get("standard") or ""),
              "status": str(s.get("status") or ""),
@@ -717,6 +721,16 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                     Alignment(wrap_text=True, vertical="top")
         for col, width in zip("ABCD", (44, 30, 8, 90)):
             notes_sheet.column_dimensions[col].width = width
+
+    if view["run_record"]:  # #1608
+        record_sheet = wb.create_sheet(RUN_RECORD_SHEET)
+        for col, header in enumerate(RUN_RECORD_COLUMNS, start=1):
+            _write(record_sheet, 1, col, header).font = Font(bold=True)
+        for r, entry in enumerate(view["run_record"], start=2):
+            for col, value in enumerate(entry, start=1):
+                _write(record_sheet, r, col, value).alignment = Alignment(wrap_text=True, vertical="top")
+        for col, width in zip("ABC", (18, 22, 110)):
+            record_sheet.column_dimensions[col].width = width
 
     if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
         quality.write_internal_sheet(wb, view["internal_sheet"], _write)

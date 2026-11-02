@@ -34,6 +34,7 @@ from . import disciplines as disciplines_mod
 from . import ingest as ingest_mod, dashboard_pool
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
+from . import run_record as run_record_mod
 from . import orphan_guard
 from . import page_ledger as page_ledger_mod
 from . import fts_index as keyword_mod
@@ -2962,6 +2963,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
+    if run_record_mod.enabled() and copy == "internal":  # #1608
+        meta["run_record"] = run_record_mod.crs_rows(review_run_id, run, outcome, unchecked, missing)
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed
