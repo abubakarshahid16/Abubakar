@@ -174,6 +174,26 @@ def test_wrong_or_not_applicable_is_no_approval_and_withdraws_an_earlier_one(
     assert _approvals()[-1]["note"] == tick
 
 
+def test_the_import_records_what_the_tick_signed_and_a_later_change_shows(tmp_path):
+    _person()
+    _compile()
+    path = _ticked(tmp_path)
+    assert _run(path) == 0
+    conn = _conn()
+    rule = rulebook_v2.approved_rules(conn, PSV)[0]
+    assert rule["signed_matches"] is True
+    row = conn.execute("SELECT signed_content FROM rulebook_approval").fetchone()[0]
+    assert json.loads(row)["check_op"] is None
+    from app import rule_typed_check
+
+    rule_typed_check.ensure_columns(conn)
+    with conn:
+        conn.execute(
+            "UPDATE compiled_rules SET check_op = 'is_not', check_state = 'verified'"
+        )
+    assert rulebook_v2.approved_rules(conn, PSV)[0]["signed_matches"] is False
+
+
 def test_importing_the_same_file_again_adds_nothing(tmp_path):
     _person()
     _compile()

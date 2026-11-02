@@ -340,6 +340,61 @@ def test_the_role_reaches_the_rulebook_tables_and_a_person_s_rule(monkeypatch):
     assert said["field_role_reason"] is None
 
 
+def _signed_book(monkeypatch):
+    monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
+    conn = _compiled()
+    rulebook_v2_ingest.ingest_latest(conn, DOC)
+    version = conn.execute("SELECT id FROM rulebook_version").fetchone()[0]
+    source = conn.execute(
+        "SELECT id FROM rulebook_provenance WHERE rule_version_id = ?", (version,)
+    ).fetchone()[0]
+    with conn:
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, password_hash, is_active, created_at)"
+            " VALUES ('owner-1','o@example.test','O','x',1,'2026-11-02')"
+        )
+    rulebook_v2.record_decision(
+        conn,
+        version,
+        decision="approve",
+        engineer_id="owner-1",
+        tier="owner",
+        equipment_type=TYPE,
+        provenance_viewed=(source,),
+        note="Checked OK: read.",
+        signed_content=rulebook_v2.content_to_sign(conn, version),
+    )
+    return conn
+
+
+def test_a_role_named_after_the_tick_is_not_what_was_signed(monkeypatch):
+    conn = _signed_book(monkeypatch)
+    assert rulebook_v2.approved_rules(conn, TYPE)[0]["signed_matches"] is True
+    _name(conn, Roles({"field_role": "set_pressure", "reason": None}))
+    assert rulebook_v2.approved_rules(conn, TYPE)[0]["signed_matches"] is False
+
+
+def test_a_tick_recorded_with_no_content_never_matches_a_role(monkeypatch):
+    monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
+    conn = _signed_book(monkeypatch)
+    version = conn.execute("SELECT id FROM rulebook_version").fetchone()[0]
+    _name(conn, Roles({"field_role": "set_pressure", "reason": None}))
+    source = conn.execute(
+        "SELECT id FROM rulebook_provenance WHERE rule_version_id = ?", (version,)
+    ).fetchone()[0]
+    rulebook_v2.record_decision(
+        conn,
+        version,
+        decision="approve",
+        engineer_id="owner-1",
+        tier="owner",
+        equipment_type=TYPE,
+        provenance_viewed=(source,),
+        note="Checked OK: read.",
+    )
+    assert rulebook_v2.approved_rules(conn, TYPE)[0]["signed_matches"] is False
+
+
 def test_a_book_on_a_copy_where_the_step_has_not_run_says_nothing(monkeypatch):
     monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
     conn = _compiled()

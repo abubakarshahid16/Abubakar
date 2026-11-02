@@ -129,6 +129,7 @@ _TABLE_SQL = (
     "ALTER TABLE rulebook_approval ADD COLUMN equipment_type TEXT",
     "ALTER TABLE rulebook_approval ADD COLUMN approver_name TEXT",
     "ALTER TABLE rulebook_approval ADD COLUMN source_sha256 TEXT",
+    "ALTER TABLE rulebook_approval ADD COLUMN signed_content TEXT",
 )
 #: What each table's rows are unique by: INSERT OR REPLACE on any of these would erase a row without a delete trigger.
 _UNIQUE_BY = {

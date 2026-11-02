@@ -311,12 +311,24 @@ def _standing(conn, version_id: str) -> dict[str, dict]:
     """{equipment type: the approval that stands for it}. For each type the LAST decision counts, and it must be an
     approval. A decision that names no type (a retirement) ends every approval before it."""
     standing: dict[str, dict] = {}
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)")}
+    signed = "signed_content" if "signed_content" in columns else "NULL"
     for row in conn.execute(
-        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier, note FROM rulebook_approval"
-        " WHERE rule_version_id = ? ORDER BY rowid",
+        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier, note,"
+        f" {signed} FROM rulebook_approval WHERE rule_version_id = ? ORDER BY rowid",
         (version_id,),
     ):
-        names = ("id", "decision", "type", "by_id", "by", "at", "tier", "note")
+        names = (
+            "id",
+            "decision",
+            "type",
+            "by_id",
+            "by",
+            "at",
+            "tier",
+            "note",
+            "signed",
+        )
         one = dict(zip(names, row, strict=True))
         kind = _fold_type(one["type"])
         if not kind:
@@ -349,6 +361,7 @@ def _insert_decision(
     provenance_viewed: tuple[str, ...] = (),
     note: str | None = None,
     source_sha256: str | None = None,
+    signed_content: str | None = None,
 ) -> str:
     if decision == APPROVE:
         held = {
@@ -368,8 +381,8 @@ def _insert_decision(
     approval_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO rulebook_approval (id, rule_version_id, decision, approver_id, decided_at, note,"
-        " provenance_viewed, tier, equipment_type, approver_name, source_sha256)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        " provenance_viewed, tier, equipment_type, approver_name, source_sha256, signed_content)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             approval_id,
             version_id,
@@ -382,6 +395,7 @@ def _insert_decision(
             equipment_type,
             person[0] if person else None,
             source_sha256,
+            signed_content,
         ),
     )
     return approval_id
@@ -446,6 +460,27 @@ def field_role_of(conn, version_id: str) -> dict:
     return out
 
 
+def content_to_sign(conn, version_id: str) -> str:
+    """The field role and typed check a tick signs with a rule. They are not in the file's stamp, so the tick records
+    them and a read compares: a role or check added or changed after the tick is not what was signed."""
+    now = field_role_of(conn, version_id)
+    names = (
+        "field_role",
+        "field_role_state",
+        "check_op",
+        "check_values",
+        "check_state",
+    )
+    return json.dumps({n: now[n] for n in names}, sort_keys=True)
+
+
+def signed_content_of(conn, version_id: str, equipment_type: str) -> str | None:
+    """What the approval standing for this type recorded, or None."""
+    return (_standing(conn, version_id).get(_fold_type(equipment_type)) or {}).get(
+        "signed"
+    )
+
+
 def approved_rules(conn, equipment_type: str) -> list[dict]:
     """The rules a review of this equipment type may use: the current version of a rule, when the last decision on it
     for this type is a person's approval. An unapproved or superseded rule never appears: a rule whose newest reading
@@ -491,6 +526,7 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
                 "conditions": [k[1] for k in keys if k[0] != "subject"],
                 "exceptions": [e[0] for e in exceptions],
                 **field_role_of(conn, row[0]),
+                "signed_matches": approval["signed"] == content_to_sign(conn, row[0]),
                 "clause": source[0],
                 "page": source[1],
                 "quote": source[2],

@@ -208,7 +208,14 @@ def _decisions(
     for row in ticked:
         version = _version_of(conn, _text(row[C_RULE]), _version_number(row))[0]
         word = rulebook_v2.APPROVE if row[C_TICK] == OK else rulebook_v2.REJECT
-        if rulebook_v2.last_decision(conn, version, equipment_type) == (word, signer):
+        signing = rulebook_v2.content_to_sign(conn, version)
+        same = word != rulebook_v2.APPROVE or signing == rulebook_v2.signed_content_of(
+            conn, version, equipment_type
+        )
+        if same and rulebook_v2.last_decision(conn, version, equipment_type) == (
+            word,
+            signer,
+        ):
             already += 1
             continue
         sources = conn.execute(
@@ -225,6 +232,7 @@ def _decisions(
                 "provenance_viewed": tuple(s[0] for s in sources),
                 "note": f"{row[C_TICK]}: {comment}" if comment else row[C_TICK],
                 "source_sha256": digest,
+                "signed_content": signing if word == rulebook_v2.APPROVE else None,
             }
         )
     return out, already

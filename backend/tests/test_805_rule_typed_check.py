@@ -151,6 +151,111 @@ def test_code_decides_only_what_it_can_prove(op, values, stated, status):
     assert decide(op, values, stated)[0] == status
 
 
+@pytest.mark.parametrize(
+    ("op", "values", "stated", "status"),
+    [
+        (
+            IS_ONE_OF,
+            ["carbon steel", "stainless steel"],
+            "carbon steel / cast iron",
+            "NON_COMPLIANT",
+        ),
+        (
+            IS_ONE_OF,
+            ["carbon steel", "stainless steel"],
+            "cast iron / carbon steel",
+            "NON_COMPLIANT",
+        ),
+        (
+            IS_ONE_OF,
+            ["carbon steel", "stainless steel"],
+            "carbon steel / invented alloy",
+            None,
+        ),
+        (
+            IS_ONE_OF,
+            ["carbon steel", "stainless steel"],
+            "carbon steel / stainless steel",
+            "COMPLIANT",
+        ),
+        (IS_NOT, ["cast iron"], "stainless steel / invented alloy", None),
+        (IS_NOT, ["cast iron"], "stainless steel / cast iron", "NON_COMPLIANT"),
+        (AT_LEAST_CLASS, ["Class 300"], "Class 600 / Class 150", "NON_COMPLIANT"),
+        (AT_LEAST_CLASS, ["Class 300"], "Class 600 / see note 4", None),
+    ],
+)
+def test_every_listed_part_must_meet_the_rule(op, values, stated, status):
+    assert decide(op, values, stated)[0] == status
+
+
+@pytest.mark.parametrize("words", ["unless", "where", "except", "when", "if"])
+def test_a_check_on_a_conditional_sentence_is_refused_and_a_stored_one_does_not_decide(
+    monkeypatch, words
+):
+    quote = (
+        f"The invented body shall not be cast iron {words} the invented thing is so."
+    )
+    _op, _values, state, why = verify(
+        _row(quote), {"op": IS_NOT, "values": ["cast iron"]}, FIELDS
+    )
+    assert (state, why) == (UNVERIFIED, rule_typed_check.CONDITIONAL_SENTENCE)
+    run, scope = _material_sheet("cast iron")
+    row = _one(_review(monkeypatch, run, scope, _typed(quote, IS_NOT, ["cast iron"])))
+    assert row["compliance_status"] == QUERY and _reason(row) == "no_figure"
+
+
+def test_a_safety_pass_stores_its_open_tick_and_holds_an_approved_code(monkeypatch):
+    run, scope = _material_sheet("stainless steel")
+    monkeypatch.setattr(
+        rule_trust, "tier", lambda _r, **_k: (rule_trust.SAFETY, "invented")
+    )
+    row = _one(
+        _review(monkeypatch, run, scope, _typed(NOT_COPPER, IS_NOT, ["cast iron"]))
+    )
+    assert row["compliance_status"] == "COMPLIANT" and row["tier"] == rule_trust.SAFETY
+    assert row["show_for_engineer_tick"] == 1
+    codes = ("A", "B", "C", "MANUAL")
+    held = rule_trust.hold_open_ticks({"code": "A", "reason": "r"}, [row], codes)
+    assert held["code"] == "MANUAL"
+    part = coverage_pair.for_run(db.connect(), run)["rulebook_v2"]
+    assert (part["decided"], part["pass"], part["query"]) == (0, 0, 1)
+
+
+def test_a_breach_opens_no_tick(monkeypatch):
+    run, scope = _material_sheet("cast iron")
+    monkeypatch.setattr(
+        rule_trust, "tier", lambda _r, **_k: (rule_trust.SAFETY, "invented")
+    )
+    row = _one(
+        _review(monkeypatch, run, scope, _typed(NOT_COPPER, IS_NOT, ["cast iron"]))
+    )
+    assert (
+        row["compliance_status"] == "NON_COMPLIANT"
+        and row["show_for_engineer_tick"] == 0
+    )
+
+
+def test_a_note_rules_safety_pass_is_held_too(monkeypatch):
+    row = {
+        "trust_label": rule_trust.OWNER_NOTE_CONTEXT,
+        "show_for_engineer_tick": 1,
+        "compliance_status": "COMPLIANT",
+    }
+    held = rule_trust.hold_open_ticks(
+        {"code": "A", "reason": "r"}, [row], ("A", "B", "C", "MANUAL")
+    )
+    assert held["code"] == "MANUAL"
+
+
+def test_a_rule_whose_signed_content_changed_stops(monkeypatch):
+    run, scope = _material_sheet("cast iron")
+    rule = {**_typed(NOT_COPPER, IS_NOT, ["cast iron"]), "signed_matches": False}
+    row = _one(_review(monkeypatch, run, scope, rule))
+    assert (
+        row["compliance_status"] == QUERY and _reason(row) == "signed_content_changed"
+    )
+
+
 def test_the_checklist_reads_the_check_in_plain_words():
     assert "must not be: cast iron" in plain_words(IS_NOT, ["cast iron"])
 
@@ -349,6 +454,9 @@ def test_each_tag_is_judged_on_its_own_value_and_a_rule_fails_if_one_fails(monke
 
 
 def test_a_rule_passes_only_if_every_tag_passes(monkeypatch):
+    monkeypatch.setattr(
+        rule_trust, "tier", lambda _r, **_k: (rule_trust.STANDARD, None)
+    )
     run, scope = _tagged(["9 barg", "8 barg"])
     _review(monkeypatch, run, scope, _rule(value=10.0))
     part = coverage_pair.for_run(db.connect(), run)["rulebook_v2"]

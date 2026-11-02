@@ -413,7 +413,11 @@ def _rulebook_v2(part: dict, findings: list[dict], wrong_ids: set[int] | None) -
     for held in by_rule.values():
         said = [f.get("compliance_status") for f in held]
         failed += FAIL in said
-        passed += all(s == PASS for s in said)
+        # a safety Pass an engineer has not ticked is not yet decided, as on the rules' lane
+        passed += all(
+            f.get("compliance_status") == PASS and not f.get("show_for_engineer_tick")
+            for f in held
+        )
     decided = passed + failed
     wrong = (
         None

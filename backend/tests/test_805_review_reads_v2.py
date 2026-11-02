@@ -154,6 +154,7 @@ def _rule(field="Set pressure", comparator="<=", value=10.0, unit="barg", **over
         tier="owner",
         equipment_type=TYPE,
         provenance_viewed=(row[2],),
+        signed_content=rulebook_v2.content_to_sign(conn, row[0]),
     )
     rule = {
         "rule_id": row[1],
@@ -609,6 +610,9 @@ def test_a_disagreement_with_version_1_makes_both_rows_a_query(monkeypatch):
 
 
 def test_both_rulebooks_agreeing_keep_their_verdicts_and_count_apart(monkeypatch):
+    monkeypatch.setattr(
+        rule_trust, "tier", lambda _r, **_k: (rule_trust.STANDARD, None)
+    )
     _req, run, scope = _v1_world("9 bar")
     rule = _rule(
         field=V1_FIELD,
@@ -723,6 +727,9 @@ def test_a_rerun_reads_the_same_snapshot_and_replaces_its_rows(monkeypatch):
 
 
 def test_coverage_states_version_2_apart_with_its_denominator(monkeypatch):
+    monkeypatch.setattr(
+        rule_trust, "tier", lambda _r, **_k: (rule_trust.STANDARD, None)
+    )
     run, scope = _sheet(value="9 barg")
     meets = _rule(value=10.0)
     breaks = _rule(

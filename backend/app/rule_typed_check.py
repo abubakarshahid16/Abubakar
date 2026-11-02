@@ -47,6 +47,7 @@ DIRECTION_DISAGREES = "direction_disagrees"
 LIST_NOT_PLAIN = "list_not_plain"
 NOT_A_CLASS = "not_a_class"
 REPLY_UNREADABLE = "reply_unreadable"
+CONDITIONAL_SENTENCE = "conditional_sentence"
 MAX_OUTPUT_TOKENS = 150
 _COLUMNS = (
     "check_op",
@@ -100,6 +101,8 @@ def verify(row, answer: dict | None, fields: dict[str, str]) -> tuple:
         refused = VALUE_NOT_IN_QUOTE
     elif fields.get(row["field_role"]) != "text":
         refused = NOT_A_TEXT_FIELD
+    elif is_conditional(row["quote"]):
+        refused = CONDITIONAL_SENTENCE
     elif bool(field_links._NEGATION.search(row["quote"] or "")) != (op == IS_NOT):
         refused = DIRECTION_DISAGREES
     elif op == IS_ONE_OF and len(values) < 2:
@@ -109,6 +112,12 @@ def verify(row, answer: dict | None, fields: dict[str, str]) -> tuple:
     if refused:
         return None, [], UNVERIFIED, refused
     return op, values, VERIFIED, None
+
+
+def is_conditional(quote: str | None) -> bool:
+    """A sentence with a condition in its own words ("unless", "where", "except"): only stored conditions are judged, so
+    a check on it could decide past one nobody read."""
+    return bool(field_links._CONDITION.search(quote or ""))
 
 
 def _class_of(text: str):
@@ -128,30 +137,48 @@ def _material(values: list[str], stated: str) -> bool | None:
     )
 
 
-def decide(
-    op: str, values: list[str], stated: str, reference=None
-) -> tuple[str | None, str]:
-    """(COMPLIANT or NON_COMPLIANT, words), or (None, words) when code cannot prove either. `reference`: the signed
-    material table, with its switch on; then only it can pass an `is_not`."""
+def _one_part(op: str, values: list[str], stated: str) -> tuple[str | None, str]:
     named = field_links.is_named_value(stated, tuple(values))
-    if reference is not None and op == IS_NOT and not named:
-        return material_reference.is_not(reference, values, stated)
     among = True if named else _material(values, stated)
     listed = "; ".join(values)
     if op == AT_LEAST_CLASS:
         got, need = _class_of(stated), _class_of(values[0])
         if got is None or need is None:
-            return None, f"the value states no pressure class to set against {listed}"
+            return None, f"{stated} states no pressure class to set against {listed}"
         return (COMPLIANT if got >= need else NON_COMPLIANT), (
-            f"the sheet states {stated}; the rule asks for at least {listed}"
+            f"{stated} against at least {listed}"
         )
     if among is None:
-        return None, f"the sheet states {stated}; code cannot tell it from {listed}"
+        return None, f"code cannot tell {stated} from {listed}"
     meets = among if op == IS_ONE_OF else not among
     words = "one of" if op == IS_ONE_OF else "not"
     return (COMPLIANT if meets else NON_COMPLIANT), (
-        f"the sheet states {stated}; the rule asks for {words} {listed}"
+        f"{stated} against {words} {listed}"
     )
+
+
+def decide(
+    op: str, values: list[str], stated: str, reference=None
+) -> tuple[str | None, str]:
+    """(COMPLIANT or NON_COMPLIANT, words), or (None, words) when code cannot prove either. Every part of a value that
+    lists several must meet the rule: any part that does not fails, and any part code cannot read holds a Pass back.
+    `reference`: the signed material table, with its switch on; then only it can pass an `is_not`."""
+    if (
+        reference is not None
+        and op == IS_NOT
+        and not field_links.is_named_value(stated, tuple(values))
+    ):
+        return material_reference.is_not(reference, values, stated)
+    judged = [
+        _one_part(op, values, part) for part in material_reference.split_list(stated)
+    ]
+    words = f"the sheet states {stated}: " + "; ".join(w for _s, w in judged)
+    said = [status for status, _w in judged]
+    if NON_COMPLIANT in said:
+        return NON_COMPLIANT, words
+    if not said or None in said:
+        return None, words
+    return COMPLIANT, words
 
 
 def plain_words(op: str | None, values: list[str]) -> str:

@@ -223,6 +223,11 @@ def family_of(table: Table, stated: str | None) -> str | None:
     return _family_of_tokens(table, tokens(stated))
 
 
+def split_list(stated: str | None) -> list[str]:
+    """The parts a value lists, on its list separator, as written."""
+    return [p for p in _LIST_SEPARATOR.split(str(stated or "")) if p.strip()]
+
+
 def parts_of(stated: str | None) -> list[tuple[str, ...]]:
     """The tokens of each specification a value lists, split on its list separator. A later part that starts with the
     number keeps the letters the part before it started with, inside this value only ("SA 1 / 2" is SA1 and SA2). Any

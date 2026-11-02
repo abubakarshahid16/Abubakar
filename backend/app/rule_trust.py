@@ -483,7 +483,7 @@ def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) 
     still_open = [
         f
         for f in findings
-        if f.get("trust_label") == OWNER_APPROVED
+        if f.get("trust_label") in (OWNER_APPROVED, OWNER_NOTE_CONTEXT)
         and f.get("show_for_engineer_tick")
         and f.get("compliance_status") == COMPLIANT
         and not f.get("confirmed_by")

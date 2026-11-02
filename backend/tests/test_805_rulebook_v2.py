@@ -1182,6 +1182,7 @@ CONTRACT_KEYS = {
     "check_state",
     "check_reason",
     "sentence_strength",
+    "signed_matches",
     "rule_id",
     "version",
     "field",

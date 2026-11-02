@@ -77,6 +77,9 @@ PAIR_REASONS = (
 )
 # Why a rule does not decide.
 QUOTE_HASH_MISMATCH = "quote_hash_mismatch"
+SIGNED_CONTENT_CHANGED = (
+    "signed_content_changed"  # the role or check is not what the tick was recorded with
+)
 NOT_IN_SNAPSHOT = "not_in_snapshot"
 SNAPSHOT_NOT_RECORDED = "snapshot_not_recorded"
 NO_FIGURE = "no_figure"
@@ -95,6 +98,7 @@ V1_DISAGREES = "v1_disagrees"
 REASONS = (
     *PAIR_REASONS,
     QUOTE_HASH_MISMATCH,
+    SIGNED_CONTENT_CHANGED,
     NOT_IN_SNAPSHOT,
     SNAPSHOT_NOT_RECORDED,
     NO_FIGURE,
@@ -275,7 +279,11 @@ def _check_words(rule: dict) -> str:
 
 def _check_of(rule: dict) -> tuple[str | None, list[str]]:
     """The verified typed check on a rule: (op, values), or (None, []). The values are stored as JSON."""
-    if rule.get("check_state") != rule_typed_check.VERIFIED:
+    if rule.get(
+        "check_state"
+    ) != rule_typed_check.VERIFIED or rule_typed_check.is_conditional(
+        rule.get("quote")
+    ):
         return None, []
     return rule.get("check_op"), json.loads(rule.get("check_values") or "[]")
 
@@ -520,6 +528,8 @@ def decide_rule(
     quote = rule.get("quote") or ""
     if hashlib.sha256(quote.encode("utf-8")).hexdigest() != rule.get("quote_sha256"):
         return [_query(rule, QUOTE_HASH_MISMATCH)]
+    if rule.get("signed_matches") is False:
+        return [_query(rule, SIGNED_CONTENT_CHANGED)]
     if (rule.get("rule_id"), rule.get("version")) not in in_force:
         return [_query(rule, NOT_IN_SNAPSHOT)]
     return [
@@ -713,6 +723,27 @@ def citation(rule: dict) -> str:
     )
 
 
+def _tier_columns(row: Row) -> dict:
+    """The safety tier and the open tick, as `rule_trust` gives them to every rule. A safety Pass waits for an engineer's
+    tick, and `rule_trust.hold_open_ticks` holds the sheet's code for it."""
+    if row.status not in DECIDED:
+        return {"tier": None, "show_for_engineer_tick": None}
+    rule = row.rule
+    level, _why = rule_trust.tier(
+        {
+            **as_requirement(rule),
+            "condition": (_texts(rule.get("conditions")) or [None])[0],
+            "exceptions": _texts(rule.get("exceptions")),
+        }
+    )
+    return {
+        "tier": level,
+        "show_for_engineer_tick": int(
+            level == rule_trust.SAFETY and row.status == COMPLIANT
+        ),
+    }
+
+
 def store(conn, review: Review) -> list[dict]:
     """The rows, as findings of the run, in one transaction, each citing its rule. A row an engineer rejected in this
     run is kept by the re-run's delete and not written again beside it."""
@@ -761,6 +792,7 @@ def store(conn, review: Review) -> list[dict]:
                         "trust_label": (
                             row.trust_label if row.status in DECIDED else None
                         ),
+                        **_tier_columns(row),
                     },
                     created_by=None,
                     conn=conn,
