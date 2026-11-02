@@ -5,7 +5,7 @@ same procedure gave none, so the playbook section-presence check said "could not
 be checked" for every element. Every PDF here is built in code (rule 3: no
 client file), and every signal is general (rule 13):
 
-  * numbered bold headings ("1. PURPOSE AND SCOPE", "4.1 Unit list"),
+  * numbered bold headings ("1. AIMS OF THE WORK", "4.1 Item list"),
   * a bold-only heading, a size-only heading,
   * NOT a heading: a numbered list item in body style ("1. Close the valve."),
     a table row with numbers, a bold table header with a cell beside it, a
@@ -27,24 +27,26 @@ from app.config import settings
 NOW = "2026-11-01T00:00:00Z"
 BODY = 10
 NUMBERED_BOLD = [
-    "1. PURPOSE AND SCOPE",
-    "4.1 Unit list",
-    "5. Characteristics of Ideal Nodes",
+    "1. AIMS OF THE WORK",
+    "4.1 Item list",
+    "5. Features of a Good Sample",
 ]
-BOLD_ONLY = ["Project Overview"]
-SIZE_ONLY = ["Study Team"]
+BOLD_ONLY = ["Plant Outline"]
+SIZE_ONLY = ["Review Panel"]
 #: a bold heading over a bold definitions label; a short body-type line with a dotted number
-OVER_LABEL = ["2. DEFINITIONS"]
-DOTTED_BODY = ["4.5.1 Follow-up actions"]
+OVER_LABEL = ["2. TERMS USED"]
+DOTTED_BODY = ["4.5.1 Later steps"]
 HEADINGS = NUMBERED_BOLD + BOLD_ONLY + SIZE_ONLY + OVER_LABEL + DOTTED_BODY
-SENTENCE = "The study team shall review every node of the process in the sessions."
+#: bold and title-like, but a requirement: the chunker keeps it in the text
+REQUIREMENT = "All Valves Shall Be Hydrotested"
+SENTENCE = "The panel will check every sample of the batch during the working sessions."
 
 
 def _page(pdf, n: int, items: list[tuple]) -> None:
     """items: (text, font, size) top to bottom, or ("cells", [texts], font) for one row."""
     page = pdf.new_page(width=600, height=800)
     page.insert_text(
-        (40, 40), "ACME PLANT PROJECT HAZARD STUDY", fontname="hebo", fontsize=12
+        (40, 40), "ACME PLANT PROJECT REVIEW", fontname="hebo", fontsize=12
     )
     page.insert_text(
         (40, 780), f"Company general use - page {n} of 3", fontname="heit", fontsize=8
@@ -72,9 +74,9 @@ def build(path) -> list[str]:
         pdf,
         1,
         [
-            ("1. PURPOSE AND SCOPE", "hebo", BODY),
+            ("1. AIMS OF THE WORK", "hebo", BODY),
             *_body(4),
-            ("Project Overview", "hebo", BODY),
+            ("Plant Outline", "hebo", BODY),
             *_body(3),
             ("1. Close the valve.", "helv", BODY),
             ("2. Open the drain", "helv", BODY),
@@ -85,7 +87,7 @@ def build(path) -> list[str]:
         pdf,
         2,
         [
-            ("Study Team", "helv", 15),
+            ("Review Panel", "helv", 15),
             *_body(3),
             ("cells", ["Item", "Value"], "hebo"),
             ("cells", ["Flow", "10"], "helv"),
@@ -100,11 +102,11 @@ def build(path) -> list[str]:
         pdf,
         3,
         [
-            ("4.1 Unit list", "hebo", BODY),
+            ("4.1 Item list", "hebo", BODY),
             *_body(5),
             # a styled title whose text resumes in lower case is still a title
-            ("5. Characteristics of Ideal Nodes", "hebo", BODY),
-            ("nodes are chosen so that each holds one design intent.", "helv", BODY),
+            ("5. Features of a Good Sample", "hebo", BODY),
+            ("samples are chosen so that each holds one batch.", "helv", BODY),
             *_body(2),
         ],
     )
@@ -112,14 +114,29 @@ def build(path) -> list[str]:
         pdf,
         4,
         [
-            ("2. DEFINITIONS", "hebo", BODY),
-            ("COMPANY:", "hebo", BODY),
+            ("2. TERMS USED", "hebo", BODY),
+            ("OWNER:", "hebo", BODY),
             *_body(2),
-            ("4.5.1 Follow-up actions", "helv", BODY),
+            ("4.5.1 Later steps", "helv", BODY),
             *_body(2),
             # a numbered requirement: its sentence resumes in lower case
             ("4.2.1 Stud bolts for flanges in hydrocarbon service", "helv", BODY),
             ("shall be of the grade listed in the table below.", "helv", BODY),
+            *_body(2),
+        ],
+    )
+    _page(
+        pdf,
+        5,
+        [
+            *_body(3),
+            (REQUIREMENT, "hebo", BODY),
+            *_body(4),
+            ("4.2 MPa", "helv", BODY),
+            *_body(2),
+            ("3.5 Bar", "hebo", BODY),
+            *_body(2),
+            ("25 Psi", "hebo", BODY),
             *_body(2),
         ],
     )
@@ -148,7 +165,7 @@ def test_styled_headings_are_found(tmp_path):
 def test_lines_that_are_not_headings_are_not(tmp_path):
     build(tmp_path / "p.pdf")
     found = set(_found(tmp_path / "p.pdf"))
-    assert found == set(
+    assert found - {REQUIREMENT} == set(
         HEADINGS
     )  # nothing else: list items, table rows, header, footer, wrapped title
 
@@ -162,6 +179,39 @@ def test_numbering_alone_never_makes_a_heading():
         ]
     }
     assert pdf_headings.detect(pages) == {}
+
+
+def test_section_number_is_not_a_word_or_a_value():
+    for text in (
+        "1. SCOPE",
+        "4.2 Scope",
+        "A.1 Scope",
+        "Appendix B",
+        "PART A",
+        "Part IV",
+    ):
+        assert pdf_headings.numbered(text), text
+    for text in (
+        "Part of the plant",
+        "PART OF THE PLANT",
+        "2500 Psi",
+        "4.2 MPa",
+        "25 Psi",
+    ):
+        assert not pdf_headings.numbered(text), text
+
+
+def test_a_value_is_not_a_title_and_a_title_word_is_kept():
+    for text in ("4.2 MPa", "3.5 Bar", "25 Psi", "4.2 20 Bar", "4.2 MPa at Inlet"):
+        assert pdf_headings.states_a_value(text), text
+    # a word that is also a unit, opening a real title
+    for text in ("4.2 Bar Screens", "4.2 Scope", "Appendix B", "4.5 A Review"):
+        assert not pdf_headings.states_a_value(text), text
+
+
+def test_a_label_alone_is_a_title():
+    assert pdf_headings._reads_as_title("Appendix B")
+    assert not pdf_headings._reads_as_title("A.1")
 
 
 # ------------------------------------------------------- through the chunker
@@ -209,22 +259,30 @@ def test_on_the_chunks_carry_the_styled_headings(stored, monkeypatch):
     for heading in HEADINGS:
         assert heading in sections, heading
     assert "1. Close the valve." not in sections
+    # a requirement set in bold is no section, and its words stay in the chunk text
+    assert REQUIREMENT not in sections
+    with db.connect() as conn:
+        texts = " ".join(
+            r[0]
+            for r in conn.execute("SELECT text FROM chunks WHERE document_id='doc_h'")
+        )
+    assert REQUIREMENT in " ".join(texts.split())
     with db.connect() as conn:
         contexts = {
             r[0]
             for r in conn.execute(
-                "SELECT context FROM chunks WHERE document_id='doc_h' AND section='Project Overview'"
+                "SELECT context FROM chunks WHERE document_id='doc_h' AND section='Plant Outline'"
             )
         }
     # an unnumbered font-set heading sits under the numbered one in force
-    assert contexts == {"1. PURPOSE AND SCOPE > Project Overview"}
+    assert contexts == {"1. AIMS OF THE WORK > Plant Outline"}
 
 
 def test_off_nothing_changes(stored, monkeypatch):
     monkeypatch.setattr(settings, "pdf_heading_detection_enabled", False)
     chunker.chunk_document("doc_h", force=True)
     # the text rules alone read only the dotted numbers; the rest needed the font
-    assert _sections() & set(HEADINGS) == {"4.1 Unit list", "4.5.1 Follow-up actions"}
+    assert _sections() & set(HEADINGS) == {"4.1 Item list", "4.5.1 Later steps"}
     with db.connect() as conn:
         pages, tables, _ = chunker._load_pages(conn, "doc_h")
         sig = conn.execute(

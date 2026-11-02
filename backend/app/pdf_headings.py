@@ -2,7 +2,7 @@
 
 #1476 / #1522 (owner, 1 Nov): the Word copy of a procedure gives section headings
 from its paragraph styles, the PDF copy of the same procedure gave none - its
-headings are "1. PURPOSE AND SCOPE" (a bare integer with a dot, which the text
+headings are "1. SCOPE" (a bare integer with a dot, which the text
 rules refuse because "1. Close the valve." has the same shape) and unnumbered
 bold lines - so every playbook element on the PDF was "could not be checked".
 
@@ -17,7 +17,7 @@ document, none names a layout (CLAUDE.md rule 13):
     fills the column is a wrapped sentence);
   * it reads as a title: 1-12 words, at most 90 characters, a capital first
     letter, no sentence or list ending (. ; , :), mostly letters, not a figure or
-    table caption or a date;
+    table caption or a date, and not a number with a unit or a value ("4.2 MPa");
   * it stands alone: no other line shares its height on the page (a table row or a
     form field does), and it is not a running header or footer (the same words in
     the top or bottom band of 3 or more pages);
@@ -42,7 +42,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import pdf_guard
+from . import claims, pdf_guard
 from .config import settings
 from .quality import normalise_text
 
@@ -65,11 +65,13 @@ _BOLD_NAME = re.compile(r"bold|black|heavy|semibold|demibold|extrabold", re.I)
 #: A section label at the start of a line (1, 1.2, A.1, Appendix B): where a line sits,
 #: never a value read from the document. Values go through `app.numparse`.
 _SECTION_NO = re.compile(
-    r"^(?:(?:appendix|annex|section|chapter|part)\s+[A-Z0-9]+\b|[A-Z]\.\d+(?:\.\d+)*\b|\d+(?:\.\d+)*\.?(?=\s))",
-    re.I,
+    r"^(?:(?:Appendix|APPENDIX|Annex|ANNEX|Section|SECTION|Chapter|CHAPTER|Part|PART)"
+    r"\s+(?:[A-Z]|[IVX]+|\d{1,2})\b"
+    r"|[A-Z]\.\d{1,2}(?:\.\d{1,2})*\b"
+    r"|\d{1,2}(?:\.\d{1,2})*\.?(?=\s))"
 )
 #: A dotted section number: 1.2, 4.5.1.3, A.1 - never a lone list number.
-_DOTTED = re.compile(r"^(?:[A-Z]\.\d+(?:\.\d+)*|\d+(?:\.\d+)+)\.?\s")
+_DOTTED = re.compile(r"^(?:[A-Z]\.\d{1,2}(?:\.\d{1,2})*|\d{1,2}(?:\.\d{1,2})+)\.?\s")
 _ENDINGS = (".", ";", ",", ":")
 #: A figure or table caption names a picture or a table, not a section.
 _CAPTION = re.compile(
@@ -167,8 +169,23 @@ def read_lines(
     return out
 
 
+def states_a_value(text: str) -> bool:
+    """A number followed by a value, or by a unit that opens no title ("4.2 MPa",
+    "4.2 MPa at Inlet"; "4.2 Bar Screens" is a title that starts with a unit word)."""
+    label = _SECTION_NO.match(text)
+    if not label or label.group().split()[0].isalpha():
+        return False
+    rest = text[label.end() :].split()
+    if not rest:
+        return False
+    if rest[0][0].isdigit() or rest[0][0] in "+-<>=~\u00b1":
+        return True
+    titled = len(rest) > 1 and rest[1][0].isupper()
+    return claims.is_unit(rest[0].strip(",;()")) and not titled
+
+
 def numbered(text: str) -> bool:
-    return bool(_SECTION_NO.match(text))
+    return bool(_SECTION_NO.match(text)) and not states_a_value(text)
 
 
 def _reads_as_title(text: str) -> bool:
@@ -181,7 +198,11 @@ def _reads_as_title(text: str) -> bool:
         return False
     if _CAPTION.match(text) or _DATE.match(text) or text.count("(") != text.count(")"):
         return False  # a caption, a date, or a piece of a title wrapped over lines
+    if states_a_value(text):
+        return False
     title = _SECTION_NO.sub("", text, count=1).strip(" .-\u2013\u2014")
+    if not title and _SECTION_NO.match(text):
+        return text.split()[0].isalpha()  # "Appendix B" alone; never "A.1" alone
     first = next((ch for ch in title if ch.isalpha()), "")
     if not first or not first.isupper():
         return False

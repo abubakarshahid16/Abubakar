@@ -1878,8 +1878,8 @@ def segment_document(
         "8.2" that happened to come before it on an earlier page. Depth alone
         was not enough - measured on a synthetic page, "4.4 Ambient
         conditions" was filed under "8 Thermally sprayed metallic coatings".
-        An unnumbered heading ("GENERAL REQUIREMENTS") starts a new chain,
-        and a numbered one drops it: nothing can be assumed to still apply.
+        An unnumbered heading (only a font-set one, `styled`, has no number)
+        nests under the numbered ones in force; a numbered one drops it.
         """
         label = " ".join(label.split())
         if _CHAIN_NUMBER.match(number):
@@ -1887,7 +1887,7 @@ def segment_document(
             chain[:] = [(n, text) for n, text in chain
                         if n and own != n and own.startswith(n + ".")]
             chain.append((own, label))
-        else:  # only a font-set heading has no number: it nests under the numbered
+        else:
             chain[:] = [(n, text) for n, text in chain if n] + [("", label)]
         path = " > ".join(text for _, text in chain)
         if key in paths and paths[key] != path:
@@ -2157,9 +2157,9 @@ def segment_document(
                 buf.extend(lines[i:i + consumed])
                 i += consumed
                 continue
-            printed = " ".join(line.split())  # a title by its font, never a requirement:
+            printed = " ".join(line.split())  # a title by its font; a requirement stays text
             if not head and printed in (styled or {}).get(page_no, ()):
-                head = printed
+                head = None if _obliges("- " + printed) else printed
 
             if head:
                 flush_prose(section)

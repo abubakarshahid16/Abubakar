@@ -193,7 +193,7 @@ class SettingsExt(BaseModel):
     equipment_from_title_block_enabled: bool = False
     #: #1476/#1522 (owner, 1 Nov): a PDF's section headings are also read from how a line is set
     #: (`pdf_headings`): a font larger than the body, or bold where the body is not, on a short title-like
-    #: line standing alone with body text after it. Section numbering only lets a heading sit above its
-    #: first sub-heading. Part of the chunk signature: ON marks every stored PDF stale until re-chunked.
+    #: line standing alone with body text after it; or, in body type, a short line opening with a dotted
+    #: section number (1.2, A.1). A lone '1.' never. Part of the chunk signature: ON marks every stored PDF stale until re-chunked.
     #: OFF: nothing is read, chunks and signature byte-identical. Env: PDF_HEADING_DETECTION_ENABLED.
     pdf_heading_detection_enabled: bool = False
