@@ -1101,6 +1101,8 @@ def parse_limit(sentence: str) -> dict | None:
     None means "this sentence states no limit I recognise", and the caller
     records a `statement`; it does NOT mean it is not a requirement.
     """
+    if own_value_limit.trailing_refused(sentence):
+        return None  # never the general limit past an unreadable one (#1619)
     match = _LIMIT.search(sentence)
     if not match:
         return own_value_limit.parse(sentence) or own_value_limit.trailing(sentence)

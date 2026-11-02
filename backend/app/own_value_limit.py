@@ -19,6 +19,7 @@ Left alone on purpose (the clause stays with an engineer, never a wrong Meets):
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from functools import cache
 
 from . import numparse
@@ -104,9 +105,9 @@ def _trailing_pattern() -> re.Pattern:
     )
 
 
-def _first_trailing(sentence: str) -> tuple[re.Match, str, str] | None:
-    """The first "<number> <unit> or <comparator>" in the sentence, with its direction
-    and unit. The direction is the shared vocabulary's (`comparators`)."""
+def _trailing_candidates(sentence: str) -> Iterator[tuple[re.Match, str, str]]:
+    """Every "<number> <unit> or <comparator>" in the sentence, with its direction and
+    unit. The direction is the shared vocabulary's (`comparators`)."""
     from . import comparators
     from . import requirements_3b as r3b
 
@@ -114,18 +115,16 @@ def _first_trailing(sentence: str) -> tuple[re.Match, str, str] | None:
         direction = comparators.direction_of(match.group(0))
         raw_unit = r3b.unit_token(match.group("unit"))
         if direction is not None and raw_unit:
-            return match, direction, raw_unit
-    return None
+            yield match, direction, raw_unit
 
 
 def trailing_refused(sentence: str) -> bool:
-    """The first trailing limit starts where no value may ("A-5 mm or less", "3-5 C or
-    lower"). The text cannot say what it is, so the sentence states no limit we can read:
-    a later value must not be taken instead, and it goes to an engineer (#1619)."""
-    found = _first_trailing(sentence)
-    return found is not None and not numparse.value_may_start(
-        sentence, found[0].start()
-    )
+    """A trailing limit in the sentence starts where no value may ("A-5 mm or less", "3-5 C
+    or lower"). The text cannot say what it is, so NO limit of this sentence can be trusted:
+    not a later value, and not a general limit whose exception it is. It goes to an engineer
+    (#1619)."""
+    starts = [found[0].start() for found in _trailing_candidates(sentence)]
+    return any(not numparse.value_may_start(sentence, start) for start in starts)
 
 
 def trailing(sentence: str) -> dict | None:
@@ -133,7 +132,7 @@ def trailing(sentence: str) -> dict | None:
     reads only one in front of the number."""
     from . import requirements_3b as r3b
 
-    found = _first_trailing(sentence)
+    found = next(_trailing_candidates(sentence), None)
     if found is None or trailing_refused(sentence):
         return None
     match, direction, raw_unit = found

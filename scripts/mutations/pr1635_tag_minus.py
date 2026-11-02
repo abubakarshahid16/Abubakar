@@ -12,6 +12,10 @@ _R3B = APP / "requirements_3b.py"
 _OWN = APP / "own_value_limit.py"
 _PARSE = '    if m.group("num").startswith("-") and prefix and prefix[-1] not in _SIGN_LEAD:\n'
 _MAY = '    return not lead or lead.isspace() or (lead in _SIGN_LEAD and lead != ",")\n'
+_GENERAL = "    if own_value_limit.trailing_refused(sentence):\n"
+_STARTS = (
+    "    starts = [found[0].start() for found in _trailing_candidates(sentence)]\n"
+)
 _FIRST = "        if direction is not None and raw_unit:\n"
 _RANGE = "    if limit is None and own_value_limit.trailing_refused(sentence):\n"
 _CROSS = "        return own_value_limit.trailing_refused(text)\n"
@@ -114,6 +118,28 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="        return False\n",
         target=_T,
         keyword="no_field_comparison",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-21",
+        phase=1635,
+        description="a general limit is read past an unreadable exception",
+        path=_R3B,
+        anchor=_GENERAL,
+        replacement="    if False:\n",
+        target=_T,
+        keyword="unreadable_exception",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-22",
+        phase=1635,
+        description="only the first trailing limit can refuse a sentence",
+        path=_OWN,
+        anchor=_STARTS,
+        replacement="    starts = [found[0].start() for found in _trailing_candidates(sentence)][:1]\n",
+        target=_T,
+        keyword="later_unreadable",
         tags=_TAG,
     ),
 )

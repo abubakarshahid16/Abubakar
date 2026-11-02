@@ -229,3 +229,74 @@ def test_a_refused_limit_is_no_field_comparison():
     text = "The outlet pressure shall not exceed the inlet pressure, A-5 mm or less"
     assert requirements_3b.parse_cross_field(text) is None
     assert requirements_3b.parse_limit_or_range(text) is None
+
+
+#: The generated grid: an unreadable value in each clause form a sentence can hide it in.
+CLAUSES = [
+    "The temperature shall not exceed 40 C, except pumps which shall be {} C or lower",
+    "The temperature shall not exceed 40 C, except for pumps, which shall be {} C or lower",
+    "The temperature shall not exceed 40 C, except pumps that are {} C or lower",
+    "The temperature shall not exceed 40 C, other than pumps at {} C or lower",
+    "The temperature shall be 40 C or lower, except pumps which shall be {} C or lower",
+    "The temperature shall not exceed 40 C unless the pump is {} C or lower",
+    "The temperature shall not exceed 40 C if the pump is {} C or lower",
+    "Where the pump is {} C or lower, the temperature shall not exceed 40 C",
+    "The temperature shall be between 10 C and 40 C, except pumps at {} C or lower",
+]
+JOINED = ["MDMT-", "A1-", "Zone 2-", "3-", "5--", "T", "\u00b1", ".", "P-", "A--", "a,"]
+EXCEPTION_GRID = [
+    clause.format(joined + number)
+    for clause in CLAUSES
+    for joined in JOINED
+    for number in ("15", "29")
+]
+
+
+def _subject_verdict(text: str, value: str, subject: str) -> str:
+    limit = requirements_3b.parse_limit_or_range(text)
+    requirement = {
+        **(limit or {}),
+        "id": "r",
+        "clause": "1",
+        "requirement_type": requirements_3b.classify(text, limit),
+        "requirement_text": text,
+        "source_text": text,
+        "field": "design temperature",
+        "exceptions": requirements_3b.parse_exceptions(text),
+    }
+    fact = {
+        "id": "f",
+        "field_name": "design temperature",
+        "field_label": "Design temperature",
+        "field_value": f"{value} C",
+        "raw_value": value,
+        "raw_unit": "C",
+        "is_blank": 0,
+        "blank_marker": None,
+    }
+    return comparison.compare(requirement, fact, subject=subject)["status"]
+
+
+@pytest.mark.parametrize("subject", ["pumps", "valves", None])
+@pytest.mark.parametrize("value", ["-40", "10", "39", "100"])
+@pytest.mark.parametrize("text", EXCEPTION_GRID)
+def test_an_unreadable_exception_sends_the_requirement_to_review(text, value, subject):
+    assert _subject_verdict(text, value, subject) == comparison.NEEDS_ENGINEER_REVIEW
+
+
+def test_a_later_unreadable_limit_refuses_a_readable_first_one():
+    assert requirements_3b.parse_limit("5 C or lower, A-15 C or lower") is None
+
+
+@pytest.mark.parametrize(
+    "exception, value, subject, expected",
+    [
+        ("-15", "10", "pumps", comparison.NON_COMPLIANT),
+        ("15", "10", "pumps", comparison.COMPLIANT),
+        ("15", "20", "pumps", comparison.NON_COMPLIANT),
+        ("15", "20", "valves", comparison.COMPLIANT),
+    ],
+)
+def test_a_readable_exception_still_decides(exception, value, subject, expected):
+    text = f"The temperature shall not exceed 40 C, except pumps which shall be {exception} C or lower"
+    assert _subject_verdict(text, value, subject) == expected
