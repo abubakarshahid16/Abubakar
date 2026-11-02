@@ -1,6 +1,6 @@
 """#1640 and #1653 (PR #1655): a number is a value only where the text shows it is one, and a
-reader's unit must sit with its number in the quote (numparse.py, claims.py, own_value_limit.py,
-impossible_sign.py; danger zone). Ids M1655-01.. (CLAUDE.md rule 12)."""
+reader's unit must sit with its number in the quote (numparse.py, unit_tie.py, config.py,
+own_value_limit.py, impossible_sign.py; danger zone). Ids M1655-01.. (CLAUDE.md rule 12)."""
 
 from __future__ import annotations
 
@@ -9,9 +9,10 @@ from ._base import APP, Mutation
 _T = "tests/test_1640_label_number.py"
 _TAG = ("pr1655", "numbers", "honesty")
 _NUM = APP / "numparse.py"
-_CLAIMS = APP / "claims.py"
 _OWN = APP / "own_value_limit.py"
 _SIGN = APP / "impossible_sign.py"
+_TIE = APP / "unit_tie.py"
+_CONFIG = APP / "config.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
@@ -54,8 +55,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1655,
         description="parse_value no longer asks what stands before the number",
         path=_NUM,
-        anchor="    if _prefix_refused(_value_prefix(m)):\n",
-        replacement="    if False:\n",
+        anchor="    if _minus_is_joined(m) or _prefix_refused(_value_prefix(m)):\n",
+        replacement="    if _minus_is_joined(m):\n",
         target=_T,
         keyword="a_label_number_reads_no_number or a_label_number_goes_to_review",
         tags=_TAG,
@@ -74,10 +75,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1655-06",
         phase=1655,
-        description="claims gives numparse no comparator vocabulary (max 5 reads nothing)",
-        path=_CLAIMS,
-        anchor="numparse.COMPARATOR_PHRASE = lambda phrase: parse_comparator(phrase) is not None\n",
-        replacement="numparse.COMPARATOR_PHRASE = None\n",
+        description="config gives numparse no comparator vocabulary (max 5 reads nothing)",
+        path=_CONFIG,
+        anchor="_numparse.COMPARATOR_PHRASE = _comparator_phrase\n",
+        replacement="_numparse.COMPARATOR_PHRASE = None\n",
         target=_T,
         keyword="comparator_or_a_binding_symbol or comparator_values_keep",
         tags=_TAG,
@@ -185,7 +186,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1655-16",
         phase=1655,
         description="any unit printed after any number proves the reader's unit",
-        path=_CLAIMS,
+        path=_TIE,
         anchor="        return any(o.value == wanted and not o.joined for o in owners)\n",
         replacement="        return True\n",
         target=_T,
@@ -196,13 +197,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1655-17",
         phase=1655,
         description="a value carrying a different unit of its own is not refused",
-        path=_CLAIMS,
+        path=_TIE,
         anchor=(
-            "        if word and is_unit(word) and _fold_unit(word) != _fold_unit(folded_unit):\n"
+            "            and claims._fold_unit(word) != claims._fold_unit(folded_unit)\n"
+            "        ):\n"
             "            return False\n"
         ),
         replacement=(
-            "        if word and is_unit(word) and _fold_unit(word) != _fold_unit(folded_unit):\n"
+            "            and claims._fold_unit(word) != claims._fold_unit(folded_unit)\n"
+            "        ):\n"
             "            continue\n"
         ),
         target=_T,
@@ -213,7 +216,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1655-18",
         phase=1655,
         description="a range or pair that prints its unit once gives the first end no unit",
-        path=_CLAIMS,
+        path=_TIE,
         anchor="        owners.append(before[-2])\n",
         replacement="        pass\n",
         target=_T,

@@ -23,8 +23,8 @@ from app import (
     ai_requirements,
     claims,
     claude_datasheet,
-    compiled_rule_proof,
     comparison,
+    compiled_rule_proof,
     datasheet_ai,
     datasheet_checks,
     form_reader,
@@ -34,11 +34,12 @@ from app import (
     requirements_3b,
     rule_eval,
     standards_converter,
+    unit_tie,
 )
 from app.form_reader_fields import Field
 
-U_MINUS = "−"
-EN_DASH = "–"
+U_MINUS = "\u2212"
+EN_DASH = "\u2013"
 
 # --------------------------------------------------------------- generated value shapes
 
@@ -318,7 +319,7 @@ def test_a_dash_apart_goes_to_review(text, value):
 
 
 #: After a comparator, a sign `_LIMIT` cannot read: it skipped this comparator and read a later one.
-UNREAD_SIGNS = [U_MINUS, EN_DASH, "- ", "-(", "(-", "(", f"{U_MINUS} ", "‐", "( -"]
+UNREAD_SIGNS = [U_MINUS, EN_DASH, "- ", "-(", "(-", "(", f"{U_MINUS} ", "\u2010", "( -"]
 FRONT = [
     "The temperature shall not exceed {} C, minimum 5 C",
     "The temperature shall not exceed {} C or 40 C",
@@ -396,7 +397,7 @@ def test_real_limits_keep_their_value_and_sign(text, raw):
 
 # ---------------------------------------------------- a minus folded into a hyphen (#1640)
 
-LETTER_DASHES = ["-", "‐", EN_DASH]
+LETTER_DASHES = ["-", "\u2010", EN_DASH]
 
 
 @pytest.mark.parametrize("dash", LETTER_DASHES)
@@ -456,12 +457,12 @@ UNIT_GRID = [
 
 @pytest.mark.parametrize("value, unit, quote, ok", UNIT_GRID)
 def test_a_unit_must_sit_with_its_number(value, unit, quote, ok):
-    assert claims.unit_with_value(value, unit, quote) is ok
+    assert unit_tie.unit_with_value(value, unit, quote) is ok
 
 
 def test_a_word_value_or_no_unit_is_left_to_the_other_checks():
-    assert claims.unit_with_value("Carbon steel", "mm", "5 mm Carbon steel")
-    assert claims.unit_with_value("10", None, "10 bar and 5 MPa")
+    assert unit_tie.unit_with_value("Carbon steel", "mm", "5 mm Carbon steel")
+    assert unit_tie.unit_with_value("10", None, "10 bar and 5 MPa")
 
 
 PAGE = "Ab | Design pressure | 10 bar and 5 MPa\nAb | Set pressure | 8 MPa\n"
@@ -474,7 +475,7 @@ def test_claude_datasheet_refuses_a_unit_of_another_number():
     )
     out = claude_datasheet.accept(proposals, PAGE, [])
     assert out["accepted"] == []
-    assert out["counts"] == {claude_datasheet.Reason.UNIT_NOT_WITH_VALUE.value: 1}
+    assert out["counts"] == {claude_datasheet.Reason.VALUE_NOT_IN_QUOTE.value: 1}
     proposals, _ = claude_datasheet.parse_response(
         '{"facts": [{"field": "Set pressure", "value": "8", "unit": "MPa", '
         '"quote": "Set pressure | 8 MPa", "kind": "offered"}]}'
@@ -510,7 +511,7 @@ def test_reader_api_refuses_a_unit_of_another_number():
     }
     out = reader_api.accept([proposal], sentence)
     assert [r["reason"] for r in out["rejected"]] == [
-        reader_api.Reason.UNIT_NOT_WITH_VALUE.value
+        reader_api.Reason.VALUE_NOT_IN_QUOTE.value
     ]
     assert (
         len(reader_api.accept([{**proposal, "unit": "bar"}], sentence)["accepted"]) == 1

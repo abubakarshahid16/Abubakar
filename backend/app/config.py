@@ -1501,6 +1501,16 @@ from . import numparse as _numparse  # noqa: E402
 
 _numparse.LEADING_DOT_SWITCH = lambda: settings.leading_dot_decimal_enabled
 
+
+def _comparator_phrase(phrase: str) -> bool:
+    """#1640: a word before a number in `parse_value` must be one comparator of `claims`."""
+    from .claims import parse_comparator
+
+    return parse_comparator(phrase) is not None
+
+
+_numparse.COMPARATOR_PHRASE = _comparator_phrase
+
 #: The settings that can change an ANSWER. Kept beside the settings so the list
 #: drifts with them rather than living in the reports module and going stale.
 #: Deliberately excludes host, port, paths and auth: a report generated on a

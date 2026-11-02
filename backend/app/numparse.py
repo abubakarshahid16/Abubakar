@@ -531,8 +531,6 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
       dash separated from its digits ("- 29"), glued to a letter, or inside a
       range ("29-343") is ambiguous: None. U+2010 and U+2011 follow the same rule.
     * An ASCII minus is a sign only at the start or after `_SIGN_LEAD`; "A-5": None (#1619).
-    * Before the number only symbols or one comparator phrase ("max", "<=", "not less than"); a
-      label ending in a number ("A5", "A+5", "PN16", "Note 5", "Class 150"): None (#1640).
     """
     s = (value_str or "").strip().translate(_HYPHEN_AS_DASH)
     for c in MINUS_SIGNS:
@@ -550,10 +548,8 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
         if not m:
             return None
     prefix = s[:m.start("num")]
-    if _minus_is_joined(m):
-        return None  # "A-5", "T--5": a joining hyphen, not a sign (#1619)
-    if _prefix_refused(_value_prefix(m)):
-        return None  # "A5", "Note 5", "Class 150": a label's number (#1640)
+    if _minus_is_joined(m) or _prefix_refused(_value_prefix(m)):
+        return None  # "A-5": a joining hyphen (#1619); "A5", "Note 5": a label (#1640)
     stripped = prefix.rstrip()
     negative_dash = False
     if stripped and stripped[-1] in "-" + DASHES:

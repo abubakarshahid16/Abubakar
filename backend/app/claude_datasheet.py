@@ -51,6 +51,7 @@ from .ai.json_reply import opened_tagged, unfenced_whole
 from .claude_spend import StopRun
 from .db import connect
 from .stored_paths import local as local_path
+from .unit_tie import unit_with_value
 
 # --------------------------------------------------------------- vocabulary
 
@@ -84,8 +85,6 @@ class Reason(Enum):
     QUOTE_TOO_BROAD = "quote_too_broad"
     #: Audit M2. The unit the model reports is not in its own quote.
     UNIT_NOT_IN_QUOTE = "unit_not_in_quote"
-    #: #1653. The quote prints the unit, but with another number ("10 bar and 5 MPa" for 10 MPa).
-    UNIT_NOT_WITH_VALUE = "unit_not_with_value"
     #: Rule 2. The value is not inside the words the model says it read it
     #: from.
     VALUE_NOT_IN_QUOTE = "value_not_in_quote"
@@ -208,10 +207,9 @@ def without_fill(text: str) -> str:
     return re.sub(r"\s+", " ", _FILL.sub(" ", str(text or ""))).strip()
 
 
-def _value_in_quote(value, quote: str) -> bool:
-    """Rule 2, tolerant of printing and of nothing else. "8,300" and "8300"
-    are the same number; "23.55" and "99.9" are not; 5 is not "-5" and not
-    the 5 of "2.5" (audit F01-F03). `numparse.value_in_text`."""
+def _value_in_quote(value, quote: str, unit: str | None = None) -> bool:
+    if not unit_with_value(value, unit, quote):  # rule 2; the unit with it (#1653)
+        return False
     return numparse.value_in_text(value, quote)
 
 
@@ -598,7 +596,7 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
             drop(p, Reason.QUOTE_TOO_BROAD)
             continue
         printed = without_fill(quote)
-        if not _value_in_quote(p["value"], printed):
+        if not _value_in_quote(p["value"], printed, p.get("unit")):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
             continue
         if not _field_in_quote(p["field"], printed):
@@ -610,9 +608,6 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         unit_from = None
         if p.get("unit"):
             if _contains(quote, _fold(p["unit"])):
-                if not claims.unit_with_value(p["value"], p["unit"], printed):
-                    drop(p, Reason.UNIT_NOT_WITH_VALUE)
-                    continue
                 unit_from = "quote"
             elif _unit_in_column_header(p["unit"], p["quote"], p["value"], page_text):
                 unit_from = "column_header"
