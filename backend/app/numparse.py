@@ -520,7 +520,23 @@ def fold(text: object) -> str:
 #: Units whose case is their meaning (#1618): see `unit_case`. Here because this
 #: module depends on nothing else in the app and a quote check needs the list.
 CASE_KEPT_UNITS = frozenset(
-    "mPa mPag mPaa mPa·s mPa.s mPa-s mPas mW mWh mJ mS MA MV Mg ML".split()
+    {
+        "mPa",
+        "mPag",
+        "mPaa",
+        "mPa·s",
+        "mPa.s",
+        "mPa-s",
+        "mPas",
+        "mW",
+        "mWh",
+        "mJ",
+        "mS",
+        "MA",
+        "MV",
+        "Mg",
+        "ML",
+    }
 )
 
 _CASE_KEPT_WORD = re.compile(

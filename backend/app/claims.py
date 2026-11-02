@@ -27,8 +27,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from . import acronyms, facet_memo, fts_index, lexical, numparse, rate_units, time_units
-from . import unit_case
 from .sentence_guard import NOT_AN_ABBREVIATION
+from .unit_case import REFERENCE_SUFFIX, UNCONVERTED, fold_unit, unit_at
 
 NORMALIZER_VERSION = "1"
 
@@ -271,7 +271,7 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     # actual one by its reference conditions (see `nm3` above), so `scfh`
     # converts to nothing.
     "cp": "viscosity", "scfh": None,
-    **unit_case.UNCONVERTED,
+    **UNCONVERTED,
 }
 _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
 
@@ -359,7 +359,7 @@ def _recognised_folded(folded: str) -> bool:
 
 
 def _fold_unit(unit_str: str) -> str:
-    u = unit_case.fold_unit(unit_str)
+    u = fold_unit(unit_str)
     u = u.replace("µ", "u").replace("μ", "u").replace("°", "")
     # "m³/h" and "m3/h" are one unit; a superscript is printing, not identity.
     u = u.replace("²", "2").replace("³", "3")
@@ -380,7 +380,7 @@ _REFERENCE_SUFFIX = {
     "psig": ("psi", "gauge"), "psia": ("psi", "absolute"),
     "kpag": ("kpa", "gauge"), "kpaa": ("kpa", "absolute"),
     "mpag": ("mpa", "gauge"), "mpaa": ("mpa", "absolute"),
-    **unit_case.REFERENCE_SUFFIX,
+    **REFERENCE_SUFFIX,
     # The same suffix on a compound pressure. "kg/cm2g" is a gauge reading
     # and differs from "kg/cm2" by an atmosphere, exactly as barg does.
     "kg/cm2g": ("kg/cm2", "gauge"), "kg/cm2a": ("kg/cm2", "absolute"),
@@ -865,7 +865,7 @@ def extract_measurements(sentence: str, skips: dict[str, int] | None = None) -> 
         inside = [(a, b) for a, b in spans if a <= start < b]
         if inside and not _is_measurement_not_code(sentence, inside, start, end, m.group("value")):
             continue
-        unit = unit_case.unit_at(sentence, m.group("unit"), m.end("unit"))
+        unit = unit_at(sentence, m.group("unit"), m.end("unit"))
         # "5 in the vessel" is the English word, not 5 inches. Inches are
         # written "5 in.", "5 in)", "5 in x 3 in", "5 in" at the end.
         if unit.lower() == "in" and _ENGLISH_IN.match(sentence, m.end("unit")):
