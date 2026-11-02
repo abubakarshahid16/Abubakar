@@ -240,7 +240,7 @@ def test_a_verified_rule_is_stored_held_as_version_2_with_its_provenance():
     _document()
     report = _compile(FakeBatches())
     assert (
-        report["status"] == "complete"
+        report["status"] == "all_pages_answered"
         and report["kept"] == 1
         and report["held_until_approved"] == 1
     )
@@ -351,7 +351,7 @@ def test_a_cut_answer_leaves_the_standard_partial_and_the_rerun_reads_it_again()
     fake.stop = "end_turn"
     again = _compile(fake)
     assert (
-        again["status"] == "complete"
+        again["status"] == "all_pages_answered"
         and again["pages_not_read"] == []
         and len(fake.created) == 2
     )
@@ -397,7 +397,7 @@ def test_no_module_that_decides_a_verdict_reads_the_compiled_rules():
         for p in app.rglob("*.py")
         if "compiled_rules" in p.read_text(encoding="utf-8")
     ]
-    assert readers == ["standards_compiler.py"]
+    assert set(readers) == {"compiled_rule_report.py", "standards_compiler.py"}
 
 
 def _review_run(run_id="run-1", outcome="{}"):
@@ -481,7 +481,7 @@ def test_a_changed_text_is_compiled_again_and_the_old_rules_stay():
             "UPDATE pages SET text = text || ' Added line.' WHERE document_id = ? AND page_no = 2",
             (DOC,),
         )
-    assert _compile(fake)["status"] == "complete"
+    assert _compile(fake)["status"] == "all_pages_answered"
     assert len(fake.created) == 2 and len(_rules()) == 2
 
 
@@ -538,7 +538,7 @@ def test_a_crash_while_waiting_resumes_the_same_batch_and_pays_once():
     )  # still counted at its worst case while the machine is down
     report = _compile(fake)
     assert (
-        report["status"] == "complete"
+        report["status"] == "all_pages_answered"
         and report["resumed_batches"] == 1
         and report["kept"] == 1
     )
@@ -568,7 +568,7 @@ def test_a_crash_inside_create_is_not_sent_again_unless_the_operator_says_so():
     assert report["status"] == "unconfirmed" and len(fake.created) == 1
     assert claude_spend.spent(standards_converter.step_for(LABEL)) == held > 0
     assert (
-        _compile(fake, resend_unconfirmed=True)["status"] == "complete"
+        _compile(fake, resend_unconfirmed=True)["status"] == "all_pages_answered"
         and len(fake.created) == 2
     )
 
@@ -839,7 +839,7 @@ def test_the_compile_is_charged_per_standard_so_the_usd_5_step_cap_does_not_stop
     _document(pages=pages)
     fake = FakeBatches([])
     report = _compile(fake)
-    assert report["status"] == "complete" and len(fake.created) == 1
+    assert report["status"] == "all_pages_answered" and len(fake.created) == 1
     assert report["chunks"] == len(fake.created[0])
     steps = {e["step"] for e in claude_spend.entries()}
     assert steps == {claude_spend.STANDARD_STEP_PREFIX + LABEL}
@@ -874,7 +874,7 @@ def test_a_partial_compile_is_not_skipped_and_the_next_run_pays_only_for_the_res
         r["custom_id"] for r in fake.created[1]
     }
     assert sent_twice == set() and second.get("skipped") is None
-    assert second["status"] in ("partial", "complete")
+    assert second["status"] in ("partial", "all_pages_answered")
     assert len(_rules()) == 1  # replaced, not doubled
 
 
@@ -969,7 +969,7 @@ def test_api_and_asme_compile_by_default_on_the_owners_decision_of_1584(number):
     report = standards_compiler.compile_standard(
         db.connect(), "std-held", number, client=fake, sleep=lambda _s: None
     )
-    assert report["status"] == "complete" and len(fake.created) == 1
+    assert report["status"] == "all_pages_answered" and len(fake.created) == 1
 
 
 def test_the_family_setting_can_narrow_it(monkeypatch):
@@ -1024,7 +1024,7 @@ def test_a_failed_create_is_released_and_nothing_is_stored():
         _compile(fake)
     assert claude_spend.entries() == [] and "compile_runs" in _tables()
     fake.batch_create = create
-    assert _compile(fake)["status"] == "complete" and len(fake.created) == 1
+    assert _compile(fake)["status"] == "all_pages_answered" and len(fake.created) == 1
 
 
 def _tables():
@@ -1353,7 +1353,7 @@ def test_a_scanned_standard_is_compiled_from_its_recognised_text():
     fake = FakeBatches()
     report = _compile(fake)
     assert "The relief flange pressure" in json.dumps(fake.created)
-    assert report["status"] == "complete" and report["kept"] == 1
+    assert report["status"] == "all_pages_answered" and report["kept"] == 1
     assert (
         report["pages_total"],
         report["pages_native"],
@@ -1408,7 +1408,8 @@ def test_a_mixed_standard_counts_each_kind_and_lists_the_pages_with_no_text():
         report["pages_from_ocr"],
     ) == (4, 1, 1)
     assert report["pages_no_text"] == [3, 4]
-    assert report["status"] == "complete"
+    assert report["status"] == "partial"
+    assert (report["pages_answered"], report["pages_total"]) == (2, 4)
 
 
 def test_a_standard_with_no_usable_page_is_not_compiled_and_never_reads_as_no_rules():
@@ -1434,7 +1435,7 @@ def test_a_standard_not_compiled_is_compiled_once_its_recognition_arrives():
     _document(pages=("",))
     assert _compile(FakeBatches())["status"] == "not_compiled"
     _ocr(DOC, 1, PAGE_1)
-    assert _compile(FakeBatches())["status"] == "complete"
+    assert _compile(FakeBatches())["status"] == "all_pages_answered"
 
 
 def test_the_script_exit_says_a_standard_was_not_compiled():
@@ -1739,7 +1740,7 @@ def test_all_requests_expired_is_partial_with_a_non_zero_exit_and_the_rerun_is_n
     assert report["kept"] == 0 and report["pages_not_read"] == [1, 2]
     again = _compile(fake)
     assert (
-        again["status"] == "complete"
+        again["status"] == "all_pages_answered"
         and again.get("skipped") is None
         and again["kept"] == 1
     )
@@ -1755,7 +1756,7 @@ def test_a_rerun_pays_only_for_the_pages_not_answered():
     assert report["status"] == "partial" and report["pages_not_read"] == [2]
     spent = claude_spend.spent(standards_converter.step_for(LABEL))
     again = _compile(fake)
-    assert again["status"] == "complete" and [
+    assert again["status"] == "all_pages_answered" and [
         r["custom_id"] for r in fake.created[-1]
     ] == [second_id]
     assert first_id not in {r["custom_id"] for r in fake.created[-1]}
@@ -1765,7 +1766,7 @@ def test_a_rerun_pays_only_for_the_pages_not_answered():
 def test_a_compiled_standard_always_reports_pages_not_read_and_only_complete_is_skipped():
     _document()
     report = _compile(FakeBatches())
-    assert report["status"] == "complete" and report["pages_not_read"] == []
+    assert report["status"] == "all_pages_answered" and report["pages_not_read"] == []
     assert _compile(FakeBatches())["status"] == "skipped"
 
 
@@ -1979,3 +1980,279 @@ def test_a_rule_stores_the_edition_its_document_records_and_says_nothing_when_no
         )
     _compile(FakeBatches())
     assert _rules()[0]["edition"] == "Rev 7"
+
+
+# ------------------------------------------------------------------------------- re-review of #1589
+
+
+@pytest.mark.parametrize(
+    "limit, unit",
+    [("100 mm", None), ("200 psi", None), ("100 mm", "mm"), ("316L", None)],
+)
+def test_a_limit_that_is_not_a_bare_number_is_dropped(limit, unit):
+    assert _outcome(
+        NOZZLE.replace("nozzle", "316L nozzle"), limit=limit, unit=unit
+    ) == (
+        None,
+        "limit_not_a_bare_number",
+    )
+
+
+def _still_running(fake):
+    fake.batch_retrieve = lambda url, batch_id, *, headers: {
+        "id": batch_id,
+        "processing_status": "in_progress",
+    }
+
+
+def test_budget_left_out_with_a_batch_open_reports_the_batch_not_nothing_sent(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "claude_budget_usd_per_standard", 0.2)
+    _document(pages=_big_pages(20))
+    fake = FakeBatches([])
+    real = fake.batch_retrieve
+    _still_running(fake)
+    said = []
+    code = compile_standards.run(
+        _copy_db(),
+        [LABEL],
+        client=fake,
+        max_wait_s=0,
+        sleep=lambda _s: None,
+        emit=said.append,
+        note=lambda _s: None,
+    )
+    out = json.loads(said[0])
+    report = out["standards"][0]
+    assert code == compile_standards.EXIT_WAITING and out["stopped"] is None
+    assert report["status"] == "waiting" and report["batch_ids"] == ["msgbatch_1"]
+    assert report["chunks_not_sent"] > 0 and len(fake.created) == 1
+    assert "nothing" not in said[0]
+    fake.batch_retrieve = real
+    again = _compile(fake)
+    assert again["status"] == "partial" and again["resumed_batches"] == 1
+
+
+def test_earlier_sends_are_never_reported_as_nothing_sent(monkeypatch):
+    _document()
+    fake = FakeBatches(kinds={"*": ["expired", "expired"]})
+    assert _compile(fake)["status"] == "partial"
+    monkeypatch.setattr(settings, "claude_budget_usd_per_standard", 0.0001)
+    report = _compile(fake)
+    assert report["status"] == "partial" and report["batch_ids"] == [
+        "msgbatch_1",
+        "msgbatch_2",
+    ]
+    assert report["chunks_not_sent"] == 1 and len(fake.created) == 2
+
+
+def test_nothing_sent_still_refuses_when_nothing_was_sent(monkeypatch):
+    _document()
+    monkeypatch.setattr(settings, "claude_budget_usd_per_standard", 0.0001)
+    fake = FakeBatches()
+    with pytest.raises(standards_compiler.TooDear, match="nothing was sent"):
+        _compile(fake)
+    assert fake.created == []
+
+
+def test_pages_with_no_text_keep_a_standard_partial_and_state_the_denominator():
+    _document(pages=(PAGE_1, "", "", "", ""))
+    said = []
+    code = compile_standards.run(
+        _copy_db(),
+        [LABEL],
+        client=FakeBatches(),
+        sleep=lambda _s: None,
+        emit=said.append,
+        note=lambda _s: None,
+    )
+    report = json.loads(said[0])["standards"][0]
+    assert code == compile_standards.EXIT_PARTIAL and report["status"] == "partial"
+    assert (report["pages_answered"], report["pages_total"]) == (1, 5)
+    assert report["pages_denominator"] and report["pages_no_text"] == [2, 3, 4, 5]
+
+
+def test_a_partial_standard_with_blank_pages_costs_nothing_to_run_again():
+    _document(pages=(PAGE_1, ""))
+    fake = FakeBatches()
+    _compile(fake)
+    assert _compile(fake)["status"] == "partial" and len(fake.created) == 1
+    assert len(_rules()) == 1
+
+
+def test_the_finished_word_says_answered_not_extracted():
+    _document()
+    report = _compile(FakeBatches([]))
+    assert report["status"] == "all_pages_answered" and report["kept"] == 0
+
+
+def test_side_by_side_says_a_partial_version_2_is_partial_with_its_drops():
+    _document()
+    fake = FakeBatches([_rule(), _rule(limit="26")], kinds={})
+    report = _compile(fake)
+    assert report["status"] == "all_pages_answered"
+    v2 = standards_compiler.side_by_side(db.connect(), {DOC: LABEL})["per_standard"][0][
+        "v2"
+    ]
+    assert v2["run_status"] == "all_pages_answered" and v2["proposed"] == 2
+    assert v2["dropped"] == {"limit_not_in_quote": 1} and v2["pages_not_read"] == 0
+
+
+def test_side_by_side_marks_partial_and_not_compiled_and_adds_them_up():
+    _document(pages=(PAGE_1, ""))
+    _document("std-yy", "SAES-Y-900", pages=(PAGE_1,))
+    _compile(FakeBatches())
+    out = standards_compiler.side_by_side(
+        db.connect(), {DOC: LABEL, "std-yy": "SAES-Y-900"}
+    )
+    statuses = {r["standard"]: r["v2"]["run_status"] for r in out["per_standard"]}
+    assert statuses == {LABEL: "partial", "SAES-Y-900": "not compiled"}
+    assert out["total"]["v2"]["run_statuses"] == {"partial": 1, "not compiled": 1}
+
+
+def test_a_skipped_rerun_still_shows_the_drops():
+    _document()
+    fake = FakeBatches([_rule(), _rule(limit="26")])
+    _compile(fake)
+    report = _compile(fake)
+    assert report["status"] == "skipped" and report["skipped"] == 1
+    assert report["dropped"] == {"limit_not_in_quote": 1} and report["kept"] == 1
+
+
+def test_the_conditional_gate_alone_drops_a_condition_in_the_middle():
+    sentence = "The pressure, when hot, shall not exceed 200 psi."
+    assert _outcome(sentence) == (None, "condition_not_captured")
+    assert _outcome(sentence, condition="when hot")[1] is None
+
+
+# ------------------------------------------------------------ table rows and scope outside the sentence
+
+ROW = "Maximum flange pressure 25 bar"
+TABLE_PAGE = f"4.1 Flanges\nRow heading words\n{ROW}\nAnother row words"
+
+
+def _tabled():
+    _document(pages=(TABLE_PAGE,))
+    tables = json.dumps(
+        {"tables": [{"rows": [["Maximum flange pressure", "25 bar"]], "lines": [2]}]}
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET tables_json = ? WHERE document_id = ?", (tables, DOC)
+        )
+
+
+def test_a_dropped_table_row_is_counted_as_one():
+    _tabled()
+    report = _compile(FakeBatches([_rule(quote=ROW, condition=None, limit="26")]))
+    assert report["dropped"] == {"limit_not_in_quote": 1}
+    assert report["dropped_table_rows"] == {"limit_not_in_quote": 1}
+
+
+def test_a_dropped_sentence_is_not_counted_as_a_table_row():
+    _document()
+    report = _compile(FakeBatches([_rule(limit="26")]))
+    assert report["dropped_table_rows"] == {}
+
+
+def test_a_rule_kept_from_a_table_row_is_flagged_and_cannot_read_as_a_plain_shall():
+    _tabled()
+    report = _compile(FakeBatches([_rule(quote=ROW, condition=None)]))
+    rule = _rules()[0]
+    assert (
+        "table_row" in rule["context_flag"] and rule["strength"] == "context_dependent"
+    )
+    assert rule["sentence_strength"] == "stated"
+    assert report["kept_with_context_flag"]["table_row"] == 1
+
+
+@pytest.mark.parametrize(
+    "page, flag",
+    [
+        ("4.1 Flanges for sour service\nSome plain words here.\n{s}", "heading_scope"),
+        ("Table 3 - Limits for gas lines\n{s}", "caption_scope"),
+        (
+            "4.1 Flanges\nThe rules below apply only to sour service. {s}",
+            "adjacent_scope",
+        ),
+        ("4.1 Flanges\n{s} This limit applies only to sour service.", "adjacent_scope"),
+    ],
+)
+def test_scope_outside_the_sentence_flags_the_rule(page, flag):
+    sentence = "The pressure shall not exceed 200 psi."
+    pages = {1: page.format(s=sentence)}
+    chunk = standards_compiler.chunks_of(pages)[0]
+    clause = "4.1" if page.startswith("4.1") else "3"
+    if flag == "caption_scope":
+        pages = {1: "4.1 Flanges\n" + pages[1]}
+        chunk = standards_compiler.chunks_of(pages)[0]
+        clause = "4.1"
+    answer = {
+        "applies_to": "pumps",
+        "field": "pressure",
+        "comparator": "<=",
+        "limit": "200",
+        "unit": "psi",
+        "clause": clause,
+        "page": 1,
+        "quote": sentence,
+    }
+    rule, why = standards_compiler.verify(answer, chunk, pages)
+    assert why is None and flag in rule["context_flag"]
+    assert (
+        rule["strength"] == "context_dependent" and rule["sentence_strength"] == "shall"
+    )
+
+
+def test_a_heading_running_on_from_an_earlier_page_flags_the_rule():
+    sentence = "The pressure shall not exceed 200 psi."
+    pages = {1: "4.1 Flanges for sour service\nSome plain words here.", 2: sentence}
+    chunk = standards_compiler.chunks_of(pages)[0]
+    answer = {
+        "applies_to": "pumps",
+        "field": "pressure",
+        "comparator": "<=",
+        "limit": "200",
+        "unit": "psi",
+        "clause": "4.1",
+        "page": 2,
+        "quote": sentence,
+    }
+    rule, why = standards_compiler.verify(answer, chunk, pages)
+    assert why is None and "heading_scope" in rule["context_flag"]
+
+
+def test_a_sentence_that_refers_back_is_flagged():
+    rule, why = _outcome("These pressure limits shall not exceed 200 psi.")
+    assert why is None and "refers_back" in rule["context_flag"]
+    assert rule["strength"] == "context_dependent"
+
+
+def test_a_line_with_no_verb_is_flagged_row_like():
+    rule, why = _outcome("Set pressure max 200 psi", comparator="<=")
+    assert why is None and "row_like" in rule["context_flag"]
+
+
+def test_a_plain_sentence_under_a_plain_heading_carries_no_flag():
+    rule, why = _outcome(NOZZLE)
+    assert why is None and rule["context_flag"] is None and rule["strength"] == "shall"
+
+
+def test_a_limit_of_its_own_before_it_does_not_flag_the_next_sentence():
+    first = "The flange pressure shall not exceed 25 bar for gas service."
+    sentence = "The pressure shall not exceed 200 psi."
+    pages = {1: f"4.1 Flanges\n{first} {sentence}"}
+    chunk = standards_compiler.chunks_of(pages)[0]
+    answer = {
+        "applies_to": "pumps",
+        "field": "pressure",
+        "comparator": "<=",
+        "limit": "200",
+        "unit": "psi",
+        "clause": "4.1",
+        "page": 1,
+        "quote": sentence,
+    }
+    rule, why = standards_compiler.verify(answer, chunk, pages)
+    assert why is None and rule["context_flag"] is None

@@ -40,6 +40,16 @@ _ABBREVIATED = (
     "e.g.",
     "i.e.",
 )
+#: The strength of a rule whose scope may sit outside its own sentence. An approval path can refuse it by this word.
+CONTEXT_DEPENDENT = "context_dependent"
+_CAPTION = re.compile(r"^\s*(?:table|figure|fig\.?|note)\s+\w", re.IGNORECASE)
+_SCOPE_WORDS = re.compile(
+    r"\b(?:only|for|appl(?:y|ies)\s+to|the\s+following)\b", re.IGNORECASE
+)
+_REFERS_BACK = re.compile(
+    r"^\W*(?:this|these|those|such|they|it|the\s+above|the\s+foregoing|the\s+same)\b",
+    re.IGNORECASE,
+)
 _LEADING_PREPOSITION = re.compile(
     r"^(?P<clause>(?:for|during|above|below|at|except|within|after|before|on|with|without)\s+[^,;:.]{3,140}),\s"
 )
@@ -245,6 +255,10 @@ def _limit_problem(limit, unit, comparator, quote, sentence) -> str | None:
     """Why this limit is not the one the sentence states, or None."""
     if any(w in sentence for w in sc.DEFAULT_WORDS):
         return "default_not_limit"
+    if (
+        numparse.as_number(limit) is None
+    ):  # "100 mm" or "316L" would skip every binding check below
+        return "limit_not_a_bare_number"
     if not numparse.value_in_text(limit, quote):
         return "limit_not_in_quote"
     if unit and not unit_in_quote(unit, quote):
@@ -255,7 +269,7 @@ def _limit_problem(limit, unit, comparator, quote, sentence) -> str | None:
     if comparator not in sc.COMPARATORS or not sc._comparator_says(quote, comparator):
         return "comparator_not_in_quote"
     if number is None:
-        return None
+        return "limit_not_in_quote"
     if _is_range(number, unit, quote):
         return "range_not_single"
     if sc.limit_scope(sentence, sentence, number.raw, unit) is None:
@@ -334,8 +348,71 @@ def _applies_to_on_page(applies_to: str, text: str) -> bool:
     return bool(wanted) and wanted <= set(field_vocabulary._tokens(text))
 
 
+def _is_scope(words: str) -> bool:
+    return bool(_SCOPE_WORDS.search(words)) or ai_requirements._is_conditional(words)
+
+
+def _context_lines(pages: dict[int, str], page: int, start: int) -> tuple[str, str]:
+    """(nearest heading above, nearest caption above): this page, then back over earlier pages for the heading."""
+    lines = pages[page][:start].splitlines()
+    heading = next((x for x in reversed(lines) if _CLAUSE_HEADING.match(x)), "")
+    caption = next((x for x in reversed(lines) if _CAPTION.match(x)), "")
+    for earlier in sorted((p for p in pages if p < page), reverse=True):
+        if heading:
+            break
+        before = pages[earlier].splitlines()
+        heading = next((x for x in reversed(before) if _CLAUSE_HEADING.match(x)), "")
+    return heading, caption
+
+
+def _adjacent_scope(sentence: str, text: str) -> bool:
+    """A scope in the sentence before, when it states no figure of its own, or a reference back in the one after."""
+    found = sentences_of(text)
+    cores = [_core(s) for s in found]
+    if sentence not in cores:
+        return False
+    at = cores.index(sentence)
+    before = found[at - 1] if at else ""
+    after = found[at + 1] if at + 1 < len(found) else ""
+    if before and _is_scope(before) and not numparse.find_numbers(before):
+        return True
+    return bool(after and _REFERS_BACK.match(after) and _is_scope(after))
+
+
+def is_table_row(answer: object, tables) -> bool:
+    """Does the table reader's record hold this proposal's quote? Only where a record exists."""
+    if not isinstance(answer, dict) or not tables:
+        return False
+    return _core(str(answer.get("quote") or "")) in {
+        _core(words) for words in tables.get(answer.get("page"), ())
+    }
+
+
+def context_flags(
+    answer: dict, sentence: str, strength: str, pages, tables
+) -> list[str]:
+    """Why this rule may not stand alone. Errs towards a flag: a flag costs a look at approval."""
+    page, text = answer["page"], pages[answer["page"]]
+    flags = []
+    if is_table_row(answer, tables):
+        flags.append("table_row")
+    if strength == "stated":
+        flags.append("row_like")
+    if _REFERS_BACK.match(sentence):
+        flags.append("refers_back")
+    start = quote_span(" ".join(str(answer["quote"]).split()), text)[0] or 0
+    heading, caption = _context_lines(pages, page, start)
+    if heading and _is_scope(heading):
+        flags.append("heading_scope")
+    if caption and _is_scope(caption):
+        flags.append("caption_scope")
+    if _adjacent_scope(sentence, text):
+        flags.append("adjacent_scope")
+    return flags
+
+
 def verify(
-    answer: object, chunk: Chunk, pages: dict[int, str]
+    answer: object, chunk: Chunk, pages: dict[int, str], tables=None
 ) -> tuple[dict | None, str | None]:
     """(rule, None) or (None, reason), for ONE proposal. Code decides; the answer is a claim."""
     if not isinstance(answer, dict):
@@ -378,6 +455,8 @@ def verify(
     ):
         return None, "condition_not_captured"
     start, end = quote_span(quote, text)
+    stated = strength_of(sentence)
+    flags = context_flags(answer, sentence, stated, pages, tables)
     return (
         {
             "applies_to": applies_to,
@@ -390,7 +469,9 @@ def verify(
             "limit_value": numparse.as_number(limit) if limit else None,
             "unit": unit or None,
             "unit_dimension": claims.unit_dimension(unit) if unit else None,
-            "strength": strength_of(sentence),
+            "strength": CONTEXT_DEPENDENT if flags else stated,
+            "sentence_strength": stated,
+            "context_flag": ",".join(flags) or None,
             "clause": str(answer.get("clause")).strip(),
             "page": page,
             "quote": quote,

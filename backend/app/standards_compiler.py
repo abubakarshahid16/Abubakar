@@ -30,6 +30,10 @@ THE TEXT is what the app cites, recognised text included (`_page_rows`). Each re
 natively, from OCR and not at all, with OCR's confidence when stored, and each rule says which its page was. Pages
 with no text are listed. A standard with no usable page is "not_compiled", never a standard with no rules.
 
+CONTEXT. Code cannot prove that a rule stands alone: a table row, or a sentence whose scope sits in a heading, caption
+or the next sentence, can be kept with no condition and be over-broad. Such a rule gets `context_flag` and the strength
+`context_dependent` (its own word stays in `sentence_strength`), so an approval path can refuse it.
+
 CACHING. One stable system block per standard (instructions plus the start of the standard), and only the pages
 of that chunk after the breakpoint. It is marked only when it pays: two or more chunks, and the block over the
 model's minimum. Five-minute entries, the price the ledger knows. In a batch a hit is best effort, so the report
@@ -55,7 +59,16 @@ from . import (
     standards_converter,
 )
 from .ai.json_reply import unfenced
-from .compiled_rule_proof import ANSWER_SCHEMA, Chunk, quote_verified, verify
+from .compiled_rule_proof import ANSWER_SCHEMA, Chunk, is_table_row, verify
+from .compiled_rule_report import (
+    NOT_RECORDED,  # noqa: F401
+    _has_table,
+    page_coverage,
+    page_origin,
+    page_table_texts,
+    pages_of,
+    side_by_side,  # noqa: F401
+)
 from .config import settings
 from .converter_gates import _CLAUSE_HEADING
 from .converter_gates import fold as _fold
@@ -64,6 +77,11 @@ from .reasoning_provider import ClaudeProvider, Packet, schema_errors
 
 V1, V2 = 1, 2
 PROMPT_VERSION = "compile-v1"
+#: Every page of the document had text and was answered. It says nothing about how many rules came out.
+ALL_ANSWERED = "all_pages_answered"
+PAGES_DENOMINATOR = (
+    "pages_answered of pages_total: every page of this document in this database copy"
+)
 STEP_PREFIX = claude_spend.STANDARD_STEP_PREFIX
 #: Characters of pages in one request, and of the stable start of the standard before the cache breakpoint.
 CHUNK_CHARS = 12_000
@@ -72,11 +90,9 @@ HEAD_CHARS = 6_000
 MAX_OUTPUT_TOKENS = 12_000
 #: Below this the API silently does not cache (512 on the 5.5 models); ~4 characters per token here.
 MIN_CACHE_TOKENS = 512
-NOT_RECORDED = "not recorded"
 NOTHING_TO_READ = (
     "no page has text, native or recognised; recognise it first, then compile"
 )
-BOUNDARY = "active rows of the standards named in this report, this database copy only"
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS compile_runs (
         id TEXT PRIMARY KEY, standard_document_id TEXT NOT NULL, standard TEXT NOT NULL,
@@ -109,6 +125,8 @@ def ensure_schema(conn) -> None:
         add_column_if_missing(conn, "compile_runs", "status", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "page_source", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "strength", "TEXT")
+        add_column_if_missing(conn, "compiled_rules", "sentence_strength", "TEXT")
+        add_column_if_missing(conn, "compiled_rules", "context_flag", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "exception_text", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "quote_sha256", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "quote_start", "INTEGER")
@@ -119,50 +137,6 @@ def ensure_schema(conn) -> None:
 
 
 # ---------------------------------------------------------------------------------------------- the text
-
-
-def _page_rows(conn, document_id: str) -> list:
-    """The app's one way to read a document's pages, the text it chunks and cites: recognised text over the text
-    layer (`chunker._load_pages`). So a scanned standard is read here, and quotes are verified, as it is cited."""
-    from .chunker import _load_pages
-
-    return _load_pages(conn, document_id)[2]
-
-
-def pages_of(conn, document_id: str) -> dict[int, str]:
-    """The standard's page text as the app cites it."""
-    return {r["page_no"]: r["text"] or "" for r in _page_rows(conn, document_id)}
-
-
-def page_origin(conn, document_id: str) -> dict[int, dict]:
-    """{page with text: where its text came from}. The confidence is OCR's own, on a recognised page only."""
-    return {
-        r["page_no"]: {
-            "page_source": "recognised" if r["recognised"] else "native",
-            "page_min_conf": r["min_conf"] if r["recognised"] else None,
-        }
-        for r in _page_rows(conn, document_id)
-        if (r["text"] or "").strip()
-    }
-
-
-def page_coverage(conn, document_id: str) -> dict:
-    """Pages read natively, from OCR and not at all, with their numbers. A confidence only when one is stored."""
-    pages, origin = pages_of(conn, document_id), page_origin(conn, document_id)
-    from_ocr = [o for o in origin.values() if o["page_source"] == "recognised"]
-    known = [o["page_min_conf"] for o in from_ocr if o["page_min_conf"] is not None]
-    out = {
-        "pages_total": len(pages),
-        "pages_native": len(origin) - len(from_ocr),
-        "pages_from_ocr": len(from_ocr),
-        "pages_no_text": sorted(set(pages) - set(origin)),
-    }
-    if known:
-        out |= {
-            "ocr_lowest_confidence": min(known),
-            "ocr_pages_with_confidence": len(known),
-        }
-    return out
 
 
 def text_hash(pages: dict[int, str]) -> str:
@@ -358,12 +332,14 @@ def estimate(model: str, packets: dict[str, Packet]) -> dict:
 
 
 def _read_answers(
-    answers: dict[str, dict], chunks: list[Chunk], pages, origin
+    answers: dict[str, dict], chunks: list[Chunk], pages, origin, tables
 ) -> tuple[list[tuple[dict, dict]], dict]:
     """Verify every proposal. Returns ((rule, answer) pairs, counts)."""
     with_id = {c.custom_id: c for c in chunks}
     kept, seen = [], set()
     dropped: Counter = Counter()
+    dropped_rows: Counter = Counter()
+    flagged: Counter = Counter()
     proposed = duplicates = 0
     cut: list[str] = []
     bad: list[str] = []
@@ -375,9 +351,11 @@ def _read_answers(
                 continue
             for proposal in proposals:
                 proposed += 1
-                rule, reason = verify(proposal, with_id[custom_id], pages)
+                rule, reason = verify(proposal, with_id[custom_id], pages, tables)
                 if rule is None:
                     dropped[reason] += 1
+                    if is_table_row(proposal, tables):
+                        dropped_rows[reason] += 1
                     continue
                 key = (
                     rule["clause"],
@@ -391,10 +369,17 @@ def _read_answers(
                     duplicates += 1
                     continue
                 seen.add(key)
+                flagged.update(
+                    (rule["context_flag"] or "").split(",")
+                    if rule["context_flag"]
+                    else []
+                )
                 kept.append(({**rule, **origin[rule["page"]]}, answer))
     return kept, {
         "proposed": proposed,
         "dropped": dict(sorted(dropped.items())),
+        "dropped_table_rows": dict(sorted(dropped_rows.items())),
+        "kept_with_context_flag": dict(sorted(flagged.items())),
         "duplicates": duplicates,
         "chunks_truncated": sorted(cut),
         "chunks_unreadable": sorted(bad),
@@ -445,8 +430,8 @@ def _store(
                 "INSERT INTO compiled_rules (id, run_id, rule_version, standard_document_id, standard, applies_to,"
                 " condition_text, field, comparator, limit_text, limit_value, unit, unit_dimension, clause, page,"
                 " quote, status, model, prompt_version, batch_id, text_sha256, created_at, page_source, page_min_conf,"
-                " strength, applies_to_verified, exception_text, quote_sha256, quote_start, quote_end, edition)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'held',?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " strength, applies_to_verified, exception_text, quote_sha256, quote_start, quote_end, edition, sentence_strength, context_flag)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'held',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     uuid.uuid4().hex,
                     run_id,
@@ -478,6 +463,8 @@ def _store(
                     rule["quote_start"],
                     rule["quote_end"],
                     edition,
+                    rule["sentence_strength"],
+                    rule["context_flag"],
                 ),
             )
     return run_id
@@ -510,6 +497,7 @@ def _sent_counts(outcome, chunks: int, worst: dict, label: str) -> dict:
         "requeued_once": outcome.requeued,
         "failures_by_kind": dict(Counter(outcome.failures.values())),
         "gave_up": sorted(outcome.gave_up),
+        "chunks_not_sent": len(outcome.over_budget),
         "resumed_batches": outcome.resumed_batches,
         "unknown_results": outcome.unknown_results,
         **_spent_on(label),
@@ -519,7 +507,8 @@ def _sent_counts(outcome, chunks: int, worst: dict, label: str) -> dict:
 def _finish(conn, document_id, label, digest, outcome, chunks, readable) -> dict:
     """Every answer is in: verify all of them, then store rules and the run in one transaction."""
     origin = page_origin(conn, document_id)
-    kept, counts = _read_answers(outcome.answers, chunks, readable, origin)
+    tables = page_table_texts(conn, document_id)
+    kept, counts = _read_answers(outcome.answers, chunks, readable, origin, tables)
     models = sorted(
         {str(a["model"]) for a in outcome.answers.values() if a.get("model")}
     )
@@ -536,13 +525,17 @@ def _finish(conn, document_id, label, digest, outcome, chunks, readable) -> dict
             {p for c in chunks if c.custom_id in unread for p in c.pages}
         ),
     }
-    # Compiled only when every page with text was answered. A rerun reads the rest and pays only for that.
-    status = "partial" if unread else "complete"
+    # Finished only when EVERY page of the document had text and was answered; a page with no text may hold rules
+    # nobody read, so it is never passed over. A rerun reads the rest and pays only for that; a blank page costs nothing.
+    coverage = page_coverage(conn, document_id)
+    pages_not_read = counts["pages_not_read"]
+    status = "partial" if unread or coverage["pages_no_text"] else ALL_ANSWERED
+    counts |= {
+        "pages_answered": len(readable) - len(pages_not_read),
+        "pages_denominator": PAGES_DENOMINATOR,
+    }
     if outcome.over_budget:
-        counts |= {
-            "stopped_at_cap": True,
-            "chunks_not_sent": len(outcome.over_budget),
-        }
+        counts |= {"stopped_at_cap": True}
     run_id = _store(
         conn,
         document_id,
@@ -565,9 +558,9 @@ def _finish(conn, document_id, label, digest, outcome, chunks, readable) -> dict
 
 def _already_compiled(conn, document_id: str, digest: str):
     return conn.execute(
-        "SELECT id FROM compile_runs WHERE standard_document_id = ? AND prompt_version = ? AND text_sha256 = ?"
-        " AND status = 'complete'",
-        (document_id, PROMPT_VERSION, digest),
+        "SELECT id, counts_json FROM compile_runs WHERE standard_document_id = ? AND prompt_version = ? AND text_sha256 = ?"
+        " AND status = ?",
+        (document_id, PROMPT_VERSION, digest, ALL_ANSWERED),
     ).fetchone()
 
 
@@ -585,7 +578,8 @@ def compile_standard(
     sleep=time.sleep,
     resend_unconfirmed: bool = False,
 ) -> dict:
-    """Compile one standard, or say why not. A refusal raises (nothing was sent). Returns the report: counts only."""
+    """Compile one standard, or say why not. A refusal raises; only a refusal with nothing ever sent for this text
+    says so. Returns the report: counts only."""
     require_allowed(conn, document_id, label)
     ensure_schema(conn)
     pages = pages_of(conn, document_id)
@@ -602,7 +596,13 @@ def compile_standard(
         return {**report, "status": "not_compiled", "why": NOTHING_TO_READ}
     done = _already_compiled(conn, document_id, digest)
     if done is not None:
-        return {**report, "status": "skipped", "skipped": 1, "run_id": done["id"]}
+        return {
+            **report,
+            **json.loads(done["counts_json"] or "{}"),
+            "status": "skipped",
+            "skipped": 1,
+            "run_id": done["id"],
+        }
     chunks = chunks_of(readable)
     packets = packets_of(label, readable, chunks)
     provider = ClaudeProvider(settings.standards_compiler_model)
@@ -634,7 +634,8 @@ def compile_standard(
             resend_unconfirmed=resend_unconfirmed,
             cache_system=cache_pays(next(iter(packets.values())).system, chunks),
         )
-    if outcome.over_budget and not outcome.answers:
+    sent = outcome.answers or outcome.batch_ids or outcome.unconfirmed
+    if outcome.over_budget and not sent:
         raise TooDear(
             f"{label}: not one request's worst case fits the USD still free (per standard, in total, "
             f"or --max-usd ${limit:.2f} today); nothing was sent"
@@ -652,13 +653,6 @@ def compile_standard(
 
 
 # ------------------------------------------------------------------------------------------- the record
-
-
-def _has_table(conn, name: str) -> bool:
-    found = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
-    ).fetchone()
-    return found is not None
 
 
 def record_rule_version(review_run_id: str) -> None:
@@ -693,92 +687,3 @@ def record_rule_version(review_run_id: str) -> None:
             "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
             (json.dumps(outcome), review_run_id),
         )
-
-
-# ------------------------------------------------------------------------------------------ side by side
-
-
-def _v1_row(conn, document_id: str, pages: dict[int, str]) -> dict:
-    rows = conn.execute(
-        "SELECT field, operator, value, unit, source_text, page, extractor_version FROM standard_requirements"
-        " WHERE standard_document_id = ? AND superseded_at IS NULL",
-        (document_id,),
-    ).fetchall()
-    return {
-        "rules": len(rows),
-        "usable_numeric_limits": sum(
-            1
-            for r in rows
-            if r["field"] and r["operator"] and r["value"] is not None and r["unit"]
-        ),
-        "verified_quotes": sum(
-            1 for r in rows if quote_verified(r["source_text"], pages.get(r["page"]))
-        ),
-        "extractor_versions": dict(
-            sorted(
-                Counter(r["extractor_version"] or NOT_RECORDED for r in rows).items()
-            )
-        ),
-        "models": {NOT_RECORDED: len(rows)},
-    }
-
-
-def _v2_row(conn, document_id: str, pages: dict[int, str]) -> dict:
-    rows = []
-    if _has_table(conn, "compiled_rules"):
-        rows = conn.execute(
-            "SELECT field, comparator, limit_value, unit, quote, page, model, prompt_version, batch_id, status"
-            " FROM compiled_rules WHERE standard_document_id = ?",
-            (document_id,),
-        ).fetchall()
-    return {
-        "rules": len(rows),
-        "usable_numeric_limits": sum(
-            1
-            for r in rows
-            if r["field"]
-            and r["comparator"]
-            and r["limit_value"] is not None
-            and r["unit"]
-        ),
-        "verified_quotes": sum(
-            1 for r in rows if quote_verified(r["quote"], pages.get(r["page"]))
-        ),
-        "models": dict(sorted(Counter(r["model"] for r in rows).items())),
-        "prompt_versions": dict(
-            sorted(Counter(r["prompt_version"] for r in rows).items())
-        ),
-        "batch_ids": sorted({r["batch_id"] for r in rows if r["batch_id"]}),
-        "by_status": dict(sorted(Counter(r["status"] for r in rows).items())),
-    }
-
-
-def _add(total: dict, part: dict) -> None:
-    for key, value in part.items():
-        if isinstance(value, int):
-            total[key] = total.get(key, 0) + value
-        elif isinstance(value, dict):
-            into = total.setdefault(key, {})
-            for name, count in value.items():
-                into[name] = into.get(name, 0) + count
-        elif isinstance(value, list):
-            total[key] = sorted({*total.get(key, []), *value})
-
-
-def side_by_side(conn, documents: dict[str, str]) -> dict:
-    """Version 1 beside version 2, per standard and in total, counts only. Both versions go through the SAME quote
-    check. Version 1 has no model column: "not recorded", never a guess. Version 2 rows are held, not in use."""
-    out = {"boundary": BOUNDARY, "per_standard": [], "total": {"v1": {}, "v2": {}}}
-    for document_id, label in sorted(documents.items(), key=lambda kv: kv[1]):
-        pages = pages_of(conn, document_id)
-        row = {
-            "standard": label,
-            "document_id": document_id,
-            **page_coverage(conn, document_id),
-            "v1": _v1_row(conn, document_id, pages),
-            "v2": _v2_row(conn, document_id, pages),
-        }
-        out["per_standard"].append(row)
-        _add(out["total"]["v1"], row["v1"])
-        _add(out["total"]["v2"], row["v2"])
-    return out
