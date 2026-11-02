@@ -159,33 +159,53 @@ def parse_own_ref(ref: str, label: str, scope_key: str) -> tuple[str, int] | Non
     return parsed
 
 
+def _id_fragment(document_id: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "", document_id.removeprefix("doc_"))[:8].upper()
+
+
 def parse_reply_ref(
     reply: dict, label: str, scope_key: str, document_id: str
 ) -> tuple[str, int] | None:
-    """`parse_own_ref` of a reply row. A reply quoting NO-NUMBER that does not name this
-    document reads as another submittal's number (its label is left blank)."""
+    """`parse_own_ref` of a reply row, resolved to exactly one document. On a document
+    sequence only the id label is unique: NO-NUMBER, a suggested number or a number
+    recorded later can be another document's too, so the row must also name this
+    document. Otherwise its label is left blank and `refusal` says why. Not behind the
+    switch: rows stored NO-NUMBER stay after it is turned off."""
     from . import procedure_crs
 
     quoted = parse_ref(reply["item"])
-    if quoted is not None and procedure_crs.other_document(quoted[0], reply, document_id):
-        return "", quoted[1]
+    if quoted is None:
+        return None
+    if (
+        scope_key.startswith(_DOC_SCOPE)
+        and quoted[0] != _id_fragment(document_id)
+        and ref_label_ok(quoted[0], label, scope_key)
+    ):
+        why = procedure_crs.name_refusal(reply, document_id)
+        if why:
+            reply["refused"] = why
+            return "", quoted[1]
     return parse_own_ref(reply["item"], label, scope_key)
+
+
+def refusal(reply: dict) -> str:
+    """Why a reply row was not matched to this submittal."""
+    return reply.get("refused") or "another submittal's number"
 
 
 def ref_label_ok(quoted: str, label: str, scope_key: str) -> bool:
     """Does a quoted reference's label belong to this submittal's sequence? Its
     label today, or one this document's sequence printed earlier: the id fragment
-    on a sheet already issued, the same number before it was confirmed, the
-    neutral label. Off: only the label itself."""
+    on a sheet already issued, the marked number before it was recorded, the neutral
+    label. Never a real number on a suggested label: that is another sequence. Off:
+    only the label itself."""
     if quoted == label:
         return True
     document_id = _sequenced_document(scope_key)
     if document_id is None:
         return False
-    fragment = re.sub(r"[^A-Za-z0-9]+", "", document_id.removeprefix("doc_"))[:8].upper()
-    return quoted in (NO_NUMBER_LABEL, fragment) or (
-        quoted.removesuffix(SUGGESTED_SUFFIX) == label.removesuffix(SUGGESTED_SUFFIX)
-    )
+    fragment = _id_fragment(document_id)
+    return quoted in (NO_NUMBER_LABEL, fragment, label + SUGGESTED_SUFFIX)
 
 
 def scope_for(submittal_number: str | None, document_id: str) -> tuple[str, str]:

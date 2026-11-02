@@ -3640,7 +3640,7 @@ def import_crs_reply(
         if parsed is None:
             key, outcome = "not_a_crs_number", "not a CRS number"
         elif parsed[0] != label:
-            key, outcome = "other_submittal", "another submittal's number"
+            key, outcome = "other_submittal", crs_numbers_mod.refusal(reply)
         elif crs_numbers_mod.get(crs_scope, parsed[1]) is None:
             key, outcome = "unknown_number", "no such number"
         elif not reply["response"]:

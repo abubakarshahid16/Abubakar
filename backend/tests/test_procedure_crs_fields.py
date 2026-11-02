@@ -89,6 +89,31 @@ def _document(
     )
 
 
+def _other_document(document_id, filename, pages=()):
+    """A second invented document with its own run; returns the run id."""
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,"
+            "uploaded_at) VALUES (?,?,?,1,'x','ready',?,?)",
+            (document_id, filename, uuid.uuid4().hex, len(pages), NOW),
+        )
+        conn.execute(
+            "INSERT INTO document_classification (document_id, document_role, suggested_by)"
+            " VALUES (?, 'CONTRACTOR_SUBMITTAL', 'test')",
+            (document_id,),
+        )
+        for no, text in enumerate(pages, start=1):
+            conn.execute(
+                "INSERT INTO pages (document_id,page_no,text,char_count,needs_ocr,batch_no)"
+                " VALUES (?,?,?,?,0,0)",
+                (document_id, no, text, len(text)),
+            )
+    return submittal_review.create_review_run(
+        submittal_document_id=document_id, allowed_document_ids=frozenset({document_id})
+    )
+
+
 def _scope():
     ids = frozenset(r["id"] for r in db.connect().execute("SELECT id FROM documents"))
     return access.AccessScope(user_id=None, allowed_document_ids=ids, unrestricted=True)
@@ -409,19 +434,29 @@ def test_a_reference_already_issued_still_belongs(on):
     key = f"doc:{DOC}"
     assert crs_numbers.ref_label_ok(FRAGMENT, "NO-NUMBER", key)
     assert crs_numbers.ref_label_ok("X-1-SUGGESTED", "X-1", key)
-    assert crs_numbers.ref_label_ok("X-1", "X-1-SUGGESTED", key)
     assert not crs_numbers.ref_label_ok("ZZZZZZZZ", "NO-NUMBER", key)
     assert not crs_numbers.ref_label_ok("NO-NUMBER", "INV-1", "no:inv-1")
 
 
-def test_no_number_in_a_reply_must_name_this_document(on):
-    """The label is shared, so another document's reply sheet must not be matched."""
+def test_a_real_number_is_not_this_documents_suggested_number(on):
+    """A real number belongs to another sequence; only the marked label was printed here."""
+    assert not crs_numbers.ref_label_ok("X-1", "X-1-SUGGESTED", f"doc:{DOC}")
+
+
+def test_a_reply_without_this_documents_name_is_refused_with_its_reason(on):
     _document(pages=["invented cover"], filename="mine.pdf")
-    other = procedure_crs.other_document
-    assert other("NO-NUMBER", {"document_name": "theirs.pdf"}, DOC)
-    assert other("NO-NUMBER", {"document_name": ""}, DOC)
-    assert not other("NO-NUMBER", {"document_name": " MINE.pdf "}, DOC)
-    assert not other("INV-1", {"document_name": "theirs.pdf"}, DOC)
+    other = procedure_crs.name_refusal
+    assert "another document" in other({"document_name": "theirs.pdf"}, DOC)
+    assert "Document Name" in other({"document_name": ""}, DOC)
+    assert other({"document_name": " MINE.pdf "}, DOC) is None
+
+
+def test_two_documents_of_one_name_cannot_take_a_shared_label(on):
+    _document(pages=["invented cover"], filename="mine.pdf")
+    _other_document("doc_second00000", filename="mine.pdf")
+    assert "two documents" in procedure_crs.name_refusal(
+        {"document_name": "mine.pdf"}, DOC
+    )
 
 
 def test_the_reply_reader_returns_the_document_name():
@@ -449,7 +484,6 @@ def test_switch_off_keeps_every_field(governed):
     assert moved[0]["page_section"] == "p.9"
     assert procedure_crs.number_notes(DOC) == []
     assert not crs_numbers.ref_label_ok(FRAGMENT, "NO-NUMBER", f"doc:{DOC}")
-    assert not procedure_crs.other_document("NO-NUMBER", {}, DOC)
     # The export, unchanged: the type's standard row stays.
     assert "INV-STD-77" in " ".join(_cells(_sheet(run).worksheets[0]))
 
@@ -588,3 +622,161 @@ def test_a_suggested_number_is_printed_and_never_stored(on):
         conn.execute("SELECT label FROM crs_comment_numbers").fetchone()["label"],
     ]
     assert stored == ["NO-NUMBER", "NO-NUMBER"]
+
+
+# ------------------------------------------------------------- review of #1580
+
+
+@pytest.mark.parametrize(
+    ("cell", "printed"),
+    [
+        ("p.7 - 2 Close out", "p.2 - 2 Close out"),
+        ("p.3, 5. Follow-up", "p.2 - p.3, 5. Follow-up"),
+        ("p.1-2, 7 - Section", "p.2 - Section"),
+        ("p.9", "p.2"),
+        ("p.3 2 Close out", "p.2 - p.3 2 Close out"),
+    ],
+)
+def test_only_an_exact_page_lead_is_replaced(on, cell, printed):
+    _document(pages=["invented cover", f"before {QUOTE} after"])
+    rows = [{"quote": QUOTE, "page_section": cell}]
+    procedure_crs.fill_pages(rows, [], DOC)
+    assert rows[0]["page_section"] == printed
+
+
+def test_an_unverified_quote_keeps_a_section_that_starts_with_digits(on):
+    _document(pages=["invented cover"])
+    rows = [
+        {
+            "quote": "an invented sentence that stands on no page here",
+            "page_section": cell,
+        }
+        for cell in ("p.7 - 2 Close out", "p.3, 5. Follow-up")
+    ]
+    procedure_crs.fill_pages(rows, [], DOC)
+    assert [r["page_section"] for r in rows] == ["2 Close out", "p.3, 5. Follow-up"]
+
+
+def _issue(run, document_id):
+    key, label = crs_numbers.scope_of_document(document_id, "")
+    crs_numbers.assign(
+        key, label, ["k"], document_id=document_id, review_run_id=run, issued=True
+    )
+    return key
+
+
+def test_two_documents_with_one_suggested_number_never_take_each_others_reply(
+    on, named
+):
+    mine = _document(pages=[COVER], filename="mine.pdf")
+    theirs = _other_document("doc_second00000", "theirs.pdf", pages=[COVER])
+    my_key, their_key = _issue(mine, DOC), _issue(theirs, "doc_second00000")
+    item = "CRS-INV-AB-PD-0007-SUGGESTED-001"
+    got = _post_reply(mine, _reply_sheet(item, "theirs.pdf"))
+    assert got["other_submittal"] == 1 and got["updated"] == 0
+    assert "another document" in got["rows"][0]["outcome"]
+    assert crs_numbers.get(my_key, 1)["response_code"] is None
+    assert crs_numbers.get(their_key, 1)["response_code"] is None
+    assert _post_reply(mine, _reply_sheet(item, "mine.pdf"))["updated"] == 1
+    assert crs_numbers.get(their_key, 1)["response_code"] is None
+
+
+def test_a_reply_with_no_document_name_is_refused_and_says_why(on, named):
+    run = _document(pages=[COVER], filename="mine.pdf")
+    key = _issue(run, DOC)
+    got = _post_reply(run, _reply_sheet("CRS-INV-AB-PD-0007-SUGGESTED-001", ""))
+    assert got["other_submittal"] == 1 and "Document Name" in got["rows"][0]["outcome"]
+    assert crs_numbers.get(key, 1)["response_code"] is None
+
+
+def test_a_real_number_reply_does_not_reach_a_suggested_sequence(on, named):
+    run = _document(pages=[COVER], filename="mine.pdf")
+    key = _issue(run, DOC)
+    got = _post_reply(run, _reply_sheet("CRS-INV-AB-PD-0007-001", "mine.pdf"))
+    assert got["other_submittal"] == 1 and got["updated"] == 0
+    assert crs_numbers.get(key, 1)["response_code"] is None
+
+
+def test_the_guard_stays_when_the_switch_is_turned_off_again(named, monkeypatch):
+    run = _document(pages=["invented cover"], filename="mine.pdf")
+    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
+    key = _issue(run, DOC)
+    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", False)
+    assert crs_numbers.get(key, 1)["ref"] == "CRS-NO-NUMBER-001"
+    got = _post_reply(run, _reply_sheet("CRS-NO-NUMBER-001", "theirs.pdf"))
+    assert got["other_submittal"] == 1 and got["updated"] == 0
+    assert (
+        _post_reply(run, _reply_sheet("CRS-NO-NUMBER-001", "mine.pdf"))["updated"] == 1
+    )
+
+
+def test_switch_off_with_an_id_label_takes_a_reply_with_no_name(named):
+    """Never turned on: a reply sheet quoting the id label behaves as it always did."""
+    run = _document(pages=["invented cover"], filename="mine.pdf")
+    _issue(run, DOC)
+    got = _post_reply(run, _reply_sheet(f"CRS-{FRAGMENT}-001", ""))
+    assert got["updated"] == 1
+    assert got["rows"][0]["outcome"] == "updated"
+
+
+def test_replies_read_the_document_pages_once(on, named, monkeypatch):
+    calls = []
+    real = procedure_crs.read_number
+    monkeypatch.setattr(
+        procedure_crs, "read_number", lambda pages: calls.append(1) or real(pages)
+    )
+    run = _document(pages=[COVER], filename="mine.pdf")
+    key = _issue(run, DOC)
+    crs_numbers.assign(
+        key, "x", ["k2", "k3"], document_id=DOC, review_run_id=run, issued=True
+    )
+    calls.clear()
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["Item No", "Document Name", "Contractor's Response"])
+    for n in (1, 2, 3):
+        sheet.append([f"CRS-INV-AB-PD-0007-SUGGESTED-00{n}", "mine.pdf", "Accepted"])
+    out = io.BytesIO()
+    book.save(out)
+    assert _post_reply(run, out.getvalue())["updated"] == 3
+    assert len(calls) <= 1
+
+
+def test_changed_pages_are_read_again(on):
+    _document(pages=["invented cover with no number"])
+    assert procedure_crs.suggested_number(DOC) is None
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "UPDATE pages SET text = ?, char_count = ? WHERE document_id = ?",
+            (COVER, len(COVER), DOC),
+        )
+    assert procedure_crs.suggested_number(DOC)["number"] == "INV-AB-PD-0007"
+
+
+@pytest.mark.parametrize(
+    "line", ["2026-11-02-01", "2026-11-02", "02/11/2026", "2026/1/5-3", "31-12-2026"]
+)
+def test_a_date_on_the_cover_is_not_a_document_number(line):
+    assert (
+        procedure_crs.read_number([{"page_no": 1, "text": f"TITLE\n{line}\nbody"}])
+        is None
+    )
+    labelled = f"TITLE\nDocument No: {line}\nbody"
+    assert procedure_crs.read_number([{"page_no": 1, "text": labelled}]) is None
+
+
+def test_a_date_beside_the_real_number_does_not_hide_it():
+    text = "TITLE\nINV-AB-PD-0007\n2026-11-02-01\nbody"
+    assert (
+        procedure_crs.read_number([{"page_no": 1, "text": text}])["number"]
+        == "INV-AB-PD-0007"
+    )
+
+
+def test_a_number_that_only_starts_like_a_year_is_kept():
+    text = "TITLE\n2026-77-PD-0007\nbody"
+    assert (
+        procedure_crs.read_number([{"page_no": 1, "text": text}])["number"]
+        == "2026-77-PD-0007"
+    )

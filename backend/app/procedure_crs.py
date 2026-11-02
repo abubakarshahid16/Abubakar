@@ -3,7 +3,8 @@
 Seen on a procedure review: the sheet named an equipment type the document does not
 have, its page cells stayed empty beside a quote, and its Item No carried a
 document-id fragment. Behind `settings.procedure_crs_fields_enabled`; off, every
-function here hands back what it was given. Read only: no model, no write.
+function here hands back what it was given, except the reply guard (`name_refusal`),
+which stays for rows stored NO-NUMBER. Read only: no model, no write.
 
 1. EQUIPMENT. A document whose kind is known and is not a datasheet has no
    equipment type ON THE CRS. `document_classification.equipment_type` keeps its
@@ -21,6 +22,7 @@ function here hands back what it was given. Read only: no model, no write.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 from . import classification, crs_numbers, document_kind, kind_rules
 from .clause_review import page_texts, verify_quote
@@ -33,6 +35,12 @@ from .procedure_text import FOUND
 #: title block lines (`classification.title_block_lines`).
 COVER_LINES = 40
 MAX_NUMBER_CHARS = 60
+_DAY = r"(?:0?[1-9]|[12]\d|3[01])"
+_YEAR = r"(?:19|20)\d\d"
+#: A date, with or without a counter after it: never a document number.
+_DATE_SHAPE = re.compile(
+    rf"^(?:{_YEAR}[-/](?:0?[1-9]|1[0-2])[-/]{_DAY}|{_DAY}[-/]{_DAY}[-/]{_YEAR})(?:[-/]\d+)*$"
+)
 _EQUIPMENT_METHODS = frozenset({"equipment_type", "governing_standard"})
 #: The words a stored selection reason uses when it names the type it read.
 _NAMES_A_TYPE = re.compile(r"read from (?:the submittal's|its)\b|\bgoverns an? ", re.I)
@@ -41,7 +49,9 @@ REASON_NOT_FOR_KIND = (
     "Chosen by an equipment reading when this run was made; this document is a "
     "{kind} and has no equipment type. Engineer to check whether it applies."
 )
-_PAGE_LEAD = re.compile(r"^p\.\s*\d[\d,\s\-]*(?:\s-\s)?")
+#: Exactly the lead code prints: "p.1-2, 7", then " - " or the end of the cell. Anything
+#: else may be a section's own digits ("p.7 - 2 Close out", "p.3, 5. Follow-up").
+_PAGE_LEAD = re.compile(r"^p\.\d+(?:-\d+)?(?:, \d+(?:-\d+)?)*(?: - |$)")
 _FOUND_QUOTE = re.compile(rf'^{FOUND}: found on page (\d+): "(.+?)" - ', re.S)
 _LABELLED = re.compile(document_kind._NUMBER_LABEL.pattern + r"[\s:.|#-]*(\S*)", re.I)
 
@@ -144,6 +154,7 @@ def _number_like(value: str) -> bool:
         and bool(re.search(r"\d", value))
         and bool(re.search(r"[-/]", value))
         and not classification._is_placeholder(value)
+        and not _DATE_SHAPE.match(value)
     )
 
 
@@ -181,7 +192,7 @@ def read_number(pages: list[dict]) -> dict | None:
     if "document_number" in metadata.conflicts:
         return None
     found = metadata.found.get("document_number")
-    if found is not None:
+    if found is not None and _number_like(found.value):
         return {"number": found.value, "page": found.page, "quote": found.quote}
     numbers = _numbers_in(_cover_lines(pages))
     if len({classification._identity(n) for n, _p, _q in numbers}) != 1:
@@ -190,7 +201,9 @@ def read_number(pages: list[dict]) -> dict | None:
     return {"number": number, "page": page, "quote": quote}
 
 
-def suggested_number(document_id: str) -> dict | None:
+@lru_cache(maxsize=32)
+def _number_of_pages(_db_path: str, document_id: str, _shape: tuple) -> dict | None:
+    """The pages read once for one state of them: each comment's reference asks."""
     pages = [
         dict(r)
         for r in connect().execute(
@@ -199,6 +212,21 @@ def suggested_number(document_id: str) -> dict | None:
         )
     ]
     return read_number(pages)
+
+
+def suggested_number(document_id: str) -> dict | None:
+    row = (
+        connect()
+        .execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(char_count), 0) AS chars FROM pages"
+            " WHERE document_id = ?",
+            (document_id,),
+        )
+        .fetchone()
+    )
+    return _number_of_pages(
+        str(settings.db_path), document_id, (row["n"], row["chars"])
+    )
 
 
 def number_notes(document_id: str) -> list[dict]:
@@ -236,20 +264,20 @@ def number_notes(document_id: str) -> list[dict]:
     return [{"note": note, "standard": "", "count": None, "detail": detail}]
 
 
-def other_document(quoted_label: str, reply: dict, document_id: str) -> bool:
-    """NO-NUMBER is not unique to one document, so a reply quoting it must also name
-    this document (the sheet's Document Name column), or it is not matched."""
-    if (
-        not settings.procedure_crs_fields_enabled
-        or quoted_label != crs_numbers.NO_NUMBER_LABEL
-    ):
-        return False
-    row = (
-        connect()
-        .execute("SELECT filename FROM documents WHERE id = ?", (document_id,))
-        .fetchone()
-    )
-    name = reply.get("document_name") or ""
-    return (
-        row is None or name.strip().lower() != (row["filename"] or "").strip().lower()
-    )
+def name_refusal(reply: dict, document_id: str) -> str | None:
+    """Why a reply's Document Name does not pick out this one document; None when it
+    does. Not behind the switch (`crs_numbers.parse_reply_ref`)."""
+    name = (reply.get("document_name") or "").strip().lower()
+    if not name:
+        return (
+            "this number is not unique to one document and the row has no Document Name"
+        )
+    conn = connect()
+    sql = "SELECT filename FROM documents WHERE id = ?"
+    row = conn.execute(sql, (document_id,)).fetchone()
+    if row is None or name != (row["filename"] or "").strip().lower():
+        return "the row's Document Name names another document"
+    sql = "SELECT COUNT(*) AS n FROM documents WHERE LOWER(TRIM(filename)) = ?"
+    if conn.execute(sql, (name,)).fetchone()["n"] > 1:
+        return "two documents have this name, so the row cannot be matched to one"
+    return None

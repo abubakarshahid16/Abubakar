@@ -194,5 +194,6 @@ class SettingsExt(BaseModel):
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion
-    #: marked as a guess, else NO-NUMBER. OFF: byte-identical. Env: PROCEDURE_CRS_FIELDS_ENABLED.
+    #: marked as a guess, else NO-NUMBER. OFF: byte-identical, except that rows numbered while it was on
+    #: keep printing NO-NUMBER and the reply guard stays for them. Env: PROCEDURE_CRS_FIELDS_ENABLED.
     procedure_crs_fields_enabled: bool = False
