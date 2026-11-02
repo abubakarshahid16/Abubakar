@@ -1,4 +1,4 @@
-"""#1522, review of #1571: a section heading known only from its font is a guess
+"""#1522: a section heading known only from its font is a guess
 (CLAUDE.md rule 4), so it never prints as "section found", and one false label
 does not turn "could not be checked" into "Section not found".
 
@@ -290,9 +290,64 @@ def test_a_lone_number_with_its_own_sub_heading_is_a_numbered_bold_heading(tmp_p
     assert "1. Aims Of Work" in pdf_headings.numbered_bold(pages)
 
 
-def test_an_appendix_needs_no_rising_number(tmp_path):
-    pages = _pages_of(tmp_path, [*PLANT, ("Appendix B", "hebo", BODY), *PLANT])
-    assert pdf_headings.numbered_bold(pages) == frozenset({"Appendix B"})
+def test_a_lone_bare_label_is_not_a_numbered_bold_heading(tmp_path):
+    pages = _pages_of(tmp_path, [*PLANT, ("Part A", "hebo", BODY), *PLANT])
+    assert "Part A" in pdf_headings.detect(pages)[1]
+    assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
+def test_a_bare_label_with_a_sibling_needs_no_rising_number(tmp_path):
+    items = [
+        *PLANT,
+        ("Appendix A", "hebo", BODY),
+        *PLANT,
+        ("Appendix B", "hebo", BODY),
+        *PLANT,
+    ]
+    pages = _pages_of(tmp_path, items)
+    assert pdf_headings.numbered_bold(pages) == frozenset({"Appendix A", "Appendix B"})
+
+
+def test_a_lone_label_with_a_title_is_a_numbered_bold_heading(tmp_path):
+    pages = _pages_of(
+        tmp_path, [*PLANT, ("Appendix B - Plant Nodes", "hebo", BODY), *PLANT]
+    )
+    assert pdf_headings.numbered_bold(pages) == frozenset({"Appendix B - Plant Nodes"})
+
+
+def test_a_second_list_rising_past_the_first_is_not_a_numbered_bold_heading(tmp_path):
+    items = [
+        ("1. Aims Of Work", "hebo", BODY),
+        *PLANT,
+        ("2. Terms Used", "hebo", BODY),
+        *PLANT,
+        ("1. Close Plant", "hebo", BODY),
+        *PLANT,
+        ("2. Open Plant", "hebo", BODY),
+        *PLANT,
+        ("3. Vent Plant", "hebo", BODY),
+        *PLANT,
+    ]
+    pages = _pages_of(tmp_path, items)
+    assert "3. Vent Plant" in pdf_headings.detect(pages)[1]
+    assert pdf_headings.numbered_bold(pages) == frozenset(
+        {"1. Aims Of Work", "2. Terms Used"}
+    )
+
+
+def test_a_jump_past_a_restarted_list_is_a_numbered_bold_heading(tmp_path):
+    items = [
+        ("1. Aims Of Work", "hebo", BODY),
+        *PLANT,
+        ("2. Terms Used", "hebo", BODY),
+        *PLANT,
+        ("1. Close Plant", "hebo", BODY),
+        *PLANT,
+        ("3. Plant Nodes", "hebo", BODY),
+        *PLANT,
+    ]
+    pages = _pages_of(tmp_path, items)
+    assert "3. Plant Nodes" in pdf_headings.numbered_bold(pages)
 
 
 def test_not_found_on_numbered_bold_headings_alone_is_marked_as_a_guess(tmp_path):

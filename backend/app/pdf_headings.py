@@ -341,20 +341,23 @@ def _section_number(text: str) -> str | None:
 def _rising(bold: list[tuple[str, str]], numbers: list[str]) -> set[str]:
     """Which (line text, number) in document order fit the document's numbering: the
     chunker's own test (`plausible_heading_numbers`, and a bare number must rise AT THIS
-    POSITION, as in `segment_document`). A bare number also needs a sibling or a child: a
-    lone "1." is a caption or a list as easily as a section."""
+    POSITION, as in `segment_document`). After a restart, the next numbers of that list
+    are refused too, or a second list rising past the first would pass. A bare number also
+    needs a sibling or a child: a lone "1." is a caption or a list as easily as a section."""
     from . import chunker
 
     allowed = chunker.plausible_heading_numbers(numbers)
     kept: dict[str, str] = {}
-    last = 0
+    last = restarted = 0
     for text, number in bold:
         if number not in allowed:
             continue
         if number.isdigit():
-            if int(number) <= last:
+            value = int(number)
+            if value <= last or (restarted and value == restarted + 1):
+                restarted = value
                 continue
-            last = int(number)
+            last, restarted = value, 0
         kept[text] = number
     bare = [n for n in kept.values() if n.isdigit()]
     children = {n.split(".")[0] for n in numbers if "." in n}
@@ -365,11 +368,23 @@ def _rising(bold: list[tuple[str, str]], numbers: list[str]) -> set[str]:
     }
 
 
+def _with_title_or_sibling(labelled: set[str]) -> set[str]:
+    """ "Part A" alone on its line could be anything; "Part A" and "Part B", or
+    "Part A - Scope", say what they are."""
+    words = Counter(text.split()[0].casefold() for text in labelled)
+    return {
+        text
+        for text in labelled
+        if words[text.split()[0].casefold()] > 1
+        or _SECTION_NO.sub("", text, count=1).strip(" .:-\u2013\u2014")
+    }
+
+
 def numbered_bold(pages: dict[int, list[Line]]) -> frozenset[str]:
     """Headings bold as a whole line whose section number fits the document's numbering:
     independent signals, so the owner counts them as found (2 Nov, #1522). Large but not
     bold, a bold number before a body sentence, a restarted number and a lone row number
-    are not. "Appendix B" and its like carry their word instead of a rising number."""
+    are not. "Appendix B" and its like need a title or a sibling, not a rising number."""
     heads = detect(pages)
     labelled, bold, numbers = set(), [], []
     for n in sorted(pages):
@@ -385,7 +400,7 @@ def numbered_bold(pages: dict[int, list[Line]]) -> frozenset[str]:
                 numbers.append(number)
             elif number and "." in number and _reads_as_title(ln.text):
                 numbers.append(number)  # a body-type sub-heading vouches for its parent
-    return frozenset(labelled | _rising(bold, numbers))
+    return frozenset(_with_title_or_sibling(labelled) | _rising(bold, numbers))
 
 
 def enabled() -> bool:
