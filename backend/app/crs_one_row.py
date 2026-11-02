@@ -4,8 +4,10 @@ ONE ROW PER PROBLEM. Rows with the same clause, problem (row kind and field), va
 verdict are one row that lists every tag, page and requirement sentence it covers. It happens where the sheet is composed, before
 any number is looked up, so numbering, the issue gate and both copies see one row. Rows
 are never joined on a guess, and these never merge: a different value or verdict, an
-unknown value (not even with another unknown), an engineer's different words, a confirmed
-row with an unconfirmed one, a carried-forward row, and two issued numbers.
+value that could not be read, a stated value with none, an unknown clause, an engineer's
+different words, a confirmed
+row with an unconfirmed one, a carried-forward row, and two issued numbers. Two rows that
+state no value by their nature (no field and no stored fact behind them) are the same.
 
 ONE NUMBER. The merged row carries its first member's number, and `member_keys` keeps every
 member's. A decision covers every member (`crs_issue.group_of`), each with its own event
@@ -35,6 +37,8 @@ _NEVER = (crs_mapping.ROW_KIND_CARRIED_FORWARD, crs_mapping.ROW_KIND_ENGINEER_CO
 #: `applicability.REQUIRED_BY_TYPE`: the only reason a row may go. A service the
 #: datasheet declares is the reviewed scope's own reason; it stays.
 _BY_TYPE = "equipment type"
+#: Never a stated value: it holds a control character the fold cannot produce from text.
+_NO_VALUE = "\x00no value by nature"
 
 
 def enabled() -> bool:
@@ -62,6 +66,21 @@ def _sentence(finding: dict) -> str:
     return " ".join(str(finding.get("requirement_source_text") or "").split())
 
 
+def _no_field(finding: dict) -> bool:
+    """No field and no stored fact behind it: a value is not something it could have."""
+    return not finding.get("fact_id") and not _fold(crs_mapping._field_label(finding))
+
+
+def _value(members: list[dict]) -> str:
+    """The one value the members state, `_NO_VALUE` when none has a value by its nature,
+    or "" when they cannot join: values differ, one is stated and one is not, or a
+    field was there and its value could not be read."""
+    values = {_fold(f.get("contractor_evidence_text")) for f in members}
+    if values == {""}:
+        return _NO_VALUE if all(_no_field(f) for f in members) else ""
+    return next(iter(values)) if len(values) == 1 and "" not in values else ""
+
+
 def _identity(row: dict, by_id: dict[str, dict]):
     """What must be identical for two rows to be one, or None when this row cannot join."""
     ids = _ids(row)
@@ -75,9 +94,11 @@ def _identity(row: dict, by_id: dict[str, dict]):
     ):
         return None
     verdict = _one(members, lambda f: f.get("compliance_status"))
-    value = _one(members, lambda f: f.get("contractor_evidence_text"))
+    value = _value(members)
     if not (verdict and value) or not all(_sentence(f) for f in members):
         return None
+    if not all(str(f.get("standard_clause") or "").strip() for f in members):
+        return None  # a reference naming only the standard: the clause is unknown
     if len({_fold(f.get("engineer_comment")) for f in members}) != 1:
         return None
     if len({_fold(crs_mapping._field_label(f)) for f in members}) != 1:
@@ -117,12 +138,33 @@ def _unique(values, joiner: str) -> str:
     return joiner.join(dict.fromkeys(str(v) for v in values if v))
 
 
+def _lines(*parts) -> str:
+    return "\n".join(p for p in parts if p)
+
+
+def _worded(
+    lead: dict, comments: list, drafts: list, lines: list, no_value: bool
+) -> dict:
+    """The row's comment cells. A waiting sentence stays exactly itself, or it would read
+    as text to issue; everything goes in the draft cell beside it. With no value, members'
+    comments are their own findings, so every one is printed. Otherwise they differ only
+    by the tag and page the lines list, so the first speaks for them."""
+    out = {"ai_review_comment": _lines(*drafts)} if drafts else {}
+    lead_text = str(lead.get("comment") or "")
+    if lead_text.strip() in crs_mapping.WAITING_COMMENTS:
+        return {"comment": lead_text, "ai_review_comment": _lines(*drafts, *lines)}
+    return {**out, "comment": _lines(*(comments if no_value else [lead_text]), *lines)}
+
+
 def _joined(group: list[dict], by_id: dict[str, dict]) -> dict:
     """The one row of `group`: the first row, with every member's ids, keys, tags and pages."""
     lead = group[0]
     ids = list(dict.fromkeys(i for r in group for i in _ids(r)))
     members = [by_id[i] for i in ids]
-    line = _covers_line(members)
+    lines = [_sentences_lines(members), _covers_line(members)]
+    comments = sorted({str(r.get("comment") or "") for r in group} - {""})
+    drafts = sorted({str(r.get("ai_review_comment") or "") for r in group} - {""})
+    words = _worded(lead, comments, drafts, lines, _value(members) == _NO_VALUE)
     return {
         **lead,
         "one_row": True,
@@ -136,9 +178,7 @@ def _joined(group: list[dict], by_id: dict[str, dict]) -> dict:
             }
         ),
         "page_section": _unique((r.get("page_section") for r in group), "; "),
-        "comment": "\n".join(
-            p for p in (lead.get("comment"), _sentences_lines(members), line) if p
-        ),
+        **words,
         "reasoning": _unique((r.get("reasoning") for r in group), "\n\n"),
         "rule_trust": _unique((r.get("rule_trust") for r in group), "; "),
     }

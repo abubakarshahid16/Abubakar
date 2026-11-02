@@ -18,6 +18,8 @@ from app import crs_export_quality as q
 from app import crs_one_row as one
 from app.config import settings
 from app.crs_mapping import (
+    WAITING_COMMENTS,
+    row_has_no_issuable_text,
     ROW_KIND_SAFETY_TICK,
     ROW_KIND_STANDARD_NOT_CITED,
 )
@@ -36,6 +38,7 @@ def finding(fid, tag="T-1", page=1, value="12 bar", status="NON_COMPLIANT", **kw
         "compliance_status": status,
         "requirement_source_text": "The set pressure shall not exceed 10 bar.",
         "crs_field_label": "Set pressure",
+        "standard_clause": "4.1",
         **kw,
     }
 
@@ -108,6 +111,127 @@ def test_different_verdicts_never_merge():
 def test_an_unknown_value_is_not_the_same_as_a_stated_one(second):
     findings = [finding("f1"), finding("f2", value=second)]
     assert len(merged([row("f1"), row("f2")], findings)[0]) == 2
+
+
+def no_value(fid, page, sentence, **kw):
+    """A finding with no field: a value is not something it could have."""
+    return finding(
+        fid,
+        "",
+        page,
+        value=None,
+        crs_field_label="",
+        requirement_source_text=sentence,
+        **kw,
+    )
+
+
+NO_VALUE = [no_value("f1", 1, "First sentence."), no_value("f2", 2, "Second sentence.")]
+
+
+def test_two_rows_with_no_value_by_nature_are_one_row_listing_everything():
+    rows, _ = merged(
+        [row("f1", comment="Words of one."), row("f2", comment="Words of two.")],
+        NO_VALUE,
+    )
+    assert len(rows) == 1
+    comment = rows[0]["comment"]
+    for words in (
+        "First sentence.",
+        "Second sentence.",
+        "Words of one.",
+        "Words of two.",
+    ):
+        assert words in comment
+    assert "pages 1, 2" in comment
+
+
+def test_no_value_by_nature_is_not_the_same_as_a_stated_one():
+    findings = [
+        NO_VALUE[0],
+        no_value("f2", 2, "Second.") | {"contractor_evidence_text": "Quote."},
+    ]
+    assert len(merged([row("f1"), row("f2")], findings)[0]) == 2
+
+
+def test_two_different_stated_quotes_with_no_field_stay_apart():
+    a = no_value("f1", 1, "One.") | {"contractor_evidence_text": "Quote A."}
+    b = no_value("f2", 2, "Two.") | {"contractor_evidence_text": "Quote B."}
+    assert len(merged([row("f1"), row("f2")], [a, b])[0]) == 2
+
+
+def test_a_value_that_could_not_be_read_stays_apart():
+    # A field was there to read, by its label or its stored fact.
+    labelled = [finding("f1", value=None), finding("f2", value=None)]
+    assert len(merged([row("f1"), row("f2")], labelled)[0]) == 2
+    with_fact = [
+        no_value("f1", 1, "One.", fact_id="x"),
+        no_value("f2", 2, "Two.", fact_id="y"),
+    ]
+    assert len(merged([row("f1"), row("f2")], with_fact)[0]) == 2
+    one_of_each = [NO_VALUE[0], no_value("f2", 2, "Two.", fact_id="y")]
+    assert len(merged([row("f1"), row("f2")], one_of_each)[0]) == 2
+
+
+def test_no_value_by_nature_with_another_verdict_or_clause_stays_apart():
+    other = no_value("f2", 2, "Two.", status="MISSING_INFORMATION")
+    assert len(merged([row("f1"), row("f2")], [NO_VALUE[0], other])[0]) == 2
+    assert len(merged([row("f1"), row("f2", ref="STD-1 4.2")], NO_VALUE)[0]) == 2
+
+
+def test_a_row_whose_clause_is_not_known_stays_apart():
+    # A reference naming only the standard: the clause is unknown, so not the same one.
+    bare = [
+        no_value("f1", 1, "One.", standard_clause=""),
+        no_value("f2", 2, "Two.", standard_clause=None),
+    ]
+    assert len(merged([row("f1", ref="STD-1"), row("f2", ref="STD-1")], bare)[0]) == 2
+    stated = [finding("f1", standard_clause=""), finding("f2", standard_clause="")]
+    assert len(merged([row("f1"), row("f2")], stated)[0]) == 2
+
+
+def test_every_draft_stays_and_a_waiting_row_still_reads_as_waiting():
+    waiting = next(iter(WAITING_COMMENTS))
+    rows, _ = merged(
+        [
+            row("f1", comment=waiting, ai_review_comment="Draft one."),
+            row("f2", comment=waiting, ai_review_comment="Draft two."),
+        ],
+        NO_VALUE,
+    )
+    assert len(rows) == 1
+    assert rows[0]["comment"] == waiting, "a waiting sentence is not text to issue"
+    assert row_has_no_issuable_text(rows[0]) is True
+    cell = rows[0]["ai_review_comment"]
+    for words in (
+        "Draft one.",
+        "Draft two.",
+        "First sentence.",
+        "Second sentence.",
+        "pages 1, 2",
+    ):
+        assert words in cell
+
+
+def test_a_confirmed_row_with_no_value_prints_every_engineers_comment():
+    rows, _ = merged(
+        [
+            row("f1", comment="Confirmed one.", engineer_confirmed=True),
+            row("f2", comment="Confirmed two.", engineer_confirmed=True),
+        ],
+        NO_VALUE,
+    )
+    assert (
+        "Confirmed one." in rows[0]["comment"]
+        and "Confirmed two." in rows[0]["comment"]
+    )
+    assert rows[0]["engineer_confirmed"] is True
+
+
+def test_the_comments_do_not_depend_on_which_member_leads():
+    first = merged([row("f1", comment="A."), row("f2", comment="B.")], NO_VALUE)[0][0]
+    second = merged([row("f2", comment="B."), row("f1", comment="A.")], NO_VALUE)[0][0]
+    assert first["comment"] == second["comment"]
 
 
 def test_two_unknown_values_are_not_the_same_either():
