@@ -762,7 +762,8 @@ def _division_gate(
     if stopped := ctx["run"].get("stopped"):
         summary["stopped"] = f"{stopped}; the divisions after it were not read"
         summary["model_unavailable"] = stopped
-        local_engine_bar.at_least(f"ai_task:{SCOPE_TASK.name}", summary["could_not_read"])
+        step = f"ai_task:{SCOPE_TASK.name}"
+        local_engine_bar.at_least(step, summary["could_not_read"])
     marks = {
         "unplaced": unplaced,
         "screen_failed": ctx["screen_failed"],
