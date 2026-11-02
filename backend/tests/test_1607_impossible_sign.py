@@ -143,7 +143,9 @@ def test_zero_a_range_and_words_are_not_negative(value):
     assert impossible_sign.is_negative({"raw_value": value}) is False
 
 
-@pytest.mark.parametrize("value", ["-0.5", "-10", chr(0x2212) + "0.5"])
+@pytest.mark.parametrize(
+    "value", ["-0.5", "-10", chr(0x2212) + "0.5", chr(0x2013) + "0.5"]
+)
 def test_a_printed_minus_is_negative(value):
     assert impossible_sign.is_negative({"raw_value": value}) is True
 

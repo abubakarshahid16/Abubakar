@@ -21,14 +21,13 @@ from .deferred_value import CALC_INPUT_ROLES
 
 _PASS = "COMPLIANT"
 _QUERY = "NEEDS_ENGINEER_REVIEW"
-_MINUS_SIGNS = str.maketrans(dict.fromkeys(map(chr, (0x2212, 0x2013, 0x2014)), "-"))
 
 
 def is_negative(fact: dict | None) -> bool:
     """The value as printed is a number below zero. A range, a word, a blank are not."""
     if not fact or fact.get("is_blank") or fact.get("raw_value") is None:
         return False
-    number = claims.parse_value(str(fact["raw_value"]).strip().translate(_MINUS_SIGNS))
+    number = claims.parse_value(str(fact["raw_value"]).strip())
     return number is not None and number < 0
 
 
