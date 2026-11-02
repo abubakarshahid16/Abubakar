@@ -1431,15 +1431,15 @@ def init_db(path: Path | None = None) -> None:
     if path is not None:
         settings.db_path = path
     conn = connect()
-    conn.executescript(SCHEMA)
-    # #554: TWO PROCESSES. `_migrate` is check-then-ALTER; the thread lock
-    # cannot see another process, so two starting on a fresh file both saw a
-    # column missing and the second died on "duplicate column name". Taking
-    # SQLite's write lock first makes the second process wait, then re-read
-    # the columns the first one added. DDL is transactional in SQLite, so the
-    # whole migration lands at once or not at all. `_migrate` ends with its
-    # own commit, which ends this transaction; a "schema has changed" retry by
-    # `SchemaRetryConnection` re-runs the statement inside it, losing nothing.
+    # #554: another process's "schema has changed": SCHEMA can run again. The write lock below serialises the rest.
+    for attempt in range(1, _SCHEMA_CHANGED_RETRIES + 1):
+        try:
+            conn.executescript(SCHEMA)
+            break
+        except sqlite3.OperationalError as exc:
+            changed = "schema has changed" in str(exc).lower()
+            if not changed or attempt == _SCHEMA_CHANGED_RETRIES:
+                raise
     if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN IMMEDIATE")
