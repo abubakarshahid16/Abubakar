@@ -49,7 +49,7 @@ describe("a stated row on the screen", () => {
 
   it("a safety-tick card does not say it meets the standard", () => {
     const tick = finding({
-      stated_only: true, show_for_engineer_tick: 1, contractor_section: "Rated flow",
+      stated_only: true, show_for_engineer_tick: true, contractor_section: "Rated flow",
     } as Partial<ReviewFinding>);
     const title = cardTitle({ findings: [tick] } as Parameters<typeof cardTitle>[0]);
     expect(title).toContain("stated, not checked");
