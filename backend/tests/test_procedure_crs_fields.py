@@ -573,3 +573,18 @@ def test_the_comment_route_takes_the_id_label_too(on):
     )
     assert main_mod._crs_comment(run, f"CRS-{FRAGMENT}-001", _scope()) == (key, 1)
     assert main_mod._crs_comment(run, "CRS-NO-NUMBER-001", _scope()) == (key, 1)
+
+
+def test_a_suggested_number_is_printed_and_never_stored(on):
+    run = _document(pages=[COVER])
+    key, label = crs_numbers.scope_of_document(DOC, "")
+    assert label.endswith("-SUGGESTED")
+    crs_numbers.assign(
+        key, label, ["k"], document_id=DOC, review_run_id=run, issued=False
+    )
+    conn = db.connect()
+    stored = [
+        conn.execute("SELECT label FROM crs_document_scope").fetchone()["label"],
+        conn.execute("SELECT label FROM crs_comment_numbers").fetchone()["label"],
+    ]
+    assert stored == ["NO-NUMBER", "NO-NUMBER"]
