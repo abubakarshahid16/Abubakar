@@ -187,6 +187,17 @@ def test_a_finding_names_the_table_version_and_says_it_is_not_confirmed():
     )
 
 
+def test_the_schema_walk_with_the_switch_off_creates_nothing():
+    material_reference.ensure_schema()
+    assert not material_reference.has_schema(db.connect())
+
+
+def test_the_schema_walk_with_the_switch_on_creates_the_tables(monkeypatch):
+    monkeypatch.setattr(settings, "material_reference_enabled", True)
+    material_reference.ensure_schema()
+    assert material_reference.has_schema(db.connect())
+
+
 def test_tokens_are_whole():
     assert tokens("ASTM A 216 Gr. WCB") == ("a216", "wcb")
 

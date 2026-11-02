@@ -157,7 +157,15 @@ def has_schema(conn) -> bool:
     )
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn=None) -> None:
+    """Create the tables, on a copy. With no connection, the way the app's schema walk calls every module: switch off,
+    it does nothing and creates nothing."""
+    if conn is None:
+        if not settings.material_reference_enabled:
+            return
+        from .db import connect
+
+        conn = connect()
     path = next(
         (r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"), ""
     )
