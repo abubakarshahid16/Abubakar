@@ -15,6 +15,7 @@
       ]
     },
     "test_pressure": {
+      "never_negative": true,
       "kind": "pressure",
       "names": [
         "^(hydro(static)? ?)?test press(ure|\\.)?$",
@@ -38,6 +39,7 @@
       ]
     },
     "rated_flow": {
+      "never_negative": true,
       "kind": "flow",
       "names": [
         "^rated (flow|capacity)$",
@@ -48,6 +50,7 @@
       ]
     },
     "rated_head": {
+      "never_negative": true,
       "kind": "length",
       "names": [
         "^(rated |differential |total )(dynamic )?head$"
@@ -57,6 +60,7 @@
       ]
     },
     "npsh_required": {
+      "never_negative": true,
       "kind": "length",
       "names": [
         "^npsh ?(r|3|required|\\(required\\))( at rated (flow|capacity))?$",
@@ -77,6 +81,7 @@
       ]
     },
     "rated_speed": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^(rated|pump) speed$"
@@ -86,6 +91,7 @@
       ]
     },
     "absorbed_power": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^(absorbed|brake|shaft) (pump )?power( at rated (point|flow))?$",
@@ -97,6 +103,7 @@
       ]
     },
     "driver_rating": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^(driver|motor) (rating|power|rated power|output)$"
@@ -162,24 +169,28 @@
       ]
     },
     "min_flow": {
+      "never_negative": true,
       "kind": "flow",
       "names": [
         "^min(imum|\\.)? (continuous |stable )*flow$"
       ]
     },
     "max_flow": {
+      "never_negative": true,
       "kind": "flow",
       "names": [
         "^max(imum|\\.)? (continuous |allowable )*flow$"
       ]
     },
     "corrosion_allowance": {
+      "never_negative": true,
       "kind": "length",
       "names": [
         "^corrosion allowance$"
       ]
     },
     "set_pressure": {
+      "never_negative": true,
       "kind": "pressure",
       "names": [
         "^set press(ure|\\.)?$",
@@ -187,6 +198,7 @@
       ]
     },
     "mawp": {
+      "never_negative": true,
       "kind": "pressure",
       "names": [
         "^max(imum|\\.)? allow(able|\\.)? working press(ure|\\.)?$",
@@ -194,6 +206,7 @@
       ]
     },
     "cdtp": {
+      "never_negative": true,
       "kind": "pressure",
       "names": [
         "^cold diff(erential|\\.)? (set |test )?press(ure|\\.)?$",
@@ -201,6 +214,7 @@
       ]
     },
     "built_up_back_pressure": {
+      "never_negative": true,
       "kind": "pressure",
       "names": [
         "^built[ -]?up back ?press(ure|\\.)?$",
@@ -208,6 +222,7 @@
       ]
     },
     "superimposed_back_pressure": {
+      "never_negative": true,
       "kind": "pressure",
       "names": [
         "^superimposed back ?press(ure|\\.)?( constant)?$",
@@ -215,6 +230,7 @@
       ]
     },
     "overpressure": {
+      "never_negative": true,
       "kind": "percent",
       "names": [
         "^over ?press(ure|\\.)?( %)?$",
@@ -229,12 +245,14 @@
       ]
     },
     "required_capacity": {
+      "never_negative": true,
       "kind": "flow",
       "names": [
         "^required (relieving )?capacity$"
       ]
     },
     "rated_capacity": {
+      "never_negative": true,
       "kind": "flow",
       "names": [
         "^(rated|certified) (relieving )?capacity$"
@@ -247,6 +265,7 @@
       ]
     },
     "orifice_area": {
+      "never_negative": true,
       "kind": "area",
       "names": [
         "^(selected |effective |actual )?(effective )?orifice area$"
@@ -259,6 +278,7 @@
       ]
     },
     "required_area": {
+      "never_negative": true,
       "kind": "area",
       "names": [
         "^(calculated|required|computed) (effective |orifice |discharge )*area( required)?$"
@@ -347,18 +367,21 @@
       }
     },
     "molecular_weight": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^mol(e|ecular|\\.)? ?(wt|weight)( of relieved fluid)?$"
       ]
     },
     "compressibility": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^compressibility( factor)?( z)?$"
       ]
     },
     "specific_heat_ratio": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^specific heat ratio( cp ?/ ?cv)?$",
@@ -368,12 +391,14 @@
       "plausible": {"max": 1.7}
     },
     "density_relieving": {
+      "never_negative": true,
       "kind": "density",
       "names": [
         "^density( at relieving temp(erature|er|\\.)?)?$"
       ]
     },
     "viscosity_relieving": {
+      "never_negative": true,
       "kind": "viscosity",
       "names": [
         "^viscosity( at relieving temp(erature|er|\\.)?)?$"
@@ -450,6 +475,7 @@
       ]
     },
     "inside_diameter": {
+      "never_negative": true,
       "kind": "length",
       "names": [
         "^(shell |vessel )?inside diameter( \\(id\\))?$"
@@ -459,6 +485,7 @@
       ]
     },
     "tangent_length": {
+      "never_negative": true,
       "kind": "length",
       "names": [
         "^(tangent[- ]to[- ]tangent|tan[- ]tan)( length)?$",
@@ -469,6 +496,7 @@
       ]
     },
     "vessel_volume": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^(vessel |total |internal |design )volume$"
@@ -478,6 +506,7 @@
       ]
     },
     "joint_efficiency": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^(weld )?joint efficiency( \\(e\\))?$"
@@ -506,6 +535,7 @@
       ]
     },
     "empty_weight": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^(empty|dry) weight$"
@@ -515,6 +545,7 @@
       ]
     },
     "operating_weight": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^operating weight$"
@@ -542,6 +573,7 @@
       ]
     },
     "heat_transfer_area": {
+      "never_negative": true,
       "kind": "area",
       "names": [
         "^(effective |total )?(heat )?(transfer|surface) area$"
@@ -560,6 +592,7 @@
       ]
     },
     "tube_outside_diameter": {
+      "never_negative": true,
       "kind": "length",
       "names": [
         "^tube (outside diameter|o\\.?d\\.?)( \\(od\\))?$"
@@ -569,6 +602,7 @@
       ]
     },
     "tube_wall_thickness": {
+      "never_negative": true,
       "kind": "length",
       "names": [
         "^tube (wall )?thickness$",
@@ -579,6 +613,7 @@
       ]
     },
     "tube_length": {
+      "never_negative": true,
       "kind": "length",
       "names": [
         "^(straight |effective )?tube length$"
@@ -588,6 +623,7 @@
       ]
     },
     "tube_count": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^(number of tubes|no\\.? of tubes|tube count)$"
@@ -597,6 +633,7 @@
       ]
     },
     "tube_passes": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^(number of|no\\.? of) tube([- ]side)? passes$",
@@ -607,6 +644,7 @@
       ]
     },
     "fouling_resistance": {
+      "never_negative": true,
       "kind": "number",
       "names": [
         "^fouling (resistance|factor)( (shell|tube)[- ]side)?$"
@@ -625,6 +663,7 @@
       ]
     },
     "exchanger_flow": {
+      "never_negative": true,
       "kind": "flow",
       "names": [
         "^(shell|tube)[- ]side (fluid )?(mass )?flow( rate)?$"
@@ -634,6 +673,7 @@
       ]
     },
     "allowable_pressure_drop": {
+      "never_negative": true,
       "kind": "pressure",
       "names": [
         "^allowable (pressure drop|dp)( (shell|tube)[- ]side)?$"
@@ -757,6 +797,7 @@
       "sq.in.": 645.16
     }
   },
+  "_never_negative": "#1607 (`impossible_sign.py`): a role marked never_negative has no negative reading, so a Pass on one printed negative becomes a Query. In: pressures that only exist above atmosphere on these sheets (set, MAWP, CDTP, test, back pressures, allowable drop), flows and capacities, lengths, areas, speeds, powers, weights, counts, fluid properties, overpressure. Out, because a negative is real: design and operating pressure (vacuum service), temperatures (below 0 is ordinary), NPSH available (a computed margin), heat duty (a sign convention).",
   "_placeholders": "Moved 2026-09-27 to app/blank_markers.py - the ONE list of not-provided markers every datasheet reader and these checks read (CLAUDE.md rule 8).",
   "consistency": [
     {

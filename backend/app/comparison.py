@@ -59,6 +59,7 @@ from .claude_auto_approve import notes_after
 from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
 from .config import settings
 from .deferred_value import framing as _framing, reason as _deferred_reason
+from .impossible_sign import hold_pass as _hold_impossible_pass
 from .db import connect
 from .provenance import ai_quote_proved
 
@@ -592,6 +593,7 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
     (CLAUDE.md rule 4); the same value read as "within the limit" was
     accepted, which is the same guess. Every other status (already a
     question, missing information) passes unchanged."""
+    verdict = _hold_impossible_pass(verdict, fact)  # #1607
     if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
         return verdict
     reason = low_trust_reason(fact)

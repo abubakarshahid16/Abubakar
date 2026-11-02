@@ -158,6 +158,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
 | `degraded_read` | A degraded AI reading of a datasheet (mostly refused, timed out, stopped, unavailable) is recorded in counts and holds every checklist pass for the engineer (order 261.2) |
 | `deferred_value` | A value the sheet defers to the contractor (By Contractor, TBA) is a query, never a verdict (owner decision D2, #1475) |
+| `impossible_sign` | A value that cannot be negative, printed negative, never gives a Pass; it becomes a Query (#1607) |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
