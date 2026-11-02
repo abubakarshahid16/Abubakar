@@ -101,8 +101,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         9,
         "a row whose item cannot be told counts as a Pass: fails open",
         _S,
-        "    return check not in compared_ids()\n",
-        "    return bool(check) and check not in compared_ids()\n",
+        "    return check not in OWN_CHECKS and check not in compared_ids()\n",
+        "    return bool(check) and check not in OWN_CHECKS and check not in compared_ids()\n",
         "no_item_id_fails_closed",
     ),
     _m(
@@ -144,5 +144,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    return sorted(set(standards(checklist)) - asks_more)\n",
         "    return sorted(set(standards(checklist)))\n",
         "compared_items_still_governs",
+    ),
+    _m(
+        15,
+        "any DS- id skips the check, so an overlay item named DS-9 reaches Approved",
+        _S,
+        "    return check not in OWN_CHECKS and check not in compared_ids()\n",
+        '    return not (check or "").startswith("DS-") and check not in compared_ids()\n',
+        "named_like_an_own_check",
     ),
 )

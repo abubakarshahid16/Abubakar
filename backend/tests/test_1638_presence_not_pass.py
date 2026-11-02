@@ -165,6 +165,40 @@ def test_the_datasheets_own_arithmetic_still_counts(on):
     assert presence_check.is_stated_only(_row(consistency)) is False
 
 
+@pytest.mark.parametrize(
+    "check",
+    [
+        "DS-C1",
+        "DS-C2",
+        "DS-C3",
+        "DS-C4",
+        "DS-C5",
+        "DS-M1",
+        "DS-M2",
+        "DS-R1",
+        "DS-U1",
+        "DS-U2",
+    ],
+)
+def test_each_of_the_datasheets_own_checks_counts(on, check):
+    assert presence_check.is_stated_only(_row(check)) is False
+
+
+def test_an_overlay_item_named_like_an_own_check_is_no_way_round(
+    on, tmp_path, monkeypatch
+):
+    """A `required` overlay item called DS-9 gave Approved while any DS- id skipped the check."""
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    folder = tmp_path / dc.LOCAL_DIR_NAME
+    folder.mkdir()
+    (folder / "centrifugal_pump.json").write_text(
+        '{"items": [{"id": "DS-9", "text": "t", "source": {"standard": "s", "clause": "c"},'
+        ' "rule": {"kind": "required", "field": "rated_flow"}}]}'
+    )
+    assert presence_check.is_stated_only(_row("DS-9")) is True
+    assert _code([_row("DS-9")])["code"] == MANUAL
+
+
 def test_an_overlay_edited_in_place_is_read_without_a_restart(
     on, tmp_path, monkeypatch
 ):

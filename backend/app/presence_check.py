@@ -27,8 +27,9 @@ STATUS = "STATED_NOT_CHECKED"
 PASS = "COMPLIANT"
 ORIGIN = "datasheet_check"
 REQUIRED = "required"
-#: The datasheet's own checks (arithmetic, units): never a checklist item.
-OWN_CHECK = "DS-"
+#: The datasheet's own checks (arithmetic `consistency` is read from the rules; the mandatory
+#: field, revision block and unit checks are in code). Exact: any other id is told by the list.
+OWN_CHECKS = frozenset({"DS-M1", "DS-M2", "DS-R1", "DS-U1", "DS-U2"})
 NOTE_DETAIL = (
     "These checklist items ask only that the field is stated. The value was not compared"
     " with anything, so they count for no approval and are not decided rules: "
@@ -79,9 +80,7 @@ def is_stated_only(finding: dict) -> bool:
     from .coverage_pair import _check_id
 
     check = _check_id(finding)
-    if check and check.startswith(OWN_CHECK):
-        return False
-    return check not in compared_ids()
+    return check not in OWN_CHECKS and check not in compared_ids()
 
 
 def status_of(finding: dict) -> str | None:

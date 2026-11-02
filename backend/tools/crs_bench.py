@@ -23,16 +23,15 @@ document text. The counting rule is printed with every table.
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import sqlite3
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import coverage_pair, crs_decider, deferred_pass, presence_check
+from app import coverage_pair, crs_decider, deferred_pass, presence_check, run_measures
 
-DECIDED = ("COMPLIANT", "NON_COMPLIANT")
+DECIDED = run_measures.DECIDED
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
 
 
@@ -56,8 +55,7 @@ _deferred_pass = deferred_pass.is_deferred_pass
 _value_is_deferred = coverage_pair.value_is_deferred
 
 
-def _fold(text: str | None) -> str:
-    return re.sub(r"\s+", " ", (text or "")).strip().casefold()
+_fold = run_measures.fold
 
 
 # ----------------------------------------------------------------- scoring
@@ -86,97 +84,20 @@ def score(
         )
     ]
 
-    checklist = [f for f in findings if f.get("origin") == "datasheet_check"]
-    with_req = [f for f in findings if f.get("requirement_id")]
-    in_scope = {
-        f["requirement_id"]
-        for f in with_req
-        if f.get("compliance_status") != "NOT_IN_DOCUMENT_SCOPE"
-    }
-    decided_req = {
-        f["requirement_id"] for f in with_req if f.get("compliance_status") in DECIDED
-    }
-
-    page_text = {
-        r["page_no"]: _fold(r["text"])
-        for r in conn.execute(
-            "SELECT page_no, text FROM pages WHERE document_id = ?", (doc,)
-        )
-    }
-    quoted = [
-        f
-        for f in findings
-        if (f.get("contractor_evidence_text") or "").strip()
-        and f.get("contractor_page")
-    ]
-    verified = [
-        f
-        for f in quoted
-        if _fold(f["contractor_evidence_text"])
-        in page_text.get(f["contractor_page"], "")
-    ]
-
     outcome = json.loads(run["outcome_json"] or "{}")
-    if coverage is None:
-        coverage = outcome.get("page_coverage") or {}
-    split = outcome.get("requirement_split") or {}
-    if isinstance(split.get("applies_not_checked"), int):
-        # the headline's own boundary: the rules that apply to this submittal
-        applies = (split.get("checked") or 0) + split["applies_not_checked"]
-    else:
-        applies = len(in_scope)
-    total = coverage.get("pages_total")
-    # #1473: with PAGE_READ_BY_READING_ENABLED the ledger names the pages no
-    # reading came back for; without it, the pages no field was read from.
-    unread = (
-        coverage.get("pages_not_read", coverage.get("pages_not_read_into_fields")) or []
-    )
-
     if kind is None:
         kind = system_kind(conn, doc)
-
-    matchers = case.get("wrong", []) + (
-        case.get("wrong_replay", []) if replayed else []
+    measures = run_measures.headline(
+        conn, doc, outcome, findings, case, coverage=coverage, replayed=replayed
     )
-    if any(m.get("deferred") for m in matchers):
-        for f in findings:
-            f["deferred"] = f.get(
-                "compliance_status"
-            ) == "COMPLIANT" and _value_is_deferred(conn, f)
-    wrong = [
-        f for f in _hits(findings, matchers) if f.get("compliance_status") in DECIDED
-    ]
     return {
         "run": run_id,
         "document": doc,
         "model": run["model_name"] or (outcome.get("ai_matcher") or {}).get("model"),
         "findings": len(findings),
-        "wrong": len(wrong),
-        "untrue": len(_hits(findings, case.get("untrue", []))),
-        "irrelevant": len(_hits(findings, case.get("irrelevant", []))),
-        # D2 (owner): a value marked 'By Contractor'/TBA is a Query, so a Pass
-        # on one is not a decision the bench credits; it is shown on its own row.
-        "checklist_decided": sum(
-            f.get("compliance_status") in DECIDED
-            and not _deferred_pass(f)
-            and not presence_check.is_stated_only(f)
-            for f in checklist
-        ),
-        "checklist_total": len(checklist),
-        "fails": sum(f.get("compliance_status") == "NON_COMPLIANT" for f in findings),
-        "rules_decided": len(decided_req),
-        "rules_in_scope": applies,
-        "sent_away": sum(
-            f.get("compliance_status") == "NOT_IN_DOCUMENT_SCOPE" for f in findings
-        ),
-        "quotes_verified": len(verified),
-        "quotes_unverified": len(quoted) - len(verified),
-        "quotes_total": len(quoted),
-        "pages_read": None if total is None else total - len(unread),
-        "pages_total": total,
+        **measures,
         "kind": kind,
         "kind_ok": kind == case.get("kind"),
-        "pass_on_deferred": sum(_deferred_pass(f) for f in findings),
         # Informational, below the headline: one count per place a decision or
         # an engineer row is made, never added together (`finding_sources`).
         "sources": finding_sources(conn, findings),
