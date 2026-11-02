@@ -36,10 +36,6 @@ def _row(facts, rule_id):
     return next(r for r in rows if r.get("checklist") and r["rule_id"] == rule_id)
 
 
-def test_switch_is_off_by_default():
-    assert settings.datasheet_one_value_enabled is False
-
-
 def test_off_a_noted_range_and_a_bare_range_stay_two_values():
     row = _row([_range("4-28 cP By Contractor"), _range("4-28 cP")], "PSV-23")
     assert "two different values" in row["detail"]

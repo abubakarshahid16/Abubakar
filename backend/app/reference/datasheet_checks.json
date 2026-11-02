@@ -114,6 +114,7 @@
     },
     "casing_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^(pump )?casing material$",
         "^case material$"
@@ -124,6 +125,7 @@
     },
     "impeller_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^impeller material$"
       ],
@@ -133,6 +135,7 @@
     },
     "shaft_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^shaft material$"
       ],
@@ -413,6 +416,7 @@
     },
     "body_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^body( and bonnet)? material$",
         "^body$"
@@ -420,6 +424,7 @@
     },
     "trim_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^(trim|nozzle|disc|disk)( and (disc|disk|nozzle|seat))? material$",
         "^(nozzle|disc|disk) ?(/ ?base|base|insert) material$",
@@ -428,12 +433,14 @@
     },
     "spring_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^spring( material)?$"
       ]
     },
     "bellows_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^bellows( material)?$"
       ]
@@ -458,6 +465,7 @@
     },
     "shell_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^shell (plate )?material( of construction)?$"
       ],
@@ -467,6 +475,7 @@
     },
     "head_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^(head|dished end|end cover) material$"
       ],
@@ -584,6 +593,7 @@
     },
     "tube_material": {
       "kind": "text",
+      "reads_as": "material",
       "names": [
         "^tube (bundle )?material$"
       ],

@@ -246,7 +246,6 @@ export const AI_STEP_DEFAULTS: Record<string, { label: string; onByDefault: bool
   reader: { label: "AI reader", onByDefault: true, setting: "DATASHEET_AI_READER" },
   matcher: { label: "AI matcher", onByDefault: true, setting: "MATCH_ENGINE" },
   clause_checks: { label: "AI clause checks", onByDefault: true, setting: "AI_CLAUSE_CHECKS_ENABLED" },
-  applicability: { label: "AI applicability (does-not-apply proposals)", onByDefault: false, setting: "AI_APPLICABILITY_ENABLED" },
   applicability_reasoning: { label: "Applicability reasoning (scope decision)", onByDefault: true, setting: "APPLICABILITY_REASONING_ENABLED" },
   engineering_check: { label: "AI engineering check", onByDefault: true, setting: "REVIEW_AI_CHECK_ENABLED" },
   wording: { label: "AI wording of the comments", onByDefault: true, setting: "CRS_AI_WORDING_ENABLED" },

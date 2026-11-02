@@ -326,7 +326,9 @@ def test_a_batch_out_returns_at_once_and_says_pending_on_the_crs_and_the_audit(
     audit = review_audit.build(run, access.unrestricted_scope(), None)
     [step] = [s for s in audit["ai_use"]["steps"] if s["name"] == "clause_review"]
     assert step["state"] == "pending" and step["results"]["not_reviewed"] == 2
-    assert status["plain"] in review_audit.render_markdown(audit)
+    markdown = review_audit.render_markdown(audit)
+    assert status["plain"] in markdown and "- clause_review: pending;" in markdown
+    assert "Claude batch, this run only: USD" in markdown
 
 
 def test_a_restart_polls_the_same_batch_and_pays_once(fake):
@@ -1081,6 +1083,25 @@ def test_a_list_withdrawn_before_the_send_stops_it_at_the_gate(fake, monkeypatch
     status = _start(run, scope)
     assert fake.created == [] and status["results"]["not_reviewed"] == 1
     assert claude_spend.NOT_APPROVED_WORDS in status["plain"]
+
+
+def test_every_send_and_read_declares_the_submittal_and_the_standards_it_carries(fake):
+    """The privacy gate reads this declaration: it names what the prompt holds, no more and no less."""
+    seen = []
+    create, retrieve = fake.batch_create, fake.batch_retrieve
+
+    def on_create(*a, **k):
+        seen.append(claude_approved.carried())
+        return create(*a, **k)
+
+    def on_retrieve(*a, **k):
+        seen.append(claude_approved.carried())
+        return retrieve(*a, **k)
+
+    fake.batch_create, fake.batch_retrieve = on_create, on_retrieve
+    sub, run, scope = _world()
+    _start(run, scope)
+    assert seen and all(c == frozenset({sub, "doc_std"}) for c in seen)
 
 
 def test_a_second_review_of_the_same_text_is_answered_from_the_cache_at_no_cost(fake):

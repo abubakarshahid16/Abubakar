@@ -119,6 +119,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
+| `crs_one_row` | #1503: one CRS row per problem, and "did not reference" rows nothing in scope requires, behind CRS_ONE_ROW_PER_PROBLEM_ENABLED |
 | `crs_machine_words` | Order 152.2: finds machine wording (code names, model/engine names, internal phrases) in the contractor copy's machine-written cells; the issue gate refuses it |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
@@ -212,6 +213,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_check` | #805 plan change 6, part A: one rule's requirement against one submitted value: meets, does not meet or cannot tell; pure; not mentioned is never compliant |
 | `rulebook_v2_review` | #805 plan change 6: a review reads approved version 2 rules beside version 1: pairs each to a read value by field, decides through `comparison.compare`, a Query with a named reason when unsure; `pair_rule_to_document` is the pairing alone, read only; off by default |
 | `rule_field_naming` | #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list, code verifies it; a rule no field answers is kept, marked not on a datasheet; off by default |
+| `rule_part_scope` | Which equipment a rule is for, from the scope clause of its Part or Appendix: reads the division gate's stored reading, verifies the sentence on its page, says in scope, outside (not paired) or not established (a Query); sends nothing; only with the review switch on |
 | `rule_typed_check` | #805 plan change 6: a rule with a verified field role and no figure gets a typed check proposed from its quote; code verifies it and decides with the readers the project has; off by default |
 | `material_reference` | #1584: specification grade to material family, proposed from general knowledge with no document text, signed by the owner's tick, read only with its switch on; a grade not in the signed table is a Query |
 | `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |

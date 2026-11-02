@@ -35,8 +35,32 @@ def is_negative(fact: dict | None) -> bool:
     return any(number is not None and number < 0 for number in readings)
 
 
+def _glued_number(fact: dict | None) -> bool:
+    """A number glued to a joining hyphen ("PN-16"), so no number can be read: not a negative,
+    and not a value to pass unread on these roles either (#1619)."""
+    raw = None if not fact or fact.get("is_blank") else fact.get("raw_value")
+    return raw is not None and numparse.has_joining_minus(str(raw))
+
+
+def glued_doubt(fact: dict, role: str) -> str | None:
+    """Why a bounded role's value cannot be checked, when it is a glued number (#1619)."""
+    if not _glued_number(fact):
+        return None
+    from .datasheet_checks import _label, _said
+
+    return (
+        f"{_label(fact, role)} {_said(fact)} (page {fact.get('page')}) cannot be read "
+        f"as a number; engineer to check the value"
+    )
+
+
 def _why(fact: dict, role: str) -> str:
     name = role.replace("_", " ")
+    if _glued_number(fact):
+        return (
+            f"the sheet prints the {name} as {fact.get('raw_value')} (page {fact.get('page')}), "
+            f"which cannot be read as a number"
+        )
     return (
         f"the sheet prints the {name} as {fact.get('raw_value')} (page {fact.get('page')}), and a negative "
         f"value here is unusual (it fits only a case such as vacuum service)"
@@ -69,7 +93,7 @@ def _impossible(facts: list[dict], rules: dict, wanted) -> list[tuple[dict, str]
     roles = rules.get("roles") or {}
     found = []
     for fact in facts:
-        if not is_negative(fact):
+        if not (is_negative(fact) or _glued_number(fact)):
             continue
         role = role_of(fact.get("field_name") or "", rules, wanted)
         if role and (roles.get(role) or {}).get("never_negative"):
@@ -115,7 +139,7 @@ def hold_results(
 
 def hold_pass(verdict: dict, fact: dict | None) -> dict:
     """A library standard's verdict on one value: a Pass on an impossible value is a Query."""
-    if verdict.get("status") != _PASS or not is_negative(fact):
+    if verdict.get("status") != _PASS or not (is_negative(fact) or _glued_number(fact)):
         return verdict
     from .datasheet_checks import load_rules
 

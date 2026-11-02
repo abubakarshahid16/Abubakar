@@ -12,7 +12,8 @@ Seven rules, each in one home (CLAUDE.md rule 8), all general for any document
    row with an issued number, a safety tick or a carried-forward comment is
    never merged (each is its own thing an engineer or the contractor answers)
 2. a row with no comment is dropped and counted (`drop_no_comment`)
-3. every row names a page or says "page not found (<reason>)" (`page_cell`)
+3. every row names a page or says "page not found (<reason>)" (`page_cell`); with
+   CRS_PAGE_CELL_FIELD_ENABLED it says the section or field instead (`no_page_cell`)
 4. a comment is at most `COMMENT_LIMIT` characters; the rest moves to the AI
    Review Comments column (`split_comment`); Reasoning and Rule trust go to
    the Internal sheet, which the contractor copy does not have
@@ -40,6 +41,7 @@ import re
 
 from openpyxl.styles import Alignment, Font
 
+from . import crs_page_words
 from .config import settings
 from .crs_mapping import NOTE_MISSING_STANDARD
 from .rule_trust import UNPROVEN_REASON
@@ -130,6 +132,12 @@ _MATERIAL_WIDE = re.compile(
 )
 
 
+def one_row_enabled() -> bool:
+    """CRS_ONE_ROW_PER_PROBLEM_ENABLED (`crs_one_row`): the sheet is merged where it is
+    composed, on the owner's identity, so this view merges nothing more."""
+    return bool(settings.crs_one_row_per_problem_enabled)
+
+
 def strict_enabled() -> bool:
     """CRS_EXPORT_QUALITY_STRICT_ENABLED (default off). It acts only where
     `CRS_EXPORT_QUALITY_ENABLED` already holds: every reader here is reached
@@ -174,16 +182,45 @@ _OTHER_DOCUMENT_KINDS = (
 )
 
 
+#: Every cell of `no_page_cell` ends with this: a row with no verified quote has no page.
+NO_PAGE = "so no page"
+#: A row about a standard the submittal does or does not cite, with no finding behind it:
+#: there is no quote by construction, and it needs no other document.
+_NOT_CITED = "standard_not_cited"
+_NOT_APPLICABLE = "standard_not_applicable"
+
+
 def has_page(page_section: str) -> bool:
     return bool(_HAS_PAGE.search(str(page_section or "")))
 
 
-def page_cell(page_section: str, row_kind: str = "") -> str:
+def no_page_cell(text: str, row_kind: str, standard: str) -> str:
+    """The cell of a row with no page: the section or field it is about, and why there
+    is no page. A page comes only from a verified quote (`crs_mapping._page_section`), so
+    a row with none has no page to print; none is looked for or guessed here."""
+    field = crs_page_words.field_first(text)
+    if field:
+        return f"{field}, {NO_PAGE}"
+    if row_kind == _NOT_CITED and standard:
+        return f"Whole submittal: {standard} is not cited, {NO_PAGE}"
+    about = f"About {standard}" if standard else "No section or field recorded"
+    head = f"Section: {text}" if text else about
+    if row_kind == _NOT_APPLICABLE and standard and not text:
+        head = f"Whole submittal: about {standard}"
+    if row_kind in _OTHER_DOCUMENT_KINDS:
+        return f"{head}: another document is needed, {NO_PAGE}"
+    return f"{head}: no verified quote, {NO_PAGE}"
+
+
+def page_cell(page_section: str, row_kind: str = "", standard: str = "") -> str:
     """The Page No./Section cell: as it was when it names a page, else
-    "page not found (<reason>)" followed by whatever the cell said."""
+    "page not found (<reason>)" followed by whatever the cell said; with
+    CRS_PAGE_CELL_FIELD_ENABLED, `no_page_cell`."""
     text = str(page_section or "").strip()
     if has_page(text):
         return text
+    if settings.crs_page_cell_field_enabled:
+        return no_page_cell(text, row_kind, standard)
     if text.lower().startswith("not read from"):
         reason = REASON_NOT_READ
     elif row_kind in _OTHER_DOCUMENT_KINDS:
@@ -468,6 +505,8 @@ def prepare(
     if copy == "internal":
         findings, gone = drop_no_comment(findings, has_no_text)
         dropped += gone
+    if one_row_enabled():
+        return findings, dropped, 0
     findings, merged = merge_duplicates(findings, _strict_key if strict else _key)
     return findings, dropped, merged
 
@@ -487,7 +526,9 @@ def _finish_rows(rows: list[dict], ref_label: str) -> tuple[set[str], bool]:
             if gone:
                 flagged.add(entry["row_ref"])
         entry["page_section"] = page_cell(
-            entry["page_section"], entry.get("row_kind") or ""
+            entry["page_section"],
+            entry.get("row_kind") or "",
+            entry.get("standard_reference") or "",
         )
         entry["priority_label"] = priority_label(entry.get("priority"))
         if entry["comment_missing"]:

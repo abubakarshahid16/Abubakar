@@ -29,10 +29,6 @@ def _row(facts, rule_id):
     return next(r for r in rows if r.get("checklist") and r["rule_id"] == rule_id)
 
 
-def test_switch_is_off_by_default():
-    assert settings.datasheet_label_join_enabled is False
-
-
 def test_joined_letters_joins_only_runs_of_single_letters():
     assert joined_letters("tube o d") == "tube od"
     assert joined_letters("a b c outlet") == "abc outlet"
