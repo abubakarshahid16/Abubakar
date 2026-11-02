@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from functools import cache
 
+from . import numparse
+
 
 @cache
 def _patterns() -> tuple[re.Pattern, ...]:
@@ -84,6 +86,60 @@ def parse(sentence: str) -> dict | None:
         return None
     return {
         "operator": operator,
+        "raw_value": match.group("value"),
+        "raw_unit": raw_unit,
+        "value": measurement.normalized_value,
+        "unit": measurement.normalized_unit,
+    }
+
+
+@cache
+def _trailing_pattern() -> re.Pattern:
+    from . import requirements_3b as r3b
+
+    return re.compile(
+        r"(?P<value>[-+]?" + r3b._VALUE + r")\s*(?P<unit>" + r3b._UNIT + r")"
+        r"\s+(?P<cmp>or\s+[A-Za-z]+)\b",
+        re.IGNORECASE,
+    )
+
+
+def _first_trailing(sentence: str) -> tuple[re.Match, str, str] | None:
+    """The first "<number> <unit> or <comparator>" in the sentence, with its direction
+    and unit. The direction is the shared vocabulary's (`comparators`)."""
+    from . import comparators
+    from . import requirements_3b as r3b
+
+    for match in _trailing_pattern().finditer(sentence or ""):
+        direction = comparators.direction_of(match.group(0))
+        raw_unit = r3b.unit_token(match.group("unit"))
+        if direction is not None and raw_unit:
+            return match, direction, raw_unit
+    return None
+
+
+def trailing_refused(sentence: str) -> bool:
+    """The first trailing limit starts where no value may ("A-5 mm or less", "3-5 C or
+    lower"). The text cannot say what it is, so the sentence states no limit we can read:
+    a later value must not be taken instead, and it goes to an engineer (#1619)."""
+    found = _first_trailing(sentence)
+    return found is not None and not numparse.value_may_start(
+        sentence, found[0].start()
+    )
+
+
+def trailing(sentence: str) -> dict | None:
+    """A comparator that FOLLOWS the value: "3 m or less", "5 mm or more". `_LIMIT`
+    reads only one in front of the number."""
+    from . import requirements_3b as r3b
+
+    found = _first_trailing(sentence)
+    if found is None or trailing_refused(sentence):
+        return None
+    match, direction, raw_unit = found
+    measurement = r3b.measure(match.group("value"), raw_unit)
+    return {
+        "operator": direction,
         "raw_value": match.group("value"),
         "raw_unit": raw_unit,
         "value": measurement.normalized_value,

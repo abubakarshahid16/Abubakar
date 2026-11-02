@@ -124,6 +124,18 @@ NO_LIMIT = [
     ("A--29 C or lower", "C"),
     ("Zone 2--29 C or lower", "C"),
     ("T--5 C or lower", "C"),
+    ("T5 C or lower", "C"),
+    ("a,5 C or lower", "C"),
+]
+
+#: A refused first value must not let a later one in the same sentence decide.
+TWO_LIMITS = [
+    ("MDMT-29 C or lower, 40 C or lower", "C"),
+    ("3-5 C or lower; 40 C or lower", "C"),
+    ("T5 mm or more, 10 mm or less", "mm"),
+    ("A-15 C or lower, 2 C or higher", "C"),
+    ("MDMT-29 C or lower, between 10 C and 40 C", "C"),
+    ("MDMT-29 C or lower, and shall be 40 C", "C"),
 ]
 
 #: (text, unit, the value read). A real negative or positive keeps its value.
@@ -143,14 +155,12 @@ REAL_LIMIT = [
 
 
 def _verdict(text: str, value: str, unit: str) -> str:
-    limit = requirements_3b.parse_limit(text)
+    limit = requirements_3b.parse_limit_or_range(text)
     requirement = {
+        **(limit or {}),
         "id": "r",
         "clause": "1",
         "requirement_type": requirements_3b.classify(text, limit),
-        "operator": (limit or {}).get("operator"),
-        "raw_value": (limit or {}).get("raw_value"),
-        "raw_unit": (limit or {}).get("raw_unit"),
         "requirement_text": text,
         "source_text": text,
         "field": "design temperature",
@@ -190,3 +200,32 @@ def test_real_limits_keep_their_value(text, unit, raw):
 def test_real_negative_limits_still_decide(text, unit, raw):
     assert _verdict(text, "25", unit) == comparison.NON_COMPLIANT
     assert _verdict(text, "-40", unit) == comparison.COMPLIANT
+
+
+@pytest.mark.parametrize("text, unit", TWO_LIMITS)
+def test_two_limits_a_refused_first_value_gives_no_limit(text, unit):
+    assert requirements_3b.parse_limit(text) is None
+    assert requirements_3b.parse_limit_or_range(text) is None
+
+
+@pytest.mark.parametrize("value", ["-40", "-5", "0", "5", "25", "100"])
+@pytest.mark.parametrize("text, unit", TWO_LIMITS)
+def test_two_limits_go_to_review(text, unit, value):
+    assert _verdict(text, value, unit) == comparison.NEEDS_ENGINEER_REVIEW
+
+
+def test_two_readable_limits_still_read_the_first():
+    assert (
+        requirements_3b.parse_limit("5 C or lower, 40 C or lower")["raw_value"] == "5"
+    )
+
+
+def test_a_candidate_with_no_direction_does_not_refuse():
+    limit = requirements_3b.parse_limit("A-5 mm or so, 40 C or lower")
+    assert limit is not None and limit["raw_value"] == "40"
+
+
+def test_a_refused_limit_is_no_field_comparison():
+    text = "The outlet pressure shall not exceed the inlet pressure, A-5 mm or less"
+    assert requirements_3b.parse_cross_field(text) is None
+    assert requirements_3b.parse_limit_or_range(text) is None

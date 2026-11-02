@@ -1026,7 +1026,9 @@ def _states_its_own_limit(text: str, mult: str | None) -> bool:
     """A plain numeric limit is not a field comparison - except that the factor of
     one ("1.1 times the required capacity") reads as a UNITLESS limit of 1.1."""
     limit = parse_limit(text)
-    return limit is not None and not (mult and limit.get("raw_unit") is None)
+    if limit is None:
+        return own_value_limit.trailing_refused(text)
+    return not (mult and limit.get("raw_unit") is None)
 
 
 def parse_cross_field(sentence: str) -> dict | None:
@@ -1079,6 +1081,8 @@ def parse_limit_or_range(sentence: str) -> dict | None:
     20 % and 80 % of travel, and not above 5 bar") is NOT turned into a range:
     it stays the limit it was, for an engineer to read."""
     limit, span = parse_limit(sentence), parse_range(sentence)
+    if limit is None and own_value_limit.trailing_refused(sentence):
+        return None  # never a later value in the sentence instead (#1619)
     if span is None:
         if limit and not (limit.get("raw_unit") is None and parse_cross_field(sentence) is not None):
             return limit
@@ -1091,28 +1095,6 @@ def parse_limit_or_range(sentence: str) -> dict | None:
     return limit
 
 
-#: A comparator that FOLLOWS the value: "3 m or less", "5 mm or more". `_LIMIT` reads only one in
-#: front of the number. The direction is the shared vocabulary's (`comparators`). The value starts
-#: only at the start of the text or after whitespace, a comparator, a separator or an opening
-#: bracket; anything else ("A-5", "3-5", "5--10", "1/2") is no limit and goes to review (#1619).
-_TRAILING_LIMIT = re.compile(
-    r"(?<![^\s<>=:;~(\[{≤≥])(?P<value>[-+]?" + _VALUE + r")\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
-
-
-def _parse_trailing_limit(sentence: str) -> dict | None:
-    from . import comparators
-
-    for match in _TRAILING_LIMIT.finditer(sentence or ""):
-        direction = comparators.direction_of(match.group(0))
-        raw_unit = unit_token(match.group("unit"))
-        if direction is None or not raw_unit:
-            continue
-        measurement = measure(match.group("value"), raw_unit)
-        return {"operator": direction, "raw_value": match.group("value"), "raw_unit": raw_unit,
-                "value": measurement.normalized_value, "unit": measurement.normalized_unit}
-    return None
-
-
 def parse_limit(sentence: str) -> dict | None:
     """A numeric limit out of one sentence, or None.
 
@@ -1121,7 +1103,7 @@ def parse_limit(sentence: str) -> dict | None:
     """
     match = _LIMIT.search(sentence)
     if not match:
-        return own_value_limit.parse(sentence) or _parse_trailing_limit(sentence)
+        return own_value_limit.parse(sentence) or own_value_limit.trailing(sentence)
     phrase = _canonical_comparator(match.group("cmp"))
     operator = _OPERATOR.get(phrase)
     if operator is None:

@@ -273,6 +273,13 @@ def sign_before(text: str, start: int) -> tuple[str, int]:
     return "+", start
 
 
+def value_may_start(text: str, start: int) -> bool:
+    """May a value, signed or not, start at `start`? Only at the start of the text or after
+    whitespace or a `_SIGN_LEAD` other than a comma ("A-5", "3-5", "T5" and "a,5" may not; #1619)."""
+    lead = text[start - 1 : start] if start > 0 else ""
+    return not lead or lead.isspace() or (lead in _SIGN_LEAD and lead != ",")
+
+
 def _prev_nonspace_is_number_end(text: str, i: int) -> bool:
     while i >= 0 and text[i].isspace():
         i -= 1
