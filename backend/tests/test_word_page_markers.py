@@ -447,6 +447,32 @@ def test_crs_text_and_blank_rows_use_the_same_words(tmp_path):
     assert "p.2 (page marks partial)," in tick
 
 
+def test_every_crs_sentence_names_the_section_and_no_part_for_a_file_with_no_pages(
+    tmp_path,
+):
+    body = d.para("Scope", style="Heading1") + d.para("Rated value 40 here " + LONG)
+    doc_id = _ingest(_doc(tmp_path, body, pages=4))
+    one = _finding(
+        doc_id,
+        1,
+        "Rated value 40",
+        contractor_section="Rated value",
+        compliance_status="NON_COMPLIANT",
+        standard_clause="1.1",
+    )
+    other = {**one, "contractor_evidence_text": "Rated value 40 here", "item": "B"}
+    texts = {
+        "reasoning": crs_mapping.reasoning_text([one]),
+        "comment": crs_mapping.engineer_comment_text([one]),
+        "tick": crs_mapping.safety_tick_text(one),
+        "cell": crs_mapping._page_section([one]),
+        "two values": crs_mapping.engineer_comment_text([one, other]),
+    }
+    for name, text in texts.items():
+        assert "p.1" not in text, name
+        assert word_pages.NO_PAGE in text, name
+
+
 def test_a_pdf_finding_keeps_its_plain_page(tmp_path):
     finding = _finding("doc_not_here", 4)
     assert _words([4], [finding]) == "p.4"
