@@ -411,17 +411,192 @@ def test_the_lane_shut_while_waiting_makes_no_poll_and_stays_pending(fake, monke
     assert fake.retrieves == before and status["pending"] is True
 
 
-def test_a_batch_not_returned_in_time_is_counted_not_reviewed_and_stays_charged(fake):
+def _later(hours):
+    at = clause_review_claude.time.time() + hours * 3600
+    return lambda: at
+
+
+def test_a_batch_sent_and_not_ended_past_the_limit_stays_pending_and_is_still_read(
+    fake,
+):
     fake.ended = False
     _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS))
     _start(run, scope)
-    late = clause_review_claude.time.time() + 27 * 3600
-    status = clause_review_claude.tick(run, now=lambda: late)
-    assert status["pending"] is False and _rows(run) == []
-    assert status["results"]["not_reviewed"] == 2
-    assert "did not return within 26 h" in status["plain"]
-    assert status["usd"]["held"] > 0  # unknown is never free
-    assert clause_review.status_of(run)["plain"] == status["plain"]
+    status = clause_review_claude.tick(run, now=_later(27))
+    assert status["pending"] is True and _rows(run) == []
+    assert "it was sent and its result was not read within 26 h" in status["plain"]
+    assert "never sent" not in status["plain"]
+    assert status["usd"]["held"] > 0 and status["usd"]["charged"] == 0
+    fake.ended = True  # the paid result turns up
+    status = clause_review_claude.tick(run, now=_later(30))
+    assert status["pending"] is False and len(_rows(run)) == 2
+    assert status["results"]["reviewed"] == 2
+    assert status["usd"]["held"] == 0 and status["usd"]["estimated"] == 0
+    assert len(fake.created) == 1
+
+
+def test_polls_failing_past_the_limit_lose_no_paid_result(fake):
+    fake.ended = False
+    _sub, run, scope = _world()
+    _start(run, scope)
+    working = fake.batch_retrieve
+
+    def down(*a, **k):
+        raise OSError("network down")
+
+    fake.batch_retrieve = down
+    status = clause_review_claude.tick(run, now=_later(40))
+    assert status["pending"] is True and "it was sent" in status["plain"]
+    assert "never sent" not in status["plain"]
+    fake.batch_retrieve, fake.ended = working, True
+    status = clause_review_claude.tick(run, now=_later(41))
+    assert status["pending"] is False and len(_rows(run)) == 1
+    assert status["usd"]["estimated"] == 0 and status["usd"]["charged"] > 0
+
+
+def test_the_lane_shut_past_the_limit_says_sent_not_read_and_reads_when_it_opens(
+    fake, monkeypatch
+):
+    fake.ended = False
+    _sub, run, scope = _world()
+    _start(run, scope)
+    before = fake.retrieves
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    status = clause_review_claude.tick(run, now=_later(27))
+    assert fake.retrieves == before and status["pending"] is True
+    assert "did not return" not in status["plain"]
+    assert "it was sent and its result was not read" in status["plain"]
+    monkeypatch.setattr(settings, "reasoning_provider", "per_task")
+    fake.ended = True
+    status = clause_review_claude.tick(run, now=_later(28))
+    assert status["pending"] is False and len(_rows(run)) == 1
+
+
+def test_an_ask_never_sent_is_counted_never_sent_and_is_not_sent_past_the_limit(
+    fake, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", _worst_one() * 1.5)
+    fake.ended = False
+    _sub, run, scope = _world(_reqs(3))
+    _start(run, scope)  # one fits at worst case, two wait for the room
+    assert [len(b) for b in fake.created] == [1]
+    pending = clause_review.status_of(run)
+    assert "2 because it has not been sent to Claude yet" in pending["plain"]
+    fake.ended = True
+    status = clause_review_claude.tick(run, now=_later(27))
+    assert [len(b) for b in fake.created] == [1]  # nothing new goes out
+    assert status["pending"] is False and status["results"]["reviewed"] == 1
+    assert (
+        "2 because it was never sent to Claude within the 26 h limit" in status["plain"]
+    )
+    assert "did not return" not in status["plain"]
+
+
+def test_past_the_read_window_an_unread_ask_is_charged_at_worst_case_and_says_so(
+    fake, monkeypatch
+):
+    fake.ended = False
+    _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS))
+    held = _start(run, scope)["usd"]["held"]
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    status = clause_review_claude.tick(run, now=_later(30 * 24))
+    assert status["pending"] is False and status["results"]["not_reviewed"] == 2
+    assert status["usd"]["held"] == 0
+    assert status["usd"]["charged"] == pytest.approx(held)
+    assert status["usd"]["estimated"] == pytest.approx(held)
+    assert "estimated at worst case because the bill is unknown" in status["plain"]
+    assert "held at worst case" not in status["plain"]
+    assert "could not be read within 29 days" in status["plain"]
+    assert claude_spend.spent("clause_review") == pytest.approx(held)
+
+
+def test_a_closed_run_holds_nothing_and_a_real_bill_is_not_called_estimated(fake):
+    _sub, run, scope = _world()
+    status = _start(run, scope)
+    assert status["usd"]["held"] == 0 and status["usd"]["estimated"] == 0
+    assert "held at worst case" not in status["plain"]
+    assert "estimated" not in status["plain"]
+
+
+def test_a_cancelled_run_charges_what_it_held_once(fake):
+    fake.ended = False
+    _sub, run, scope = _world()
+    held = _start(run, scope)["usd"]["held"]
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET status = 'cancelled' WHERE id = ?", (run,))
+    assert clause_review_claude.tick(run) is None
+    assert clause_review_claude.tick(run) is not False
+    lines = [e for e in claude_spend.entries() if e.get("run") == run]
+    assert [bool(e.get("reserved")) for e in lines] == [False]
+    assert sum(e["cost_usd"] for e in lines) == pytest.approx(held)
+
+
+def test_a_deleted_submittal_leaves_no_open_hold(fake):
+    fake.ended = False
+    sub, run, scope = _world()
+    _start(run, scope)
+    conn = db.connect()
+    with conn:
+        document_refs.forget_quotes(conn, sub)
+    assert not [e for e in claude_spend.entries() if e.get("reserved")]
+
+
+def test_late_answers_never_land_on_a_run_with_an_engineers_final_code(
+    fake, monkeypatch
+):
+    numbered = []
+    monkeypatch.setattr(main_mod, "number_crs_rows", lambda r, s: numbered.append(r))
+    fake.answer, fake.ended = (lambda text: QUOTED), False
+    sub, run, scope = _world()
+    _start(run, scope)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code = '1', status = 'completed' WHERE id = ?",
+            (run,),
+        )
+    fake.ended = True
+    status = clause_review_claude.tick(run)
+    assert _rows(run) == [] and numbered == []
+    assert status["results"]["reviewed"] == 0 and status["results"]["not_reviewed"] == 1
+    assert status["results"]["adds_up"]
+    assert "engineer's final code" in status["plain"]
+    assert status["usd"]["charged"] > 0  # the paid answer is settled, not lost
+    fresh = _second_run(sub, scope)  # and a new review reads it at no cost
+    again = _start(fresh, scope)
+    assert (
+        len(fake.created) == 1 and again["cache_hits"] == 1 and len(_rows(fresh)) == 1
+    )
+
+
+def test_the_close_of_a_decided_run_numbers_nothing_and_still_writes_the_audit(
+    fake, monkeypatch
+):
+    from app import review_jobs
+
+    sub, first, scope = _world()
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET status = 'completed' WHERE id = ?", (first,)
+        )
+    run, _job = review_jobs.enqueue(sub, allowed_document_ids=scope, requested_by=None)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_applicable_standards (id,review_run_id,standard_document_id,selection_reason,"
+            "selection_method,included,created_at) VALUES (?,?,?,'cited','referenced',1,?)",
+            (str(uuid.uuid4()), run, "doc_std", NOW),
+        )
+    numbered, audited = [], []
+    monkeypatch.setattr(main_mod, "number_crs_rows", lambda r, s: numbered.append(r))
+    monkeypatch.setattr(review_audit, "write", lambda r, s, t: audited.append(r))
+    fake.ended = False
+    _start(run, scope)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code = '1' WHERE id = ?", (run,)
+        )
+    fake.ended = True
+    clause_review_claude.tick(run)
+    assert numbered == [] and audited == [run]
 
 
 def test_expired_or_cancelled_twice_is_not_reviewed_and_never_sent_again(fake):
@@ -432,7 +607,10 @@ def test_expired_or_cancelled_twice_is_not_reviewed_and_never_sent_again(fake):
     assert status["results"]["not_reviewed"] == 1 and status["results"]["failed"] == 0
     assert "canceled twice" in status["plain"] and _rows(run) == []
     # the close is final: `run` would re-queue a given-up request
-    assert clause_review_claude.tick(run) == status and len(fake.created) == 2
+    assert (
+        clause_review_claude.tick(run)["plain"] == status["plain"]
+        and len(fake.created) == 2
+    )
 
 
 def test_a_given_up_request_is_not_resent_by_the_next_poll_of_the_others(
@@ -467,15 +645,34 @@ def test_errored_twice_is_failed(fake):
     assert "1 failed (no answer)" in status["plain"]
 
 
-def test_a_batch_refused_at_create_closes_partial_and_says_so(fake, monkeypatch):
+def test_a_batch_provably_not_taken_closes_partial_and_costs_nothing(fake, monkeypatch):
+    from app.reader_transport import TransportRefused
+
     def refuse(*a, **k):
-        raise rp.ProviderRefused("claude: refused")
+        raise TransportRefused("not sent")
 
     monkeypatch.setattr(fake, "batch_create", refuse)
     _sub, run, scope = _world()
     status = _start(run, scope)
     assert status["pending"] is False and status["results"]["not_reviewed"] == 1
     assert "the batch was not accepted" in status["plain"]
+    assert status["usd"]["charged"] == 0 and status["usd"]["held"] == 0
+
+
+def test_a_create_that_may_have_worked_is_said_so_and_stays_charged(fake, monkeypatch):
+    def lost(*a, **k):
+        raise OSError("read timed out")
+
+    monkeypatch.setattr(fake, "batch_create", lost)
+    _sub, run, scope = _world()
+    status = _start(run, scope)
+    assert status["pending"] is False and status["results"]["not_reviewed"] == 1
+    assert clause_review_claude.WHY_UNCONFIRMED in status["plain"]
+    assert status["usd"]["held"] == 0 and "never sent" not in status["plain"]
+    # charged once, though the close looks at it again
+    assert status["usd"]["estimated"] == pytest.approx(
+        status["usd"]["worst_case_all"], abs=0.0001
+    )
 
 
 # ------------------------------------------------------------------- the USD cap

@@ -33,9 +33,12 @@ class SettingsExt(BaseModel):
     ai_clause_review_engine: str = "ollama"
     #: How often the idle worker asks the API about a batch. Env: CLAUSE_REVIEW_BATCH_POLL_SECONDS.
     clause_review_batch_poll_seconds: float = Field(300.0, gt=0)
-    #: Hours until a batch not returned is closed and its asks counted not reviewed. The API ends a batch by
-    #: 24 h. Env: CLAUSE_REVIEW_BATCH_WAIT_HOURS.
+    #: Hours after which nothing new is sent and an ask never sent is counted so. The API ends a batch by 24 h.
+    #: Env: CLAUSE_REVIEW_BATCH_WAIT_HOURS.
     clause_review_batch_wait_hours: float = Field(26.0, gt=0)
+    #: Days a sent ask's result is still read, because it may be paid for (the API keeps results about 29 days). After
+    #: that it is charged at its worst case, marked estimated. Env: CLAUSE_REVIEW_BATCH_READ_DAYS.
+    clause_review_batch_read_days: float = Field(29.0, gt=0)
     #: The time allowed per page of the document; the run stops cleanly when
     #: pages x this is spent and names the requirements not reviewed. Measured
     #: minutes per page is recorded on the run. Env: CLAUSE_REVIEW_SECONDS_PER_PAGE.

@@ -56,9 +56,16 @@ def _engine_sentence(status: dict) -> str:
     usd = status.get("usd")
     if not usd:
         return ""
+    money = f"Claude batch, this run only: USD {usd['charged']:.4f} charged"
+    if usd.get("estimated"):
+        money += (
+            f" (USD {usd['estimated']:.4f} of it estimated at worst case because the bill is "
+            "unknown; the invoice is the truth)"
+        )
+    if usd["held"]:
+        money += f", USD {usd['held']:.4f} held at worst case while its batch is unread"
     return (
-        f"Claude batch, this run only: USD {usd['charged']:.4f} charged, USD {usd['held']:.4f} held "
-        f"at worst case until settled; {status['calls']} ask(s) sent, {status['cache_hits']} "
+        f"{money}; {status['calls']} ask(s) sent, {status['cache_hits']} "
         f"answered from stored answers at no cost; worst case had all {status['requirements']} been "
         f"sent: USD {usd['worst_case_all']:.2f}"
     )

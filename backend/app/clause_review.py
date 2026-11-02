@@ -28,7 +28,7 @@ WHAT THE CODE ENFORCES, NOT THE MODEL:
     `clause_review`, and are worded by code, never reworded by the model.
   * THIS FILE'S RUN IS THE LOCAL MODEL: `OllamaProvider`, through `model_transport`.
     The Claude lane is `clause_review_claude.py`, behind its own engine setting
-    (`AI_CLAUSE_REVIEW_ENGINE`, default local; owner order of 2 Nov 2026 over D1).
+    (`AI_CLAUSE_REVIEW_ENGINE`, default local; D1's override: see PR #1610).
   * A TIME BUDGET: pages x `clause_review_seconds_per_page`. When it is spent the
     run stops cleanly and names the requirements not reviewed. Measured minutes
     per page is recorded.

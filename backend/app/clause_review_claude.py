@@ -15,13 +15,22 @@ through `reader_transport`, `claude_spend.reserve_all` and `claude_answer_cache`
 THE USD CAP IS NEVER RAISED. Every request is reserved at its worst case and `room()` says what the caps leave,
 so a batch cannot cross them. What does not fit waits for the next tick: once the batch settles at its real cost
 the room grows, and the next tranche goes. When the room no longer fits one more ask, the run closes partial and
-counts what was not reviewed. Step `clause_review` is one line of the ledger, across all runs.
+counts what was not reviewed. The cap's keying is `claude_spend`'s: `_room` reads the step's spend from it, and takes
+the per-run cap of #1595 from there when that lands; nothing here keys a cap itself.
 
 WAITING DOES NOT BLOCK THE APP. `for_review` submits and returns, never sleeping (`max_wait_s=0`); the review job
 finishes, and its CRS and audit say "pending". `poll_due` runs from the idle worker loop, one poll every
 `clause_review_batch_poll_seconds`. The state is in the database, so a restart polls the same batch and never pays
-twice. Past `clause_review_batch_wait_hours` the run closes and what did not return is counted not reviewed; a
-request still open stays charged at its worst case, which errs toward spent. The lane shut while waiting: no poll.
+twice. The lane shut while waiting: no poll.
+
+PAST `clause_review_batch_wait_hours` TWO THINGS ARE KEPT APART. An ask never sent is counted "never sent" and is not
+sent any more. An ask sent is paid for or may be, so its batch is still read, hourly, for
+`clause_review_batch_read_days` (how long the API keeps results): the run stays pending and says "sent, not read yet",
+and a result read late settles at its real cost and gets its row. Only after that is it closed, charged at its worst
+case and marked estimated, because the bill is unknown. A failed poll or a shut lane never loses a paid result.
+
+A DECISION IS NOT WRITTEN UNDER. A run with an engineer's final code gets no late rows (`comparison.run_comparison`
+refuses a re-run for the same reason). The answers stay in the answer cache, so a new review reads them at no cost.
 
 A SEAM OF `claude_batch_run.run`: it re-queues given-up requests each time it is called, because it was written
 for one call per run. A polling caller must not resend them, so they are read before each call, kept here and
@@ -64,6 +73,12 @@ PENDING, CLOSED = "pending", "closed"
 NOT_DONE_WORDS = ("expired", "canceled")
 
 WHY_WAITING = "the Claude batch has not returned yet"
+WHY_NOT_YET = "it has not been sent to Claude yet"
+WHY_DECIDED = (
+    "the run has an engineer's final code, so its late answer gets no row; a new review reads it "
+    "from the stored answers at no cost"
+)
+LATE_POLL_SECONDS = 3600.0
 WHY_GONE = "the requirement is no longer in the library"
 WHY_UNCONFIRMED = "the batch may have been created but its id was lost; it stays charged and is not sent again"
 
@@ -154,14 +169,12 @@ def _build_packets(submittal: str, kind: str, requirements: dict[str, dict]) -> 
     }
 
 
-def _room() -> float:
-    """The USD the caps still leave this step; `claude_batch_run` sends only what fits it at worst case."""
-    caps = claude_spend.Caps.from_settings().for_step(STEP)
-    return max(
-        0.0,
-        min(
-            caps.per_step - claude_spend.spent(STEP), caps.total - claude_spend.spent()
-        ),
+def _room(step: str = STEP) -> tuple[float, float]:
+    """(USD free on this step, USD free in total), the runner's `room`. A hair under, for the ledger's rounding."""
+    caps = claude_spend.Caps.from_settings().for_step(step)
+    return (
+        caps.per_step - claude_spend.spent(step) - 0.00001,
+        caps.total - claude_spend.spent() - 0.00001,
     )
 
 
@@ -174,16 +187,19 @@ def _why_cap() -> str:
 
 
 def _usd(review_run_id: str, worst_all: float) -> dict:
-    charged = held = 0.0
+    charged = held = estimated = 0.0
     for line in claude_spend.entries():
         if line.get("run") == review_run_id and line.get("step") == STEP:
+            cost = float(line.get("cost_usd") or 0)
             if line.get("reserved"):
-                held += float(line.get("cost_usd") or 0)
+                held += cost
             else:
-                charged += float(line.get("cost_usd") or 0)
+                charged += cost
+                estimated += cost if line.get("estimated") else 0.0
     return {
         "charged": round(charged, 6),
         "held": round(held, 6),
+        "estimated": round(estimated, 6),
         "worst_case_all": round(worst_all, 4),
     }
 
@@ -279,6 +295,14 @@ def _write_rows(row, answers, requirements, written: set[str]) -> None:
         written.add(custom_id)
 
 
+def _decided(conn, review_run_id: str) -> bool:
+    """The run carries an engineer's final code: its findings are a decision (`comparison.run_comparison`)."""
+    found = conn.execute(
+        "SELECT engineer_final_code FROM review_runs WHERE id = ?", (review_run_id,)
+    ).fetchone()
+    return bool(found and found["engineer_final_code"])
+
+
 def _save(conn, row, state, gave_up, reasons, written, next_poll) -> None:
     with conn:
         conn.execute(
@@ -304,6 +328,36 @@ def _purge(conn, job: str) -> None:
         )
 
 
+def _sent_out(conn, job: str) -> set[str]:
+    """Asks in a batch whose results were not read: sent, so possibly paid for."""
+    rows = conn.execute(
+        "SELECT custom_id FROM claude_batch_requests WHERE job = ? AND state = 'held'",
+        (job,),
+    ).fetchall()
+    return {r["custom_id"] for r in rows}
+
+
+def _charge_unread(conn, job: str, model: str) -> None:
+    """Nothing more will be read: what is still held is charged at its worst case and marked estimated. The bill is
+    unknown, so never less than it might be; the invoice is the truth. Each reservation is closed once."""
+    still_open = {
+        e.get("reservation") for e in claude_spend.entries() if e.get("reserved")
+    }
+    rows = conn.execute(
+        "SELECT * FROM claude_batch_requests WHERE job = ? AND state IN ('held', 'unconfirmed')",
+        (job,),
+    ).fetchall()
+    for found in rows:
+        if found["reservation_id"] not in still_open:
+            continue
+        claude_spend.settle(
+            claude_batch_run._reservation(dict(found), model),
+            usage=None,
+            finish_reason="failed:batch_not_read",
+            estimated_usd=float(found["worst_usd"]),
+        )
+
+
 def forget_documents(conn, document_ids) -> None:
     """A deleted submittal's raw answers go with it, inside the delete's own transaction."""
     exists = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'clause_review_batches'"
@@ -311,17 +365,19 @@ def forget_documents(conn, document_ids) -> None:
         return
     for document_id in document_ids:
         rows = conn.execute(
-            "SELECT review_run_id FROM clause_review_batches WHERE document_id = ?",
+            "SELECT review_run_id, model FROM clause_review_batches WHERE document_id = ?",
             (document_id,),
         ).fetchall()
         for found in rows:
             job = _job(found["review_run_id"])
+            with claude_spend.for_run(found["review_run_id"]):
+                _charge_unread(conn, job, found["model"])
             conn.execute("DELETE FROM claude_batch_answers WHERE job = ?", (job,))
             conn.execute("DELETE FROM claude_batch_requests WHERE job = ?", (job,))
             _PACKETS.pop(found["review_run_id"], None)
 
 
-def _after_close(review_run_id: str) -> None:
+def _after_close(review_run_id: str, *, rows_added: bool = True) -> None:
     """Number the rows that arrived and write the audit again (phase times stay on the stored trace).
     Never raises: the rows are stored."""
     from . import review_audit, review_jobs
@@ -342,7 +398,8 @@ def _after_close(review_run_id: str) -> None:
             user_id=job["created_by"],
             allowed_document_ids=review_jobs._scope_of(job["created_by"]),
         )
-        number_crs_rows(review_run_id, requester)
+        if rows_added:
+            number_crs_rows(review_run_id, requester)
         review_audit.write(review_run_id, requester, None)
     except Exception as exc:  # noqa: BLE001 - a late write never breaks the stored rows
         log.warning("clause review close: %s", type(exc).__name__)
@@ -361,6 +418,12 @@ def _run_is_gone(conn, review_run_id: str) -> bool:
     ).fetchone()
     if found is not None and found["status"] != "cancelled":
         return False
+    row = conn.execute(
+        "SELECT model FROM clause_review_batches WHERE review_run_id = ?",
+        (review_run_id,),
+    ).fetchone()
+    with claude_spend.for_run(review_run_id):
+        _charge_unread(conn, _job(review_run_id), row["model"])
     with conn:
         conn.execute(
             "UPDATE clause_review_batches SET state = ? WHERE review_run_id = ?",
@@ -371,7 +434,7 @@ def _run_is_gone(conn, review_run_id: str) -> bool:
     return True
 
 
-def _ask(conn, row, provider, requirements, gave_up):
+def _ask(conn, row, provider, requirements, gave_up, past_wait):
     """(outcome, why it stops, packets, provider) of one call to the batch runner. Outcome None: nothing
     moved this time (the lane is shut, or a failed poll, which settles nothing)."""
     review_run_id = row["review_run_id"]
@@ -387,6 +450,9 @@ def _ask(conn, row, provider, requirements, gave_up):
             packets = _build_packets(row["document_id"], row["kind"], requirements)
             _PACKETS[review_run_id] = packets
         live = {c: p for c, p in packets.items() if c not in gave_up}
+        if past_wait:  # read what was sent; nothing new goes out
+            sent = _sent_out(conn, _job(review_run_id))
+            live = {c: p for c, p in live.items() if c in sent}
         if not live:  # every ask has an end: nothing to send, nothing to wait for
             return None, "", packets, provider
         try:
@@ -411,18 +477,46 @@ def _ask(conn, row, provider, requirements, gave_up):
             return None, None, packets, provider
 
 
-def _why_stop(outcome, stored, unanswered, packets, provider, reasons) -> str | None:
+def _why_stop(outcome, stored, unanswered, packets, provider) -> str | None:
     """With no batch out: None to go on with the next tranche, "" when done, else why what is left stays left."""
     if outcome is None or outcome.waiting:
         return None
-    for custom_id in stored.unconfirmed:
-        reasons[custom_id] = WHY_UNCONFIRMED
     if outcome.over_budget:
         next_worst = claude_batch_run.worst_usd(
             provider.requested_model, packets[outcome.over_budget[0]]
         )
-        return None if _room() >= next_worst else _why_cap()
+        return None if min(_room()) >= next_worst else _why_cap()
     return None if set(unanswered) - set(stored.unconfirmed) else ""
+
+
+def _hours() -> float:
+    return float(settings.clause_review_batch_wait_hours)
+
+
+def _past_wait(row, at: float, unanswered, sent, reasons) -> str | None:
+    """Past the wait: None while a sent ask can still be read, else why the rest stays left. An ask never sent, and one
+    sent and not read, are different things and are worded apart."""
+    never = f"it was never sent to Claude within the {_hours():g} h limit (lane shut or stopped first)"
+    for custom_id in unanswered:
+        if custom_id not in sent:
+            reasons[custom_id] = never
+    out = [c for c in unanswered if c in sent]
+    if not out:
+        return ""
+    days = float(settings.clause_review_batch_read_days)
+    if at >= float(row["started_at"]) + days * 86400.0:
+        for custom_id in out:
+            reasons[custom_id] = (
+                f"it was sent and its result could not be read within {days:g} days; charged "
+                "at its worst case because the bill is unknown"
+            )
+        return ""
+    for custom_id in out:
+        reasons[custom_id] = (
+            f"it was sent and its result was not read within {_hours():g} h (lane shut, a failed poll "
+            "or a batch not ended); it stays held and is still read if it can be"
+        )
+    return None
 
 
 def tick(review_run_id: str, *, provider=None, now=time.time) -> dict | None:
@@ -441,33 +535,52 @@ def tick(review_run_id: str, *, provider=None, now=time.time) -> dict | None:
     requirements = _requirements(asks)
     gave_up = _settled(conn, job, set(asks), _loads(row, "gave_up"))
     reasons, written = _loads(row, "reasons"), set(_loads(row, "written"))
-    next_poll = now() + float(settings.clause_review_batch_poll_seconds)
-    _save(conn, row, PENDING, gave_up, reasons, written, next_poll)
-    outcome, stop, packets, provider = _ask(conn, row, provider, requirements, gave_up)
+    at = now()
+    past = at >= float(row["deadline_at"])
+    pause = (
+        LATE_POLL_SECONDS if past else float(settings.clause_review_batch_poll_seconds)
+    )
+    _save(conn, row, PENDING, gave_up, reasons, written, at + pause)
+    outcome, stop, packets, provider = _ask(
+        conn, row, provider, requirements, gave_up, past
+    )
     stored = claude_batch_run.stored_outcome(conn, job, set(asks))
     gave_up = {**gave_up, **stored.gave_up}
-    answers = stored.answers
-    _write_rows(row, answers, requirements, written)
+    decided, before = _decided(conn, review_run_id), len(written)
+    if not decided:
+        _write_rows(row, stored.answers, requirements, written)
     unanswered = [
-        c for c in asks if c not in answers and c not in gave_up and c in requirements
+        c
+        for c in asks
+        if c not in stored.answers and c not in gave_up and c in requirements
     ]
-    if stop is None:
-        stop = _why_stop(outcome, stored, unanswered, packets, provider, reasons)
-    if stop is None and now() >= float(row["deadline_at"]):
-        hours = float(settings.clause_review_batch_wait_hours)
-        stop = f"the batch did not return within {hours:g} h"
+    sent = _sent_out(conn, job)
+    for custom_id in unanswered:
+        reasons[custom_id] = WHY_WAITING if custom_id in sent else WHY_NOT_YET
+    for custom_id in set(stored.answers) - written:
+        reasons[custom_id] = WHY_DECIDED
+    if past and stop is None:
+        stop = _past_wait(row, at, unanswered, sent, reasons)
+    elif stop is None:
+        stop = _why_stop(outcome, stored, unanswered, packets, provider)
     closing = stop is not None
+    if closing:
+        with claude_spend.for_run(review_run_id):
+            _charge_unread(conn, job, row["model"])
     if stop:
         for custom_id in unanswered:
-            reasons.setdefault(custom_id, stop)
-    status = _status(row, answers, gave_up, reasons, requirements, not closing, now())
+            reasons[custom_id] = stop
+    for custom_id in stored.unconfirmed:
+        reasons[custom_id] = WHY_UNCONFIRMED
+    shown = {c: a for c, a in stored.answers.items() if c in written}
+    status = _status(row, shown, gave_up, reasons, requirements, not closing, now())
     state = CLOSED if closing else PENDING
-    _save(conn, row, state, gave_up, reasons, written, next_poll)
+    _save(conn, row, state, gave_up, reasons, written, at + pause)
     clause_review._store_status(review_run_id, status)
     if closing:
         _purge(conn, job)
         _PACKETS.pop(review_run_id, None)
-        _after_close(review_run_id)
+        _after_close(review_run_id, rows_added=len(written) > before or not decided)
     return status
 
 
