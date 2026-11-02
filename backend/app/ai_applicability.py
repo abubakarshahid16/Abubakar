@@ -357,7 +357,7 @@ def _read(task, text: str, provider, run: dict) -> dict | None:
     if result.state == ai_task_runner.STATE_OK:
         return result.data
     run["contradicted"] = NAMES_ITSELF in (result.reason or "")
-    if (result.reason or "").startswith(_MODEL_DOWN):
+    if (result.reason or "").startswith((*_MODEL_DOWN, *ai_task_runner.STOPPED_BY)):
         run["stopped"] = result.reason
     return None
 

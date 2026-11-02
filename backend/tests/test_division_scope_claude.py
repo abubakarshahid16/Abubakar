@@ -294,7 +294,21 @@ def test_a_usd_cap_holds_the_rules_and_sends_nothing(send, monkeypatch):
     out = _gate()
     assert send.bodies == []
     assert out["kept"] == [] and out["summary"]["requirements_held_scope_not_read"] == 3
-    assert "BudgetExceeded" in out["summary"]["stopped"]
+    said = out["summary"]["stopped"]
+    assert (
+        ai_task_runner.STOPPED_BY_BUDGET in said and "could not be reached" not in said
+    )
+
+
+def test_the_approved_list_stopping_a_call_says_so_not_unreachable(send, monkeypatch):
+    def refused(*a, **k):
+        raise claude_spend.DocumentNotApproved(claude_approved.NOT_APPROVED, "ids only")
+
+    monkeypatch.setattr(claude_spend, "_refuse_unapproved", refused)
+    out = _gate()
+    assert send.bodies == [] and out["kept"] == []
+    said = out["summary"]["stopped"]
+    assert ai_task_runner.STOPPED_BY_LIST in said and "could not be reached" not in said
 
 
 def test_an_invalid_reply_holds_that_part_and_is_never_asked_twice(send):

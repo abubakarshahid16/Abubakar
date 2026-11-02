@@ -434,6 +434,21 @@ def _failed(spec: TaskSpec, model: str, reason: str, attempts: int = 0) -> TaskR
     return TaskResult(spec.name, STATE_COULD_NOT_READ, None, reason, model, False, attempts)
 
 
+#: What a task says when a limit stopped its Claude call; a caller's loop stops on these.
+STOPPED_BY_BUDGET = "the USD budget stopped the call"
+STOPPED_BY_LIST = "the approved list stopped the call"
+STOPPED_BY_LIMIT = "a limit stopped the call"
+STOPPED_BY = (STOPPED_BY_BUDGET, STOPPED_BY_LIST, STOPPED_BY_LIMIT)
+
+
+def _limit_words(exc: claude_spend.StopRun) -> str:
+    if isinstance(exc, claude_spend.DocumentNotApproved):
+        return STOPPED_BY_LIST
+    if isinstance(exc, claude_spend.BudgetExceeded):
+        return STOPPED_BY_BUDGET
+    return STOPPED_BY_LIMIT
+
+
 def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True) -> TaskResult:
     """Run one task. Never raises for a model problem; never guesses."""
     ensure_schema()
@@ -473,10 +488,12 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
         try:
             with ai_call_ledger.asking(packet.step, model):  # #1525
                 response = provider.reason(packet)
-        except (ProviderRefused, claude_spend.StopRun) as exc:
-            # A refusal, a timeout, an unreachable host, a USD cap or an unapproved
-            # document: not an invalid reply, so no retry here. The name of the failure
-            # is the reason.
+        except claude_spend.StopRun as exc:
+            # A limit, not a model problem: the service was never asked.
+            return _failed(spec, model, _limit_words(exc), attempt)
+        except ProviderRefused as exc:
+            # A refusal, a timeout, an unreachable host: not an invalid reply,
+            # so no retry here. The name of the failure is the reason.
             late = "timeout" in str(exc).lower()
             return _failed(spec, model, "the model did not answer in time" if late
                            else f"the model could not be reached ({_kind(exc)})", attempt)
