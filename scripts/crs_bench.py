@@ -12,6 +12,10 @@ Exit codes: 0 green, 1 red (a wrong verdict, or a measure worse than
 --baseline), 2 refused, 3 the bench itself failed (an error, NOT a result: no
 table is written; #1539 - a bench importing a file someone was editing once
 looked 'red'). Run the bench only in a checkout nobody is editing.
+
+An old --out file is deleted first thing, so a refusal or a crash leaves nothing
+a later reader could take for this run (#1574). Keep the copy you pass out of
+the OS temp folder: a reboot empties it.
 """
 
 from __future__ import annotations
@@ -23,10 +27,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
-
-from tools import crs_bench  # noqa: E402
-
-from app import live_guard  # noqa: E402
 
 LIVE = REPO / "backend" / "data" / "rag_intelligence.sqlite"
 TRUTH = REPO / "eval" / "bench" / "truth.json"
@@ -59,6 +59,24 @@ def _settings_file(given: str | None) -> Path | None:
 EXIT_ERROR = 3
 
 
+def _clear_old_out(argv: list[str] | None) -> str | None:
+    """Delete an old --out before anything can fail (a wrong flag, an import, a
+    refusal). Returns why --out is refused when it names a file the run reads or
+    a database, which are never deleted."""
+    pre = argparse.ArgumentParser(add_help=False)
+    for flag in ("--out", "--db", "--truth", "--baseline"):
+        pre.add_argument(flag)
+    given, _ = pre.parse_known_args(argv)
+    if not given.out:
+        return None
+    out = Path(given.out).resolve()
+    reads = (given.db, given.truth or TRUTH, given.baseline)
+    if ".sqlite" in out.name or out in {Path(p).resolve() for p in reads if p}:
+        return f"refused: --out {out} is a database or a file this run reads"
+    out.unlink(missing_ok=True)
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the bench; a crash is EXIT_ERROR with its type, never 'red'."""
     try:
@@ -71,6 +89,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _main(argv: list[str] | None = None) -> int:
+    refusal = _clear_old_out(argv)
+    if refusal:
+        print(refusal)
+        return 2
+    from tools import crs_bench
+
+    from app import live_guard
+
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -110,12 +136,13 @@ def _main(argv: list[str] | None = None) -> int:
     text = crs_bench.render_markdown(
         results, truth, title=args.title, baseline=baseline
     )
-    if args.out:
-        Path(args.out).write_text(text)
-    print(text)
     if args.save:
         Path(args.save).write_text(json.dumps(results, indent=1, default=str))
-    return 1 if crs_bench.gate(results, baseline) else 0
+    code = 1 if crs_bench.gate(results, baseline) else 0
+    if args.out:  # last: exit 3 means no table (#1574)
+        Path(args.out).write_text(text)
+    print(text)
+    return code
 
 
 if __name__ == "__main__":

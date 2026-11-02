@@ -153,6 +153,20 @@ class SettingsExt(BaseModel):
     #: 'Safety report summary') still counts as present; not fixed here.
     #: Env: PLAYBOOK_SECTION_PRESENCE_ENABLED.
     playbook_section_presence_enabled: bool = False
+    #: Owner decision 1 Nov (#1522): with PLAYBOOK_SECTION_PRESENCE also on, a playbook element whose
+    #: standard is NOT held still gets the section-presence check. Missing: "Section not found: <element>.
+    #: Required by <standard clause> per the draft HAZOP checklist (not yet engineer-approved); standard not
+    #: held, its text is not quoted; engineer to confirm." (SIL: "draft SIL checklist"; "approved" only once
+    #: an engineer signs the playbook off.) Found: the page and the section heading, content not checked,
+    #: engineer to confirm. Unclear stays unclear, and so does an element with no section of its own that one
+    #: passage elsewhere states in full (never "Section not found"); an unclear row quotes that passage (at
+    #: most 15 words, verified on the cited page's text, else says no quote was verified). A document with no section
+    #: heading read (e.g. a PDF chunked without headings): could not be checked. The state stays
+    #: standard_not_held: never met, never compliant. LIMIT: a removed section whose content is still
+    #: stated in full elsewhere is "unclear", not "not found".
+    #: OFF (or presence off): "<standard> is not in the library" as before.
+    #: Env: PLAYBOOK_PRESENCE_WITHOUT_STANDARD_ENABLED.
+    playbook_presence_without_standard_enabled: bool = False
     #: #1522 (b) a review run of a document whose stored kind is `procedure` looks up the playbooks of
     #: that kind whose title cue is in the procedure's cover lines and adds one CRS row per element as an
     #: ENGINEER row (`procedure_playbook_rows`): never compliant, "found, engineer to confirm" with the page
@@ -177,6 +191,12 @@ class SettingsExt(BaseModel):
     #: cannot read is refused with a reason. Local only, no model, no socket. OFF: nothing changes.
     #: Env: ONE_INTAKE_ENABLED.
     one_intake_enabled: bool = False
+    #: #525 slice 2 (with ONE_INTAKE_ENABLED on as well): the upload accepts PNG, JPEG and TIFF images
+    #: (stored as picture-only PDF pages beside the original, so OCR reads them like a scanned page) and
+    #: indexes .xlsx workbooks, each sheet chunked with a sheet + cell-range citation. Local only, no
+    #: model, no socket. OFF: images refused and workbooks stored-not-indexed, as today.
+    #: Env: INTAKE_IMAGES_XLSX_ENABLED.
+    intake_images_xlsx_enabled: bool = False
     #: #645 slice 3 (`ai_requirement_chunks.py`): the LOCAL model reads a held standard chunks
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
@@ -185,6 +205,11 @@ class SettingsExt(BaseModel):
     #: it whole (none or several: refused, as before); accept checks it there again. No new model call.
     #: OFF: such a quote is refused (page uncertain). Env: AI_REQUIREMENT_QUOTE_PAGE_ENABLED.
     ai_requirement_quote_page_enabled: bool = False
+    #: #645 slice 4: a run of the extraction above reads only chunks this model has not read yet
+    #: (a chunk with an unread passage is read again), so runs walk the whole standard; the answer
+    #: says how many chunks are left. No new model call. OFF: the first chunks every run, as before.
+    #: Env: AI_REQUIREMENT_EXTRACTION_RESUME_ENABLED.
+    ai_requirement_extraction_resume_enabled: bool = False
     #: Owner decision 1 Nov (part of #1478): ONLY the title block (`classification.title_block_lines`) sets
     #: the equipment type; a section or panel heading in the page body never does (a pump sheet's 'MOTOR
     #: DATA' panel made it a Motor). None or two different types in the title block: the type is NULL,
