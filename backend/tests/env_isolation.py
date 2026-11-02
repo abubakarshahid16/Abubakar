@@ -231,6 +231,8 @@ EGRESS_SAFE: dict[str, object] = {
     "spec_kit_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
+    # --- local only, no socket: the bench also prints the planted-defect table (#1607, off by default)
+    "planted_defects_bench_enabled": False,
     # --- local only, no model or socket: a split abbreviation is joined; a unit left off one copy is one value (off by default)
     "datasheet_label_join_enabled": False,
     # --- local only, no model or socket: a drawing is checked against a DRAFT must-contain list (#1484, off by default)
