@@ -942,8 +942,24 @@ def test_no_route_or_retrieval_module_imports_the_rulebook_and_a_verdict_only_be
         "run_parts.py",
         "coverage_pair.py",
         "rulebook_v2_findings.py",
+        # no route, no retrieval, reads no rule: it imports only `rulebook_v2_stated`'s words, and `run_parts.crs_part`
+        # alone reaches it, behind RULEBOOK_V2_REVIEW_ENABLED (held just below)
+        "rulebook_v2_crs.py",
     }
     assert "compiled_rule_report.py" in importers
+    crs = (APP / "rulebook_v2_crs.py").read_text(encoding="utf-8")
+    assert not re.search(r"\bimport\s+[^\n]*\brulebook_v2\b", crs)
+    assert not re.search(r"APIRouter|fts_index|retrieval", crs)
+    assert {
+        p.name
+        for p in APP.rglob("*.py")
+        if p.name != "rulebook_v2_crs.py"
+        and "rulebook_v2_crs" in p.read_text(encoding="utf-8")
+    } == {"run_parts.py"}
+    assert re.search(
+        r"if not settings\.rulebook_v2_review_enabled:\n\s+return meta\n\s+from \. import rulebook_v2_crs\n",
+        (APP / "run_parts.py").read_text(encoding="utf-8"),
+    )
     assert "rulebook_v2" not in (APP / "comparison.py").read_text(encoding="utf-8")
     source = (APP / "run_parts.py").read_text(encoding="utf-8")
     assert source.count("import rulebook_v2_review") == 1
