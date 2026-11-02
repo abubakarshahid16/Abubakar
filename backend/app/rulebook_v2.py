@@ -14,7 +14,8 @@ approval belongs to one version: the next one is not in force until a person dec
 ONLY A PERSON APPROVES. No route, job or script calls `record_decision`, and the database refuses an approval whose
 approver is not an active row of `users`. No rule is in force without one.
 
-NOTHING READS THIS FOR A VERDICT. `rulebook_run` says so: used version 1, no snapshot, until a later change is approved.
+NOTHING READS THIS FOR A VERDICT unless RULEBOOK_V2_REVIEW_ENABLED is on (`rulebook_v2_review`). `rulebook_run` says
+which: version 1 and no snapshot, or version 2 and the snapshot the run froze.
 
 A COPY ONLY. Only `ensure_schema` creates the tables; nothing at startup calls it, and it refuses a live-shaped file.
 The tables grant nothing: read access stays with the grant tables (CLAUDE.md rule 5). `standard_requirements` is not
@@ -614,11 +615,24 @@ def in_force(conn, snapshot_id: str) -> list[str]:
     ]
 
 
+def in_force_versions(conn, snapshot_id: str) -> list[tuple[str, int]]:
+    """`in_force`, as the (rule id, version number) pairs a rule is known by."""
+    return [
+        (r[0], r[1])
+        for r in conn.execute(
+            "SELECT v.rule_id, v.version_no FROM rulebook_snapshot_rule s"
+            " JOIN rulebook_version v ON v.id = s.rule_version_id"
+            " WHERE s.snapshot_id = ? AND s.approval_id IS NOT NULL",
+            (snapshot_id,),
+        )
+    ]
+
+
 def record_run(
     conn, review_run_id: str, used_snapshot_id: str | None = None
 ) -> dict | None:
-    """The run says which rulebook it used. Verdicts read version 1 today, so: version 1, no snapshot, and the newest
-    snapshot named apart as not used. Off, or tables not created (a live database): nothing, and nothing is created.
+    """The run says which rulebook it used: version 1 and no snapshot, with the newest snapshot named apart as not
+    used, or version 2 and its snapshot. Off, or tables not created (a live database): nothing, and nothing is created.
     A run's record is written once."""
     if not settings.rulebook_v2_enabled or not has_schema(conn):
         return None

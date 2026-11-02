@@ -2935,6 +2935,15 @@ def _run_comparison(
     run = (review_run_id, submittal_id, replace, standard_labels)
     held_findings.add(held_items, pending, prepared_rows, findings, run)
 
+    # #805 plan change 6, switch off by default: approved version 2 rules beside version 1. Before
+    # the write, so a version 1 row that disagrees with a rule on its field becomes a Query too.
+    rulebook_review = None
+    if settings.rulebook_v2_review_enabled:
+        from . import rulebook_v2_review
+        rulebook_review = rulebook_v2_review.begin(
+            connect(), review_run_id, submittal_id, stored, facts)
+        rulebook_v2_review.settle_with_findings(rulebook_review, prepared_rows, findings)
+
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
     # datasheet self-checks below, which add their own rows to this run and
     # must not be deleted by it.
@@ -2979,12 +2988,16 @@ def _run_comparison(
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
     check_results = kind_rules.gate(kn, checklist_scope, facts, stored, page_texts)
+    if rulebook_review is not None:
+        check_results = rulebook_v2_review.settle_with_checks(rulebook_review, check_results)
     # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
     # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
         label=rule_trust_mod.label_check if trust is not None else None))
+    if rulebook_review is not None:
+        findings.extend(rulebook_v2_review.store(connect(), rulebook_review))
 
     # rule_trust (#947) steps 7 and 10, switch ON only: the datasheet fields
     # read with a value that no applicable rule targets (the CRS lists them
@@ -3020,6 +3033,8 @@ def _run_comparison(
         split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:
         split = {**split, "checklist_coverage": checklist_coverage}
+    if rulebook_review is not None:
+        split = {**split, "rulebook_v2": rulebook_v2_review.summary(rulebook_review)}
     if divided["summary"]:  # #141: divisions limited by their own scope
         split = {**split, "division_scope": divided["summary"]}
     # Owner order 2026-10-11: the run says which reader read the sheet (engine,

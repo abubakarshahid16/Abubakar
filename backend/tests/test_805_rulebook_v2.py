@@ -909,7 +909,7 @@ def test_only_the_rulebook_modules_name_its_tables():
     assert named == _OURS
 
 
-def test_no_route_retrieval_or_verdict_module_imports_the_rulebook():
+def test_no_route_or_retrieval_module_imports_the_rulebook_and_a_verdict_only_behind_its_switch():
     imports = re.compile(
         r"\b(?:from\s+[.\w]*\s+import\s+[^\n]*|import\s+[^\n]*)\brulebook_v2"
     )
@@ -919,9 +919,25 @@ def test_no_route_retrieval_or_verdict_module_imports_the_rulebook():
         if p.name not in {*_OURS, "rulebook_v2_check.py"}
         and imports.search(p.read_text(encoding="utf-8"))
     }
-    # the report's counts, and (when added) the compiler's two seams; both only write the book or count it
-    assert importers <= {"compiled_rule_report.py", "standards_compiler.py"}
+    # the report's counts, the compiler's two seams, and the review's module behind RULEBOOK_V2_REVIEW_ENABLED
+    assert importers <= {
+        "compiled_rule_report.py",
+        "standards_compiler.py",
+        "rulebook_v2_review.py",
+        "comparison.py",
+        "coverage_pair.py",
+    }
     assert "compiled_rule_report.py" in importers
+    source = (APP / "comparison.py").read_text(encoding="utf-8")
+    assert source.count("import rulebook_v2_review") == 1
+    assert re.search(
+        r"if settings\.rulebook_v2_review_enabled:\n\s+from \. import rulebook_v2_review\n",
+        source,
+    )
+    # coverage_pair names the origin only, and only for a run whose outcome stored the rulebook's part
+    held = (APP / "coverage_pair.py").read_text(encoding="utf-8")
+    assert held.count("from .rulebook_v2_review import ORIGIN") == 1
+    assert 'part = (split or {}).get("rulebook_v2")' in held
 
 
 def _written_tables(conn, action):
@@ -1002,9 +1018,10 @@ def _findings(result):
     )
 
 
-def test_a_filled_rulebook_changes_no_verdict_and_a_review_reads_none_of_it(
+def test_switch_off_a_filled_rulebook_changes_no_verdict_and_a_review_reads_none_of_it(
     monkeypatch,
 ):
+    assert settings.rulebook_v2_review_enabled is False
     _req, _fact, run, scope = _world("Set pressure", "10 barg")
     before = comparison.run_comparison(run, allowed_document_ids=scope)
     outcome_before = _rows("SELECT status FROM review_runs WHERE id = ?", run)

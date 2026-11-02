@@ -20,6 +20,8 @@ the screen print.
 
 Checklist decisions are stated apart and never added: a checklist clause is text,
 not linked to a stored rule (the same lane as the bench's source row, PR #1566).
+Version 2 rulebook rows (`rulebook_v2_review`) are on neither lane: stated apart, with
+their own denominator, and never added. Only a run that read the rulebook has them.
 
 Read only. Counts only: no document text leaves this module except the gate
 reasons a run stored, which the bench and the board never get (`public_view`).
@@ -50,6 +52,7 @@ OTHER_REASONS = "other stated reasons (their words stay out of this output)"
 REACHED = "reached the code comparison"
 NOTE = "Risk and coverage"
 NOTE_CHECKLIST = "Checklist decisions"
+NOTE_RULEBOOK_V2 = "Rulebook version 2 decisions"
 TRUTH = Path(__file__).resolve().parents[2] / "eval" / "bench" / "truth.json"
 
 _LOOK_UP = object()
@@ -384,6 +387,49 @@ def _wrong_verdicts(
     return {"all": len(rows), "outside": len(outside)}
 
 
+def _rulebook_v2(
+    part: dict, findings: list[dict], wrong_ids: set[int] | None
+) -> dict:
+    """The version 2 rows of a run that read them: decided of the approved rules for this
+    equipment type. Never in `decided`; a run with no rule says why, not 0 of 0."""
+    from .rulebook_v2_review import ORIGIN
+
+    rows = [f for f in findings if f.get("origin") == ORIGIN]
+    passed = sum(1 for f in rows if f.get("compliance_status") == PASS)
+    failed = sum(1 for f in rows if f.get("compliance_status") == FAIL)
+    decided = passed + failed
+    wrong = (
+        None
+        if wrong_ids is None
+        else sum(
+            1
+            for f in rows
+            if id(f) in wrong_ids and f.get("compliance_status") in DECIDED
+        )
+    )
+    rules = part.get("rules") or 0
+    said = f"{wrong} wrong of {decided} decided" if wrong is not None else NOT_MEASURED
+    return {
+        "state": part.get("state"),
+        "equipment_type": part.get("equipment_type"),
+        "snapshot_id": part.get("snapshot_id"),
+        "rules": rules,
+        "decided": decided,
+        "pass": passed,
+        "fail": failed,
+        "query": rules - decided,
+        "wrong": wrong,
+        "reasons": part.get("reasons") or {},
+        "line": (
+            f"Rulebook version 2, stated apart, not added to the rules: {decided} of {rules} approved rules"
+            f" for this equipment type decided (pass {passed}, fail {failed}, query {rules - decided})."
+            f" Risk: {said}."
+            if rules
+            else f"Rulebook version 2 read no rule: {part.get('state')}."
+        ),
+    }
+
+
 def compute(
     conn: sqlite3.Connection,
     run: dict,
@@ -446,6 +492,9 @@ def compute(
         f"Checklist, stated apart, not added to the rules: {checklist['decided']} of"
         f" {checklist['rows']} items decided.{_checklist_wrong(pair)}"
     )
+    part = (split or {}).get("rulebook_v2")
+    if part:
+        pair["rulebook_v2"] = _rulebook_v2(part, findings, wrong_ids)
     return pair
 
 
@@ -688,4 +737,16 @@ def crs_notes(notes: list[dict], conn: sqlite3.Connection, run_id: str) -> list[
             "count": pair["checklist"]["rows"],
             "detail": pair["checklist_line"],
         },
+        *(
+            [
+                {
+                    "note": NOTE_RULEBOOK_V2,
+                    "standard": "",
+                    "count": pair["rulebook_v2"]["rules"],
+                    "detail": pair["rulebook_v2"]["line"],
+                }
+            ]
+            if "rulebook_v2" in pair
+            else []
+        ),
     ]

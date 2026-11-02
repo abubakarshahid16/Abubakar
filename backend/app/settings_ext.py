@@ -24,6 +24,10 @@ class SettingsExt(BaseModel):
     #: database COPY. No verdict reads them; no rule is in force until a person approves it. OFF: nothing is read,
     #: created or written. Env: RULEBOOK_V2_ENABLED.
     rulebook_v2_enabled: bool = False
+    #: #805 plan change 6: a review reads the approved version 2 rules for the document's equipment type beside version
+    #: 1 (`rulebook_v2_review.py`). Needs RULEBOOK_V2_ENABLED and the tables, so a database copy today. OFF: a review
+    #: reads none of it and is byte-identical. Env: RULEBOOK_V2_REVIEW_ENABLED.
+    rulebook_v2_review_enabled: bool = False
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every
