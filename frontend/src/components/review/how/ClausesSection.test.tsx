@@ -39,6 +39,7 @@ describe("ClausesSection, one meaning of checked", () => {
     expect(screen.getByTestId("clauses-coverage-pair")).toHaveTextContent("1 of 40");
     expect(screen.queryByTestId("clauses-coverage-line")).toBeNull();
     expect(document.body.textContent).not.toContain("1 of 44");
+    expect(document.body.textContent).not.toContain("actually checked");
   });
 
   it("switch on: a null boundary prints not recorded, never 0", () => {
@@ -59,5 +60,6 @@ describe("ClausesSection, one meaning of checked", () => {
     expect(screen.getByTestId("clauses-unchecked-share")).toHaveTextContent("25%");
     expect(screen.getByTestId("clauses-coverage-line")).toHaveTextContent("1 of 44");
     expect(screen.queryByTestId("clauses-decided")).toBeNull();
+    expect(document.body.textContent).toContain("actually checked");
   });
 });

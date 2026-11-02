@@ -18,6 +18,7 @@ from tools import crs_bench
 from app import (
     access,
     clause_coverage,
+    comparison,
     coverage_pair,
     db,
     main,
@@ -765,3 +766,151 @@ def test_kit_cards_and_tick_rows_are_outside_the_checklist_lane(run):
     assert (m["pair"]["checklist"]["decided"], m["pair"]["checklist"]["rows"]) == (1, 1)
     row = m["sources"][crs_bench.SRC_CHECKLIST]
     assert (row["decided"], row["rows"]) == (1, 1)
+
+
+# ------------------------------------------------------------ re-review of PR 1590
+
+
+def test_a_wrong_deferred_checklist_pass_agrees_with_the_headline(run):
+    """A known-wrong row that is only a Pass on a deferred value: the headline's hard
+    stop counts it, so the pair may not say "0 wrong" and nothing else."""
+    r = _run()
+    _finding(r, "COMPLIANT", rid="r-pass")
+    _finding(r, "NON_COMPLIANT", rid="r-fail")
+    _finding(
+        r, "COMPLIANT", origin="datasheet_check", requirement="c1", finding="x TBA"
+    )
+    case = {
+        "kind": "datasheet",
+        "wrong": [{"origin": "datasheet_check", "deferred": True}],
+    }
+    m = crs_bench.score(_conn(), r, case)
+    assert m["wrong"] == 1
+    pair = m["pair"]
+    assert pair["wrong_verdicts"] == {"all": 1, "outside": 1}
+    # D2 stays undecided: the row is said, not added to the decisions
+    assert pair["risk"] == {"measured": True, "wrong": 0, "decided": 2}
+    assert pair["checklist"]["decided"] == 0
+    assert "Risk: 1 wrong in all; standard rules 0 wrong of 2 decided." in pair["line"]
+    assert "Wrong verdicts not counted as decided: 1" in pair["line"]
+    result = [{"case": {"name": "x", "run": r}, "config": "c", "stored": m}]
+    text = crs_bench.render_markdown(result, {"counting_rule": []}, title="t")
+    assert f"| {crs_bench.PAIR_RISK} | 0/2 (1 wrong in all) |" in text
+    assert "1 wrong in all" in text.split(crs_bench.PAIR_BY_TYPE)[1]
+
+
+def test_the_headline_and_the_pair_count_the_same_wrong_rows_stored_and_replayed(run):
+    r = _run()
+    _finding(
+        r, "COMPLIANT", origin="datasheet_check", requirement="c1", finding="x TBA"
+    )
+    _finding(r, "NON_COMPLIANT", rid="r-fail")
+    _finding(r, "COMPLIANT", origin="chat", rid="r-pass")  # on no lane
+    case = {
+        "kind": "datasheet",
+        "wrong": [{"status": "NON_COMPLIANT"}],
+        "wrong_replay": [
+            {"origin": "datasheet_check", "deferred": True},
+            {"origin": "chat"},
+        ],
+    }
+    for replayed, want in ((False, 1), (True, 3)):
+        m = crs_bench.score(_conn(), r, case, replayed=replayed)
+        assert m["wrong"] == want == m["pair"]["wrong_verdicts"]["all"]
+    assert m["pair"]["wrong_verdicts"]["outside"] == 2
+
+
+def test_no_truth_case_has_no_wrong_verdict_count(run):
+    p = _pair(run)
+    assert p["wrong_verdicts"] == {"all": None, "outside": None}
+    assert "wrong in all" not in p["line"]
+
+
+def _approval_outcome():
+    """The sentence the approval rule really writes, from the danger-zone module."""
+    result = comparison.recommend_code(
+        [{"compliance_status": "COMPLIANT", "severity": "low"}],
+        {"completeness": 1.0, "sufficient": True},
+        unchecked_counts={"not_compared": 5, "not_applied": 1, "checked": 3},
+    )
+    assert coverage_pair.REASON_OLD in result["reason"]
+    return result
+
+
+def test_the_approval_reason_reads_one_meaning_and_the_code_does_not_change(
+    run, monkeypatch
+):
+    result = _approval_outcome()
+    r = _run(
+        recommended_code=result["code"],
+        reason=result["reason"],
+        details=result.get("details"),
+        unchecked_counts={"not_compared": 5, "not_applied": 1, "checked": 3},
+    )
+    client = _client()
+    try:
+        off = client.get(f"/api/reviews/runs/{r}").json()
+        assert coverage_pair.REASON_OLD in off["recommended_reason"]
+        assert coverage_pair.REASON_OLD in _meta(r)["recommended_code_reason"]
+        monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+        on = client.get(f"/api/reviews/runs/{r}").json()
+        listed = client.get("/api/reviews/runs").json()["runs"]
+    finally:
+        main.app.dependency_overrides.clear()
+    assert on["recommended_code"] == off["recommended_code"] == result["code"]
+    row = next(x for x in listed if x["review_run_id"] == r)
+    said = (
+        on["recommended_reason"],
+        on["recommended_details"],
+        row["recommended_reason"],
+    )
+    assert not any(coverage_pair.REASON_OLD in (text or "") for text in said)
+    assert coverage_pair.REASON_NEW in on["recommended_reason"]
+    meta = _meta(r)
+    assert meta["recommended_code"] == result["code"]
+    assert coverage_pair.REASON_NEW in meta["recommended_code_reason"]
+    assert coverage_pair.REASON_OLD not in json.dumps(meta)
+
+
+def test_the_stored_reason_itself_is_not_rewritten(run, monkeypatch):
+    result = _approval_outcome()
+    r = _run(recommended_code=result["code"], reason=result["reason"])
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    _meta(r)
+    stored = (
+        _conn()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (r,))
+        .fetchone()[0]
+    )
+    assert coverage_pair.REASON_OLD in stored
+
+
+def test_the_rules_step_of_a_stored_trace_says_one_meaning(run, monkeypatch):
+    r = _stored_run()
+    words = "not checked or not applying:"
+    step = next(s for s in _trace_body(r)["steps"] if s["step"] == "RULES")
+    assert words in step["summary"]
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    step = next(s for s in _trace_body(r)["steps"] if s["step"] == "RULES")
+    assert words not in step["summary"]
+    assert "stopped before a decision or not applying:" in step["summary"]
+
+
+def test_a_saved_file_has_no_equipment_type_and_the_table_still_does(run, tmp_path):
+    truth = {"cases": [{"name": "x", "run": run, "kind": "datasheet", "wrong": []}]}
+    results = crs_bench.run_bench(settings.db_path, truth, do_replay=False)
+    text = crs_bench.render_markdown(results, truth, title="t")
+    assert "Centrifugal Pump" in text.split(crs_bench.PAIR_BY_TYPE)[1]
+    out = tmp_path / "saved.json"
+    crs_bench.save_results(out, results)
+    saved = out.read_text(encoding="utf-8")
+    assert "equipment_type" not in saved and "Centrifugal Pump" not in saved
+    assert json.loads(saved)[0]["stored"]["pair"]["applicable"] == 8
+    assert results[0]["stored"]["pair"]["equipment_type"] == "Centrifugal Pump"
+    assert crs_bench.gate(results, json.loads(saved)) == []
+
+
+def test_the_bench_script_saves_through_the_one_function():
+    source = (REPO / "scripts" / "crs_bench.py").read_text(encoding="utf-8")
+    assert "crs_bench.save_results(Path(args.save), results)" in source
+    assert "write_text(json.dumps(results" not in source

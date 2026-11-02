@@ -743,6 +743,11 @@ PAIR_ROWS = [
         PAIR_RISK,
         lambda p: (
             _frac(p["risk"]["wrong"], p["risk"]["decided"])
+            + (
+                f" ({p['wrong_verdicts']['all']} wrong in all)"
+                if p["wrong_verdicts"]["all"] != p["risk"]["wrong"]
+                else ""
+            )
             if p["risk"]["measured"]
             else coverage_pair.NOT_MEASURED
         ),
@@ -762,6 +767,22 @@ PAIR_ROWS = [
         ),
     ),
 ]
+
+
+def save_results(path: Path, results: list[dict]) -> None:
+    """`--save`: the results as a file git may track, in a public repo. The table needs
+    the equipment type (`by_equipment_type`); a saved baseline does not: the gate never
+    reads it, so a classification of the document stays out of the file."""
+    saved = []
+    for result in results:
+        entry = dict(result)
+        for column in ("stored", "replay"):
+            pair = (entry.get(column) or {}).get("pair")
+            if pair is not None:
+                kept = {k: v for k, v in pair.items() if k != "equipment_type"}
+                entry[column] = {**entry[column], "pair": kept}
+        saved.append(entry)
+    path.write_text(json.dumps(saved, indent=1, default=str))
 
 
 def _reason_cell(row: dict) -> str:
@@ -795,7 +816,7 @@ def pair_tables(cols: list[tuple[str, dict]]) -> list[str]:
             )
             said = (
                 f"{risk['wrong']}/{risk['decided']} on {risk['measured_runs']} of"
-                f" {s['runs']} run(s) with a truth set"
+                f" {s['runs']} run(s) with a truth set; {s['wrong_verdicts']} wrong in all"
                 if risk["measured_runs"]
                 else coverage_pair.NOT_MEASURED
             )

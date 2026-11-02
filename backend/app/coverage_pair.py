@@ -42,6 +42,9 @@ DECIDED = (PASS, FAIL)
 DRAFT_ORIGINS = ("ai_engineering_check", "web_standard_check", "clause_review", "chat")
 NOT_MEASURED = "not measured"
 NO_TYPE = "no equipment type"
+#: The approval rule's stored sentence (`comparison.recommend_code`); a test holds it.
+REASON_OLD = "requirements that apply to this submittal were not checked"
+REASON_NEW = "requirements that apply to this submittal stopped before a decision"
 OTHER_REASONS = "other stated reasons (their words stay out of this output)"
 #: The gate-reason row of the rules that passed every gate and reached the comparison.
 REACHED = "reached the code comparison"
@@ -264,7 +267,24 @@ def risk_text(pair: dict) -> str:
     risk = pair["risk"]
     if not risk["measured"]:
         return NOT_MEASURED
-    return f"{risk['wrong']} wrong of {risk['decided']} decided"
+    said = f"{risk['wrong']} wrong of {risk['decided']} decided"
+    total = pair["wrong_verdicts"]["all"]
+    # the headline's count: "0 wrong" on the rules must not stand alone beside it
+    return (
+        said
+        if total == risk["wrong"]
+        else f"{total} wrong in all; standard rules {said}"
+    )
+
+
+def _outside_words(pair: dict) -> str:
+    outside = pair["wrong_verdicts"]["outside"]
+    if not outside:
+        return ""
+    return (
+        f" Wrong verdicts not counted as decided: {outside} (a Pass on a deferred value, or"
+        " a row outside the rules and the checklist)."
+    )
 
 
 def _line(pair: dict) -> str:
@@ -284,7 +304,7 @@ def _line(pair: dict) -> str:
             f"Standard rules decided: {pair['decided']}, more than the {pair['applicable']}"
             " this run states apply, so no coverage is given"
         )
-    return f"{head}. Risk: {risk_text(pair)}.{_checklist_wrong(pair)}"
+    return f"{head}. Risk: {risk_text(pair)}.{_checklist_wrong(pair)}{_outside_words(pair)}"
 
 
 def _checklist_wrong(pair: dict) -> str:
@@ -338,6 +358,32 @@ def _tally(
     return passed, failed, wrong_rules, deferred_rules, checklist
 
 
+def _wrong_verdicts(
+    conn: sqlite3.Connection,
+    findings: list[dict],
+    rules: dict[str, dict],
+    wrong_ids: set[int] | None,
+) -> dict:
+    """`all`: the bench headline's count, every verdict a truth set names, whichever
+    lane. `outside`: those neither lane counts as decided: a Pass on a deferred value
+    (D2), or a row on no lane. Measured, they are said, so the pair and the headline
+    can never disagree about a wrong verdict."""
+    if wrong_ids is None:
+        return {"all": None, "outside": None}
+    rows = [
+        f
+        for f in findings
+        if id(f) in wrong_ids and f.get("compliance_status") in DECIDED
+    ]
+    outside = [
+        f
+        for f in rows
+        if _lane(f, rules) is None
+        or (f.get("compliance_status") == PASS and value_is_deferred(conn, f))
+    ]
+    return {"all": len(rows), "outside": len(outside)}
+
+
 def compute(
     conn: sqlite3.Connection,
     run: dict,
@@ -389,6 +435,7 @@ def compute(
         "deferred_passes": len(deferred_rules - passed - failed),
         "coverage": {"decided": decided, "applicable": applicable},
         "risk": {"measured": wrong is not None, "wrong": wrong, "decided": decided},
+        "wrong_verdicts": _wrong_verdicts(conn, findings, rules, wrong_ids),
         "checklist": checklist,
         "left_out": left,
         "boundary": _boundary(left),
@@ -488,6 +535,7 @@ def by_equipment_type(pairs: list[dict]) -> dict[str, dict]:
                 "decided": 0,
                 "applicable": None,
                 "risk": {"measured_runs": 0, "wrong": None, "decided": None},
+                "wrong_verdicts": None,
             },
         )
         slot["runs"] += 1
@@ -499,6 +547,9 @@ def by_equipment_type(pairs: list[dict]) -> dict[str, dict]:
             risk["measured_runs"] += 1
             risk["wrong"] = (risk["wrong"] or 0) + p["risk"]["wrong"]
             risk["decided"] = (risk["decided"] or 0) + p["risk"]["decided"]
+            slot["wrong_verdicts"] = (slot["wrong_verdicts"] or 0) + p[
+                "wrong_verdicts"
+            ]["all"]
     return out
 
 
@@ -518,6 +569,16 @@ def screen_coverage(coverage: dict, conn: sqlite3.Connection, run_id: str) -> di
     return coverage if pair is None else {**coverage, "line": pair["line"]}
 
 
+def reason_words(text: str | None) -> str | None:
+    """The approval reason a run stored, as a person reads it. With the switch on, the
+    sentence does not call the rest checked. Words only: the code it explains, and the
+    rule that chose the code, do not change. Reads no database, so a list of runs can
+    use it."""
+    if text is None or not settings.one_checked_definition_enabled:
+        return text
+    return text.replace(REASON_OLD, REASON_NEW)
+
+
 def trace_view(trace: dict | None, run_id: str) -> dict | None:
     """The run's steps as a reader sees them. A stored trace keeps the clause coverage
     line it was written with; with the switch on the COVERAGE step says the pair."""
@@ -526,6 +587,12 @@ def trace_view(trace: dict | None, run_id: str) -> dict | None:
         return trace
     steps = []
     for step in trace.get("steps") or []:
+        if step.get("step") == "RULES":
+            words = (step.get("summary") or "").replace(
+                "not checked or not applying:",
+                "stopped before a decision or not applying:",
+            )
+            step = {**step, "summary": words}
         if step.get("step") == "COVERAGE":
             rest = (step.get("summary") or "").split(" | ")[1:]
             counts = {
@@ -584,6 +651,7 @@ def crs_meta(meta: dict, conn: sqlite3.Connection, run_id: str) -> dict:
     ]
     return {
         **meta,
+        "recommended_code_reason": reason_words(meta.get("recommended_code_reason")),
         "review_notes": notes,
         "unchecked_parts": [swap(p) for p in meta.get("unchecked_parts") or []],
         "incomplete_notice": swap(meta.get("incomplete_notice") or ""),

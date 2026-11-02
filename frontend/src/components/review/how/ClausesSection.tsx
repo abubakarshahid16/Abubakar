@@ -19,7 +19,7 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
   const pair = run.coverage_pair ?? null;
   const keptWord = pair ? "kept for the comparison" : "checked";
   return (
-    <HowSection meta={CLAUSES_META}>
+    <HowSection meta={pair ? { ...CLAUSES_META, explains: "Of all the clauses in the standards used, how many apply to this document, how many of those code decided, and why the rest were not decided." } : CLAUSES_META}>
       <FactList label="Clauses">
         <Fact label="Clauses in scope (repeats counted once)" fact={c.total} testId="clauses-total" />
         <Fact label="Apply to this document" fact={c.applied} testId="clauses-applied" />

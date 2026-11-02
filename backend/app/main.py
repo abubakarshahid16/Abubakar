@@ -1319,7 +1319,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     job = review_jobs_mod.job_for_run(run["id"])
     outcome = comparison_mod.run_outcome(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run) or {}
-    plain_reason, plain_details = comparison_mod.plain_outcome(outcome)
+    plain_reason, plain_details = clause_coverage_mod.plain_outcome(outcome)
     ai_check = ai_engineering_check_mod.ai_check_status(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run)
     document = connect().execute(
