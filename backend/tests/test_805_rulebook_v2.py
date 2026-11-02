@@ -836,7 +836,7 @@ def test_there_are_exactly_three_outcomes():
     [
         (_LIMIT, "25", "bar", MEETS, "compared"),
         (_LIMIT, "26", "bar", DOES_NOT_MEET, "compared"),
-        (_LIMIT, 10, "BAR", MEETS, "compared"),
+        (_LIMIT, 10, "BAR", CANNOT_TELL, "units_not_comparable"),
         (_LIMIT, None, None, CANNOT_TELL, "not_mentioned"),
         (_LIMIT, "   ", "bar", CANNOT_TELL, "not_mentioned"),
         (_LIMIT, "tbd", "bar", CANNOT_TELL, "value_unclear"),
@@ -1447,16 +1447,78 @@ def test_withheld_is_empty_when_nothing_is_approved_and_when_the_switch_is_off(
         ("11", "mPa", "mPa", DOES_NOT_MEET),
         ("5", "MPa", "MPa", MEETS),
         ("11", "MPa", "MPa", DOES_NOT_MEET),
-        ("5", "MPA", "MPa", MEETS),
-        ("11", "mpa", "MPa", DOES_NOT_MEET),
+        ("5", "MPA", "MPa", CANNOT_TELL),
+        ("11", "mpa", "MPa", CANNOT_TELL),
         ("5000", "kPa", "MPa", MEETS),
         ("11000", "kPa", "MPa", DOES_NOT_MEET),
-        ("5", "KPA", "kPa", MEETS),
+        ("5", "KPA", "kPa", CANNOT_TELL),
         ("5", "Mm", "mm", CANNOT_TELL),
         ("5", "mm", "Mm", CANNOT_TELL),
-        ("5", "MM", "mm", MEETS),
+        ("5", "MM", "mm", CANNOT_TELL),
+        ("5", "S", "s", CANNOT_TELL),  # siemens and seconds
+        ("5", "s", "S", CANNOT_TELL),
+        ("5", "T", "t", CANNOT_TELL),  # tesla and tonnes
+        ("5", "t", "T", CANNOT_TELL),
+        ("5", "WT %", "wt%", CANNOT_TELL),
+        (
+            "5",
+            "wt %",
+            "wt%",
+            MEETS,
+        ),  # a space or a superscript is printing, not meaning
+        ("11", "wt %", "wt%", DOES_NOT_MEET),
+        ("5", "m\u00b3/h", "m3/h", MEETS),
+        ("5", "s", "s", MEETS),
     ],
 )
 def test_a_units_case_is_read_as_its_si_prefix(value, unit, limit_unit, outcome):
     rule = {"kind": LIMIT, "comparator": "<=", "value": 10.0, "unit": limit_unit}
     assert check_requirement(rule, value, unit).outcome == outcome
+
+
+def _approve_only(version_id, source_id):
+    return rulebook_v2.record_decision(
+        _conn(),
+        version_id,
+        decision=rulebook_v2.APPROVE,
+        engineer_id=ENGINEER,
+        tier=rulebook_v2.ENGINEER,
+        equipment_type=PSV,
+        provenance_viewed=(source_id,),
+    )
+
+
+def test_an_approved_rule_cites_the_source_its_signer_saw_not_a_newer_one():
+    _person()
+    _compile(doc="ed-1", pages=_edition_page(), edition="2020")
+    version_id = _version()["id"]
+    _approve_only(version_id, _sources(version_id)[0])
+    _compile(doc="ed-2", pages=_edition_page(), edition="2026")
+    assert len(_sources(version_id)) == 2
+    (rule,) = rulebook_v2.approved_rules(_conn(), PSV)
+    assert rule["document_id"] == "ed-1" and rule["edition"] == "2020"
+
+
+def test_when_the_document_the_signer_saw_is_gone_a_newer_source_does_not_stand_in():
+    _person()
+    _compile(doc="ed-1", pages=_edition_page(), edition="2020")
+    version_id = _version()["id"]
+    _approve_only(version_id, _sources(version_id)[0])
+    _compile(doc="ed-2", pages=_edition_page(), edition="2026")
+    conn = _conn()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("DELETE FROM documents WHERE id = 'ed-1'")
+    conn.commit()
+    assert rulebook_v2.approved_rules(conn, PSV) == []
+    assert rulebook_v2.withheld_rules(conn, PSV)[0]["reason"] == (
+        rulebook_v2.DOCUMENT_GONE
+    )
+
+
+def test_a_signer_who_saw_the_newer_source_is_served_that_one():
+    _person()
+    _compile(doc="ed-1", pages=_edition_page(), edition="2020")
+    version_id = _version()["id"]
+    _compile(doc="ed-2", pages=_edition_page(), edition="2026")
+    _approve_only(version_id, _sources(version_id)[1])
+    assert rulebook_v2.approved_rules(_conn(), PSV)[0]["edition"] == "2026"

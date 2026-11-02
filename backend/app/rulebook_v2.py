@@ -315,11 +315,12 @@ def _standing(conn, version_id: str) -> dict[str, dict]:
     approval. A decision that names no type (a retirement) ends every approval before it."""
     standing: dict[str, dict] = {}
     for row in conn.execute(
-        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier FROM rulebook_approval"
+        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier, provenance_viewed"
+        " FROM rulebook_approval"
         " WHERE rule_version_id = ? ORDER BY rowid",
         (version_id,),
     ):
-        names = ("id", "decision", "type", "by_id", "by", "at", "tier")
+        names = ("id", "decision", "type", "by_id", "by", "at", "tier", "viewed")
         one = dict(zip(names, row, strict=True))
         kind = _fold_type(one["type"])
         if not kind:
@@ -436,7 +437,7 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
     for this type is a person's approval. An unapproved or superseded rule never appears: a rule whose newest reading
     waits for a decision is absent, not served from its older reading. Off, or no tables: nothing.
 
-    Nor does an approved rule whose document is gone, or that the newest compile of its standard no longer holds: those
+    Each rule cites a source its signer was shown. Nor does an approved rule come out whose shown document is gone, or that the newest compile of its standard no longer holds: those
     are in `withheld_rules`, with why, and logged here (ids and reasons only). Read-only, on any connection.
 
     `document_id` is the source the quote comes from: a caller keeps a rule only if the reader may read that document
@@ -491,11 +492,13 @@ def _read_book(conn, equipment_type: str) -> tuple[list[dict], list[dict]]:
         approval = _standing(conn, row[0]).get(wanted)
         if approval is None:
             continue
+        # The source the signer was shown, never a newer one: a later edition of the same reading was not signed for.
         source = conn.execute(
             "SELECT p.clause, p.page, p.quote, p.quote_sha256, p.edition, p.standard_document_id"
             " FROM rulebook_provenance p JOIN documents d ON d.id = p.standard_document_id"
-            " WHERE p.rule_version_id = ? ORDER BY p.rowid DESC LIMIT 1",
-            (row[0],),
+            " WHERE p.rule_version_id = ? AND p.id IN (SELECT value FROM json_each(?))"
+            " ORDER BY p.rowid DESC LIMIT 1",
+            (row[0], approval["viewed"]),
         ).fetchone()
         reason = None
         if source is None:
