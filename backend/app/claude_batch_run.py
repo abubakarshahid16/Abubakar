@@ -37,8 +37,9 @@ from .reasoning_provider import (
     ClaudeProvider,
     Packet,
     ProviderRefused,
+    _cache_version,
     _unbilled,
-    cache_key,
+    _valid_for,
 )
 
 #: A request is sent at most this many times: the first send and one re-queue.
@@ -57,7 +58,7 @@ SCHEMA = (
     """CREATE TABLE IF NOT EXISTS claude_batch_requests (
         job TEXT NOT NULL, custom_id TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
         state TEXT NOT NULL, batch_row TEXT, reservation_id TEXT, worst_usd REAL, step TEXT, failure TEXT,
-        answer TEXT, model TEXT, finish_reason TEXT, api_batch_id TEXT, PRIMARY KEY (job, custom_id))""",
+        answer TEXT, model TEXT, finish_reason TEXT, api_batch_id TEXT, cache_key TEXT, PRIMARY KEY (job, custom_id))""",
 )
 
 
@@ -144,7 +145,9 @@ def _from_cache(conn, job: str, custom_id: str, hit) -> None:
         )
 
 
-def _hold(conn, job: str, model: str, sending: list[str], held: list) -> str:
+def _hold(
+    conn, job: str, model: str, sending: list[str], held: list, keys: list[str]
+) -> str:
     """Written BEFORE the send: a crash from here on still knows every reservation."""
     batch_row = uuid.uuid4().hex
     with conn:
@@ -152,12 +155,13 @@ def _hold(conn, job: str, model: str, sending: list[str], held: list) -> str:
             "INSERT INTO claude_batches (id, job, state, model, created_at) VALUES (?,?,'creating',?,?)",
             (batch_row, job, model, _now()),
         )
-        for custom_id, reservation in zip(sending, held, strict=True):
+        for custom_id, reservation, key in zip(sending, held, keys, strict=True):
             conn.execute(
                 "INSERT INTO claude_batch_requests (job, custom_id, attempts, state, batch_row, reservation_id,"
-                " worst_usd, step) VALUES (?,?,1,'held',?,?,?,?) ON CONFLICT (job, custom_id) DO UPDATE SET"
+                " worst_usd, step, cache_key) VALUES (?,?,1,'held',?,?,?,?,?) ON CONFLICT (job, custom_id) DO UPDATE SET"
                 " attempts = attempts + 1, state = 'held', batch_row = excluded.batch_row,"
-                " reservation_id = excluded.reservation_id, worst_usd = excluded.worst_usd, step = excluded.step",
+                " reservation_id = excluded.reservation_id, worst_usd = excluded.worst_usd, step = excluded.step,"
+                " cache_key = excluded.cache_key",
                 (
                     job,
                     custom_id,
@@ -165,6 +169,7 @@ def _hold(conn, job: str, model: str, sending: list[str], held: list) -> str:
                     reservation.id,
                     reservation.worst_usd,
                     reservation.step,
+                    key,
                 ),
             )
     return batch_row
@@ -198,21 +203,30 @@ def _submit(
 ) -> str | None:
     """Send `todo` as one batch and store its id. Returns the local batch row, or None when all were cached."""
     model = provider.requested_model
-    to_send, worsts, sending, request = [], [], [], None
+    to_send, worsts, sending, keys, request = [], [], [], [], None
     for custom_id in todo:
         packet = packets[custom_id]
         step = provider._step or packet.step
-        hit = provider._cached(cache_key(model, packet), packet, step)
-        if hit is not None:
-            _from_cache(conn, job, custom_id, hit)
-            out.from_cache += 1
-            continue
         request, body, _prompt = provider._request(packet)
         if not cache_system:  # a job that would only ever pay the dearer write
             body["system"] = [
                 {k: v for k, v in block.items() if k != "cache_control"}
                 for block in body.get("system", [])
             ]
+        stored, key = claude_spend.answer_on_file(
+            step,
+            body,
+            version=_cache_version(packet),
+            valid=_valid_for(packet),
+            prompt_sha256=packet.sha256,
+        )
+        if stored is not None:
+            _from_cache(
+                conn, job, custom_id, provider._response(stored, packet, 0.0, 0.0)
+            )
+            out.from_cache += 1
+            continue
+        keys.append(key)
         to_send.append({"custom_id": custom_id, "params": body})
         worsts.append((step, worst_usd(model, packet)))
         sending.append(custom_id)
@@ -221,7 +235,7 @@ def _submit(
     if may_send is not None:
         may_send(sum(worst for _step, worst in worsts))
     held = claude_spend.reserve_all(worsts, model=model, batch=True)
-    batch_row = _hold(conn, job, model, sending, held)
+    batch_row = _hold(conn, job, model, sending, held, keys)
     try:
         batch = client.batch_create(
             request["url"], headers=request["headers"], requests=to_send
@@ -256,7 +270,7 @@ def _take_result(
         answer = provider._answered(
             result.get("message"),
             packet,
-            cache_key(model, packet),
+            held["cache_key"],
             held["step"],
             wall,
             batch=True,
