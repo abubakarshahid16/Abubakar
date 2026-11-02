@@ -40,7 +40,8 @@ DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
 # checklist item's id, `value` whether the row carries a value from the sheet
 # ("absent"/"present": never the value itself, the truth file holds no document
 # text), `page` the page it cites. `section` is the row's label: it can change
-# while the claim stays, so the truth file does not use it.
+# while the claim stays, so the truth file does not use it. `value` tests only
+# that the row has evidence text: a quote that defers the value is "present".
 MATCH_KEYS = (
     "origin",
     "status",

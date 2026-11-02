@@ -1,6 +1,6 @@
 {
   "format": "crs-bench/1",
-  "note": "Truth for scripts/crs_bench.py (#1471). Ids, checklist field names and standard clause ids only - no document text. A label is added only from a recorded hand check; the source of each is named. A matcher names what the row claims (check id, whether it carries a value, status), never its section label, which can change while the claim stays (#1569).",
+  "note": "Truth for scripts/crs_bench.py (#1471). Ids, checklist field names and standard clause ids only - no document text. A label is added only from a recorded hand check; the source of each is named. A matcher names what the row claims (check id, status, and whether it carries a value where that decides the claim), never its section label, which can change while the claim stays (#1569).",
   "counting_rule": [
     "wrong verdicts: a finding the code decided (COMPLIANT or NON_COMPLIANT) that a truth 'wrong' matcher names. Hard stop above 0.",
     "untrue lines / irrelevant lines: findings a truth matcher names, counted once per finding (one finding = one CRS line).",
@@ -18,8 +18,8 @@
       "kind": "datasheet",
       "baseline": {"checklist_decided": 22, "checklist_decided_before_d2_rule": 28, "wrong": 0, "untrue": 5, "irrelevant": 1},
       "untrue": [
-        {"origin": "datasheet_check", "check": "PSV-S02", "value": "absent", "status": "MISSING_INFORMATION",
-         "why": "row says no rating was found; rating is in the combined size/rating/connection line (planner check 29 Oct 02:55 PKT, row 11; 29 Oct night: 4 rows, one per tag)"},
+        {"origin": "datasheet_check", "check": "PSV-S02", "status": "MISSING_INFORMATION",
+         "why": "row asks the contractor for the rating; the rating is in a note on a later page, not on the combined line (hand check 2 Nov; 4 rows, one per tag)"},
         {"origin": "datasheet_check", "check": "PSV-23", "value": "absent", "status": "NEEDS_ENGINEER_REVIEW",
          "why": "row says viscosity not given; it is given (planner 29 Oct night: viscosity p3/p4)"}
       ],

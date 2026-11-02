@@ -397,9 +397,9 @@ def test_quotes_vanishing_while_findings_stay_is_red():
     assert any("quoted findings" in r for r in crs_bench.gate(after, before))
 
 
-def _i06_truth():
+def _known_untrue_case():
     truth = json.loads((REPO / "eval" / "bench" / "truth.json").read_text())
-    return next(c for c in truth["cases"] if c["name"].startswith("I-06"))
+    return next(c for c in truth["cases"] if c["untrue"])
 
 
 def _claim(run, status, check, *, section, page=None, quote=None):
@@ -420,18 +420,15 @@ def _claim(run, status, check, *, section, page=None, quote=None):
 @pytest.mark.parametrize("section", ["Old label", "A completely new label", None])
 def test_a_known_untrue_row_is_counted_under_any_label(run_id, status, check, section):
     """#1569: the real truth file, a row saying 'no value' under any label."""
-    case = {**_i06_truth(), "kind": "datasheet"}
+    case = {**_known_untrue_case(), "kind": "datasheet"}
     assert _score(run_id, case)["untrue"] == 0
     _claim(run_id, status, check, section=section)
     assert _score(run_id, case)["untrue"] == 1
 
 
-def test_a_row_that_now_carries_the_value_is_not_the_untrue_claim(run_id):
-    """The claim was 'the sheet does not give it'; a row quoting the sheet says otherwise."""
-    case = {**_i06_truth(), "kind": "datasheet"}
-    _claim(
-        run_id, "MISSING_INFORMATION", "PSV-S02", section="x", page=1, quote="invented"
-    )
+def test_the_value_key_decides_the_claim_only_where_the_truth_names_it(run_id):
+    """Hand check: PSV-23 with a quote is true; PSV-S02 with a quote is still untrue."""
+    case = {**_known_untrue_case(), "kind": "datasheet"}
     _claim(
         run_id,
         "NEEDS_ENGINEER_REVIEW",
@@ -441,10 +438,14 @@ def test_a_row_that_now_carries_the_value_is_not_the_untrue_claim(run_id):
         quote="invented",
     )
     assert _score(run_id, case)["untrue"] == 0
+    _claim(
+        run_id, "MISSING_INFORMATION", "PSV-S02", section="x", page=1, quote="invented"
+    )
+    assert _score(run_id, case)["untrue"] == 1
 
 
 def test_another_check_or_status_under_the_known_label_is_not_counted(run_id):
-    case = {**_i06_truth(), "kind": "datasheet"}
+    case = {**_known_untrue_case(), "kind": "datasheet"}
     _claim(run_id, "MISSING_INFORMATION", "PSV-S01", section="Inlet rating")
     _claim(run_id, "NEEDS_ENGINEER_REVIEW", "PSV-S02", section="Inlet rating")
     assert _score(run_id, case)["untrue"] == 0
