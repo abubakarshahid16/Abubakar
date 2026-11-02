@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import equipment_scope, kind_rules, local_engine_bar, page_not_read
 from .claude_auto_approve import run_lines
+from .config import settings
 
 _log = logging.getLogger(__name__)
 
@@ -34,6 +35,12 @@ COULD_NOT_BE_CHECKED = "could_not_be_checked"
 #: search ran and nothing fit, or the model read the sources and said they do
 #: not contain it. Any other refusal is a failure to check, not an absence.
 ABSENCE_KIND_NOT_FOUND = "not_found"
+_STEP_WORDS = {
+    "ai_check": "The AI engineering check",
+    "web_check": "The web standards check",
+}
+#: The Review note on rows an engineer has still to tick (`tick_note`).
+TICK_NOTE = "Rows for the engineer to tick"
 
 #: Answer types that are a finished answer.
 _FINISHED_TYPES = frozenset({"extract", "generated", "comparison"})
@@ -292,16 +299,27 @@ def check_failed_status(name: str, reason: str) -> dict:
             "reason": why, "plain": f"{name} could not be checked: {why}."}
 
 
+def _unfinished_words(key: str) -> str:
+    """A step that left no plain line of its own. The notice prints it: never its id."""
+    if not settings.crs_plain_notes_enabled:
+        return f"{key} did not complete"
+    return f"{_STEP_WORDS.get(key, 'A review step')} did not complete."
+
+
 def _unfinished(ai_status: dict | None, web_status: dict | None):
     """(part, plain line) of each AI step that did not complete, and (#1477) of a
     clause review that left clauses unread or rests on a guessed document kind."""
     for key, status in (("ai_check", ai_status), ("web_check", web_status)):
         if status and status.get("complete") is False:
-            yield key, str(status.get("plain") or f"{key} did not complete").strip()
+            yield key, str(status.get("plain") or _unfinished_words(key)).strip()
     clause = (ai_status or {}).get("clause_review") or {}
     if clause.get("stopped_by_error") or (
         clause.get("ran")
-        and (clause.get("not_read_count") or clause.get("kind_state") != "confirmed")
+        and (
+            clause.get("not_read_count")
+            or clause.get("not_ai_reviewed_count")
+            or clause.get("kind_state") != "confirmed"
+        )
     ):
         yield "clause_review", str(clause["plain"])
 
@@ -388,14 +406,68 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     return parts + run_lines(outcome)
 
 
-def notice_for(parts: list[dict]) -> str:
-    """The one line a sheet prints when something could not be checked."""
+def notice_for(parts: list[dict], *, internal: bool = False) -> str:
+    """The one line a sheet prints when something could not be checked. `internal`: the
+    copy that lists each part; the contractor's copy has the count and the share."""
     parts = [p for p in parts if not p.get("detail")]
     if not parts:
         return ""
     notice = (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
               "- this sheet is not a complete review.")
+    if internal and settings.crs_plain_notes_enabled:
+        # #1592 item e: every part by what it is, its own plain line, never an internal id.
+        said = " ".join(f"Part {n}: {p['line']}" for n, p in enumerate(parts, start=1))
+        return f"{notice} {said}"
     # The unchecked share, with its denominator, is part of the notice on every
     # copy (#633, owner decision 2026-10-09).
     share = next((p["line"] for p in parts if p["part"] == "unchecked_share"), "")
     return f"{notice} {share}" if share else notice
+
+
+def with_plain_notes(meta: dict, rows: list[dict], parts: list[dict]) -> dict:
+    """The internal CRS meta with the parts named and the tick note said (#1592 items d
+    and e). Off, and on the contractor's copy: `meta` as it was."""
+    if not settings.crs_plain_notes_enabled or meta.get("copy") != "internal":
+        return meta
+    note = tick_note(rows)
+    notice = notice_for(parts, internal=True)
+    return {
+        **meta,
+        "incomplete_notice": " ".join(
+            p for p in (notice, note and note["detail"]) if p
+        ),
+        "review_notes": [*meta["review_notes"], *([note] if note else [])],
+    }
+
+
+def tick_note(rows: list[dict]) -> dict | None:
+    """#1592 item d: the Review note on the rows an engineer has still to tick, from the
+    rows on this sheet (`crs_mapping`: a tested rule's Pass on a safety field). None with
+    the switch off, or with none open. A ticked row no longer says it
+    (`crs_export_quality.ticked_words`), so this counts the rows that do. It says what
+    the code does: `comparison.recommend_code` reads these results as met, tick or no
+    tick (a test holds the two together; change the words if the code changes)."""
+    from .crs_mapping import ROW_KIND_SAFETY_TICK
+
+    if not settings.crs_plain_notes_enabled:
+        return None
+    n = sum(
+        1
+        for r in rows
+        if r.get("row_kind") == ROW_KIND_SAFETY_TICK and not r.get("tick_done")
+    )
+    if not n:
+        return None
+    return {
+        "note": TICK_NOTE,
+        "standard": "",
+        "count": n,
+        "detail": (
+            f"{n} row{'s' if n != 1 else ''} of this sheet say{'' if n != 1 else 's'}"
+            " ENGINEER TO TICK. A tested rule found the value meets the standard, and the"
+            " field is a safety field, so the result waits for an engineer to read the value"
+            " on the page and tick: it is on purpose, and it is not a fault. The recommended"
+            " review code does not wait for the tick: it reads these results as met, and"
+            " it stays the AI's recommendation until an engineer records one."
+        ),
+    }

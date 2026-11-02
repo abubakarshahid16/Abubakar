@@ -51,6 +51,14 @@ export const REASON_WORDS: Record<TierReason, string> = {
   "unit unknown": "The unit of the value could not be read, so it was not compared. Check the unit on the page.",
 };
 
+/** #1638: the sentence for a row's reason. A stated safety row was not compared with anything. */
+export function reasonWords(reason: TierReason, findings: readonly { stated_only?: boolean | null }[]): string {
+  if (reason === "safety field" && findings.some((f) => f.stated_only)) {
+    return "This is a safety field. It is stated, not checked: no value was compared. Read the value on the page before you tick it.";
+  }
+  return REASON_WORDS[reason];
+}
+
 /** One sentence per default review code. A configured code with no sentence
  *  here shows its own name only - never an invented explanation. Moved here
  *  unchanged from sheet/DecisionCard, which imports it. */

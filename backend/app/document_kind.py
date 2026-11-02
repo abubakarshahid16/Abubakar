@@ -28,7 +28,7 @@ from .db import connect
 # about relief valves is a procedure (the defect this fixes: a HAZOP procedure
 # classified as a pressure safety valve, its Word copy as a compressor).
 #
-# Behind `settings.document_kind_enabled`, OFF by default. No model call: the AI
+# Behind `settings.document_kind_enabled`, ON by default (#1626). No model call: the AI
 # may later give a second opinion, it does not decide here. A kind found from a
 # cue is stored WITH its quote and page; a guess says it is a guess; a document
 # no cue names is `unknown` (general review) and is counted, never hidden.
@@ -325,6 +325,26 @@ def stored_kind(document_id: str):
     return None if row is None else (row["kind"], row["state"])
 
 
+def contested(document_id: str) -> bool:
+    """Is the stored kind only a guess whose own evidence names a conflict, with no
+    engineer's confirmation? Then it decides nothing: not a path, not a rule set."""
+    row = (
+        connect()
+        .execute(
+            "SELECT state, evidence FROM document_kinds WHERE document_id = ?",
+            (document_id,),
+        )
+        .fetchone()
+    )
+    if row is None or row["state"] == "confirmed":
+        return False
+    try:
+        evidence = json.loads(row["evidence"] or "{}")
+        return bool(evidence.get("guess") and evidence.get("conflict"))
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
 def classify_document_kind(document_id: str) -> DocumentKindEvidence | None:
     """Decide the document's kind and store it in the router's table.
 
@@ -404,18 +424,20 @@ def mark_equipment_guessed_from_body(document_id: str) -> None:
         )
         .fetchone()
     )
-    if (
-        row is None
-        or row["kind"] is not None
-        or row["state"] == doc_router.STATE_CONFIRMED
-    ):
+    if row is None or row["state"] == doc_router.STATE_CONFIRMED:
+        return
+    keeps_kind = contested(document_id)
+    if row["kind"] is not None and not keeps_kind:
         return
     try:
         evidence = json.loads(row["evidence"] or "{}")
     except ValueError:
         evidence = {}
     evidence["equipment_guessed_from_body"] = True
-    _write(document_id, None, doc_router.STATE_NEEDS_ENGINEER, evidence)
+    if keeps_kind:
+        _write(document_id, row["kind"], row["state"], evidence)
+    else:
+        _write(document_id, None, doc_router.STATE_NEEDS_ENGINEER, evidence)
 
 
 def body_equipment_allowed(pages: Sequence[dict], document_id: str, role) -> bool:
@@ -428,7 +450,11 @@ def body_equipment_allowed(pages: Sequence[dict], document_id: str, role) -> boo
     decided = decide_document_kind(pages, document_role=role)
     if decided.method == "blank_form":
         return False  # a blank form's labels name no equipment: ask the engineer
-    return decided.kind in ("datasheet", "unknown")
+    if decided.kind in ("datasheet", "unknown"):
+        return True
+    # The number and the title disagree, and one of them says datasheet: the kind
+    # is not told, so the body may name the equipment, marked a guess.
+    return decided.guess and decided.conflict == "datasheet"
 
 
 def counts_from(conn, document_ids: Iterable[str] | None = None) -> dict:

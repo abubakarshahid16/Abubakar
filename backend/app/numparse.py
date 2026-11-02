@@ -273,6 +273,13 @@ def sign_before(text: str, start: int) -> tuple[str, int]:
     return "+", start
 
 
+def value_may_start(text: str, start: int) -> bool:
+    """May a value, signed or not, start at `start`? Only at the start of the text or after
+    whitespace or a `_SIGN_LEAD` other than a comma ("A-5", "3-5", "T5" and "a,5" may not; #1619)."""
+    lead = text[start - 1 : start] if start > 0 else ""
+    return not lead or lead.isspace() or (lead in _SIGN_LEAD and lead != ",")
+
+
 def _prev_nonspace_is_number_end(text: str, i: int) -> bool:
     while i >= 0 and text[i].isspace():
         i -= 1
@@ -346,7 +353,39 @@ def as_number(text: str | float | int | None) -> float | None:
     return n.value
 
 
+#: A fraction as a size is printed: "5/8", "5\u20448", "2-3/8", "2 3/8". Not one end of a date or a list ("12/25/2019").
+_FRACTION = re.compile(
+    r"(?<![\d./\u2044])(?:(\d+)[- ])?(\d+)\s*[/\u2044]\s*(\d+)(?![\d./\u2044])"
+)
+
+
+def find_fractions(text: str) -> list[Number]:
+    """Every whole fraction in `text`, as a Number with its span. `find_numbers` reads "5/8" as two numbers, which is
+    right for a ratio and stays as it is; only a caller that asks for a size calls this."""
+    out = []
+    for m in _FRACTION.finditer(text or ""):
+        if int(m.group(3)) == 0:
+            continue
+        value = int(m.group(1) or 0) + int(m.group(2)) / int(m.group(3))
+        out.append(Number(value, m.group(0), m.start(), m.end(), digits_at=m.start()))
+    return out
+
+
+def as_limit(text: str | float | int | None) -> float | None:
+    """One limit written alone: `as_number`, or one whole fraction. None for anything else."""
+    value = as_number(text)
+    if value is not None or not isinstance(text, str):
+        return value
+    found = find_fractions(text.strip())
+    if len(found) == 1 and found[0].start == 0 and found[0].end == len(text.strip()):
+        return found[0].value
+    return None
+
+
 # ------------------------------------------------------- strict single values
+
+#: #1607: a word processor's hyphen before a number takes the en dash's rule in `parse_value`.
+_HYPHEN_AS_DASH = str.maketrans("\u2010\u2011", "\u2013\u2013")
 
 _SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
 
@@ -394,6 +433,21 @@ def lead_or(plain: re.Pattern, lead: re.Pattern) -> re.Pattern:
     return lead if leading_dot_enabled() else plain
 
 
+def _minus_is_joined(m: re.Match) -> bool:
+    prefix = m.string[: m.start("num")]
+    if not prefix or not m.group("num").startswith("-"):
+        return False
+    return prefix[-1] not in _SIGN_LEAD
+
+
+def has_joining_minus(value_str: str | None) -> bool:
+    """One number glued to a joining hyphen ("PN-16"): `parse_value` reads no number from it.
+    A check that holds a value it cannot trust asks this, because None alone also means
+    "words", which a required-field check accepts (#1619)."""
+    m = _VALUE.fullmatch(re.sub(f"[{MINUS_SIGNS}]", "-", (value_str or "").strip()))
+    return m is not None and _minus_is_joined(m)
+
+
 def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -> float | None:
     """Parse a written number. Anything unparseable or ambiguous is None,
     never a guess.
@@ -416,9 +470,10 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
     * U+2212 is a minus. An en/em dash directly before the digits is a minus
       only when it begins the value or follows whitespace or a comparator; a
       dash separated from its digits ("- 29"), glued to a letter, or inside a
-      range ("29-343") is ambiguous: None.
+      range ("29-343") is ambiguous: None. U+2010 and U+2011 follow the same rule.
+    * An ASCII minus is a sign only at the start or after `_SIGN_LEAD`; "A-5": None (#1619).
     """
-    s = (value_str or "").strip()
+    s = (value_str or "").strip().translate(_HYPHEN_AS_DASH)
     for c in MINUS_SIGNS:
         s = s.replace(c, "-")
     lead_on = leading_dot_enabled()
@@ -434,6 +489,8 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
         if not m:
             return None
     prefix = s[:m.start("num")]
+    if _minus_is_joined(m):
+        return None  # "A-5", "T--5": a joining hyphen, not a sign (#1619)
     stripped = prefix.rstrip()
     negative_dash = False
     if stripped and stripped[-1] in "-" + DASHES:

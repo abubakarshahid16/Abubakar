@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from . import claude_answer_cache, claude_spend, local_engine_bar
+from . import claude_answer_cache, claude_spend, claude_spend_report, local_engine_bar
 
 #: What "audit rows" and "exported rows" are over, printed with them.
 ROWS_BOUNDARY = (
@@ -47,7 +47,9 @@ def crs_reconciliation(rows: list[dict], meta: dict) -> dict:
             ),
             "withheld_no_text": view["rows_withheld_no_text"],
         }
-    composed, exported, total = len(rows), len(view["rows"]), sum(removed.values())
+    # the rows the copy itself adds to what was composed (`crs_export._copy_and_rows`)
+    composed = len(ce._copy_and_rows(rows, meta)[1])
+    exported, total = len(view["rows"]), sum(removed.values())
     adds_up = composed == exported + total
     words = ", ".join(f"{_REMOVED_WORDS[k]} {v}" for k, v in removed.items())
     return {
@@ -88,6 +90,24 @@ def not_sent(row: dict) -> dict:
     return (
         {"not_sent": f"{claude_answer_cache.NOT_SENT} ({hits} of them)"} if hits else {}
     )
+
+
+def clause_step(clause: dict, not_recorded: str, figures: dict) -> dict:
+    """The clause review's step. A batch still out is pending, never completed or stopped; `figures` hold the counts
+    with their denominators (`review_audit_detail.clause_figures`)."""
+    step = {
+        "name": "clause_review",
+        "state": "completed" if clause.get("ran") else not_recorded,
+        "model": clause.get("model"),
+        "calls": clause.get("calls"),
+        "fresh": clause.get("calls"),
+        "reused": clause.get("cache_hits"),
+        "results": clause.get("results"),
+        "plain": clause.get("plain"),
+        "usd": clause.get("usd"),
+        **figures,
+    }
+    return {**step, "state": "pending"} if clause.get("pending") else step
 
 
 def skipped_steps(outcome: dict) -> list[dict]:
@@ -159,3 +179,57 @@ def cache_lines(ai_use: dict) -> list[str]:
         f"  - {cache['boundary']}",
         *off,
     ]
+
+
+def spend_figures(run: dict) -> dict:
+    """This run's spend per step, read now from the ledger the run record is written from; switch off, or a run with
+    no Claude call: nothing."""
+    if not claude_spend_report.enabled() or not run.get("id"):
+        return {}
+    try:
+        figures = claude_spend_report.for_review_run(str(run["id"]))
+    except (OSError, ValueError):
+        return {
+            claude_spend_report.OUTCOME_KEY: {
+                "not_recorded": claude_spend_report.LEDGER_UNREADABLE
+            }
+        }
+    return {claude_spend_report.OUTCOME_KEY: figures} if figures["asked"] else {}
+
+
+def spend_lines(ai_use: dict) -> list[str]:
+    spend = ai_use.get(claude_spend_report.OUTCOME_KEY)
+    if not spend:
+        return []
+    if spend.get("not_recorded"):
+        return [f"- Claude spend, this review run: {spend['not_recorded']}"]
+    out = [
+        f"- Claude spend, this review run: USD {spend['usd']} over {spend['asked']} asked: "
+        f"{spend['calls_charged']} charged ({spend['batch_calls']} at batch price, USD "
+        f"{spend['usd_estimated']} at worst case because the usage is unknown), "
+        f"{spend['stored_answers']} stored answers, {spend['refused']} refused"
+    ]
+    out += [
+        f"  - {row['step']}: USD {row['usd']}; {row['asked']} asked; {row['calls_charged']} charged; "
+        f"{row['stored_answers']} stored; {row['batch_calls']} batch; {row['refused']} refused"
+        for row in spend["steps"]
+    ]
+    if spend["held_calls"]:
+        out.append(
+            f"  - {spend['held_words']}: {spend['held_calls']} calls, up to USD {spend['held_worst_usd']}"
+        )
+    if spend["unreadable_lines"]:
+        out.append(
+            f"  - {spend['unreadable_lines']} ledger lines could not be read: nobody can say whose they were, "
+            "so this figure may be short"
+        )
+    return [*out, f"  - {spend['boundary']}"]
+
+
+def run_figures(run: dict) -> dict:
+    """The run's Claude figures for the audit's AI section: stored answers and spend per step."""
+    return {**cache_figures(run), **spend_figures(run)}
+
+
+def claude_lines(ai_use: dict) -> list[str]:
+    return [*cache_lines(ai_use), *spend_lines(ai_use)]

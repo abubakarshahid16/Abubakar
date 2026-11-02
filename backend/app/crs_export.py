@@ -326,6 +326,16 @@ def _rank_cells(finding: dict, copy: str) -> dict:
     return {"priority": priority, "priority_label": priority_word(priority, copy)}
 
 
+def _copy_and_rows(findings: list[dict], meta: dict) -> tuple[str, list[dict]]:
+    """Which copy this is, and its rows. Version 2's rows are never numbered, and never on the issue copy."""
+    copy = meta.get("copy") or COPY_INTERNAL
+    if copy not in COPIES:
+        raise ValueError(f"unknown CRS copy {copy!r}")
+    if copy == COPY_INTERNAL:
+        findings = [*findings, *(meta.get("rulebook_v2_rows") or [])]
+    return copy, findings
+
+
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
     """What a CRS says, with nothing in it about how it is drawn.
 
@@ -366,9 +376,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     # read: the .xlsx and the preview quote the same reference for the same
     # comment, and a re-export of this run quotes it again.
     run_id = meta.get("review_run_id", "")
-    copy = meta.get("copy") or COPY_INTERNAL
-    if copy not in COPIES:
-        raise ValueError(f"unknown CRS copy {copy!r}")
+    copy, findings = _copy_and_rows(findings, meta)
 
     # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED (read
     # before the "Ref:" line is added). The issue copy leaves it out and counts
@@ -515,6 +523,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # copies. The count and the notice go to the contractor too; the
         # internal copy also lists each part.
         "incomplete_notice": meta.get("incomplete_notice") or "",
+        "rulebook_v2_note": meta.get("rulebook_v2_note") or "",
         "unchecked_parts": ([str(p) for p in (meta.get("unchecked_parts") or [])]
                             if copy == COPY_INTERNAL else []),
         # B5: WHICH STANDARDS THE REVIEW APPLIED, AND WHY - each with its
@@ -568,6 +577,18 @@ def _write(ws, row: int, col: int, value):
     if isinstance(clean, str):
         cell.data_type = "s"
     return cell
+
+
+def _note_cell(ws, view: dict, put) -> None:
+    """The version 2 note, on both copies, in a new cell below the code. Never in column A: a reply is read by the Item
+    No there (`crs_reply.read_replies`), so this cell is no row of the table."""
+    note = view.get("rulebook_v2_note")
+    if not note:
+        return
+    row = COLUMN_HEADER_ROW + len(view["rows"]) + 4
+    ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=7)
+    put(row, 3, note, wrap=True)
+    ws.row_dimensions[row].height = max(15, 13 * (len(note) // 90 + 1))
 
 
 def build_crs(findings: list[dict], meta: dict) -> bytes:
@@ -629,7 +650,6 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         put(COLUMN_HEADER_ROW, i, header,
             bold=True, center=True, wrap=True).border = BOX
 
-    # Data rows, from the row after the column headers.
     # The sheet row is the entry's POSITION, never its Item No: a permanent
     # number ("CRS-XYZ-004") is text, and even a numeric one need not match
     # the row it lands on.
@@ -675,7 +695,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.merge_cells(start_row=notice_row, start_column=1, end_row=notice_row,
                        end_column=7)
         put(notice_row, 1, view["incomplete_notice"], bold=True, wrap=True)
-        ws.row_dimensions[notice_row].height = 30
+        ws.row_dimensions[notice_row].height = quality.notice_height(view)
     code = view["recommended_code"]
     if code:
         row = COLUMN_HEADER_ROW + len(view["rows"]) + 2
@@ -693,6 +713,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                            end_column=7)
             put(row + 1, 3, view["recommended_code_status"], wrap=True)
 
+    _note_cell(ws, view, put)
     # B5: the applied standards and their reasons, on their own sheet.
     standards_sheet = wb.create_sheet(STANDARDS_SHEET)
     for col, header in enumerate(STANDARDS_COLUMNS, start=1):

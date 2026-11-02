@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _P,
         "    if not settings.procedure_path_enabled or not document_id:\n",
         "    if not document_id:\n",
-        "switch_is_off",
+        "router_kind_decides",
     ),
     _m(
         7,
@@ -85,7 +85,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _P,
         "    return document_kind(document_id) in PROCEDURE_KINDS\n",
         "    return True\n",
-        "switch_is_off",
+        "router_kind_decides",
     ),
     _m(
         8,

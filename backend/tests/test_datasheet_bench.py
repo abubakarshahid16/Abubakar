@@ -328,6 +328,7 @@ def claude_lane(tmp_path, monkeypatch):
     """The reader lane switched on against a FAKE transport: nothing leaves."""
     from app import reader_transport
     from app.config import settings
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     # Its own folder: a stored answer from another test would be served before the cap.
     monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)

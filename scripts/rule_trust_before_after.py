@@ -29,7 +29,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
 MODEL_TIERS_OFF = ("match_enabled", "ai_clause_checks_enabled", "geometry_reader_enabled",
-                   "ai_applicability_enabled", "rule_auto_use_enabled")
+                   "rule_auto_use_enabled")
 COUNTS = ("fields_read", "held_unproven", "safety_ticks", "auto_proven")
 
 

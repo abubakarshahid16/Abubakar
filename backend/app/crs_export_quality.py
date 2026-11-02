@@ -12,7 +12,8 @@ Seven rules, each in one home (CLAUDE.md rule 8), all general for any document
    row with an issued number, a safety tick or a carried-forward comment is
    never merged (each is its own thing an engineer or the contractor answers)
 2. a row with no comment is dropped and counted (`drop_no_comment`)
-3. every row names a page or says "page not found (<reason>)" (`page_cell`)
+3. every row names a page or says "page not found (<reason>)" (`page_cell`); with
+   CRS_PAGE_CELL_FIELD_ENABLED it says the section or field instead (`no_page_cell`)
 4. a comment is at most `COMMENT_LIMIT` characters; the rest moves to the AI
    Review Comments column (`split_comment`); Reasoning and Rule trust go to
    the Internal sheet, which the contractor copy does not have
@@ -25,6 +26,13 @@ Seven rules, each in one home (CLAUDE.md rule 8), all general for any document
 No text is invented or reworded: merged, moved and cut text is the text the
 row already had (numbers, units and clause references are kept whole - a cut
 falls between words, never inside one).
+
+#1503 remainder, CRS_EXPORT_QUALITY_STRICT_ENABLED (needs the switch above, off by
+default): rows with no page merge on one clause when their printed reason is the
+same (`_strict_key`; a safety tick stays its own row), a comment that was only the "not
+yet proven" flag counts as no comment (`_clear_flag_only`), the prefix table reads
+the other spellings `standard_ids` accepts (`_MATERIAL_WIDE`), and the screen gets
+the Internal sheet (`internal_preview`).
 """
 
 from __future__ import annotations
@@ -33,6 +41,7 @@ import re
 
 from openpyxl.styles import Alignment, Font
 
+from . import crs_page_words
 from .config import settings
 from .crs_mapping import NOTE_MISSING_STANDARD
 from .rule_trust import UNPROVEN_REASON
@@ -110,6 +119,30 @@ _PURCHASING = re.compile(r"\bSAMSS\b", re.I)
 _MATERIAL = re.compile(
     r"^\s*(?:ASTM\b|ASME\s*S[AB][\s-]?\d|ASME\s*B\s*(?:16|1|18|36)\.\d)", re.I
 )
+#: The same families in every spelling `standard_ids` reads ("ASME-B16-47",
+#: "ANSI B16.5", "ANSI/ASME SA-105"), and an ASTM number cited bare WITH its grade
+#: ("A193 Gr B7"): a bare letter and number alone ("A193", "B2000") could be anything,
+#: so it stays a design standard, the claim the sheet makes for anything unknown.
+_MATERIAL_WIDE = re.compile(
+    r"^\s*(?:ASTM\b"
+    r"|(?:ANSI\s*/\s*)?(?:ASME|ANSI)(?:\s*/\s*ANSI)?[-\s]*"
+    r"(?:S[AB][-\s]?\d|B[-\s]*(?:16|1|18|36)[-._ ]\d)"
+    r"|[AB][-\s]?\d{2,4}(?![\d.])[\s,/-]*(?:Gr\.?|Grade)(?![A-Za-z]))",
+    re.I,
+)
+
+
+def one_row_enabled() -> bool:
+    """CRS_ONE_ROW_PER_PROBLEM_ENABLED (`crs_one_row`): the sheet is merged where it is
+    composed, on the owner's identity, so this view merges nothing more."""
+    return bool(settings.crs_one_row_per_problem_enabled)
+
+
+def strict_enabled() -> bool:
+    """CRS_EXPORT_QUALITY_STRICT_ENABLED (default off). It acts only where
+    `CRS_EXPORT_QUALITY_ENABLED` already holds: every reader here is reached
+    from `prepare` or `finish`, which that switch guards."""
+    return bool(settings.crs_export_quality_strict_enabled)
 
 
 def standard_kind(reference: str) -> str:
@@ -119,7 +152,7 @@ def standard_kind(reference: str) -> str:
     text = str(reference or "")
     if _PURCHASING.search(text):
         return KIND_PURCHASING
-    if _MATERIAL.search(text):
+    if _MATERIAL.search(text) or (strict_enabled() and _MATERIAL_WIDE.search(text)):
         return KIND_MATERIAL
     return KIND_DESIGN
 
@@ -149,16 +182,45 @@ _OTHER_DOCUMENT_KINDS = (
 )
 
 
+#: Every cell of `no_page_cell` ends with this: a row with no verified quote has no page.
+NO_PAGE = "so no page"
+#: A row about a standard the submittal does or does not cite, with no finding behind it:
+#: there is no quote by construction, and it needs no other document.
+_NOT_CITED = "standard_not_cited"
+_NOT_APPLICABLE = "standard_not_applicable"
+
+
 def has_page(page_section: str) -> bool:
     return bool(_HAS_PAGE.search(str(page_section or "")))
 
 
-def page_cell(page_section: str, row_kind: str = "") -> str:
+def no_page_cell(text: str, row_kind: str, standard: str) -> str:
+    """The cell of a row with no page: the section or field it is about, and why there
+    is no page. A page comes only from a verified quote (`crs_mapping._page_section`), so
+    a row with none has no page to print; none is looked for or guessed here."""
+    field = crs_page_words.field_first(text)
+    if field:
+        return f"{field}, {NO_PAGE}"
+    if row_kind == _NOT_CITED and standard:
+        return f"Whole submittal: {standard} is not cited, {NO_PAGE}"
+    about = f"About {standard}" if standard else "No section or field recorded"
+    head = f"Section: {text}" if text else about
+    if row_kind == _NOT_APPLICABLE and standard and not text:
+        head = f"Whole submittal: about {standard}"
+    if row_kind in _OTHER_DOCUMENT_KINDS:
+        return f"{head}: another document is needed, {NO_PAGE}"
+    return f"{head}: no verified quote, {NO_PAGE}"
+
+
+def page_cell(page_section: str, row_kind: str = "", standard: str = "") -> str:
     """The Page No./Section cell: as it was when it names a page, else
-    "page not found (<reason>)" followed by whatever the cell said."""
+    "page not found (<reason>)" followed by whatever the cell said; with
+    CRS_PAGE_CELL_FIELD_ENABLED, `no_page_cell`."""
     text = str(page_section or "").strip()
     if has_page(text):
         return text
+    if settings.crs_page_cell_field_enabled:
+        return no_page_cell(text, row_kind, standard)
     if text.lower().startswith("not read from"):
         reason = REASON_NOT_READ
     elif row_kind in _OTHER_DOCUMENT_KINDS:
@@ -299,6 +361,26 @@ def _key(row: dict):
     )
 
 
+def _strict_key(row: dict):
+    """The key with the strict switch on: `_key`, except that a row with no page
+    takes the reason it prints as its anchor, so the sheet cannot show two rows
+    with one document, page cell and clause. Safety ticks, carried-forward and
+    issued rows stay their own, as in `_key`: a merged tick would keep the first
+    tick's reference, and confirming it would leave the other under a confirmed
+    row."""
+    clause = str(row.get("standard_reference") or "").strip()
+    kind = row.get("row_kind") or ""
+    if not clause or kind in _NEVER_MERGED or _issued(row):
+        return None
+    section = str(row.get("page_section") or "").strip()
+    return (
+        str(row.get("document_name") or ""),
+        section or page_cell("", kind),
+        row.get("engineer_confirmed") is True,
+        clause,
+    )
+
+
 def _join(first: str, later: str) -> str:
     first, later = str(first or ""), str(later or "")
     if not later or later in first:
@@ -306,7 +388,7 @@ def _join(first: str, later: str) -> str:
     return f"{first}\n\n{later}" if first else later
 
 
-def merge_duplicates(rows: list[dict]) -> tuple[list[dict], int]:
+def merge_duplicates(rows: list[dict], key_of=_key) -> tuple[list[dict], int]:
     """Rule 1. Returns (rows, number of rows merged away). The first row of a
     key keeps its place, number, kind and fill; a later one adds its comment
     (and its reasoning and AI wording) after it. Only the RANK is lent: the
@@ -317,7 +399,7 @@ def merge_duplicates(rows: list[dict]) -> tuple[list[dict], int]:
     first_of: dict = {}
     merged = 0
     for row in rows:
-        key = _key(row)
+        key = key_of(row)
         if key is None or key not in first_of:
             copy = dict(row)
             out.append(copy)
@@ -349,6 +431,25 @@ def drop_no_comment(rows: list[dict], has_no_text) -> tuple[list[dict], int]:
     return kept, len(rows) - len(kept)
 
 
+def _clear_flag_only(rows: list[dict], copy: str) -> tuple[list[dict], int]:
+    """A comment that was only the "not yet proven" flag is no comment: without
+    it the cell would print blank. Internal copy: the row goes on as an empty one
+    (`drop_no_comment` then drops it, or it prints the engineer sentence). Client
+    copy: there is nothing to send, so it is left out, and `finish` counts it in
+    `rows_withheld_no_text`, the count the client screen says aloud."""
+    out: list[dict] = []
+    dropped = 0
+    for row in rows:
+        text, gone = strip_unproven_flag(str(row.get("comment") or ""))
+        if gone and not text:
+            if copy != "internal":
+                dropped += 1
+                continue
+            row = {**row, "comment": ""}
+        out.append(row)
+    return out, dropped
+
+
 def split_standards(
     standards: list[dict], considered_status: str
 ) -> tuple[list[dict], list[dict]]:
@@ -367,17 +468,46 @@ def enabled() -> bool:
     return bool(settings.crs_export_quality_enabled)
 
 
+#: `crs_mapping.safety_tick_text`'s words; a test holds them to what it writes.
+TICK_LEAD = "ENGINEER TO TICK"
+TICK_ACTION = "Read the clause and the value on the page and tick, or say what is off."
+
+
+def ticked_words(row: dict) -> dict:
+    """With CRS_PLAIN_NOTES_ENABLED, a safety row an engineer has really ticked says so,
+    not that it waits (`crs_decider.tick_done`). An edited comment is not a tick: it may be
+    an objection, so the engineer's words print first and the row still waits. On the view
+    only: the words a number keeps (`crs_carry`) are not touched, so the next run's row is
+    compared with what the engineer read."""
+    if not settings.crs_plain_notes_enabled or row.get("row_kind") != "safety_tick":
+        return row
+    words = row.get("engineer_words")
+    if words:
+        return {**row, "comment": f"{words}\n{row.get('comment') or ''}"}
+    if not row.get("tick_done"):
+        return row
+    said = str(row.get("comment") or "").replace(f" {TICK_ACTION}", "")
+    return {**row, "comment": said.replace(TICK_LEAD, "TICKED BY ENGINEER", 1)}
+
+
 def prepare(
     findings: list[dict], copy: str, has_no_text, on: bool
 ) -> tuple[list[dict], int, int]:
     """Rules 2 and 1, before the rows are built: (rows, dropped, merged);
     the rows untouched when the switch is off."""
+    findings = [ticked_words(f) for f in findings]
     if not on:
         return findings, 0, 0
+    strict = strict_enabled()
     dropped = 0
+    if strict:
+        findings, dropped = _clear_flag_only(findings, copy)
     if copy == "internal":
-        findings, dropped = drop_no_comment(findings, has_no_text)
-    findings, merged = merge_duplicates(findings)
+        findings, gone = drop_no_comment(findings, has_no_text)
+        dropped += gone
+    if one_row_enabled():
+        return findings, dropped, 0
+    findings, merged = merge_duplicates(findings, _strict_key if strict else _key)
     return findings, dropped, merged
 
 
@@ -396,7 +526,9 @@ def _finish_rows(rows: list[dict], ref_label: str) -> tuple[set[str], bool]:
             if gone:
                 flagged.add(entry["row_ref"])
         entry["page_section"] = page_cell(
-            entry["page_section"], entry.get("row_kind") or ""
+            entry["page_section"],
+            entry.get("row_kind") or "",
+            entry.get("standard_reference") or "",
         )
         entry["priority_label"] = priority_label(entry.get("priority"))
         if entry["comment_missing"]:
@@ -467,6 +599,9 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
     from . import crs_export as ce
 
     internal = view["crs_copy"] == ce.COPY_INTERNAL
+    if not internal:  # a client copy has no Review notes: the withheld count says it
+        view["rows_withheld_no_text"] += dropped
+        dropped = 0
     flagged, overflowed = _finish_rows(view["rows"], ce.ROW_REF_LABEL)
     standards, considered = split_standards(
         view["applicable_standards"], ce.STATUS_CONSIDERED
@@ -484,10 +619,19 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
         review_notes=notes,
         export_quality=True,
         internal_sheet=inner,
+        internal_preview=inner if strict_enabled() else {},
         rows_dropped_no_comment=dropped,
         rows_merged=merged,
     )
     return view
+
+
+def notice_height(view: dict) -> int:
+    """The notice row's height. Off: as it was, whatever the length. With
+    CRS_PLAIN_NOTES_ENABLED the notice names its parts, so its words must fit."""
+    if not settings.crs_plain_notes_enabled:
+        return 30
+    return max(30, 15 * (len(view["incomplete_notice"]) // 110 + 1))
 
 
 def tail_cells(view: dict, entry: dict, current: list) -> list:

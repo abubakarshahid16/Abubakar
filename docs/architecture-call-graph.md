@@ -92,6 +92,13 @@ model call and that no model output reached a finding; both are no longer true:
   (`_checked_choice`), and a malformed or failed one is recorded as such.
 - Both run on the local model through `model_transport.py`; either uses the Claude API only
   under the gates of CLAUDE.md rule 1. `quotes.py` (B23) no longer exists.
+- **The division scope** (`ai_applicability.division_gate_for_run`,
+  `settings.ai_division_scope_engine = "ollama"`) reads a standard's part scopes through
+  `ai_task_runner.run_task`. With `claude`, `division_text.claude_reader` hands it a
+  `ClaudeProvider` (`rp.claude_for_task`, step `division_scope`), so each call passes
+  `claude_spend.answer_on_file` and `reserve` and leaves through `reader_transport`. Unread
+  parts hold their rules. In a Claude-lane run with the local engine setting, the step is
+  skipped by `local_engine_bar` and listed as not checked.
 
 Section 2's line references above are still those of `1b445af`.
 
@@ -114,7 +121,7 @@ ms-marco-MiniLM-L-6-v2 int8 ONNX; OCR PP-OCRv6 tiny ONNX.
 409 `model_disabled` unless both standards-reader egress flags are on. `reasoning_provider.get_provider()` picks
 `ClaudeProvider` only when `REASONING_PROVIDER=claude` AND both flags AND a key; otherwise `OllamaProvider`, with
 the reason logged. Every Claude call leaves through `reader_transport` (the one socket) and is priced and capped by
-`claude_spend` (USD per step and total, ledger without text). Since 2026-09-30 the check is a RESERVATION:
+`claude_spend` (USD 5 per step of one review run, USD 10 for AI clause review, at most USD 15 for the whole run; per step all time for a call with no run, #1584; USD 100 a day; total; ledger without text). Since 2026-09-30 the check is a RESERVATION:
 `claude_spend.reserve` checks the call's worst case and writes it to the ledger in one step under a lock (a
 process-local mutex plus an OS lock on `<ledger>.lock`), so threads and processes sharing one ledger cannot all
 pass on the same last dollars; `settle` replaces it with the reported cost, and `settle_failure` charges a call that
@@ -124,6 +131,11 @@ via `reserve_all`) reserves itself and caches by (model, prompt version, input h
 routes get the same reservation and ledger through `claude_spend.metered(transport, step)` inside `_model_call_or_409(step)`
 (one step per route, e.g. `claude-recheck`), plus `claude_budget`'s per-run call cap, and are NOT cached (fixed
 2026-09-27: before that they had only the call cap and their spend never reached the USD ledger). Page IMAGES (B4 vision reader, behind `GEOMETRY_READER_ENABLED`) ride in the same request: `Packet.images` -> `reader_api.build_request(images=...)` (PNG/JPEG only; same gates) -> `reader_transport`; the image digests are part of the prompt hash and cache key, and the worst-case cost counts image tokens.
+
+AI clause review on the Claude lane (`AI_CLAUSE_REVIEW_ENGINE=claude`, default local): `clause_review.for_review` ->
+`clause_review_claude.for_review` -> `rp.claude_for_task` -> `claude_batch_run.run(max_wait_s=0)` -> `reader_transport.batch_*`,
+step `clause_review`. It submits and returns; `ingest` idle loop -> `worker_review._idle_wait` -> `clause_review_claude.poll_due`
+reads the batch, writes the rows through `clause_review._store_row` and closes the status. Otherwise `clause_review.run`, local, with its limit.
 
 ## 4. Conversation
 

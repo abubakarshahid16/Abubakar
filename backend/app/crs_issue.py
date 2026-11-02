@@ -548,7 +548,13 @@ def group_of(rows: list[dict], finding_id: str) -> list[str]:
     decision on the row covers all of them, or the row stays open with the
     next finding behind it."""
     group = next(
-        (r.get("finding_ids") or [] for r in rows if r.get("finding_id") == finding_id),
+        (
+            r.get("finding_ids") or []
+            for r in rows
+            if r.get("finding_id") == finding_id
+            # #1503: a merged row's members are one decision, whichever the screen sends.
+            or (r.get("one_row") and finding_id in (r.get("finding_ids") or []))
+        ),
         [],
     )
     return list(dict.fromkeys([finding_id, *group]))

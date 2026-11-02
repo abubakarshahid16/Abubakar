@@ -21,6 +21,7 @@ import re
 from app import (
     ai_requirement_chunks,
     clause_review,
+    clause_review_claude,
     document_refs,
     field_naming,
     reading_state,
@@ -35,6 +36,7 @@ def _full_schema() -> None:
     """Tables created lazily by their own module are created here too."""
     standards_acquisition.ensure_schema()
     clause_review.ensure_schema()
+    clause_review_claude.ensure_schema()
     ai_requirement_chunks.ensure_reads_schema()
     with connect() as conn:
         conn.execute(field_naming._TABLE)

@@ -35,7 +35,7 @@
    ],
    "wrong": []
   },
-  "config": "9b399d1791a595cc datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
+  "config": "ad5719a93128317e datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
   "stored": {
    "run": "a5c45c82-063c-4ad3-9abb-e25f896dc391",
    "document": "doc_d30f4c63d481",
@@ -101,7 +101,7 @@
    ],
    "wrong": []
   },
-  "config": "9b399d1791a595cc datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
+  "config": "ad5719a93128317e datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
   "stored": {
    "run": "10f84aa7-6b5b-4e17-92bb-86049d991965",
    "document": "doc_0d5c6f72ad0d",
@@ -171,7 +171,7 @@
    ],
    "wrong": []
   },
-  "config": "9b399d1791a595cc datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
+  "config": "ad5719a93128317e datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
   "stored": {
    "run": "47f71615-8728-417a-8ecd-cc1ea4c9c4e1",
    "document": "doc_b4f0d52bf927",
@@ -232,7 +232,7 @@
    "irrelevant": [],
    "wrong": []
   },
-  "config": "9b399d1791a595cc datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
+  "config": "ad5719a93128317e datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
   "stored": {
    "run": "ea26f990-0e5d-47e9-9277-6558f9554d2f",
    "document": "doc_da3fcc0aaacc",
@@ -293,7 +293,7 @@
    "irrelevant": [],
    "wrong": []
   },
-  "config": "9b399d1791a595cc datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
+  "config": "ad5719a93128317e datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False",
   "stored": {
    "run": "b0d5067b-8cfc-4cfd-bd5a-be0941b4a87f",
    "document": "doc_2ec2934f8d3f",
@@ -331,14 +331,14 @@
    "fails": 0,
    "rules_decided": 0,
    "rules_in_scope": 5051,
-   "sent_away": 1328,
+   "sent_away": 19,
    "quotes_verified": 6,
    "quotes_unverified": 0,
    "quotes_total": 6,
    "pages_read": 11,
    "pages_total": 11,
-   "kind": "datasheet",
-   "kind_ok": false,
+   "kind": "specification",
+   "kind_ok": true,
    "pass_on_deferred": 0,
    "crs_lines": 3,
    "model_calls_refused": 76,

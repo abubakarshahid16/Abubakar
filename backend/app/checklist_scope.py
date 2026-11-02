@@ -26,6 +26,81 @@ def standards(checklist: dict) -> list[str]:
     return sorted({item["source"]["standard"] for item in checklist["items"]})
 
 
+def stated_only(checklist: dict) -> list[str]:
+    """#1638, switch on: the standards it governs that only "is it stated" items cite. Such
+    items cannot stand in for the standard's rules, whatever the data's `governs` says."""
+    from .config import settings
+
+    if not settings.presence_not_pass_enabled:
+        return []
+    asks_more = {
+        item["source"]["standard"]
+        for item in checklist["items"]
+        if item["rule"]["kind"] != "required"
+    }
+    return sorted(set(standards(checklist)) - asks_more)
+
+
+def sources(checklist: dict) -> dict:
+    """`datasheet_checks.checklist_sources`: what `comparison` needs to know of a checklist."""
+    return {
+        "key": checklist["key"],
+        "items": len(checklist["items"]),
+        "standards": standards(checklist),
+        "stated_only": stated_only(checklist),
+        "draft": checklist["draft"],
+    }
+
+
+def keeps_standards(checklist: dict) -> bool:
+    """Lock 2: a checklist not yet signed cannot decide, so while it is a draft the standards it cites stay in
+    scope, rule by rule, each under its own trust label. A signed checklist governs as before."""
+    from .config import settings
+
+    return settings.draft_checklist_keeps_standards_enabled and bool(
+        checklist.get("draft")
+    )
+
+
+def set_aside(
+    governing: dict, covered_ids: set, requirements: list[dict], gated: dict
+) -> tuple[list[dict], list[dict], dict, dict]:
+    """#746: the requirements of the governed standards leave the comparison, each with its reason.
+    Returns (covered items, the requirements left, the gate's result without those cells, the run's note).
+    #1638: a standard only "stated" items cite is not set aside, so its rules are in what the #633 gate
+    counts. Done here, after Lock 2 has taken the full list, so a kept standard stays kept and labelled."""
+    from .comparison import governed_standards
+
+    back = governed_standards(sorted(covered_ids), governing.get("stated_only") or [])
+    covered_ids = set(covered_ids) - back
+    if not covered_ids:
+        return [], requirements, gated, None
+
+    def covered(requirement: dict) -> bool:
+        return requirement.get("standard_document_id") in covered_ids
+
+    detail = (
+        f"the {governing['key']} review checklist governs this standard "
+        f"({governing['items']} items); not checked one by one"
+    )
+    cells = gated["not_compared_items"]
+    items = [
+        {"requirement": requirement, "code": "covered_by_checklist", "detail": detail}
+        for requirement in [dict(r) for r in requirements if covered(r)]
+        + [i["requirement"] for i in cells if covered(i["requirement"])]
+    ]
+    note = {
+        "type": governing["key"],
+        "items": governing["items"],
+        "standards": len(covered_ids),
+    }
+    left = {
+        **gated,
+        "not_compared_items": [i for i in cells if not covered(i["requirement"])],
+    }
+    return items, [r for r in requirements if not covered(r)], left, note
+
+
 def review_type(classification: dict | None) -> str | None:
     """The equipment type a REVIEW CHECKLIST may be chosen from (order 264, found by the 2p gate on a vessel sheet). A
     checklist marked `type_from_title_only` (the vessel and exchanger drafts) is chosen only when the

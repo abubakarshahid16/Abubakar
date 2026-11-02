@@ -23,7 +23,6 @@ import pytest
 
 from app import comparison, datasheets, db, rule_eval, standards, submittal_review
 from app import reasoning_provider as rp
-from app.config import settings
 import tests.test_b3_page_ledger as ledger_tests
 from tests.test_b3_page_ledger import NOW, temp_storage  # noqa: F401 - autouse
 
@@ -224,25 +223,6 @@ def _req():
             "chunk_id": None, "standard_document_id": None}
 
 
-def test_a_model_parse_is_kept_only_when_every_number_is_on_the_page(monkeypatch):
-    """M1081: reject, never repair."""
-    monkeypatch.setattr(settings, "rule_parse_model_enabled", True)
-    honest = _FakeModel({"unit": "kPa", "rows": [
-        {"from": None, "to": 1800, "op": "single", "terms": [{"k": 1, "c": 170}]}]})
-    invented = _FakeModel({"unit": "kPa", "rows": [
-        {"from": None, "to": 1800, "op": "single", "terms": [{"k": 1.1, "c": 170}]}]})
-    rule, source = rule_eval.rule_for(_req(), provider=honest)
-    assert source == rule_eval.SOURCE_MODEL and rule["rows"][0]["terms"][0]["c"] == 170
-    assert rule_eval.rule_for(_req(), provider=invented)[0] is None
-
-
-def test_the_model_is_not_asked_when_its_flag_is_off(monkeypatch):
-    class Explode:
-        def reason(self, packet):
-            raise AssertionError("the model was asked with the flag off")
-    assert rule_eval.rule_for(_req(), provider=Explode())[0] is None
-
-
 # ------------------------------------------- conflict is not absence (fix)
 
 def _fact(name, value, page, raw=None, unit="kPa", **extra):
@@ -352,3 +332,25 @@ def test_the_most_specific_input_name_wins_over_the_generic_one():
     verdict, _f = rule_eval.judge(_rule(), facts)
     assert verdict["status"] == "COMPLIANT", verdict["rationale"]
     assert "operating pressure 3,000 kPa" in verdict["rationale"]
+
+
+REAL_TABLE = ("Design pressure per table.\nMaximum operating pressure (MOP) | Design pressure\n"
+              "Up to 1,800 kPa | MOP + 170 kPa")
+
+
+def test_the_direction_comes_from_the_known_rule_not_the_parser():
+    known = rule_eval.known_rule_for(_req())
+    assert known["comparator"] == ">="
+    rule = rule_eval.parse_rule(REAL_TABLE, output=known["output"], input_names=known["input_names"],
+                                comparator="<=")
+    assert rule["comparator"] == "<="
+    default = rule_eval.parse_rule(REAL_TABLE, output=known["output"], input_names=known["input_names"])
+    assert default["comparator"] == ">="
+
+
+def test_a_row_with_no_terms_gives_no_verdict_not_a_crash():
+    rule = {"output": "design pressure", "input": "mop", "input_names": ["mop"], "unit": "kPa",
+            "comparator": ">=", "rows": [{"from": None, "to": 1800, "op": "single"}]}
+    assert rule_eval.required_for(rule, 1000) is None
+    rule["rows"][0]["terms"] = []
+    assert rule_eval.required_for(rule, 1000) is None

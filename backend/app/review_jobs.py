@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -31,6 +32,7 @@ from . import (
     access,
     ai_call_ledger,
     claude_auto_approve,
+    claude_spend_report,
     job_progress,
     job_queue,
     local_engine_bar,
@@ -429,7 +431,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 
 def _review_scope(job):
-    """A Claude-lane run never loads the local engine, and its spend lines name the run."""
+    """A Claude-lane run never loads the local engine, its spend lines name the run, and its spend goes in its record."""
     barred = local_engine_bar.barring_local_engine(job)
 
     @functools.wraps(job)
@@ -438,13 +440,47 @@ def _review_scope(job):
 
         sql = "SELECT review_run_id FROM jobs WHERE id = ?"
         row = connect().execute(sql, (job_id,)).fetchone()
-        with claude_spend.for_run(row["review_run_id"] if row else None):
-            return barred(job_id, *args, **kwargs)
+        run_id = row["review_run_id"] if row else None
+        try:
+            with claude_spend.for_run(run_id):
+                return barred(job_id, *args, **kwargs)
+        finally:
+            claude_spend_report.record_run(run_id)
+
+    return wrapper
+
+
+def _audit_ended(job_id: str) -> None:
+    """#1525: the audit of a review that ended without finishing. Never raises."""
+    from . import review_audit
+
+    try:
+        sql = "SELECT review_run_id, created_by FROM jobs WHERE id = ?"
+        job = connect().execute(sql, (job_id,)).fetchone()
+        scope = access.AccessScope(
+            user_id=job["created_by"], allowed_document_ids=_scope_of(job["created_by"])
+        )
+        review_audit.write(job["review_run_id"], scope)
+    except Exception:  # an audit never breaks or changes a review
+        logging.getLogger(__name__).warning("review audit not written", exc_info=True)
+
+
+def _audit_when_it_ended(job):
+    """A failed or cancelled review gets its audit too; a retry is not the end of a run."""
+
+    @functools.wraps(job)
+    def wrapper(job_id, *args, **kwargs):
+        state = job(job_id, *args, **kwargs)
+        ended = state in (job_queue.POISONED, job_queue.CANCELLED)
+        if ended and settings.review_audit_report_enabled:
+            _audit_ended(job_id)
+        return state
 
     return wrapper
 
 
 @ai_call_ledger.recorded  # #1525: only with REVIEW_AUDIT_REPORT_ENABLED on
+@_audit_when_it_ended  # #1525, the same switch
 @_review_scope  # the bar on the local engine; ledger lines carry the run's id
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     """Run one claimed review job to its end. Returns the job's final state.

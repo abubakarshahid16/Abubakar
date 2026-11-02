@@ -1,27 +1,4 @@
-"""AI applicability (#647, #677): the model proposes, code confirms.
-
-For a clause still in a review's scope after the code gates, the model answers
-whether it applies to THIS equipment and service: yes / no / unsure, a reason
-category, and the words of the clause it rests on. "AI reads, code checks":
-
-  * the quote must be in the clause;
-  * a "no" counts only when CODE can confirm its reason from stated facts:
-      other_equipment            the equipment vocabulary (`subject_scope`)
-                                 reads the quote as about equipment this
-                                 submittal is not;
-      service_condition_not_met  the quote names a service condition
-                                 (`service_scope`) the datasheet declares
-                                 absent;
-      definition                 the quote is a defining sentence
-                                 (`requirement_quality`);
-      informative_note           the quote is a note ("NOTE", "Informative",
-                                 "Commentary") with no "shall"/"must";
-  * anything else - "unsure", an unconfirmed "no", a quote not in the clause,
-    a reply that could not be read - leaves the clause a CHECK. Unsure is
-    never dropped (#647); the engineer sees what the model suggested.
-
-OFF by default (`settings.ai_applicability_enabled`) and capped per run
-(`ai_applicability_max_per_run`); the model is the runner's setting (#683).
+"""AI scope reading of a standard.
 
 #141, per DIVISION of a standard (`division_gate`, below; ON by default,
 `settings.ai_division_scope_enabled`): a part or appendix whose own scope
@@ -38,14 +15,14 @@ import re
 from . import (
     ai_task_runner,
     division_text,
-    requirement_quality,
-    scope_ledger,
+    local_engine_bar,
     scope_quote,
     scope_type_words,
-    service_scope,
     subject_scope,
 )
 from .ai import output_limits
+from .division_claude import NAMES_ITSELF, rejections
+from .division_claude import read as _read
 from .division_text import (  # noqa: F401 - re-exported: the names tests and callers use
     NOT_READ_COUNTS,
     SCOPE_WORDS,
@@ -70,117 +47,6 @@ from .scope_type_words import (
 from .scope_type_words import (
     names as _names,
 )
-
-CATEGORIES = ["other_equipment", "service_condition_not_met", "informative_note",
-              "definition", "none"]
-
-SCHEMA = {
-    "type": "object",
-    "required": ["applies", "reason", "quote"],
-    "properties": {
-        "applies": {"type": "string", "enum": ["yes", "no", "unsure"]},
-        "reason": {"type": "string", "enum": CATEGORIES},
-        "quote": {"type": ["string", "null"]},
-    },
-}
-
-INSTRUCTION = """You decide whether one clause of an engineering standard applies
-to one submittal. The EQUIPMENT and SERVICE lines describe the submittal; the
-CLAUSE line is the clause. Answer:
-- applies: "yes", "no" or "unsure";
-- reason: when "no", why - "other_equipment" (the clause is about a different
-  kind of equipment), "service_condition_not_met" (it applies only in a service
-  this submittal is not in), "informative_note" (a note, not a requirement), or
-  "definition"; otherwise "none";
-- quote: the exact words of the clause your answer rests on.
-Say "unsure" whenever the clause and the submittal do not settle it."""
-
-TASK = ai_task_runner.register(ai_task_runner.TaskSpec(
-    name="clause_applicability", version="v1", instruction=INSTRUCTION, schema=SCHEMA,
-    num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CLAUSE_APPLICABILITY)))
-
-_NOTE = re.compile(r"^\s*(?:note|notes|informative|commentary)\b", re.IGNORECASE)
-_MANDATORY = re.compile(r"\b(?:shall|must|is required|are required)\b", re.IGNORECASE)
-
-
-def _squash(text: str) -> str:
-    return " ".join((text or "").split()).casefold()
-
-
-def context(classification: dict | None, facts: list[dict]) -> str:
-    """The EQUIPMENT and SERVICE lines: what the submittal itself states."""
-    equipment = (classification or {}).get("equipment_type") or "not stated"
-    service = [f"{f.get('field_label')}: {f.get('field_value') or f.get('raw_value')}"
-               for f in facts if not f.get("is_blank") and re.search(
-                   r"service|fluid|h2s|sour|nace|temperature|pressure",
-                   str(f.get("field_label") or ""), re.IGNORECASE)][:8]
-    return f"EQUIPMENT: {equipment}\nSERVICE: {'; '.join(service) or 'not stated'}"
-
-
-def confirm(reason: str, quote: str, *, equipment: set[str], facts: list[dict]) -> bool:
-    """Can CODE confirm the model's "does not apply" from stated facts?"""
-    if reason == "other_equipment":
-        subject, _ = subject_scope.requirement_subject(
-            {"requirement_text": quote}, {}, subject_scope.vocabulary())
-        return bool(subject) and bool(equipment) and not (subject & equipment)
-    if reason == "service_condition_not_met":
-        for c in service_scope.conditions():
-            d = service_scope.declaration(c, facts)
-            if d is not None and d["present"] is False and service_scope.specific_to(
-                    c, {"requirement_text": quote}, ""):
-                return True
-        return False
-    if reason == "definition":
-        return requirement_quality.is_defining_sentence(quote)
-    if reason == "informative_note":
-        return bool(_NOTE.match(quote)) and not _MANDATORY.search(quote)
-    return False
-
-
-def gate(requirements: list[dict], *, classification: dict | None, facts: list[dict],
-         provider=None, limit: int | None = None) -> dict:
-    """{"kept", "items" (confirmed "does not apply", as {"requirement", "code",
-    "detail", "decided_by"}), "notes" {requirement id: what the model suggested
-    that code did not confirm}, "asked", "not_asked"}."""
-    vocab = subject_scope.vocabulary()
-    equipment, _ = subject_scope.submittal_equipment(classification, facts, vocab)
-    head = context(classification, facts)
-    # one provider: the model named in the ledger is the model that ran
-    provider = provider or ai_task_runner.make_provider()
-    model = getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
-    kept: list[dict] = []
-    items: list[dict] = []
-    notes: dict = {}
-    asked = 0
-    for requirement in requirements:
-        clause = (requirement.get("source_text") or requirement.get("requirement_text") or "").strip()
-        if limit is not None and asked >= limit or not clause:
-            kept.append(requirement)
-            continue
-        asked += 1
-        result = ai_task_runner.run_task(TASK, f"{head}\nCLAUSE: {clause}", provider=provider)
-        data = result.data if result.state == ai_task_runner.STATE_OK else None
-        if not data or data.get("applies") == "yes":
-            kept.append(requirement)
-            continue
-        quote = data.get("quote") or ""
-        in_clause = bool(quote.strip()) and _squash(quote) in _squash(clause)
-        reason = data.get("reason") or "none"
-        if (data.get("applies") == "no" and in_clause and reason in scope_ledger.REASONS
-                and confirm(reason, quote, equipment=equipment, facts=facts)):
-            items.append({"requirement": requirement, "code": reason,
-                          "detail": (f"{scope_ledger.REASONS[reason][1]}: proposed by the "
-                                     f"model, confirmed by code; quoted: \"{quote.strip()}\""),
-                          "decided_by": f"ai:{model}+code"})
-            continue
-        kept.append(requirement)
-        said = (f'; it quoted: "{quote.strip()}"' if in_clause else "")
-        notes[requirement.get("id")] = (
-            "the model was unsure whether it applies" if data.get("applies") == "unsure"
-            else f"the model said it may not apply ({reason.replace('_', ' ')}); "
-                 f"code could not confirm it{said}")
-    return {"kept": kept, "items": items, "notes": notes, "asked": asked,
-            "not_asked": len(requirements) - asked}
 
 
 def folded_in(needle: object, haystack: object, *, least: int = 1) -> bool:
@@ -293,11 +159,6 @@ def _stated_lines(text: str) -> list[str]:
     return [line[2:] for line in text.splitlines() if line.startswith("- ")]
 
 
-#: Said about a model "no" whose own quoted stated line shares a word with the
-#: construction: the sheet speaks against the model's "no" (`_read` marks it).
-NAMES_ITSELF = "the quoted line names the construction itself"
-
-
 def _construction_problems(data: dict, text: str) -> list[str]:
     """Code's check of a "no": the quote is one of the stated lines, and that
     line's value does not itself name the construction."""
@@ -337,28 +198,12 @@ def _construction_text(construction: str, quote: str, stated: list[str]) -> str:
     )
 
 
-#: A model that does not answer in time, or cannot be reached: no further
-#: division of the run is asked (each would wait `ai_task_timeout_s`).
-_MODEL_DOWN = ("the model did not answer in time", "the model could not be reached")
 #: A LAYER on a base material (cladding, an overlay, a lining, a coating,
 #: galvanising, plating): true of any document, a layer does not change what
 #: the base is made of, so a value naming one never excludes - it is held.
 _LAYER = re.compile(
     r"\b(?:clad\w*|overlay\w*|lin(?:ed|ing)|coat\w*|galvani[sz]\w*|plat(?:ed|ing))\b"
 )
-
-
-def _read(task, text: str, provider, run: dict) -> dict | None:
-    """One task, unless the model already stopped answering in this run."""
-    if run.get("stopped"):
-        return None
-    result = ai_task_runner.run_task(task, text, provider=provider)
-    if result.state == ai_task_runner.STATE_OK:
-        return result.data
-    run["contradicted"] = NAMES_ITSELF in (result.reason or "")
-    if (result.reason or "").startswith(_MODEL_DOWN):
-        run["stopped"] = result.reason
-    return None
 
 
 def _yes_is_stated(reply: dict, stated: list[str], construction: str) -> bool:
@@ -443,6 +288,7 @@ def division_gate_for_run(
         classification=classification,
         facts=facts,
         standard_labels=standard_labels,
+        provider=division_text.claude_reader(),
         limit=settings.ai_division_scope_max_per_run,
     )
 
@@ -760,6 +606,8 @@ def _division_gate(
     if stopped := ctx["run"].get("stopped"):
         summary["stopped"] = f"{stopped}; the divisions after it were not read"
         summary["model_unavailable"] = stopped
+        step = f"ai_task:{SCOPE_TASK.name}"
+        local_engine_bar.at_least(step, summary["could_not_read"])
     marks = {
         "unplaced": unplaced,
         "screen_failed": ctx["screen_failed"],
@@ -776,6 +624,7 @@ def _division_gate(
     # the denominator of every requirement count: the requirements of the
     # standards in this review, and nothing else
     summary.update(does_not_apply=len(items), held=len(held), **counts)
+    summary.update(rejections(ctx["run"]))
     if questions:
         summary["questions"] = questions
     summary["requirements_gated"] = len(requirements)

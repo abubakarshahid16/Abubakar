@@ -33,9 +33,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "a standard's conversion has no cap of its own any more: it falls back to USD 5",
         _S,
         "        if str(step).startswith(STANDARD_STEP_PREFIX):\n"
-        "            return Caps(float(settings.claude_budget_usd_per_standard), self.total)\n"
-        "        return self\n",
-        "        return self\n",
+        "            return Caps(float(settings.claude_budget_usd_per_standard), self.total)\n",
+        "",
         "up_to_25",
     ),
     _m(

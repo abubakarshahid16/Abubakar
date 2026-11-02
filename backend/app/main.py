@@ -1277,8 +1277,7 @@ def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
 
 
 def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
-    """`_run_summary`'s finding numbers for one run: the total (findings with no status
-    included), the count per status, the distinct tags and the AI drafts (their own bucket)."""
+    """`_run_summary`'s numbers: total (no-status included), per status, tags, AI drafts."""
     by_status: dict[str, int] = {}
     total = drafts = 0
     for row in connect().execute(
@@ -1295,6 +1294,7 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
             " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
             " ORDER BY equipment_tag", (run_id,))
     ]
+    by_status = submittal_review_mod.presence_check.with_stated_apart(run_id, by_status)
     return total, by_status, tags, drafts
 
 
@@ -1319,7 +1319,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     job = review_jobs_mod.job_for_run(run["id"])
     outcome = comparison_mod.run_outcome(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run) or {}
-    plain_reason, plain_details = clause_coverage_mod.plain_outcome(outcome)
+    plain_reason, plain_details = clause_coverage_mod.plain_outcome(outcome, run["id"])
     ai_check = ai_engineering_check_mod.ai_check_status(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run)
     document = connect().execute(
@@ -2717,8 +2717,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
       submittal_number        the submittal's own number: one an engineer
                               recorded in the metadata editor, else its
                               document number and revision read from its page
-                              (`_crs_submittal_label`),
-                              and BLANK when it carried none
+                              (`_crs_submittal_label`), and BLANK when it carried none
       date_issued             today - the date this file was exported, which
                               is the only date this system actually knows
       company_transmittal     as an engineer ENTERED it on the run (#725 F7,
@@ -2778,8 +2777,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
     # Section 3: an edited comment names its editor the same way; 2d-2: so does a confirmed web standards check item.
-    # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
-    # edits - a plain confirmed requirement comment printed the raw user id.
+    # Audit 2026-09-30: EVERY confirmed comment, or a plain one printed the raw user id.
     confirmers = {d for f in findings if (d := crs_mapping_mod.crs_decider.decider(f))}
     if confirmers:
         marks = ",".join("?" for _ in confirmers)
@@ -2801,10 +2799,11 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
     rows, added = ppr_mod.merge(rows, submittal_id, submittal_name, allowed, findings)
-    # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
-    # make a comment an engineer's (`_mint_crs_numbers`); this composition
-    # serves the export and the preview, which write nothing.
+    # PERMANENT COMMENT NUMBERS, READ ONLY: `_mint_crs_numbers` writes them, never this.
     crs_scope, _crs_label = _crs_scope_of(submittal_id)
+    rows, added = export_status_mod.one_row(  # #1503
+        rows, added, findings, check, review_run_id, crs_scope, allowed
+    )
     crs_keys = crs_numbers_mod.row_keys(rows)
     numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
     # ORDER 139 PART 2 (spec d): a field row stands on many clauses, and each
@@ -2951,7 +2950,6 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
-        # 2f: the engineer's internal notes, on their own sheet.
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
             {"note": part["note"], "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
@@ -2962,11 +2960,13 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
+    meta = absence_mod.with_plain_notes(meta, rows, unchecked)
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed
     )
-    return rows, clause_coverage_mod.crs_meta(meta, run["id"]), submittal_name, stamp
+    meta = clause_coverage_mod.crs_meta(meta, run["id"], allowed)
+    return rows, meta, submittal_name, stamp
 
 
 def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:

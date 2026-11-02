@@ -71,6 +71,14 @@ class ReviewDrain:
         """A running review job reported progress: the worker is moving."""
         self.last_beat = self.last_progress = time.time()
 
+    def _idle_wait(self) -> None:
+        """Nothing to do: a clause review waiting on a Claude batch gets one short poll when
+        due, never a wait for the batch, then the worker sleeps as before."""
+        from . import clause_review_claude
+
+        clause_review_claude.poll_due()
+        self._stop.wait(self.poll_seconds)
+
     def _drain_review_jobs(self) -> bool:
         """Run one queued review, if any. True when one was run."""
         from . import job_queue, review_jobs

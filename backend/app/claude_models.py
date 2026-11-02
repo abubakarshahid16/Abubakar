@@ -42,7 +42,6 @@ LOW_EFFORT_ROUTES = frozenset(
         "datasheet_read",  # field filling: every value's quote is verified
         "b4-vision",  # a page image read into fields (`vision_reader.EFFORT`)
         "b4-naming2",  # field names and statement roles, from a fixed list
-        "rule_parse",  # every number must be on the page (`rule_eval.verify_model_rule`)
     }
 )
 MODEL_DEFAULT_ROUTES = frozenset(
@@ -53,6 +52,7 @@ MODEL_DEFAULT_ROUTES = frozenset(
         "select_standards",
         "applicability",
         "clause_applicability",
+        "division_scope",
         "scope-reasoning-decide",
         "b8-answer-judge",
         "engineering_check",
@@ -107,7 +107,11 @@ def record_run(review_run_id: str, *, match_step: str) -> None:
     `review_runs.model_name` (comma-joined) and in its AI matcher's `model`,
     which until now says only the engine. The boundary is the run's time window
     on this ledger (`claude_spend.models_used`). A ledger that cannot be read says
-    so on the run and never breaks a finished review."""
+    so on the run and never breaks a finished review. It also records the rule
+    version the run used (`standards_compiler`, nothing with its switch off)."""
+    from . import standards_compiler
+
+    standards_compiler.record_rule_version(review_run_id)
     conn = connect()
     row = conn.execute(
         "SELECT started_at, created_at, outcome_json FROM review_runs WHERE id = ?",

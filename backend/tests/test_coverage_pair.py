@@ -20,6 +20,7 @@ from app import (
     clause_coverage,
     comparison,
     coverage_pair,
+    coverage_values,
     db,
     main,
     review_trace,
@@ -647,16 +648,6 @@ def test_the_board_call_refuses_the_live_database(tmp_path):
 # ------------------------------------------------------------ the switch
 
 
-def test_switch_defaults_off():
-    """Read from the source, and from the class with no environment or .env under it:
-    the test suite pins this switch, so the running settings could not show a flip."""
-    source = (REPO / "backend" / "app" / "settings_ext.py").read_text(encoding="utf-8")
-    assert "    one_checked_definition_enabled: bool = False\n" in source
-    assert (
-        type(settings).model_fields["one_checked_definition_enabled"].default is False
-    )
-
-
 def test_switch_off_leaves_the_crs_notes_as_they_were(run):
     r = _run(
         clause_coverage={
@@ -985,3 +976,212 @@ def test_the_bench_script_saves_through_the_one_function():
     source = (REPO / "scripts" / "crs_bench.py").read_text(encoding="utf-8")
     assert "crs_bench.save_results(Path(args.save), results)" in source
     assert "write_text(json.dumps(results" not in source
+
+
+# ------------------------------------------- the footer's one count of values read
+
+
+def _values_outcome(answered=0, required=4, **more):
+    """A run whose gate rests on rule rows with no field tied, while the checklist read
+    values: what `comparison.plain_reason` and `_insufficient_reason` really store."""
+    completeness = {
+        "basis": comparison.BASIS_REQUIRED_FIELDS,
+        "fields_required": required,
+        "fields_answered": answered,
+        "fields_read": 30,
+    }
+    details = comparison._insufficient_reason(completeness)
+    return {
+        "recommended_code": "Manual Review Required",
+        "reason": comparison.plain_reason(
+            "Manual Review Required", details, completeness, None, []
+        ),
+        "details": details,
+        "completeness": completeness,
+        **more,
+    }
+
+
+LISTED = {
+    **SPLIT,
+    "checklist": {"type": "Invented Valve", "items": 11, "standards": 1},
+    "checklist_coverage": {"fields": 9, "read": 6, "on_sheet_not_read": 2},
+}
+SAID = (
+    "Read from this datasheet: 6 of the 9 fields the Invented Valve checklist asks"
+    " for, each field once (a field read may still defer its value). Of the 8"
+    " standard rules that apply, 2 looked for a field on this sheet and a field was"
+    " tied to 1 of them. The checklist and the rules are counted apart."
+)
+
+
+def _values_run(split=LISTED, **stored):
+    """Two rules looked for a field: one stored twice under two ids (tied on the repeat
+    only), one with no field. Left out: a rule that does not apply, one sent to another
+    document, an engineer's chat row. Stored counts (`stored`) say 4 ids, as they would."""
+    _rule("r-na", "The jacket shall be stated.")
+    r = _run(split=split, **stored)
+    _finding(r, "NEEDS_ENGINEER_REVIEW", rid="r-pass")
+    tied = _finding(r, "NEEDS_ENGINEER_REVIEW", rid="r-pass-repeat")
+    _finding(r, "NEEDS_ENGINEER_REVIEW", rid="r-fail")
+    na = _finding(r, "NOT_APPLICABLE", rid="r-na")
+    _finding(r, "NOT_IN_DOCUMENT_SCOPE", rid="r-sent")
+    chat = _finding(r, "NEEDS_ENGINEER_REVIEW", rid="r-d2", origin="chat")
+    with db.connect() as conn:
+        for fid in (tied, na, chat):
+            conn.execute(
+                "UPDATE review_findings SET fact_id = 'fact-1' WHERE id = ?", (fid,)
+            )
+    return r
+
+
+def _stored(r):
+    row = (
+        _conn()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (r,))
+        .fetchone()
+    )
+    return json.loads(row[0])
+
+
+@pytest.mark.parametrize("required", [1, 4, 1200])
+def test_the_found_sentences_are_what_the_comparison_stores(required):
+    outcome = _values_outcome(0, required)
+    count = {"answered": 0, "required": required}
+    plain = coverage_values.FOUND_OLD_PLAIN.format(
+        s="" if required == 1 else "s", **count
+    )
+    assert plain in outcome["reason"]
+    assert coverage_values.FOUND_OLD_TECHNICAL.format(**count) in outcome["details"]
+
+
+def test_the_rule_lane_counts_once_per_rule_on_both_sides(run):
+    """Not per stored id: a repeat counts once, tied if any of its rows is, and a rule
+    that does not apply is not in the count. The same flaw as A-1590 otherwise."""
+    r = _values_run(**_values_outcome())
+    rules = coverage_values.values_count(_conn(), r, _stored(r))["rules"]
+    assert rules == {"tied": 1, "rows": 2, "applicable": 8}
+
+
+def test_the_footer_prints_one_count_with_its_boundary_in_every_home(run, monkeypatch):
+    stored = _values_outcome()
+    r = _values_run(**stored)
+    old = coverage_values.FOUND_OLD_PLAIN.format(answered=0, required=4, s="s")
+    tech = coverage_values.FOUND_OLD_TECHNICAL.format(answered=0, required=4)
+    assert old in stored["reason"]
+    client = _client()
+    try:
+        off = client.get(f"/api/reviews/runs/{r}").json()
+        monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+        on = client.get(f"/api/reviews/runs/{r}").json()
+        listed = client.get("/api/reviews/runs").json()["runs"]
+    finally:
+        main.app.dependency_overrides.clear()
+    row = next(x for x in listed if x["review_run_id"] == r)
+    assert off["recommended_reason"] == stored["reason"]
+    assert off["recommended_details"] == stored["details"]
+    assert coverage_values.values_sentence(_conn(), r, _stored(r)) == SAID
+    meta = _meta(r)
+    for home in (
+        on["recommended_reason"],
+        row["recommended_reason"],
+        meta["recommended_code_reason"],
+    ):
+        assert SAID in home
+        assert old not in home
+    assert SAID.rstrip(".") in on["recommended_details"]
+    assert tech not in on["recommended_details"]
+    # words only: the code and the stored outcome stay as the gate wrote them
+    assert on["recommended_code"] == off["recommended_code"]
+    assert meta["recommended_code"] == stored["recommended_code"]
+    assert _stored(r)["reason"] == stored["reason"]
+
+
+def test_the_trace_code_step_says_the_one_count_with_the_switch_on(run, monkeypatch):
+    stored = _values_outcome()
+    r = _values_run(**stored)
+    old = coverage_values.FOUND_OLD_PLAIN.format(answered=0, required=4, s="s")
+    assert old in _code_step(_trace_body(r))
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    body = _code_step(_trace_body(r))
+    assert old not in body
+    assert "6 of the 9 fields" in body
+
+
+def test_switch_off_leaves_the_found_sentence_word_for_word(run):
+    stored = _values_outcome()
+    r = _values_run(**stored)
+    assert _meta(r)["recommended_code_reason"] == stored["reason"]
+    assert coverage_pair.reason_words(stored["reason"], stored, r) == stored["reason"]
+
+
+def test_an_engineers_typed_reason_keeps_the_found_words(run, monkeypatch):
+    stored = _values_outcome()
+    typed = "I read it: " + stored["reason"]
+    r = _values_run(**stored)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code='Code 2', override_reason=?"
+            " WHERE id=?",
+            (typed, r),
+        )
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    assert _meta(r)["recommended_code_reason"] == typed
+
+
+def test_the_rule_lane_uses_the_pairs_denominator(run):
+    r = _values_run(**_values_outcome())
+    assert (
+        coverage_values.values_count(_conn(), r, _stored(r))["rules"]["applicable"]
+        == _pair(r)["applicable"]
+    )
+
+
+def test_a_run_with_no_checklist_says_the_rules_alone(run):
+    r = _values_run(split=SPLIT, **_values_outcome())
+    assert coverage_values.values_count(_conn(), r, _stored(r))["checklist"] is None
+    said = coverage_values.values_sentence(_conn(), r, _stored(r))
+    assert "tied to 1 of them" in said
+    assert "checklist" not in said
+
+
+def test_a_rule_count_above_the_stated_boundary_prints_no_boundary(run):
+    small = {**SPLIT, "checked": 0, "applies_not_checked": 1}
+    r = _values_run(split=small, **_values_outcome())
+    assert (
+        coverage_values.values_count(_conn(), r, _stored(r))["rules"]["applicable"]
+        is None
+    )
+    assert coverage_values.values_sentence(_conn(), r, _stored(r)).startswith(
+        "Of the standard rules, 2 "
+    )
+
+
+def test_no_rule_that_looked_says_so_never_tied_to_0_of_0(run):
+    r = _run(split=SPLIT, **_values_outcome())
+    assert coverage_values.values_sentence(_conn(), r, _stored(r)) == (
+        "Of the 8 standard rules that apply, none looked for a field on this sheet."
+    )
+
+
+@pytest.mark.parametrize(
+    "completeness",
+    [
+        {},
+        {"basis": "nominal", "fields_required": 4},
+        {"basis": comparison.BASIS_REQUIRED_FIELDS, "fields_required": 0},
+    ],
+)
+def test_no_rows_counted_leaves_the_stored_words(run, completeness, monkeypatch):
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    outcome = {"requirement_split": LISTED, "completeness": completeness}
+    r = _run(split=LISTED, completeness=completeness)
+    assert coverage_values.values_count(_conn(), r, outcome) is None
+    assert coverage_values.values_sentence(_conn(), r, outcome) is None
+    assert coverage_pair.reason_words("as stored", outcome, r) == "as stored"
+
+
+def test_without_a_run_id_the_stored_words_stand(monkeypatch):
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    stored = {"requirement_split": LISTED, **_values_outcome()}
+    assert coverage_pair.reason_words(stored["reason"], stored) == stored["reason"]

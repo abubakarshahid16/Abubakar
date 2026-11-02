@@ -36,7 +36,7 @@ from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
 from .at_limit import hold as _hold
-from .checklist_scope import governs, standards
+from .checklist_scope import governs, sources
 from .config import settings
 from .datasheet_coverage import (
     coverage,  # noqa: F401  (moved out to keep this file shrinking)
@@ -444,8 +444,7 @@ def checklist_sources(equipment_type: str | None, rules: dict | None = None) -> 
     checklist = checklist_for(equipment_type, rules or load_rules())
     if not checklist:
         return None
-    return {"key": checklist["key"], "items": len(checklist["items"]),
-            "standards": standards(checklist)}
+    return sources(checklist)
 
 
 def _measure(fact: dict):
@@ -490,10 +489,10 @@ def implausible(fact: dict, role: str, rules: dict) -> str | None:
     bounds = (rules.get("roles", {}).get(role) or {}).get("plausible")
     if not bounds:
         return None
-    from . import claims
+    from . import claims, impossible_sign
     number = claims.parse_value(str(fact.get("raw_value")))
     if number is None:
-        return None
+        return impossible_sign.glued_doubt(fact, role)
     low, high = bounds.get("min"), bounds.get("max")
     if (low is not None and number < low) or (high is not None and number > high):
         span = (f"{low} to {high}" if low is not None and high is not None
