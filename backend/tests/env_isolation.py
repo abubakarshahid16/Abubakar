@@ -105,32 +105,22 @@ TEST_PINS: dict[str, object] = {
 #: (126 of them assumed it); a switch's own tests turn it on. The nightly job
 #: `.github/workflows/nightly-default-switches.yml` sets LIFT_ENV to run the code's real defaults.
 LOCK3_PINNED: tuple[str, ...] = (
-    "at_limit_precision_enabled",
     "clause_review_enabled",
-    "crs_export_quality_enabled",
     "data_page_not_frontmatter_enabled",
     "datasheet_label_join_enabled",
     "datasheet_one_value_enabled",
     "deferred_value_is_query_enabled",
     "document_kind_enabled",
-    "geometry_reader_enabled",
     "kind_chooses_rules_enabled",
-    "leading_dot_decimal_enabled",
     "nothing_read_fails_enabled",
-    "one_checked_definition_enabled",
     "page_read_by_reading_enabled",
-    "percent_kind_check_enabled",
     "playbook_presence_without_standard_enabled",
     "playbook_section_presence_enabled",
     "procedure_crs_fields_enabled",
     "procedure_path_enabled",
     "procedure_playbook_rows_enabled",
-    "recommendation_queries_enabled",
     "review_audit_report_enabled",
     "review_progress_bar_enabled",
-    "rule_auto_use_enabled",
-    "session_expired_notice_enabled",
-    "tested_cards_decide_enabled",
     "transmittal_kit_enabled",
 )
 TEST_PINS.update(dict.fromkeys(LOCK3_PINNED, False))

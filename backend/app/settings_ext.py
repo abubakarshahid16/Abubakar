@@ -163,19 +163,19 @@ class SettingsExt(BaseModel):
     #: fail wrongly. ON: the limit comparison ignores float noise (1e-9 relative), never wider.
     #: The owner should switch this on promptly: it removes a possible wrong Fail. OFF: nothing
     #: changes. Env: AT_LIMIT_PRECISION_ENABLED.
-    at_limit_precision_enabled: bool = True
+    at_limit_precision_enabled: bool = False
     #: #1512: a value printed under a % label with a fraction-sized number ("0.30 %": 0.30 % or the
     #: fraction 0.30 = 30 %?) is never decided on the percent cards (PSV-27, PSV-28, PSV-29); it goes
     #: to the engineer with the reason. The owner should switch this on promptly: it removes a possible
     #: wrong approval. OFF: nothing changes. Env: PERCENT_KIND_CHECK_ENABLED.
-    percent_kind_check_enabled: bool = True
+    percent_kind_check_enabled: bool = False
     #: #1503 CRS EXPORT QUALITY (`crs_export_quality.py`): one row per section + clause, no
     #: empty rows, a page or "page not found (reason)" on every row, comments at most 350
     #: characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks,
     #: the standards sheet without "Considered, not applied", "not in your library" by kind,
     #: Priority from the fixed list. EXPORT ONLY: no verdict, status or finding changes.
     #: OFF: nothing changes. Env: CRS_EXPORT_QUALITY_ENABLED.
-    crs_export_quality_enabled: bool = True
+    crs_export_quality_enabled: bool = False
     #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
     #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
@@ -185,7 +185,7 @@ class SettingsExt(BaseModel):
     #: `numparse.parse_value` and in `claims.extract_measurements` (".5 mm" was dropped); a stranded
     #: or glued dot (".5.3", "x.5") is no value. OFF: ".30" reads as 30 and ".5 mm" is dropped,
     #: as before. Env: LEADING_DOT_DECIMAL_ENABLED.
-    leading_dot_decimal_enabled: bool = True
+    leading_dot_decimal_enabled: bool = False
     #: Kit proof 1 Nov: a page whose lines are mostly measured values (a datasheet page) is never set
     #: aside as book front matter because of a copyright footer, so the fact reader sees it. OFF: the
     #: footer decides as before. Takes effect when a document is (re)chunked.
@@ -303,13 +303,13 @@ class SettingsExt(BaseModel):
     #: because reads outside the gated routes answer an empty 200 instead of a 401. Sent to the page on
     #: the signed-in user (`Me.session_expired_notice`). OFF: the form with no reason and no extra
     #: request, as before. Env: SESSION_EXPIRED_NOTICE_ENABLED.
-    session_expired_notice_enabled: bool = True
+    session_expired_notice_enabled: bool = False
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print
     #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
     #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
-    one_checked_definition_enabled: bool = True
+    one_checked_definition_enabled: bool = False
     #: #1568: a page recognition failed on because the stored file could not be opened holds the document
     #: at partially_searchable with the reason (`reading_state`, `page_not_read.is_file_error`), and the OCR
     #: pools carry the parent's data directory to their workers (`stored_paths.pool_options`). Any other recognition

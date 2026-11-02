@@ -32,7 +32,7 @@ stored, never shown as a value:
      the absence of text), so the vision reader never records one.
 
 Nothing here writes the database; `datasheets.extract_facts` writes what is
-kept, behind `settings.geometry_reader_enabled` (ON by default, #1626), after the
+kept, behind `settings.geometry_reader_enabled` (OFF by default), after the
 rule readers and the geometry reader, and a rule-reader or geometry fact
 for the same page and label always wins.
 
