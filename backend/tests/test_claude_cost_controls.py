@@ -4,9 +4,12 @@ from settled ledger lines. Fake transports only: no socket, no real call, no loc
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import re
+import runpy
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -26,6 +29,7 @@ from app import (
     review_audit,
     review_audit_rows,
     submittal_review,
+    vision_reader,
 )
 from app import reasoning_provider as rp
 from app.ai import output_limits
@@ -690,3 +694,147 @@ def test_the_day_cap_does_not_replace_the_step_cap(sent):
     with pytest.raises(claude_spend.BudgetExceeded, match="per step"):
         _lane_metered()
     assert sent == []
+
+
+def test_the_audit_names_unreadable_ledger_lines():
+    _spend_on_run()
+    with Path(settings.claude_spend_log).open("a", encoding="utf-8") as fh:
+        fh.write('{"torn\n')
+    lines = review_audit_rows.spend_lines(
+        review_audit_rows.spend_figures({"id": "run-1"})
+    )
+    assert any("1 ledger lines could not be read" in line for line in lines)
+
+
+def _vision_block():
+    return vision_reader._local_status(0.0)
+
+
+def test_the_vision_status_says_the_day_cap_is_reached(monkeypatch):
+    monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    monkeypatch.setattr(vision_reader, "engine_setting", lambda: "claude")
+    assert _vision_block() is None
+    _write(_settled(100.0))
+    state = _vision_block()
+    assert "today (UTC)" in json.dumps(state)
+    monkeypatch.setattr(settings, "claude_cost_controls_enabled", False)
+    assert _vision_block() is None
+
+
+# ---------------------------------------------- rule 1: no script opens the lane without the app's gate
+
+
+def _flags_on_provider_ollama(monkeypatch):
+    """The state of the live app with egress flags left on: nothing may leave."""
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+
+    def never():
+        raise AssertionError("the transport was asked for")
+
+    monkeypatch.setattr(reader_transport, "transport", never)
+
+
+def test_the_score_script_refuses_on_ollama_before_it_reads_anything(
+    monkeypatch, tmp_path, capsys
+):
+    _flags_on_provider_ollama(monkeypatch)
+    monkeypatch.setattr(
+        sys, "argv", ["reader_score_standard.py", str(tmp_path / "out")]
+    )
+    with pytest.raises(SystemExit) as stopped:
+        runpy.run_path(
+            str(REPO / "scripts" / "reader_score_standard.py"), run_name="__main__"
+        )
+    assert stopped.value.code == 2
+    assert "REFUSED" in capsys.readouterr().out
+    assert not (tmp_path / "out").exists(), "it went on to read before refusing"
+
+
+def test_the_bench_refuses_on_ollama(monkeypatch):
+    _flags_on_provider_ollama(monkeypatch)
+    spec = importlib.util.spec_from_file_location(
+        "datasheet_bench_gate", REPO / "scripts" / "datasheet_bench.py"
+    )
+    bench = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = bench
+    try:
+        spec.loader.exec_module(bench)
+        with pytest.raises(bench.ReaderUnavailable, match="provider|PROVIDER"):
+            bench.build_model_call("ai-only:claude")
+    finally:
+        del sys.modules[spec.name]
+
+
+_GATES = {"claude_unavailable", "claude_unavailable_for_task", "claude_available"}
+_TRANSPORT_CALLS = {
+    "transport",
+    "stream",
+    "batch_create",
+    "batch_retrieve",
+    "batch_results",
+}
+
+
+def _name_of(func) -> str:
+    return func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+
+
+def _lane_openers(tree) -> list[int]:
+    """Lines that reach the Claude lane without a gate of their own: the raw transport, or a hand-built provider.
+    `get_provider` and `claude_for_task` are not here: they ask the gate themselves."""
+    lines = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith(
+            "reader_transport"
+        ):
+            lines.append(node.lineno)
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        owner = getattr(getattr(func, "value", None), "id", "")
+        if _name_of(func) == "ClaudeProvider" or (
+            _name_of(func) in _TRANSPORT_CALLS and owner.startswith("reader_transport")
+        ):
+            lines.append(node.lineno)
+    return lines
+
+
+def _scripts_and_openers():
+    for path in sorted((REPO / "scripts").rglob("*.py")):
+        if "mutations" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        yield path, tree, _lane_openers(tree)
+
+
+def test_no_script_opens_the_claude_lane_before_the_apps_gate():
+    """Rule 1: the flags alone are not the gate. The gate's call must come first in the file, in source order, so a
+    new script that holds the transport or builds a provider fails here until it asks."""
+    seen = set()
+    for path, tree, openers in _scripts_and_openers():
+        if not openers:
+            continue
+        seen.add(path.name)
+        gates = [
+            n.lineno
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and _name_of(n.func) in _GATES
+        ]
+        assert gates and min(gates) < min(openers), (
+            f"{path.name}:{min(openers)} opens the lane with no gate"
+        )
+    assert {
+        "datasheet_bench.py",
+        "reader_score_standard.py",
+        "convert_standards.py",
+    } <= seen
+
+
+def test_the_script_guard_sees_an_unguarded_script():
+    """The guard itself: a script that holds the transport, or builds a provider, is found."""
+    for source in (
+        "from app import reader_transport\nsend = reader_transport.transport()\n",
+        "from app.reasoning_provider import ClaudeProvider\nClaudeProvider()\n",
+        "from app.reader_transport import transport\n",
+    ):
+        assert _lane_openers(ast.parse(source))

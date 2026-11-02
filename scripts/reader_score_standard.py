@@ -29,6 +29,15 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "backend"))
 from app.config import settings  # noqa: E402
 
+# RULE 1: THE APP'S OWN GATE, FIRST. The egress flags alone are not it: with REASONING_PROVIDER=ollama and the flags
+# on, this script used to send standard sentences. It has no engine setting, so `per_task` keeps it local too.
+from app.reasoning_provider import claude_unavailable  # noqa: E402
+
+_refused, _why = claude_unavailable()
+if _refused is not None:
+    print(f"REFUSED: the Claude lane is shut for this script ({_refused}); nothing was read or sent.")
+    sys.exit(2)
+
 LIVE = Path(settings.db_path)
 GOLD = REPO / "gold" / "SAES-A-105.csv"
 DOC = "doc_a835c3a15e04"

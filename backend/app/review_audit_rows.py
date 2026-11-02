@@ -198,4 +198,9 @@ def spend_lines(ai_use: dict) -> list[str]:
         out.append(
             f"  - {spend['held_words']}: {spend['held_calls']} calls, up to USD {spend['held_worst_usd']}"
         )
+    if spend["unreadable_lines"]:
+        out.append(
+            f"  - {spend['unreadable_lines']} ledger lines could not be read: nobody can say whose they were, "
+            "so this figure may be short"
+        )
     return [*out, f"  - {spend['boundary']}"]

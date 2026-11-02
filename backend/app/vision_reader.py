@@ -642,7 +642,7 @@ def _status(state: str, *, detail: str | None = None, now: float) -> dict:
 
 def _local_status(now: float) -> dict | None:
     """The free checks, in fixing order. None when all pass."""
-    from . import claude_spend
+    from . import claude_spend, claude_spend_report
     from .config import settings
     from .reasoning_provider import claude_unavailable_for_task
 
@@ -659,6 +659,11 @@ def _local_status(now: float) -> dict | None:
     if total >= caps.total:
         return _status("BUDGET_REACHED", now=now,
                        detail=f"total: ${total:.2f} of ${caps.total:.2f}")
+    if claude_spend_report.enabled():
+        day = claude_spend_report.charged_today(claude_spend.entries())
+        if day >= claude_spend_report.day_cap():
+            return _status("BUDGET_REACHED", now=now,
+                           detail=f"today (UTC): ${day:.2f} of ${claude_spend_report.day_cap():.2f}")
     return None
 
 

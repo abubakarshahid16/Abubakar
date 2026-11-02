@@ -597,6 +597,13 @@ def build_model_call(reader: str):
         return call, lambda: dict(usage)
     if engine == "claude":
         from app import claude_budget, claude_spend, reader_api, reader_transport
+        from app.reasoning_provider import claude_unavailable
+
+        # RULE 1: the app's own gate, first. The egress flags alone are not it:
+        # REASONING_PROVIDER=ollama keeps every document on the machine.
+        refused, why = claude_unavailable()
+        if refused is not None:
+            raise ReaderUnavailable(f"the Claude reader is off ({refused}: {why})")
         transport = reader_transport.transport()
         if transport is None:
             raise ReaderUnavailable(
