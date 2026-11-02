@@ -341,8 +341,8 @@ def _section_number(text: str) -> str | None:
 def _rising(bold: list[tuple[str, str]], numbers: list[str]) -> set[str]:
     """Which (line text, number) in document order fit the document's numbering: the
     chunker's own test (`plausible_heading_numbers`, and a bare number must rise AT THIS
-    POSITION, as in `segment_document`). After a restart, the next numbers of that list
-    are refused too, or a second list rising past the first would pass. A bare number also
+    POSITION, as in `segment_document`). After a restart, the one number that carries
+    that list past the first is refused too, then the numbering counts again. A bare number also
     needs a sibling or a child: a lone "1." is a caption or a list as easily as a section."""
     from . import chunker
 
@@ -354,8 +354,11 @@ def _rising(bold: list[tuple[str, str]], numbers: list[str]) -> set[str]:
             continue
         if number.isdigit():
             value = int(number)
-            if value <= last or (restarted and value == restarted + 1):
+            if value <= last:
                 restarted = value
+                continue
+            if restarted and value == restarted + 1:
+                restarted = 0  # one ambiguous number only: the next ones count again
                 continue
             last, restarted = value, 0
         kept[text] = number

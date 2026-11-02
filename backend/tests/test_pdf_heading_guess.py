@@ -335,6 +335,17 @@ def test_a_second_list_rising_past_the_first_is_not_a_numbered_bold_heading(tmp_
     )
 
 
+def test_the_refusal_after_a_restart_stops_after_one_ambiguous_number(tmp_path):
+    """1, 2, 3, then a list 1, 2, 3, then 4 to 7: only the 4 can belong to the list."""
+    words = "Aims Terms Scope Close Open Vent Work Tools Steps Forms".split()
+    numbers = [1, 2, 3, 1, 2, 3, 4, 5, 6, 7]
+    lines = [f"{n}. {w} Plant" for n, w in zip(numbers, words, strict=True)]
+    items = [row for line in lines for row in ((line, "hebo", BODY), *PLANT[:1])]
+    pages = _pages_of(tmp_path, items)
+    assert set(lines) <= set(pdf_headings.detect(pages)[1])
+    assert pdf_headings.numbered_bold(pages) == frozenset(lines[:3] + lines[7:])
+
+
 def test_a_jump_past_a_restarted_list_is_a_numbered_bold_heading(tmp_path):
     items = [
         ("1. Aims Of Work", "hebo", BODY),
