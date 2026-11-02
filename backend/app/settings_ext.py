@@ -183,7 +183,7 @@ class SettingsExt(BaseModel):
     #: Env: CRS_EXPORT_QUALITY_STRICT_ENABLED.
     crs_export_quality_strict_enabled: bool = False
     #: #1503 owner decision (`crs_one_row.py`): rows with the same clause, problem, value and
-    #: verdict are one row listing every tag and page; a "did not reference X" row goes when
+    #: verdict are one row listing every tag, page and sentence; a "did not reference X" row goes when
     #: nothing in scope requires X, counted and named in Review notes. On, the export views of
     #: the two switches above merge nothing more. Findings are never touched. OFF: as it was.
     #: Env: CRS_ONE_ROW_PER_PROBLEM_ENABLED.

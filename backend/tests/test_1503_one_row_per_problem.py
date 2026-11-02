@@ -115,9 +115,44 @@ def test_two_unknown_values_are_not_the_same_either():
     assert len(merged([row("f1"), row("f2")], findings)[0]) == 2
 
 
-def test_another_clause_requirement_field_or_kind_never_merges():
-    other_req = finding("f2", requirement_source_text="Another requirement.")
-    assert len(merged([row("f1"), row("f2")], [TWO[0], other_req])[0]) == 2
+def test_different_sentences_of_one_clause_are_one_row_listing_them_all():
+    long = "Another requirement. " * 30
+    findings = [TWO[0], finding("f2", "T-2", 2, requirement_source_text=long.strip())]
+    rows, _ = merged([row("f1"), row("f2")], findings)
+    assert len(rows) == 1
+    assert "The set pressure shall not exceed 10 bar." in rows[0]["comment"]
+    assert long.strip() in rows[0]["comment"], "a sentence is never cut"
+    assert "T-1" in rows[0]["comment"] and "T-2" in rows[0]["comment"]
+
+
+def test_one_sentence_is_not_listed_twice():
+    rows, _ = merged([row("f1"), row("f2")], TWO)
+    assert "shall not exceed" not in rows[0]["comment"]  # the row's own words state it
+
+
+def test_the_listed_sentences_do_not_depend_on_which_member_leads():
+    findings = [TWO[0], finding("f2", "T-2", 2, requirement_source_text="Another one.")]
+    one_way = merged([row("f1", comment="Same."), row("f2", comment="Same.")], findings)
+    other = merged([row("f2", comment="Same."), row("f1", comment="Same.")], findings)
+    assert one_way[0][0]["comment"] == other[0][0]["comment"]
+
+
+def test_a_row_holding_two_sentences_can_join_when_value_and_verdict_are_one():
+    findings = [*TWO, finding("f3", "T-3", 3, requirement_source_text="A third.")]
+    wide = row("f1", finding_ids=["f1", "f3"])
+    rows, _ = merged([wide, row("f2")], findings)
+    assert len(rows) == 1 and "A third." in rows[0]["comment"]
+
+
+def test_an_older_row_of_two_values_stays_apart_with_a_note_naming_it():
+    findings = [*TWO, finding("f3", "T-3", 3, value="99 bar")]
+    wide = row("f1", finding_ids=["f1", "f3"])
+    rows, _ = merged([wide, row("f2")], findings)
+    assert len(rows) == 2
+    assert {len(r["finding_ids"]) for r in rows} == {1, 2}
+
+
+def test_another_clause_field_or_kind_never_merges():
     other_field = finding("f2", crs_field_label="Other field")
     assert len(merged([row("f1"), row("f2")], [TWO[0], other_field])[0]) == 2
     assert len(merged([row("f1"), row("f2", ref="STD-1 4.2")], TWO)[0]) == 2

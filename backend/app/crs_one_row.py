@@ -1,7 +1,7 @@
 """#1503, owner decision of 2 Nov 2026, behind CRS_ONE_ROW_PER_PROBLEM_ENABLED (off).
 
-ONE ROW PER PROBLEM. Rows with the same clause, problem, value and verdict are one row
-that lists every tag and page it covers. It happens where the sheet is composed, before
+ONE ROW PER PROBLEM. Rows with the same clause, problem (row kind and field), value and
+verdict are one row that lists every tag, page and requirement sentence it covers. It happens where the sheet is composed, before
 any number is looked up, so numbering, the issue gate and both copies see one row. Rows
 are never joined on a guess, and these never merge: a different value or verdict, an
 unknown value (not even with another unknown), an engineer's different words, a confirmed
@@ -58,6 +58,10 @@ def _one(findings: list[dict], read) -> str:
     return next(iter(values)) if len(values) == 1 else ""
 
 
+def _sentence(finding: dict) -> str:
+    return " ".join(str(finding.get("requirement_source_text") or "").split())
+
+
 def _identity(row: dict, by_id: dict[str, dict]):
     """What must be identical for two rows to be one, or None when this row cannot join."""
     ids = _ids(row)
@@ -72,8 +76,7 @@ def _identity(row: dict, by_id: dict[str, dict]):
         return None
     verdict = _one(members, lambda f: f.get("compliance_status"))
     value = _one(members, lambda f: f.get("contractor_evidence_text"))
-    problem = _one(members, lambda f: f.get("requirement_source_text"))
-    if not (verdict and value and problem):
+    if not (verdict and value) or not all(_sentence(f) for f in members):
         return None
     if len({_fold(f.get("engineer_comment")) for f in members}) != 1:
         return None
@@ -85,15 +88,22 @@ def _identity(row: dict, by_id: dict[str, dict]):
         clause,
         verdict,
         value,
-        problem,
         _fold(crs_mapping._field_label(members[0])),
         _fold(members[0].get("engineer_comment")),
         row.get("engineer_confirmed") is True,
     )
 
 
+def _sentences_lines(members: list[dict]) -> str:
+    """Every requirement sentence, whole, when the row stands on more than one."""
+    sentences = sorted({_sentence(f) for f in members})
+    if len(sentences) < 2:
+        return ""
+    return "\n".join(["Requirements on this row:", *(f"- {s}" for s in sentences)])
+
+
 def _covers_line(members: list[dict]) -> str:
-    tags = dict.fromkeys(str(f.get("equipment_tag") or "").strip() for f in members)
+    tags = sorted({str(f.get("equipment_tag") or "").strip() for f in members})
     pages = sorted({f["contractor_page"] for f in members if f.get("contractor_page")})
     parts = []
     if any(tags):
@@ -111,7 +121,8 @@ def _joined(group: list[dict], by_id: dict[str, dict]) -> dict:
     """The one row of `group`: the first row, with every member's ids, keys, tags and pages."""
     lead = group[0]
     ids = list(dict.fromkeys(i for r in group for i in _ids(r)))
-    line = _covers_line([by_id[i] for i in ids])
+    members = [by_id[i] for i in ids]
+    line = _covers_line(members)
     return {
         **lead,
         "one_row": True,
@@ -125,7 +136,9 @@ def _joined(group: list[dict], by_id: dict[str, dict]) -> dict:
             }
         ),
         "page_section": _unique((r.get("page_section") for r in group), "; "),
-        "comment": "\n".join(p for p in (lead.get("comment"), line) if p),
+        "comment": "\n".join(
+            p for p in (lead.get("comment"), _sentences_lines(members), line) if p
+        ),
         "reasoning": _unique((r.get("reasoning") for r in group), "\n\n"),
         "rule_trust": _unique((r.get("rule_trust") for r in group), "; "),
     }
@@ -170,7 +183,8 @@ def _merge_note(group: list[dict], joined: dict, by_id: dict, records: dict) -> 
         "standard": str(joined.get("standard_reference") or ""),
         "count": len(joined["finding_ids"]),
         "detail": (
-            f"{len(group)} rows with the same clause, problem, value and verdict are one row. "
+            f"{len(group)} rows with the same clause, problem, value and verdict are one row, "
+            "with every requirement sentence listed. "
             f"{_covers_line([by_id[i] for i in joined['finding_ids']])}{numbers}"
         ),
     }
