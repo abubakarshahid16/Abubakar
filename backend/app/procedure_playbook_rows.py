@@ -208,6 +208,8 @@ def merge(
     from . import procedure_crs
 
     mine, notes = crs_rows(submittal_id, submittal_name, allowed)
-    merged = sorted([*rows, *mine], key=lambda r: r.get("priority") or 0) if mine else rows
+    merged = (
+        sorted([*rows, *mine], key=lambda r: r.get("priority") or 0) if mine else rows
+    )
     procedure_crs.fill_pages(merged, list(findings), submittal_id)
     return merged, notes + procedure_crs.number_notes(submittal_id)

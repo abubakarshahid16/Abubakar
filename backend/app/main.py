@@ -58,7 +58,7 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
-from . import playbooks as playbooks_mod, procedure_crs as pcrs_mod, procedure_playbook_rows as ppr_mod
+from . import playbooks as playbooks_mod, procedure_playbook_rows as ppr_mod
 from . import requirement_split as requirement_split_mod
 from . import auth as auth_mod, auth_session as auth_session_mod
 from . import errors
@@ -2797,10 +2797,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
               .get("pages_not_read_into_fields") or [])
     missing = _missing_references(submittal_id, allowed)
     # #754 F5b: required vs cited, recomputed like `missing` (no stored copy to go stale).
-    check = pcrs_mod.standards_check(submittal_id, allowed)  # order 4c
+    check = export_status_mod.standards_check(submittal_id, allowed)  # order 4c
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
-    rows, pb_notes = ppr_mod.merge(rows, submittal_id, submittal_name, allowed, findings)
+    rows, added = ppr_mod.merge(rows, submittal_id, submittal_name, allowed, findings)
     # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.
@@ -2965,7 +2965,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
-    meta["review_notes"] += pb_notes + export_status_mod.equipment_notes(submittal_id)
+    meta["review_notes"] += added + export_status_mod.equipment_notes(submittal_id)
     return rows, meta, submittal_name, stamp
 
 
@@ -3028,7 +3028,7 @@ def _crs_standards(review_run_id: str, submittal_id: str,
                     "reason": "cited by the submittal and not held locally; "
                               "its requirements were not checked",
                     "evidence": ""})
-    return pcrs_mod.standards_sheet(out, submittal_id)
+    return export_status_mod.standards_sheet(out, submittal_id)
 
 
 def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) -> dict:
@@ -3636,7 +3636,7 @@ def import_crs_reply(
               "not_a_crs_number": 0, "other_submittal": 0, "unknown_number": 0}
     rows = []
     for reply in replies:
-        parsed = pcrs_mod.parse_reply_ref(reply, label, crs_scope, _submittal)
+        parsed = crs_numbers_mod.parse_reply_ref(reply, label, crs_scope, _submittal)
         if parsed is None:
             key, outcome = "not_a_crs_number", "not a CRS number"
         elif parsed[0] != label:

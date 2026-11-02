@@ -178,7 +178,9 @@ def lines(outcome: dict | None) -> list[dict]:
 def reading_for(document_id: str, equipment: set, source, doubt, facts) -> tuple:
     """`applicability._equipment_reading`'s answer; a non-datasheet kind reads
     no equipment (so no governing standard, no required-by-type, no by-type)."""
-    if blocked(document_id) or _NO_TYPE.get():
+    if _NO_TYPE.get():
+        return set(), None, None, facts
+    if blocked(document_id):
         return set(), None, None, facts
     return equipment, source, doubt, facts
 

@@ -159,6 +159,19 @@ def parse_own_ref(ref: str, label: str, scope_key: str) -> tuple[str, int] | Non
     return parsed
 
 
+def parse_reply_ref(
+    reply: dict, label: str, scope_key: str, document_id: str
+) -> tuple[str, int] | None:
+    """`parse_own_ref` of a reply row. A reply quoting NO-NUMBER that does not name this
+    document reads as another submittal's number (its label is left blank)."""
+    from . import procedure_crs
+
+    quoted = parse_ref(reply["item"])
+    if quoted is not None and procedure_crs.other_document(quoted[0], reply, document_id):
+        return "", quoted[1]
+    return parse_own_ref(reply["item"], label, scope_key)
+
+
 def ref_label_ok(quoted: str, label: str, scope_key: str) -> bool:
     """Does a quoted reference's label belong to this submittal's sequence? Its
     label today, or one this document's sequence printed earlier: the id fragment

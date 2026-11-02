@@ -253,15 +253,3 @@ def other_document(quoted_label: str, reply: dict, document_id: str) -> bool:
     return (
         row is None or name.strip().lower() != (row["filename"] or "").strip().lower()
     )
-
-
-def parse_reply_ref(
-    reply: dict, label: str, scope_key: str, document_id: str
-) -> tuple[str, int] | None:
-    """`crs_numbers.parse_own_ref` of a reply row. A reply quoting NO-NUMBER that does not
-    name this document reads as another submittal's number (its label is left blank)."""
-    quoted = crs_numbers.parse_ref(reply["item"])
-    parsed = crs_numbers.parse_own_ref(reply["item"], label, scope_key)
-    if quoted is not None and other_document(quoted[0], reply, document_id):
-        return "", quoted[1]
-    return parsed
