@@ -494,10 +494,9 @@ class ClaudeProvider:
             body["thinking"] = claude_models.thinking_for(
                 self.requested_model, packet.thinking_budget
             )
+        claude_models.shape_output(body, self._step or packet.step)
         if packet.effort:
             body["output_config"] = {"effort": packet.effort}
-        elif packet.step == "chat":  # a person's question: the model's default effort
-            body.pop("output_config", None)
         if packet.system:
             body["system"] = [{"type": "text", "text": packet.system,
                                "cache_control": {"type": "ephemeral"}}]

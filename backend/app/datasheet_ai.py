@@ -175,12 +175,11 @@ def _claude_call():
     # whole datasheet page's facts were cut off mid-JSON and read as
     # "engine answer unusable". Same destination, same flags, same key check
     # (`build_request`); only the answer budget, the time and the model are
-    # this reader's own. The model is the configured reasoning model unless
-    # STANDARDS_READER_MODEL names one.
+    # this reader's own. The model is `ReaderSettings.from_env`'s: the reasoning
+    # model unless STANDARDS_READER_MODEL names one.
     import dataclasses
-    import os
     base = reader_api.ReaderSettings.from_env()
-    model = (os.environ.get("STANDARDS_READER_MODEL") or "").strip() or settings.claude_reasoning_model
+    model = base.model
     cfg = dataclasses.replace(base, model=model,
                               timeout_seconds=float(settings.datasheet_ai_timeout_seconds))
     # #456: the route table sets the cap (DATASHEET_AI_CLAUDE_MAX_TOKENS); a

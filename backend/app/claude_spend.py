@@ -288,7 +288,7 @@ def models_used(
     *, since: str, steps=None, exclude_prefixes: tuple[str, ...] = ()
 ) -> list[str]:
     """The models that ANSWERED since `since` (ISO time), sorted: the ledger's
-    settled lines, which name the model the API reported. An open reservation
+    settled lines and cache hits, which name the model the API reported. An open reservation
     only names what was asked for, and a call charged at an estimate never
     showed an answer, so neither counts. `steps` narrows to those steps;
     `exclude_prefixes` leaves out steps starting with these. Whole seconds, like
@@ -298,7 +298,9 @@ def models_used(
     start = start if start.tzinfo else start.replace(tzinfo=UTC)
     found = set()
     for entry in entries():
-        if not entry.get("settles") or entry.get("estimated") or not entry.get("model"):
+        answered = entry.get("settles") and not entry.get("estimated")
+        served = entry.get("finish_reason") == "cache_hit"
+        if not (answered or served) or not entry.get("model"):
             continue
         step = str(entry.get("step") or "")
         if step.startswith(exclude_prefixes) or (

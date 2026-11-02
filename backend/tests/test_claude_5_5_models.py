@@ -21,14 +21,14 @@ from app import (
     applicability,
     chat_model,
     claude_models,
-    crs_wording,
-    field_naming,
-    rule_eval,
     claude_spend,
     comparison,
+    crs_wording,
     datasheet_ai,
+    field_naming,
     reader_api,
     reader_transport,
+    rule_eval,
     standards_converter,
 )
 from app import reasoning_provider as rp
@@ -719,7 +719,10 @@ def test_a_judgement_step_never_gets_low_effort_from_its_cap(model, step, cap):
 def test_a_judgement_route_never_gets_low_effort_from_its_cap(model, route):
     seen = []
     call = output_limits.model_call_for(
-        _send(seen, _reply(model)), route, cfg=_cfg(model), env={"ANTHROPIC_API_KEY": KEY}
+        _send(seen, _reply(model)),
+        route,
+        cfg=_cfg(model),
+        env={"ANTHROPIC_API_KEY": KEY},
     )
     call("a question")
     assert "output_config" not in seen[0]
@@ -745,6 +748,7 @@ def test_the_two_route_lists_do_not_overlap_and_name_what_is_tested():
 
 
 # ---------------------------------------------- the model a request names by default
+
 
 def _lane_on_with_no_env(monkeypatch):
     monkeypatch.setattr(settings, "claude_reasoning_model", SONNET)
@@ -775,7 +779,9 @@ def test_the_reader_model_setting_and_environment_win_in_that_order(monkeypatch)
 
 def test_an_injected_environment_is_still_obeyed_exactly(monkeypatch):
     _lane_on_with_no_env(monkeypatch)
-    assert reader_api.ReaderSettings.from_env({}).model == reader_api.ReaderSettings.model
+    assert (
+        reader_api.ReaderSettings.from_env({}).model == reader_api.ReaderSettings.model
+    )
 
 
 def test_the_example_env_names_the_reader_model():

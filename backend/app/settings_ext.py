@@ -260,3 +260,6 @@ class SettingsExt(BaseModel):
         "claude-haiku-5-5",
     )
     claude_min_output_tokens: int = Field(4096, gt=0)
+    #: The standards reader's and datasheet reader's model. Empty: `claude_reasoning_model`.
+    #: The process environment wins over `backend/.env`. Env: STANDARDS_READER_MODEL.
+    standards_reader_model: str = ""

@@ -7,17 +7,21 @@ lists the older ids that still take a budget; every other id gets
 current models accept. `{type: disabled}` is never sent (a 400 on Sonnet 5.5 and
 Opus 5.5): a caller that wants no budget leaves the field out.
 
-THE OUTPUT ROOM. A model that thinks by default spends `max_tokens` on thinking too,
-so `shape_output` raises a short cap (`claude_spend.output_cap`) and asks for LOW effort
-on those short answers: one sentence read, one index chosen, one label named. That is
-transcription and lookup, every value is verified by code afterwards, and low effort is
-the owner's cost lever (`vision_reader` measured ~4x the answer in thinking at the
-default). Not `thinking: between_tools`: only Sonnet 5.5 takes it, and these routes must
-behave the same on all three. A caller's own effort wins; older ids get neither.
+THE OUTPUT ROOM. A model that thinks by default spends `max_tokens` on thinking too, so
+`shape_output` raises a short cap (`claude_spend.output_cap`) whatever the route.
+
+THE EFFORT is the route's, by name, and NEVER follows the cap. `LOW_EFFORT_ROUTES` are
+transcription, lookup and labelling, where code checks the value against the page or a
+fixed list; low effort is the owner's cost lever there. `MODEL_DEFAULT_ROUTES` are
+judgements code does not verify: they keep the model's default effort, or the one the
+caller set. A route on neither list also keeps the default. Document kind has no model
+call, so it is on neither. Not `thinking: between_tools`: only Sonnet 5.5 takes it.
 
 THE RUN RECORD. `record_run` writes the models the API REPORTED, read from the
-spend ledger, never the name configuration asked for. A local-only run has no
-ledger line and keeps NULL; its local model is named by the step that ran it.
+spend ledger, answers served from the response cache included, never the name
+configuration asked for. NULL means no Claude call had answered by the end of the
+comparison. The AI check runs after that, and `review_audit` takes its model from its
+own status. A ledger that cannot be read is written as `LEDGER_UNREADABLE`, never NULL.
 """
 
 from __future__ import annotations
@@ -31,8 +35,47 @@ from .db import connect
 
 log = logging.getLogger(__name__)
 
+#: Step or route names, as `reasoning_provider` and `output_limits.model_call_for` pass them.
+LOW_EFFORT_ROUTES = frozenset(
+    {
+        "sentence_reader",  # `reader_api.call_claude`: each proposal goes through `accept`
+        "datasheet_read",  # field filling: every value's quote is verified
+        "b4-vision",  # a page image read into fields (`vision_reader.EFFORT`)
+        "b4-naming2",  # field names and statement roles, from a fixed list
+        "rule_parse",  # every number must be on the page (`rule_eval.verify_model_rule`)
+    }
+)
+MODEL_DEFAULT_ROUTES = frozenset(
+    {
+        "match",
+        "requirement-matcher",
+        "recheck",
+        "select_standards",
+        "applicability",
+        "clause_applicability",
+        "scope-reasoning-decide",
+        "b8-answer-judge",
+        "engineering_check",
+        "review_ai_check",
+        "crs_wording",
+        "chat",
+        claude_spend.STANDARD_STEP_PREFIX,  # the compiler; a second check would join this list
+    }
+)
+ROUTE_SENTENCE_READER = "sentence_reader"
+#: `review_runs.model_name` when the ledger could not be read: not "no Claude call".
+LEDGER_UNREADABLE = "not recorded: spend ledger unreadable"
 #: Separate work on the same ledger, not part of a review run.
 NOT_REVIEW_STEPS = ("chat", claude_spend.STANDARD_STEP_PREFIX)
+
+
+def reader_model(env, fallback) -> str | None:
+    """The readers' model: STANDARDS_READER_MODEL in the process, then in `backend/.env`,
+    then CLAUDE_REASONING_MODEL. An injected environment (`fallback` None) is obeyed as it is."""
+    named = str(env.get("STANDARDS_READER_MODEL") or "").strip()
+    if named or fallback is None:
+        return named or None
+    return fallback.standards_reader_model or fallback.claude_reasoning_model
 
 
 def thinking_for(model: str | None, budget: int) -> dict:
@@ -46,25 +89,25 @@ def thinking_for(model: str | None, budget: int) -> dict:
     return {"type": "adaptive"}
 
 
-def shape_output(body: dict, effort: str | None = None) -> None:
-    """Set `max_tokens` and `output_config.effort` on a request `body` in place.
-    Without `effort`, a short answer on a model that thinks by default is low effort."""
-    model, asked = body.get("model"), int(body.get("max_tokens") or 0)
+def shape_output(body: dict, route: str | None = None) -> None:
+    """On a model that thinks by default, set a request `body`'s `max_tokens` and, for a
+    route in `LOW_EFFORT_ROUTES`, low effort. Older ids are left as they are."""
+    model = body.get("model")
     if not claude_spend.thinks_by_default(model):
         return
-    cap = claude_spend.output_cap(model, asked)
-    body["max_tokens"] = cap
-    chosen = effort or ("low" if cap > asked else None)
-    if chosen:
-        body["output_config"] = {"effort": chosen}
+    body["max_tokens"] = claude_spend.output_cap(
+        model, int(body.get("max_tokens") or 0)
+    )
+    if route in LOW_EFFORT_ROUTES:
+        body["output_config"] = {"effort": "low"}
 
 
 def record_run(review_run_id: str, *, match_step: str) -> None:
-    """Put the Claude models that answered since this run started in
+    """Put the Claude models that answered up to now, since this run started, in
     `review_runs.model_name` (comma-joined) and in its AI matcher's `model`,
     which until now says only the engine. The boundary is the run's time window
-    on this ledger (`claude_spend.models_used`). A ledger that cannot be read
-    leaves the run unnamed and never breaks a finished review."""
+    on this ledger (`claude_spend.models_used`). A ledger that cannot be read says
+    so on the run and never breaks a finished review."""
     conn = connect()
     row = conn.execute(
         "SELECT started_at, created_at, outcome_json FROM review_runs WHERE id = ?",
@@ -77,10 +120,8 @@ def record_run(review_run_id: str, *, match_step: str) -> None:
         used = claude_spend.models_used(since=since, exclude_prefixes=NOT_REVIEW_STEPS)
         matcher = claude_spend.models_used(since=since, steps={match_step})
     except OSError as exc:
-        log.warning(
-            "run models not recorded: the ledger is unreadable (%s)", type(exc).__name__
-        )
-        return
+        log.warning("run models: the ledger is unreadable (%s)", type(exc).__name__)
+        used, matcher = [LEDGER_UNREADABLE], []
     outcome = json.loads(row["outcome_json"] or "{}")
     summary = outcome.get("ai_matcher")
     if isinstance(summary, dict) and summary.get("engine") == "claude" and matcher:

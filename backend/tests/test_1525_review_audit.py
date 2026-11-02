@@ -221,7 +221,9 @@ def test_an_unreadable_ledger_never_reads_as_a_local_only_run(
     assert claude_models.LEDGER_UNREADABLE in used
 
 
-def test_a_cache_hit_names_the_model_on_the_run(world, audit_dir, tmp_path, monkeypatch):
+def test_a_cache_hit_names_the_model_on_the_run(
+    world, audit_dir, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     run_id, job_id = _enqueue(world)
     review_jobs.claim_next(W)

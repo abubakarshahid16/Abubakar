@@ -62,8 +62,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "05",
         "a run record names the model that was only asked for (an open or estimated ledger line)",
         _S,
-        '        if not entry.get("settles") or entry.get("estimated") or not entry.get("model"):\n',
-        '        if not entry.get("model"):\n',
+        '        answered = entry.get("settles") and not entry.get("estimated")\n',
+        "        answered = True\n",
         "models_used",
     ),
     _m(

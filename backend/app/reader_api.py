@@ -645,7 +645,7 @@ class ReaderSettings:
                 env, "STANDARDS_READER_ALLOW_PUBLIC_EGRESS",
                 fallback and fallback.standards_reader_allow_public_egress),
             base_url=env.get("STANDARDS_READER_BASE_URL") or DEFAULT_BASE_URL,
-            model=env.get("STANDARDS_READER_MODEL") or cls.model,
+            model=claude_models.reader_model(env, fallback) or cls.model,
             timeout_seconds=float(env.get("STANDARDS_READER_TIMEOUT_SECONDS") or 30.0),
         )
 
@@ -724,9 +724,8 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
         "max_tokens": cfg.max_tokens,
         "messages": [{"role": "user", "content": content}],
     }
-    # SOME MODELS REJECT `temperature` (`claude_models_without_temperature`, as
-    # `reasoning_provider.no_temperature` reads it). R32: sending it failed EVERY
-    # datasheet and matcher call (unbilled, nothing read). Sent where accepted.
+    # SOME MODELS REJECT `temperature` (`claude_models_without_temperature`). R32:
+    # sending it failed EVERY datasheet and matcher call. Sent where accepted.
     if not _rejects_temperature(cfg.model):
         body["temperature"] = 0
     claude_models.shape_output(body)
@@ -774,6 +773,7 @@ def call_claude(prompt: str, *, transport, cfg: ReaderSettings | None = None, en
     by whoever writes that client.
     """
     request = build_request(prompt, cfg=cfg, env=env)
+    claude_models.shape_output(request["body"], claude_models.ROUTE_SENTENCE_READER)
     payload = transport(request["url"], headers=request["headers"],
                         body=request["body"], timeout=request["timeout"])
     if isinstance(payload, dict) and payload.get("stop_reason") == "max_tokens":

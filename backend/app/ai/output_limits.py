@@ -69,11 +69,6 @@ ROUTE_MAX_TOKENS: dict[str, int | str] = {
 }
 
 
-#: A route with a large cap that is still transcription: low effort on the models
-#: that take one (`claude_models.shape_output`). The short routes get it by their size.
-ROUTE_EFFORT: dict[str, str] = {ROUTE_DATASHEET_READ: "low"}
-
-
 def max_tokens_for(route: str | None) -> int:
     """This route's output cap, or `DEFAULT_MAX_TOKENS` for a route the
     table does not list. A setting-backed entry is read now, not at import."""
@@ -192,7 +187,7 @@ def model_call_for(transport, route: str, *, cfg=None, env=None, salvage: bool =
 
     def model_call(prompt: str) -> str:
         request = reader_api.build_request(prompt, cfg=cfg, env=env)
-        claude_models.shape_output(request["body"], effort=ROUTE_EFFORT.get(route))
+        claude_models.shape_output(request["body"], route)
         payload = transport(request["url"], headers=request["headers"],
                             body=request["body"], timeout=request["timeout"])
         state = state_of_payload(payload)
