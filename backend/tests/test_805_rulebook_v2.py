@@ -1522,3 +1522,14 @@ def test_a_signer_who_saw_the_newer_source_is_served_that_one():
     _compile(doc="ed-2", pages=_edition_page(), edition="2026")
     _approve_only(version_id, _sources(version_id)[1])
     assert rulebook_v2.approved_rules(_conn(), PSV)[0]["edition"] == "2026"
+
+
+def test_the_schema_walks_call_with_no_connection_does_nothing_off_and_creates_on(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "rulebook_v2_enabled", False)
+    rulebook_v2.ensure_schema()
+    assert not rulebook_v2.has_schema(_conn())
+    monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
+    rulebook_v2.ensure_schema()
+    assert rulebook_v2.has_schema(_conn())

@@ -92,8 +92,15 @@ def _is_missing(conn, statement: str, held: set[str]) -> bool:
     }
 
 
-def ensure_schema(conn) -> None:
-    """Create what is missing, all or none, on a copy. Run twice it does nothing; no other table is touched."""
+def ensure_schema(conn=None) -> None:
+    """Create what is missing, all or none, on a copy. Run twice it does nothing; no other table is touched. Called with
+    no connection, the way the app's schema walk calls every module: switch off, it does nothing and does not raise."""
+    if conn is None:
+        if not settings.rulebook_v2_enabled:
+            return
+        from .db import connect
+
+        conn = connect()
     require_on()
     path = next(
         (r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"), ""
