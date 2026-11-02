@@ -9,7 +9,8 @@ import io
 import openpyxl
 import pytest
 
-from app import absence, access, crs_export, crs_mapping, db, main
+from app import absence, access, comparison, crs_export, crs_export_quality, crs_mapping
+from app import db, main
 from app.config import settings
 
 OUTCOME = {
@@ -113,11 +114,93 @@ def test_the_tick_note_counts_the_open_rows_and_says_why(monkeypatch):
     detail = note["detail"]
     assert detail.startswith("2 rows of this sheet say ENGINEER TO TICK.")
     assert "safety field" in detail and "on purpose" in detail
-    assert "does not count them as decided" in detail
+    assert "does not wait for the tick" in detail
+    assert "does not count" not in detail, "the review code does count them as met"
     assert absence.tick_note([_tick()])["detail"].startswith(
         "1 row of this sheet says ENGINEER TO TICK."
     )
     assert absence.tick_note(rows[2:]) is None
+
+
+def test_what_the_note_says_of_the_code_is_what_the_code_does():
+    """A run of open ticks alone is recommended as approved: the note must say the code
+    does not wait. If the code changes, this fails and the note's words must change."""
+    tick = {
+        "compliance_status": "COMPLIANT",
+        "severity": "low",
+        "show_for_engineer_tick": 1,
+    }
+    result = comparison.recommend_code(
+        [tick, tick], {"completeness": 1.0, "sufficient": True}
+    )
+    assert result["code"] == comparison.review_codes()[0]
+
+
+def _shown(row, copy="internal"):
+    view = crs_export.build_crs_view(
+        [row], {"review_run_id": "r", "copy": copy, "export_quality": True}
+    )
+    return view["rows"][0]["comment"]
+
+
+def _tick_text():
+    return crs_mapping.safety_tick_text(
+        {
+            "standard_clause": "INV 1",
+            "requirement": "Invented rule",
+            "contractor_evidence_text": "7",
+            "contractor_page": 1,
+            "contractor_section": "Invented field",
+        }
+    )
+
+
+def test_a_ticked_row_stops_saying_it_waits(monkeypatch):
+    text = _tick_text()
+    assert crs_export_quality.TICK_LEAD in text
+    assert crs_export_quality.TICK_ACTION in text
+    row = {
+        "row_kind": crs_mapping.ROW_KIND_SAFETY_TICK,
+        "document_name": "invented.pdf",
+        "page_section": "p.1 - Invented field",
+        "comment": text,
+        "comment_by": "Engineer",
+        "engineer_confirmed": True,
+    }
+    assert _shown(row) == text, "off: as before"
+    monkeypatch.setattr(settings, "crs_plain_notes_enabled", True)
+    said = _shown(row)
+    assert said.startswith("TICKED BY ENGINEER (safety field)")
+    assert crs_export_quality.TICK_LEAD not in said
+    assert crs_export_quality.TICK_ACTION not in said
+    assert "Automatic result: meets the standard" in said
+    assert row["comment"] == text, "the words a number keeps are not touched"
+    # an open row keeps saying it, so the note's count is the rows that say it
+    open_row = {**row, "engineer_confirmed": False}
+    assert _shown(open_row) == text
+    views = [row, open_row]
+    saying = sum(
+        crs_export_quality.TICK_LEAD in crs_export_quality.ticked_words(r)["comment"]
+        for r in views
+    )
+    assert saying == absence.tick_note(views)["count"] == 1
+
+
+def test_a_step_with_no_plain_line_is_named_in_words(monkeypatch):
+    status = {"complete": False}
+    off = absence.unchecked_parts(
+        run_status="completed", outcome={}, ai_status=status, web_status=status
+    )
+    assert absence.notice_for(off)
+    assert "ai_check did not complete" in [p["line"] for p in off]
+    monkeypatch.setattr(settings, "crs_plain_notes_enabled", True)
+    parts = absence.unchecked_parts(
+        run_status="completed", outcome={}, ai_status=status, web_status=status
+    )
+    notice = absence.notice_for(parts, internal=True)
+    assert "The AI engineering check did not complete." in notice
+    assert "The web standards check did not complete." in notice
+    assert "ai_check" not in notice and "web_check" not in notice
 
 
 def test_the_notice_row_is_tall_enough_only_with_the_switch(monkeypatch):
@@ -204,3 +287,20 @@ def test_the_tick_note_is_on_the_internal_copy_from_the_rows_on_it(
     _rows, issue, _n, _s = _content(sheet_run, "issue")
     assert "ENGINEER TO TICK" not in issue["incomplete_notice"]
     assert not any(n["note"] == absence.TICK_NOTE for n in issue["review_notes"])
+
+
+def test_a_ticked_row_through_the_real_path_and_no_note_left(sheet_run, monkeypatch):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET confirmed_by = 'eng-1' WHERE id = 'f1'"
+        )
+    monkeypatch.setattr(settings, "crs_plain_notes_enabled", True)
+    rows, meta, _n, _s = _content(sheet_run, "internal")
+    assert rows[0]["comment"].startswith("ENGINEER TO TICK"), "what a number keeps"
+    book = openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, meta)))
+    cells = [
+        str(c) for row in book["CRS"].iter_rows(values_only=True) for c in row if c
+    ]
+    assert not any("ENGINEER TO TICK" in c for c in cells)
+    assert any(c.startswith("TICKED BY ENGINEER") for c in cells)
+    assert not any(n["note"] == absence.TICK_NOTE for n in meta["review_notes"])

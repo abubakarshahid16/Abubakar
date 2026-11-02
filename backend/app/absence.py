@@ -35,6 +35,7 @@ COULD_NOT_BE_CHECKED = "could_not_be_checked"
 #: search ran and nothing fit, or the model read the sources and said they do
 #: not contain it. Any other refusal is a failure to check, not an absence.
 ABSENCE_KIND_NOT_FOUND = "not_found"
+_STEP_WORDS = {"ai_check": "The AI engineering check", "web_check": "The web standards check"}
 #: The Review note on rows an engineer has still to tick (`tick_note`).
 TICK_NOTE = "Rows for the engineer to tick"
 
@@ -295,12 +296,19 @@ def check_failed_status(name: str, reason: str) -> dict:
             "reason": why, "plain": f"{name} could not be checked: {why}."}
 
 
+def _unfinished_words(key: str) -> str:
+    """A step that left no plain line of its own. The notice prints it: never its id."""
+    if not settings.crs_plain_notes_enabled:
+        return f"{key} did not complete"
+    return f"{_STEP_WORDS.get(key, 'A review step')} did not complete."
+
+
 def _unfinished(ai_status: dict | None, web_status: dict | None):
     """(part, plain line) of each AI step that did not complete, and (#1477) of a
     clause review that left clauses unread or rests on a guessed document kind."""
     for key, status in (("ai_check", ai_status), ("web_check", web_status)):
         if status and status.get("complete") is False:
-            yield key, str(status.get("plain") or f"{key} did not complete").strip()
+            yield key, str(status.get("plain") or _unfinished_words(key)).strip()
     clause = (ai_status or {}).get("clause_review") or {}
     if clause.get("stopped_by_error") or (
         clause.get("ran")
@@ -428,9 +436,10 @@ def with_plain_notes(meta: dict, rows: list[dict], parts: list[dict]) -> dict:
 def tick_note(rows: list[dict]) -> dict | None:
     """#1592 item d: the Review note on the rows an engineer has still to tick, from the
     rows on this sheet (`crs_mapping`: a tested rule's Pass on a safety field). None with
-    the switch off, or with none open. Why they are the engineer's, in plain words: the
-    rule's result stands on the row, but a safety field's result is not a decision until
-    an engineer has read the value on the page (`rule_trust.label_check`)."""
+    the switch off, or with none open. A ticked row no longer says it
+    (`crs_export_quality.ticked_words`), so this counts the rows that do. It says what
+    the code does: `comparison.recommend_code` reads these results as met, tick or no
+    tick (a test holds the two together; change the words if the code changes)."""
     from .crs_mapping import ROW_KIND_SAFETY_TICK
 
     if not settings.crs_plain_notes_enabled:
@@ -449,9 +458,9 @@ def tick_note(rows: list[dict]) -> dict | None:
         "detail": (
             f"{n} row{'s' if n != 1 else ''} of this sheet say{'' if n != 1 else 's'}"
             " ENGINEER TO TICK. A tested rule found the value meets the standard, and the"
-            " field is a safety field, so the rule does not decide it alone: it is on"
-            " purpose, and it is not a fault. Until an engineer reads the value on the page"
-            " and ticks, these rows are not decided and this sheet does not count them as"
-            " decided."
+            " field is a safety field, so the result waits for an engineer to read the value"
+            " on the page and tick: it is on purpose, and it is not a fault. The recommended"
+            " review code does not wait for the tick: it reads these results as met, and"
+            " it stays the AI's recommendation until an engineer records one."
         ),
     }

@@ -367,11 +367,31 @@ def enabled() -> bool:
     return bool(settings.crs_export_quality_enabled)
 
 
+#: `crs_mapping.safety_tick_text`'s words; a test holds them to what it writes.
+TICK_LEAD = "ENGINEER TO TICK"
+TICK_ACTION = "Read the clause and the value on the page and tick, or say what is off."
+
+
+def ticked_words(row: dict) -> dict:
+    """With CRS_PLAIN_NOTES_ENABLED, a safety row an engineer has ticked says so, not that
+    it waits. On the view only: the words a number keeps (`crs_carry`) are not touched, so
+    the next run's row is compared with what the engineer read."""
+    if (
+        not settings.crs_plain_notes_enabled
+        or row.get("row_kind") != "safety_tick"
+        or not row.get("engineer_confirmed")
+    ):
+        return row
+    said = str(row.get("comment") or "").replace(f" {TICK_ACTION}", "")
+    return {**row, "comment": said.replace(TICK_LEAD, "TICKED BY ENGINEER", 1)}
+
+
 def prepare(
     findings: list[dict], copy: str, has_no_text, on: bool
 ) -> tuple[list[dict], int, int]:
     """Rules 2 and 1, before the rows are built: (rows, dropped, merged);
     the rows untouched when the switch is off."""
+    findings = [ticked_words(f) for f in findings]
     if not on:
         return findings, 0, 0
     dropped = 0
