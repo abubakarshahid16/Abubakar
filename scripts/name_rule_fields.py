@@ -1,7 +1,7 @@
 """#805 plan change 6: name each compiled rule's field from the equipment type's fixed list, on a COPY.
 
     python scripts/name_rule_fields.py --db <copy> --type "Pressure Safety Valve" --standard API-520-I --estimate-only
-    python scripts/name_rule_fields.py --db <copy> --type "Pressure Safety Valve" --standard API-520-I --max-usd 2
+    python scripts/name_rule_fields.py --db <copy> --type "Pressure Safety Valve" --standard API-520-I --max-usd 100
 
 The estimate sends nothing and needs no key. A send needs RULE_FIELD_NAMING_ENGINE=claude, every gate of the compiler and
 the standard on the approved list. Run again it polls an open batch and does not pay again. A live-shaped --db is refused.
@@ -14,7 +14,8 @@ not on a datasheet, and how many could decide if approved.
 
 Add --checks for the typed check step: the same flags, after the field step, on rules with a verified role and no figure.
 
-Exit: 0 done; 3 engine off; 4 refused or over a budget (nothing sent); 5 a batch is still running (run it again).
+Exit: 0 every rule answered, or an estimate; 3 engine off; 4 refused, over a budget or partial: the report says why;
+5 a batch is still running (run it again).
 """
 
 from __future__ import annotations
@@ -74,7 +75,10 @@ def run(
         emit(json.dumps({"status": "refused", "why": str(exc)}))
         return EXIT_REFUSED
     emit(json.dumps({"reports": reports}, sort_keys=True))
-    return EXIT_WAITING if any(r["status"] == "waiting" for r in reports) else 0
+    said = {r["status"] for r in reports}
+    if "waiting" in said:
+        return EXIT_WAITING
+    return EXIT_REFUSED if said & {"over_budget", "unconfirmed", "partial"} else 0
 
 
 def rule_of_compiled(row) -> dict:
@@ -181,7 +185,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--type", required=True, dest="equipment_type")
     ap.add_argument("--standard", action="append", required=True)
     ap.add_argument("--estimate-only", action="store_true", help="send nothing")
-    ap.add_argument("--max-usd", type=float)
+    ap.add_argument(
+        "--max-usd",
+        type=float,
+        help="limit on today's whole Claude spend plus this send's worst case, as in compile_standards; default the"
+        " owner's USD 100 a day. Below what today has spent, nothing is sent and the report says so",
+    )
     ap.add_argument("--poll-seconds", type=float, default=60.0)
     ap.add_argument("--resend-unconfirmed", action="store_true")
     ap.add_argument(

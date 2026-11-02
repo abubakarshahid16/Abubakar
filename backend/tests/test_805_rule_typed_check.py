@@ -446,6 +446,50 @@ def test_the_step_stores_what_code_kept_once(monkeypatch):
     assert again.created == []
 
 
+def test_the_check_step_sends_its_rules(monkeypatch):
+    conn = _with_a_role(monkeypatch)
+    client = Roles({"op": None, "values": []})
+    report = _check_step(conn, client)[0]
+    assert len(client.created) == 1 and len(client.created[0]) == report["rules"] == 1
+    assert report["status"] == "done" and report["answered"] == 1
+
+
+def test_a_limit_already_spent_sends_nothing_and_never_reads_as_done(monkeypatch):
+    """The real run: 13 rules, --max-usd below today's spend: no batch, and it said "done, answered 0"."""
+    conn = _with_a_role(monkeypatch)
+    client = Roles({"op": None, "values": []})
+    report = _check_step(conn, client, max_usd=0.0)[0]
+    assert client.created == []
+    assert report["status"] == "over_budget" and report["answered"] == 0
+    assert report["not_sent_over_budget"] == report["rules"] == 1
+    assert "--max-usd" in report["why"]
+    state = conn.execute("SELECT check_prompt FROM compiled_rules").fetchone()[0]
+    assert state is None, "nothing stored: run it again with room, and it asks"
+    again = Roles({"op": None, "values": []})
+    assert _check_step(conn, again)[0]["status"] == "done" and len(again.created) == 1
+
+
+def test_the_script_exits_non_zero_when_nothing_could_be_sent(monkeypatch):
+    import name_rule_fields
+
+    from tests.test_1584_standards_compiler import DOC
+
+    _with_a_role(monkeypatch)
+    said = []
+    code = name_rule_fields.run(
+        settings.db_path,
+        "Pressure Safety Valve",
+        [DOC],
+        emit=said.append,
+        checks=True,
+        client=Roles({"op": None, "values": []}),
+        max_usd=0.0,
+        sleep=lambda _s: None,
+    )
+    assert code == name_rule_fields.EXIT_REFUSED
+    assert json.loads(said[0])["reports"][0]["status"] == "over_budget"
+
+
 def test_comparison_module_is_untouched_by_a_typed_rule_with_the_switch_off(
     monkeypatch,
 ):

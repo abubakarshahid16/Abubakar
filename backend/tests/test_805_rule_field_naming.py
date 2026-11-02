@@ -222,6 +222,14 @@ def test_a_verified_role_is_stored_on_the_row_and_compile_v2_is_left_alone():
     assert row["field_role_model"] == "claude-haiku-5-5"
 
 
+def test_a_limit_already_spent_sends_nothing_and_says_why():
+    conn = _compiled()
+    client = Roles({"field_role": "set_pressure", "reason": None})
+    report = _name(conn, client, max_usd=0.0)[0]
+    assert client.created == []
+    assert report["status"] == "over_budget" and "--max-usd" in report["why"]
+
+
 def test_a_rule_no_field_answers_is_kept_and_says_why():
     conn = _compiled()
     before = conn.execute("SELECT COUNT(*) FROM compiled_rules").fetchone()[0]

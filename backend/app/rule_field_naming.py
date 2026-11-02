@@ -231,6 +231,39 @@ def _estimate(model: str, packets: dict[str, Packet]) -> dict:
     }
 
 
+def outcome_report(outcome, rows) -> dict:
+    """What a run did for these rules: "done" only when every one was answered. Anything short of that says why, so
+    "done, answered 0" cannot be read off a run that sent nothing."""
+    answered, over = len(outcome.answers), len(outcome.over_budget)
+    said = {
+        "answered": answered,
+        "not_answered": len(rows) - answered,
+        "not_sent_over_budget": over,
+    }
+    if outcome.waiting:
+        return {**said, "status": "waiting"}
+    if over:
+        return {
+            **said,
+            "status": "over_budget",
+            "why": f"{over} of {len(rows)} requests did not fit the USD free, nothing sent for them. --max-usd limits"
+            " today's whole Claude spend plus this send's worst case, so it must be above what today has already spent",
+        }
+    if outcome.unconfirmed:
+        return {
+            **said,
+            "status": "unconfirmed",
+            "why": f"{len(outcome.unconfirmed)} requests may have been sent; see --resend-unconfirmed",
+        }
+    if answered < len(rows):
+        return {
+            **said,
+            "status": "partial",
+            "why": "some requests came back with no usable answer; run it again",
+        }
+    return {**said, "status": "done"}
+
+
 def _sent(conn, plans: dict, fields, model: str, send, max_usd, **wait) -> dict:
     """Ask, in one batch as the API allows, and store what came back. `wait`: the Batch run's own options."""
     provider = ClaudeProvider(model, transport=send)
@@ -251,10 +284,8 @@ def _sent(conn, plans: dict, fields, model: str, send, max_usd, **wait) -> dict:
         stored = _store(conn, rows, replies, fields, model)
         reports[doc] = {
             **base,
-            "status": "waiting" if outcome.waiting else "done",
+            **outcome_report(outcome, rows),
             "rules": len(rows),
-            "answered": len(outcome.answers),
-            "not_answered": len(rows) - len(outcome.answers),
             "stored": dict(sorted(stored.items())),
         }
     return reports

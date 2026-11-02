@@ -284,8 +284,7 @@ def name_checks(
             replies = {c: _reply(a) for c, a in outcome.answers.items()}
             reports[doc] = {
                 **base,
-                "status": "waiting" if outcome.waiting else "done",
-                "answered": len(outcome.answers),
+                **rule_field_naming.outcome_report(outcome, rows),
                 "stored": _store(conn, rows, replies, fields, model),
             }
     return [reports[d] for d in sorted(reports, key=lambda d: documents[d])]
