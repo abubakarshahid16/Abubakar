@@ -20,6 +20,8 @@ the screen print.
 
 Checklist decisions are stated apart and never added: a checklist clause is text,
 not linked to a stored rule (the same lane as the bench's source row, PR #1566).
+Version 2 rulebook rows (`rulebook_v2_review`) are on neither lane: stated apart, with
+their own denominator, and never added. Only a run that read the rulebook has them.
 
 Read only. Counts only: no document text leaves this module except the gate
 reasons a run stored, which the bench and the board never get (`public_view`).
@@ -491,6 +493,13 @@ def compute(
         f"Checklist, stated apart, not added to the rules: {checklist['decided']} of"
         f" {checklist['rows']} items decided.{_checklist_wrong(pair)}"
     )
+    part = (split or {}).get("rulebook_v2")
+    if part:
+        from .rulebook_v2_stated import rulebook_part
+
+        pair["rulebook_v2"] = rulebook_part(part, findings, wrong_ids)
+        # the headline is never "0 of N" alone beside a rule that did decide
+        pair["line"] = f"{pair['line']} {pair['rulebook_v2']['line']}"
     return pair
 
 
