@@ -53,6 +53,10 @@ class SettingsExt(BaseModel):
     #: label answers each text attribute it names. OFF: nothing changes.
     #: Env: DATASHEET_ONE_VALUE_ENABLED.
     datasheet_one_value_enabled: bool = False
+    #: #1607: `scripts/crs_bench.py` also runs the planted-defect sheets on its own copy and
+    #: prints the table. Printed only: the gate does not read it until the baseline is
+    #: stable. OFF: the bench runs no scorer. Env: PLANTED_DEFECTS_BENCH_ENABLED.
+    planted_defects_bench_enabled: bool = False
     #: A datasheet field the sheet gives is not reported missing or conflicting for two general reasons: a split
     #: abbreviation ("tube o d" for O.D.) is joined before the role table is read, and a reading with no unit
     #: beside a reading of the same number with one is one value. Never decides (see `label_match`). OFF: nothing
