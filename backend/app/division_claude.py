@@ -30,10 +30,19 @@ _MODEL_DOWN = ("the model did not answer in time", "the model could not be reach
 #: Said about a model "no" whose own quoted stated line shares a word with the
 #: construction: the sheet speaks against the model's "no" (`read` marks it).
 NAMES_ITSELF = "the quoted line names the construction itself"
-#: Words that read as a part stating its scope. True of any document; only a claim
-#: of "no scope sentence" is held against them, and quoting the sentence answers it.
+#: Words that read as a part stating its scope. True of any document: a passage with them
+#: and a reply with no sentence carrying them is rejected, and then the part is held.
 _SCOPE_WORDS = re.compile(
-    r"\b(?:scope|appl(?:y|ies|icable)\s+(?:only\s+)?to)\b", re.IGNORECASE
+    r"\b(?:scope|appl(?:y|ies|icable)\s+(?:only\s+|exclusively\s+)?to|only\s+appl(?:y|ies)"
+    r"|limit(?:ed|s)?\s+to|restrict(?:ed|s)?\s+to|confined\s+to"
+    r"|intended\s+(?:only\s+)?for|covers)\b",
+    re.IGNORECASE,
+)
+#: A sentence that says the part is limited cannot be read as "no".
+_SAYS_LIMITED = re.compile(
+    r"\b(?:appl(?:y|ies|icable)\s+(?:only|exclusively)\s+to|only\s+appl(?:y|ies)"
+    r"|scope\b.*\b(?:limited|restricted|confined)\s+to)\b",
+    re.IGNORECASE | re.DOTALL,
 )
 _SENTENCE = (
     "\n- scope_sentence: the division's own scope sentence, copied exactly from the TEXT; "
@@ -68,18 +77,29 @@ def _scope_task() -> ai_task_runner.TaskSpec:
 
 
 def scope_problems(data: dict, text: str) -> list[str]:
-    """Code's check of the reply's claim about the scope sentence."""
-    from .ai_applicability import folded_in
+    """Code's check of the reply's claim about the scope sentence. A rejection earns one
+    corrective ask; a second holds the part (`_read_unit`, `not_read`), never a pass."""
+    from . import scope_quote
+    from .ai_applicability import _QUOTE_MIN, folded_in
 
-    sentence = data.get("scope_sentence")
-    if sentence and not folded_in(sentence, text, least=8):
+    limited, sentence = data.get("limited"), data.get("scope_sentence")
+    if not sentence:
+        if limited == "unsure":
+            return ["unsure needs the scope sentence that leaves the limit open"]
+        if limited == "no" and _SCOPE_WORDS.search(text):
+            return ["the TEXT has words of scope; quote the sentence that carries them"]
+        return []
+    if not folded_in(sentence, text, least=_QUOTE_MIN):
         return ["the scope sentence is not in the TEXT"]
-    if data.get("limited") == "unsure" and not sentence:
-        return ["unsure needs the scope sentence that leaves the limit open"]
-    if data.get("limited") == "no" and not sentence and _SCOPE_WORDS.search(text):
-        return [
-            "the TEXT has words of scope; quote its scope sentence, or answer from it"
-        ]
+    if not _SCOPE_WORDS.search(sentence):
+        return ["the quoted sentence carries no words of scope"]
+    # The one shape test of a real sentence; `construction` only satisfies its signature.
+    if scope_quote.problems(
+        {"limited": "yes", "quote": sentence, "construction": "named"}
+    ):
+        return ["the quoted scope sentence is not a whole sentence"]
+    if limited == "no" and _SAYS_LIMITED.search(sentence):
+        return ["the quoted sentence limits the part, so the answer cannot be no"]
     return []
 
 

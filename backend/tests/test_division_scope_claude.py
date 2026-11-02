@@ -443,6 +443,67 @@ def test_a_construction_rejection_gets_one_corrective_ask(send):
     assert len(asked) == 4, "two limited parts, each asked at most twice"
 
 
+FRAGMENT_TEXT = (
+    "PART QQ\nQQ-1 SCOPE\nThis part is limited to vessels of invented alloy Z.\n"
+)
+WHOLE = "This part is limited to vessels of invented alloy Z."
+
+
+@pytest.mark.parametrize(
+    ("sentence", "wanted"),
+    [
+        ("is limited", "not in the TEXT"),  # under the length: a bare fragment
+        ("limited to vessels of invented", "not a whole sentence"),
+        ("vessels of invented alloy Z.", "carries no words of scope"),
+        (None, "words of scope"),
+    ],
+)
+def test_no_on_a_scope_worded_passage_needs_the_whole_sentence_that_carries_the_words(
+    sentence, wanted
+):
+    reply = {**NOT_LIMITED, "scope_sentence": sentence}
+    assert wanted in _claude_task().check(reply, FRAGMENT_TEXT)[0]
+
+
+def test_limited_to_counts_as_words_of_scope():
+    assert _claude_task().check({**NOT_LIMITED, "scope_sentence": None}, WHOLE)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "This annex applies only to vessels of invented alloy Z in this code.",
+        "The scope of this part is limited to vessels of invented alloy Z.",
+    ],
+)
+def test_a_sentence_that_limits_the_part_cannot_be_read_as_no(text):
+    said = _claude_task().check({**NOT_LIMITED, "scope_sentence": text}, text)
+    assert "cannot be no" in said[0]
+    assert _claude_task().check({**UNSURE, "scope_sentence": text}, text) == []
+
+
+def test_a_sentence_that_applies_to_all_is_a_good_no():
+    assert (
+        _claude_task().check({**NOT_LIMITED, "scope_sentence": AA_SCOPE}, AA_SCOPE)
+        == []
+    )
+
+
+def test_a_passage_with_scope_words_and_no_such_sentence_holds_the_part(send):
+    """Asked twice, then held: the rule never reaches comparison on that reply."""
+
+    def reply(prompt):
+        if '"titles"' in prompt:
+            return {"titles": []}
+        return {**NOT_LIMITED, "scope_sentence": None}
+
+    send.reply = reply
+    out = _gate()
+    assert out["kept"] == [] and _ids(out["held"]) == ["aa", "tt", "zz"]
+    assert out["summary"]["requirements_held_scope_not_read"] == 3
+    assert len(send.bodies) == 6
+
+
 # ------------------------------------------------- the local path stays as it was
 
 
