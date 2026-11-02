@@ -18,10 +18,10 @@ from app import crs_export_quality as q
 from app import crs_one_row as one
 from app.config import settings
 from app.crs_mapping import (
-    WAITING_COMMENTS,
-    row_has_no_issuable_text,
     ROW_KIND_SAFETY_TICK,
     ROW_KIND_STANDARD_NOT_CITED,
+    WAITING_COMMENTS,
+    row_has_no_issuable_text,
 )
 from app.main import _crs_content, app
 from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
@@ -146,6 +146,24 @@ def test_two_rows_with_no_value_by_nature_are_one_row_listing_everything():
     assert "pages 1, 2" in comment
 
 
+def test_a_subject_read_from_the_clause_is_not_a_field_of_the_document():
+    # `_field_label` falls back to the clause's own subject: that names no stored field,
+    # and it differs with the sentence, which is not one of the four terms.
+    findings = [
+        no_value("f1", None, "One.", requirement_limit={"subject": "Subject one"}),
+        no_value("f2", None, "Two.", requirement_limit={"subject": "Subject two"}),
+    ]
+    assert len(merged([row("f1"), row("f2")], findings)[0]) == 1
+
+
+def test_a_missing_value_verdict_is_a_value_that_could_not_be_read():
+    findings = [
+        no_value("f1", 1, "One.", status="MISSING_INFORMATION"),
+        no_value("f2", 2, "Two.", status="MISSING_INFORMATION"),
+    ]
+    assert len(merged([row("f1"), row("f2")], findings)[0]) == 2
+
+
 def test_no_value_by_nature_is_not_the_same_as_a_stated_one():
     findings = [
         NO_VALUE[0],
@@ -164,6 +182,16 @@ def test_a_value_that_could_not_be_read_stays_apart():
     # A field was there to read, by its label or its stored fact.
     labelled = [finding("f1", value=None), finding("f2", value=None)]
     assert len(merged([row("f1"), row("f2")], labelled)[0]) == 2
+    stored = [
+        no_value("f1", 1, "One.", matched_phrase="Phrase"),
+        no_value("f2", 2, "Two.", matched_phrase="Phrase"),
+    ]
+    assert len(merged([row("f1"), row("f2")], stored)[0]) == 2
+    section = [
+        no_value("f1", 1, "One.", contractor_section="Part"),
+        no_value("f2", 2, "Two.", contractor_section="Part"),
+    ]
+    assert len(merged([row("f1"), row("f2")], section)[0]) == 2
     with_fact = [
         no_value("f1", 1, "One.", fact_id="x"),
         no_value("f2", 2, "Two.", fact_id="y"),

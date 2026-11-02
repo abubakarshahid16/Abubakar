@@ -67,8 +67,25 @@ def _sentence(finding: dict) -> str:
 
 
 def _no_field(finding: dict) -> bool:
-    """No field and no stored fact behind it: a value is not something it could have."""
-    return not finding.get("fact_id") and not _fold(crs_mapping._field_label(finding))
+    """No value by its nature: no field stored for it, so a value is not something it could
+    have, and its verdict does not say one is missing. `_field_label` is not asked: with
+    nothing stored it reads a subject from the clause, which names no field."""
+    return (
+        not any(
+            finding.get(k)
+            for k in (
+                "fact_id",
+                "crs_field_label",
+                "matched_phrase",
+                "contractor_section",
+            )
+        )
+        and finding.get("compliance_status") != crs_mapping._MISSING_INFORMATION
+    )
+
+
+def _field(finding: dict) -> str:
+    return "" if _no_field(finding) else _fold(crs_mapping._field_label(finding))
 
 
 def _value(members: list[dict]) -> str:
@@ -101,7 +118,7 @@ def _identity(row: dict, by_id: dict[str, dict]):
         return None  # a reference naming only the standard: the clause is unknown
     if len({_fold(f.get("engineer_comment")) for f in members}) != 1:
         return None
-    if len({_fold(crs_mapping._field_label(f)) for f in members}) != 1:
+    if len({_field(f) for f in members}) != 1:
         return None
     return (
         str(row.get("document_name") or ""),
@@ -109,7 +126,7 @@ def _identity(row: dict, by_id: dict[str, dict]):
         clause,
         verdict,
         value,
-        _fold(crs_mapping._field_label(members[0])),
+        _field(members[0]),
         _fold(members[0].get("engineer_comment")),
         row.get("engineer_confirmed") is True,
     )
