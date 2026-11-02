@@ -245,6 +245,13 @@ def store_answer(key: str, task: str, version: str, identity: str, text: str) ->
         _log.info("answer cache not written (%s)", type(exc).__name__)
 
 
+def _asked(task: str, model: str, ask: Callable[[], str]) -> str:
+    """`ask()`, counted fresh only once it answered: a refusal is no call made (#1525)."""
+    text = ask()
+    ai_call_ledger.fresh(task, model)
+    return text
+
+
 def reuse_or_ask(
     task: str,
     version: str,
@@ -273,12 +280,11 @@ def reuse_or_ask(
     on a fresh one: the cache decides nothing.
     """
     if not settings.ai_answer_reuse_enabled:
-        ai_call_ledger.fresh(task, model)  # #1525
-        return ask()  # reuse off (the final client test): nothing read, nothing kept
+        # reuse off (the final client test): nothing read, nothing kept
+        return _asked(task, model, ask)
     identity = model_identity(model)
     if identity is None:
-        ai_call_ledger.fresh(task, model)  # #1525
-        return ask()
+        return _asked(task, model, ask)
     if asked is not None:
         nth = asked.get(prompt, 0)
     key = answer_cache_key(task, version, identity, schema, prompt, nth)
@@ -288,8 +294,7 @@ def reuse_or_ask(
         if asked is not None:
             asked[prompt] = nth + 1
         return reused
-    ai_call_ledger.fresh(task, model)  # #1525
-    text = ask()
+    text = _asked(task, model, ask)
     # Only an answer worth keeping uses up its slot: a malformed or empty one
     # is never stored, and the next ask of the prompt takes the same slot.
     if text and (keep_if is None or keep_if(text)):
@@ -447,7 +452,6 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
         packet = Packet(prompt=prompt, num_ctx=2048, num_predict=spec.num_predict,
                         json_schema=spec.schema, step=f"ai_task:{spec.name}",
                         prompt_version=spec.version)
-        ai_call_ledger.fresh(packet.step, model)  # #1525: each attempt is a call
         try:
             response = provider.reason(packet)
         except ProviderRefused as exc:
@@ -456,6 +460,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
             late = "timeout" in str(exc).lower()
             return _failed(spec, model, "the model did not answer in time" if late
                            else f"the model could not be reached ({_kind(exc)})", attempt)
+        ai_call_ledger.fresh(packet.step, model)  # #1525: it answered
         problems = _reply_problems(spec, response, text)
         if not problems:
             data = json.loads(response.text)

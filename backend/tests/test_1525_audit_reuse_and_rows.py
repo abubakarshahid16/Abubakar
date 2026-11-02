@@ -28,7 +28,7 @@ from app import (
     review_audit_rows,
 )
 from app.config import settings
-from app.reasoning_provider import Response
+from app.reasoning_provider import ProviderRefused, Response
 from tests.test_1525_review_audit import (  # noqa: F401
     _files,
     _json,
@@ -164,6 +164,63 @@ def test_a_scope_reasoning_call_is_fresh(monkeypatch):
 
 class _Pkt:
     sha256 = "s"
+
+
+class Refuses(Fake):
+    def reason(self, packet):
+        self.asked += 1
+        raise ProviderRefused("invented")
+
+
+def test_a_refused_call_is_not_counted_fresh_on_any_counted_step(
+    temp_storage, monkeypatch
+):
+    monkeypatch.setattr(ai_task_runner, "model_identity", lambda m: f"{m}@d|ollama/1")
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", True)
+    monkeypatch.setattr(applicability_reasoning, "packet", lambda *a, **k: _Pkt())
+    spec = ai_task_runner.TaskSpec(
+        name="t_refused", version="v1", instruction="Say the kind.", schema=SCHEMA
+    )
+    ai_task_runner.register(spec)
+
+    def refused():
+        raise ProviderRefused("invented")
+
+    with ai_call_ledger.open_ledger():
+        for reuse_on in (True, False):
+            monkeypatch.setattr(settings, "ai_answer_reuse_enabled", reuse_on)
+            with pytest.raises(ProviderRefused):
+                ai_task_runner.reuse_or_ask("reader", "v1", "m", None, "p", refused)
+        monkeypatch.setattr(settings, "ai_answer_reuse_enabled", True)
+        monkeypatch.setattr(ai_task_runner, "model_identity", lambda m: None)
+        with pytest.raises(ProviderRefused):
+            ai_task_runner.reuse_or_ask("reader", "v1", "m", None, "p", refused)
+        assert (
+            ai_task_runner.run_task(spec, "a sentence", provider=Refuses()).state
+            != "ok"
+        )
+        with pytest.raises(ProviderRefused):
+            applicability_reasoning.decide_by_reasoning(
+                {"standard": "x"}, "pump", Refuses(), step="scope-step"
+            )
+        with pytest.raises(ProviderRefused):
+            field_naming.name_items(
+                field_naming.REQUIREMENT, [("r1", "A sentence")], ["Flow"], Refuses()
+            )
+        assert ai_call_ledger.snapshot() == []
+
+
+def test_the_run_line_prints_the_boundary_and_names_the_steps_left_out(
+    world, audit_dir, monkeypatch
+):
+    monkeypatch.setattr(settings, "review_audit_report_enabled", True)
+    _review(world)
+    md = next(f for f in _files(audit_dir) if f.suffix == ".md").read_text()
+    run_part = md.split("## 2. Pages")[0]
+    line = run_part.split("- AI calls made (fresh):")[1]
+    assert review_audit.AI_BOUNDARY in line
+    for step in ("rule_eval", "statement_roles", "field_vocabulary"):
+        assert step in review_audit.AI_BOUNDARY
 
 
 def test_stored_field_names_are_reused_per_item_and_new_ones_fresh(temp_storage):

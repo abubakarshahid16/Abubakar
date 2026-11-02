@@ -49,7 +49,7 @@ def recorded(job):
 
 def _note(step: str, model: str | None, field: str, count: int) -> None:
     ledger = _LEDGER.get()
-    if ledger is None:
+    if ledger is None or not count:
         return
     row = ledger.setdefault((step, model), {"fresh": 0, "reused": 0})
     row[field] += count

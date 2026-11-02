@@ -169,8 +169,8 @@ def decide_by_reasoning(record: dict | None, equipment_type: str | None, provide
         return empty("no equipment type classified for this submittal")
     if not record:
         return empty("no verified scope record for this standard")
-    ai_call_ledger.fresh(step, ai_call_ledger.model_of(provider))  # #1525
     response = provider.reason(packet(record, equipment_type, step=step, seed=seed))
+    ai_call_ledger.fresh(step, ai_call_ledger.model_of(provider))  # #1525: it answered
     parsed = _usable(response)
     if parsed is None:
         return empty("model comparison invalid or unavailable")

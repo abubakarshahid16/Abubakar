@@ -52,9 +52,11 @@ _FAILED_NO_WORSE = (
 AI_BOUNDARY = (
     "Answers asked for or reused during this attempt of this review job, over the steps "
     "listed with a record. A reused answer is a stored answer: no model was asked, and it "
-    "is never counted as a fresh call. A failed call counts as fresh. Field naming counts "
-    "one answer per named item. Not counted: reading done when the document was added, and "
-    "model steps that keep no stored answers and no count of their own."
+    "is never counted as a fresh call. A refused call is not fresh on a step counted during "
+    "the job; clause_review's and ai_engineering_check's stored counts are calls attempted. "
+    "Field naming counts one answer per named item. Not counted: reading done when the "
+    "document was added, and steps that keep no count of their own: rule_eval, "
+    "statement_roles, field_vocabulary, vision_reader and the matcher's Claude path."
 )
 
 
@@ -539,6 +541,7 @@ def _md_run(audit: dict) -> list[str]:
         f"- models used: {', '.join(run['models_used']) if run['models_used'] else NOT_RECORDED}",
         f"- AI calls made (fresh): {_v(run['ai_calls_made'])}; stored answers reused: "
         f"{_v(run['ai_answers_reused'])}; refused: {_v(run['ai_calls_refused'])}",
+        f"  - {AI_BOUNDARY}",
         f"- started by: {_v(run['started_by'])}",
         "",
     ]
