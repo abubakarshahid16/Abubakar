@@ -58,8 +58,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1612,
         description="version 2's rows reach the issue copy too",
         path=APP / "crs_export.py",
-        anchor="    if copy == COPY_INTERNAL:  # never numbered, never on the issue copy (`rulebook_v2_crs`, its switch)\n",
-        replacement="    if True:\n",
+        anchor=(
+            '        raise ValueError(f"unknown CRS copy {copy!r}")\n'
+            "    if copy == COPY_INTERNAL:\n"
+        ),
+        replacement=(
+            '        raise ValueError(f"unknown CRS copy {copy!r}")\n    if True:\n'
+        ),
         target=_T,
         keyword="issue_copy_rows_do_not_change",
         tags=_TAGS,

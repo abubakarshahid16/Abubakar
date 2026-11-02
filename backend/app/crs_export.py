@@ -327,11 +327,11 @@ def _rank_cells(finding: dict, copy: str) -> dict:
 
 
 def _copy_and_rows(findings: list[dict], meta: dict) -> tuple[str, list[dict]]:
-    """Which copy this is, and its rows."""
+    """Which copy this is, and its rows. Version 2's rows are never numbered, and never on the issue copy."""
     copy = meta.get("copy") or COPY_INTERNAL
     if copy not in COPIES:
         raise ValueError(f"unknown CRS copy {copy!r}")
-    if copy == COPY_INTERNAL:  # never numbered, never on the issue copy (`rulebook_v2_crs`, its switch)
+    if copy == COPY_INTERNAL:
         findings = [*findings, *(meta.get("rulebook_v2_rows") or [])]
     return copy, findings
 
