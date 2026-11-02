@@ -403,6 +403,32 @@ def test_a_withdrawn_document_stops_serving_even_for_a_caller_that_no_longer_dec
     assert len(send.calls) == 2, "a withdrawn document's answer was served"
 
 
+def test_a_lapsed_approval_stops_serving_even_for_a_caller_that_no_longer_declares_it(
+    tmp_path, monkeypatch
+):
+    """#1584: the row still reads approved, but its role no longer qualifies."""
+    _library(monkeypatch, {"doc1": "aaa"})
+    _approve(tmp_path, monkeypatch, ["aaa"])
+    lapsed = {"on": False}
+    monkeypatch.setattr(
+        claude_approved,
+        "_lapsed_ids",
+        lambda hashes: frozenset(hashes) if lapsed["on"] else frozenset(),
+    )
+    send = _send()
+    with claude_approved.carrying(["doc1"]):
+        _metered_call(send)("which?")
+    with claude_approved.carrying(()):
+        _metered_call(send)("which?")
+    assert len(send.calls) == 1, (
+        "the answer should be served before the approval lapses"
+    )
+    lapsed["on"] = True
+    with claude_approved.carrying(()):
+        _metered_call(send)("which?")
+    assert len(send.calls) == 2, "a lapsed document's answer was served"
+
+
 def test_a_blocked_file_stops_serving_even_with_the_guard_off_and_undeclared(
     monkeypatch,
 ):

@@ -10,6 +10,7 @@ import random
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,13 @@ def _rule(**over):
 
 
 class FakeBatches:
+    normal_output = 50
+    hold_open = False  # retrieve says in_progress until cancelled
+    cancel_fails = False
+    cancelled = ()  # batch ids cancelled
+    done_before_cancel = ()  # custom ids the batch finished before its cancel
+    never_ends = False
+
     """The three calls of `reader_transport`, with a cache that behaves like the API's: a system block marked for
     caching is written the first time and read after; unmarked text is plain input. Tokens are characters/4."""
 
@@ -155,6 +163,8 @@ class FakeBatches:
         self.stop = stop
         self.seed = seed
         self.seen_prefixes = set()
+        self.normal = []
+        self.missing_once = set()
 
     def batch_create(self, url, *, headers, requests):
         self.created.append(requests)
@@ -167,10 +177,26 @@ class FakeBatches:
         self.retrieves += 1
         if self.crash_first_retrieve and self.retrieves == 1:
             raise KeyboardInterrupt("the machine went down")
+        running = (self.hold_open and batch_id not in self.cancelled) or self.never_ends
         return {
             "id": batch_id,
-            "processing_status": "ended",
-            "results_url": "https://x/results",
+            "processing_status": "in_progress" if running else "ended",
+            "results_url": f"https://x/results/{batch_id}",
+        }
+
+    def batch_cancel(self, url, batch_id, *, headers):
+        if self.cancel_fails:
+            raise RuntimeError("cancel failed")
+        self.cancelled = (*self.cancelled, batch_id)
+        return {"id": batch_id, "processing_status": "canceling"}
+
+    def send(self, url, *, headers, body, timeout):
+        self.normal.append(body)
+        return {
+            "model": ANSWERED,
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 100, "output_tokens": self.normal_output},
+            "content": [{"type": "text", "text": self._answer_for(body)}],
         }
 
     def _usage(self, params):
@@ -193,11 +219,17 @@ class FakeBatches:
         return json.dumps({"rules": rules})
 
     def batch_results(self, url, *, headers):
+        batch_id = url.rsplit("/", 1)[-1]
+        n = int(batch_id.rsplit("_", 1)[-1])
         rows = []
-        for request in self.created[-1]:
+        for request in self.created[n - 1]:
             cid, params = request["custom_id"], request["params"]
+            if cid in self.missing_once:
+                continue
             kinds = self.kinds.get(cid) or self.kinds.get("*") or []
             kind = kinds.pop(0) if kinds else "succeeded"
+            if batch_id in self.cancelled and cid not in self.done_before_cancel:
+                kind = "canceled"
             if kind == "missing":
                 continue
             result = {"type": kind}
@@ -933,7 +965,7 @@ def test_a_requeue_is_checked_against_the_budget_again():
             "job",
             packets,
             client=fake,
-            room=lambda: next(rooms),
+            room=lambda _step: (next(rooms), 1e9),
             sleep=lambda _s: None,
         )
     assert len(fake.created) == 1 and out.over_budget == ["a"]
@@ -3344,3 +3376,749 @@ def test_a_sentence_opening_on_a_scope_word_with_no_comma_holds_a_scope():
         None,
         "condition_not_captured",
     )
+
+
+# ---------------------------------------------------------------------------------- one batch, many standards
+
+SECOND = "SAES-Z-901"
+THIRD = "SAES-Z-902"
+
+
+def _three():
+    _document()
+    _document(
+        "std-b", SECOND, pages=("5.1 Part\nOTHERWORD pressure shall not exceed 7 bar.",)
+    )
+    _document(
+        "std-c", THIRD, pages=("6.1 Part\nTHIRDWORD pressure shall not exceed 9 bar.",)
+    )
+    return {DOC: LABEL, "std-b": SECOND, "std-c": THIRD}
+
+
+def test_named_standards_go_in_one_batch_with_a_report_each():
+    documents = _three()
+    fake = FakeBatches([])
+    reports = standards_compiler.compile_many(
+        db.connect(), documents, client=fake, sleep=lambda _s: None
+    )
+    assert len(fake.created) == 1 and len(fake.created[0]) == 3
+    assert [r["standard"] for r in reports] == [LABEL, SECOND, THIRD]
+    assert all(r["status"] == "all_pages_answered" for r in reports)
+
+
+def test_each_request_in_the_one_batch_holds_one_standard_only():
+    documents = _three()
+    fake = FakeBatches([])
+    standards_compiler.compile_many(
+        db.connect(), documents, client=fake, sleep=lambda _s: None
+    )
+    bodies = [json.dumps(r["params"]) for r in fake.created[0]]
+    assert (
+        sum("OTHERWORD" in b for b in bodies) == 1
+        and sum("THIRDWORD" in b for b in bodies) == 1
+    )
+    assert not any("OTHERWORD" in b and "THIRDWORD" in b for b in bodies)
+
+
+def test_each_standard_is_charged_on_its_own_step_inside_one_batch():
+    documents = _three()
+    standards_compiler.compile_many(
+        db.connect(), documents, client=FakeBatches([]), sleep=lambda _s: None
+    )
+    steps = {e["step"] for e in claude_spend.entries()}
+    assert steps == {
+        claude_spend.STANDARD_STEP_PREFIX + x for x in (LABEL, SECOND, THIRD)
+    }
+
+
+def test_the_per_standard_cap_holds_inside_one_batch(monkeypatch):
+    _document(pages=_big_pages(20))
+    _document(
+        "std-b", SECOND, pages=("5.1 Part\nThe pressure shall not exceed 7 bar.",)
+    )
+    monkeypatch.setattr(settings, "claude_budget_usd_per_standard", 0.2)
+    fake = FakeBatches([])
+    reports = standards_compiler.compile_many(
+        db.connect(), {DOC: LABEL, "std-b": SECOND}, client=fake, sleep=lambda _s: None
+    )
+    by_name = {r["standard"]: r for r in reports}
+    assert (
+        by_name[LABEL]["status"] == "partial" and by_name[LABEL]["chunks_not_sent"] > 0
+    )
+    assert by_name[SECOND]["status"] == "all_pages_answered" and len(fake.created) == 1
+
+
+def test_one_refused_standard_sends_nothing_for_any():
+    _three()
+    _document("std-x", "SAES-Z-903", pages=(PAGE_1,), listed=False)
+    fake = FakeBatches([])
+    with pytest.raises(claude_spend.DocumentNotApproved):
+        standards_compiler.compile_many(
+            db.connect(),
+            {DOC: LABEL, "std-b": SECOND, "std-x": "SAES-Z-903"},
+            client=fake,
+        )
+    assert fake.created == [] and claude_spend.entries() == []
+
+
+def test_the_script_given_three_standards_makes_one_batch():
+    _three()
+    fake = FakeBatches([])
+    said = []
+    code = compile_standards.run(
+        _copy_db(),
+        [LABEL, SECOND, THIRD],
+        client=fake,
+        sleep=lambda _s: None,
+        emit=said.append,
+        note=lambda _s: None,
+    )
+    assert code == 0 and len(fake.created) == 1
+    assert len(json.loads(said[0])["standards"]) == 3
+
+
+def test_a_batch_splits_only_at_the_apis_request_limit(monkeypatch):
+    documents = _three()
+    monkeypatch.setattr(claude_batch_run, "MAX_BATCH_REQUESTS", 2)
+    fake = FakeBatches([])
+    reports = standards_compiler.compile_many(
+        db.connect(), documents, client=fake, sleep=lambda _s: None
+    )
+    assert [len(c) for c in fake.created] == [2, 1]
+    assert all(r["status"] == "all_pages_answered" for r in reports)
+
+
+def test_a_batch_splits_only_at_the_apis_size_limit(monkeypatch):
+    documents = _three()
+    monkeypatch.setattr(claude_batch_run, "MAX_BATCH_BYTES", 1)
+    fake = FakeBatches([])
+    standards_compiler.compile_many(
+        db.connect(), documents, client=fake, sleep=lambda _s: None
+    )
+    assert len(fake.created) == 3
+
+
+def test_the_same_chunk_in_two_standards_keeps_two_answers():
+    same = "5.1 Part\nThe pressure shall not exceed 7 bar."
+    _document("std-b", SECOND, pages=(same,))
+    _document("std-c", THIRD, pages=(same,))
+    fake = FakeBatches([])
+    standards_compiler.compile_many(
+        db.connect(),
+        {"std-b": SECOND, "std-c": THIRD},
+        client=fake,
+        sleep=lambda _s: None,
+    )
+    ids = [r["custom_id"] for r in fake.created[0]]
+    assert len(set(ids)) == 2
+    rows = (
+        db.connect()
+        .execute(
+            "SELECT COUNT(*) AS n FROM claude_batch_requests WHERE state='answered'"
+        )
+        .fetchone()
+    )
+    assert rows["n"] == 2
+
+
+def test_a_run_naming_only_part_of_an_open_batch_is_refused_and_sends_nothing_new():
+    documents = _three()
+    fake = FakeBatches([])
+    fake.hold_open = True
+    reports = standards_compiler.compile_many(
+        db.connect(), documents, client=fake, sleep=lambda _s: None, max_wait_s=0
+    )
+    assert all(r["status"] == "waiting" for r in reports)
+    with pytest.raises(ProviderRefused, match="name every standard"):
+        standards_compiler.compile_many(
+            db.connect(), {DOC: LABEL}, client=fake, sleep=lambda _s: None
+        )
+    assert len(fake.created) == 1
+
+
+def test_a_crash_resumes_the_one_batch_for_every_standard():
+    documents = _three()
+    fake = FakeBatches([], crash_first_retrieve=True)
+    with pytest.raises(KeyboardInterrupt):
+        standards_compiler.compile_many(
+            db.connect(), documents, client=fake, sleep=lambda _s: None
+        )
+    reports = standards_compiler.compile_many(
+        db.connect(), documents, client=fake, sleep=lambda _s: None
+    )
+    assert len(fake.created) == 1 and all(
+        r["status"] == "all_pages_answered" for r in reports
+    )
+
+
+# ------------------------------------------------------------------------------------- the normal-price fallback
+
+
+class _Clock:
+    def __init__(self):
+        self.now = time.time()
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+HOUR = 3600.0
+
+
+def _fallback(fake, documents=None, **kw):
+    clock = _Clock()
+    kw.setdefault("fallback_after_s", HOUR)
+    return standards_compiler.compile_many(
+        db.connect(),
+        documents or {DOC: LABEL},
+        client=fake,
+        send=fake.send,
+        sleep=clock.sleep,
+        clock=clock,
+        **kw,
+    )
+
+
+def test_the_fallback_is_off_by_default():
+    _document()
+    fake = FakeBatches()
+    fake.hold_open = True
+    clock = _Clock()
+    report = standards_compiler.compile_standard(
+        db.connect(),
+        DOC,
+        LABEL,
+        client=fake,
+        send=fake.send,
+        sleep=clock.sleep,
+        clock=clock,
+        max_wait_s=2 * HOUR,
+    )
+    assert report["status"] == "waiting" and fake.cancelled == () and fake.normal == []
+
+
+def test_a_batch_back_in_time_sends_nothing_at_the_normal_price():
+    _document()
+    fake = FakeBatches()
+    report = _fallback(fake)[0]
+    assert (
+        report["status"] == "all_pages_answered" and report["sent_at_normal_price"] == 0
+    )
+    assert fake.normal == [] and fake.cancelled == ()
+
+
+def test_an_overdue_batch_is_cancelled_first_then_what_it_left_is_sent_normally():
+    _document()
+    fake = FakeBatches()
+    fake.hold_open = True
+    report = _fallback(fake)[0]
+    assert fake.cancelled == ("msgbatch_1",) and len(fake.normal) == 1
+    assert (
+        report["status"] == "all_pages_answered" and report["sent_at_normal_price"] == 1
+    )
+    assert report["kept"] == 1 and report["batches_cancelled"] == 1
+    assert _rules()[0]["batch_id"] == claude_batch_run.NORMAL_SEND
+
+
+def test_the_fallback_waits_the_time_it_was_given():
+    _document()
+    fake = FakeBatches()
+    fake.hold_open = True
+    clock = _Clock()
+    start = clock.now
+    standards_compiler.compile_many(
+        db.connect(),
+        {DOC: LABEL},
+        client=fake,
+        send=fake.send,
+        sleep=clock.sleep,
+        clock=clock,
+        fallback_after_s=HOUR,
+        poll_seconds=60.0,
+    )
+    assert HOUR <= clock.now - start < HOUR + 300
+
+
+def test_a_partial_cancel_keeps_what_the_batch_finished_and_sends_only_the_rest():
+    pages = _two_chunk_pages()
+    _document(pages=pages)
+    first, _second = (
+        c.custom_id for c in standards_compiler.chunks_of(dict(enumerate(pages, 1)))
+    )
+    fake = FakeBatches([])
+    fake.hold_open = True
+    fake.done_before_cancel = (first,)
+    report = _fallback(fake)[0]
+    assert len(fake.normal) == 1 and report["sent_at_normal_price"] == 1
+    sent = json.dumps(fake.normal[0]["messages"])
+    assert "The two widget" in sent and "The one widget" not in sent
+    prices = [bool(e.get("batch")) for e in claude_spend.entries() if e.get("settles")]
+    assert sorted(prices) == [False, True]
+
+
+def test_a_failed_cancel_sends_nothing():
+    _document()
+    fake = FakeBatches()
+    fake.hold_open = True
+    fake.cancel_fails = True
+    report = _fallback(fake)[0]
+    assert report["status"] == "waiting" and fake.normal == []
+    assert [
+        e for e in claude_spend.entries() if e.get("reserved")
+    ]  # still held at its worst case
+
+
+def test_a_cancel_that_does_not_finish_sends_nothing_and_the_next_run_goes_on():
+    _document()
+    fake = FakeBatches()
+    fake.never_ends = True
+    report = _fallback(fake)[0]
+    assert (
+        report["status"] == "waiting"
+        and fake.normal == []
+        and fake.cancelled == ("msgbatch_1",)
+    )
+    fake.never_ends = False
+    again = _fallback(fake)[0]
+    assert (
+        again["status"] == "all_pages_answered"
+        and len(fake.normal) == 1
+        and len(fake.cancelled) == 1
+    )
+
+
+def test_a_request_is_never_answered_twice_at_two_prices():
+    pages = _two_chunk_pages()
+    _document(pages=pages)
+    first, second = (
+        c.custom_id for c in standards_compiler.chunks_of(dict(enumerate(pages, 1)))
+    )
+    fake = FakeBatches([])
+    fake.hold_open = True
+    fake.done_before_cancel = (first, second)
+    report = _fallback(fake)[0]
+    assert fake.normal == [] and report["sent_at_normal_price"] == 0
+
+
+def test_a_batch_result_arriving_late_is_used_not_bought_again():
+    _document()
+    fake = FakeBatches()
+    cid = standards_compiler.chunks_of({1: PAGE_1, 2: PAGE_2})[0].custom_id
+    fake.hold_open = True
+    fake.cancel_fails = False
+    fake.done_before_cancel = (cid,)
+    fake.missing_once = {cid}
+    first = _fallback(fake)[
+        0
+    ]  # the row is missing, charged its worst case, and sent normally
+    assert first["sent_at_normal_price"] == 1
+    lines = len(claude_spend.entries())
+    charged = claude_spend.spent(standards_converter.step_for(LABEL))
+    fake.missing_once = set()
+    with db.connect() as conn:
+        conn.execute("UPDATE claude_batch_requests SET answer = ?", ('{"rules": []}',))
+        conn.execute("DELETE FROM compiled_rules")
+        conn.execute("DELETE FROM compile_runs")
+    second = standards_compiler.compile_many(
+        db.connect(), {DOC: LABEL}, client=fake, send=fake.send, sleep=lambda _s: None
+    )[0]
+    row = db.connect().execute("SELECT answer FROM claude_batch_requests").fetchone()
+    assert (
+        row["answer"] == '{"rules": []}'
+    )  # the late one is kept raw and replaces nothing
+    assert second["late_results"] == 1
+    assert (
+        len(claude_spend.entries()) == lines
+        and claude_spend.spent(standards_converter.step_for(LABEL)) == charged
+    )
+
+
+def test_a_late_row_with_no_other_answer_saves_the_send():
+    _document(pages=("7.3 Part\nThe pressure shall not exceed 200 psi.",))
+    fake = FakeBatches([])
+    cid = standards_compiler.chunks_of(
+        {1: "7.3 Part\nThe pressure shall not exceed 200 psi."}
+    )[0].custom_id
+    fake.kinds = {cid: ["missing", "missing"]}
+    report = standards_compiler.compile_standard(
+        db.connect(), DOC, LABEL, client=fake, sleep=lambda _s: None
+    )
+    assert report["status"] == "partial"
+    fake.kinds = {}
+    again = standards_compiler.compile_standard(
+        db.connect(), DOC, LABEL, client=fake, sleep=lambda _s: None
+    )
+    assert again["status"] == "all_pages_answered" and again["late_results"] >= 1
+    assert len(fake.created) == 2
+
+
+def test_a_late_result_on_an_answered_request_is_charged_at_the_batch_price_and_replaces_nothing():
+    _document()
+    fake = FakeBatches()
+    fake.hold_open = True
+    _fallback(fake)
+    with db.connect() as conn:
+        conn.execute("UPDATE claude_batches SET state = 'open'")
+        conn.execute("DELETE FROM compiled_rules")
+        conn.execute("DELETE FROM compile_runs")
+        conn.execute(
+            "UPDATE claude_batch_requests SET batch_row = (SELECT id FROM claude_batches LIMIT 1)"
+        )
+    fake.hold_open = False
+    fake.cancelled = ()
+    before = claude_spend.spent(standards_converter.step_for(LABEL))
+    report = standards_compiler.compile_standard(
+        db.connect(), DOC, LABEL, client=fake, sleep=lambda _s: None
+    )
+    assert report["late_results"] == 1 and report["status"] == "all_pages_answered"
+    late = [
+        e
+        for e in claude_spend.entries()
+        if e.get("finish_reason") == "late_batch_result"
+    ]
+    assert len(late) == 1 and late[0]["batch"] is True and late[0]["cost_usd"] > 0
+    assert claude_spend.spent(standards_converter.step_for(LABEL)) > before
+    assert _rules()[0]["batch_id"] == claude_batch_run.NORMAL_SEND
+
+
+def test_the_normal_send_carries_the_same_model_and_prompt():
+    _document()
+    fake = FakeBatches()
+    fake.hold_open = True
+    _fallback(fake)
+    batch_params, normal = fake.created[0][0]["params"], fake.normal[0]
+    assert normal["model"] == batch_params["model"] == MODEL
+    assert normal["system"][0]["text"] == batch_params["system"][0]["text"]
+    assert normal["messages"] == batch_params["messages"]
+    assert _rules()[0]["prompt_version"] == standards_compiler.PROMPT_VERSION
+    assert _rules()[0]["model"] == ANSWERED
+
+
+def test_the_normal_send_uses_the_same_answer_cache():
+    _document()
+    fake = FakeBatches()
+    fake.hold_open = True
+    _fallback(fake)
+    with db.connect() as conn:
+        for table in (
+            "compiled_rules",
+            "compile_runs",
+            "claude_batch_requests",
+            "claude_batches",
+        ):
+            conn.execute(f"DELETE FROM {table}")
+    fake2 = FakeBatches()
+    fake2.hold_open = True
+    report = _fallback(fake2)[0]
+    assert fake2.normal == [] and report["kept"] == 1
+
+
+def test_a_spend_line_says_batch_or_normal_and_the_normal_costs_twice():
+    usage = {"input_tokens": 1000, "output_tokens": 500}
+    entry = claude_spend.record(
+        step="s",
+        model=MODEL,
+        usage=usage,
+        prompt_sha256="",
+        wall_time_s=0.0,
+        finish_reason="x",
+    )
+    batch = claude_spend.record(
+        step="s",
+        model=MODEL,
+        usage=usage,
+        prompt_sha256="",
+        wall_time_s=0.0,
+        finish_reason="x",
+        batch=True,
+    )
+    assert "batch" not in entry and batch["batch"] is True
+    assert entry["cost_usd"] == pytest.approx(2 * batch["cost_usd"])
+
+
+def test_a_normal_send_is_settled_at_the_normal_price():
+    _document()
+    fake = FakeBatches()
+    fake.hold_open = True
+    _fallback(fake)
+    line = next(e for e in claude_spend.entries() if e.get("settles"))
+    assert "batch" not in line
+    assert line["cost_usd"] == pytest.approx(
+        claude_spend.cost_usd(ANSWERED, {"input_tokens": 100, "output_tokens": 50})
+    )
+
+
+def test_the_fallback_reservation_is_at_the_normal_worst_case(monkeypatch):
+    _document()
+    packet = next(
+        iter(
+            standards_compiler.packets_of(
+                LABEL,
+                {1: PAGE_1, 2: PAGE_2},
+                standards_compiler.chunks_of({1: PAGE_1, 2: PAGE_2}),
+            ).values()
+        )
+    )
+    normal = claude_batch_run.worst_usd(MODEL, packet, batch=False)
+    assert normal == pytest.approx(2 * claude_batch_run.worst_usd(MODEL, packet))
+    held = []
+    real = claude_spend.reserve_all
+
+    def spy(items, **kw):
+        held.append((items[0][1], kw.get("batch", False)))
+        return real(items, **kw)
+
+    monkeypatch.setattr(claude_spend, "reserve_all", spy)
+    fake = FakeBatches()
+    fake.hold_open = True
+    _fallback(fake)
+    assert held[0][1] is True and held[1][1] is False and held[1][0] > held[0][0]
+
+
+@pytest.mark.parametrize(
+    "setting", ["claude_budget_usd_per_standard", "claude_budget_usd_total"]
+)
+def test_the_fallback_stops_at_a_cap_and_reports_partial_with_what_was_not_sent(
+    monkeypatch, setting
+):
+    pages = _big_pages(30)
+    _document(pages=pages)
+    per_request = 0.12
+    cap = per_request * 15
+    monkeypatch.setattr(settings, setting, cap)
+    fake = FakeBatches([])
+    fake.hold_open = True
+    fake.normal_output = 12000
+    report = _fallback(fake)[0]
+    assert report["status"] == "partial" and report["chunks_not_sent"] > 0
+    assert (
+        report["sent_at_normal_price"] + report["chunks_not_sent"] == report["chunks"]
+    )
+    assert report["pages_not_read"]
+    assert claude_spend.spent() <= cap
+
+
+def test_the_fallback_stops_at_the_daily_limit():
+    _document(pages=_big_pages(30))
+    fake = FakeBatches([])
+    fake.hold_open = True
+    fake.normal_output = 12000
+    report = _fallback(fake, max_usd=1.0)[0]
+    assert report["status"] == "partial" and report["chunks_not_sent"] > 0
+    assert claude_spend.spent() <= 1.0
+
+
+def test_a_normal_price_over_the_cap_stops_there_and_names_the_rest():
+    pages = tuple(
+        f"{n}.1 Part\n" + "invented filler words of a page line\n" * 250
+        for n in range(1, 300)
+    )
+    numbered = dict(enumerate(pages, 1))
+    packets = standards_compiler.packets_of(
+        LABEL, numbered, standards_compiler.chunks_of(numbered)
+    )
+    worst = standards_compiler.estimate(MODEL, packets)
+    assert worst["worst_usd"] < 25.0 < worst["worst_usd_normal_price"]
+    _document(pages=pages)
+    fake = FakeBatches([])
+    fake.hold_open = True
+    fake.normal_output = 12000
+    report = _fallback(fake)[0]
+    assert report["status"] == "partial" and report["chunks_not_sent"] > 0
+    assert claude_spend.spent(standards_converter.step_for(LABEL)) <= 25.0
+
+
+def test_the_estimate_gives_both_prices_and_how_the_cap_stops_the_dearer():
+    pages = tuple(
+        f"{n}.1 Part\n" + "invented filler words of a page line\n" * 250
+        for n in range(1, 300)
+    )
+    _document(pages=pages)
+    report = standards_compiler.compile_standard(
+        db.connect(), DOC, LABEL, client=FakeBatches(), estimate_only=True
+    )
+    estimate_ = report["estimate"]
+    assert estimate_["worst_usd"] < 25.0 and estimate_["over_per_standard_cap"] is False
+    assert estimate_["normal_price_over_per_standard_cap"] is True
+    assert estimate_["normal_price_stops_at_usd"] == 25.0
+
+
+def test_the_script_prints_the_batch_and_the_fallback_worst_case():
+    _three()
+    said = []
+    assert (
+        compile_standards.run(
+            _copy_db(),
+            [LABEL, SECOND, THIRD],
+            estimate_only=True,
+            emit=said.append,
+            note=lambda _s: None,
+        )
+        == 0
+    )
+    out = json.loads(said[0])
+    assert out["requests_total"] == 3 and out["batches_needed"] == 1
+    assert out["fallback_worst_usd_normal_price_total"] == pytest.approx(
+        2 * out["worst_usd_total"], rel=0.01
+    )
+    assert out["fallback_stops_at_usd_total"] > 0
+
+
+def test_batches_needed_counts_the_apis_limits():
+    assert claude_batch_run.batches_needed(0, 0) == 0
+    assert claude_batch_run.batches_needed(1, 10) == 1
+    assert claude_batch_run.batches_needed(100_001, 10) == 2
+    assert claude_batch_run.batches_needed(5, claude_batch_run.MAX_BATCH_BYTES + 1) == 2
+
+
+def test_the_script_takes_the_fallback_option_off_by_default():
+    fallback = compile_standards.run.__kwdefaults__["fallback_after_s"]
+    assert fallback is None
+
+
+def test_batch_cancel_goes_through_the_gate_and_refuses_a_strange_id(monkeypatch):
+    from app import reader_transport
+
+    calls = []
+
+    class Reply:
+        status_code = 200
+
+        def json(self):
+            return {"id": "b", "processing_status": "canceling"}
+
+    monkeypatch.setattr(
+        reader_transport,
+        "_gated",
+        lambda method, url, **kw: calls.append((method, url)) or Reply(),
+    )
+    out = reader_transport.batch_cancel(
+        "https://x/v1/messages", "msgbatch_1", headers={}
+    )
+    assert out["processing_status"] == "canceling"
+    assert calls == [("POST", "https://x/v1/messages/batches/msgbatch_1/cancel")]
+    with pytest.raises(reader_transport.TransportRefused):
+        reader_transport.batch_cancel("https://x/v1/messages", "../x", headers={})
+
+
+def test_batch_cancel_is_shut_with_egress_off():
+    from app import reader_transport
+
+    with_egress_off = settings.standards_reader_enabled
+    settings.standards_reader_enabled = False
+    try:
+        with pytest.raises(reader_transport.TransportRefused):
+            reader_transport.batch_cancel(
+                "https://api.anthropic.com/v1/messages", "b1", headers={}
+            )
+    finally:
+        settings.standards_reader_enabled = with_egress_off
+
+
+# ------------------------------------------------------------------------------------- the cost audit (#1595)
+
+
+def _other_route(usd, step="chat"):
+    claude_spend.record(
+        step=step,
+        model=MODEL,
+        usage=None,
+        prompt_sha256="",
+        wall_time_s=0.0,
+        finish_reason="x",
+        estimated_usd=usd,
+    )
+
+
+def test_the_day_limit_counts_every_route_not_only_this_job():
+    _document()
+    _other_route(1.0)
+    fake = FakeBatches()
+    with pytest.raises(standards_compiler.TooDear):
+        _compile(fake, max_usd=1.0)
+    assert fake.created == []
+
+
+def test_a_day_nearly_full_sends_what_fits_and_names_the_rest():
+    _document(pages=_big_pages(20))
+    fake = FakeBatches([])
+    report = _compile(fake, max_usd=0.5)
+    assert report["status"] == "partial" and 0 < len(fake.created[0]) < report["chunks"]
+    assert report["chunks_not_sent"] == report["chunks"] - len(fake.created[0])
+
+
+def test_the_report_keeps_what_was_spent_apart_from_what_is_held():
+    _document()
+    fake = FakeBatches()
+    _still_running(fake)
+    report = _compile(fake, max_wait_s=0)
+    assert report["status"] == "waiting"
+    assert report["usd_on_this_standards_step"] == 0 and report["usd_still_held"] > 0
+
+
+def _left_over_hold(step, age_s=0.0):
+    held = claude_spend.reserve(step, 24.97, model=MODEL)
+    return held
+
+
+def test_a_hold_nothing_owns_older_than_any_batch_does_not_block_a_standard():
+    _document()
+    _left_over_hold(standards_converter.step_for(LABEL))
+    fake = FakeBatches()
+    clock = _Clock()
+    clock.now += standards_compiler.STALE_HOLD_S + 60
+    report = standards_compiler.compile_standard(
+        db.connect(), DOC, LABEL, client=fake, sleep=clock.sleep, clock=clock
+    )
+    assert report["status"] == "all_pages_answered" and report["holds_released"] == 1
+    assert report["holds_released_usd"] == 24.97 and report["usd_still_held"] == 0
+
+
+def test_a_young_hold_nothing_owns_stays_counted_unless_the_operator_says():
+    _document()
+    _left_over_hold(standards_converter.step_for(LABEL))
+    fake = FakeBatches()
+    with pytest.raises(standards_compiler.TooDear):
+        standards_compiler.compile_standard(
+            db.connect(), DOC, LABEL, client=fake, sleep=lambda _s: None
+        )
+    report = standards_compiler.compile_standard(
+        db.connect(), DOC, LABEL, client=fake, sleep=lambda _s: None, release_holds=True
+    )
+    assert report["status"] == "all_pages_answered" and report["holds_released"] == 1
+
+
+def test_a_hold_a_running_batch_owns_is_never_released():
+    _document()
+    fake = FakeBatches()
+    _still_running(fake)
+    _compile(fake, max_wait_s=0)
+    freed = standards_compiler.release_left_over_holds(
+        db.connect(), {standards_converter.step_for(LABEL)}, force=True
+    )
+    assert freed["holds_released"] == 0
+    assert [e for e in claude_spend.entries() if e.get("reserved")]
+
+
+def test_a_hold_on_another_standard_is_left_alone():
+    _document()
+    _left_over_hold(standards_converter.step_for("SAES-A-1"))
+    freed = standards_compiler.release_left_over_holds(
+        db.connect(), {standards_converter.step_for(LABEL)}, force=True
+    )
+    assert freed["holds_released"] == 0
+
+
+def test_ensure_schema_takes_no_argument_like_every_other_module():
+    standards_compiler.ensure_schema()
+    claude_batch_run.ensure_schema()
+    names = {
+        r["name"]
+        for r in db.connect().execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    assert {"compiled_rules", "compile_runs", "claude_batches"} <= names
