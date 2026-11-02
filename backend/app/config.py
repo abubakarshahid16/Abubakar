@@ -1531,8 +1531,7 @@ ANSWER_AFFECTING_SETTINGS = (
     # reader read the sheet, whether applicability is decided by taxonomy or
     # by model reasoning), not only a chat answer; config_version is stamped
     # on every review run (review_jobs.py, submittal_review.py) as well as on
-    # chat reports, so leaving them out let a run's AI settings change with
-    # no change in the version a report compares against.
+    # chat reports, so leaving them out hid a change of a run's AI settings.
     "ai_task_model", "datasheet_ai_reader", "match_engine",
     "ai_applicability_enabled", "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
