@@ -23,7 +23,8 @@ Counts, read back from the saved workbook itself:
   duplicate rows    rows sharing (document, Page No./Section, Standard Reference)
                     with another row
   empty rows        rows whose COMPANY comment is blank or the placeholder
-  no page           rows whose page cell has no page and no "page not found (reason)"
+  no page           rows whose page cell has no page, no "page not found (reason)", and no
+                    section-or-field cell (`crs_export_quality.no_page_cell`)
   internal words    cells holding "not yet proven", "Reasoning (internal)" or
                     "Rule trust (internal)" (client copies only are meant to be 0)
   over 350          comments longer than 350 characters
@@ -101,7 +102,9 @@ def measure(workbook_path: Path) -> dict:
         "no_page": sum(
             1
             for p in pages
-            if not _PAGE.search(p) and not p.startswith("page not found (")
+            if not _PAGE.search(p)
+            and not p.startswith("page not found (")
+            and "so no page" not in p
         ),
         "internal_words": words,
         "over_350": sum(1 for c in comments if len(c) > 350),

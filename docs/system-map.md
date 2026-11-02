@@ -115,6 +115,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `coverage` | Which documents the question was about, and which of them the answer used |
 | `presence_check` | #1638: a checklist `required` row only asks that a field is stated: with the switch on it counts for no approval and is no decided rule, and is named "stated, not checked" |
 | `coverage_pair` | Plan change 6 B: one meaning of "checked": risk (wrong among decided) and coverage (decided of the rules the run states apply), checklist apart, for the bench, the board call and, behind ONE_CHECKED_DEFINITION_ENABLED, the CRS and the screen |
+| `coverage_values` | #1592: the CRS footer's one count of values read: checklist fields read, and standard rules tied to a field, each rule once, beside `coverage_pair`; words only, behind ONE_CHECKED_DEFINITION_ENABLED |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
