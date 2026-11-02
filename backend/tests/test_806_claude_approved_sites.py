@@ -144,6 +144,9 @@ DECLARED_BY = {
     "applicability_reasoning.py": "applicability.py",  # called per standard from there
     "chat_answers.py": "chat_answers.py",
     "standards_compiler.py": "standards_compiler.py",
+    "rule_field_naming.py": "claude_batch_run.py",
+    "rule_typed_check.py": "claude_batch_run.py",
+    "material_reference.py": "material_reference.py",
     "chat_claude_first.py": "chat_claude_first.py",
     "chat_model.py": "chat.py",  # the engine call; chat.ask and its callers declare
     "claude_api.py": "claude_api.py",

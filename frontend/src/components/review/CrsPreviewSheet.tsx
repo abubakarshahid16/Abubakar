@@ -263,6 +263,11 @@ export function CrsPreviewSheet(
           {preview.incomplete_notice}
         </p>
       )}
+      {preview.rulebook_v2_note && (
+        <p className="text-xs text-ink-500" role="note" data-testid="crs-rulebook-note">
+          {preview.rulebook_v2_note}
+        </p>
+      )}
       {/* B10: whether an engineer decided the code, or it is still the AI's. */}
       {preview.recommended_code && preview.recommended_code_status && (
         <p className="text-xs text-warn-500" data-testid="crs-code-status">

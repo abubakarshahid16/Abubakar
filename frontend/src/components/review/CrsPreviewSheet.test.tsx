@@ -55,6 +55,16 @@ describe("CrsPreviewSheet Priority column (order 139 part 2)", () => {
       "2 rows were left off this copy because they have no comment text.");
   });
 
+  it("#805: prints the note on a decided rule, and nothing when there is none", () => {
+    const { unmount } = render(
+      <CrsPreviewSheet preview={sheet({ rulebook_v2_note: "An invented note." })} runId="run-1" onChanged={vi.fn()} readOnly />,
+    );
+    expect(screen.getByTestId("crs-rulebook-note")).toHaveTextContent("An invented note.");
+    unmount();
+    render(<CrsPreviewSheet preview={sheet()} runId="run-1" onChanged={vi.fn()} readOnly />);
+    expect(screen.queryByTestId("crs-rulebook-note")).toBeNull();
+  });
+
   it("says nothing about withheld rows when none were", () => {
     render(<CrsPreviewSheet preview={sheet({ rows_withheld_no_text: 0 })} runId="run-1" onChanged={vi.fn()} readOnly />);
     expect(screen.queryByTestId("crs-withheld-no-text")).toBeNull();
