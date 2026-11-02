@@ -265,6 +265,12 @@ class SettingsExt(BaseModel):
     #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
     #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
     one_checked_definition_enabled: bool = False
+    #: #1568: a page recognition failed on because the stored file could not be opened holds the document
+    #: at partially_searchable with the reason (`reading_state`, `page_not_read.is_file_error`), and the OCR
+    #: pools carry the parent's data directory to their workers (`ocr.pool_options`). Any other recognition
+    #: failure stays as it was. Works with ONE_CHECKED_DEFINITION_ENABLED on or off. OFF: byte-identical,
+    #: and at the next start a document it held goes back. Env: OCR_FILE_ERROR_HOLD_ENABLED.
+    ocr_file_error_hold_enabled: bool = False
     #: Owner's text on #1584: a rule the owner approved (`approval.tier == "owner"`) may decide a verdict, labelled
     #: "AI-built, quote-verified, owner-approved" (`rule_trust.tier_for_approved`), never "engineer-approved". Code
     #: still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick and, until ticked, no Approved

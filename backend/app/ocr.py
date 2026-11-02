@@ -57,6 +57,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
+from pathlib import Path
 
 from . import errors, figure_page, pdf_guard, stored_paths
 from .config import settings
@@ -536,6 +537,23 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
     return out
 
 
+def _carry_data_dir(data_dir: str) -> None:
+    """Pool initializer: a spawned worker reads its settings afresh, so a data directory
+    set only in the parent never reached it, and the worker looked for the stored file
+    and the page-image cache in its own default directory (#1568). Runs in the WORKER."""
+    settings.data_dir = Path(data_dir)
+
+
+def pool_options() -> dict:
+    """How a recognition pool starts. OCR_FILE_ERROR_HOLD_ENABLED off: as before."""
+    if not settings.ocr_file_error_hold_enabled:
+        return {}
+    return {
+        "initializer": _carry_data_dir,
+        "initargs": (str(settings.data_dir.resolve()),),
+    }
+
+
 def failed_page_reason(error: str) -> str:
     """The exclusion-ledger reason for a page recognition failed on. One home:
     the chunker writes it when it rebuilds the ledger, `_commit_batch` when a
@@ -698,7 +716,9 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
         # batches that were in flight are recorded as failed and the rest go
         # to a fresh pool - one dead child costs the pages it held, never the
         # document.
-        with cf.ProcessPoolExecutor(max_workers=settings.ocr_processes) as pool:
+        with cf.ProcessPoolExecutor(
+            max_workers=settings.ocr_processes, **pool_options()
+        ) as pool:
             inflight: dict[int, tuple[list[int], cf.Future]] = {}
             broken = False
             while (queue and not broken) or inflight:
@@ -807,7 +827,7 @@ def page_lines(stored_path: str, sha256: str, page_no: int) -> list[tuple]:
     key = (stored_path, sha256, int(page_no))
     if key in _PAGE_LINES:
         return _PAGE_LINES[key]
-    pool = cf.ProcessPoolExecutor(max_workers=1)
+    pool = cf.ProcessPoolExecutor(max_workers=1, **pool_options())
     try:
         lines = pool.submit(recognise_page_lines, stored_path, sha256,
                             int(page_no)).result(timeout=PAGE_LINES_TIMEOUT_S)
