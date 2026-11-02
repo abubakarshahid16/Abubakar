@@ -505,9 +505,7 @@ class ClaudeProvider:
                                "cache_control": {"type": "ephemeral"}}]
         return request, body, prompt
 
-    def _response(
-        self, payload: dict | None, packet: Packet, wall: float, cost: float
-    ) -> Response:
+    def _response(self, payload: dict | None, packet: Packet, wall: float, cost: float) -> Response:
         """The Response for one Messages answer, fresh or stored."""
         from . import reader_api
 
@@ -519,33 +517,17 @@ class ClaudeProvider:
         usage = (payload.get("usage") if isinstance(payload, dict) else None) or {}
         stop = str((payload or {}).get("stop_reason") or "")
         return Response(
-            text=text,
-            provider=self.name,
-            model_tag=str((payload or {}).get("model") or "")
-            or f"{self.requested_model} (unreported)",
+            text=text, provider=self.name,
+            model_tag=str((payload or {}).get("model") or "") or f"{self.requested_model} (unreported)",
             digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            finish_reason=_STOP.get(stop, stop or "error"),
-            prompt_sha256=packet.sha256,
-            tokens_in=usage.get("input_tokens"),
-            tokens_out=usage.get("output_tokens"),
-            wall_time_s=round(wall, 3),
-            schema_errors=schema_errors(text, packet.json_schema),
-            cost_usd=cost,
-            thinking=thinking_text,
-            content_blocks=blocks,
+            finish_reason=_STOP.get(stop, stop or "error"), prompt_sha256=packet.sha256,
+            tokens_in=usage.get("input_tokens"), tokens_out=usage.get("output_tokens"),
+            wall_time_s=round(wall, 3), schema_errors=schema_errors(text, packet.json_schema),
+            cost_usd=cost, thinking=thinking_text, content_blocks=blocks,
         )
 
-    def _answered(
-        self,
-        payload: dict | None,
-        packet: Packet,
-        key: str,
-        step: str,
-        wall: float,
-        *,
-        batch: bool = False,
-        reservation=None,
-    ) -> Response:
+    def _answered(self, payload: dict | None, packet: Packet, key: str, step: str, wall: float,
+                  *, batch: bool = False, reservation=None) -> Response:
         """Ledger, cache and Response for one Messages answer."""
         from . import claude_spend
 
@@ -562,9 +544,7 @@ class ClaudeProvider:
                                         finish_reason=finish, batch=batch)
         # #458: only a complete AND valid answer is kept. A truncated one or one
         # that fails its schema would be served again, free, on every repeat.
-        claude_spend.keep_answer(
-            key, step, payload, cost_usd=entry["cost_usd"], valid=_valid_for(packet)
-        )
+        claude_spend.keep_answer(key, step, payload, cost_usd=entry["cost_usd"], valid=_valid_for(packet))
         return self._response(payload, packet, wall, entry["cost_usd"])
 
     def reason_batch(self, packets: list[Packet], *, poll_seconds: float = 30.0, max_wait_s: float = 86400.0,
@@ -687,14 +667,10 @@ def _stream_delta(block: dict | None, delta: dict, parts: list[str], on_text) ->
     dtype = delta.get("type")
     if dtype == "input_json_delta":
         if block is not None:
-            block["_input_json"] = block.get("_input_json", "") + str(
-                delta.get("partial_json") or ""
-            )
+            block["_input_json"] = block.get("_input_json", "") + str(delta.get("partial_json") or "")
     elif dtype == "thinking_delta":
         if block is not None:
-            block["thinking"] = block.get("thinking", "") + str(
-                delta.get("thinking") or ""
-            )
+            block["thinking"] = block.get("thinking", "") + str(delta.get("thinking") or "")
     elif dtype == "signature_delta":
         # A thinking block is only valid when sent back WITH its
         # signature (2026-09-30: it was dropped, so round 2 of a
@@ -767,12 +743,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
                 if idx not in order:
                     order.append(idx)
             elif kind == "content_block_delta":
-                _stream_delta(
-                    blocks.get(event.get("index")),
-                    event.get("delta") or {},
-                    parts,
-                    on_text,
-                )
+                _stream_delta(blocks.get(event.get("index")), event.get("delta") or {}, parts, on_text)
             elif kind == "content_block_stop":
                 block = blocks.get(event.get("index"))
                 if block is not None and block.get("type") == "tool_use":
@@ -857,13 +828,8 @@ def _valid_for(packet: Packet):
 def _stored_answer(step: str, body: dict, packet: Packet) -> tuple[dict | None, str]:
     from . import claude_spend
 
-    return claude_spend.answer_on_file(
-        step,
-        body,
-        version=_cache_version(packet),
-        valid=_valid_for(packet),
-        prompt_sha256=packet.sha256,
-    )
+    return claude_spend.answer_on_file(step, body, version=_cache_version(packet),
+                                       valid=_valid_for(packet), prompt_sha256=packet.sha256)
 
 
 # ------------------------------------------------------------------- selection

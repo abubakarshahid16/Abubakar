@@ -1649,17 +1649,10 @@ def _audit_args(action, actor, resource_id, detail) -> tuple:
 
 @lists_cited
 def record_selection(
-    *,
-    review_run_id: str,
-    standard_document_id: str,
-    method: str,
-    reason: str,
-    confidence: float | None = None,
-    included: bool = True,
-    exclusion_reason: str | None = None,
-    evidence_page: int | None = None,
-    evidence_quote: str | None = None,
-    scope_decision: str | None = None,
+    *, review_run_id: str, standard_document_id: str, method: str,
+    reason: str, confidence: float | None = None, included: bool = True,
+    exclusion_reason: str | None = None, evidence_page: int | None = None,
+    evidence_quote: str | None = None, scope_decision: str | None = None,
     audit: tuple | None = None,
 ) -> dict:
     """Write one row of `review_applicable_standards`.
