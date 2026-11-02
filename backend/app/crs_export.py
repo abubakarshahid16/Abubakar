@@ -326,6 +326,25 @@ def _rank_cells(finding: dict, copy: str) -> dict:
     return {"priority": priority, "priority_label": priority_word(priority, copy)}
 
 
+def _item_no(crs_ref: str, n: int, copy: str, export_quality: bool) -> int | str:
+    """What a row prints in Item No: its permanent number, else its position. With
+    CRS_ITEM_SHEET_ORDER_ENABLED the INTERNAL copy prints the sheet order, "001" up: the
+    permanent numbers jump, because a number is never reused, and a plain position can
+    never be read as one (`crs_numbers.parse_ref`). The issue copy always prints the
+    permanent number: it is the one id a contractor quotes back, and a reply is matched
+    by it alone (`crs_reply`). The row still carries `crs_ref` for every status, reply
+    and history route, and the Internal sheet prints it (hence the need for that sheet)."""
+    from .config import settings
+
+    if (
+        export_quality
+        and copy == COPY_INTERNAL
+        and settings.crs_item_sheet_order_enabled
+    ):
+        return f"{n:03d}"
+    return crs_ref or n
+
+
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
     """What a CRS says, with nothing in it about how it is drawn.
 
@@ -439,7 +458,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # quoting it back cannot resolve.
         crs_ref = str(finding.get("crs_ref") or "")
         rows.append({
-            "item_no": crs_ref or n,
+            "item_no": _item_no(crs_ref, n, copy, qon),
             "row_ref": ref,
             "crs_ref": crs_ref,
             "document_name": finding.get("document_name", ""),

@@ -2494,7 +2494,8 @@ class CrsPreviewRow(BaseModel):
     """
 
     #: The permanent comment number "CRS-<submittal no>-001" once an engineer
-    #: has made the comment theirs (`crs_numbers`), else the row's position.
+    #: has made the comment theirs (`crs_numbers`), else the row's position. With
+    #: CRS_ITEM_SHEET_ORDER_ENABLED, on the internal copy, the sheet order ("001").
     item_no: int | str
     #: The permanent number alone, "" on an unnumbered row.
     crs_ref: str = ""

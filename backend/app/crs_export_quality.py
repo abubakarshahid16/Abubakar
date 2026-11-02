@@ -48,6 +48,8 @@ INTERNAL_ROW_COLUMNS = (
     "Reasoning (internal)",
     "Rule trust (internal)",
 )
+#: CRS_ITEM_SHEET_ORDER_ENABLED: the Item No there is the sheet order, so this says the number.
+PERMANENT_COLUMN = "Permanent number"
 INTERNAL_CONSIDERED_COLUMNS = (
     "Standard considered, not applied",
     "Status",
@@ -440,6 +442,17 @@ def _internal_extras(
                 "same document, section and standard clause",
             )
         )
+    numbered = settings.crs_item_sheet_order_enabled
+    if numbered:
+        notes.append(
+            _note(
+                "Item numbers",
+                len(view["rows"]),
+                "Item No on this copy is the sheet order. A comment's permanent number, the"
+                " one the contractor's copy prints and a reply is matched by, is on the"
+                " Internal sheet.",
+            )
+        )
     if considered:
         notes.append(
             _note(
@@ -455,9 +468,13 @@ def _internal_extras(
             "reasoning": e["reasoning"],
             "rule_trust": e["rule_trust"]
             + (f" - {UNPROVEN_REASON}" if e["row_ref"] in flagged else ""),
+            "permanent_no": e["crs_ref"],
         }
         for e in view["rows"]
-        if e["reasoning"] or e["rule_trust"] or e["row_ref"] in flagged
+        if e["reasoning"]
+        or e["rule_trust"]
+        or e["row_ref"] in flagged
+        or (numbered and e["crs_ref"])
     ]
     return notes, {"rows": rows, "considered": considered}
 
@@ -504,13 +521,15 @@ def write_internal_sheet(wb, inner: dict, write) -> None:
     sheet = wb.create_sheet(INTERNAL_SHEET)
     wrap = Alignment(wrap_text=True, vertical="top")
     r = 1
-    for col, header in enumerate(INTERNAL_ROW_COLUMNS, start=1):
+    numbered = settings.crs_item_sheet_order_enabled
+    headers = INTERNAL_ROW_COLUMNS + ((PERMANENT_COLUMN,) if numbered else ())
+    keys = ("item_no", "row_ref", "reasoning", "rule_trust")
+    keys += ("permanent_no",) if numbered else ()
+    for col, header in enumerate(headers, start=1):
         write(sheet, r, col, header).font = Font(bold=True)
     for entry in inner.get("rows", []):
         r += 1
-        for col, key in enumerate(
-            ("item_no", "row_ref", "reasoning", "rule_trust"), start=1
-        ):
+        for col, key in enumerate(keys, start=1):
             write(sheet, r, col, entry[key]).alignment = wrap
     r += 2
     for col, header in enumerate(INTERNAL_CONSIDERED_COLUMNS, start=1):
