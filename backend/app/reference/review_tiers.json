@@ -1,7 +1,7 @@
 {
   "_about": "Order 133 (117a item 4): the review tiers' rules as data, the one source. backend/app/review_tiers.py reads this file; scripts/gen_contract_types.py writes it into contracts/generated/review_tiers.ts, which the screen's crs/tiers.ts reads. contracts/fixtures/review_tier_cases.json holds the cases both sides must pass. Display only: no stored status or verdict is decided here.",
   "tiers": ["A", "B", "C"],
-  "labels": ["Met", "Not applicable", "Another document", "Comment", "Needs you"],
+  "labels": ["Met", "Stated, not checked", "Not applicable", "Another document", "Comment", "Needs you"],
   "reasons": [
     "page not read",
     "standard not in library",
@@ -23,6 +23,7 @@
     "NOT_IN_DOCUMENT_SCOPE": {"tier": "A", "label": "Another document"},
     "NON_COMPLIANT": {"tier": "B", "label": "Comment"}
   },
+  "stated_only": {"tier": "A", "label": "Stated, not checked"},
   "missing_information": {
     "status": "MISSING_INFORMATION",
     "in_library": {"tier": "B", "label": "Comment"},
@@ -69,6 +70,7 @@
   "screen_order": ["B", "C", "A"],
   "count_keys": {
     "Met": "met",
+    "Stated, not checked": "stated",
     "Not applicable": "not_applicable",
     "Another document": "another_document",
     "Comment": "comment",

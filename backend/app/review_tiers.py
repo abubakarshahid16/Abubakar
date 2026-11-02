@@ -12,7 +12,8 @@ class. The logic is pinned on both sides by one case table,
 `contracts/fixtures/review_tier_cases.json`
 (`test_133_one_truth_tiers.py` and `crs/tiers.parity.test.ts`).
 
-  Tier A  "Met" / "Not applicable"  COMPLIANT / NOT_APPLICABLE / NOT_IN_DOCUMENT_SCOPE
+  Tier A  "Met" / "Stated, not checked" (#1638, `presence_check`) / "Not applicable"
+                                    COMPLIANT / NOT_APPLICABLE / NOT_IN_DOCUMENT_SCOPE
           / "Another document"      (the clause names another document).
   Tier B  "Comment"                 NON_COMPLIANT; MISSING_INFORMATION when the
                                     standard IS in the library.
@@ -39,12 +40,15 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import presence_check
 from .comparison import _pairing_unconfirmed
 
 RULES_PATH = Path(__file__).parent / "reference" / "review_tiers.json"
 RULES: dict = json.loads(RULES_PATH.read_text(encoding="utf-8"))
 
 A, B, C = RULES["tiers"]
+#: #1638: the count of rows that only say a field is stated
+STATED_KEY = RULES["count_keys"][RULES["stated_only"]["label"]]
 #: the tier of a finding an engineer removed, and its count key
 REMOVED = "removed"
 # The reason words, in the order of `TierRow.reason` (test_133 pins the two).
@@ -207,6 +211,8 @@ def tier_of(
     status = finding.get("compliance_status") or ""
     if status in _TIER_C or _unsettled_reason(finding, facts) is not None:
         return (*_NEEDS_YOU, _needs_you_reason(finding, facts))
+    if finding.get("stated_only") or presence_check.is_stated_only(finding):
+        return RULES["stated_only"]["tier"], RULES["stated_only"]["label"], None
     if status in _STATUS_TIERS:
         return (*_STATUS_TIERS[status], None)
     if status == _MISSING["status"]:
@@ -257,4 +263,6 @@ def summarise(findings: list[dict], facts: RunFacts = RunFacts()) -> dict:
                 }
             )
     rows.sort(key=_order)
+    if not counts[STATED_KEY]:  # #1638: no new key unless a row is only stated
+        del counts[STATED_KEY]
     return {"counts": {**counts, "total": len(findings)}, "rows": rows}

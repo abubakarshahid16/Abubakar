@@ -27,7 +27,7 @@ import { SheetPageImage } from "../sheet/SheetPageImage";
 import { cardTitle, trustLine } from "../sheet/sheetCards";
 import type { CrsRow } from "./crsRows";
 import { comparisonLine, historyOf, pagerStrip, parsePage, stepPage } from "./evidenceNav";
-import { REASON_WORDS } from "../workspace/plainWords";
+import { reasonWords } from "../workspace/plainWords";
 
 export interface CrsEvidenceDrawerProps {
   row: CrsRow;
@@ -142,7 +142,7 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         {row.tier.reason && (
           <section className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 p-3">
             <h3 className={h}>Why it needs you: {row.tier.reason}</h3>
-            <p className="mt-1 text-sm text-slateish-100">{REASON_WORDS[row.tier.reason]}</p>
+            <p className="mt-1 text-sm text-slateish-100">{reasonWords(row.tier.reason, row.findings)}</p>
           </section>
         )}
         {extra}

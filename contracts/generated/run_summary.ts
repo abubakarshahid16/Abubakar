@@ -4,13 +4,14 @@
 import type { AiStepNumbers, PageCoverage, RequirementSplit, ReviewRunSummary, RunCoveragePair } from "../types";
 
 export type RunSummaryTier = "A" | "B" | "C";
-export type RunSummaryTierLabel = "Met" | "Not applicable" | "Another document" | "Comment" | "Needs you";
+export type RunSummaryTierLabel = "Met" | "Stated, not checked" | "Not applicable" | "Another document" | "Comment" | "Needs you";
 export type RunSummaryTierReason = "page not read" | "standard not in library" | "AI guess" | "rule not proven" | "safety field" | "condition unsettled" | "value conflict" | "unit unknown" | "no standard linked" | "standard outside this review" | "no field taken";
 export type RunSummaryCrsPriorityLabel = "Out of limit" | "Missing value" | "Engineer to check" | "Engineer's comment";
 
 /** Counts over every finding of the run; `removed` = rejected by an engineer (in no tier); `total` includes the removed ones. */
 export interface RunSummaryTierCounts {
   met: number;
+  stated?: number;
   not_applicable: number;
   another_document: number;
   comment: number;
@@ -24,6 +25,7 @@ export interface RunSummarySheetCounts {
   comments: number;
   needs_you: number;
   met: number;
+  stated?: number;
   not_applicable: number;
   another_document: number;
   findings_in_comments: number;
