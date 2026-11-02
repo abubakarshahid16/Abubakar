@@ -513,7 +513,8 @@ def _finish(conn, document_id, label, digest, outcome, chunks, readable) -> dict
         {str(a["model"]) for a in outcome.answers.values() if a.get("model")}
     )
     unread = (
-        set(outcome.over_budget)
+        ({x.custom_id for x in chunks} - set(outcome.answers))
+        | set(outcome.over_budget)
         | set(outcome.gave_up)
         | set(counts["chunks_truncated"])
         | set(counts["chunks_unreadable"])
@@ -658,6 +659,29 @@ def compile_standard(
         **report,
         **_finish(conn, document_id, label, digest, outcome, chunks, readable),
     }
+
+
+def reverify_stored(conn, document_id: str, label: str) -> dict:
+    """Prove the answers this copy already holds again and replace its rules. NOTHING IS SENT AND NOTHING IS SPENT, so a
+    fix to the proof reaches paid answers for USD 0. Same prompt version and text only: another text has other chunks.
+    Answers the proof could not read stay unread; a rerun of the compile, not this, pays for those."""
+    if not settings.standards_compiler_enabled:
+        raise SwitchedOff("STANDARDS_COMPILER_ENABLED is off; nothing was read or sent")
+    ensure_schema(conn)
+    claude_batch_run.ensure_schema(conn)
+    readable = {n: t for n, t in pages_of(conn, document_id).items() if t.strip()}
+    digest = text_hash(readable)
+    report = {**_base_report(conn, document_id, label), "reverified": True}
+    chunks = chunks_of(readable)
+    outcome = claude_batch_run.stored_outcome(
+        conn, f"{document_id}:{PROMPT_VERSION}:{digest}", {c.custom_id for c in chunks}
+    )
+    if not outcome.answers:
+        return {**report, "status": "nothing_stored", "answered": 0}
+    before = claude_spend.spent(standards_converter.step_for(label))
+    done = _finish(conn, document_id, label, digest, outcome, chunks, readable)
+    spent = claude_spend.spent(standards_converter.step_for(label)) - before
+    return {**report, **done, "answered": len(outcome.answers), "usd_this_step": spent}
 
 
 # ------------------------------------------------------------------------------------------- the record

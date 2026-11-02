@@ -486,6 +486,11 @@ def _finish(conn, job: str, packets, out: Outcome) -> Outcome:
     return out
 
 
+def stored_outcome(conn, job: str, custom_ids: set[str]) -> Outcome:
+    """What this copy already holds for a job. Opens nothing and sends nothing."""
+    return _finish(conn, job, custom_ids, Outcome())
+
+
 def run(
     conn,
     provider: ClaudeProvider,

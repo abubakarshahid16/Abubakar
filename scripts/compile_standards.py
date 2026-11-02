@@ -129,6 +129,7 @@ def run(
     max_usd: float | None = None,
     estimate_only: bool = False,
     side_by_side: bool = False,
+    reverify: bool = False,
     poll_seconds: float = 60.0,
     max_wait_s: float = 86400.0,
     resend_unconfirmed: bool = False,
@@ -158,6 +159,13 @@ def run(
             json.dumps(standards_compiler.side_by_side(conn, documents), sort_keys=True)
         )
         return 0
+    if reverify:  # sends nothing: no lane, no key, no budget
+        reports = [
+            standards_compiler.reverify_stored(conn, d, label)
+            for d, label in sorted(documents.items(), key=lambda kv: kv[1])
+        ]
+        emit(_final_line(reports, None))
+        return max((EXIT_BY_STATUS.get(r["status"], 0) for r in reports), default=0)
     if not estimate_only:
         code, why = reasoning_provider.claude_unavailable_for_task("claude")
         if code is not None:
@@ -205,6 +213,11 @@ def main(argv: list[str] | None = None) -> int:
         help="print the worst case and send nothing",
     )
     ap.add_argument(
+        "--reverify",
+        action="store_true",
+        help="prove the stored answers again with the current code; sends nothing, USD 0",
+    )
+    ap.add_argument(
         "--side-by-side",
         action="store_true",
         help="version 1 beside version 2, counts only",
@@ -231,6 +244,7 @@ def _run_args(args, emit) -> int:
         max_usd=args.max_usd,
         estimate_only=args.estimate_only,
         side_by_side=args.side_by_side,
+        reverify=args.reverify,
         poll_seconds=args.poll_seconds,
         max_wait_s=args.max_wait_minutes * 60,
         resend_unconfirmed=args.resend_unconfirmed,

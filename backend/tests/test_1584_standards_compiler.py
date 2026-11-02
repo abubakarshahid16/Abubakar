@@ -19,7 +19,9 @@ from app import (
     claude_batch_run,
     claude_spend,
     comparison,
+    converter_gates,
     db,
+    numparse,
     standards,
     standards_compiler,
     standards_converter,
@@ -2121,9 +2123,10 @@ def test_a_skipped_rerun_still_shows_the_drops():
 
 
 def test_the_conditional_gate_alone_drops_a_condition_in_the_middle():
-    sentence = "The pressure, when hot, shall not exceed 200 psi."
-    assert _outcome(sentence) == (None, "condition_not_captured")
-    assert _outcome(sentence, condition="when hot")[1] is None
+    sentence = "The widget, when hot, shall be painted."
+    over = {"field": "widget", "limit": None, "unit": None, "comparator": None}
+    assert _outcome(sentence, **over) == (None, "condition_not_captured")
+    assert _outcome(sentence, **over, condition="when hot")[1] is None
 
 
 # ------------------------------------------------------------ table rows and scope outside the sentence
@@ -2265,3 +2268,523 @@ def test_pages_answered_leaves_out_the_pages_whose_request_was_not_answered():
     report = _compile(FakeBatches([], kinds={second_id: ["expired", "errored"]}))
     assert (report["pages_answered"], report["pages_total"]) == (1, 2)
     assert report["pages_no_text"] == [] and report["pages_not_read"] == [2]
+
+
+# -------------------------------------------------------------- wrong drops the first stored answers showed
+
+
+def _verify_on(pages, quote, **over):
+    pages = pages if isinstance(pages, dict) else {1: pages}
+    chunk = standards_compiler.chunks_of(pages)[0]
+    answer = {
+        "applies_to": "widgets",
+        "condition": None,
+        "field": "pressure",
+        "comparator": "<=",
+        "limit": "200",
+        "unit": "psi",
+        "clause": "7.3",
+        "page": max(pages),
+        "quote": quote,
+        **over,
+    }
+    return standards_compiler.verify(answer, chunk, pages)
+
+
+def test_a_clause_number_alone_on_its_line_is_a_heading():
+    quote = "The pressure shall not exceed 200 psi."
+    page = f"7.2 Older part\nSome words here.\n7.3 \nWidget Lines\n{quote}"
+    assert _verify_on(page, quote)[1] is None
+    assert _verify_on(page, quote, clause="7.2") == (None, "clause_not_nearest")
+
+
+def test_a_lone_figure_before_a_lowercase_line_is_not_a_heading():
+    quote = "The pressure shall not exceed 200 psi."
+    page = f"7.3 Part\nSome words here.\n2.5\nmore words here.\n{quote}"
+    assert _verify_on(page, quote)[1] is None
+
+
+@pytest.mark.parametrize(
+    "sentence, over",
+    [
+        (
+            "The distance shall be at a minimum of 7 m from any fence.",
+            {
+                "field": "minimum distance from any fence",
+                "comparator": ">=",
+                "limit": "7",
+                "unit": "m",
+            },
+        ),
+        (
+            "The drop shall not exceed 6% of the widest gauge reading.",
+            {"field": "drop", "limit": "6", "unit": "%"},
+        ),
+        (
+            "The drain shall hold a maximum thickness of 77 Poise is not exceeded.",
+            {"field": "maximum thickness", "limit": "77", "unit": "Poise"},
+        ),
+        (
+            "The widgets shall be of 5-inch size.",
+            {"field": "widget size", "comparator": "=", "limit": "5", "unit": "inch"},
+        ),
+    ],
+)
+def test_words_that_finish_the_property_are_not_a_lost_condition(sentence, over):
+    rule, why = _verify_on(f"7.3 Part\n{sentence}", sentence, **over)
+    assert (
+        why is None
+        and rule["condition_text"] is None
+        and rule["limit_value"] == float(over["limit"])
+    )
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "for gas service",
+        "when the plant is cold",
+        "unless the owner agrees",
+        "in sour plants",
+    ],
+)
+def test_a_scope_after_those_words_stays_a_condition(tail):
+    sentence = f"The drop shall not exceed 6% of the widest gauge reading {tail}."
+    over = {"field": "drop", "limit": "6", "unit": "%"}
+    assert _verify_on(f"7.3 Part\n{sentence}", sentence, **over) == (
+        None,
+        "condition_not_captured",
+    )
+
+
+def test_a_trailing_scope_named_in_the_field_is_still_a_condition():
+    sentence = "The pressure shall not exceed 200 psi for gas service."
+    assert _verify_on(
+        f"7.3 Part\n{sentence}", sentence, field="pressure for gas service"
+    ) == (None, "condition_not_captured")
+
+
+HIGH = "When the top rail is at least 9 m above the deck, the minimum side gap shall be 9 m."
+HIGH_OVER = {
+    "field": "minimum side gap",
+    "comparator": ">=",
+    "limit": "9",
+    "unit": "m",
+}
+
+
+def test_the_comparator_is_read_outside_the_condition():
+    rule, why = _verify_on(
+        f"7.3 Part\n{HIGH}",
+        HIGH,
+        **HIGH_OVER,
+        condition="When the top rail is at least 9 m above the deck",
+    )
+    assert (
+        why is None
+        and rule["condition_text"] == "when the top rail is at least 9 m above the deck"
+    )
+
+
+def test_that_sentence_with_its_condition_left_out_is_still_dropped():
+    assert _verify_on(f"7.3 Part\n{HIGH}", HIGH, **HIGH_OVER)[0] is None
+
+
+def test_a_number_inside_the_condition_is_not_the_limit():
+    sentence = (
+        "When the height is 9 m above the deck, the pressure shall not exceed 200 psi."
+    )
+    over = {
+        "limit": "9",
+        "unit": "m",
+        "condition": "When the height is 9 m above the deck",
+    }
+    assert _verify_on(f"7.3 Part\n{sentence}", sentence, **over) == (
+        None,
+        "limit_not_in_quote",
+    )
+
+
+def test_a_condition_wholly_outside_the_sentence_does_not_cover_its_own_scope():
+    sentence = "The pressure shall not exceed 200 psi for gas service."
+    page = f"7.3 Part\nSome other words here.\n{sentence}"
+    assert (
+        _verify_on(page, sentence, condition="Some other words")[1]
+        == "condition_not_captured"
+    )
+
+
+@pytest.mark.parametrize(
+    "field, quote_word",
+    [
+        ("widget drain size", "widget drain"),
+        ("widget location", "widget"),
+        ("use of widgets", "widgets"),
+        ("service", "services"),
+    ],
+)
+def test_a_generic_property_word_or_a_plural_does_not_refuse_a_field(field, quote_word):
+    sentence = f"The {quote_word} shall be painted."
+    if field == "service":
+        sentence = "The services shall be painted."
+    rule, why = _verify_on(
+        f"7.3 Part\n{sentence}",
+        sentence,
+        field=field,
+        limit=None,
+        unit=None,
+        comparator=None,
+    )
+    assert why is None and rule["field"] == field
+
+
+def test_a_field_about_something_else_is_still_refused():
+    sentence = "The pressure shall not exceed 200 psi."
+    assert _verify_on(f"7.3 Part\n{sentence}", sentence, field="vane speed") == (
+        None,
+        "field_not_in_quote",
+    )
+    assert _verify_on(
+        f"7.3 Part\n{sentence}", sentence, field="pressure of the vane"
+    ) == (None, "field_not_in_quote")
+
+
+def test_a_bracketed_gloss_on_a_field_is_not_stored_as_read():
+    sentence = "The drop shall not exceed 6% of the gauge."
+    rule, why = _verify_on(
+        f"7.3 Part\n{sentence}",
+        sentence,
+        field="drop (percent of gauge)",
+        limit="6",
+        unit="%",
+    )
+    assert why is None and rule["field"] == "drop"
+
+
+def test_a_number_joined_to_its_unit_by_a_hyphen_stands_together():
+    sentence = "The drain shall be of 2-inch diameter."
+    rule, why = _verify_on(
+        f"7.3 Part\n{sentence}",
+        sentence,
+        field="drain diameter",
+        comparator="=",
+        limit="2",
+        unit="inch",
+    )
+    assert why is None and rule["limit_value"] == 2.0
+
+
+@pytest.mark.parametrize(
+    "written, limit, value",
+    [
+        ("5\u20448", "5/8", 0.625),
+        ("5/8", "5\u20448", 0.625),
+        ("2-3/8", "2-3/8", 2.375),
+        ("2 3/8", "2 3/8", 2.375),
+    ],
+)
+def test_a_fraction_is_a_number_through_numparse(written, limit, value):
+    assert numparse.as_limit(limit) == value
+    sentence = f"The widget drain shall be {written} inch."
+    rule, why = _verify_on(
+        f"7.3 Part\n{sentence}",
+        sentence,
+        field="drain",
+        comparator="=",
+        limit=limit,
+        unit="inch",
+    )
+    assert why is None and rule["limit_value"] == value
+
+
+@pytest.mark.parametrize(
+    "text", ["3/0", "12/25/2019", "5/8/5", "a/b", "1.5/2", "5/8 inch", "size 5/8"]
+)
+def test_what_is_not_one_fraction_stays_no_number(text):
+    assert numparse.as_limit(text) is None
+
+
+def test_a_plain_number_is_unchanged_by_the_fraction_reader():
+    assert numparse.as_limit("1,000") == 1000.0 and numparse.as_limit("-5") == -5.0
+
+
+def test_a_fraction_of_another_size_is_not_the_limit():
+    sentence = "The widget drain shall be 5/8 inch."
+    assert _verify_on(
+        f"7.3 Part\n{sentence}",
+        sentence,
+        field="drain",
+        comparator="=",
+        limit="1/2",
+        unit="inch",
+    )[1] == ("limit_not_in_quote")
+
+
+def test_not_exceed_by_more_than_is_one_limit():
+    sentence = "The pressure rise shall not exceed the rail pressure by more than 7%."
+    rule, why = _verify_on(
+        f"7.3 Part\n{sentence}", sentence, field="pressure rise", limit="7", unit="%"
+    )
+    assert why is None and rule["comparator"] == "<="
+
+
+def test_more_than_alone_still_says_more_than():
+    sentence = "The pressure rise shall be by more than 7%."
+    assert _verify_on(
+        f"7.3 Part\n{sentence}", sentence, field="pressure rise", limit="7", unit="%"
+    ) == (None, "comparator_not_in_quote")
+
+
+def test_a_plural_acronym_is_not_garbled_text():
+    assert (
+        converter_gates.quote_unreadable("XKVs shall have painted parts.", "x") is False
+    )
+
+
+def test_a_plural_acronym_does_not_excuse_real_noise():
+    assert (
+        converter_gates.quote_unreadable("Xkvb shall have pqrstv zxcvb mnbvc.", "x")
+        is True
+    )
+
+
+LEAD = "7.3 Part\nWhen the widget is wet, the widget and"
+FOLLOW = "drain shall hold a maximum thickness of 77 Poise."
+FOLLOW_OVER = {"field": "maximum thickness", "limit": "77", "unit": "Poise"}
+
+
+def test_a_sentence_crossing_a_page_keeps_its_condition_from_the_page_before_and_is_flagged():
+    rule, why = _verify_on(
+        {1: LEAD, 2: FOLLOW}, FOLLOW, **FOLLOW_OVER, condition="When the widget is wet"
+    )
+    assert why is None and rule["condition_text"] == "when the widget is wet"
+    assert (
+        "crosses_page" in rule["context_flag"]
+        and rule["strength"] == "context_dependent"
+    )
+
+
+def test_a_sentence_crossing_a_page_with_its_condition_left_out_is_dropped():
+    assert _verify_on({1: LEAD, 2: FOLLOW}, FOLLOW, **FOLLOW_OVER) == (
+        None,
+        "condition_not_captured",
+    )
+
+
+def test_a_condition_on_the_page_before_does_not_count_when_that_page_ended_its_sentence():
+    pages = {1: "7.3 Part\nWhen the widget is wet, stop here.", 2: FOLLOW}
+    assert _verify_on(
+        pages, FOLLOW, **FOLLOW_OVER, condition="When the widget is wet"
+    ) == (None, "condition_not_on_page")
+
+
+# ------------------------------------------------------------------- re-verifying stored answers, USD 0
+
+
+def test_stored_answers_are_proved_again_with_nothing_sent(monkeypatch):
+    _document()
+    fake = FakeBatches([_rule(), _rule(limit="26")])
+    first = _compile(fake)
+    assert first["kept"] == 1
+    before = claude_spend.entries()
+    real = standards_compiler.verify
+    monkeypatch.setattr(
+        standards_compiler,
+        "verify",
+        lambda answer, chunk, pages, tables=None: real(
+            {**answer, "limit": "25"}, chunk, pages, tables
+        ),
+    )
+    report = standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+    assert report["status"] == "all_pages_answered" and report["reverified"] is True
+    assert (
+        report["kept"] == 1 and report["duplicates"] == 1
+    )  # the second proposal now proves, as the same rule
+    assert report["usd_this_step"] == 0.0 and claude_spend.entries() == before
+    assert len(fake.created) == 1
+    rule = _rules()[0]
+    assert rule["model"] == ANSWERED and rule["batch_id"] == "msgbatch_1"
+
+
+def test_a_reverify_replaces_the_rules_and_leaves_version_1_alone():
+    _document()
+    _compile(FakeBatches())
+    standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+    assert len(_rules()) == 1
+    assert (
+        db.connect().execute("SELECT COUNT(*) AS n FROM compile_runs").fetchone()["n"]
+        == 1
+    )
+
+
+def test_a_reverify_with_no_stored_answers_says_so_and_stores_nothing():
+    _document()
+    report = standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+    assert report["status"] == "nothing_stored" and report["answered"] == 0
+    assert claude_spend.entries() == []
+
+
+def test_a_reverify_keeps_the_pages_not_answered_as_not_read():
+    _document()
+    fake = FakeBatches(kinds={"*": ["expired", "expired"]})
+    _compile(fake)
+    report = standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+    assert report["status"] == "nothing_stored" and report["pages_total"] == 2
+    pages = _two_chunk_pages()
+    _document("std-two", "SAES-Y-901", pages=pages)
+    ids = [c.custom_id for c in standards_compiler.chunks_of(dict(enumerate(pages, 1)))]
+    standards_compiler.compile_standard(
+        db.connect(),
+        "std-two",
+        "SAES-Y-901",
+        client=FakeBatches([], kinds={ids[1]: ["expired", "errored"]}),
+        sleep=lambda _s: None,
+    )
+    again = standards_compiler.reverify_stored(db.connect(), "std-two", "SAES-Y-901")
+    assert again["status"] == "partial" and again["pages_not_read"] == [2]
+
+
+def test_a_reverify_refuses_with_the_switch_off(monkeypatch):
+    _document()
+    monkeypatch.setattr(settings, "standards_compiler_enabled", False)
+    with pytest.raises(standards_compiler.SwitchedOff):
+        standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+
+
+def test_the_script_reverifies_without_opening_the_lane(monkeypatch):
+    _document()
+    _compile(FakeBatches())
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    monkeypatch.setattr(settings, "standards_reader_enabled", False)
+    said = []
+    code = compile_standards.run(
+        _copy_db(), [LABEL], reverify=True, emit=said.append, note=lambda _s: None
+    )
+    report = json.loads(said[0])["standards"][0]
+    assert code == 0 and report["reverified"] is True and report["kept"] == 1
+
+
+def test_the_chunk_ids_do_not_move_for_a_stored_answer():
+    """A change here would orphan every stored answer and pay again: chunking belongs to the prompt version."""
+    page = "7.3 \nWidget Lines\nThe pressure shall not exceed 200 psi."
+    chunk = standards_compiler.chunks_of({1: page})[0]
+    assert "[page 1 | clause none]" in chunk.text
+
+
+def test_a_qualifier_inside_the_field_does_not_contradict_the_comparator():
+    sentence = "The maximum widget load is less than 4% of the rail load."
+    over = {
+        "field": "maximum widget load",
+        "comparator": "<",
+        "limit": "4",
+        "unit": "%",
+    }
+    rule, why = _verify_on(f"7.3 Part\n{sentence}", sentence, **over)
+    assert why is None and rule["comparator"] == "<"
+
+
+def test_two_comparators_outside_the_field_stay_refused():
+    sentence = "The widget load at the minimum is less than 4% of the rail load."
+    over = {
+        "field": "widget load",
+        "comparator": "<",
+        "limit": "4",
+        "unit": "%",
+    }
+    assert _verify_on(f"7.3 Part\n{sentence}", sentence, **over) == (
+        None,
+        "comparator_not_in_quote",
+    )
+
+
+def test_material_is_a_generic_field_word():
+    sentence = "Widgets shall be made of steel."
+    rule, why = _verify_on(
+        f"7.3 Part\n{sentence}",
+        sentence,
+        field="widget material",
+        limit=None,
+        unit=None,
+        comparator=None,
+    )
+    assert why is None and rule["field"] == "widget material"
+
+
+def test_a_bracket_in_the_words_after_a_limit_is_not_read_as_a_condition():
+    sentence = "The drain shall be a 2-inch low drain (sump hole) at the low end."
+    over = {
+        "field": "low drain end (sump hole) size",
+        "comparator": "=",
+        "limit": "2",
+        "unit": "inch",
+    }
+    rule, why = _verify_on(f"7.3 Part\n{sentence}", sentence, **over)
+    assert why is None and rule["limit_value"] == 2.0
+
+
+def test_what_is_left_after_a_captured_condition_is_not_a_range():
+    sentence = "The pressure of the air is -22 C and the widgets are clean."
+    over = {
+        "field": "pressure",
+        "comparator": "=",
+        "limit": "-22",
+        "unit": "C",
+        "condition": "the widgets are clean",
+    }
+    assert (
+        _verify_on(f"7.3 Part\n{sentence}", sentence, **over)[1] != "range_not_single"
+    )
+
+
+def test_a_negative_limit_stands_on_its_own():
+    sentence = "The pressure shall be -22 C."
+    rule, why = _verify_on(
+        f"7.3 Part\n{sentence}", sentence, comparator="=", limit="-22", unit="C"
+    )
+    assert why is None and rule["limit_value"] == -22.0
+
+
+def test_a_chunk_with_no_stored_answer_keeps_a_reverify_partial():
+    pages = _two_chunk_pages()
+    _document(pages=pages)
+    second = standards_compiler.chunks_of(dict(enumerate(pages, 1)))[1].custom_id
+    _compile(FakeBatches([]))
+    with db.connect() as conn:
+        conn.execute("DELETE FROM claude_batch_requests WHERE custom_id = ?", (second,))
+    report = standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+    assert report["status"] == "partial" and report["pages_not_read"] == [2]
+
+
+def test_a_figure_a_proviso_tests_is_not_a_limit():
+    sentence = "Widgets need no cover provided the rail heat is -22 C and the widgets are clean."
+    over = {
+        "field": "rail heat",
+        "comparator": "=",
+        "limit": "-22",
+        "unit": "C",
+        "condition": "the widgets are clean",
+    }
+    assert _verify_on(f"7.3 Part\n{sentence}", sentence, **over) == (
+        None,
+        "limit_inside_a_condition",
+    )
+
+
+def test_shall_be_provided_with_a_figure_is_a_limit():
+    sentence = "Widgets shall be provided with a drain of 2-inch size."
+    rule, why = _verify_on(
+        f"7.3 Part\n{sentence}",
+        sentence,
+        field="drain size",
+        comparator="=",
+        limit="2",
+        unit="inch",
+    )
+    assert (why, rule and rule["limit_value"]) in (
+        (None, 2.0),
+        ("limit_not_bound", None),
+    )
+
+
+def test_not_one_fraction_is_found_inside_a_date():
+    assert numparse.find_fractions("issued 12/25/2019 and 1.5/2") == []
