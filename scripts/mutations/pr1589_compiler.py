@@ -49,8 +49,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "05",
         "a batch cancel takes any text as its id",
-        'def batch_cancel(messages_url: str, batch_id: str, *, headers: Mapping[str, str],\n                 timeout: float = 60.0) -> dict:\n    """POST a batch\'s cancel. Requests already finished stay finished, and billed; the batch ends once the rest stop."""\n    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", batch_id or ""):\n',
-        'def batch_cancel(messages_url: str, batch_id: str, *, headers: Mapping[str, str],\n                 timeout: float = 60.0) -> dict:\n    """POST a batch\'s cancel. Requests already finished stay finished, and billed; the batch ends once the rest stop."""\n    if False:\n',
+        'def batch_cancel(\n    messages_url: str,\n    batch_id: str,\n    *,\n    headers: Mapping[str, str],\n    timeout: float = 60.0,\n) -> dict:\n    """POST a batch\'s cancel. Requests already finished stay finished, and billed; the batch ends once the rest stop."""\n    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", batch_id or ""):\n',
+        'def batch_cancel(\n    messages_url: str,\n    batch_id: str,\n    *,\n    headers: Mapping[str, str],\n    timeout: float = 60.0,\n) -> dict:\n    """POST a batch\'s cancel. Requests already finished stay finished, and billed; the batch ends once the rest stop."""\n    if False:\n',
         "strange_id",
         path=_R,
     ),

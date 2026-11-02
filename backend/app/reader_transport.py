@@ -402,15 +402,24 @@ def batch_retrieve(messages_url: str, batch_id: str, *, headers: Mapping[str, st
     return decoded
 
 
-def batch_cancel(messages_url: str, batch_id: str, *, headers: Mapping[str, str],
-                 timeout: float = 60.0) -> dict:
+def batch_cancel(
+    messages_url: str,
+    batch_id: str,
+    *,
+    headers: Mapping[str, str],
+    timeout: float = 60.0,
+) -> dict:
     """POST a batch's cancel. Requests already finished stay finished, and billed; the batch ends once the rest stop."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", batch_id or ""):
         raise TransportRefused("batch id is not a plain identifier")
     url = messages_url.rstrip("/") + BATCHES_SUFFIX + "/" + batch_id + "/cancel"
     response = _gated("POST", url, headers=headers, timeout=timeout, content=b"")
     decoded = response.json()
-    log.warning("standards reader: batch cancel at %s status=%d", model_host_of(url), response.status_code)
+    log.warning(
+        "standards reader: batch cancel at %s status=%d",
+        model_host_of(url),
+        response.status_code,
+    )
     return decoded
 
 

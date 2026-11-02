@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import math
 import time
 import uuid
@@ -73,6 +74,8 @@ from .reasoning_provider import (
     _unbilled,
     _valid_for,
 )
+
+log = logging.getLogger(__name__)
 
 #: Names other modules read from here.
 __all__ = [
@@ -345,7 +348,7 @@ def _submit(run: _Run, todo: dict[str, list[str]]) -> list[str]:
                     for row in part
                 ],
             )
-        except Exception as exc:
+        except Exception as exc:  # #1584: whatever failed, the reservation is settled and the rows say why
             _create_failed(conn, batch_row, part, exc)
             raise ProviderRefused(
                 f"claude: the batch was not created: {claude_spend.failure_word(exc)}"
@@ -503,7 +506,8 @@ def _cancel_and_read(run: _Run, batch_row: str, found, url, headers) -> bool:
     if found["state"] != "canceling":
         try:
             run.client.batch_cancel(url, api_id, headers=headers)
-        except Exception:  # noqa: BLE001 - an unsure cancel means the batch may still answer: send nothing
+        except Exception as exc:  # noqa: BLE001 - #1584: an unsure cancel may still answer, so nothing is sent
+            log.warning("batch cancel failed (%s)", type(exc).__name__)
             return False
         with run.conn:
             run.conn.execute(
