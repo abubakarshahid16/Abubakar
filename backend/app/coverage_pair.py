@@ -285,28 +285,13 @@ def _line(pair: dict) -> str:
     return f"{head}. Risk: {risk_text(pair)}."
 
 
-def compute(
+def _tally(
     conn: sqlite3.Connection,
-    run: dict,
     findings: list[dict],
-    *,
-    matchers: list[dict] | None,
-    equipment_type: str | None,
-) -> dict:
-    """The pair for one run, from its row and its findings. `matchers`: the truth
-    set's wrong rows, None when there is no truth set."""
-    outcome = json.loads(run.get("outcome_json") or "{}")
-    split = _stated_split(outcome)
-    rules = _rule_texts(
-        conn, {f["requirement_id"] for f in findings if f.get("requirement_id")}
-    )
-    if matchers and any(m.get("deferred") for m in matchers):
-        for f in findings:
-            f["deferred"] = f.get("compliance_status") == PASS and value_is_deferred(
-                conn, f
-            )
-    wrong_ids = None if matchers is None else {id(f) for f in hits(findings, matchers)}
-
+    rules: dict[str, dict],
+    wrong_ids: set[int] | None,
+) -> tuple[set[str], set[str], set[str], set[str], dict]:
+    """Rule keys passed, failed, wrong and deferred, and the checklist's counts."""
     passed: set[str] = set()
     failed: set[str] = set()
     wrong_rules: set[str] = set()
@@ -339,7 +324,34 @@ def compute(
         (passed if status == PASS else failed).add(key)
         if is_wrong:
             wrong_rules.add(key)
+    return passed, failed, wrong_rules, deferred_rules, checklist
 
+
+def compute(
+    conn: sqlite3.Connection,
+    run: dict,
+    findings: list[dict],
+    *,
+    matchers: list[dict] | None,
+    equipment_type: str | None,
+) -> dict:
+    """The pair for one run, from its row and its findings. `matchers`: the truth
+    set's wrong rows, None when there is no truth set."""
+    outcome = json.loads(run.get("outcome_json") or "{}")
+    split = _stated_split(outcome)
+    rules = _rule_texts(
+        conn, {f["requirement_id"] for f in findings if f.get("requirement_id")}
+    )
+    if matchers and any(m.get("deferred") for m in matchers):
+        for f in findings:
+            f["deferred"] = f.get("compliance_status") == PASS and value_is_deferred(
+                conn, f
+            )
+    wrong_ids = None if matchers is None else {id(f) for f in hits(findings, matchers)}
+
+    passed, failed, wrong_rules, deferred_rules, checklist = _tally(
+        conn, findings, rules, wrong_ids
+    )
     passed -= failed  # a rule with a Pass on one row and a Fail on another is a Fail
     decided = len(passed) + len(failed)
     applicable = (

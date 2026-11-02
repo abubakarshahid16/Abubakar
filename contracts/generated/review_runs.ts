@@ -94,10 +94,9 @@ export interface ReviewRunSummary {
   table_values_not_compared: TableValuesNotCompared[];
   /** #453: requirements about a different kind of equipment than this submittal, one grouped line per subject ("N requirements not applied: they are about X, this submittal is Y") with the standards and clauses behind it. Empty for a run that predates it. */
   requirements_not_applied: RequirementsNotApplied[];
-  /** #678: every requirement in the run's scope in ONE of three groups (checked / applies but not checked / does not apply), each repeat counted once, with the reasons behind the last two. For a run that predates it only the counts are known and every reason is "no reason recorded". */
+  /** #678: every requirement in the run's scope in ONE of three groups (checked / applies but not checked / does not apply), each repeat counted once, with the reasons behind the last two. A run that predates it: only the counts, every reason "no reason recorded". */
   requirement_split?: RequirementSplit | null;
   clause_coverage?: RunClauseCoverageSummary | null;
-  /** Plan change 6 B: risk and coverage from the one function; null with ONE_CHECKED_DEFINITION_ENABLED off. */
   coverage_pair?: RunCoveragePair | null;
   /** #453: how the requirements that stayed were decided (general, matching, kept because the equipment is unknown). Null for a run that predates it. */
   applicability?: RunApplicability | null;

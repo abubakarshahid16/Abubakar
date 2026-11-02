@@ -128,6 +128,25 @@ def for_run(review_run_id: str, *, allowed_document_ids: frozenset[str]) -> dict
             **summarise(ledger), "rows": rows}
 
 
+def for_screen(review_run_id: str, allowed_document_ids: frozenset[str]) -> dict:
+    """The coverage route: `for_run`, whose line is the pair's with the switch on."""
+    from . import coverage_pair
+
+    return coverage_pair.screen_coverage(
+        for_run(review_run_id, allowed_document_ids=allowed_document_ids),
+        connect(),
+        review_run_id,
+    )
+
+
+def crs_meta(meta: dict, review_run_id: str) -> dict:
+    """The CRS meta: with the switch on the pair replaces this module's review note."""
+    from . import coverage_pair
+
+    notes = coverage_pair.crs_notes(meta["review_notes"], connect(), review_run_id)
+    return {**meta, "review_notes": notes}
+
+
 def line(counts: dict, applicable: int, adds_up: bool) -> str:
     """The run report's one line - every count out of the applicable rules."""
     if not applicable:

@@ -30,11 +30,11 @@ from .. import ai_numbers as ai_numbers_mod
 from .. import clause_coverage as clause_coverage_mod
 from .. import clause_review as clause_review_mod
 from .. import comparison as comparison_mod
+from .. import coverage_pair as coverage_pair_mod
 from .. import crs_mapping as crs_mapping_mod
 from .. import crs_wording as crs_wording_mod
 from .. import held_reasons as held_reasons_mod
 from .. import page_ledger as page_ledger_mod
-from .. import coverage_pair as coverage_pair_mod
 from .. import requirement_split as requirement_split_mod
 from .. import review_counts as review_counts_mod
 from .. import submittal_review as submittal_review_mod
@@ -450,7 +450,9 @@ def review_run_detail(
         )
     from .. import main as main_mod  # main imports this module
 
-    return main_mod._run_summary(run, scope)
+    # Plan change 6 B: the pair for the one run a screen asked for; null with the switch off.
+    pair = coverage_pair_mod.for_screen(connect(), review_run_id)
+    return {**main_mod._run_summary(run, scope), "coverage_pair": pair}
 
 
 def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
