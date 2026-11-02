@@ -331,7 +331,7 @@ def test_a_clause_review_status_from_before_the_count_is_not_recorded_not_zero()
 
 
 def test_the_ledger_rows_join_the_report_and_no_ledger_is_not_recorded():
-    ledger = [{"step": "reader", "model": "m", "fresh": 1, "reused": 3}]
+    ledger = [{"step": "reader", "model": "m", "fresh": 1, "reused": 3, "failed": 0}]
     ai = review_audit._ai_section(
         _run({"ran": True, "calls_made": 1}), {}, ledger=ledger
     )
