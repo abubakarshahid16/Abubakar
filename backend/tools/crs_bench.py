@@ -30,30 +30,14 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import crs_decider, deferred_pass, deferred_value
+from app import coverage_pair, crs_decider, deferred_pass
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
 
 
-# What a row CLAIMS, so a matcher survives a label change (#1569): `check` is the
-# checklist item's id, `value` whether the row carries a value from the sheet
-# ("absent"/"present": never the value itself, the truth file holds no document
-# text), `page` the page it cites. `section` is the row's label: it can change
-# while the claim stays, so the truth file does not use it. `value` tests only
-# that the row has evidence text: a quote that defers the value is "present".
-MATCH_KEYS = (
-    "origin",
-    "status",
-    "requirement_id",
-    "match_method",
-    "section",
-    "check",
-    "value",
-    "page",
-    "deferred",
-)
-VALUE_STATES = ("absent", "present")
+MATCH_KEYS = coverage_pair.MATCH_KEYS  # one home: the pair needs the same matching
+VALUE_STATES = coverage_pair.VALUE_STATES
 
 
 class ModelCallRefused(RuntimeError):
@@ -63,61 +47,13 @@ class ModelCallRefused(RuntimeError):
 # ----------------------------------------------------------------- matching
 
 
-def _check_id(finding: dict) -> str | None:
-    from app.datasheet_checks import LABEL
-
-    source = finding.get("requirement_source_text") or ""
-    found = re.match(rf"{re.escape(LABEL)} (\S+):", source)
-    return found.group(1) if found else None
-
-
-def _matches(finding: dict, matcher: dict) -> bool:
-    if not set(matcher) & set(MATCH_KEYS):
-        raise ValueError(f"a truth matcher must name at least one of {MATCH_KEYS}")
-    # an unknown key used to be ignored, which quietly widened the matcher
-    unknown = set(matcher) - set(MATCH_KEYS) - {"why"}
-    if unknown:
-        raise ValueError(f"a truth matcher has unknown keys: {sorted(unknown)}")
-    if "value" in matcher and matcher["value"] not in VALUE_STATES:
-        raise ValueError(f"a truth matcher's value must be one of {VALUE_STATES}")
-    has_value = (finding.get("contractor_evidence_text") or "").strip()
-    for key in MATCH_KEYS:
-        if key not in matcher:
-            continue
-        want = matcher[key]
-        got = {
-            "status": finding.get("compliance_status"),
-            "section": finding.get("contractor_section"),
-            "check": _check_id(finding),
-            "value": "present" if has_value else "absent",
-            "page": finding.get("contractor_page"),
-        }.get(key, finding.get(key))
-        if (got or "") != want:
-            return False
-    return True
-
-
-def _hits(findings: list[dict], matchers: list[dict]) -> list[dict]:
-    return [f for f in findings if any(_matches(f, m) for m in matchers)]
-
-
+_check_id = coverage_pair._check_id
+_matches = coverage_pair.matches
+_hits = coverage_pair.hits
 _deferred_pass = deferred_pass.is_deferred_pass
 
 
-def _value_is_deferred(conn: sqlite3.Connection, finding: dict) -> bool:
-    """D2, whichever reading the row kept: its wording defers the value, or another
-    current reading of the same field on the same page does."""
-    if _deferred_pass(finding):
-        return True
-    rows = conn.execute(
-        "SELECT o.value_note FROM submittal_facts f JOIN submittal_facts o"
-        " ON o.submittal_document_id = f.submittal_document_id"
-        " AND o.field_name = f.field_name AND o.page IS f.page"
-        " AND o.equipment_tag IS f.equipment_tag"
-        " WHERE f.id = ? AND o.superseded_at IS NULL",
-        (finding.get("fact_id"),),
-    ).fetchall()
-    return any(deferred_value.note_of({"value_note": r[0]}) for r in rows)
+_value_is_deferred = coverage_pair.value_is_deferred
 
 
 def _fold(text: str | None) -> str:
@@ -242,6 +178,12 @@ def score(
         # Informational, below the headline: one count per place a decision or
         # an engineer row is made, never added together (`finding_sources`).
         "sources": finding_sources(conn, findings),
+        # The pair, one definition with the board and the CRS (`coverage_pair`).
+        # Printed below the headline; the gate does not read it. `--save` writes
+        # this dict and git tracks saved baselines: the public view only.
+        "pair": coverage_pair.public_view(
+            coverage_pair.for_run(conn, run_id, case=case, replayed=replayed)
+        ),
     }
 
 
@@ -271,7 +213,7 @@ DECISION, ENGINEER = "decision", "engineer"
 #: engineer rows, shown with any verdict they carry, not gated (an engineer's
 #: own action on one is not the code's verdict).
 DRAFT = "draft"
-DRAFT_ORIGINS = ("ai_engineering_check", "web_standard_check", "clause_review", "chat")
+DRAFT_ORIGINS = coverage_pair.DRAFT_ORIGINS
 #: A COMPLIANT finding shown for an engineer's tick (`show_for_engineer_tick`):
 #: crs_mapping prints it as a `safety_tick` row the engineer must tick, so it is
 #: an engineer row, not a decision the bench credits.
@@ -760,6 +702,138 @@ ROWS = [
 ]
 
 
+PAIR_COVERAGE = "coverage: standard rules decided of those that apply (one definition)"
+PAIR_RISK = "risk: wrong among standard rules decided (one definition)"
+PAIR_OUTCOMES = "standard rules pass / fail / unknown (one definition)"
+PAIR_CHECKLIST = "checklist decided, stated apart, not added to the rules"
+PAIR_BY_TYPE = "Risk and coverage per equipment type"
+PAIR_BY_REASON = "Risk and coverage per gate reason"
+OTHER_REASONS = coverage_pair.OTHER_REASONS
+PAIR_RULE = [
+    "Risk and coverage, one definition (`app/coverage_pair.py`, the same function the"
+    " board call and the CRS use). Applicable: the rules the run states apply to its"
+    " document (requirement_split: reached the comparison + applies but not checked),"
+    " each rule once; does-not-apply and checklist-covered rules are out. Decided: code"
+    " said pass or fail; a Pass on a deferred value (D2) is unknown. Risk: wrong among"
+    " decided rules, 'not measured' where the truth set names no known-wrong row for the"
+    " run, never 0; a truth hit on a D2 Pass stays on the headline's hard stop, not here."
+    " The checklist is stated apart and never added; a wrong checklist verdict is printed"
+    " on its row. The gate does not read these rows. A saved result holds no document id"
+    " and no free-text gate reason here.",
+    "The clause coverage line a run stores counts stored rows, not rules, and adds the"
+    " rules a checklist covers, so its 'applicable' is larger on the same run.",
+]
+
+
+def _pair_cell(m: dict, fn) -> str:
+    pair = m.get("pair")
+    return "" if pair is None else fn(pair)
+
+
+PAIR_ROWS = [
+    (
+        PAIR_COVERAGE,
+        lambda p: (
+            ""
+            if not coverage_pair.coverage_text(p)
+            else _frac(p["decided"], p["applicable"])
+        ),
+    ),
+    (
+        PAIR_RISK,
+        lambda p: (
+            _frac(p["risk"]["wrong"], p["risk"]["decided"])
+            + (
+                f" ({p['wrong_verdicts']['all']} wrong in all)"
+                if p["wrong_verdicts"]["all"] != p["risk"]["wrong"]
+                else ""
+            )
+            if p["risk"]["measured"]
+            else coverage_pair.NOT_MEASURED
+        ),
+    ),
+    (
+        PAIR_OUTCOMES,
+        lambda p: (
+            f"{p['pass']} / {p['fail']} / "
+            + ("" if p["unknown"] is None else str(p["unknown"]))
+        ),
+    ),
+    (
+        PAIR_CHECKLIST,
+        lambda p: (
+            _frac(p["checklist"]["decided"], p["checklist"]["rows"])
+            + (f" ({p['checklist']['wrong']} wrong)" if p["checklist"]["wrong"] else "")
+        ),
+    ),
+]
+
+
+def save_results(path: Path, results: list[dict]) -> None:
+    """`--save`: the results as a file git may track, in a public repo. The table needs
+    the equipment type (`by_equipment_type`); a saved baseline does not: the gate never
+    reads it, so a classification of the document stays out of the file."""
+    saved = []
+    for result in results:
+        entry = dict(result)
+        for column in ("stored", "replay"):
+            pair = (entry.get(column) or {}).get("pair")
+            if pair is not None:
+                kept = {k: v for k, v in pair.items() if k != "equipment_type"}
+                entry[column] = {**entry[column], "pair": kept}
+        saved.append(entry)
+    path.write_text(json.dumps(saved, indent=1, default=str))
+
+
+def _reason_cell(row: dict) -> str:
+    """One gate reason's cell. Decisions that do not fit the count the run states are
+    not printed against it (`coverage_pair._gate_rows`): only that count is."""
+    count = (
+        row["applicable"]
+        if row["decided"] is None
+        else f"{row['decided']}/{row['applicable']}"
+    )
+    wrong = f" ({row['wrong']} wrong)" if row["wrong"] is not None else ""
+    return f"{row['reason']}: {count}{wrong}"
+
+
+def pair_tables(cols: list[tuple[str, dict]]) -> list[str]:
+    """The breakdowns: per equipment type (one column's runs each) and per gate reason."""
+    lines: list[str] = []
+    stored = [
+        m["pair"] for name, m in cols if m.get("pair") and name.endswith("stored")
+    ]
+    if stored:
+        lines += [
+            "",
+            f"{PAIR_BY_TYPE} (stored runs; each type adds only its runs):",
+            "",
+        ]
+        for name, s in sorted(coverage_pair.by_equipment_type(stored).items()):
+            risk = s["risk"]
+            cov = (
+                "" if s["applicable"] is None else _frac(s["decided"], s["applicable"])
+            )
+            said = (
+                f"{risk['wrong']}/{risk['decided']} on {risk['measured_runs']} of"
+                f" {s['runs']} run(s) with a truth set; {s['wrong_verdicts']} wrong in all"
+                if risk["measured_runs"]
+                else coverage_pair.NOT_MEASURED
+            )
+            lines.append(f"- {name}: coverage {cov}; risk {said}")
+    rows = [(name, m["pair"]) for name, m in cols if m.get("pair")]
+    if rows:
+        lines += [
+            "",
+            f"{PAIR_BY_REASON} (each adds up to its column's applicable):",
+            "",
+        ]
+        for name, pair in rows:
+            cells = "; ".join(_reason_cell(r) for r in pair["by_gate_reason"])
+            lines.append(f"- {name}: {cells or 'the run states no rules that apply'}")
+    return lines
+
+
 def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
     """Why the bench is red, or [] when green: any wrong verdict (stored or
     replay), or any measure worse than the saved baseline for the same run. A
@@ -840,6 +914,10 @@ def render_markdown(
         lines.append(f"| {label} | " + " | ".join(fn(m) for _, m in cols) + " |")
     for label, cells in source_rows(cols):
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    for label, fn in PAIR_ROWS:
+        cells = [_pair_cell(m, fn) for _, m in cols]
+        lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    lines += pair_tables(cols)
     configs = sorted({r["config"] for r in results if r.get("config")})
     lines += [
         "",
@@ -872,5 +950,6 @@ def render_markdown(
         "",
     ]
     lines += [f"- {c}" for c in truth.get("counting_rule", [])]
+    lines += [f"- {c}" for c in PAIR_RULE]
     lines += [f"- {c}" for c in SOURCE_RULE]
     return "\n".join(lines) + "\n"
