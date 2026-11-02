@@ -201,6 +201,18 @@ def test_a_value_that_could_not_be_read_stays_apart():
     assert len(merged([row("f1"), row("f2")], one_of_each)[0]) == 2
 
 
+def test_a_row_holding_a_stated_and_an_unread_value_joins_nothing():
+    findings = [*TWO, finding("f3", "T-3", 3, value=None)]
+    wide = row("f1", finding_ids=["f1", "f3"])
+    assert len(merged([wide, row("f2")], findings)[0]) == 2
+
+
+def test_a_row_holding_an_unread_value_is_not_no_value_by_nature():
+    findings = [*NO_VALUE, no_value("f3", 3, "Three.", fact_id="x")]
+    wide = row("f1", finding_ids=["f1", "f3"])
+    assert len(merged([wide, row("f2")], findings)[0]) == 2
+
+
 def test_no_value_by_nature_with_another_verdict_or_clause_stays_apart():
     other = no_value("f2", 2, "Two.", status="MISSING_INFORMATION")
     assert len(merged([row("f1"), row("f2")], [NO_VALUE[0], other])[0]) == 2
