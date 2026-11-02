@@ -109,7 +109,7 @@ def _custom_id(requirement_id: str) -> str:
 
 def _client():
     """The batch transport. None: `claude_batch_run` uses `reader_transport`, its one lane."""
-    return None
+    return
 
 
 def _system(kind: str) -> str:
@@ -159,7 +159,9 @@ def _room() -> float:
     caps = claude_spend.Caps.from_settings().for_step(STEP)
     return max(
         0.0,
-        min(caps.per_step - claude_spend.spent(STEP), caps.total - claude_spend.spent()),
+        min(
+            caps.per_step - claude_spend.spent(STEP), caps.total - claude_spend.spent()
+        ),
     )
 
 
@@ -188,11 +190,15 @@ def _usd(review_run_id: str, worst_all: float) -> dict:
 
 def _sent(review_run_id: str) -> int:
     """Asks that went to the API at least once, whatever came back; a stored answer is not one."""
-    return connect().execute(
-        "SELECT COUNT(*) FROM claude_batch_requests WHERE job = ? AND"
-        " ((api_batch_id IS NOT NULL AND api_batch_id <> ?) OR state = 'unconfirmed')",
-        (_job(review_run_id), claude_batch_run.FROM_CACHE),
-    ).fetchone()[0]
+    return (
+        connect()
+        .execute(
+            "SELECT COUNT(*) FROM claude_batch_requests WHERE job = ? AND"
+            " ((api_batch_id IS NOT NULL AND api_batch_id <> ?) OR state = 'unconfirmed')",
+            (_job(review_run_id), claude_batch_run.FROM_CACHE),
+        )
+        .fetchone()[0]
+    )
 
 
 def _reading(answered: dict) -> dict | None:
@@ -293,7 +299,9 @@ def _purge(conn, job: str) -> None:
     """Raw answers leave the batch tables; the rows hold only what code verified. Spend stays in the ledger."""
     with conn:
         conn.execute("DELETE FROM claude_batch_answers WHERE job = ?", (job,))
-        conn.execute("UPDATE claude_batch_requests SET answer = NULL WHERE job = ?", (job,))
+        conn.execute(
+            "UPDATE claude_batch_requests SET answer = NULL WHERE job = ?", (job,)
+        )
 
 
 def forget_documents(conn, document_ids) -> None:
@@ -320,10 +328,14 @@ def _after_close(review_run_id: str) -> None:
     from .main import number_crs_rows
 
     try:
-        job = connect().execute(
-            "SELECT created_by FROM jobs WHERE review_run_id = ? ORDER BY started_at DESC LIMIT 1",
-            (review_run_id,),
-        ).fetchone()
+        job = (
+            connect()
+            .execute(
+                "SELECT created_by FROM jobs WHERE review_run_id = ? ORDER BY started_at DESC LIMIT 1",
+                (review_run_id,),
+            )
+            .fetchone()
+        )
         if job is None:
             return
         requester = access.AccessScope(
@@ -421,8 +433,13 @@ def tick(review_run_id: str, *, provider=None, now=time.time) -> dict | None:
         for custom_id in stored.unconfirmed:
             reasons[custom_id] = WHY_UNCONFIRMED
         open_asks = [c for c in unanswered if c not in stored.unconfirmed]
-        fits = outcome.over_budget and packets and _room() >= claude_batch_run.worst_usd(
-            provider.requested_model, packets[outcome.over_budget[0]]
+        fits = (
+            outcome.over_budget
+            and packets
+            and _room()
+            >= claude_batch_run.worst_usd(
+                provider.requested_model, packets[outcome.over_budget[0]]
+            )
         )
         if outcome.over_budget and not fits:
             stop = _why_cap()
@@ -462,7 +479,9 @@ def _why_not_claude(documents) -> str:
     return f"Claude was asked for and not used ({code})"
 
 
-def for_review(review_run_id: str, scope: frozenset[str], *, provider=None) -> tuple[bool, str | None]:
+def for_review(
+    review_run_id: str, scope: frozenset[str], *, provider=None
+) -> tuple[bool, str | None]:
     """(handled here, why the Claude lane was not used). Submits and returns; never waits for the batch."""
     from . import submittal_review
 
@@ -486,7 +505,10 @@ def for_review(review_run_id: str, scope: frozenset[str], *, provider=None) -> t
     asks = {_custom_id(r["id"]): r["id"] for r in wanted}
     packets = _build_packets(submittal, kind, {_custom_id(r["id"]): r for r in wanted})
     _PACKETS[review_run_id] = packets
-    worst = sum(claude_batch_run.worst_usd(provider.requested_model, p) for p in packets.values())
+    worst = sum(
+        claude_batch_run.worst_usd(provider.requested_model, p)
+        for p in packets.values()
+    )
     started = time.time()
     with conn:  # a retried job keeps its row, and so its batch: never paid twice
         conn.execute(

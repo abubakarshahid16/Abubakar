@@ -629,7 +629,9 @@ def for_review(review_run_id: str, scope: frozenset[str]) -> None:
         started, claude_note = clause_review_claude.for_review(review_run_id, scope)
         if started:
             return
-        if local_engine_bar.refuses(STEP):  # the local path, in a Claude-lane run: said, not run
+        if local_engine_bar.refuses(
+            STEP
+        ):  # the local path, in a Claude-lane run: said, not run
             plain = f"AI clause review {local_engine_bar.NOTE}"
             if claude_note:
                 plain += f" ({claude_note})"

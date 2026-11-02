@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -19,21 +20,24 @@ from app import (
     claude_spend,
     clause_review,
     clause_review_claude,
+    clause_review_status,
     db,
     document_refs,
-    main as main_mod,
     review_audit,
     submittal_review,
+)
+from app import (
+    main as main_mod,
 )
 from app import reasoning_provider as rp
 from app.config import settings
 from tests.test_1477_clause_review import (  # noqa: F401 - fixtures and helpers
     GOOD_CHAIR,
     PAGE1,
-    Fake,
     REQ_ACTIONS,
     REQ_CHAIR,
     REQ_GUIDE,
+    Fake,
     _resolver,
     _rows,
     _world,
@@ -51,19 +55,28 @@ PLANTED = "Quartermaster zebra manifests accumulate beneath the eastern loading 
 class Batches:
     """Holds what it was sent. A batch stays in progress until `ended`; `kinds` scripts a request's result."""
 
-    def __init__(self, *, ended=True, answer=None, kinds=None, stop="end_turn", output=100):
+    def __init__(
+        self, *, ended=True, answer=None, kinds=None, stop="end_turn", output=100
+    ):
         self.created, self.ended, self.retrieves = [], ended, 0
         self.answer = answer or (lambda text: NO_EVIDENCE)
         self.kinds, self.stop, self.output = kinds or {}, stop, output
 
     def batch_create(self, url, *, headers, requests):
         self.created.append(requests)
-        return {"id": f"msgbatch_{len(self.created)}", "processing_status": "in_progress"}
+        return {
+            "id": f"msgbatch_{len(self.created)}",
+            "processing_status": "in_progress",
+        }
 
     def batch_retrieve(self, url, batch_id, *, headers):
         self.retrieves += 1
         state = "ended" if self.ended else "in_progress"
-        return {"id": batch_id, "processing_status": state, "results_url": "https://x/r"}
+        return {
+            "id": batch_id,
+            "processing_status": state,
+            "results_url": "https://x/r",
+        }
 
     def batch_results(self, url, *, headers):
         rows = []
@@ -119,7 +132,9 @@ def _start(run, scope):
 def _second_run(sub, scope):
     with db.connect() as conn:
         conn.execute("UPDATE review_runs SET status = 'completed'")
-    run = submittal_review.create_review_run(submittal_document_id=sub, allowed_document_ids=scope)
+    run = submittal_review.create_review_run(
+        submittal_document_id=sub, allowed_document_ids=scope
+    )
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO review_applicable_standards (id,review_run_id,standard_document_id,selection_reason,"
@@ -130,9 +145,14 @@ def _second_run(sub, scope):
 
 
 def _batch_rows(table, run):
-    return db.connect().execute(
-        f"SELECT COUNT(*) FROM {table} WHERE job = ?", (clause_review_claude._job(run),)
-    ).fetchone()[0]
+    return (
+        db.connect()
+        .execute(
+            f"SELECT COUNT(*) FROM {table} WHERE job = ?",
+            (clause_review_claude._job(run),),
+        )
+        .fetchone()[0]
+    )
 
 
 # ---------------------------------------------------------------- the setting
@@ -188,20 +208,26 @@ def test_one_ask_carries_one_rule_and_its_passages_never_the_document(fake):
             (filler, sub),
         )
         conn.execute(
-            "UPDATE chunks SET text = ? WHERE document_id = ? AND ordinal = 1", (filler, sub)
+            "UPDATE chunks SET text = ? WHERE document_id = ? AND ordinal = 1",
+            (filler, sub),
         )
         conn.execute(
-            "UPDATE pages SET text = ? WHERE document_id = ? AND page_no = 2", (PLANTED, sub)
+            "UPDATE pages SET text = ? WHERE document_id = ? AND page_no = 2",
+            (PLANTED, sub),
         )
         conn.execute(
-            "UPDATE chunks SET text = ? WHERE document_id = ? AND ordinal = 2", (PLANTED, sub)
+            "UPDATE chunks SET text = ? WHERE document_id = ? AND ordinal = 2",
+            (PLANTED, sub),
         )
     _start(run, scope)
     [ask] = fake.sent()
     shown = json.dumps(ask["params"]["messages"])
     assert REQ_CHAIR in shown and PLANTED not in shown
     assert filler not in shown and "Sentence 599" not in shown
-    assert len(ask["params"]["messages"][0]["content"]) < 2 * 4 * clause_review.PASSAGE_CHARS
+    assert (
+        len(ask["params"]["messages"][0]["content"])
+        < 2 * 4 * clause_review.PASSAGE_CHARS
+    )
 
 
 def test_the_examples_go_in_the_cached_system_block_not_in_each_question(fake):
@@ -221,7 +247,11 @@ def _answer_by_requirement(text):
     if "HAZOP chair" in text:
         return QUOTED
     if "tracked to closure" in text:
-        return {"answer": "quote", "page": 2, "quote": "words the model made up and no page holds"}
+        return {
+            "answer": "quote",
+            "page": 2,
+            "quote": "words the model made up and no page holds",
+        }
     return "not json at all"
 
 
@@ -269,7 +299,9 @@ def test_a_fenced_answer_is_read(fake):
 # ------------------------------------------------- waiting does not block the app
 
 
-def test_a_batch_out_returns_at_once_and_says_pending_on_the_crs_and_the_audit(fake, monkeypatch):
+def test_a_batch_out_returns_at_once_and_says_pending_on_the_crs_and_the_audit(
+    fake, monkeypatch
+):
     fake.ended = False
     slept = []
     monkeypatch.setattr(claude_batch_run.time, "sleep", slept.append)
@@ -283,7 +315,9 @@ def test_a_batch_out_returns_at_once_and_says_pending_on_the_crs_and_the_audit(f
     assert "2 of 2 applicable requirement(s) not AI-reviewed" in status["plain"]
     assert status["calls"] == 2
     assert status["usd"]["held"] > 0 and status["usd"]["charged"] == 0
-    _r, meta, _n, _s = main_mod._crs_content(run, access.unrestricted_scope(), "internal")
+    _r, meta, _n, _s = main_mod._crs_content(
+        run, access.unrestricted_scope(), "internal"
+    )
     assert any(status["plain"] in n["detail"] for n in meta["review_notes"])
     assert "REVIEW INCOMPLETE" in meta["incomplete_notice"]
     audit = review_audit.build(run, access.unrestricted_scope(), None)
@@ -301,7 +335,11 @@ def test_a_restart_polls_the_same_batch_and_pays_once(fake):
     status = clause_review_claude.tick(run)
     assert len(fake.created) == 1 and len(_rows(run)) == 2
     assert status["pending"] is False and status["results"]["reviewed"] == 2
-    assert status["calls"] == 2 and status["usd"]["held"] == 0 and status["usd"]["charged"] > 0
+    assert (
+        status["calls"] == 2
+        and status["usd"]["held"] == 0
+        and status["usd"]["charged"] > 0
+    )
 
 
 def test_a_retried_review_job_does_not_send_a_second_batch(fake):
@@ -318,7 +356,9 @@ def test_only_a_due_poll_runs_and_a_failing_poll_never_raises(fake, monkeypatch)
     _start(run, scope)
     before = fake.retrieves
     assert clause_review_claude.poll_due() == 0 and fake.retrieves == before
-    later = clause_review_claude.time.time() + settings.clause_review_batch_poll_seconds + 1
+    later = (
+        clause_review_claude.time.time() + settings.clause_review_batch_poll_seconds + 1
+    )
     assert clause_review_claude.poll_due(now=lambda: later) == 1
     assert fake.retrieves == before + 1
 
@@ -342,18 +382,23 @@ def test_the_idle_worker_loop_polls(monkeypatch):
     worker._stop = ingest.threading.Event()
     worker.poll_seconds = 0
     worker.last_error = None
-    monkeypatch.setattr(worker, "_next_document", lambda: None, raising=False)
+    turns = []
+
+    def next_document():  # a loop that forgot the poll still ends, and the assert below fails
+        turns.append(1)
+        if len(turns) > 1:
+            worker._stop.set()
+
+    monkeypatch.setattr(worker, "_next_document", next_document, raising=False)
     monkeypatch.setattr(worker, "_drain_review_jobs", lambda: False, raising=False)
-    monkeypatch.setattr(worker, "_drain_standard_extraction", lambda: False, raising=False)
+    monkeypatch.setattr(
+        worker, "_drain_standard_extraction", lambda: False, raising=False
+    )
     polled = []
 
-    def once():
-        polled.append(1)
-        worker._stop.set()
-
-    monkeypatch.setattr(clause_review_claude, "poll_due", once)
+    monkeypatch.setattr(clause_review_claude, "poll_due", lambda: polled.append(1))
     worker._run()
-    assert polled == [1]
+    assert polled
 
 
 def test_the_lane_shut_while_waiting_makes_no_poll_and_stays_pending(fake, monkeypatch):
@@ -390,7 +435,9 @@ def test_expired_or_cancelled_twice_is_not_reviewed_and_never_sent_again(fake):
     assert clause_review_claude.tick(run) == status and len(fake.created) == 2
 
 
-def test_a_given_up_request_is_not_resent_by_the_next_poll_of_the_others(fake, monkeypatch):
+def test_a_given_up_request_is_not_resent_by_the_next_poll_of_the_others(
+    fake, monkeypatch
+):
     """`claude_batch_run.run` re-queues what was given up each call; a polling caller keeps it out."""
     fake.ended = False
     _sub, run, scope = _world((REQ_CHAIR, REQ_ACTIONS))
@@ -443,7 +490,9 @@ def _worst_one():
     return claude_batch_run.worst_usd(settings.claude_reasoning_model, packet)
 
 
-def test_what_a_cap_leaves_is_sent_in_tranches_and_the_cap_is_never_crossed(fake, monkeypatch):
+def test_what_a_cap_leaves_is_sent_in_tranches_and_the_cap_is_never_crossed(
+    fake, monkeypatch
+):
     """Reservations are at worst case; settled at real cost, the room grows and the next tranche goes."""
     monkeypatch.setattr(settings, "claude_budget_usd_per_step", _worst_one() * 2.5)
     _sub, run, scope = _world(_reqs(5))
@@ -457,7 +506,9 @@ def test_what_a_cap_leaves_is_sent_in_tranches_and_the_cap_is_never_crossed(fake
     assert claude_spend.spent("clause_review") <= settings.claude_budget_usd_per_step
 
 
-def test_when_the_real_spend_reaches_the_cap_it_stops_partial_with_the_count(fake, monkeypatch):
+def test_when_the_real_spend_reaches_the_cap_it_stops_partial_with_the_count(
+    fake, monkeypatch
+):
     cap = _worst_one() * 2.5
     monkeypatch.setattr(settings, "claude_budget_usd_per_step", cap)
     fake.output = 1000  # a real answer close to the worst case: nothing is freed
@@ -475,10 +526,15 @@ def test_when_the_real_spend_reaches_the_cap_it_stops_partial_with_the_count(fak
     assert status["results"]["not_reviewed"] == 5 - status["results"]["reviewed"]
     assert status["results"]["adds_up"]
     assert f"{status['results']['not_reviewed']} of 5 applicable" in status["plain"]
-    assert "cap of step clause_review" in status["plain"] and "owner's decision" in status["plain"]
+    assert (
+        "cap of step clause_review" in status["plain"]
+        and "owner's decision" in status["plain"]
+    )
 
 
-def test_with_no_room_at_all_nothing_is_sent_and_every_one_is_counted(fake, monkeypatch):
+def test_with_no_room_at_all_nothing_is_sent_and_every_one_is_counted(
+    fake, monkeypatch
+):
     monkeypatch.setattr(settings, "claude_budget_usd_per_step", _worst_one() / 2)
     _sub, run, scope = _world(_reqs(3))
     status = _start(run, scope)
@@ -499,7 +555,9 @@ def test_the_usd_is_this_runs_and_matches_the_ledger(fake):
     assert claude_spend.spent("clause_review") > status["usd"]["charged"]
 
 
-def test_351_asks_whose_worst_case_is_over_the_cap_all_get_done_under_it(fake, monkeypatch):
+def test_351_asks_whose_worst_case_is_over_the_cap_all_get_done_under_it(
+    fake, monkeypatch
+):
     """The order's real count, on a model that thinks by default: reserved at worst case the first
     batch cannot hold them all, and no batch ever holds more than the USD 5."""
     monkeypatch.setattr(settings, "claude_reasoning_model", "claude-sonnet-5-5")
@@ -523,7 +581,9 @@ def test_the_close_numbers_the_late_rows_and_writes_the_audit_again(fake, monkey
 
     sub, first, scope = _world()
     with db.connect() as conn:
-        conn.execute("UPDATE review_runs SET status = 'completed' WHERE id = ?", (first,))
+        conn.execute(
+            "UPDATE review_runs SET status = 'completed' WHERE id = ?", (first,)
+        )
     run, _job = review_jobs.enqueue(sub, allowed_document_ids=scope, requested_by=None)
     with db.connect() as conn:
         conn.execute(
@@ -536,17 +596,23 @@ def test_the_close_numbers_the_late_rows_and_writes_the_audit_again(fake, monkey
     monkeypatch.setattr(review_audit, "write", lambda r, s, t: audited.append(r))
     fake.ended = False
     _start(run, scope)
-    assert numbered == [] and audited == []  # the review job does its own while it is pending
+    assert (
+        numbered == [] and audited == []
+    )  # the review job does its own while it is pending
     fake.ended = True
     clause_review_claude.tick(run)
     assert numbered == [run] and audited == [run]
 
 
-def test_refused_in_a_barred_run_is_said_and_the_local_engine_stays_out(fake, monkeypatch):
+def test_refused_in_a_barred_run_is_said_and_the_local_engine_stays_out(
+    fake, monkeypatch
+):
     from app import local_engine_bar
 
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
-    monkeypatch.setattr(rp, "OllamaProvider", lambda **k: pytest.fail("the local engine loaded"))
+    monkeypatch.setattr(
+        rp, "OllamaProvider", lambda **k: pytest.fail("the local engine loaded")
+    )
     _sub, run, scope = _world()
     with local_engine_bar.bar():
         clause_review.for_review(run, scope)
@@ -576,7 +642,9 @@ def test_a_document_not_on_the_approved_list_sends_nothing(fake, monkeypatch, tm
     assert "Claude was asked for and not used" in status["plain"]
 
 
-def test_a_blocked_document_sends_nothing_whatever_the_list_says(fake, monkeypatch, tmp_path):
+def test_a_blocked_document_sends_nothing_whatever_the_list_says(
+    fake, monkeypatch, tmp_path
+):
     sub, run, scope = _world()
     _list(
         tmp_path, monkeypatch,
@@ -587,7 +655,9 @@ def test_a_blocked_document_sends_nothing_whatever_the_list_says(fake, monkeypat
     assert fake.created == []
 
 
-def test_all_approved_goes_and_declares_the_documents_it_carries(fake, monkeypatch, tmp_path):
+def test_all_approved_goes_and_declares_the_documents_it_carries(
+    fake, monkeypatch, tmp_path
+):
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
     sub, run, scope = _world()
     _list(
@@ -634,7 +704,7 @@ def test_no_document_text_reaches_the_log_the_status_or_the_ledger(fake, caplog)
     with caplog.at_level(logging.DEBUG):
         status = _start(run, scope)
     held = json.dumps(status) + caplog.text
-    held += open(settings.claude_spend_log, encoding="utf-8").read()
+    held += Path(settings.claude_spend_log).read_text(encoding="utf-8")
     assert "Safety Department" not in held and REQ_CHAIR not in held
 
 
@@ -645,7 +715,9 @@ def test_the_close_removes_the_raw_answers(fake):
     assert _batch_rows("claude_batch_answers", run) == 0
     conn = db.connect()
     assert (
-        conn.execute("SELECT COUNT(*) FROM claude_batch_requests WHERE answer IS NOT NULL").fetchone()[0]
+        conn.execute(
+            "SELECT COUNT(*) FROM claude_batch_requests WHERE answer IS NOT NULL"
+        ).fetchone()[0]
         == 0
     )
 
@@ -669,17 +741,33 @@ def test_a_cancelled_run_stops_polling_and_keeps_no_answer(fake):
         conn.execute("UPDATE review_runs SET status = 'cancelled' WHERE id = ?", (run,))
     fake.ended = True
     assert clause_review_claude.tick(run) is None and _rows(run) == []
-    row = db.connect().execute(
-        "SELECT state FROM clause_review_batches WHERE review_run_id = ?", (run,)
-    ).fetchone()
+    row = (
+        db.connect()
+        .execute(
+            "SELECT state FROM clause_review_batches WHERE review_run_id = ?", (run,)
+        )
+        .fetchone()
+    )
     assert row["state"] == clause_review_claude.CLOSED
+
+
+def test_counts_that_do_not_add_up_say_so():
+    status = {
+        "pages": 1, "not_reviewed": [], "failed": [], "stopped": None, "requirements": 3, "verified": 1,
+        "no_evidence": 0, "unverified": 0, "unreadable": 0, "kind": "procedure", "kind_state": "confirmed",
+    }  # fmt: skip
+    clause_review_status.fill(status, 1.0)
+    assert status["results"]["adds_up"] is False
+    assert "THE COUNTS DO NOT ADD UP" in status["plain"]
 
 
 # --------------------------------------------------------------- the local engine
 
 
 def _local(run, scope, reqs=None):
-    return clause_review.run(run, allowed_document_ids=scope, provider=Fake({"HAZOP": NO_EVIDENCE}))
+    return clause_review.run(
+        run, allowed_document_ids=scope, provider=Fake({"HAZOP": NO_EVIDENCE})
+    )
 
 
 def test_the_local_limit_stays_and_prints_how_many_and_why_with_the_denominator(on):
@@ -698,7 +786,9 @@ def test_the_local_limit_stays_and_prints_how_many_and_why_with_the_denominator(
 def test_the_limit_line_reaches_the_crs_and_the_audit(on, monkeypatch):
     _sub, run, scope = _world(_reqs(61))
     plain = _local(run, scope)["plain"]
-    _r, meta, _n, _s = main_mod._crs_content(run, access.unrestricted_scope(), "internal")
+    _r, meta, _n, _s = main_mod._crs_content(
+        run, access.unrestricted_scope(), "internal"
+    )
     assert any(
         "1 of 61 applicable requirement(s) not AI-reviewed" in n["detail"]
         for n in meta["review_notes"]
@@ -730,7 +820,9 @@ def test_an_unreadable_answer_alone_still_marks_the_review_unfinished(on):
     _sub, run, scope = _world()
     with db.connect() as conn:
         conn.execute("UPDATE document_kinds SET state = 'confirmed'")
-    clause_review.run(run, allowed_document_ids=scope, provider=Fake({"HAZOP": "not json"}))
+    clause_review.run(
+        run, allowed_document_ids=scope, provider=Fake({"HAZOP": "not json"})
+    )
     ai = clause_review._stored_ai_status(db.connect(), run)
     parts = absence.unchecked_parts(run_status="completed", outcome={}, ai_status=ai)
     assert any(p["part"] == "clause_review" for p in parts)

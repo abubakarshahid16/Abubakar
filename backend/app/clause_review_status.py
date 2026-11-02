@@ -120,5 +120,7 @@ def fill(status: dict, elapsed: float) -> None:
     for sentence in (_not_ai_reviewed(status), _engine_sentence(status)):
         if sentence:
             status["plain"] += f" {sentence}."
+    if not status["results"]["adds_up"]:
+        status["plain"] += " THE COUNTS DO NOT ADD UP - report this run."
     if status.get("whole_document_note"):
         status["plain"] += f" {status['whole_document_note']}."
