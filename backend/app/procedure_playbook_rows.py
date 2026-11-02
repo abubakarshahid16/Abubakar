@@ -196,11 +196,18 @@ def crs_rows(
 
 
 def merge(
-    rows: list[dict], submittal_id: str, submittal_name: str, allowed: frozenset[str]
+    rows: list[dict],
+    submittal_id: str,
+    submittal_name: str,
+    allowed: frozenset[str],
+    findings: list[dict] = (),
 ) -> tuple[list[dict], list[dict]]:
     """The CRS rows with the playbook rows added in rank order (the same list, untouched,
-    when there are none), and the review notes this adds."""
+    when there are none), and the review notes this adds. Order 4c, switch on: each
+    quoted row's page cell, and the note that says what the Item No label is."""
+    from . import procedure_crs
+
     mine, notes = crs_rows(submittal_id, submittal_name, allowed)
-    if not mine:
-        return rows, notes
-    return sorted([*rows, *mine], key=lambda r: r.get("priority") or 0), notes
+    merged = sorted([*rows, *mine], key=lambda r: r.get("priority") or 0) if mine else rows
+    procedure_crs.fill_pages(merged, list(findings), submittal_id)
+    return merged, notes + procedure_crs.number_notes(submittal_id)

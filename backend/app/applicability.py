@@ -355,13 +355,8 @@ _WHICH_TYPE = "engineer to check which equipment this is"
 _WHICH_CLAUSES = "engineer to check which clauses apply"
 
 
-def standards_check(
-    submittal_document_id: str,
-    *,
-    allowed_document_ids: frozenset[str],
-    library: list[dict] | None = None,
-    no_equipment: bool = False,
-) -> dict:
+def standards_check(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
+                    library: list[dict] | None = None) -> dict:
     """#754 F5b: the standards that APPLY to this submittal, against the ones
     it CITES. A senior engineer reviews a datasheet against the standards that
     apply to it, and says so when the contractor did not reference one.
@@ -396,8 +391,6 @@ def standards_check(
         if r["method"] == METHOD_REFERENCED)]))
     reading = _equipment_reading(submittal_document_id, allowed_document_ids)
     equipment, source, doubt, facts = reading
-    if no_equipment:  # the CRS of a non-datasheet kind (`procedure_crs`)
-        equipment, source, doubt = set(), None, None
     gov = governing_table()
     required = equipment_subtype.required(equipment, source, text, gov, REQUIRED_BY_TYPE)
     declared_absent: list[tuple[dict, str]] = []

@@ -396,9 +396,13 @@ def test_the_export_prints_no_id_and_says_what_the_label_is(on):
 
 def test_a_suggested_number_says_it_is_a_guess_with_its_page(on):
     _document(pages=[COVER])
-    notes = procedure_crs.number_notes(DOC, f"doc:{DOC}", "INV-AB-PD-0007-SUGGESTED")
+    notes = procedure_crs.number_notes(DOC)
     assert "A guess" in notes[0]["detail"] and "page 1" in notes[0]["detail"]
-    assert procedure_crs.number_notes(DOC, "no:inv", "INV") == []
+
+
+def test_a_real_number_needs_no_note(on):
+    _document(number="INV-1-2", pages=["invented cover"])
+    assert procedure_crs.number_notes(DOC) == []
 
 
 def test_a_reference_already_issued_still_belongs(on):
@@ -443,7 +447,7 @@ def test_switch_off_keeps_every_field(governed):
     moved = [{"quote": "nowhere at all in this document", "page_section": "p.9"}]
     procedure_crs.fill_pages(moved, [], DOC)
     assert moved[0]["page_section"] == "p.9"
-    assert procedure_crs.number_notes(DOC, f"doc:{DOC}", "X") == []
+    assert procedure_crs.number_notes(DOC) == []
     assert not crs_numbers.ref_label_ok(FRAGMENT, "NO-NUMBER", f"doc:{DOC}")
     assert not procedure_crs.other_document("NO-NUMBER", {}, DOC)
     # The export, unchanged: the type's standard row stays.
@@ -498,21 +502,17 @@ def test_the_export_prints_no_page_for_an_unverified_quote(on, monkeypatch):
 
 def test_the_export_standards_sheet_drops_the_type(on, monkeypatch):
     run = _document(pages=["invented cover"])
+    stored = {
+        "standard_document_id": DOC,
+        "included": 1,
+        "selection_method": "governing_standard",
+        "selection_reason": "governs a invented compressor",
+    }
     monkeypatch.setattr(
-        main_mod,
-        "_crs_standards",
-        lambda *_a: [
-            {
-                "standard": "s.pdf",
-                "method": "governing_standard",
-                "evidence": "",
-                "status": "Applied",
-                "reason": "governs a invented compressor",
-            }
-        ],
+        submittal_review, "list_applicable_standards", lambda *_a, **_k: [stored]
     )
     text = " ".join(_cells(_sheet(run)["Applicable standards"]))
-    assert "s.pdf" in text and "invented compressor" not in text
+    assert "invented-procedure.pdf" in text and "invented compressor" not in text
 
 
 def _reply_sheet(item, name):

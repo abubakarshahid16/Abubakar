@@ -145,6 +145,20 @@ def _shown_label(scope_key: str) -> str | None:
     return no_number_label(document_id, row["document_number"] if row else None)
 
 
+def stored_label(scope_key: str, label: str) -> str:
+    """The label a new number is stored with: neutral on a document sequence, because
+    a suggested number is a guess, printed and never kept."""
+    return NO_NUMBER_LABEL if _sequenced_document(scope_key) is not None else label
+
+
+def parse_own_ref(ref: str, label: str, scope_key: str) -> tuple[str, int] | None:
+    """`parse_ref`, with a label this sequence printed earlier read as today's."""
+    parsed = parse_ref(ref)
+    if parsed is not None and ref_label_ok(parsed[0], label, scope_key):
+        return label, parsed[1]
+    return parsed
+
+
 def ref_label_ok(quoted: str, label: str, scope_key: str) -> bool:
     """Does a quoted reference's label belong to this submittal's sequence? Its
     label today, or one this document's sequence printed earlier: the id fragment
@@ -318,10 +332,7 @@ def assign(scope_key: str, label: str, keys: list[str], *,
     Idempotent: a key that already has a number keeps it. Returns `lookup` of
     all the keys afterwards."""
     conn = connect()
-    snapshots = snapshots or {}
-    if _sequenced_document(scope_key) is not None:
-        # Stored neutral: a suggested number is a guess, printed, never kept.
-        label = NO_NUMBER_LABEL
+    snapshots, label = snapshots or {}, stored_label(scope_key, label)
     if any(keys):
         # Fix this document to this sequence before its first number exists,
         # so the number and the sequence it belongs to can never disagree.
