@@ -371,7 +371,7 @@ def sync_audit(actor: str = "file edit (owner)") -> bool:
     hash). Returns True when a row was written. Called by `claude_auto_approve`
     (#1584 switch on): after an entry is added and when a review starts, so an
     edit made with a text editor is recorded then. Nothing else calls it: with
-    the switch off the list's changes are not audited (A-1584)."""
+    the switch off the list's changes are not audited (A-1587)."""
     from .db import connect
     path = list_path()
     digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "absent"

@@ -171,7 +171,7 @@ leaves unless every document its prompt carries is on the owner's list
 declares its documents (`claude_approved.carrying`); a caller that declares nothing is refused too
 (fail closed). The check sits in `claude_spend.reserve_all`, which both Claude lanes pass. A refusal
 is in the spend ledger at USD 0 (ids only). A change to the list reaches the audit table only with
-the #1584 switch on (`sync_audit` has no other caller; A-1584). Chat on
+the #1584 switch on (`sync_audit` has no other caller; A-1587). Chat on
 an unapproved document: the Claude-first path answers with the local model and says so; the other
 chat paths say the document is not approved and ask the reader to choose the Local model.
 
