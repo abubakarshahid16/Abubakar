@@ -32,7 +32,7 @@ class SettingsExt(BaseModel):
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
     rule_field_naming_engine: str = "off"
-    #: #1584, the I-06 proof run only: a rule forbidding a material decides through the owner-signed grade table
+    #: #1584, the proof run only: a rule forbidding a material decides through the owner-signed grade table
     #: (`material_reference.py`), and each finding says it is not engineer-confirmed. Env: MATERIAL_REFERENCE_ENABLED.
     material_reference_enabled: bool = False
     #: Who proposes that table: "off" sends nothing. One call, no document text. Env: MATERIAL_REFERENCE_ENGINE.

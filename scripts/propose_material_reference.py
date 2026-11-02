@@ -1,4 +1,4 @@
-"""#1584: the material reference table for the I-06 proof run, on a COPY. Sends no document text and no sheet value.
+"""#1584: the material reference table for a proof run, on a COPY. Sends no document text and no sheet value.
 
     python scripts/propose_material_reference.py --db <copy> --estimate-only
     python scripts/propose_material_reference.py --db <copy> --max-usd 100

@@ -1,6 +1,6 @@
 """Specification grade to material family, owner-signed, for a rule that forbids a material. Off by default (#1584).
 
-MATERIAL_REFERENCE_ENABLED is for the I-06 proof run only. Until an engineer confirms it, every finding that rests on it
+MATERIAL_REFERENCE_ENABLED is for the proof run only. Until an engineer confirms it, every finding that rests on it
 says "owner-signed reference" and that it is not engineer-confirmed.
 
 AI PROPOSES, A PERSON SIGNS, CODE DECIDES. One call from general knowledge, sending no document text and no value from any
