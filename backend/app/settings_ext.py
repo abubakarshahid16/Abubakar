@@ -115,6 +115,10 @@ class SettingsExt(BaseModel):
     #: Priority from the fixed list. EXPORT ONLY: no verdict, status or finding changes.
     #: OFF: nothing changes. Env: CRS_EXPORT_QUALITY_ENABLED.
     crs_export_quality_enabled: bool = False
+    #: #1591: on that export, a row with no page says the section or field it is about and why it
+    #: has no page, never "page not found". A page still comes only from a verified quote. Needs
+    #: CRS_EXPORT_QUALITY_ENABLED. OFF: nothing changes. Env: CRS_PAGE_CELL_FIELD_ENABLED.
+    crs_page_cell_field_enabled: bool = False
     #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
     #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
