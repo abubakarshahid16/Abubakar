@@ -190,6 +190,12 @@ def test_the_bench_names_it_apart_and_does_not_credit_it(on):
     )
 
 
+def test_the_bench_fingerprint_says_the_switch_only_when_on(monkeypatch):
+    assert "presence_not_pass_enabled" not in crs_bench.fingerprint()
+    monkeypatch.setattr(settings, "presence_not_pass_enabled", True)
+    assert "presence_not_pass_enabled=True" in crs_bench.fingerprint()
+
+
 def test_the_scorer_does_not_call_it_a_pass_on_the_field():
     answer = {"fields": ["rated_flow"], "wanted": "query", "defect": "over_limit"}
     stated = {

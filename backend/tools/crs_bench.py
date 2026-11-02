@@ -648,6 +648,9 @@ def fingerprint() -> str:
     from app import config
 
     switches = " ".join(f"{n}={getattr(config.settings, n)}" for n in BENCH_SWITCHES)
+    # #1638: named only when on, so a baseline saved before the switch stays comparable
+    if config.settings.presence_not_pass_enabled:
+        switches += " presence_not_pass_enabled=True"
     return f"{config.config_version()} {switches}"
 
 
