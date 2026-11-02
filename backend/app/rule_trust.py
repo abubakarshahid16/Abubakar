@@ -429,15 +429,21 @@ def _hold_without_a_value(verdict: dict, fact: dict | None) -> dict:
 
 
 def label_finding(
-    finding: dict, rule: dict, proof: dict | None, *, fact: dict | None = None
+    finding: dict,
+    rule: dict,
+    proof: dict | None,
+    *,
+    fact: dict | None = None,
+    always: bool = False,
 ) -> dict:
     """THE OPT-IN HOOK. Off (`settings.rule_auto_use_enabled` False): the
     finding unchanged. On: labelled, downgraded when UNPROVEN, and a
     COMPLIANT verdict from a SAFETY-tier rule flagged for an engineer's tick.
     `settings.owner_approved_rules_decide_enabled` turns it on for a rule the
-    owner approved and for no other."""
+    owner approved and for no other. `always`: a rule a draft checklist kept in
+    scope (Lock 2) is labelled with both switches off."""
     owner_rule = settings.owner_approved_rules_decide_enabled and _owner_tier(rule)
-    if not settings.rule_auto_use_enabled and not owner_rule:
+    if not settings.rule_auto_use_enabled and not owner_rule and not always:
         return finding
     out = apply_trust(finding, trust_label(rule, proof))
     if out["trust_label"] == OWNER_APPROVED:
