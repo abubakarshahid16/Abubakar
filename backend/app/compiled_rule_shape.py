@@ -14,6 +14,7 @@ import re
 
 from . import numparse
 from . import standards_converter as sc
+from .compiled_rule_context import quote_span
 from .compiled_rule_field import _field_words
 from .converter_gates import fold as _fold
 
@@ -29,6 +30,7 @@ _NOT_PLAIN = re.compile(
     r"\b(?:or|nor|either|neither|whichever|alternatively|otherwise|cannot|prohibited|forbidden)\b|can\s+not\b"
 )
 _BRACKET = re.compile(r"\(([^)]*)\)")
+_CLAUSE_NUMBER = re.compile(r"\d+(?:\.\d+)+\.?")
 #: A conversion ("360 psi") or a note on how a figure reads ("g", "s"): the only brackets a plain sentence holds.
 _CONVERSION = re.compile(r"^\W*-?\d[\d.,/]*\s*\S{0,10}\W*$")
 _READING_NOTE = re.compile(r"^\W*(?:s|es|g|a|ga|abs|absolute|gauge)\W*$")
@@ -115,6 +117,26 @@ def _semicolon_beside(quote: str, page: str) -> bool:
     ] in {";", ":"}
 
 
+def _printed_whole(quote: str, page: str) -> bool:
+    """The quote opens its printed line or sentence and closes with a stop. So no printed prefix (a material or class
+    label, a short bracket) is left out to give a figure no scope, and a sentence cut by a page end, a blank line or a
+    split decimal is not read as closed. A clause number may stand before it: it scopes nothing."""
+    start, end = quote_span(quote, page)
+    if start is None:
+        return False
+    before = page[page.rfind("\n", 0, start) + 1 : start].strip()
+    if before and not _CLAUSE_NUMBER.fullmatch(before) and not before.endswith("."):
+        return False
+    after = page[end:]
+    if not quote.rstrip().endswith("."):
+        if not after.startswith("."):
+            return False
+        after = after[1:]
+    if after[:1].strip():
+        return False
+    return not after.lstrip()[:1].islower()
+
+
 def figure_is_plain(
     sentence: str, body: str, claim: tuple[str, str, str, str], quote: str, page: str
 ) -> bool:
@@ -127,7 +149,7 @@ def figure_is_plain(
         return False
     if _NOT_PLAIN.search(whole) or not _brackets_plain(whole):
         return False
-    if _semicolon_beside(quote, page):
+    if not unit or _semicolon_beside(quote, page) or not _printed_whole(quote, page):
         return False
     text = " ".join(_BRACKET.sub(" ", numparse.fold(body).lower()).split())
     figures = _figures(text)

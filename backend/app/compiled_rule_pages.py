@@ -48,8 +48,13 @@ _STRIP_PREFIX = re.compile(
 )
 
 
-#: A hyphen, and any space or line end after it, between two letters.
-_WORD_HYPHEN = re.compile(r"(?<=[^\W\d_])-\s*(?=[^\W\d_])")
+#: A hyphen, and any space or line end after it, between two letters. Two capitals closed up are a label ("A-B-7"), not a
+#: broken word: they stay as printed.
+_WORD_HYPHEN = re.compile(
+    r"(?<=[^\W\d_])-\s+(?=[^\W\d_])|(?<=[^\W\d_])-(?=[^\W\d_])(?<!(?<=[A-Z])-(?=[A-Z]))"
+)
+#: A numbered heading ends the label before it: "4.2 Bolts" is in force now, not "XY-12". A lone figure is no heading.
+_NUMBERED_HEADING = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s+[A-Z]")
 _LABEL = r"(?:[A-Z0-9]{1,6}-)+\d+[A-Z]?(?:\.\d+)*"
 _SUBS = r"(?:\s?\(-?[A-Za-z0-9]{1,3}\))*"
 #: A label heads a line only alone, with a title in capitals, or with its sub-paragraph and text: "XY-12 and the rail" is
@@ -203,6 +208,8 @@ def _label_marks(text: str) -> tuple[tuple[int, str, str], ...]:
         found = _LINE_LABEL.match(line)
         if found:
             out.append((at, "label", found["label"]))
+        elif _NUMBERED_HEADING.match(line):
+            out.append((at, "numbered", ""))
         subs = found["subs"] if found else _LINE_SUBS.match(line)[0]
         out += [(at, _sub_kind(s), s) for s in _ONE_SUB.findall(subs.casefold())]
         at += len(_fold(line)) + 1 if line.strip() else 0
@@ -221,23 +228,36 @@ def label_in_force(
 ) -> bool | None:
     """Is a printed label with letters and a number, "XY-12" or "3-4", with any sub-paragraphs, "XY-12(a)(1)(-b)", the one
     in force at `at`? Its label is the nearest one starting a line before the quote, running back over earlier pages, and
-    each sub-paragraph cited is the nearest of its kind after that label. None: not such a label ("4.2.1")."""
+    the sub-paragraphs cited open the chain in force after it. None: not such a label ("4.2.1"). A numbered heading after
+    the label ends it. A sub-paragraph of a kind already open closes everything under it: after "(a) (1) (b)", (1) is gone."""
     cited = _CITED_LABEL.fullmatch(clause)
     if not cited:
         return None
-    wanted = [(_sub_kind(s), s) for s in _ONE_SUB.findall(cited["subs"].casefold())]
-    nearest: dict[str, str] = {}
+    wanted = _ONE_SUB.findall(cited["subs"].casefold())
+    after_label: list[tuple[str, str]] = []
     for number in sorted((p for p in pages if p <= page), reverse=True):
-        marks = _label_marks(pages[number])
-        for where, kind, words in reversed(marks):
+        for where, kind, words in reversed(_label_marks(pages[number])):
             if number == page and where > at:
                 continue
+            if kind == "numbered":
+                return False
             if kind == "label":
-                return words == cited["label"] and all(
-                    nearest.get(k) == s for k, s in wanted
-                )
-            nearest.setdefault(kind, words)
+                chain = _chain_in_force(reversed(after_label))
+                return words == cited["label"] and chain[: len(wanted)] == wanted
+            after_label.append((kind, words))
     return False
+
+
+def _chain_in_force(marks) -> list[str]:
+    open_kinds: list[str] = []
+    chain: list[str] = []
+    for kind, words in marks:
+        if kind in open_kinds:
+            cut = open_kinds.index(kind)
+            del open_kinds[cut:], chain[cut:]
+        open_kinds.append(kind)
+        chain.append(words)
+    return chain
 
 
 def _clause_labels(text: str) -> list[tuple[int, str]]:

@@ -671,6 +671,7 @@ def verify(
         **rule,
         "applies_to": " ".join(str(answer.get("applies_to")).split()),
         "field": _without_gloss(" ".join(str(answer.get("field")).split())),
+        "clause": str(answer.get("clause")).strip(),
         "condition_text": _fold(condition) or None,
         "exception_text": rule["exception_text"] and (_fold(exception) or None),
         "quote": quote,

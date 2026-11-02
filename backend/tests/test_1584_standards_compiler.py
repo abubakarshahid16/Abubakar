@@ -537,7 +537,7 @@ def test_a_changed_text_is_compiled_again_and_the_old_rules_stay():
 def test_results_out_of_order_land_on_their_own_chunk():
     pages = tuple(
         f"{n}.1 Part\nThe invented part{'abcdefg'[n]} pressure shall not exceed {n}0 bar.\n"
-        + "padding line\n" * 1200
+        + "Padding line\n" * 1200
         for n in range(1, 7)
     )
     _document(pages=pages)
@@ -5176,3 +5176,148 @@ def test_a_rescue_sends_nothing_on_reverify():
     assert (
         len(fake.created) == 1 and report["kept"] == 1 and report["status"] == "partial"
     )
+
+
+# ---- A figure is stored only from a closed sentence quoted from where it is printed.
+
+
+@pytest.mark.parametrize(
+    "page, quote, over",
+    [
+        (
+            "7.3 Part\nThe pressure shall not exceed 5 bar\n\nat the outlet.",
+            "The pressure shall not exceed 5 bar",
+            {},
+        ),
+        (
+            "7.3 Part\nThe pressure shall not exceed 5 bar",
+            "The pressure shall not exceed 5 bar",
+            {},
+        ),
+        (
+            "7.3 Part\nThe pressure shall not exceed 5 bar.\nat the outlet.",
+            "The pressure shall not exceed 5 bar.",
+            {},
+        ),
+        (
+            "7.3 Part\nThe pressure shall not exceed 1.\n5 bar applies.",
+            "The pressure shall not exceed 1.",
+            {"limit": "1", "unit": None},
+        ),
+        (
+            "7.3 Part\nThe pressure shall not exceed 5.",
+            "The pressure shall not exceed 5.",
+            {"unit": None},
+        ),
+    ],
+)
+def test_a_figure_from_a_sentence_not_closed_is_not_stored(page, quote, over):
+    assert not compiled_rule_shape.figure_is_plain(
+        quote,
+        quote,
+        (over.get("limit", "5"), over.get("unit", "bar") or "", "<=", "pressure"),
+        quote,
+        page,
+    )
+    rule, why = _verify_on(page, quote, **{**FIGURE, **over})
+    assert why is not None or rule["limit_value"] is None
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["SA-516 ", "SA-516-7 ", "(ht) ", "(a) ", "a) ", "(-a) ", "(a)(1) "],
+)
+def test_a_figure_quoted_without_what_its_line_prints_first_is_not_stored(prefix):
+    quote = "The pressure shall not exceed 5 bar."
+    rule, why = _verify_on(f"7.3 Part\n{prefix}{quote}", quote, **FIGURE)
+    assert why is not None or rule["limit_value"] is None
+    rule, why = _verify_on(f"7.3 Part\n{prefix}{quote}", f"{prefix}{quote}", **FIGURE)
+    assert why is not None or rule["quote"].startswith(prefix.strip())
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "7.3 Part\nThe pressure shall not exceed 5 bar.",
+        "7.3 The pressure shall not exceed 5 bar.",
+        "7.3 Part\nThe rail is blue. The pressure shall not exceed 5 bar.",
+        "7.3 Part\nThe pressure shall not exceed 5 bar.\nThe rail is blue.",
+        "7.3 Part\nThe pressure shall not\nexceed 5 bar.",
+    ],
+)
+def test_a_figure_quoted_from_where_it_is_printed_is_stored(page):
+    quote = "The pressure shall not exceed 5 bar."
+    assert _stored(quote, page=page)["limit_value"] == 5
+
+
+def test_a_figure_quoted_without_its_stop_is_stored_when_the_page_prints_it():
+    quote = "The pressure shall not exceed 5 bar"
+    assert _stored(quote, page=f"7.3 Part\n{quote}.")["limit_value"] == 5
+
+
+def test_a_figure_with_no_unit_is_not_stored():
+    sentence = "The count shall not exceed 5."
+    rule = _stored(sentence, field="count", unit=None)
+    assert rule["limit_value"] is None and "figure_not_stored" in rule["context_flag"]
+
+
+@pytest.mark.parametrize(
+    "page, clause",
+    [
+        ("XY-12 Part\n4.2 Bolts\nThe widget shall be red.", "XY-12"),
+        ({1: "XY-12 Part\n4.2 Bolts", 2: "The widget shall be red."}, "XY-12"),
+        (
+            "XY-12 Part\n(a) Rails\n(1) Hubs\n(b) The widget shall be red.",
+            "XY-12(b)(1)",
+        ),
+        (
+            "XY-12 Part\n(a) Rails\n(1) Hubs\n(b) Rims\n(2) The widget shall be red.",
+            "XY-12(a)(2)",
+        ),
+        (
+            "XY-12 Part\n(a) Rails\n(1) Hubs\n(-a) Rims\n(2) The widget shall be red.",
+            "XY-12(a)(2)(-a)",
+        ),
+        ("XY-12 Part\n(a) Rails\n(1) The widget shall be red.", "XY-12(1)"),
+    ],
+)
+def test_an_older_label_or_a_stale_sub_paragraph_is_not_in_force(page, clause):
+    assert _labelled(page, clause) == (None, "clause_not_nearest")
+
+
+@pytest.mark.parametrize(
+    "page, clause",
+    [
+        (
+            "XY-12 Part\n(a) Rails\n(1) Hubs\n(b) Rims\n(1) The widget shall be red.",
+            "XY-12(b)(1)",
+        ),
+        (
+            "XY-12 Part\n(a) Rails\n(1) Hubs\n(2) The widget shall be red.",
+            "XY-12(a)(2)",
+        ),
+        ("XY-12 Part\n(a) Rails\n(1) The widget shall be red.", "XY-12(a)"),
+        ("XY-12 Part\n0.015 of 3.5\nThe widget shall be red.", "XY-12"),
+        ("XY-12 Part\n4.2 mm wide\nThe widget shall be red.", "XY-12"),
+    ],
+)
+def test_the_chain_in_force_still_stands(page, clause):
+    assert _labelled(page, clause)[1] is None
+
+
+@pytest.mark.parametrize("clause", ["A-B-7", "UW-A-3", "A-B-7(a)"])
+def test_a_label_of_capitals_stays_as_printed_on_the_page_and_in_the_rule(clause):
+    label = clause.split("(")[0]
+    marker = "(a) " if "(" in clause else ""
+    rule, why = _labelled(f"{label} Part\n{marker}The widget shall be red.", clause)
+    assert why is None and rule["clause"] == clause
+
+
+def test_a_near_label_is_not_the_label_once_hyphens_stay():
+    page = "AB-7 Part\nThe widget shall be red."
+    assert _labelled(page, "A-B-7") == (None, "clause_not_nearest")
+
+
+def test_a_broken_clause_kept_as_the_model_wrote_it():
+    rule, why = _labelled("Part-a 4 Rails\nThe widget shall be red.", "Part-a 4")
+    assert why is None and rule["clause"] == "Part-a 4"
