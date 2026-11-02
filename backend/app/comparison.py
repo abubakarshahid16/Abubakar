@@ -1433,40 +1433,11 @@ def _trust_columns(verdict: dict, status: str | None) -> dict:
 def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
                         requirements: list[dict], rows: list[dict]) -> dict | None:
     """Steps 7 and 10 of the owner decision, for the run's record. None with
-    the switch off. Field NAMES of this machine's own datasheet; never values.
-
-    `rows` are EVERY finding written for this run - the rule rows and the
-    datasheet checks - so `held_unproven` is every verdict rule_trust held,
-    not the main loop's share of them (s2's real-group run of 17 Oct found
-    51 reported against 1,555 held). `findings_counted` states the boundary.
-    """
+    the switch off."""
     if trust is None:
         return None
     from . import rule_trust
-    if not rule_trust.run_has_a_record(rows):
-        return None
-    # A stored fact carries its value as `field_value`; the pure function
-    # reads `raw_value`. One translation, here, never a second reader.
-    shaped = [{"field_name": f.get("field_label") or f.get("field_name"),
-               "raw_value": f.get("field_value"), "is_blank": f.get("is_blank")} for f in facts]
-    read = [f for f in shaped if not f["is_blank"] and f["raw_value"] not in (None, "")]
-    uncovered = rule_trust.uncovered_fields(shaped, requirements)
-    auto_ids = [r["id"] for r in rows if r.get("trust_label") == rule_trust.AUTO_PROVEN]
-    labels: dict[str, int] = {}
-    for r in rows:
-        if r.get("trust_label"):
-            labels[r["trust_label"]] = labels.get(r["trust_label"], 0) + 1
-    return {
-        "fields_read": len(read),
-        "uncovered_fields": [f.get("field_name") or f.get("name") for f in uncovered],
-        "labels": labels,
-        "findings_counted": len(rows),
-        "held_unproven": sum(1 for r in rows if r.get("rule_said")),
-        "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
-        "auto_proven": len(auto_ids),
-        "audit_sample": rule_trust.audit_sample(auto_ids, seed=review_run_id),
-        **rule_trust.decided_by_tier(rows),
-    }
+    return rule_trust.run_summary(review_run_id, facts, requirements, rows)
 
 
 def _prepare_finding(

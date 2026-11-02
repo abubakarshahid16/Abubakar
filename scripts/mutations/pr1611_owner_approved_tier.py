@@ -106,8 +106,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         10,
         "the run record does not say which tier decided",
-        _C,
-        "        **rule_trust.decided_by_tier(rows),\n",
+        _R,
+        "        **decided_by_tier(rows),\n",
         "",
         "run_record_states_who_decided",
     ),
@@ -186,8 +186,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         20,
         "the switch on with no owner rule stores a record and prints new CRS notes",
-        _C,
-        "    if not rule_trust.run_has_a_record(rows):\n        return None\n",
+        _R,
+        "    if not run_has_a_record(rows):\n        return None\n",
         "",
         "no_owner_rule_is_byte_identical",
     ),
