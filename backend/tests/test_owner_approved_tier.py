@@ -15,6 +15,7 @@ import re
 
 import openpyxl
 import pytest
+from tools import crs_bench
 
 from app import (
     comparison,
@@ -26,9 +27,6 @@ from app import (
 )
 from app.config import settings
 from app.db import connect
-from tests.test_1475_planted_defects import _rule_facts as table_facts
-from tests.test_rule_eval import _rule as table_rule
-from tools import crs_bench
 from tests.test_947_rule_trust_wiring import (  # noqa: F401 - fixtures
     SPEC,
     SUB,
@@ -39,6 +37,8 @@ from tests.test_947_rule_trust_wiring import (  # noqa: F401 - fixtures
     temp_storage,
     world,
 )
+from tests.test_1475_planted_defects import _rule_facts as table_facts
+from tests.test_rule_eval import _rule as table_rule
 from tests.test_w5_677_scope_ledger import NOW, _req
 
 WORDS = "AI-built, quote-verified, owner-approved"
