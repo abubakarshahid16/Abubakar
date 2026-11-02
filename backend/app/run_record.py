@@ -109,19 +109,11 @@ def _applied_ids(conn, review_run_id: str) -> list[str]:
 def _version_used(conn, review_run_id: str, outcome: dict) -> tuple[int, str | None]:
     """(version, snapshot hash). The rulebook's own record first, then the compiler's note, then 1: verdict code reads
     only `standard_requirements` unless a run recorded otherwise."""
+    from .compiled_rule_report import run_book
     from .standards_compiler import V1
 
-    if _has_table(conn, "rulebook_run"):
-        row = conn.execute(
-            "SELECT used_version, snapshot_id FROM rulebook_run WHERE review_run_id = ?",
-            (review_run_id,),
-        ).fetchone()
-        if row is not None:
-            found = conn.execute(
-                "SELECT snapshot_hash FROM rulebook_snapshot WHERE id = ?", (row[1],)
-            ).fetchone()
-            return row[0], found[0] if found else None
-    return (outcome.get("rule_version") or {}).get("used") or V1, None
+    recorded = run_book(conn, review_run_id)
+    return recorded or ((outcome.get("rule_version") or {}).get("used") or V1, None)
 
 
 def _review_code(conn, review_run_id: str) -> str | None:
@@ -136,35 +128,32 @@ def _ticks(conn, review_run_id: str) -> dict:
     """The ticks and signed decisions on the standards this run applied, kept per standard so an export can count only
     what its reader may read. A tick reaches its standard through the compiled rule it names; one that names no rule
     of an applied standard is not counted. A table this cannot read says so, never 0."""
+    from .compiled_rule_report import decisions_on, rule_documents
+
+    applied = _applied_ids(conn, review_run_id)
     by_standard: dict = {}
     signed: dict = {}
     try:
         if _has_table(conn, "checklist_ticks"):
-            for doc, tick, sha, stamp, n in conn.execute(
-                "SELECT c.standard_document_id, t.tick, t.source_sha256, t.version_stamp, COUNT(*)"
-                " FROM checklist_ticks t JOIN compiled_rules c ON c.id = t.rule_id"
-                f" WHERE t.tick IS NOT NULL AND c.standard_document_id IN {_APPLIED}"
-                " GROUP BY 1, 2, 3, 4",
-                (review_run_id,),
+            document_of = rule_documents(conn, applied)
+            for rule, tick, sha, stamp in conn.execute(
+                "SELECT rule_id, tick, source_sha256, version_stamp FROM checklist_ticks"
+                " WHERE tick IS NOT NULL"
             ):
+                if rule not in document_of:
+                    continue
                 one = by_standard.setdefault(
-                    doc, {"by_tick": {}, "files": [], "stamps": []}
+                    document_of[rule], {"by_tick": {}, "files": [], "stamps": []}
                 )
-                one["by_tick"][tick] = one["by_tick"].get(tick, 0) + n
+                one["by_tick"][tick] = one["by_tick"].get(tick, 0) + 1
                 one["files"] = sorted({*one["files"], sha})
                 one["stamps"] = sorted({*one["stamps"], stamp})
-        if _has_table(conn, "rulebook_approval"):
-            decisions: dict = {}
-            for approval, decision, doc in conn.execute(
-                "SELECT a.id, a.decision, p.standard_document_id FROM rulebook_approval a"
-                " JOIN rulebook_provenance p ON p.rule_version_id = a.rule_version_id"
-                f" WHERE p.standard_document_id IN {_APPLIED}",
-                (review_run_id,),
-            ):
-                decisions.setdefault((approval, decision), set()).add(doc)
-            for (_approval, decision), docs in decisions.items():
-                key = (decision, tuple(sorted(docs)))
-                signed[key] = signed.get(key, 0) + 1
+        decisions: dict = {}
+        for decision_id, decision, doc in decisions_on(conn, applied):
+            decisions.setdefault((decision_id, decision), set()).add(doc)
+        for (_decision_id, decision), docs in decisions.items():
+            key = (decision, tuple(sorted(docs)))
+            signed[key] = signed.get(key, 0) + 1
     except sqlite3.OperationalError:
         return {"unreadable": True}
     return {

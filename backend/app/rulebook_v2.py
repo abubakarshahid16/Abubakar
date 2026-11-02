@@ -75,6 +75,46 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _table_exists(conn, name: str) -> bool:
+    found = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone()
+    return found is not None
+
+
+def run_used(conn, review_run_id: str) -> tuple[int, str | None] | None:
+    """(version, snapshot hash) a run recorded, for `run_record`. None: no table, or no record. Reads only."""
+    if not _table_exists(conn, "rulebook_run"):
+        return None
+    row = conn.execute(
+        "SELECT used_version, snapshot_id FROM rulebook_run WHERE review_run_id = ?",
+        (review_run_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    found = conn.execute(
+        "SELECT snapshot_hash FROM rulebook_snapshot WHERE id = ?", (row[1],)
+    ).fetchone()
+    return row[0], found[0] if found else None
+
+
+def decisions_on(conn, documents: list[str]) -> list[tuple[str, str, str]]:
+    """(decision id, decision, standard document) for a rule read in one of `documents`, for `run_record`'s counts. A
+    rule read in two gives two rows. No table: nothing. Reads only; nothing here decides."""
+    if not documents or not _table_exists(conn, "rulebook_approval"):
+        return []
+    marks = ",".join("?" for _ in documents)
+    return [
+        (r[0], r[1], r[2])
+        for r in conn.execute(
+            "SELECT a.id, a.decision, p.standard_document_id FROM rulebook_approval a"
+            " JOIN rulebook_provenance p ON p.rule_version_id = a.rule_version_id"
+            f" WHERE p.standard_document_id IN ({marks})",
+            documents,
+        )
+    ]
+
+
 def has_schema(conn) -> bool:
     row = conn.execute(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'rulebook_event'"
