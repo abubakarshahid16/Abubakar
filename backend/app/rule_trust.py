@@ -324,17 +324,19 @@ def tier_for_approved(approval: dict | None, rule: dict) -> str:
     approval (`tier`, `by`, `at`) and a rule that passes `second_check` (the label says quote-verified, so code must
     have verified it); UNPROVEN otherwise, an unknown tier included. It says what the rule may decide, never who may
     read a document (CLAUDE.md rule 5)."""
-    if not settings.owner_approved_rules_decide_enabled or not isinstance(
-        approval, dict
-    ):
-        return UNPROVEN
-    if (
-        approval.get("tier") != OWNER_TIER
-        or not approval.get("by")
-        or not approval.get("at")
-    ):
-        return UNPROVEN
-    return OWNER_APPROVED if second_check(rule)[0] else UNPROVEN
+    return OWNER_APPROVED if owner_signed(approval) and second_check(rule)[0] else UNPROVEN
+
+
+def owner_signed(approval: dict | None) -> bool:
+    """The switch is on and this is a whole owner approval. `second_check` needs a figure; a rule checked by words has
+    its own proof (`rule_typed_check.verify`)."""
+    return (
+        settings.owner_approved_rules_decide_enabled
+        and isinstance(approval, dict)
+        and approval.get("tier") == OWNER_TIER
+        and bool(approval.get("by"))
+        and bool(approval.get("at"))
+    )
 
 
 def trust_label(rule: dict, proof: dict | None) -> str:

@@ -405,16 +405,25 @@ def _rulebook_v2(part: dict, findings: list[dict], wrong_ids: set[int] | None) -
     from .rulebook_v2_review import ORIGIN
 
     rows = [f for f in findings if f.get("origin") == ORIGIN]
-    passed = sum(1 for f in rows if f.get("compliance_status") == PASS)
-    failed = sum(1 for f in rows if f.get("compliance_status") == FAIL)
+    # a row per tag; a rule is one rule: a fail if any tag fails, a pass only if every tag passes
+    by_rule: dict[str, list[dict]] = {}
+    for f in rows:
+        by_rule.setdefault(f.get("requirement_source_text") or "", []).append(f)
+    passed = failed = 0
+    for held in by_rule.values():
+        said = [f.get("compliance_status") for f in held]
+        failed += FAIL in said
+        passed += all(s == PASS for s in said)
     decided = passed + failed
     wrong = (
         None
         if wrong_ids is None
         else sum(
-            1
-            for f in rows
-            if id(f) in wrong_ids and f.get("compliance_status") in DECIDED
+            any(
+                id(f) in wrong_ids and f.get("compliance_status") in DECIDED
+                for f in held
+            )
+            for held in by_rule.values()
         )
     )
     rules = part.get("rules") or 0

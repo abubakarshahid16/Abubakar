@@ -12,6 +12,8 @@ Stdout is one line of JSON, counts only, never document text.
 reads both copies, sends nothing, and says per standard how many rules pair with that document's read values, how many are
 not on a datasheet, and how many could decide if approved.
 
+Add --checks for the typed check step: the same flags, after the field step, on rules with a verified role and no figure.
+
 Exit: 0 done; 3 engine off; 4 refused or over a budget (nothing sent); 5 a batch is still running (run it again).
 """
 
@@ -34,12 +36,19 @@ EXIT_OFF, EXIT_REFUSED, EXIT_WAITING = 3, 4, 5
 
 
 def run(
-    db_path: Path, equipment_type: str, wanted: list[str], *, emit=print, **kw
+    db_path: Path,
+    equipment_type: str,
+    wanted: list[str],
+    *,
+    emit=print,
+    checks: bool = False,
+    **kw,
 ) -> int:
     from app import (
         claude_spend,
         reasoning_provider,
         rule_field_naming,
+        rule_typed_check,
         standards_compiler,
         standards_converter,
     )
@@ -50,9 +59,8 @@ def run(
     reset_connection()
     conn = connect()
     try:
-        reports = rule_field_naming.name_fields(
-            conn, _chosen(conn, wanted), equipment_type, **kw
-        )
+        step = rule_typed_check.name_checks if checks else rule_field_naming.name_fields
+        reports = step(conn, _chosen(conn, wanted), equipment_type, **kw)
     except (rule_field_naming.SwitchedOff, standards_compiler.SwitchedOff) as exc:
         emit(json.dumps({"status": "off", "why": str(exc)}))
         return EXIT_OFF
@@ -69,6 +77,58 @@ def run(
     return EXIT_WAITING if any(r["status"] == "waiting" for r in reports) else 0
 
 
+def rule_of_compiled(row) -> dict:
+    """A stored compile row in the shape of an approved rule, before any approval. For the counts: no verdict."""
+    row = dict(row)
+    return {
+        **row,
+        "value": row.get("limit_value"),
+        "conditions": [row["condition_text"]] if row.get("condition_text") else [],
+        "exceptions": [row["exception_text"]] if row.get("exception_text") else [],
+    }
+
+
+def could_decide(rule: dict, facts: list[dict], equipment_type: str) -> tuple:
+    """(tags that would get a verdict, tags, what stops the first that would not), if a person approved it. Never the
+    verdict. The review's own steps, with no approval asked."""
+    from app import rulebook_v2_review as review
+
+    rows = [
+        review._judge(rule, found, facts, equipment_type)
+        for found in review.pairs(rule, facts, equipment_type)
+    ]
+    held = [r.reason for r in rows if r.status not in review.DECIDED]
+    return len(rows) - len(held), len(rows), held[0] if held else None
+
+
+def counts_for_document(rows, facts: list[dict], equipment_type: str) -> dict:
+    """Per standard, against one document's read values: how many rules pair, how many are not on a datasheet, how many
+    could decide. Counts and fixed reason names only: no value, no verdict, no document text."""
+    from app import rulebook_v2_review as review
+
+    rules = [rule_of_compiled(r) for r in rows]
+    found = [review.pairs(rule, facts, equipment_type) for rule in rules]
+    deciding = [could_decide(rule, facts, equipment_type) for rule in rules]
+    stopped: dict[str, int] = {}
+    for yes, of, reason in deciding:
+        if yes < of and reason:
+            stopped[reason] = stopped.get(reason, 0) + 1
+    return {
+        "rules": len(rules),
+        "pair_with_a_value": sum(
+            1 for f in found if any(p.fact is not None for p in f)
+        ),
+        "not_on_datasheet": sum(
+            1 for f in found if f[0].reason == review.NOT_ON_DATASHEET
+        ),
+        "hold_a_figure": sum(1 for rule in rules if rule["value"] is not None),
+        "hold_a_typed_check": sum(1 for rule in rules if review._check_of(rule)[0]),
+        "could_decide_if_approved": sum(1 for yes, of, _r in deciding if yes == of),
+        "could_decide_on_some_tags": sum(1 for yes, of, _r in deciding if 0 < yes < of),
+        "stopped_by": dict(sorted(stopped.items())),
+    }
+
+
 def counts(
     db_path: Path,
     equipment_type: str,
@@ -80,7 +140,7 @@ def counts(
     """Read only: the rules from one copy, the document's read values from another."""
     import sqlite3
 
-    from app import compiled_rule_report, rulebook_v2_review
+    from app import compiled_rule_report
     from app.config import settings
     from app.db import connect, reset_connection
 
@@ -106,9 +166,7 @@ def counts(
     emit(
         json.dumps(
             {
-                label: rulebook_v2_review.counts_for_document(
-                    found, facts, equipment_type
-                )
+                label: counts_for_document(found, facts, equipment_type)
                 for label, found in rows.items()
             },
             sort_keys=True,
@@ -126,6 +184,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-usd", type=float)
     ap.add_argument("--poll-seconds", type=float, default=60.0)
     ap.add_argument("--resend-unconfirmed", action="store_true")
+    ap.add_argument(
+        "--checks",
+        action="store_true",
+        help="the typed check step (field-check-v1), after the field step has run",
+    )
     ap.add_argument(
         "--counts-on",
         type=Path,
@@ -149,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
             args.equipment_type,
             args.standard,
             emit=lambda line: print(line, file=real_stdout),
+            checks=args.checks,
             estimate_only=args.estimate_only,
             max_usd=args.max_usd,
             poll_seconds=args.poll_seconds,

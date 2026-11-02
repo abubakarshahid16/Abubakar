@@ -32,6 +32,10 @@ class SettingsExt(BaseModel):
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
     rule_field_naming_engine: str = "off"
+    #: #805 plan change 6, the owner's to turn on: an owner's written note on a context-dependent rule lets that rule
+    #: decide, and the finding says so. It lifts the context flag only, never an unverifiable condition or a low reading
+    #: confidence. OFF: such a rule is a Query. Env: OWNER_NOTE_LIFTS_CONTEXT_FLAG_ENABLED.
+    owner_note_lifts_context_flag_enabled: bool = False
     #: The model of that step. Env: RULE_FIELD_NAMING_MODEL.
     rule_field_naming_model: str = "claude-haiku-5-5"
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):

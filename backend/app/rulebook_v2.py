@@ -312,11 +312,11 @@ def _standing(conn, version_id: str) -> dict[str, dict]:
     approval. A decision that names no type (a retirement) ends every approval before it."""
     standing: dict[str, dict] = {}
     for row in conn.execute(
-        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier FROM rulebook_approval"
+        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier, note FROM rulebook_approval"
         " WHERE rule_version_id = ? ORDER BY rowid",
         (version_id,),
     ):
-        names = ("id", "decision", "type", "by_id", "by", "at", "tier")
+        names = ("id", "decision", "type", "by_id", "by", "at", "tier", "note")
         one = dict(zip(names, row, strict=True))
         kind = _fold_type(one["type"])
         if not kind:
@@ -427,17 +427,23 @@ def checklist_stamp(equipment_type: str, rows) -> str:
 def field_role_of(conn, version_id: str) -> dict:
     """The role the field-naming step gave the compiled row this version came from: its role, state and reason, all
     None when the step has not run or a copy has no such column. Never a reason to decide: `rule_field_naming`."""
-    names = ("field_role", "field_role_state", "field_role_reason")
-    try:
-        row = conn.execute(
-            f"SELECT {', '.join('c.' + n for n in names)} FROM rulebook_compiled_row l"
-            " JOIN compiled_rules c ON c.id = l.compiled_row_id"
-            " WHERE l.rule_version_id = ? ORDER BY l.rowid DESC LIMIT 1",
-            (version_id,),
-        ).fetchone()
-    except sqlite3.OperationalError:
-        row = None
-    return dict(zip(names, row or (None, None, None), strict=True))
+    out = {}
+    for names in (
+        ("field_role", "field_role_state", "field_role_reason"),
+        ("check_op", "check_values", "check_state", "check_reason"),
+        ("sentence_strength",),
+    ):
+        try:
+            row = conn.execute(
+                f"SELECT {', '.join('c.' + n for n in names)} FROM rulebook_compiled_row l"
+                " JOIN compiled_rules c ON c.id = l.compiled_row_id"
+                " WHERE l.rule_version_id = ? ORDER BY l.rowid DESC LIMIT 1",
+                (version_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        out.update(zip(names, row or (None,) * len(names), strict=True))
+    return out
 
 
 def approved_rules(conn, equipment_type: str) -> list[dict]:
@@ -497,6 +503,7 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
                     "by": approval["by"] or approval["by_id"],
                     "at": approval["at"],
                     "tier": approval["tier"],
+                    "note": approval["note"],
                 },
             }
         )

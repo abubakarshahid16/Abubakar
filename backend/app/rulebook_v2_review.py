@@ -18,6 +18,7 @@ APART. Rows carry `ORIGIN`, on neither lane of `coverage_pair`, which states the
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -28,10 +29,12 @@ from . import (
     datasheet_checks,
     datasheet_roles,
     degraded_read,
+    field_links,
     kind_rules,
     match_rules,
     requirements_3b,
     rule_trust,
+    rule_typed_check,
     rulebook_v2,
     subject_scope,
 )
@@ -204,6 +207,23 @@ def pair(rule: dict, facts: list[dict], equipment_type: str | None) -> Pair:
     return Pair(fact, None, role, ids)
 
 
+def pairs(rule: dict, facts: list[dict], equipment_type: str | None) -> list[Pair]:
+    """One `Pair` per equipment tag: a sheet of four valves states four set pressures, not one in doubt. An untagged
+    value counts for every tag, and a tag's own value is never lent to another, as the checklist reads a sheet."""
+    tags = sorted({f["equipment_tag"] for f in facts if f.get("equipment_tag")})
+    if len(tags) < 2:
+        return [pair(rule, facts, equipment_type)]
+    found = [
+        pair(
+            rule,
+            [f for f in facts if f.get("equipment_tag") in (tag, None)],
+            equipment_type,
+        )
+        for tag in tags
+    ]
+    return found if any(f.fact is not None for f in found) else found[:1]
+
+
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple) -> list[dict]:
     cursor = conn.cursor()
     cursor.row_factory = sqlite3.Row
@@ -226,74 +246,41 @@ def pair_rule_to_document(
         "SELECT equipment_type FROM document_classification WHERE document_id = ?",
         (document_id,),
     )
-    found = pair(rule, facts, (kinds[0]["equipment_type"] or None) if kinds else None)
-    fact = found.fact
+    found = pairs(rule, facts, (kinds[0]["equipment_type"] or None) if kinds else None)
+    read = [f.fact for f in found if f.fact is not None]
+    said = sorted({_value_read(fact) for fact in read})
+    stopped = next((f.reason for f in found if f.reason), None)
     return {
-        "paired": fact is not None,
-        "reason": found.reason,
-        "value_read": None if fact is None else _value_read(fact),
-        "page": None if fact is None else fact.get("page"),
-        "role": found.role,
+        "paired": bool(read),
+        "reason": None if read else stopped,
+        "value_read": said[0] if len(said) == 1 else None,
+        "values_read": said,
+        "tags_paired": len(read),
+        "tags": len(found),
+        "page": read[0].get("page") if read else None,
+        "role": found[0].role,
         "not_on_datasheet_reason": rule.get("field_role_reason")
-        if found.reason == NOT_ON_DATASHEET
+        if stopped == NOT_ON_DATASHEET
         else None,
+        "check_in_plain_words": _check_words(rule),
     }
+
+
+def _check_words(rule: dict) -> str:
+    op, values = _check_of(rule)
+    return rule_typed_check.plain_words(op, values) if op else ""
+
+
+def _check_of(rule: dict) -> tuple[str | None, list[str]]:
+    """The verified typed check on a rule: (op, values), or (None, []). The values are stored as JSON."""
+    if rule.get("check_state") != rule_typed_check.VERIFIED:
+        return None, []
+    return rule.get("check_op"), json.loads(rule.get("check_values") or "[]")
 
 
 def _value_read(fact: dict) -> str:
     said = f"{fact.get('raw_value') or ''} {fact.get('raw_unit') or ''}".strip()
     return said or str(fact.get("field_value") or "")
-
-
-def rule_of_compiled(row) -> dict:
-    """A stored compile row in the shape of an approved rule, before any approval. For the counts below: no verdict."""
-    row = dict(row)
-    return {
-        **row,
-        "value": row.get("limit_value"),
-        "conditions": [row["condition_text"]] if row.get("condition_text") else [],
-        "exceptions": [row["exception_text"]] if row.get("exception_text") else [],
-    }
-
-
-def could_decide(
-    rule: dict, facts: list[dict], equipment_type: str
-) -> tuple[bool, str | None]:
-    """Would this rule give a verdict on this sheet, if a person approved it? What stops it, by name. Never the verdict."""
-    found = pair(rule, facts, equipment_type)
-    requirement = as_requirement(rule)
-    if (
-        requirement["raw_value"] is None
-        or requirement["operator"] not in _LIMIT_OPERATORS
-    ):
-        return False, NO_FIGURE
-    if found.fact is None:
-        return False, found.reason
-    scope = _scope_reason(rule, facts, found.fact, equipment_type)
-    if scope:
-        return False, scope
-    row = _compared(rule, requirement, found, facts)
-    return row.status in DECIDED, row.reason
-
-
-def counts_for_document(rows, facts: list[dict], equipment_type: str) -> dict:
-    """Per standard, against one document's read values: how many rules pair, how many are not on a datasheet, how many
-    could decide. Counts and fixed reason names only: no value, no verdict, no document text."""
-    rules = [rule_of_compiled(r) for r in rows]
-    found = [pair(rule, facts, equipment_type) for rule in rules]
-    deciding = [could_decide(rule, facts, equipment_type) for rule in rules]
-    stopped: dict[str, int] = {}
-    for yes, reason in deciding:
-        if not yes and reason:
-            stopped[reason] = stopped.get(reason, 0) + 1
-    return {
-        "rules": len(rules),
-        "pair_with_a_value": sum(1 for f in found if f.fact is not None),
-        "not_on_datasheet": sum(1 for f in found if f.reason == NOT_ON_DATASHEET),
-        "hold_a_figure": sum(1 for rule in rules if rule["value"] is not None),
-        "could_decide_if_approved": sum(1 for yes, _r in deciding if yes),
-        "stopped_by": dict(sorted(stopped.items())),
-    }
 
 
 # ------------------------------------------------------------------------------------------- the equipment type
@@ -361,15 +348,32 @@ def _state_of(text: str, facts: list[dict], fact: dict) -> str | None:
     return None if judged is None else judged["state"]
 
 
+def _context_dependent(rule: dict) -> bool:
+    return bool(
+        rule.get("context_flag")
+        or rule.get("strength") == rulebook_v2.CONTEXT_DEPENDENT
+    )
+
+
+def _note_lifts_the_flag(rule: dict) -> bool:
+    """The owner's written note, with the switch on, stands in for a scope outside the sentence. Only for that: a low
+    reading confidence is not a matter of scope, and conditions are still verified after this."""
+    note = str((rule.get("approval") or {}).get("note") or "").strip()
+    return bool(
+        settings.owner_note_lifts_context_flag_enabled
+        and note
+        and "low_ocr_confidence" not in str(rule.get("context_flag") or "")
+    )
+
+
 def _scope_reason(
     rule: dict, facts: list[dict], fact: dict, equipment_type: str
 ) -> str | None:
-    if (
-        rule.get("context_flag")
-        or rule.get("strength") == rulebook_v2.CONTEXT_DEPENDENT
-    ):
+    flagged = _context_dependent(rule)
+    if flagged and not _note_lifts_the_flag(rule):
         return SCOPE_OUTSIDE_SENTENCE
-    if rule.get("strength") != _BINDING:
+    strength = rule.get("sentence_strength") if flagged else rule.get("strength")
+    if strength != _BINDING:
         return NOT_BINDING
     if not _applies_to_this_type(rule, equipment_type):
         return APPLIES_TO_NOT_VERIFIED
@@ -441,30 +445,76 @@ def _compared(rule: dict, requirement: dict, found: Pair, facts: list[dict]) -> 
     return _query(rule, reason, found, words)
 
 
-def decide_rule(
-    rule: dict, facts: list[dict], equipment_type: str, in_force: frozenset
+def _typed(rule: dict, found: Pair, op: str, values: list[str]) -> Row:
+    """Code decides a rule checked by words, on the one trusted value of this tag."""
+    from . import comparison
+
+    fact = found.fact
+    stated = " ".join(
+        str(fact.get("field_value") or fact.get("raw_value") or "").split()
+    )
+    if not field_links.states_a_value(stated):
+        return _query(rule, VALUE_UNCLEAR, found)
+    status, words = rule_typed_check.decide(op, values, stated)
+    if status is None:
+        return _query(rule, VALUE_UNCLEAR, found, words)
+    verdict = comparison._hold_low_trust_breach(
+        {"status": status, "rationale": words}, fact
+    )
+    if verdict["status"] not in DECIDED:
+        return _query(rule, VALUE_NOT_TRUSTED, found, verdict["rationale"])
+    return Row(rule, status, None, words, fact, found.role, found.fact_ids)
+
+
+def _judge(
+    rule: dict, found: Pair, facts: list[dict], equipment_type: str, *, approved=None
 ) -> Row:
-    """One approved rule against the sheet's values. Each step can only hold it back."""
-    quote = rule.get("quote") or ""
-    if hashlib.sha256(quote.encode("utf-8")).hexdigest() != rule.get("quote_sha256"):
-        return _query(rule, QUOTE_HASH_MISMATCH)
-    if (rule.get("rule_id"), rule.get("version")) not in in_force:
-        return _query(rule, NOT_IN_SNAPSHOT)
-    found = pair(rule, facts, equipment_type)
+    """One rule on one tag's value, every step only able to hold it back. `approved` None: as if a person had."""
     requirement = as_requirement(rule)
-    if (
-        requirement["raw_value"] is None
-        or requirement["operator"] not in _LIMIT_OPERATORS
-    ):
+    op, values = _check_of(rule)
+    numeric = (
+        requirement["raw_value"] is not None
+        and requirement["operator"] in _LIMIT_OPERATORS
+    )
+    if not numeric and not (op and requirement["raw_value"] is None):
         return _query(rule, NO_FIGURE, found)
     if found.fact is None:
         return _query(rule, found.reason, found)
-    if not _owner_approved(requirement):
+    if approved is not None and not approved(requirement, numeric):
         return _query(rule, NOT_OWNER_APPROVED, found)
     scope = _scope_reason(rule, facts, found.fact, equipment_type)
     if scope:
         return _query(rule, scope, found)
-    return _compared(rule, requirement, found, facts)
+    row = (
+        _compared(rule, requirement, found, facts)
+        if numeric
+        else _typed(rule, found, op, values)
+    )
+    if row.status in DECIDED and _context_dependent(rule):
+        note = rule["approval"]["note"]
+        row.words = f"{row.words}. Its scope sits outside its sentence; decided on the owner's note: {note}"
+    return row
+
+
+def _approved(requirement: dict, numeric: bool) -> bool:
+    if numeric:
+        return _owner_approved(requirement)
+    return rule_trust.owner_signed(requirement.get("approval"))
+
+
+def decide_rule(
+    rule: dict, facts: list[dict], equipment_type: str, in_force: frozenset
+) -> list[Row]:
+    """One approved rule against the sheet's values: a row per tag, or one row when no tag has a value."""
+    quote = rule.get("quote") or ""
+    if hashlib.sha256(quote.encode("utf-8")).hexdigest() != rule.get("quote_sha256"):
+        return [_query(rule, QUOTE_HASH_MISMATCH)]
+    if (rule.get("rule_id"), rule.get("version")) not in in_force:
+        return [_query(rule, NOT_IN_SNAPSHOT)]
+    return [
+        _judge(rule, found, facts, equipment_type, approved=_approved)
+        for found in pairs(rule, facts, equipment_type)
+    ]
 
 
 def _hold_on_incomplete_reading(rows: list[Row], document_id: str) -> None:
@@ -497,6 +547,7 @@ class Review:
     equipment_type: str | None = None
     snapshot_id: str | None = None
     rows: list[Row] = field(default_factory=list)
+    rules: int = 0
 
     def settle_with_findings(self, prepared: list[dict], findings: list[dict]) -> None:
         settle_with_findings(self, prepared, findings)
@@ -539,9 +590,15 @@ def begin(
     if recorded is None or recorded["snapshot_id"] != snapshot_id:
         rows = [_query(rule, SNAPSHOT_NOT_RECORDED) for rule in rules]
     else:
-        rows = [decide_rule(rule, facts, equipment_type, held) for rule in rules]
+        rows = [
+            row
+            for rule in rules
+            for row in decide_rule(rule, facts, equipment_type, held)
+        ]
     _hold_on_incomplete_reading(rows, document_id)
-    return Review(review_run_id, document_id, USED, equipment_type, snapshot_id, rows)
+    return Review(
+        review_run_id, document_id, USED, equipment_type, snapshot_id, rows, len(rules)
+    )
 
 
 # ------------------------------------------------------------------------------- version 1 beside version 2
@@ -699,6 +756,6 @@ def summary(review: Review) -> dict:
         "state": review.state,
         "equipment_type": review.equipment_type,
         "snapshot_id": review.snapshot_id,
-        "rules": len(review.rows),
+        "rules": review.rules,
         "reasons": dict(sorted(reasons.items())),
     }

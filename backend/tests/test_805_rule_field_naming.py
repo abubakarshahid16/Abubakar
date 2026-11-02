@@ -327,11 +327,9 @@ def test_the_role_reaches_the_rulebook_tables_and_a_person_s_rule(monkeypatch):
     _name(conn, Roles({"field_role": "set_pressure", "reason": None}))
     rulebook_v2_ingest.ingest_latest(conn, DOC)
     version = conn.execute("SELECT id FROM rulebook_version").fetchone()[0]
-    assert rulebook_v2.field_role_of(conn, version) == {
-        "field_role": "set_pressure",
-        "field_role_state": VERIFIED,
-        "field_role_reason": None,
-    }
+    said = rulebook_v2.field_role_of(conn, version)
+    assert said["field_role"] == "set_pressure" and said["field_role_state"] == VERIFIED
+    assert said["field_role_reason"] is None
 
 
 def test_a_book_on_a_copy_where_the_step_has_not_run_says_nothing(monkeypatch):
@@ -373,7 +371,7 @@ def test_the_counts_say_what_pairs_what_is_not_on_a_sheet_and_what_could_decide(
         "field_role_state": NOT_ON_DATASHEET,
         "field_role_reason": "design_method",
     }
-    said = rulebook_v2_review.counts_for_document(
+    said = name_rule_fields.counts_for_document(
         [good, conditional, duty, away], facts, TYPE
     )
     assert said == {
@@ -381,7 +379,9 @@ def test_the_counts_say_what_pairs_what_is_not_on_a_sheet_and_what_could_decide(
         "pair_with_a_value": 3,
         "not_on_datasheet": 1,
         "hold_a_figure": 2,
+        "hold_a_typed_check": 0,
         "could_decide_if_approved": 1,
+        "could_decide_on_some_tags": 0,
         "stopped_by": {
             rulebook_v2_review.CONDITION_NOT_VERIFIED: 1,
             rulebook_v2_review.NO_FIGURE: 2,

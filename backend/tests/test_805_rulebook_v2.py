@@ -1139,6 +1139,11 @@ CONTRACT_KEYS = {
     "field_role",
     "field_role_state",
     "field_role_reason",
+    "check_op",
+    "check_values",
+    "check_state",
+    "check_reason",
+    "sentence_strength",
     "rule_id",
     "version",
     "field",
@@ -1193,7 +1198,7 @@ def test_an_approved_rule_comes_out_with_every_field_of_the_contract():
     assert len(rule["quote_sha256"]) == 64 and rule["standard"] == LABEL
     assert rule["strength"] == version["strength"]
     assert "context_flag" in rule and "edition" in rule
-    assert set(rule["approval"]) == {"by", "at", "tier"}
+    assert set(rule["approval"]) == {"by", "at", "tier", "note"}
     assert rule["approval"]["by"] == "An Invented Signer"
     assert rule["approval"]["tier"] == rulebook_v2.OWNER and rule["approval"]["at"]
 
