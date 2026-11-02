@@ -2929,8 +2929,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta = {
         "document_title": submittal_name,
         "submittal_number": submittal_number,
-        # Never printed. Half of the key each row's stable reference is minted
-        # from, so re-exporting this run quotes the same references.
+        # Never printed: half the key of each row's stable reference, so re-exports match.
         "review_run_id": review_run_id,
         "date_issued": stamp,
         # Left blank on purpose - see above. Absent, not invented.
