@@ -29,8 +29,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="                  or (r.get(\"checklist\") and r.get(\"fact_id\") is None))\n",
              target=_T, keyword="not_re_excused", tags=("checklist", "honesty")),
     Mutation(id="M764-06", phase=764, description="the review states no reader coverage",
-             path=APP / "comparison.py",
-             anchor="    if checklist_coverage:\n",
+             path=APP / "run_parts.py",
+             anchor="    if coverage:\n",
              replacement="    if False:\n",
              target="tests/test_746_checklist_governs.py", keyword="states_its_reader_coverage", tags=("checklist",)),
 )
