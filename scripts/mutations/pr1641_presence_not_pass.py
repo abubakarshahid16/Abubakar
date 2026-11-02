@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         6,
         "the one definition counts a stated row as a decided checklist item",
         _P,
-        "            if presence_check.is_stated_only(f):  # #1638: never decided\n",
+        "            if stated:  # never decided\n",
         "            if False:\n",
         "presence_row_is_not_decided",
     ),
