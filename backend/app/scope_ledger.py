@@ -61,6 +61,10 @@ REASONS: dict[str, tuple[str, str]] = {
                         "its text failed the quality check and is not confirmed"),
     "service_unknown": (APPLIES_NOT_CHECKED,
                         "it applies only in a service the submittal does not state"),
+    "equipment_unconfirmed": (
+        APPLIES_NOT_CHECKED,
+        "it applies only if the equipment is another type: engineer to confirm",
+    ),
     "applicability_unsure": (APPLIES_NOT_CHECKED,
                              "whether it applies could not be confirmed"),
     # does not apply

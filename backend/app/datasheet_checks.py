@@ -42,7 +42,7 @@ from .datasheet_coverage import (
     coverage,  # noqa: F401  (moved out to keep this file shrinking)
 )
 from .deferred_value import hold_results, note_of
-from .label_match import drop_unit_less_twins
+from .label_match import drop_unit_less_twins, unit_readings
 from .percent_kind import doubt as _kind_doubt
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
@@ -309,7 +309,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                        fact, role, tag))
         # ---- units: present, and of the field's kind
         for role in rules["needs_unit"]:
-            for fact in roles.get(role, []):
+            for fact in unit_readings(roles.get(role, [])):  # as `_one` reads them
                 if fact.get("is_blank") or fact.get("raw_value") in (None, ""):
                     continue
                 kind = rules["roles"][role]["kind"]

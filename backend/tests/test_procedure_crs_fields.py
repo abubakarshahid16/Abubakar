@@ -227,10 +227,10 @@ def test_the_title_block_note_is_not_on_a_procedure(on, monkeypatch):
     from app import equipment_title_block, export_status
 
     monkeypatch.setattr(
-        equipment_title_block, "for_submittal", lambda _d: [{"note": "n"}]
+        equipment_title_block, "for_submittal", lambda *_a: [{"note": "n"}]
     )
     _document(pages=["invented cover"])
-    assert export_status.equipment_notes(DOC) == []
+    assert export_status.equipment_notes(DOC, "run", frozenset({DOC})) == []
 
 
 # ------------------------------------------------------------------- 2. page cell

@@ -2844,8 +2844,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
                 crs_mapping_mod.carry_issued_wording(row, record, _display_names)
     _replaced_numbers(crs_scope, rows)
     crs_issue_mod.apply_row_decisions(review_run_id, rows)  # #986: rows with no finding
-    # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover
-    # 2026-09-30). A new run of the same submittal raises the same comment
+    # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO: a new run raises the same comment
     # again as an unconfirmed draft; it is kept (a new run may be right), but
     # the engineer is never asked twice blind: its byline names who rejected
     # it and when, from the rejection on record. Never on a confirmed row.
@@ -2958,14 +2957,15 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
-        # #633 item 7: row 1 of a sheet whose run did not complete - status, reason,
-        # unread pages, missing standards. "" for a completed run (sheet unchanged).
+        # #633 item 7: row 1 of an incomplete run's sheet; "" for a completed run.
         "run_status_note": export_status_mod.run_header_note(run.get("status"), outcome, unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
-    meta["review_notes"] += added + export_status_mod.equipment_notes(submittal_id)
+    meta["review_notes"] += added + export_status_mod.equipment_notes(
+        submittal_id, review_run_id, allowed
+    )
     return rows, meta, submittal_name, stamp
 
 
