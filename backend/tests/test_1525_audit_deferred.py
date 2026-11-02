@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from tools import crs_bench
 
-from app import deferred_pass, review_audit
+from app import deferred_pass, review_audit, review_audit_detail
 
 
 def _f(i, status, finding):
@@ -43,10 +43,19 @@ def test_no_pass_gives_zero_with_its_boundary():
     )
 
 
-def test_the_note_is_in_the_rendered_rules_section_and_not_listed_as_unrecorded():
+def test_the_note_is_in_the_rendered_rules_section_and_not_listed_as_unrecorded(
+    monkeypatch,
+):
     import inspect
 
     src = inspect.getsource(review_audit)
     assert "pass_on_deferred_note" in src.split("## 4. Rules", 1)[1][:600]
-    gates = review_audit._gates_section({}, {"CHECKLIST": {"counts": {}}})
+    monkeypatch.setattr(
+        review_audit_detail,
+        "_nothing_read_gate",
+        lambda *_: {"gate": "nothing-read guard", "count": None},
+    )
+    counts = {"wrong": None, "untrue": None, "pass_on_deferred": 0}
+    steps = {"CHECKLIST": {"counts": {}}}
+    gates = review_audit_detail.gates_section({}, {}, [], counts, steps)
     assert "pass_on_deferred" not in gates["not_recorded_on_the_run"]

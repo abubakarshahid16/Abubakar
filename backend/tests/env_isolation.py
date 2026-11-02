@@ -255,6 +255,7 @@ EGRESS_SAFE: dict[str, object] = {
     "percent_kind_check_enabled": False,
     # --- local only, no model or socket: CRS export quality, export only (#1503, off by default)
     "crs_export_quality_enabled": False,
+    "crs_export_quality_strict_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
     "vessel_kit_draft_enabled": False,
     # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
