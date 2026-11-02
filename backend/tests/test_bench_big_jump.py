@@ -49,7 +49,9 @@ def _jumps(then: dict, now: dict) -> list[str]:
 
 
 def test_the_case_the_owner_saw_stops_the_gate():
-    reasons = _gate({"sent_away": 19, "crs_lines": 3}, {"sent_away": 1246, "crs_lines": 2})
+    reasons = _gate(
+        {"sent_away": 19, "crs_lines": 3}, {"sent_away": 1246, "crs_lines": 2}
+    )
     assert any("big jump: sent_away 19 -> 1246 (+6457.9%)" in r for r in reasons)
     assert any("big jump: crs_lines 3 -> 2 (-33.3%)" in r for r in reasons)
 
@@ -71,9 +73,12 @@ def test_a_jump_down_on_a_better_when_lower_measure_is_an_improvement_and_still_
 
 def test_a_re_saved_baseline_is_the_way_past_a_jump():
     now = _m(sent_away=19)
-    assert crs_bench.gate(
-        [{"case": CASE, "stored": now}], [{"case": CASE, "stored": dict(now)}]
-    ) == []
+    assert (
+        crs_bench.gate(
+            [{"case": CASE, "stored": now}], [{"case": CASE, "stored": dict(now)}]
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize("key", ["sent_away", "irrelevant", "findings", "pages_read"])
@@ -122,7 +127,10 @@ def test_from_zero_says_so_and_prints_no_percent():
 def test_any_change_stops_where_small_numbers_matter(key, step):
     old = _m()[key]
     assert key in crs_bench.ANY_CHANGE_STOPS
-    assert any(f"big jump: {key} {old} -> {old + step}" in r for r in _gate({}, {key: old + step}))
+    assert any(
+        f"big jump: {key} {old} -> {old + step}" in r
+        for r in _gate({}, {key: old + step})
+    )
 
 
 def test_wrong_moving_up_by_one_stops():

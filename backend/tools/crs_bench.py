@@ -97,7 +97,9 @@ def score(
         "findings": len(findings),
         **measures,
         # A stated row is not a Pass, where statuses are counted (`presence_check`).
-        "passes": sum(presence_check.status_of(f) == presence_check.PASS for f in findings),
+        "passes": sum(
+            presence_check.status_of(f) == presence_check.PASS for f in findings
+        ),
         "kind": kind,
         "kind_ok": kind == case.get("kind"),
         # Informational, below the headline: one count per place a decision or
@@ -843,7 +845,14 @@ LOWER_IS_WORSE = ("checklist_decided", "rules_decided", "pages_read")
 BIG_JUMP_PERCENT = 25  # more than this ...
 BIG_JUMP_MIN_ROWS = 10  # ... and at least this many rows
 # Small numbers matter here: any change stops, except that a decrease in `wrong` only prints.
-ANY_CHANGE_STOPS = ("wrong", "untrue", "fails", "passes", "pass_on_deferred", "crs_lines")
+ANY_CHANGE_STOPS = (
+    "wrong",
+    "untrue",
+    "fails",
+    "passes",
+    "pass_on_deferred",
+    "crs_lines",
+)
 BETTER_WHEN_LOWER = ("wrong", *HIGHER_IS_WORSE)
 BETTER_WHEN_HIGHER = LOWER_IS_WORSE
 NEITHER_BETTER = (
@@ -927,7 +936,9 @@ def big_jump_lines(results: list[dict], baseline: list[dict] | None) -> list[str
     base = {b["case"]["run"]: b for b in (baseline or [])}
     for r in results:
         b = base.get(r["case"]["run"])
-        if not b or (b.get("config") and r.get("config") and b["config"] != r["config"]):
+        if not b or (
+            b.get("config") and r.get("config") and b["config"] != r["config"]
+        ):
             continue  # no baseline, or the gate already says the settings differ
         stops, notes = jump_check(*_compared_columns(r, b))
         for text in [*stops.values(), *notes]:
