@@ -69,12 +69,14 @@ def test_stale_follows_the_job_queue_rule_and_idle_is_the_newest_movement(monkey
     monkeypatch.setattr(settings, "review_progress_bar_enabled", True)
     run_id = _job(
         "reading the datasheet, page 2 of 9",
-        updated=400,
+        updated=job_queue.CLAIM_STALE_SECONDS + 30,
         claimed=job_queue.CLAIM_STALE_SECONDS + 60,
     )
     d = review_jobs.job_for_run(run_id)["progress_detail"]
+    # Stale only when the line has not moved for as long either (live I-06).
     assert d["stale"] is True
-    assert 395 <= d["idle_seconds"] <= 410
+    newest = job_queue.CLAIM_STALE_SECONDS + 30
+    assert newest - 5 <= d["idle_seconds"] <= newest + 10
 
 
 def test_a_finished_job_has_no_progress_detail(monkeypatch):

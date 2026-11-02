@@ -21,12 +21,15 @@ Proved here against real SQLite files laid out like a checkout
   - the backfill and resetdoc commands go through it; and no script in
     scripts/ opens a raw read-write connection outside it.
 
-Mutations: M466-M471, `python scripts/mutation_check.py --only M466 M467 M468 M469 M470 M471`.
+Mutations: M466-M471, `python scripts/mutation_check.py --only M466 M467 M468 M469 M470 M471`;
+#1557 (case-different path, hard link): M1561-01..03.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -38,11 +41,14 @@ from app import db, live_guard
 from app.config import settings
 
 REPO = Path(__file__).resolve().parents[2]
+_REAL_KNOWN_LIVE_FILES = live_guard.known_live_files
 
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch):
     monkeypatch.delenv(live_guard.SERVER_ENV, raising=False)
+    # #1557: no test here so much as stats the real checkout's live file.
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: ())
     live_guard.revoke_all()
     db.reset_connection()
     yield
@@ -259,3 +265,154 @@ def test_no_script_opens_a_raw_read_write_connection_outside_the_guard():
                 continue
             offenders.append(f"{path.name}:{i + 1}")
     assert offenders == [], f"raw read-write connections outside live_guard: {offenders}"
+
+
+# ================================================ #1557: case and hard links
+
+
+def _db(path: Path, rows: int = 3) -> Path:
+    """A real SQLite file with data at exactly `path` (any spelling)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY)")
+    conn.executemany(
+        "INSERT INTO documents VALUES (?)", [(f"d{i}",) for i in range(rows)]
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _refused(monkeypatch, path) -> None:
+    db.reset_connection()
+    monkeypatch.setattr(settings, "db_path", Path(path))
+    with pytest.raises(live_guard.LiveWriteRefused, match="prepare_live_write"):
+        db.connect()
+
+
+def test_a_different_case_path_to_the_live_database_is_refused(tmp_path, monkeypatch):
+    # macOS's disk is case-insensitive: this spelling IS the live file there.
+    live = _db(tmp_path / "checkout" / "Backend" / "Data" / "RAG_Intelligence.sqlite")
+    assert live_guard.is_live_shaped(live)
+    _refused(monkeypatch, live)
+    assert _rows(live) == 3
+
+
+def test_a_hard_link_to_the_live_database_is_refused(tmp_path, monkeypatch):
+    live = _live(tmp_path)
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (live,))
+    link = tmp_path / "elsewhere" / "copy.sqlite"
+    link.parent.mkdir()
+    os.link(live, link)
+    assert live_guard.is_live_shaped(link)
+    _refused(monkeypatch, link)
+    assert _rows(live) == 3
+
+
+def test_a_symlink_to_a_different_case_live_path_is_refused(tmp_path, monkeypatch):
+    live = _db(tmp_path / "checkout" / "BACKEND" / "data" / "Rag_Intelligence.SQLITE")
+    link = tmp_path / "shortcut.sqlite"
+    link.symlink_to(live)
+    assert live_guard.is_live_shaped(link)
+    _refused(monkeypatch, link)
+
+
+def test_relative_paths_to_the_live_database_are_refused(tmp_path, monkeypatch):
+    live = _db(tmp_path / "checkout" / "Backend" / "Data" / "RAG_Intelligence.sqlite")
+    monkeypatch.chdir(tmp_path / "checkout" / "Backend")
+    assert live_guard.is_live_shaped("Data/RAG_Intelligence.sqlite")
+    _refused(monkeypatch, "Data/RAG_Intelligence.sqlite")
+
+    real = _live(tmp_path / "other")
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (real,))
+    (tmp_path / "elsewhere").mkdir()
+    os.link(real, tmp_path / "elsewhere" / "linked.sqlite")
+    monkeypatch.chdir(tmp_path / "elsewhere")
+    assert live_guard.is_live_shaped("linked.sqlite")
+    _refused(monkeypatch, "linked.sqlite")
+    assert _rows(live) == 3 and _rows(real) == 3
+
+
+def test_a_hash_or_question_mark_in_the_path_does_not_hide_the_live_database(
+    tmp_path, monkeypatch
+):
+    odd = tmp_path / "a#b?c"
+    cased = _db(odd / "checkout" / "Backend" / "Data" / "rag_intelligence.SQLITE")
+    assert live_guard.is_live_shaped(cased)
+    _refused(monkeypatch, cased)
+
+    live = _live(tmp_path / "d#e?f")
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (live,))
+    link = odd / "x#y?z.sqlite"
+    os.link(live, link)
+    assert live_guard.is_live_shaped(link)
+    _refused(monkeypatch, link)
+
+
+def test_a_real_copy_of_the_live_database_still_opens_freely(tmp_path, monkeypatch):
+    live = _live(tmp_path)
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (live,))
+    copy = tmp_path / "elsewhere" / "copy.sqlite"
+    copy.parent.mkdir()
+    shutil.copy2(live, copy)
+    diag = live_guard.diagnostic_copy(live)
+    try:
+        for path in (copy, diag):
+            assert not live_guard.is_live_shaped(path), path
+            db.reset_connection()
+            monkeypatch.setattr(settings, "db_path", path)
+            assert db.connect() is not None
+    finally:
+        db.reset_connection()
+        shutil.rmtree(diag.parent, ignore_errors=True)
+
+
+def test_the_server_may_open_the_live_database_through_a_hard_link(
+    tmp_path, monkeypatch
+):
+    live = _live(tmp_path)
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (live,))
+    link = tmp_path / "copy.sqlite"
+    os.link(live, link)
+    monkeypatch.setattr(settings, "db_path", link)
+    monkeypatch.setenv(live_guard.SERVER_ENV, live_guard.SERVER_VALUE)
+    assert db.connect() is not None
+
+
+def test_from_a_worktree_the_main_checkouts_live_file_is_known(tmp_path):
+    # A main checkout and a git worktree of it, as git lays them out.
+    main = tmp_path / "main"
+    main_live = _db(main / "backend" / "data" / "rag_intelligence.sqlite")
+    gitdir = main / ".git" / "worktrees" / "wt"
+    gitdir.mkdir(parents=True)
+    (gitdir / "commondir").write_text("../..\n", encoding="utf-8")
+    wt = tmp_path / "wt"
+    (wt / "backend" / "data").mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+
+    known = _REAL_KNOWN_LIVE_FILES(wt / "backend")
+    assert wt / "backend" / "data" / "rag_intelligence.sqlite" in known
+    assert main_live in known
+
+    # ...and a normal clone knows only its own.
+    assert _REAL_KNOWN_LIVE_FILES(main / "backend") == (main_live,)
+
+
+def test_a_live_file_that_cannot_be_checked_counts_as_live(tmp_path, monkeypatch):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root reads a chmod 000 folder")
+    locked = tmp_path / "locked"
+    live = _db(locked / "backend" / "data" / "rag_intelligence.sqlite")
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (live,))
+    other = _db(tmp_path / "other.sqlite")
+    locked.chmod(0)
+    try:
+        assert live_guard.is_live_shaped(other)
+    finally:
+        locked.chmod(0o755)
+
+
+def test_a_missing_known_live_file_is_skipped(tmp_path, monkeypatch):
+    gone = tmp_path / "gone" / "backend" / "data" / "rag_intelligence.sqlite"
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (gone,))
+    assert not live_guard.is_live_shaped(_db(tmp_path / "other.sqlite"))

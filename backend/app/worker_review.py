@@ -54,6 +54,19 @@ class ReviewDrain:
         fresh = time.time() - self.last_beat <= REVIEW_SILENCE_SECONDS
         return self.reviewing and self.alive and fresh
 
+    def beat_age_of_claim(self, claimed_by: str | None) -> int | None:
+        """Seconds since this worker's last beat, when it is in review and its
+        own thread holds `claimed_by`; else None. Model calls beat the worker and
+        never the jobs row, so only this tells a long call from a dead job."""
+        from . import job_queue
+
+        thread = self._thread
+        if thread is None or not self.in_review():
+            return None
+        if claimed_by != f"w-{job_queue._PROCESS_TOKEN}-{thread.ident}":
+            return None
+        return max(0, int(time.time() - self.last_beat))
+
     def _review_activity(self) -> None:
         """A running review job reported progress: the worker is moving."""
         self.last_beat = self.last_progress = time.time()
