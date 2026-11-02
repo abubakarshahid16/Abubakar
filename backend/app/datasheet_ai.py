@@ -852,14 +852,12 @@ def ai_unit(fact: dict) -> str | None:
 
 
 def unit_in_quote(unit: str, quote: str | None) -> bool:
-    """Does the AI's QUOTE - the words `claude_datasheet.accept` proved are on
-    the page - print this unit? Whole, case-folded; a number may touch it
-    ("75kW") but a letter may not ("m3/h" is not in "Nm3/h"). A unit whose case is
-    its meaning keeps it: "MPa" is not in "10 mPa" (#1618)."""
-    folded = claude_datasheet._fold(numparse.mark_case_kept_units(unit))
+    """Does the AI's proved QUOTE print this unit? Whole, case-folded; a number may
+    touch it ("75kW"), a letter may not ("Nm3/h" is not "m3/h"), nor "mPa" be "MPa"."""
+    folded = claude_datasheet._fold(numparse.mark_case_kept(unit))
     return bool(folded) and re.search(
         r"(?<![^\W\d_])" + re.escape(folded) + r"(?![^\W_])",
-        claude_datasheet._fold(numparse.mark_case_kept_units(quote or ""))) is not None
+        claude_datasheet._fold(numparse.mark_case_kept(quote or ""))) is not None
 
 
 def same_unit(a: str, b: str) -> bool:

@@ -43,7 +43,7 @@ import json
 import logging
 
 from . import condition_choice as cc
-from . import lexical, numparse, standard_ids
+from . import lexical, standard_ids, unit_case
 from . import understanding as understanding_mod
 from .config import settings
 from .datasheets import referenced_standards
@@ -106,7 +106,7 @@ def _best_sentence(text: str, terms: list[str]) -> str:
 def _quantities(sentence: str) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     for value, unit in _QUANTITY.findall(sentence):
-        u = numparse.fold_unit(unit).replace(" ", "")
+        u = unit_case.fold_unit(unit).replace(" ", "")
         if u in _NOT_UNITS:
             continue
         found.setdefault(u, set()).add(value.rstrip("0").rstrip(".") if "." in value else value)

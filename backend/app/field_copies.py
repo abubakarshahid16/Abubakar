@@ -15,7 +15,7 @@ the functions that need it.
 
 from __future__ import annotations
 
-from . import numparse
+from . import unit_case
 
 
 def _copy_label(fact: dict, fallback: str) -> str:
@@ -37,7 +37,7 @@ def _value_signature(fact: dict) -> tuple:
     from . import claims
     from . import comparison as c
 
-    unit = numparse.fold_unit(fact.get("raw_unit"))
+    unit = unit_case.fold_unit(fact.get("raw_unit"))
     # The comparator is part of what a value says: ">= 10 bar" and "<= 10 bar"
     # share one normalised number but are two statements, never one field.
     comparator = claims._split_comparator(str(fact.get("raw_value") or ""))[0] or ""

@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims, deferred_value, errors, numparse
+from . import claims, deferred_value, errors, numparse, unit_case
 
 import logging
 
@@ -271,7 +271,7 @@ def _parse_rule(text: str, *, output: str, input_names: list[str], comparator: s
             hi = _n(m.group(5)) if m.group(5) else None
             u = m.group(6) or u
         if u:
-            if unit and numparse.fold_unit(u) != numparse.fold_unit(unit):
+            if unit and unit_case.fold_unit(u) != unit_case.fold_unit(unit):
                 return None
             unit = unit or u
         expr = _parse_expr(rest, symbols)
@@ -324,10 +324,10 @@ def unit_in_text(unit: str, text: str) -> bool:
     base = (base or "").strip()
     if not base:
         return False
-    wanted = numparse.fold_unit(base)
+    wanted = unit_case.fold_unit(base)
     written = re.finditer(r"(?<![A-Za-z])(" + re.escape(base) + r")(?:\s?\(?[ga]\)?)?(?![A-Za-z])",
                           text or "", re.IGNORECASE)
-    return any(numparse.fold_unit(m.group(1)) == wanted for m in written)
+    return any(unit_case.fold_unit(m.group(1)) == wanted for m in written)
 
 
 def ops_proven(rule: dict, text: str) -> bool:
@@ -401,7 +401,7 @@ def same_value_key(fact: dict) -> tuple:
             return ("q", round(float(m.normalized_value), 9), m.normalized_unit, basis)
         number = claims.parse_value(str(raw))
         if number is not None:
-            return ("n", round(number, 9), numparse.fold_unit(unit))
+            return ("n", round(number, 9), unit_case.fold_unit(unit))
     text = _value_of(fact).lower()
     return ("t", re.sub(r"(?<=\d),(?=\d{3}\b)", "", text))
 

@@ -517,21 +517,17 @@ def fold(text: object) -> str:
     return s.translate(_CHARACTER_TABLE) if s else s
 
 
-#: UNITS WHOSE CASE IS THEIR MEANING (#1618). Every other unit folds to lower
-#: case, because a sheet printed in capitals still means "BAR" and "MM". These
-#: spellings do not: the folded spelling belongs to the other unit, up to 10^9
-#: away (`mpa`, `mw`, `mwh`, `mj` are the mega units; `ma`, `mv`, `mg`, `ml` the
-#: milli ones; `ms` the millisecond, not the millisiemens). Written out, not a
-#: pattern: "mL" is the same unit as "ml", and "MM" on a capitals sheet is mm.
-CASE_KEPT_UNITS = frozenset({
-    "mPa", "mPag", "mPaa", "mPa·s", "mPa.s", "mPa-s", "mPas",
-    "mW", "mWh", "mJ", "mS", "MA", "MV", "Mg", "ML",
-})
+#: Units whose case is their meaning (#1618): see `unit_case`. Here because this
+#: module depends on nothing else in the app and a quote check needs the list.
+CASE_KEPT_UNITS = frozenset(
+    "mPa mPag mPaa mPa·s mPa.s mPa-s mPas mW mWh mJ mS MA MV Mg ML".split()
+)
 
 _CASE_KEPT_WORD = re.compile(
     r"(?<![A-Za-z])(?:"
     + "|".join(re.escape(u) for u in sorted(CASE_KEPT_UNITS, key=len, reverse=True))
-    + r")(?![A-Za-z])")
+    + r")(?![A-Za-z])"
+)
 
 #: Set before a case-kept unit so that it stays apart from its other-case twin
 #: once the text is folded. A letter, so "mpa" is not a whole word beside it, and
@@ -539,17 +535,7 @@ _CASE_KEPT_WORD = re.compile(
 _CASE_KEPT_MARK = "\u0283"
 
 
-def fold_unit(unit: object) -> str:
-    """A unit in lower case and single-spaced, EXCEPT one whose case is its
-    meaning (`CASE_KEPT_UNITS`): that keeps its case, with no spaces, and only
-    what follows its slash folds ("mW / M2" is "mW/m2"). THE ONE HOME for this
-    rule: any code that lower-cases a unit before reading it calls this."""
-    text = " ".join(str(unit or "").split())
-    top, slash, rest = text.replace(" ", "").partition("/")
-    return top + slash + rest.lower() if top in CASE_KEPT_UNITS else text.lower()
-
-
-def mark_case_kept_units(text: object) -> str:
+def mark_case_kept(text: object) -> str:
     """`text` ready for a case-insensitive match that must still tell a case-kept
     unit from its other-case twin: "10 mPa" stops matching "10 MPa" or "MPa"."""
     return _CASE_KEPT_WORD.sub(lambda m: _CASE_KEPT_MARK + m.group(0), str(text))
@@ -602,8 +588,10 @@ def value_in_text(value: object, text: object) -> bool:
     if wanted is not None:
         return any(n.value == wanted for n in find_numbers(fold(text))
                    if n.value is not None)
-    return contains_whole(_strip_thousands(fold(mark_case_kept_units(text))),
-                          _strip_thousands(fold(mark_case_kept_units(value))))
+    return contains_whole(
+        _strip_thousands(fold(mark_case_kept(text))),
+        _strip_thousands(fold(mark_case_kept(value))),
+    )
 
 
 _THOUSANDS = re.compile(r"(?<=\d)(?<!(?<![\d,.])0),(?=\d{3}(?!\d))")

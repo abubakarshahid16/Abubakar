@@ -44,7 +44,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from . import numparse
+from . import unit_case
 
 APPLICABLE = "APPLICABLE"
 NOT_APPLICABLE = "NOT_APPLICABLE"
@@ -199,7 +199,7 @@ _TO_MPA = {"mpa": 1.0, "kpa": 0.001, "bar": 0.1, "barg": 0.1, "psi": 0.00689476,
 
 
 def _in_base(value: float, unit: str | None, kind: str) -> float | None:
-    u = numparse.fold_unit(unit).replace(" ", "").replace("°", "")
+    u = unit_case.fold_unit(unit).replace(" ", "").replace("°", "")
     if kind == "pressure":
         return value * _TO_MPA[u] if u in _TO_MPA else None
     if kind == "temperature":

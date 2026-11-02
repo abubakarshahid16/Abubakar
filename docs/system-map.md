@@ -326,6 +326,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `submittal_review` | Schema and scoped read paths for the AI submittal review workflow |
 | `symbols` | Repair glyphs an old PDF's symbol font extracted as the wrong character |
 | `synthesis` | Stage 3 and stage 4: the consolidated summary, and the advisory recommendation |
+| `unit_case` | The units whose case is their meaning (mPa and MPa): the one home of that rule (#1618) |
 | `time_units` | The time rows of the one unit table: hours, minutes, seconds, milliseconds, days (#896) |
 | `rate_units` | The flow-rate rows of the one unit table: kg/s, t/h, l/min, m3/s and their kin, exact factors only (#1290) |
 | `read_elsewhere` | A checklist row MISSING for one equipment tag, while the field was read for another tag, becomes an engineer check that says where the value was read, never "not read" (order 307.1) |

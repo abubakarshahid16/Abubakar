@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 
 from app import (
-    applicability_v2,
     answerability,
+    applicability_v2,
     claims,
     condition_choice,
     datasheet_ai,
@@ -21,6 +21,7 @@ from app import (
     numparse,
     rule_eval,
     same_value,
+    unit_case,
 )
 
 
@@ -33,7 +34,14 @@ def _value(number: str, unit: str) -> float | None:
 
 @pytest.mark.parametrize(
     "unit,expected",
-    [("MPa", 5.0), ("MPA", 5.0), ("Mpa", 5.0), ("mpa", 5.0), ("kPa", 0.005), ("KPA", 0.005)],
+    [
+        ("MPa", 5.0),
+        ("MPA", 5.0),
+        ("Mpa", 5.0),
+        ("mpa", 5.0),
+        ("kPa", 0.005),
+        ("KPA", 0.005),
+    ],
 )
 def test_megapascal_and_kilopascal_stay_case_free(unit, expected):
     assert _value("5", unit) == pytest.approx(expected)
@@ -74,13 +82,18 @@ def test_a_millipascal_value_gets_no_verdict_against_a_megapascal_limit():
 
 
 def test_two_millipascal_values_still_compare_as_written():
-    assert claims._compatible(claims.normalise("5", "mPa"), claims.normalise("5", "mPa")) is True
+    assert (
+        claims._compatible(claims.normalise("5", "mPa"), claims.normalise("5", "mPa"))
+        is True
+    )
 
 
 # -------------------------------------------------------- the same on a text
 
 
-@pytest.mark.parametrize("text", ["viscosity 5 mPa.s at 20 C", "viscosity 5 mPa·s", "viscosity 5 mPa-s"])
+@pytest.mark.parametrize(
+    "text", ["viscosity 5 mPa.s at 20 C", "viscosity 5 mPa·s", "viscosity 5 mPa-s"]
+)
 def test_viscosity_in_a_sentence_is_not_a_pressure(text):
     read = claims.extract_measurements(text)
     assert read[0].normalized_value is None
@@ -89,7 +102,9 @@ def test_viscosity_in_a_sentence_is_not_a_pressure(text):
 
 @pytest.mark.parametrize("text", ["viscosity 5 MPa.s", "viscosity 5 MPa·s"])
 def test_megapascal_second_in_a_sentence_is_not_a_pressure(text):
-    assert not [m for m in claims.extract_measurements(text) if m.normalized_unit == "MPa"]
+    assert not [
+        m for m in claims.extract_measurements(text) if m.normalized_unit == "MPa"
+    ]
 
 
 @pytest.mark.parametrize("text", ["viscosity 5 Pa.s", "viscosity 5 Pa·s"])
@@ -99,7 +114,9 @@ def test_pascal_second_in_a_sentence_is_not_a_pressure(text):
     assert read[0].normalized_value is None
 
 
-@pytest.mark.parametrize("text", ["The pressure is 5 MPa.", "Rated 5 MPa. Second test."])
+@pytest.mark.parametrize(
+    "text", ["The pressure is 5 MPa.", "Rated 5 MPa. Second test."]
+)
 def test_a_full_stop_after_a_pressure_is_not_a_viscosity(text):
     read = claims.extract_measurements(text)
     assert read[0].normalized_value == pytest.approx(5.0)
@@ -116,13 +133,28 @@ def test_a_millipascal_in_a_sentence_keeps_its_case():
 
 @pytest.mark.parametrize(
     "kept,owner",
-    [("mW", "MW"), ("mJ", "MJ"), ("mS", "ms"), ("MA", "mA"), ("MV", "mV"),
-     ("Mg", "mg"), ("ML", "mL"), ("mPa", "MPa")],
+    [
+        ("mW", "MW"),
+        ("mJ", "MJ"),
+        ("mS", "ms"),
+        ("MA", "mA"),
+        ("MV", "mV"),
+        ("Mg", "mg"),
+        ("ML", "mL"),
+        ("mPa", "MPa"),
+    ],
 )
 def test_a_case_collision_is_two_units(kept, owner):
     assert claims._fold_unit(kept) != claims._fold_unit(owner)
     assert claims.is_unit(kept) and claims.is_unit(owner)
-    assert not claims.same_unit(claims.normalise("5", kept), claims.normalise("5", owner))
+    assert not claims.same_unit(
+        claims.normalise("5", kept), claims.normalise("5", owner)
+    )
+
+
+def test_every_unit_in_the_tables_keeps_its_case():
+    from_tables = set(unit_case.UNCONVERTED) | set(unit_case.REFERENCE_SUFFIX)
+    assert from_tables - {"pa·s", "pa.s", "pa-s"} <= numparse.CASE_KEPT_UNITS
 
 
 def test_mega_ampere_is_not_read_as_milliampere():
@@ -157,8 +189,20 @@ def test_the_denominator_of_a_kept_rate_still_folds():
 
 @pytest.mark.parametrize(
     "a,b",
-    [("MM", "mm"), ("mL", "ml"), ("BAR", "bar"), ("PSI", "psi"), ("KG/CM2", "kg/cm2"),
-     ("kV", "KV"), ("Deg C", "degc"), ("M", "m"), ("wt %", "wt%"), ("dB(A)", "dba"), ("MW", "mw"), ("MJ", "mj")],
+    [
+        ("MM", "mm"),
+        ("mL", "ml"),
+        ("BAR", "bar"),
+        ("PSI", "psi"),
+        ("KG/CM2", "kg/cm2"),
+        ("kV", "KV"),
+        ("Deg C", "degc"),
+        ("M", "m"),
+        ("wt %", "wt%"),
+        ("dB(A)", "dba"),
+        ("MW", "mw"),
+        ("MJ", "mj"),
+    ],
 )
 def test_no_clash_stays_case_free(a, b):
     assert claims._fold_unit(a) == claims._fold_unit(b)
@@ -169,11 +213,18 @@ def test_no_clash_stays_case_free(a, b):
 
 @pytest.mark.parametrize(
     "value,text,stated",
-    [("10 MPa", "rated 10 MPa", True), ("10 MPa", "RATED 10 MPA", True),
-     ("10 MPa", "rated 10 mPa", False), ("10 mPa", "rated 10 MPa", False),
-     ("10 mPa", "rated 10 mPa", True), ("10 MPa", "at 5 mPa and 10 MPa", True),
-     ("5 mW", "rated 5 MW", False), ("316L", "grade 316l", True),
-     ("MPa", "rated at mPa", False), ("mPa", "rated at mPa", True)],
+    [
+        ("10 MPa", "rated 10 MPa", True),
+        ("10 MPa", "RATED 10 MPA", True),
+        ("10 MPa", "rated 10 mPa", False),
+        ("10 mPa", "rated 10 MPa", False),
+        ("10 mPa", "rated 10 mPa", True),
+        ("10 MPa", "at 5 mPa and 10 MPa", True),
+        ("5 mW", "rated 5 MW", False),
+        ("316L", "grade 316l", True),
+        ("MPa", "rated at mPa", False),
+        ("mPa", "rated at mPa", True),
+    ],
 )
 def test_a_quote_does_not_prove_the_other_unit(value, text, stated):
     assert numparse.value_in_text(value, text) is stated
@@ -181,17 +232,32 @@ def test_a_quote_does_not_prove_the_other_unit(value, text, stated):
 
 @pytest.mark.parametrize(
     "unit,expected",
-    [(None, ""), ("  MPa ", "mpa"), ("kg / cm2", "kg / cm2"), ("mPa", "mPa"), (" m Pa", "mPa"), ("M Pa", "m pa"), ("mW / M2", "mW/m2")],
+    [
+        (None, ""),
+        ("  MPa ", "mpa"),
+        ("kg / cm2", "kg / cm2"),
+        ("mPa", "mPa"),
+        (" m Pa", "mPa"),
+        ("M Pa", "m pa"),
+        ("mW / M2", "mW/m2"),
+    ],
 )
 def test_fold_unit(unit, expected):
-    assert numparse.fold_unit(unit) == expected
+    assert unit_case.fold_unit(unit) == expected
 
 
 @pytest.mark.parametrize(
     "unit,quote,printed",
-    [("MPa", "rated 10 MPa", True), ("MPa", "RATED 10 MPA", True), ("MPa", "rated 10MPa", True),
-     ("MPa", "rated 10 mPa", False), ("mPa", "rated 10 MPa", False), ("mPa", "rated 10 mPa", True),
-     ("kW", "rated 75kW", True), ("m3/h", "rated 5 Nm3/h", False)],
+    [
+        ("MPa", "rated 10 MPa", True),
+        ("MPa", "RATED 10 MPA", True),
+        ("MPa", "rated 10MPa", True),
+        ("MPa", "rated 10 mPa", False),
+        ("mPa", "rated 10 MPa", False),
+        ("mPa", "rated 10 mPa", True),
+        ("kW", "rated 75kW", True),
+        ("m3/h", "rated 5 Nm3/h", False),
+    ],
 )
 def test_a_quote_does_not_print_the_other_unit(unit, quote, printed):
     assert datasheet_ai.unit_in_quote(unit, quote) is printed
@@ -204,7 +270,9 @@ def test_a_calculation_does_not_convert_millipascal():
     with pytest.raises(datasheet_checks._NotCalculated):
         datasheet_checks._converted(fact, "pressure", "pressure_kpa", rules)
     fact["raw_unit"] = "MPa"
-    assert datasheet_checks._converted(fact, "pressure", "pressure_kpa", rules) == 5000.0
+    assert (
+        datasheet_checks._converted(fact, "pressure", "pressure_kpa", rules) == 5000.0
+    )
 
 
 def test_a_reference_on_millipascal_is_kept_in_a_calculation():
@@ -213,7 +281,9 @@ def test_a_reference_on_millipascal_is_kept_in_a_calculation():
 
 
 def test_condition_reader_does_not_convert_millipascal():
-    assert condition_choice._quantity("pressure", "5 MPa") == pytest.approx((725.19, "p"))
+    assert condition_choice._quantity("pressure", "5 MPa") == pytest.approx(
+        (725.19, "p")
+    )
     assert condition_choice._quantity("pressure", "5 mPa") is None
 
 
@@ -228,13 +298,22 @@ def test_two_copies_in_a_colliding_unit_are_not_one_value():
 
     assert rule_eval.same_value_key(fact("mW")) != rule_eval.same_value_key(fact("MW"))
     assert rule_eval.same_value_key(fact("dB")) == rule_eval.same_value_key(fact("DB"))
-    assert field_copies._value_signature(fact("mW")) != field_copies._value_signature(fact("MW"))
-    assert field_copies._value_signature(fact("dB")) == field_copies._value_signature(fact("DB"))
+    assert field_copies._value_signature(fact("mW")) != field_copies._value_signature(
+        fact("MW")
+    )
+    assert field_copies._value_signature(fact("dB")) == field_copies._value_signature(
+        fact("DB")
+    )
 
 
 def test_two_ranges_in_a_colliding_unit_are_not_one_value():
     def fact(unit):
-        return {"value_min": 4.0, "value_max": 8.0, "raw_unit": unit, "field_value": f"4-8 {unit}"}
+        return {
+            "value_min": 4.0,
+            "value_max": 8.0,
+            "raw_unit": unit,
+            "field_value": f"4-8 {unit}",
+        }
 
     assert same_value._range_key(fact("mW")) != same_value._range_key(fact("MW"))
     assert same_value._range_key(fact("cP")) == same_value._range_key(fact("CP"))
@@ -243,8 +322,11 @@ def test_two_ranges_in_a_colliding_unit_are_not_one_value():
 def test_a_table_mixing_the_two_units_is_refused():
     def table(first, second):
         text = f"up to 5 {first} | 1\nover 5 {first} to 9 {second} | 2\n"
-        return rule_eval.parse_rule(text.replace("| 1", "| 1 x mop").replace("| 2", "| 2 x mop"),
-                                    output="x", input_names=["mop"])
+        return rule_eval.parse_rule(
+            text.replace("| 1", "| 1 x mop").replace("| 2", "| 2 x mop"),
+            output="x",
+            input_names=["mop"],
+        )
 
     assert table("MPa", "MPA") is not None
     assert table("mPa", "MPa") is None

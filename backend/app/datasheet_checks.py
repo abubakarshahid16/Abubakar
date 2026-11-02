@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims, datasheet_roles, kit_core, numparse, severity_rule
+from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
 from .at_limit import hold as _hold
 from .checklist_scope import governs, standards
 from .config import settings
@@ -47,6 +47,7 @@ from .percent_kind import doubt as _kind_doubt
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
+from .unit_case import calc_key as _unit_key
 
 RULES_PATH = Path(__file__).parent / "reference" / "datasheet_checks.json"
 ORIGIN = "datasheet_check"
@@ -827,11 +828,6 @@ class _NotCalculated(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
-
-
-def _unit_key(unit: str | None) -> str:
-    return (numparse.fold_unit(unit).replace(" ", "").replace("²", "2").replace("³", "3")
-            .replace("°", "deg").replace("μ", "u").replace("µ", "u"))
 
 
 def _printed_unit(fact: dict) -> tuple[str, str | None]:
