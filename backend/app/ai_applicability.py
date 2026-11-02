@@ -38,6 +38,7 @@ import re
 from . import (
     ai_task_runner,
     division_text,
+    local_engine_bar,
     requirement_quality,
     scope_ledger,
     scope_quote,
@@ -443,6 +444,7 @@ def division_gate_for_run(
         classification=classification,
         facts=facts,
         standard_labels=standard_labels,
+        provider=division_text.claude_reader(),
         limit=settings.ai_division_scope_max_per_run,
     )
 
@@ -760,6 +762,7 @@ def _division_gate(
     if stopped := ctx["run"].get("stopped"):
         summary["stopped"] = f"{stopped}; the divisions after it were not read"
         summary["model_unavailable"] = stopped
+        local_engine_bar.at_least(f"ai_task:{SCOPE_TASK.name}", summary["could_not_read"])
     marks = {
         "unplaced": unplaced,
         "screen_failed": ctx["screen_failed"],

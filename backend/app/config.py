@@ -1536,6 +1536,7 @@ ANSWER_AFFECTING_SETTINGS = (
     "ai_task_model", "datasheet_ai_reader", "match_engine",
     "ai_applicability_enabled", "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
+    "ai_division_scope_engine",
     "ai_answer_reuse_enabled",
 )
 ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)

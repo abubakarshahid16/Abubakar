@@ -48,8 +48,16 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
-from . import ai_call_ledger, heavy_lock, local_engine_bar, model_transport, progress
+from . import (
+    ai_call_ledger,
+    claude_spend,
+    heavy_lock,
+    local_engine_bar,
+    model_transport,
+    progress,
+)
 from .ai import output_limits
+from .ai.json_reply import unfenced
 from .config import settings
 from .db import connect
 from .reasoning_provider import OllamaProvider, Packet, ProviderRefused, schema_errors
@@ -442,6 +450,10 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
                                     f"{settings.ai_task_max_words}. Split it into passages.")
     key = cache_key(spec, model, text)
     use_cache = use_cache and settings.ai_answer_reuse_enabled  # order 205: off = fresh
+    # On Claude there is one store, behind the approved list and the ledger, and one ask:
+    # a repeat read is local-only (`claude_answer_cache`; #1288).
+    on_claude = getattr(provider, "name", "") == "claude"
+    use_cache = use_cache and not on_claude
     if use_cache:
         hit = _cache_get(key)
         if hit is not None:
@@ -449,7 +461,8 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
             return TaskResult(spec.name, STATE_OK, hit, None, model, True, 0)
 
     problems: list[str] = []
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+    allowed = 1 if on_claude else MAX_ATTEMPTS
+    for attempt in range(1, allowed + 1):
         prompt = spec.prompt(text)
         if problems:
             prompt += ("\nYour previous answer was rejected: " + "; ".join(problems[:5])
@@ -460,20 +473,20 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
         try:
             with ai_call_ledger.asking(packet.step, model):  # #1525
                 response = provider.reason(packet)
-        except ProviderRefused as exc:
-            # A refusal, a timeout, an unreachable host: not an invalid reply,
-            # so no retry here. The name of the failure is the reason.
+        except (ProviderRefused, claude_spend.StopRun) as exc:
+            # A refusal, a timeout, an unreachable host, a USD cap or an unapproved
+            # document: not an invalid reply, so no retry here. The name of the failure
+            # is the reason.
             late = "timeout" in str(exc).lower()
             return _failed(spec, model, "the model did not answer in time" if late
                            else f"the model could not be reached ({_kind(exc)})", attempt)
         problems = _reply_problems(spec, response, text)
         if not problems:
-            data = json.loads(response.text)
+            data = json.loads(unfenced(response.text))
             if use_cache:
                 _cache_put(key, spec, model, data)
             return TaskResult(spec.name, STATE_OK, data, None, model, False, attempt)
-    return _failed(spec, model, "the reply was not valid: " + "; ".join(problems[:3]),
-                   MAX_ATTEMPTS)
+    return _failed(spec, model, "the reply was not valid: " + "; ".join(problems[:3]), allowed)
 
 
 def _kind(exc: BaseException) -> str:
@@ -493,7 +506,7 @@ def _reply_problems(spec: TaskSpec, response, text: str) -> list[str]:
     if state == output_limits.UNKNOWN:
         return ["the reply was empty"]
     try:
-        data = json.loads(response.text)
+        data = json.loads(unfenced(response.text))
     except ValueError:
         return ["the reply was not JSON"]
     if not isinstance(data, dict):

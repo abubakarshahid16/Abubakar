@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field
 
 
 class SettingsExt(BaseModel):
+    #: Division scope's OWN engine (owner decision, 2 Nov 2026): `claude` reads a standard's
+    #: part scopes on the Claude API (`division_text.claude_reader`), under the provider
+    #: switch, both egress flags, the approved and block lists, the answer cache and the USD
+    #: caps. Anything else stays on the local model; in a Claude-lane run that is skipped and
+    #: listed as not checked. Env: AI_DIVISION_SCOPE_ENGINE.
+    ai_division_scope_engine: str = "ollama"
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every
