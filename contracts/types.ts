@@ -1403,6 +1403,8 @@ export interface Me {
   email: string;
   display_name: string;
   roles: string[];
+  /** Server switch SESSION_EXPIRED_NOTICE_ENABLED: say so when a sign-in runs out. */
+  session_expired_notice?: boolean;
 }
 
 /** Whether signing in is required here, and who is signed in.

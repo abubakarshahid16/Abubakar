@@ -216,6 +216,12 @@ class SettingsExt(BaseModel):
     #: marked 'engineer to confirm', with a Review note; no checklist is chosen. OFF: unchanged.
     #: Env: EQUIPMENT_FROM_TITLE_BLOCK_ENABLED.
     equipment_from_title_block_enabled: bool = False
+    #: Order 4b: an expired sign-in (a 401) tells the reader so, once, on the sign-in form, and says
+    #: unsaved decisions are kept; while signed in the page also asks `/api/auth/me` once a minute,
+    #: because reads outside the gated routes answer an empty 200 instead of a 401. Sent to the page on
+    #: the signed-in user (`Me.session_expired_notice`). OFF: the form with no reason and no extra
+    #: request, as before. Env: SESSION_EXPIRED_NOTICE_ENABLED.
+    session_expired_notice_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion

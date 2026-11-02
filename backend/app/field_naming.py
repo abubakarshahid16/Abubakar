@@ -42,6 +42,7 @@ import logging
 import re
 from datetime import datetime, timezone
 
+from . import ai_call_ledger
 from .ai.json_reply import unfenced
 from .db import connect
 from .model_evidence import quote_verified
@@ -295,6 +296,8 @@ def name_items(kind: str, items: list[tuple[str, str]], dictionary: list[str], p
 
     known = stored_names(kind, [k for k, _t in items], dictionary)
     todo = [(k, t) for k, t in items if k not in known]
+    # #1525: one answer per named item; the table does not say which model wrote it.
+    ai_call_ledger.reused(NAMING_STEP, None, len(known))
     system = _system(dictionary, sheet_count)
     for start in range(0, len(todo), BATCH):
         batch = todo[start:start + BATCH]
@@ -304,7 +307,9 @@ def name_items(kind: str, items: list[tuple[str, str]], dictionary: list[str], p
         packet = Packet(prompt=prompt, num_ctx=16384, num_predict=60 * len(batch) + 200,
                         json_schema=_SCHEMA, system=system, step=NAMING_STEP,
                         prompt_version=PROMPT_VERSION)
-        response = provider.reason(packet)
+        model = ai_call_ledger.model_of(provider)
+        with ai_call_ledger.asking(NAMING_STEP, model, len(batch)):
+            response = provider.reason(packet)
         answers: dict[str, dict] = {}
         if not response.schema_errors and not response.truncated:
             for raw in _parse(response.text):
