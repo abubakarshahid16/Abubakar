@@ -16,7 +16,9 @@ Per run, per copy and per switch setting (CRS_EXPORT_QUALITY_ENABLED off/on):
                     rows only: a run nobody has confirmed has none)
   client-simulated  the contractor copy with every row treated as confirmed IN
                     MEMORY (nothing is stored), so the rules are measured on a
-                    client copy that has rows. Labelled as a simulation.
+                    client copy that has rows. Labelled as a simulation. It mints no
+                    number, so its rows still merge: its duplicate count is NOT what
+                    a really confirmed client copy shows (A-1633).
 Counts, read back from the saved workbook itself:
   duplicate rows    rows sharing (document, Page No./Section, Standard Reference)
                     with another row
