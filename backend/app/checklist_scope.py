@@ -31,7 +31,40 @@ def keeps_standards(checklist: dict) -> bool:
     scope, rule by rule, each under its own trust label. A signed checklist governs as before."""
     from .config import settings
 
-    return settings.draft_checklist_keeps_standards_enabled and bool(checklist.get("draft"))
+    return settings.draft_checklist_keeps_standards_enabled and bool(
+        checklist.get("draft")
+    )
+
+
+def set_aside(
+    governing: dict, covered_ids: set, requirements: list[dict], gated: dict
+) -> tuple[list[dict], list[dict], dict, dict]:
+    """#746: the requirements of the governed standards leave the comparison, each with its reason.
+    Returns (covered items, the requirements left, the gate's result without those cells, the run's note)."""
+
+    def covered(requirement: dict) -> bool:
+        return requirement.get("standard_document_id") in covered_ids
+
+    detail = (
+        f"the {governing['key']} review checklist governs this standard "
+        f"({governing['items']} items); not checked one by one"
+    )
+    cells = gated["not_compared_items"]
+    items = [
+        {"requirement": requirement, "code": "covered_by_checklist", "detail": detail}
+        for requirement in [dict(r) for r in requirements if covered(r)]
+        + [i["requirement"] for i in cells if covered(i["requirement"])]
+    ]
+    note = {
+        "type": governing["key"],
+        "items": governing["items"],
+        "standards": len(covered_ids),
+    }
+    left = {
+        **gated,
+        "not_compared_items": [i for i in cells if not covered(i["requirement"])],
+    }
+    return items, [r for r in requirements if not covered(r)], left, note
 
 
 def review_type(classification: dict | None) -> str | None:

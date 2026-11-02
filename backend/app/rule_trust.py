@@ -412,7 +412,12 @@ def _hold_without_a_value(verdict: dict, fact: dict | None) -> dict:
 
 
 def label_finding(
-    finding: dict, rule: dict, proof: dict | None, *, fact: dict | None = None, always: bool = False
+    finding: dict,
+    rule: dict,
+    proof: dict | None,
+    *,
+    fact: dict | None = None,
+    always: bool = False,
 ) -> dict:
     """THE OPT-IN HOOK. Off (`settings.rule_auto_use_enabled` False): the
     finding unchanged. On: labelled, downgraded when UNPROVEN, and a
