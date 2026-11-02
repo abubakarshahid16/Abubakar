@@ -162,7 +162,6 @@ def score(
             and not presence_check.is_stated_only(f)
             for f in checklist
         ),
-        "checklist_stated": sum(presence_check.is_stated_only(f) for f in checklist),
         "checklist_total": len(checklist),
         "fails": sum(f.get("compliance_status") == "NON_COMPLIANT" for f in findings),
         "rules_decided": len(decided_req),
@@ -775,7 +774,8 @@ PAIR_ROWS = [
         lambda p: (
             _frac(p["checklist"]["decided"], p["checklist"]["rows"])
             + (
-                f" ({p['checklist']['stated']} stated, not checked)"
+                f" ({p['checklist']['stated']} stated, not checked,"
+                f" {p['checklist'].get('stated_deferred', 0)} of them on a deferred value)"
                 if p["checklist"].get("stated")
                 else ""
             )

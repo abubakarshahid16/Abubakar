@@ -1844,6 +1844,7 @@ def _unchecked_causes(counts: dict) -> str:
     return requirement_split.causes(counts)
 
 
+@presence_check.says_how_many  # #1638
 def recommend_code(findings: list[dict], completeness: dict, *,
                    codes: tuple[str, ...] | None = None,
                    missing_references: list[str] | tuple[str, ...] = (),
@@ -3079,7 +3080,7 @@ def _run_comparison(
         "rule_refusals": rule_refusals,
         "findings": findings,
         "by_status": {
-            status: sum(1 for f in findings if f["compliance_status"] == status)
+            status: sum(1 for f in findings if presence_check.status_of(f) == status)
             for status in (COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION,
                            CONDITIONAL, NOT_APPLICABLE, NEEDS_ENGINEER_REVIEW,
                            NOT_IN_DOCUMENT_SCOPE)

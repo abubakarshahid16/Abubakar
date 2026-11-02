@@ -55,6 +55,7 @@ FAIL = "NON_COMPLIANT"
 PASS = "COMPLIANT"
 #: `review_audit.VERDICT`: what the CRS and the owner call a Query.
 QUERY = ("MISSING_INFORMATION", "NEEDS_ENGINEER_REVIEW", "CONDITIONAL")
+#: `presence_check.STATUS`, a test holds them together.
 STATED = "STATED_NOT_CHECKED"
 
 A4 = (595, 842)

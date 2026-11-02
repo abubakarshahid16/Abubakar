@@ -358,6 +358,9 @@ def _tally(
             checklist["rows"] += 1
             if presence_check.is_stated_only(f):  # #1638: never decided
                 checklist["stated"] = checklist.get("stated", 0) + 1
+                checklist["stated_deferred"] = checklist.get(
+                    "stated_deferred", 0
+                ) + int(value_is_deferred(conn, f))
                 continue
         status = f.get("compliance_status")
         if status not in DECIDED:

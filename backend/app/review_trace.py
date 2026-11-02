@@ -64,7 +64,7 @@ def _status_counts(findings: list[dict]) -> Counter:
     """Order 224.1: a draft of the AI checks has no status; it is counted in
     its own named bucket, never as "engineer to check"."""
     return Counter(
-        f.get("compliance_status")
+        presence_check.status_of(f)  # #1638: not a "meets"
         or (
             ai_check_drafts.DRAFT_BUCKET
             if f.get("origin") in ai_check_drafts.DRAFT_ORIGINS
@@ -176,7 +176,7 @@ def build(review_run_id: str, scope) -> dict:
     # 5 CHECKLIST
     from .datasheet_checks import is_draft_checklist
     checklist = [f for f in findings if f.get("origin") == "datasheet_check"]
-    c_status = Counter(f.get("compliance_status") for f in checklist)
+    c_status = _status_counts(checklist)
     # #805 Stage A: a "meets" from a checklist nobody signed off reads as unconfirmed.
     draft = sum(1 for f in checklist if is_draft_checklist(f.get("requirement")))
     steps.append(_step(
@@ -191,7 +191,6 @@ def build(review_run_id: str, scope) -> dict:
                f"value {_short(f.get('contractor_evidence_text'), 25)} | p{f.get('contractor_page') or '-'}"
                f" | {f.get('compliance_status')} | {_short(f.get('ai_rationale') or f.get('finding'), 60)}"
                for f in checklist]))
-    presence_check.mark_trace_step(steps[-1], checklist)  # #1638
     # 6 RULES
     rules = [f for f in findings if not f.get("origin")]
     paired = sum(1 for f in rules if f.get("fact_id"))
@@ -208,6 +207,7 @@ def build(review_run_id: str, scope) -> dict:
     steps.append(_step("DECIDE", " | ".join(f"{label} {status.get(s, 0)}" for s, label in _DECISIONS),
                        warning="0 decisions (no meets, no fails)" if findings and not decided else None,
                        counts={label: status.get(s, 0) for s, label in _DECISIONS}))
+    presence_check.mark_trace_steps(steps, findings)  # #1638
     # 8 COVERAGE: PF4 (#884) clause coverage as the run stored it (every
     # applicable requirement in one state, with the denominator), then the
     # checklist's value coverage.

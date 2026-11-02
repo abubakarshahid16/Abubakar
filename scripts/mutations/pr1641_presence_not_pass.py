@@ -7,6 +7,7 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _C = APP / "comparison.py"
+_G = APP / "checklist_scope.py"
 _K = APP / "clause_coverage.py"
 _P = APP / "coverage_pair.py"
 _S = APP / "presence_check.py"
@@ -49,15 +50,15 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         3,
-        "every checklist item is taken for a presence check, so a compared Pass stops counting",
+        "every checklist item is taken as compared, so no presence row is told",
         _S,
-        '            if item["rule"]["kind"] == REQUIRED:\n',
+        '            if item["rule"]["kind"] != REQUIRED:\n',
         "            if True:\n",
-        "compared_row_still_counts",
+        "only_presence_rows",
     ),
     _m(
         4,
-        "a stated row that is not a Pass, or not from a checklist, is taken as stated",
+        "a row that is not a Pass, or not from a checklist, is taken as stated",
         _S,
         '    if finding.get("origin") != ORIGIN or finding.get("compliance_status") != PASS:\n'
         "        return False\n",
@@ -66,11 +67,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         5,
-        "the recommendation's reason no longer says what was only stated",
+        "a stated row beside a real Pass no longer stops the approval",
         _S,
-        '        return {**result, "reason": result["reason"] + words}\n',
-        "        return result\n",
-        "only_presence_rows",
+        '        if result["code"] == approved:\n',
+        "        if False:\n",
+        "caps_the_recommendation",
     ),
     _m(
         6,
@@ -95,5 +96,53 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    notes.extend(stated_notes(findings))  # #1638\n",
         "",
         "review_note_names_the_fields",
+    ),
+    _m(
+        9,
+        "a row whose item cannot be told counts as a Pass: fails open",
+        _S,
+        "    return check not in compared_ids()\n",
+        "    return bool(check) and check not in compared_ids()\n",
+        "no_item_id_fails_closed",
+    ),
+    _m(
+        10,
+        "the cache is stamped by the overlay folder, so an edit in place is missed",
+        _S,
+        "    return tuple((str(f), f.stat().st_mtime_ns, f.stat().st_size) for f in files)\n",
+        "    return (str(overlay), overlay.stat().st_mtime_ns if overlay.is_dir() else 0)\n",
+        "edited_in_place",
+    ),
+    _m(
+        11,
+        "an approval with comments is left standing beside a stated row",
+        _S,
+        '        if result["code"] == with_comments:\n',
+        "        if False:\n",
+        "no_approval_with_comments",
+    ),
+    _m(
+        12,
+        "the plain reason loses the count",
+        _C,
+        "@presence_check.says_how_many  # #1638\n",
+        "",
+        "gated_run_says_it_too",
+    ),
+    _m(
+        13,
+        "a standard only stated items cite is still set aside, out of the unchecked-share gate",
+        _G,
+        "    covered_ids = set(covered_ids) - back\n",
+        "    covered_ids = set(covered_ids)\n",
+        "does_not_govern or gives_back_only",
+    ),
+    _m(
+        14,
+        "a standard with compared items is given back too",
+        _G,
+        "    return sorted(set(standards(checklist)) - asks_more)\n",
+        "    return sorted(set(standards(checklist)))\n",
+        "compared_items_still_governs",
     ),
 )

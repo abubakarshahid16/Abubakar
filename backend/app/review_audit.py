@@ -27,7 +27,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import ai_call_ledger, deferred_pass, review_audit_rows
+from . import ai_call_ledger, deferred_pass, presence_check, review_audit_rows
 from .config import settings
 
 NOT_RECORDED = "not recorded"
@@ -38,6 +38,7 @@ BOUNDARY = (
 )
 #: The plain verdict names (the bench's words) for the stored compliance codes.
 VERDICT = {
+    presence_check.STATUS: presence_check.WORDS,
     "COMPLIANT": "Pass",
     "NON_COMPLIANT": "Fail",
     "MISSING_INFORMATION": "Query",
@@ -278,10 +279,9 @@ def _deferred_part(findings: list[dict], passes: int) -> dict:
 def _rules_section(findings: list[dict]) -> dict:
     rows, counts = [], Counter()
     for f in findings:
-        verdict = VERDICT.get(
-            f.get("compliance_status"), f.get("compliance_status") or None
-        )
-        counts[f.get("compliance_status")] += 1
+        status = presence_check.status_of(f)  # #1638: not a "Meets"
+        verdict = VERDICT.get(status, status or None)
+        counts[status] += 1
         rows.append(
             {
                 "finding_id": f["id"],
@@ -310,7 +310,7 @@ def _rules_section(findings: list[dict]) -> dict:
         "rows_total": len(rows),
         "rows": rows,
         "verdict_counts": {VERDICT.get(k, k): v for k, v in counts.items() if k},
-        **_deferred_part(findings, counts.get("COMPLIANT", 0)),
+        **_deferred_part(presence_check.split(findings)[0], counts.get("COMPLIANT", 0)),
         "by_standard_document": dict(by_standard),
     }
 
