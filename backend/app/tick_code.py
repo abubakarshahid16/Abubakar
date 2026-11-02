@@ -55,39 +55,42 @@ def after_change(finding: dict | None, actor_user_id: str | None = None) -> str 
 
     run_id = finding["review_run_id"]
     conn = connect()
-    run = conn.execute(
-        "SELECT outcome_json, engineer_final_code FROM review_runs WHERE id = ?",
-        (run_id,),
-    ).fetchone()
-    if run is None or run["engineer_final_code"]:
-        return None
-    outcome = json.loads(run["outcome_json"] or "{}")
-    if not outcome.get("recommended_code"):
-        return None
-    rows = conn.execute(
-        "SELECT * FROM review_findings WHERE review_run_id = ?", (run_id,)
-    ).fetchall()
-    result = comparison.recommend_code(
-        [dict(r) for r in rows],
-        outcome.get("completeness") or {},
-        **_stored_inputs(outcome),
-    )
-    before = outcome["recommended_code"]
-    if result["code"] == before:
-        return None
-    outcome.update(
-        recommended_code=result["code"],
-        reason=result["reason"],
-        details=result.get("details"),
-    )
-    # a caller with no user row (auth off) is still a tick: say the id, the record has no such user
-    known = (
-        actor_user_id
-        and conn.execute(
-            "SELECT 1 FROM users WHERE id = ?", (actor_user_id,)
-        ).fetchone()
-    )
+    # ONE TRANSACTION, the write lock taken first: a re-run stores its whole outcome on this
+    # row, and a read outside the lock would write back the outcome it replaced.
     with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        run = conn.execute(
+            "SELECT status, outcome_json, engineer_final_code FROM review_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if run is None or run["engineer_final_code"] or run["status"] != "completed":
+            return None
+        outcome = json.loads(run["outcome_json"] or "{}")
+        if not outcome.get("recommended_code"):
+            return None
+        rows = conn.execute(
+            "SELECT * FROM review_findings WHERE review_run_id = ?", (run_id,)
+        ).fetchall()
+        result = comparison.recommend_code(
+            [dict(r) for r in rows],
+            outcome.get("completeness") or {},
+            **_stored_inputs(outcome),
+        )
+        before = outcome["recommended_code"]
+        if result["code"] == before:
+            return None
+        outcome.update(
+            recommended_code=result["code"],
+            reason=result["reason"],
+            details=result.get("details"),
+        )
+        # a caller with no user row (auth off) is still a tick: the record names no one
+        known = (
+            actor_user_id
+            and conn.execute(
+                "SELECT 1 FROM users WHERE id = ?", (actor_user_id,)
+            ).fetchone()
+        )
         conn.execute(
             "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
             (json.dumps(outcome), run_id),

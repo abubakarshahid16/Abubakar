@@ -355,6 +355,7 @@ def test_an_edited_comment_is_the_engineers_words_and_not_a_tick(
         ({"approval_status": "accepted"}, True),
         ({"approval_status": "rejected"}, False),
         ({"confirmed_by": "eng", "engineer_comment": "Invented"}, False),
+        ({"confirmed_by": "eng", "approval_status": "rejected"}, False),
     ],
 )
 def test_what_a_real_tick_is(finding, done):

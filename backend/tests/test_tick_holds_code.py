@@ -4,6 +4,7 @@ rule's hold (`rule_trust.hold_open_ticks`). Invented rows only; no model."""
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 
 import pytest
@@ -90,6 +91,12 @@ def test_one_path_the_owner_rule_holds_with_this_switch_off():
     assert "an owner-approved rule" in _code(owner)["reason"]
     assert _code({**owner, "confirmed_by": "eng"})["code"] == APPROVED
     assert _code(_tick())["code"] == APPROVED, "other labels: as they were"
+
+
+def test_tick_then_reject_is_not_a_tick_and_holds(on):
+    """A rejection keeps the earlier `confirmed_by`; the probe gave Approved."""
+    rejected = _tick(confirmed_by="eng", approval_status="rejected")
+    assert _code(rejected)["code"] == MANUAL
 
 
 def test_a_row_not_flagged_for_a_tick_does_not_hold(on):
@@ -248,3 +255,53 @@ def test_the_setting_is_off_by_default():
     from app.config import Settings
 
     assert Settings.model_fields["tick_holds_review_code_enabled"].default is False
+
+
+def test_a_reject_after_the_last_tick_takes_the_code_back(stored, on):
+    run = _run("t1")
+    review.update("t1", {"confirmed_by": "eng"}, actor_user_id="eng")
+    assert _outcome(run)[0]["recommended_code"] == APPROVED
+    review.update("t1", {"approval_status": "rejected"}, actor_user_id="eng")
+    assert _outcome(run)[0]["recommended_code"] == MANUAL
+
+
+def test_the_read_and_the_write_are_one_transaction(stored, on, monkeypatch):
+    """A re-run stores its whole outcome on this row: while the code is worked out, no other
+    writer can, so what was read is what is written over."""
+    run = _run("t1")
+    real = comparison.recommend_code
+    seen = []
+
+    def other_writer(*args, **kw):
+        other = sqlite3.connect(settings.db_path, timeout=0)
+        try:
+            other.execute(
+                "UPDATE review_runs SET outcome_json = '{}' WHERE id = ?", (run,)
+            )
+            other.commit()
+            seen.append("wrote")
+        except sqlite3.OperationalError:
+            seen.append("locked")
+        finally:
+            other.close()
+        return real(*args, **kw)
+
+    monkeypatch.setattr(comparison, "recommend_code", other_writer)
+    review.update("t1", {"confirmed_by": "eng"}, actor_user_id="eng")
+    assert seen == ["locked"]
+    assert _outcome(run)[0]["recommended_code"] == APPROVED
+
+
+def test_a_run_being_redone_is_not_written(stored, on):
+    run = _run("t1")
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET status = 'running' WHERE id = ?", (run,))
+    review.update("t1", {"confirmed_by": "eng"}, actor_user_id="eng")
+    assert _outcome(run)[0]["recommended_code"] == MANUAL
+
+
+def test_a_write_lock_is_released_when_nothing_changes(stored, on):
+    run = _run("t1", "t2")
+    review.update("t1", {"confirmed_by": "eng"}, actor_user_id="eng")
+    assert db.connect().in_transaction is False
+    assert _outcome(run)[0]["reason"] == "stored words"

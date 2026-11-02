@@ -17,8 +17,9 @@ def decider(finding: dict) -> str | None:
 def tick_done(finding: dict) -> bool:
     """Has an engineer really TICKED this safety row? An edit also confirms a finding
     (`main.update_review_finding`), but it is the engineer's words, perhaps an objection:
-    not a tick."""
-    if finding.get("engineer_comment"):
+    not a tick. A rejection keeps the earlier `confirmed_by`: the rejection is the answer
+    now. `tiers.ts` `tickDone` says the same; shared cases hold the two together."""
+    if finding.get("engineer_comment") or finding.get("approval_status") == "rejected":
         return False
     return bool(
         finding.get("confirmed_by") or finding.get("approval_status") == "accepted"

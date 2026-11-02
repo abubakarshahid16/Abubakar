@@ -189,11 +189,18 @@ export function ruleUnproven(finding: ReviewFinding): boolean {
   return finding.trust_label === TIER_RULES.rule_not_proven_trust_label;
 }
 
+/** A real tick (`crs_decider.tick_done`): an edit confirms a finding but may be an
+ *  objection, and a rejection keeps the earlier `confirmed_by`. */
+export function tickDone(finding: ReviewFinding): boolean {
+  if (finding.engineer_comment || finding.approval_status === TIER_RULES.removed.approval_status) return false;
+  return Boolean(finding.confirmed_by) || finding.approval_status === "accepted";
+}
+
 /** rule_trust (#947): a safety field shown for the engineer's own tick,
  *  which no engineer has ticked yet. */
 export function safetyTickOpen(finding: ReviewFinding): boolean {
   return Boolean(finding.show_for_engineer_tick) && finding.compliance_status === TIER_RULES.safety_tick_status
-    && !finding.confirmed_by;
+    && !tickDone(finding);
 }
 
 function phrase(word: PhraseWord): Predicate {

@@ -497,6 +497,35 @@
       }
     },
     {
+      "name": "a safety tick with an edited comment is not a tick: safety field",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "show_for_engineer_tick": true,
+        "confirmed_by": "eng",
+        "engineer_comment": "Invented objection."
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "safety field"
+      }
+    },
+    {
+      "name": "a safety tick accepted by an engineer is Met",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "show_for_engineer_tick": true,
+        "approval_status": "accepted"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "A",
+        "label": "Met",
+        "reason": null
+      }
+    },
+    {
       "name": "a safety tick the engineer confirmed is Met",
       "finding": {
         "compliance_status": "COMPLIANT",

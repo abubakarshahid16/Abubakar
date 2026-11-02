@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .comparison import _pairing_unconfirmed
+from .crs_decider import tick_done
 
 RULES_PATH = Path(__file__).parent / "reference" / "review_tiers.json"
 RULES: dict = json.loads(RULES_PATH.read_text(encoding="utf-8"))
@@ -160,7 +161,7 @@ def safety_tick_open(finding: dict) -> bool:
     return (
         bool(finding.get("show_for_engineer_tick"))
         and finding.get("compliance_status") == RULES["safety_tick_status"]
-        and not finding.get("confirmed_by")
+        and not tick_done(finding)
     )
 
 
