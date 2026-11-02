@@ -61,8 +61,10 @@ def is_json(text: str) -> bool:
 def _root() -> Path:
     """`settings.claude_cache_dir`, but never a folder git could pick up: a path
     inside the repository that is not under `data_dir` falls back to `data_dir`."""
-    chosen = Path(settings.claude_cache_dir).resolve()
     data = Path(settings.data_dir).resolve()
+    if not settings.claude_cache_dir:
+        return data / "claude_cache"
+    chosen = Path(settings.claude_cache_dir).resolve()
     repo = Path(__file__).resolve().parents[2]
     if repo in chosen.parents and data not in chosen.parents:
         return data / "claude_cache"
@@ -158,7 +160,7 @@ def write(key: str, *, step: str, payload, cost_usd: float, valid=None) -> bool:
         handle, temp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
         with os.fdopen(handle, "w", encoding="utf-8") as fh:
             json.dump(stored, fh, ensure_ascii=False)
-        os.replace(temp, path)
+        Path(temp).replace(path)
         return True
     except Exception as exc:  # noqa: BLE001 - see the docstring; the type only, never the text
         log.info("claude answer cache: an answer was not kept (%s)", type(exc).__name__)

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 
+from . import claude_answer_cache, claude_spend, local_engine_bar
+
 #: What "audit rows" and "exported rows" are over, printed with them.
 ROWS_BOUNDARY = (
     "Audit rows: the CRS rows composed for this run, before the export removes any, over "
@@ -78,3 +80,50 @@ def for_copy(review_run_id: str, scope, copy: str) -> dict | None:
             "review audit: the %s CRS copy could not be composed", copy, exc_info=True
         )
         return None
+
+
+def not_sent(row: dict) -> dict:
+    """A step's Claude calls that were answered from the stored answers."""
+    hits = row.get("cache_hits")
+    return (
+        {"not_sent": f"{claude_answer_cache.NOT_SENT} ({hits} of them)"} if hits else {}
+    )
+
+
+def skipped_steps(outcome: dict) -> list[dict]:
+    """The steps a Claude-lane run did not run: a true 0 calls, and said so."""
+    return [
+        {
+            "name": row["step"],
+            "state": row["note"],
+            "model": None,
+            "calls": 0,
+            "fresh": 0,
+            "failed": 0,
+            "reused": 0,
+        }
+        for row in outcome.get(local_engine_bar.OUTCOME_KEY) or []
+    ]
+
+
+def cache_figures(run: dict) -> dict:
+    """The stored Claude answers since this run began; nothing on a run with no Claude call."""
+    since = run.get("started_at") or run.get("created_at")
+    if not since:
+        return {}
+    try:
+        report = claude_spend.cache_report(since=since)
+    except (OSError, ValueError):
+        return {}
+    return {"claude_answer_cache": report} if report["hits"] or report["misses"] else {}
+
+
+def cache_lines(ai_use: dict) -> list[str]:
+    cache = ai_use.get("claude_answer_cache")
+    if not cache:
+        return []
+    return [
+        f"- stored Claude answers: {cache['hits']} hits, {cache['misses']} misses, "
+        f"USD {cache['saved_usd']} saved",
+        f"  - {cache['boundary']}",
+    ]

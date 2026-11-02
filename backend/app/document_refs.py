@@ -332,8 +332,10 @@ def forget_quotes(conn: sqlite3.Connection, document_id: str) -> int:
     """#437: the `canonical_field_names.quote` rows drawn from this document
     go with it (the registry files the column as DELETED_BY_ROUTE; it was the
     one text column a delete left behind). Inside the delete's transaction;
-    returns the rows removed."""
+    returns the rows removed. The stored Claude answers quote it too: they go as well."""
+    from . import claude_answer_cache
     from .field_naming import forget_document
+    claude_answer_cache.forget_documents([document_id])
     return forget_document(conn, document_id)
 
 

@@ -210,6 +210,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `market_providers` | Three tiers of public information, one row shape, and no socket in sight |
 | `market_transport` | The one place in this codebase that may open a socket to the public internet |
 | `local_engine_bar` | A review on the Claude lane never loads the local engine, and says what it skipped |
+| `match_claude` | The matcher's question through the one Claude lane |
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
 | `closing_noun` | Reads the quantity a sentence names LAST ("... of its travel") so a label that runs from it into the subject can be paired (#913) |
 | `method_notes` | Order 159: marks the notes on HOW a pairing was made, so the engineer's copy keeps them and the contractor's copy leaves them off |

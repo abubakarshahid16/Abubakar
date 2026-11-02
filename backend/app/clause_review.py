@@ -610,6 +610,10 @@ def for_review(review_run_id: str, scope: frozenset[str]) -> None:
     text) and recorded on the run."""
     if not settings.clause_review_enabled:
         return
+    if local_engine_bar.refuses(STEP):  # LOCAL ONLY (owner decision D1): said, not run
+        plain = f"AI clause review {local_engine_bar.NOTE}"
+        _store_status(review_run_id, {"ran": False, "plain": plain})
+        return
     try:
         run(review_run_id, allowed_document_ids=scope)
     except Exception as exc:  # noqa: BLE001 - suggestions are optional; the review stands
@@ -733,13 +737,6 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
     kind, state = eligible(submittal)
     if kind is None:
         return {"ran": False, "reason": state}
-    if provider is None and local_engine_bar.refuses(STEP):
-        # LOCAL ONLY (owner decision D1), so in a Claude-lane run it does not run, and says so.
-        _store_status(
-            review_run_id,
-            {"ran": False, "plain": f"AI clause review {local_engine_bar.NOTE}"},
-        )
-        return {"ran": False, "reason": local_engine_bar.NOTE}
     if provider is None:
         # LOCAL ONLY (owner decision D1): never `get_provider`, which may return Claude.
         provider = rp.OllamaProvider(

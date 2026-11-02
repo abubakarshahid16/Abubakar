@@ -583,8 +583,12 @@ def available() -> tuple[bool, str]:
     """Whether the check may run, and if not, why - in plain words."""
     if not settings.review_ai_check_enabled:
         return False, "the AI engineering check is off (REVIEW_AI_CHECK_ENABLED)"
-    from . import reasoning_provider
-    ok, why = reasoning_provider.claude_available()
+    from . import reasoning_provider as rp
+    ok, why = rp.claude_available()
+    on_cloud = ok or rp.claude_for_task(opinion_engine(), step=STEP) is not None
+    if local_engine_bar.active() and (not on_cloud or claude_approved.local_instead()):
+        local_engine_bar.refuses(STEP)
+        return False, local_engine_bar.NOTE
     if not ok:
         # R26 step 7: the local model instead - nothing leaves the machine.
         return True, "local"
@@ -756,7 +760,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     from . import reasoning_provider as rp
     from . import submittal_review
 
-    own_provider = provider is None          # False: a test or a caller handed one in
+    own_provider = provider is None and not local_engine_bar.active()
     ok, why = available() if provider is None else (True, "injected")
     if not ok:
         # #633: ASKED FOR AND COULD NOT RUN IS A FACT ON THE RUN, not silence
@@ -777,35 +781,13 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     if provider is None:
         provider = rp.get_provider("reasoning", step=STEP)
         if not isinstance(provider, rp.ClaudeProvider):
-            # #819: this step's own engine says claude and EVERY document of
-            # the review (its standards too) is approved: the full check, with
-            # the clause list, runs on the cloud model. One unapproved
-            # standard keeps it local, and the datasheet-only opinion follows.
+            # #819: own engine says claude, EVERY document approved: the full check on the cloud model.
             provider = rp.claude_for_task(opinion_engine(), step=STEP) or provider
         if isinstance(provider, rp.ClaudeProvider):
-            # #838: documents not approved for the cloud model -> the local
-            # model, said on the run. A budget refusal is NOT replaced.
+            # #838: not approved -> the local model, said on the run. A budget refusal stays.
             local_instead = claude_approved.local_instead()
             if local_instead:
                 provider = rp.OllamaProvider()
-    if (
-        own_provider
-        and isinstance(provider, rp.OllamaProvider)
-        and local_engine_bar.refuses(STEP)
-    ):
-        from . import absence
-
-        said = absence.check_failed_status(
-            "AI engineering check", local_engine_bar.NOTE
-        )
-        _store_status(review_run_id, said)
-        return {
-            "ran": False,
-            "reason": local_engine_bar.NOTE,
-            "proposed": 0,
-            "kept": 0,
-            "rejected": {},
-        }
     max_output_tokens = output_limits.max_tokens_for(output_limits.ROUTE_ENGINEERING_CHECK)
     timeout_s = 240.0
     if isinstance(provider, rp.OllamaProvider):
@@ -870,13 +852,8 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         reason = None
         break
 
-    if (
-        own_provider
-        and local_pages is None
-        and isinstance(provider, rp.ClaudeProvider)
-        and str(reason or "").startswith(CALL_FAILED)
-        and not local_engine_bar.refuses(STEP)
-    ):
+    if (own_provider and local_pages is None and isinstance(provider, rp.ClaudeProvider)
+            and str(reason or "").startswith(CALL_FAILED)):
         # #870: THE CLOUD MODEL'S CALL FAILED (an API error, a time-out; on a
         # live review the account's credit was finished and every call came
         # back refused). The check ran with nothing although the local model

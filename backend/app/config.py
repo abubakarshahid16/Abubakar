@@ -1200,10 +1200,9 @@ class Settings(SettingsExt, BaseSettings):
     #: ONE ledger per machine, not per checkout (#315): a worktree writes and
     #: checks the main checkout's file, so the USD caps are the caps.
     claude_spend_log: Path = shared_backend_dir() / "data" / "claude_spend.jsonl"
-    #: Response cache (`claude_answer_cache`): a repeat of the same request is served
-    #: from here at USD 0. Local only; it holds model answers, so it sits with the
-    #: database under the same access rules, never in git. None: `<data_dir>/claude_cache`,
-    #: so it moves with DATA_DIR.
+    #: Response cache (`claude_answer_cache`): the same request is served from here at USD 0.
+    #: It holds model answers, so it sits with the database, never in git.
+    #: None: `<data_dir>/claude_cache`, so it moves with DATA_DIR.
     claude_cache_dir: Path | None = None
 
     # ------------------------------------------------------------- the chat
@@ -1402,13 +1401,6 @@ class Settings(SettingsExt, BaseSettings):
     summary_schedule: str = "disabled"  # disabled, daily, weekly
     summary_hour_utc: int = 8
     summary_weekday_utc: int = 0  # Monday=0
-
-    @model_validator(mode="after")
-    def _claude_cache_follows_the_data_folder(self) -> "Settings":
-        """The stored answers hold document text, so they go where the data goes."""
-        if self.claude_cache_dir is None:
-            self.claude_cache_dir = self.data_dir / "claude_cache"
-        return self
 
     @model_validator(mode="after")
     def _refuse_a_non_local_answer_model(self) -> "Settings":

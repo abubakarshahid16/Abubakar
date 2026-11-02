@@ -54,13 +54,8 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import (
-    equipment_scope as eqs,
-    intake,
-    kind_rules,
-    local_engine_bar,
-    procedure_text,
-)
+from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
+from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -1749,10 +1744,10 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
         return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
             f"{UNREAD_PAGES}: no value for this requirement was found in the "
             f"fields read from {where} of {total}; "
-            f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
-            "were not read into fields, so the value may be there. An engineer "
-            "must check those pages before this becomes a comment to the "
-            "contractor")}
+            f"{page_not_read.unread_clause(pages, unread)}"  # 1550
+            ", so the value may be there. "
+            "An engineer must check those pages before this becomes a comment to "
+            "the contractor")}
     page_reader_only = pages.get("pages_read_only_by_page_reader") or []
     if page_reader_only:
         # Owner decision 2026-09-26 (honesty audit entry 68): these pages are
@@ -1905,10 +1900,10 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     # comments) would be a claim about it. A proven breach stays a breach.
     reading = (page_coverage or {}).get("reading") or {}
     if reading.get("status") == page_ledger.READING_INCOMPLETE and result["code"] in (codes[0], codes[1]):
-        pages = page_ledger.page_list(reading.get("incomplete_pages") or [])
+        pages = page_not_read.incomplete_words(page_coverage, reading)
         result = {**result, "code": codes[3],
-                  "reason": (f"Manual review: the reading is incomplete (page{'s' if len(reading.get('incomplete_pages') or []) != 1 else ''} "
-                             f"{pages} not read in full, see the run's page coverage), so the rest cannot be called met"),
+                  "reason": (f"Manual review: the reading is incomplete ({pages}, "  # 1550
+                             "see the run's page coverage), so the rest cannot be called met"),
                   "reading_incomplete": True}
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
@@ -3838,49 +3833,6 @@ def _none_match(reason: str | None = None) -> dict:
 MATCH_STEP = "requirement-matcher"
 
 
-def _ask_claude_for_a_pair(
-    prompt: str, *, nth: int = 0, keep_if=None
-) -> tuple[str | None, str | None]:
-    """The matcher's question through the ONE Claude lane (R32, 2026-10-11;
-    MATCH_ENGINE=claude): only when `reasoning_provider.claude_unavailable`
-    says Claude may be used, through `reader_transport.transport()` wrapped in
-    `claude_spend.metered` (USD caps before the call, every call in the ledger).
-    Returns `(text, None)` or `(None, reason)`; never raises. #456: the cap is
-    the route table's; a reply it cut off is `model_truncated`, never parsed.
-    `nth` and `keep_if` are the stored-answer rules of the local path below: each
-    ask of the stability check has its own answer, kept only when it passed the check."""
-    from . import claude_spend, reader_api, reader_transport
-    from .ai import output_limits
-    from .reasoning_provider import claude_unavailable_for_task
-    # #501: the matcher's own engine setting, under the provider switch.
-    try:
-        if claude_unavailable_for_task(settings.match_engine)[0] is not None:
-            return None, MODEL_UNAVAILABLE
-        transport = reader_transport.transport()
-        if transport is None:
-            return None, MODEL_UNAVAILABLE
-        cfg = dataclasses.replace(reader_api.ReaderSettings.from_env(), model=settings.claude_reasoning_model,
-                                  timeout_seconds=float(settings.match_timeout_seconds))
-        call = output_limits.model_call_for(
-            claude_spend.metered(
-                transport,
-                MATCH_STEP,
-                unbilled=reader_transport.unbilled,
-                version=f"{MATCH_PROMPT_VERSION}#{nth}",
-                keep_if=keep_if,
-            ),
-            output_limits.ROUTE_MATCH,
-            cfg=cfg,
-        )
-        return call(prompt), None
-    except (claude_spend.StopRun, claude_spend.BudgetExceeded):
-        return None, MODEL_BUDGET
-    except (output_limits.Truncated, output_limits.Unreadable) as exc:
-        return None, MODEL_TRUNCATED if exc.state == output_limits.TRUNCATED else MODEL_MALFORMED
-    except Exception as exc:  # noqa: BLE001 - refused, timed out, or answered wrongly
-        return errors.fell_back("comparison: the Claude pair-choice call failed; the pair stays unchosen", exc, (None, MODEL_UNAVAILABLE))
-
-
 def _json_object_in(text: str | None) -> str:
     """The first {...} of an answer: Claude may wrap its JSON in a fence."""
     text = text or ""
@@ -3901,15 +3853,10 @@ def _ask_model_once(
     `nth` says which ask of the same question this is (the stability check
     asks twice): each ask is its own stored answer, so a reused pair of
     answers is the pair the model really gave."""
-    from . import ai_task_runner, model_transport
+    from . import ai_task_runner, local_engine_bar, model_transport
     if (str(settings.match_engine or "ollama").strip().lower()) == "claude":
-        answer, why = _ask_claude_for_a_pair(
-            build_prompt(requirement, candidates),
-            nth=nth,
-            keep_if=lambda text: (
-                _checked_choice(_json_object_in(text), candidates)[1] is None
-            ),
-        )
+        prompt = build_prompt(requirement, candidates)
+        answer, why = _ask_claude_for_a_pair(prompt, nth, candidates)
         if why is not None:
             return None, why
         return _checked_choice(_json_object_in(answer), candidates)

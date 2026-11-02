@@ -13,11 +13,17 @@ from pathlib import Path
 import pytest
 
 from app import claude_answer_cache as cache
-from app import claude_approved, claude_spend, reader_api, review_audit
+from app import (
+    claude_approved,
+    claude_spend,
+    reader_api,
+    review_audit,
+    review_audit_rows,
+)
 from app import reasoning_provider as rp
 from app.ai import output_limits
 from app.ai_call_ledger import open_ledger, snapshot
-from app.config import Settings, settings
+from app.config import settings
 
 MODEL = "claude-sonnet-5-5"
 OTHER_MODEL = "claude-haiku-5-5"
@@ -423,13 +429,6 @@ def test_forget_documents_removes_the_files_that_carried_it_and_no_others(monkey
     )
 
 
-def test_deleting_a_document_calls_forget_documents():
-    source = (Path(__file__).parents[1] / "app" / "api" / "documents.py").read_text(
-        "utf-8"
-    )
-    assert "claude_answer_cache.forget_documents([document_id])" in source
-
-
 # ------------------------------------------------- corrupt, off, where it lives
 
 
@@ -464,9 +463,10 @@ def test_answer_reuse_off_reads_and_keeps_nothing(monkeypatch):
     assert not list(Path(settings.claude_cache_dir).rglob("*.json"))
 
 
-def test_the_default_folder_moves_with_the_data_folder(tmp_path):
-    moved = Settings(data_dir=tmp_path / "elsewhere", _env_file=None)
-    assert moved.claude_cache_dir == tmp_path / "elsewhere" / "claude_cache"
+def test_the_default_folder_moves_with_the_data_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "claude_cache_dir", None)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "elsewhere")
+    assert cache._root() == (tmp_path / "elsewhere").resolve() / "claude_cache"
 
 
 def test_a_folder_inside_the_repository_falls_back_to_the_data_folder(
@@ -531,13 +531,16 @@ def test_the_audit_records_not_sent_cache_hit():
         }
     }
     assert any("not sent: cache hit" in line for line in review_audit._md_ai(audit))
+    assert review_audit_rows.cache_lines({}) == []
 
 
 def test_the_audit_prints_the_cache_figures_of_a_run():
     send = _send()
     _metered_call(send)("which?")
     _metered_call(send)("which?")
-    figures = review_audit._cache_figures({"created_at": "2000-01-01T00:00:00+00:00"})
+    figures = review_audit_rows.cache_figures(
+        {"created_at": "2000-01-01T00:00:00+00:00"}
+    )["claude_answer_cache"]
     assert (figures["hits"], figures["misses"]) == (1, 1)
 
 

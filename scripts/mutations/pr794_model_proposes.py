@@ -14,8 +14,8 @@ METERED_MATCHER = """\
                 transport,
                 MATCH_STEP,
                 unbilled=reader_transport.unbilled,
-                version=f"{MATCH_PROMPT_VERSION}#{nth}",
-                keep_if=keep_if,
+                version=f"{comparison.MATCH_PROMPT_VERSION}#{nth}",
+                keep_if=keep_if if candidates is not None else None,
             ),
             output_limits.ROUTE_MATCH,
 """
@@ -36,13 +36,13 @@ MUTATIONS: tuple[Mutation, ...] = (
     # MATCH_ENGINE=claude (R32): the one Claude lane, gated and metered.
     Mutation(id="M794-04", phase=794, description="the claude matcher is not metered by claude_spend",
              # re-anchored (#456): the matcher goes through the route table's model_call
-             path=_C, anchor=METERED_MATCHER,
+             path=APP / "match_claude.py", anchor=METERED_MATCHER,
              replacement='            transport,\n            output_limits.ROUTE_MATCH,\n',
              target=_T, keyword="metered_lane or spend_cap", tags=("budget", "egress", "critical")),
     Mutation(id="M794-05", phase=794, description="the claude matcher skips the 'may Claude be used' check",
              # re-anchored (#456): the same check, one line shorter
-             path=_C, anchor=('        if claude_unavailable_for_task(settings.match_engine)[0] is not None:\n'
-                              '            return None, MODEL_UNAVAILABLE\n'
+             path=APP / "match_claude.py", anchor=('        if claude_unavailable_for_task(settings.match_engine)[0] is not None:\n'
+                              '            return None, comparison.MODEL_UNAVAILABLE\n'
                               '        transport = reader_transport.transport()\n'),
              replacement='        transport = reader_transport.transport()\n',
              target=_T, keyword="refused_unless", tags=("egress", "critical")),

@@ -53,7 +53,7 @@ def is_claude_lane_run() -> bool:
     """REASONING_PROVIDER says claude or per_task, and the lane itself is open."""
     from . import reasoning_provider as rp
 
-    return rp.provider_is_cloud() and rp.claude_lane_open()
+    return rp._provider_setting() in (rp.CLAUDE, rp.PER_TASK) and rp.claude_lane_open()
 
 
 @contextmanager
