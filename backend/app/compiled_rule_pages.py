@@ -10,7 +10,10 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 
+from . import numparse
+from . import standards_converter as sc
 from .converter_gates import _CLAUSE_HEADING
 from .converter_gates import fold as _fold
 
@@ -39,7 +42,25 @@ _ABBREVIATED = (
 )
 #: A clause number alone on its line; the next line starts in capitals and is the heading's words.
 _LONE_NUMBER = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s*$")
-_STRIP_PREFIX = re.compile(r"^\W*(?:\d+(?:\.\d+)+\.?\s+|\(?[0-9a-z]{1,3}\)\s+)?")
+#: What opens a sentence and is not a word of it: a clause number, a printed label, sub-paragraph marks.
+_STRIP_PREFIX = re.compile(
+    r"^\W*(?:(?:\d+(?:\.\d+)+\.?\s+|[a-z]{1,6}-(?:[a-z0-9]{1,6}-)*\d+[a-z]?(?:\.\d+)*(?=[\s(])|\(?[0-9a-z]{1,3}\)\s*)\W*)*"
+)
+
+
+#: A hyphen, and any space or line end after it, between two letters.
+_WORD_HYPHEN = re.compile(r"(?<=[^\W\d_])-\s*(?=[^\W\d_])")
+_LABEL = r"(?:[A-Z0-9]{1,6}-)+\d+[A-Z]?(?:\.\d+)*"
+_SUBS = r"(?:\s?\(-?[A-Za-z0-9]{1,3}\))*"
+#: A label heads a line only alone, with a title in capitals, or with its sub-paragraph and text: "XY-12 and the rail" is
+#: a reference that wrapped. A mark outside plain ASCII may stand before it (a revision glyph).
+_LINE_LABEL = re.compile(
+    rf"^\s*(?:[^\x00-\x7f]\S*\s+)?(?P<label>{_LABEL})(?![\w-])(?P<subs>{_SUBS})"
+    r"(?:\s*$|\s+[A-Z(])"
+)
+_LINE_SUBS = re.compile(rf"^\s*{_SUBS}")
+_ONE_SUB = re.compile(r"\(-?[a-z0-9]{1,3}\)")
+_CITED_LABEL = re.compile(rf"(?P<label>{_LABEL})(?P<subs>{_SUBS})")
 
 
 @dataclass
@@ -77,7 +98,13 @@ def _blocks_of(text: str) -> list[str]:
             and line[0].isupper()
             and not _sentence_is_open(" ".join(blocks[-1]))
         )
-        if title or _CLAUSE_HEADING.match(line) or _LONE_NUMBER.match(line):
+        if (
+            title
+            or _CLAUSE_HEADING.match(line)
+            or _LONE_NUMBER.match(line)
+            or _LINE_LABEL.match(line)
+            or _LINE_SUBS.match(line)[0].strip()
+        ):
             blocks.append([])
         blocks[-1].append(line)
         before = line
@@ -160,6 +187,59 @@ def _headings(text: str) -> list[tuple[int, str, str]]:
     return out
 
 
+@lru_cache(maxsize=4096)  # the same page is read for thousands of proposals
+def join_hyphens(text: str) -> str:
+    """A word broken by a hyphen at a line end reads as one word: the page's "ves-\nsel", a copy's "ves-sel" and "vessel"
+    all read "vessel". Only between two letters, so a figure ("5-7", "2-inch") never changes: exact on words and digits,
+    no fuzzy match. For proof only; what is stored is the model's own quote."""
+    return _WORD_HYPHEN.sub("", text.replace("\u00ad", ""))
+
+
+@lru_cache(maxsize=4096)
+def _label_marks(text: str) -> tuple[tuple[int, str, str], ...]:
+    """(where in the folded page, "label" or a sub-paragraph's kind, its words): what stands at the start of each line."""
+    out, at = [], 0
+    for line in text.splitlines():
+        found = _LINE_LABEL.match(line)
+        if found:
+            out.append((at, "label", found["label"]))
+        subs = found["subs"] if found else _LINE_SUBS.match(line)[0]
+        out += [(at, _sub_kind(s), s) for s in _ONE_SUB.findall(subs.casefold())]
+        at += len(_fold(line)) + 1 if line.strip() else 0
+    return tuple(out)
+
+
+def _sub_kind(sub: str) -> str:
+    inner = sub.strip("()")
+    if inner.startswith("-"):
+        return "dash"
+    return "digit" if inner.isdigit() else "letter"
+
+
+def label_in_force(
+    clause: str, pages: dict[int, str], page: int, at: int
+) -> bool | None:
+    """Is a printed label with letters and a number, "XY-12" or "3-4", with any sub-paragraphs, "XY-12(a)(1)(-b)", the one
+    in force at `at`? Its label is the nearest one starting a line before the quote, running back over earlier pages, and
+    each sub-paragraph cited is the nearest of its kind after that label. None: not such a label ("4.2.1")."""
+    cited = _CITED_LABEL.fullmatch(clause)
+    if not cited:
+        return None
+    wanted = [(_sub_kind(s), s) for s in _ONE_SUB.findall(cited["subs"].casefold())]
+    nearest: dict[str, str] = {}
+    for number in sorted((p for p in pages if p <= page), reverse=True):
+        marks = _label_marks(pages[number])
+        for where, kind, words in reversed(marks):
+            if number == page and where > at:
+                continue
+            if kind == "label":
+                return words == cited["label"] and all(
+                    nearest.get(k) == s for k, s in wanted
+                )
+            nearest.setdefault(kind, words)
+    return False
+
+
 def _clause_labels(text: str) -> list[tuple[int, str]]:
     return [(where, clause) for where, clause, _words in _headings(text)]
 
@@ -174,6 +254,56 @@ def _clause_in_force(pages: dict[int, str], page: int, at: int) -> str | None:
         if labels:
             return labels[-1][1]
     return None
+
+
+def _whole_number_heading(clause: str, text: str, at: int, nearest: str | None) -> bool:
+    """A section number alone ("10", then its title) as the heading over the quote: on the page, before the quote, after
+    any numbered clause there, and in sequence with the clause in force. Read here, not in chunk labels."""
+    if not clause.isdigit():
+        return False
+    if nearest is not None and int(nearest.split(".")[0]) > int(clause):
+        return False
+    pattern = rf"^\s*{clause}\.?(?:\s+[A-Za-z].*)?\s*$"
+    where = 0
+    found = -1
+    for line in text.splitlines():
+        if re.match(pattern, line):
+            found = where
+        where += len(_fold(line)) + 1 if line.strip() else 0
+    if found < 0 or found > at:
+        return False
+    return all(
+        place < found for place, _clause in _clause_labels(text[: _raw_at(text, at)])
+    )
+
+
+def _raw_at(text: str, at: int) -> int:
+    """The place in the raw page of a place in the folded page, near enough to cut its headings off."""
+    seen = 0
+    for n, line in enumerate(text.splitlines(keepends=True)):
+        seen += len(_fold(line)) + 1 if line.strip() else 0
+        if seen > at:
+            return sum(len(x) for x in text.splitlines(keepends=True)[: n + 1])
+    return len(text)
+
+
+def _clause_problem(clause: str, quote: str, page: int, pages) -> str | None:
+    """The cited clause is the label nearest before the quote. With no heading to read, it must carry a number and
+    be printed before the quote on that page."""
+    if clause.lower() in sc.PLACEHOLDER_CLAUSES:
+        return "no_clause"
+    folded = _fold(pages[page])
+    at = max(folded.find(_fold(quote)), 0)
+    labelled = label_in_force(clause, pages, page, at)
+    if labelled is not None:
+        return None if labelled else "clause_not_nearest"
+    nearest = _clause_in_force(pages, page, at)
+    if _whole_number_heading(clause, pages[page], at, nearest):
+        return None
+    if nearest is not None:
+        return None if clause == nearest else "clause_not_nearest"
+    printed = numparse.contains_whole(folded[:at], _fold(clause))
+    return None if printed and re.search(r"\d", clause) else "clause_not_nearest"
 
 
 def _blocks(pages: dict[int, str]) -> list[tuple[int, str, str]]:

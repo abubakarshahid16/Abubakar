@@ -79,6 +79,12 @@ def _subject_is_the_field(subject: str, span: str, field: str) -> bool:
     return bool(head) and bool((_field_words(head[-1]) | _field_words(span)) & named)
 
 
+def _is_named(word: str, named: set[str]) -> bool:
+    """A word the field holds. A small word ("below", "at") is in no field: its emptiness proves nothing."""
+    words = _field_words(word)
+    return bool(words) and words <= named
+
+
 def _comparator_right_after(
     span: str, subject: str, comparator: str, field: str
 ) -> bool:
@@ -87,7 +93,7 @@ def _comparator_right_after(
     named = _field_words(field)
 
     def only_filler(words: str) -> bool:
-        return all(w in _FILLER or _field_words(w) <= named for w in words.split())
+        return all(w in _FILLER or _is_named(w, named) for w in words.split())
 
     if comparator == "=":
         return "be" in span.split() and only_filler(span)
@@ -145,7 +151,7 @@ def figure_is_plain(
     after = (
         tail.strip(" .,;:").split()
     )  # one word may finish the property: "2 inch diameter"; more may be a scope
-    if len(after) > 1 or (after and not _field_words(after[0]) <= _field_words(field)):
+    if len(after) > 1 or (after and not _is_named(after[0], _field_words(field))):
         return False
     subject, span = text[: modal.start()], text[modal.end() : number.start].strip()
     return _subject_is_the_field(subject, span, field) and _comparator_right_after(

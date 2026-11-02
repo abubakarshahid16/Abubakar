@@ -4860,3 +4860,201 @@ def test_an_opening_scope_that_is_held_with_an_exception_stands():
         **NO_FIGURE,
     )
     assert why is None and rule["exception_text"] == "except for covers"
+
+
+# ---- Labels with letters and sub-paragraphs; hyphenated line breaks. Generic: no standard is named.
+
+
+def _labelled(page, clause, quote="The widget shall be red.", **over):
+    pages = page if isinstance(page, dict) else {1: page}
+    return _verify_on(pages, quote, clause=clause, **{**NO_FIGURE, **over})
+
+
+@pytest.mark.parametrize(
+    "page, clause",
+    [
+        ("XY-12 Part\nThe widget shall be red.", "XY-12"),
+        ("3-4 Part\nThe widget shall be red.", "3-4"),
+        ("A-B-7 Part\nThe widget shall be red.", "A-B-7"),
+        ("XY-12.3 Part\nThe widget shall be red.", "XY-12.3"),
+        ("XY-12 Part\n(a) The widget shall be red.", "XY-12(a)"),
+        ("XY-12(b) The rail is blue.\nThe widget shall be red.", "XY-12(b)"),
+        ("XY-12 Part\n(a) Rails\n(1) The widget shall be red.", "XY-12(a)(1)"),
+        (
+            "XY-12 Part\n(a) Rails\n(1) Hubs\n(-b) The widget shall be red.",
+            "XY-12(a)(1)(-b)",
+        ),
+        ("Table 0.015 of 3.5\nXY-12 Part\nThe widget shall be red.", "XY-12"),
+        ("XY-12 Part\nXY-13 and the rail are wet.\nThe widget shall be red.", "XY-12"),
+        ("\u00f023\u00de XY-12\nThe widget shall be red.", "XY-12"),
+        ("XY-12\nThe widget shall be red.", "XY-12"),
+    ],
+)
+def test_a_label_with_letters_and_sub_paragraphs_is_the_clause_in_force(page, clause):
+    assert _labelled(page, clause)[1] is None
+
+
+def test_a_label_runs_on_over_a_page():
+    pages = {1: "XY-12 Part\n(a) Rails are blue.", 2: "The widget shall be red."}
+    chunk_pages = standards_compiler.chunks_of(pages)
+    assert len(chunk_pages) >= 1
+    assert _labelled(pages, "XY-12(a)")[1] is None
+
+
+@pytest.mark.parametrize(
+    "page, clause",
+    [
+        ("XY-12 Part\nXY-13 Part\nThe widget shall be red.", "XY-12"),
+        ("XY-12 Part\nThe widget shall be red.\nXY-13 Part", "XY-13"),
+        ("XY-12 Part\n(a) Rails\n(b) The widget shall be red.", "XY-12(a)"),
+        (
+            "XY-12 Part\n(a) Rails\n(1) Hubs\n(2) The widget shall be red.",
+            "XY-12(a)(1)",
+        ),
+        ("XY-12 Part\nThe widget shall be red.", "XY-12(a)"),
+        ("See XY-12 here.\nThe widget shall be red.", "XY-12"),
+        ("XY-120 Part\nThe widget shall be red.", "XY-12"),
+        ("XY-12 Part\nXY-13 and the rail\nThe widget shall be red.", "XY-13"),
+    ],
+)
+def test_any_other_label_is_not_the_clause_in_force(page, clause):
+    assert _labelled(page, clause) == (None, "clause_not_nearest")
+
+
+@pytest.mark.parametrize(
+    "printed, quoted",
+    [
+        ("The wid-\nget shall be red.", "The widget shall be red."),
+        ("The wid-\nget shall be red.", "The wid-get shall be red."),
+        ("The wid-\nget shall be red.", "The wid- get shall be red."),
+        ("The wid- get shall be red.", "The widget shall be red."),
+        ("The wid\u00adget shall be red.", "The widget shall be red."),
+        ("The low-alloy widget shall be red.", "The low-alloy widget shall be red."),
+        ("The low-\nalloy widget shall be red.", "The low-alloy widget shall be red."),
+        ("The widget\n  shall\tbe red.", "The widget shall be red."),
+    ],
+)
+def test_a_word_broken_at_a_line_end_is_the_same_word(printed, quoted):
+    rule, why = _verify_on(f"7.3 Part\n{printed}", quoted, **NO_FIGURE)
+    assert why is None and rule["quote"] == quoted
+    assert rule["quote_start"] is not None and rule["quote_end"] > rule["quote_start"]
+
+
+@pytest.mark.parametrize(
+    "printed, quoted",
+    [
+        ("The widget shall be 5-7 bar.", "The widget shall be 57 bar."),
+        ("The widget shall be 15 bar.", "The widget shall be 1-5 bar."),
+        ("The widget shall be 1.5 bar.", "The widget shall be 15 bar."),
+        ("The widget shall be 5 bar.", "The widget shall be 6 bar."),
+        ("The wid-\nget shall be red.", "The widgets shall be red."),
+        ("The wid-\nget shall be red.", "The wigdet shall be red."),
+        ("The widget-5 shall be red.", "The widget5 shall be red."),
+    ],
+)
+def test_words_and_digits_stay_exact(printed, quoted):
+    assert _verify_on(f"7.3 Part\n{printed}", quoted, **NO_FIGURE) == (
+        None,
+        "quote_not_on_page",
+    )
+
+
+def test_a_figure_after_a_broken_word_is_still_read_exactly():
+    page = "7.3 Part\nThe pres-\nsure shall not exceed 5 bar."
+    rule, why = _verify_on(page, "The pressure shall not exceed 5 bar.", **FIGURE)
+    assert why is None and rule["limit_value"] == 5.0
+
+
+def test_the_stored_words_are_the_models_not_the_joined_ones():
+    page = "7.3 Part\nThe low-alloy widget shall be red."
+    rule, why = _verify_on(
+        page,
+        "The low-alloy widget shall be red.",
+        field="low-alloy widget",
+        applies_to="low-alloy widgets",
+        limit=None,
+        unit=None,
+        comparator=None,
+    )
+    assert (
+        why is None
+        and rule["field"] == "low-alloy widget"
+        and rule["applies_to"] == "low-alloy widgets"
+    )
+
+
+def test_nace_compiles_by_default_on_the_owners_decision_of_1584():
+    assert "NACE" in standards_compiler._families()
+    _document("std-nace", "NACE MR0175", pages=(PAGE_1,))
+    fake = FakeBatches()
+    report = standards_compiler.compile_standard(
+        db.connect(), "std-nace", "NACE MR0175", client=fake, sleep=lambda _s: None
+    )
+    assert report["status"] == "all_pages_answered" and len(fake.created) == 1
+
+
+def test_the_old_converter_keeps_its_own_family_list():
+    assert "NACE" not in standards_converter.ALLOWED_FAMILIES
+
+
+@pytest.mark.parametrize(
+    "sentence, body, comparator, field",
+    [
+        (
+            "When wet or cold, the pressure shall not exceed 5 bar.",
+            "the pressure shall not exceed 5 bar.",
+            "<=",
+            "pressure",
+        ),
+        (
+            "The pressure and the rate shall not exceed 5 bar.",
+            "The pressure and the rate shall not exceed 5 bar.",
+            "<=",
+            "rate",
+        ),
+        (
+            "The pressure shall be below 5 bar.",
+            "The pressure shall be below 5 bar.",
+            "=",
+            "pressure",
+        ),
+        (
+            "The pressure shall be for 5 bar.",
+            "The pressure shall be for 5 bar.",
+            "=",
+            "pressure",
+        ),
+        (
+            "The pressure shall not exceed 5 bar of.",
+            "The pressure shall not exceed 5 bar of.",
+            "<=",
+            "pressure",
+        ),
+    ],
+)
+def test_what_only_the_allow_list_refuses(sentence, body, comparator, field):
+    assert not compiled_rule_shape.figure_is_plain(
+        sentence, body, "5", "bar", comparator, field, sentence, f"7.3 Part\n{sentence}"
+    )
+
+
+def test_a_label_opening_its_sentence_after_a_long_line_starts_a_new_one():
+    page = (
+        "A rail line of many words that runs on well past the title limit with no stop\n"
+        "XY-12 The widget shall be red."
+    )
+    assert _labelled(page, "XY-12")[1] is None
+
+
+def test_more_than_one_word_after_the_figure_is_not_plain():
+    sentence = "The pressure shall not exceed 5 bar pressure at the outlet."
+    assert not compiled_rule_shape.figure_is_plain(
+        sentence,
+        sentence,
+        "5",
+        "bar",
+        "<=",
+        "pressure",
+        sentence,
+        f"7.3 Part\n{sentence}",
+    )

@@ -20,7 +20,7 @@ switch on, each review run records the version it used (`record_rule_version`): 
 ONCE. A standard compiled at this prompt version and text hash is skipped, with a count.
 
 THE GATES, before anything is built: the switch; the family (`standards_compiler_families`; #1584:
-API and ASME are allowed on the owner's decision there, the setting can narrow it); COMPANY_STANDARD; on the approved
+API, ASME and NACE are allowed on the owner's decision there, the setting can narrow it); COMPANY_STANDARD; on the approved
 list even if the list's enforcement setting is off. Then the batch reserves through `claude_spend`, which asks
 the list again and holds USD 25 per standard (#1584: it governs here, not the USD 5 per step) and USD 500 in total,
 and a daily limit here. What does not fit is not sent: the run stops at the cap, keeps what it verified, and says

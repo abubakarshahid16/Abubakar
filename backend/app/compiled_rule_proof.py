@@ -30,9 +30,9 @@ from .compiled_rule_field import (
 )
 from .compiled_rule_pages import (
     Chunk,
-    _clause_in_force,
-    _clause_labels,
+    _clause_problem,
     _core,
+    join_hyphens,
     sentences_of,
     whole_sentence,
 )
@@ -167,59 +167,12 @@ ANSWER_SCHEMA = {
 
 def quote_verified(quote: object, page_text: str | None) -> bool:
     """THE quote check, for version 1 and version 2 alike: the words stand on the cited page's stored text."""
-    words = " ".join(str(quote or "").split())
+    words = join_hyphens(" ".join(str(quote or "").split()))
     return (
         len(words) >= MIN_QUOTE_CHARS
         and bool(page_text)
-        and quote_on_page(words, page_text)
+        and quote_on_page(words, join_hyphens(page_text))
     )
-
-
-def _whole_number_heading(clause: str, text: str, at: int, nearest: str | None) -> bool:
-    """A section number alone ("10", then its title) as the heading over the quote: on the page, before the quote, after
-    any numbered clause there, and in sequence with the clause in force. Read here, not in chunk labels."""
-    if not clause.isdigit():
-        return False
-    if nearest is not None and int(nearest.split(".")[0]) > int(clause):
-        return False
-    pattern = rf"^\s*{clause}\.?(?:\s+[A-Za-z].*)?\s*$"
-    where = 0
-    found = -1
-    for line in text.splitlines():
-        if re.match(pattern, line):
-            found = where
-        where += len(_fold(line)) + 1 if line.strip() else 0
-    if found < 0 or found > at:
-        return False
-    return all(
-        place < found for place, _clause in _clause_labels(text[: _raw_at(text, at)])
-    )
-
-
-def _raw_at(text: str, at: int) -> int:
-    """The place in the raw page of a place in the folded page, near enough to cut its headings off."""
-    seen = 0
-    for n, line in enumerate(text.splitlines(keepends=True)):
-        seen += len(_fold(line)) + 1 if line.strip() else 0
-        if seen > at:
-            return sum(len(x) for x in text.splitlines(keepends=True)[: n + 1])
-    return len(text)
-
-
-def _clause_problem(clause: str, quote: str, page: int, pages) -> str | None:
-    """The cited clause is the label nearest before the quote. With no heading to read, it must carry a number and
-    be printed before the quote on that page."""
-    if clause.lower() in sc.PLACEHOLDER_CLAUSES:
-        return "no_clause"
-    folded = _fold(pages[page])
-    at = max(folded.find(_fold(quote)), 0)
-    nearest = _clause_in_force(pages, page, at)
-    if _whole_number_heading(clause, pages[page], at, nearest):
-        return None
-    if nearest is not None:
-        return None if clause == nearest else "clause_not_nearest"
-    printed = numparse.contains_whole(folded[:at], _fold(clause))
-    return None if printed and re.search(r"\d", clause) else "clause_not_nearest"
 
 
 def _written(limit: str, quote: str):
@@ -694,9 +647,42 @@ def _kept_rule(answer, facts: dict, flags: list[str], stated: str, text: str) ->
 def verify(
     answer: object, chunk: Chunk, pages: dict[int, str], tables=None
 ) -> tuple[dict | None, str | None]:
-    """(rule, None) or (None, reason), for ONE proposal. Code decides; the answer is a claim."""
+    """(rule, None) or (None, reason), for ONE proposal. Code decides; the answer is a claim. Proven on text whose words
+    broken by a hyphen read whole; the rule keeps the model's own words and the place on the stored page."""
     if not isinstance(answer, dict):
         return None, "not_an_object"
+    joined = {
+        k: join_hyphens(v) if isinstance(v, str) else v for k, v in answer.items()
+    }
+    rule, why = _proven(
+        joined,
+        chunk,
+        {n: join_hyphens(t) for n, t in pages.items()},
+        tables and {n: [join_hyphens(t) for t in rows] for n, rows in tables.items()},
+    )
+    if rule is None:
+        return None, why
+    quote = " ".join(str(answer.get("quote") or "").split())
+    condition, exception = (
+        " ".join(str(answer.get(k) or "").split()) for k in ("condition", "exceptions")
+    )
+    start, end = quote_span(quote, pages[answer["page"]])
+    return {
+        **rule,
+        "applies_to": " ".join(str(answer.get("applies_to")).split()),
+        "field": _without_gloss(" ".join(str(answer.get("field")).split())),
+        "condition_text": _fold(condition) or None,
+        "exception_text": rule["exception_text"] and (_fold(exception) or None),
+        "quote": quote,
+        "quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+        "quote_start": start,
+        "quote_end": end,
+    }, None
+
+
+def _proven(
+    answer: dict, chunk: Chunk, pages: dict[int, str], tables
+) -> tuple[dict | None, str | None]:
     problem = _quote_problem(answer, chunk, pages)
     if problem:
         return None, problem

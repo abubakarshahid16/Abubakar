@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from . import ai_requirements, numparse
-from .compiled_rule_pages import _core, _headings, sentences_of
+from .compiled_rule_pages import _core, _headings, join_hyphens, sentences_of
 
 _CAPTION = re.compile(r"^\s*(?:table|figure|fig\.?|note)\s+\w", re.IGNORECASE)
 _SCOPE_WORDS = re.compile(
@@ -27,7 +27,11 @@ _NEXT_EXCEPTION = re.compile(
 
 def quote_span(quote: str, text: str) -> tuple[int | None, int | None]:
     """Where the quote stands in the stored page: its words, any white space between, any case."""
-    pattern = r"\s+".join(re.escape(word) for word in quote.split())
+    joined = join_hyphens(quote)
+    pattern = r"\s+".join(
+        r"(?:[-\u00ad]\s*)?".join(re.escape(ch) for ch in word)
+        for word in joined.split()
+    )
     found = re.search(pattern, text, re.IGNORECASE)
     return found.span() if found else (None, None)
 
