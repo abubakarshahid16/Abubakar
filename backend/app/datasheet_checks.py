@@ -489,10 +489,10 @@ def implausible(fact: dict, role: str, rules: dict) -> str | None:
     bounds = (rules.get("roles", {}).get(role) or {}).get("plausible")
     if not bounds:
         return None
-    from . import claims
+    from . import claims, impossible_sign
     number = claims.parse_value(str(fact.get("raw_value")))
     if number is None:
-        return None
+        return impossible_sign.glued_doubt(fact, role)
     low, high = bounds.get("min"), bounds.get("max")
     if (low is not None and number < low) or (high is not None and number > high):
         span = (f"{low} to {high}" if low is not None and high is not None

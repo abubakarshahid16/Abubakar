@@ -118,12 +118,31 @@ def _trailing_candidates(sentence: str) -> Iterator[tuple[re.Match, str, str]]:
             yield match, direction, raw_unit
 
 
+def _whole_fraction(sentence: str, match: re.Match) -> numparse.Number | None:
+    """The plain fraction this value is the bottom of: a nominal size ("1/2 in", "2-1/2 in").
+    Only a proper one: "10/5" is a ratio and "12/25/2019" a date."""
+    if sentence[match.start() - 1 : match.start()] not in ("/", "\u2044"):
+        return None
+    for fraction in numparse.find_fractions(sentence):
+        top, bottom = re.findall(r"\d+", fraction.raw)[-2:]
+        if fraction.end == match.end("value") and int(top) < int(bottom):
+            return fraction
+    return None
+
+
 def trailing_refused(sentence: str) -> bool:
     """A trailing limit in the sentence starts where no value may ("A-5 mm or less", "3-5 C
     or lower"). The text cannot say what it is, so NO limit of this sentence can be trusted:
     not a later value, and not a general limit whose exception it is. It goes to an engineer
-    (#1619)."""
-    starts = [found[0].start() for found in _trailing_candidates(sentence)]
+    (#1619).
+
+    "10-12 mm or larger" is refused too. The hyphen is no minus, so main's -12 was wrong, but it
+    could be a size range or a tag, and no general rule tells it from "Item 3-15 C or lower". As
+    a range no single bound is stated: 11 mm passes from 10 and fails from 12."""
+    starts = []
+    for match, _direction, _unit in _trailing_candidates(sentence):
+        fraction = _whole_fraction(sentence, match)
+        starts.append(fraction.start if fraction else match.start())
     return any(not numparse.value_may_start(sentence, start) for start in starts)
 
 
@@ -136,10 +155,12 @@ def trailing(sentence: str) -> dict | None:
     if found is None or trailing_refused(sentence):
         return None
     match, direction, raw_unit = found
-    measurement = r3b.measure(match.group("value"), raw_unit)
+    fraction = _whole_fraction(sentence, match)
+    raw_value = fraction.raw if fraction else match.group("value")
+    measurement = r3b.measure(str(fraction.value) if fraction else raw_value, raw_unit)
     return {
         "operator": direction,
-        "raw_value": match.group("value"),
+        "raw_value": raw_value,
         "raw_unit": raw_unit,
         "value": measurement.normalized_value,
         "unit": measurement.normalized_unit,

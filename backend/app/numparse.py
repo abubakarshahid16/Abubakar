@@ -433,6 +433,21 @@ def lead_or(plain: re.Pattern, lead: re.Pattern) -> re.Pattern:
     return lead if leading_dot_enabled() else plain
 
 
+def _minus_is_joined(m: re.Match) -> bool:
+    prefix = m.string[: m.start("num")]
+    if not prefix or not m.group("num").startswith("-"):
+        return False
+    return prefix[-1] not in _SIGN_LEAD
+
+
+def has_joining_minus(value_str: str | None) -> bool:
+    """One number glued to a joining hyphen ("PN-16"): `parse_value` reads no number from it.
+    A check that holds a value it cannot trust asks this, because None alone also means
+    "words", which a required-field check accepts (#1619)."""
+    m = _VALUE.fullmatch(re.sub(f"[{MINUS_SIGNS}]", "-", (value_str or "").strip()))
+    return m is not None and _minus_is_joined(m)
+
+
 def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -> float | None:
     """Parse a written number. Anything unparseable or ambiguous is None,
     never a guess.
@@ -474,7 +489,7 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
         if not m:
             return None
     prefix = s[:m.start("num")]
-    if m.group("num").startswith("-") and prefix and prefix[-1] not in _SIGN_LEAD:
+    if _minus_is_joined(m):
         return None  # "A-5", "T--5": a joining hyphen, not a sign (#1619)
     stripped = prefix.rstrip()
     negative_dash = False

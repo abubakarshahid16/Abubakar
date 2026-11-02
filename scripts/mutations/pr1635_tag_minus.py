@@ -10,39 +10,21 @@ _TAG = ("pr1635", "numbers", "honesty")
 _NUM = APP / "numparse.py"
 _R3B = APP / "requirements_3b.py"
 _OWN = APP / "own_value_limit.py"
-_PARSE = '    if m.group("num").startswith("-") and prefix and prefix[-1] not in _SIGN_LEAD:\n'
+_SIGN = APP / "impossible_sign.py"
+_JOINED = "    return prefix[-1] not in _SIGN_LEAD\n"
 _MAY = '    return not lead or lead.isspace() or (lead in _SIGN_LEAD and lead != ",")\n'
-_GENERAL = "    if own_value_limit.trailing_refused(sentence):\n"
-_STARTS = (
-    "    starts = [found[0].start() for found in _trailing_candidates(sentence)]\n"
-)
 _FIRST = "        if direction is not None and raw_unit:\n"
 _RANGE = "    if limit is None and own_value_limit.trailing_refused(sentence):\n"
 _CROSS = "        return own_value_limit.trailing_refused(text)\n"
+_GENERAL = "    if own_value_limit.trailing_refused(sentence):\n"
+_APPEND = "        starts.append(fraction.start if fraction else match.start())\n"
+_SLASH = '    if sentence[match.start() - 1 : match.start()] not in ("/", "\\u2044"):\n'
+_PROPER = '        if fraction.end == match.end("value") and int(top) < int(bottom):\n'
+_HELD = "        if not (is_negative(fact) or _glued_number(fact)):\n"
+_LIBRARY = '    if verdict.get("status") != _PASS or not (is_negative(fact) or _glued_number(fact)):\n'
+_DOUBT = "    if not _glued_number(fact):\n        return None\n    from .datasheet_checks import _label, _said\n"
 
 MUTATIONS: tuple[Mutation, ...] = (
-    Mutation(
-        id="M1635-07",
-        phase=1635,
-        description="parse_value reads a joining hyphen as a minus",
-        path=_NUM,
-        anchor=_PARSE,
-        replacement="    if False:\n",
-        target=_T,
-        keyword="no_sign_outside",
-        tags=_TAG,
-    ),
-    Mutation(
-        id="M1635-08",
-        phase=1635,
-        description="parse_value refuses every minus not at the start",
-        path=_NUM,
-        anchor=_PARSE,
-        replacement='    if m.group("num").startswith("-") and prefix:\n',
-        target=_T,
-        keyword="real_negative_stays",
-        tags=_TAG,
-    ),
     Mutation(
         id="M1635-14",
         phase=1635,
@@ -132,12 +114,100 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAG,
     ),
     Mutation(
-        id="M1635-22",
+        id="M1635-23",
         phase=1635,
-        description="only the first trailing limit can refuse a sentence",
+        description="parse_value reads a joining hyphen as a minus",
+        path=_NUM,
+        anchor=_JOINED,
+        replacement="    return False\n",
+        target=_T,
+        keyword="no_sign_outside",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-24",
+        phase=1635,
+        description="parse_value refuses every minus not at the start",
+        path=_NUM,
+        anchor=_JOINED,
+        replacement="    return True\n",
+        target=_T,
+        keyword="real_negative_stays",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-25",
+        phase=1635,
+        description="a fraction start is not checked, so a glued one is read",
         path=_OWN,
-        anchor=_STARTS,
-        replacement="    starts = [found[0].start() for found in _trailing_candidates(sentence)][:1]\n",
+        anchor=_APPEND,
+        replacement="        starts.append(match.start() - 1 if fraction else match.start())\n",
+        target=_T,
+        keyword="glued_fraction",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-26",
+        phase=1635,
+        description="a plain fraction is refused",
+        path=_OWN,
+        anchor=_SLASH,
+        replacement="    if True:\n",
+        target=_T,
+        keyword="plain_fraction_is_read",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-27",
+        phase=1635,
+        description="an improper fraction is read as a size",
+        path=_OWN,
+        anchor=_PROPER,
+        replacement='        if fraction.end == match.end("value"):\n',
+        target=_T,
+        keyword="improper_fraction",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-28",
+        phase=1635,
+        description="a glued number passes a required item",
+        path=_SIGN,
+        anchor=_HELD,
+        replacement="        if not is_negative(fact):\n",
+        target=_T,
+        keyword="glued_number_required",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-29",
+        phase=1635,
+        description="a glued number passes a library rule",
+        path=_SIGN,
+        anchor=_LIBRARY,
+        replacement='    if verdict.get("status") != _PASS or not is_negative(fact):\n',
+        target=_T,
+        keyword="glued_number_is_held",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-30",
+        phase=1635,
+        description="a glued number is not implausible",
+        path=_SIGN,
+        anchor=_DOUBT,
+        replacement="    return None\n    from .datasheet_checks import _label, _said\n",
+        target=_T,
+        keyword="implausible_flags",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1635-31",
+        phase=1635,
+        description="any later limit no longer refuses a sentence",
+        path=_OWN,
+        anchor=_APPEND,
+        replacement="        starts.append(fraction.start if fraction else match.start())\n        break\n",
         target=_T,
         keyword="later_unreadable",
         tags=_TAG,

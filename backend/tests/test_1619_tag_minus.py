@@ -8,7 +8,15 @@ from __future__ import annotations
 
 import pytest
 
-from app import claims, comparison, numparse, requirements_3b, rule_eval
+from app import (
+    claims,
+    comparison,
+    datasheet_checks,
+    impossible_sign,
+    numparse,
+    requirements_3b,
+    rule_eval,
+)
 
 U_MINUS = chr(0x2212)
 
@@ -300,3 +308,171 @@ def test_a_later_unreadable_limit_refuses_a_readable_first_one():
 def test_a_readable_exception_still_decides(exception, value, subject, expected):
     text = f"The temperature shall not exceed 40 C, except pumps which shall be {exception} C or lower"
     assert _subject_verdict(text, value, subject) == expected
+
+
+# ------------------------------------------------------------- a size is not a tag
+
+
+@pytest.mark.parametrize(
+    "text, raw, value",
+    [
+        ("for 1/2 in or larger", "1/2", 0.5),
+        ("for 2-1/2 in or larger", "2-1/2", 2.5),
+        ("for 2 1/2 in or larger", "2 1/2", 2.5),
+        ("NPS 3/4 in or larger", "3/4", 0.75),
+    ],
+)
+def test_a_plain_fraction_is_read_whole(text, raw, value):
+    limit = requirements_3b.parse_limit(text)
+    assert limit["raw_value"] == raw
+    expected = requirements_3b.measure(str(value), "in")
+    assert limit["value"] == pytest.approx(expected.normalized_value)
+    assert limit["operator"] == ">="
+
+
+def test_a_plain_fraction_keeps_the_general_limit():
+    text = "The temperature shall not exceed 40 C for 1/2 in or larger"
+    assert requirements_3b.parse_limit(text)["raw_value"] == "40"
+
+
+@pytest.mark.parametrize("value", ["0.25", "1", "3"])
+def test_a_plain_fraction_limit_gives_no_verdict_on_the_wrong_number(value):
+    text = "for 1/2 in or larger"
+    limit = requirements_3b.parse_limit(text)
+    requirement = {
+        **limit,
+        "id": "r",
+        "clause": "1",
+        "requirement_type": requirements_3b.classify(text, limit),
+        "requirement_text": text,
+        "source_text": text,
+        "field": "size",
+    }
+    fact = {
+        "id": "f",
+        "field_name": "size",
+        "field_label": "Size",
+        "field_value": f"{value} in",
+        "raw_value": value,
+        "raw_unit": "in",
+        "is_blank": 0,
+        "blank_marker": None,
+    }
+    status = comparison.compare(requirement, fact)["status"]
+    assert status == comparison.NEEDS_ENGINEER_REVIEW
+
+
+@pytest.mark.parametrize("text", ["10/5 mm or less", "12/25/2019 mm or less"])
+def test_an_improper_fraction_or_a_date_is_refused(text):
+    assert requirements_3b.parse_limit(text) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "A-1/2 in or larger",
+        "T1/2 in or larger",
+        "-1/2 in or less",
+        "10-12 mm or larger",
+    ],
+)
+def test_a_glued_fraction_or_a_digit_range_stays_in_review(text):
+    assert requirements_3b.parse_limit(text) is None
+
+
+# ----------------------------------------------- a glued number is held, not passed
+
+GLUED = ["A-5", "T-5", "PN-16", "PN\u221216"]
+
+
+def _sheet_fact(name, value, unit=None):
+    return {
+        "id": f"f-{name}",
+        "field_name": name,
+        "field_label": name.capitalize(),
+        "field_value": f"{value} {unit}".strip() if unit else value,
+        "raw_value": value,
+        "raw_unit": unit,
+        "normalized_value": None,
+        "normalized_unit": None,
+        "is_blank": 0,
+        "blank_marker": None,
+        "value_note": None,
+        "page": 2,
+        "equipment_tag": None,
+    }
+
+
+def _item(item_id):
+    for checklist in datasheet_checks.load_rules()["checklists"].values():
+        for item in checklist.get("items", []) if isinstance(checklist, dict) else []:
+            if item["id"] == item_id:
+                return item
+    raise AssertionError(item_id)
+
+
+@pytest.mark.parametrize("value", GLUED)
+def test_glued_number_is_no_number(value):
+    assert numparse.has_joining_minus(value)
+    assert numparse.parse_value(value) is None
+
+
+@pytest.mark.parametrize(
+    "value", ["-5", "T = -5", "T -5", "5", "Fire", "", None, "10-12"]
+)
+def test_glued_number_is_not_a_real_negative_or_a_word(value):
+    assert not numparse.has_joining_minus(value)
+
+
+@pytest.mark.parametrize(
+    "item_id, field, role",
+    [("PSV-01", "set pressure", "set_pressure"), ("PSV-02", "mawp", "mawp")],
+)
+@pytest.mark.parametrize("value", GLUED)
+def test_glued_number_required_item_is_held(value, item_id, field, role):
+    rules = datasheet_checks.load_rules()
+    fact = _sheet_fact(field, value)
+    item_result = datasheet_checks.evaluate_item(
+        _item(item_id), {role: [fact]}, {}, None, rules, draft=False
+    )
+    assert item_result["status"] == "COMPLIANT", (
+        "the check alone accepts a stated value"
+    )
+    held = impossible_sign.hold_results([item_result], [fact], rules, frozenset())
+    assert held[0]["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "cannot be read as a number" in held[0]["detail"]
+    assert "negative" not in held[0]["detail"]
+
+
+@pytest.mark.parametrize("value", GLUED)
+def test_glued_number_is_held_on_a_library_pass(value):
+    verdict = {"status": "COMPLIANT", "rationale": "within the limit"}
+    fact = {"field_name": "built up back pressure", "raw_value": value, "is_blank": 0}
+    assert (
+        impossible_sign.hold_pass(verdict, fact)["status"]
+        == comparison.NEEDS_ENGINEER_REVIEW
+    )
+    assert impossible_sign.hold_pass({**verdict, "status": "NON_COMPLIANT"}, fact)[
+        "status"
+    ] == ("NON_COMPLIANT")
+
+
+@pytest.mark.parametrize("value", GLUED)
+def test_glued_number_is_left_alone_where_a_negative_is_real(value):
+    verdict = {"status": "COMPLIANT", "rationale": "within the limit"}
+    fact = {"field_name": "design pressure", "raw_value": value, "is_blank": 0}
+    assert impossible_sign.hold_pass(verdict, fact)["status"] == "COMPLIANT"
+
+
+@pytest.mark.parametrize("value", GLUED)
+def test_implausible_flags_a_glued_number_on_a_bounded_role(value):
+    rules = datasheet_checks.load_rules()
+    fact = _sheet_fact("specific heat ratio", value)
+    doubt = datasheet_checks.implausible(fact, "specific_heat_ratio", rules)
+    assert doubt is not None and "cannot be read as a number" in doubt
+
+
+def test_implausible_leaves_a_word_alone():
+    rules = datasheet_checks.load_rules()
+    fact = _sheet_fact("specific heat ratio", "Fire")
+    assert datasheet_checks.implausible(fact, "specific_heat_ratio", rules) is None
