@@ -16,7 +16,7 @@ let shared: { at: number; pending: Promise<Readings> } | null = null;
 function load(): Promise<Readings> {
   if (!shared || Date.now() - shared.at > MAX_AGE_MS) {
     const pending = request<{ documents: Readings }>("/api/document-reading")
-      .then((result) => (result.ok ? result.data.documents : {}))
+      .then((result) => (result.ok ? (result.data?.documents ?? {}) : {}))
       .catch(() => ({}));
     shared = { at: Date.now(), pending };
   }

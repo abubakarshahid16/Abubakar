@@ -39,7 +39,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import reading_state, word_pages
+from . import pdf_headings, reading_state, word_pages
 from .config import settings
 from .db import connect
 
@@ -270,6 +270,7 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
     submittal_review.ensure_schema()
     chunks = _chunks(document_id)
     body = [c for c in chunks if c["kind"] in BODY_KINDS and c["retrievable"]]
+    _mark_guessed_headings(document_id, body)
     read_in_full, why_not, filename = _readiness(document_id)
     if not body and read_in_full:
         read_in_full, why_not = False, "the document has no readable text"
@@ -323,9 +324,7 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             if kept:
                 entry.update(state=PRESENT, evidence=kept[:3])
             elif found["state"] == UNCLEAR:
-                entry.update(state=UNCLEAR, evidence=found["evidence"][:3],
-                             reason="only part of what this element expects was found: no passage "
-                                    "mentions " + ", ".join(found["missing_cues"]))
+                entry.update(_unclear_held(found))
             elif not read_in_full:
                 entry.update(state=COULD_NOT_BE_CHECKED, reason=f"could not be checked: {why_not}")
             else:
@@ -340,6 +339,32 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             "document": {"id": document_id, "filename": filename, "read_in_full": read_in_full,
                          "passages_read": len(body), "not_read_reason": why_not},
             "elements": results, "counts": counts, "ai": ai}
+
+
+def _mark_guessed_headings(document_id: str, body: list[dict]) -> None:
+    """Rule 4: a passage under a heading only the font vouches for says so."""
+    both = pdf_headings.font_headings(document_id)
+    if both is not None:
+        for c in body:
+            c["heading_guess"] = _heading_of(c) in both[0]
+            c["heading_by_font"] = _heading_of(c) in both[0] | both[1]
+
+
+def _unclear_held(found: dict) -> dict:
+    """The unclear result of an element whose standard IS held."""
+    if found.get("own_guess"):
+        best = found["own_best"]
+        return {
+            "state": UNCLEAR,
+            "evidence": [best],
+            "reason": f"a section of its own may be at {best['locator']}, but {HEADING_GUESS}",
+        }
+    return {
+        "state": UNCLEAR,
+        "evidence": found["evidence"][:3],
+        "reason": "only part of what this element expects was found: no passage "
+        "mentions " + ", ".join(found["missing_cues"]),
+    }
 
 
 def _presence_without_standard() -> bool:
@@ -434,10 +459,27 @@ def _cited(ev: dict, body: list[dict], document_id: str) -> tuple[str, int | Non
 
 
 NO_HEADINGS = "no section heading was read from this document"
+HEADING_GUESS = "its heading is known only from how the line is printed (a guess)"
+#: With PDF headings read from the font, fewer distinct headings than this are not a
+#: document's structure: one false label must not make "not found" a finding.
+MIN_HEADINGS = 3
 
 
 def _headings_read(body: list[dict]) -> bool:
+    if any("heading_guess" in c for c in body):
+        return len({_heading_of(c) for c in body} - {""}) >= MIN_HEADINGS
     return any((c.get("section") or c.get("context") or "").strip() for c in body)
+
+
+def _structure_is_a_guess(body: list[dict]) -> bool:
+    """Does "not found" rest on font evidence? The rule: it is a finding only when the TEXT
+    rules alone read MIN_HEADINGS headings. A numbered bold heading can say a section IS
+    there; a few of them, however rising, do not show the document's whole structure, so
+    they cannot say one is NOT."""
+    if not any(c.get("heading_by_font") for c in body):
+        return False
+    text_rule = {_heading_of(c) for c in body if not c.get("heading_by_font")} - {""}
+    return len(text_rule) < MIN_HEADINGS
 
 
 def _section_without_standard(
@@ -456,7 +498,9 @@ def _section_without_standard(
                passage elsewhere states all of it (not proven absent: never "not found");
                the passage is quoted (<= 15 words, verified on its page)
       missing  no section of its own and no passage stating all of it; passing mentions
-               stay pointers (`found_at`) -> "Section not found"
+               stay pointers (`found_at`) -> "Section not found", marked as a guess when
+               the document's headings are known only from their font
+      A section known only from its font (`heading_guess`) is unclear, never present.
       could_not_be_checked  not read in full, or no section heading read at all
     """
     (read_in_full, why_not), std, ev = read, element.standard, found["evidence"]
@@ -481,6 +525,14 @@ def _section_without_standard(
         lacks, best = found["own_lacks"], found["own_best"]
         out.update(evidence=[best], missing_cues=lacks)
         cited, out["cited_page"] = _cited(best, body, document_id)
+        if found.get("own_guess"):
+            out["heading_guess"] = True
+            part = f", and it does not mention {', '.join(lacks)}" if lacks else ""
+            out["reason"] = (
+                f"unclear: a section of its own may be at {cited}, but {HEADING_GUESS}"
+                f"{part}; {not_quoted}; engineer to check"
+            )
+            return out
         out["reason"] = (
             f"unclear: a section of its own was found at {cited}, but it does not mention "
             f"{', '.join(lacks)}; {not_quoted}; engineer to check"
@@ -495,10 +547,14 @@ def _section_without_standard(
         )
     else:
         out["section_state"] = MISSING
+        guess = ""
+        if _structure_is_a_guess(body):
+            out["heading_guess"] = True
+            guess = "; the document's headings are known only from how lines are printed (a guess), so it is not proven absent"
         out["reason"] = reading_state.not_found_words(
             document_id,
             f"Section not found: {element.title}. Required by {std} {element.clause} "
-            f"{checklist}; standard not held, its text is not quoted; engineer to confirm",
+            f"{checklist}; standard not held, its text is not quoted{guess}; engineer to confirm",
         )
     return out
 
@@ -554,6 +610,8 @@ def _match(element: Element, body: list[dict]) -> dict:
         if own_only:
             entry["own_section"] = own_section(element, chunk)
             entry["ordinal"] = chunk.get("ordinal")  # the passage itself, not its page
+            if "heading_guess" in chunk:
+                entry["heading_guess"] = chunk["heading_guess"]
         evidence.append(entry)
     all_groups = len(element.groups)
     # #1522: with the switch on, a passage is evidence of the element only when it is the
@@ -562,7 +620,9 @@ def _match(element: Element, body: list[dict]) -> dict:
     complete = [e for e in evidence if len(e["groups"]) == all_groups and e["in_text"] and e["quote"]]
     stated = complete  # a passage stating all the element expects, wherever it sits
     if own_only:
-        complete = [e for e in complete if e["own_section"]]
+        complete = [
+            e for e in complete if e["own_section"] and not e.get("heading_guess")
+        ]
     if complete:
         return {"state": PRESENT, "evidence": complete, "missing_cues": []}
     if evidence:
@@ -583,10 +643,12 @@ def _match(element: Element, body: list[dict]) -> dict:
         unclear["stated_elsewhere"] = stated[:3]
         if own:  # what the element's own section lacks (not the other passages)
             mine = [e for e in evidence if e["own_section"]]
-            best = max(mine, key=lambda e: (len(e["groups"]), e["in_text"]))
+            sure = [e for e in mine if not e.get("heading_guess")]
+            best = max(sure or mine, key=lambda e: (len(e["groups"]), e["in_text"]))
             lacks = [lbl for lbl, _ in element.groups if lbl not in best["groups"]]
             text_too = "a statement in the text under the heading"
-            unclear["own_lacks"] = lacks or [text_too]
+            unclear["own_guess"] = not sure
+            unclear["own_lacks"] = lacks or ([] if not sure else [text_too])
             unclear["own_best"] = best
         return unclear
     return {"state": MISSING, "evidence": [], "missing_cues": [label for label, _ in element.groups]}

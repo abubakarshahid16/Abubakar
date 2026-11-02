@@ -25,7 +25,7 @@ from tokenizers import Tokenizer
 from .config import settings
 from .db import connect
 from .rates import Timer, rate
-from . import fts_index, orphan_guard, states
+from . import fts_index, orphan_guard, pdf_headings, states
 from . import unsupported_script as script
 from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
@@ -1845,8 +1845,10 @@ def segment_document(
     running: set[str],
     page_kinds: dict[int, str] | None = None,
     paths_out: dict[str, str | None] | None = None,
+    styled: dict[int, set[str]] | None = None,
 ) -> tuple[list[Block], int]:
     """Flatten pages into blocks, carrying heading state across page boundaries.
+    `styled`: {page: heading lines read from font size and weight} (`pdf_headings`).
 
     `paths_out`, when given, receives the HEADING CHAIN of every section this
     document sets: "4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1". A
@@ -1873,8 +1875,8 @@ def segment_document(
         "8.2" that happened to come before it on an earlier page. Depth alone
         was not enough - measured on a synthetic page, "4.4 Ambient
         conditions" was filed under "8 Thermally sprayed metallic coatings".
-        An unnumbered heading ("GENERAL REQUIREMENTS") starts a new chain,
-        and a numbered one drops it: nothing can be assumed to still apply.
+        An unnumbered heading (only a font-set one, `styled`, has no number)
+        nests under the numbered ones in force; a numbered one drops it.
         """
         label = " ".join(label.split())
         if _CHAIN_NUMBER.match(number):
@@ -1883,7 +1885,7 @@ def segment_document(
                         if n and own != n and own.startswith(n + ".")]
             chain.append((own, label))
         else:
-            chain[:] = [("", label)]
+            chain[:] = [(n, text) for n, text in chain if n] + [("", label)]
         path = " > ".join(text for _, text in chain)
         if key in paths and paths[key] != path:
             paths[key] = None
@@ -1994,19 +1996,12 @@ def segment_document(
         # move no numbering - the section in force before it resumes after it.
         history_start, history_title = history.get(page_no, (len(lines), None))
 
-        # `page_no` is a default argument ON PURPOSE, and it is not redundant:
-        # it makes the closure capture this page's VALUE instead of the loop
-        # variable, so the function cannot mis-attribute a block if it is ever
-        # called after the loop has moved on. Today every call sits inside the
-        # iteration that defined it, which is a property of the CALL SITES and
-        # not of the function - exactly the fragility ruff's B023 flags.
-        #
-        # `section` is deliberately NOT bound the same way. It is reassigned
-        # while the page is walked, and each flush must use the section in
-        # force at that moment: text before a heading belongs to the PREVIOUS
-        # section, which is why the flush happens before the reassignment.
-        # Freezing it as a default would silently mis-file every heading, so it
-        # is passed in at each call instead of read from the enclosing scope.
+        # `page_no` is a default argument ON PURPOSE: the closure captures this
+        # page's VALUE, not the loop variable (ruff B023).
+        # `section` is deliberately NOT bound the same way: it is reassigned
+        # while the page is walked, and text before a heading belongs to the
+        # PREVIOUS section, so each flush (made before the reassignment) is passed
+        # the section in force at that moment; freezing it would mis-file headings.
         def flush_prose(current_section: str | None, page_no: int = page_no) -> None:
             nonlocal buf
             body = "\n".join(buf).strip()
@@ -2158,6 +2153,9 @@ def segment_document(
                 buf.extend(lines[i:i + consumed])
                 i += consumed
                 continue
+            printed = " ".join(line.split())
+            if not head and printed in (styled or {}).get(page_no, ()):
+                head = None if _obliges("- " + printed) else printed
 
             if head:
                 flush_prose(section)
@@ -2173,6 +2171,8 @@ def segment_document(
                     enter(head, _heading_number(head), head)
                     pending_heading = (lines[i:i + consumed], page_no, head)
                     pending_mark = len(blocks)
+                    if styled is not None:  # its words stay in the next block's text
+                        settle_heading()
                 i += consumed
                 continue
 
@@ -2757,14 +2757,14 @@ def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
 def is_stale(conn, doc_id: str) -> bool:
     """Whether a document's chunks were built by an older chunker or from
     older extracted input - the question a re-index asks per document."""
-    doc = conn.execute("SELECT sha256, chunk_signature FROM documents WHERE id = ?",
-                       (doc_id,)).fetchone()
+    doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if doc is None:
         return False
     pages, raw_tables, _ = _load_pages(conn, doc_id)
     if not pages:
         return False
-    return doc["chunk_signature"] != _chunk_signature(doc["sha256"], pages, raw_tables)
+    sha = pdf_headings.signature_key(doc["sha256"], dict(doc).get("pagination"))
+    return doc["chunk_signature"] != _chunk_signature(sha, pages, raw_tables)
 
 
 def _load_pages(conn, doc_id: str):
@@ -2889,11 +2889,10 @@ def chunk_document(doc_id: str, force: bool = False,
     if sheet_chunks.withhold(doc_id):  # #525: a workbook waits for its role
         return {"document_id": doc_id, "filename": doc["filename"], "withdrawn": True}
 
-    # Recognised text overrides the empty extraction that triggered it. The
-    # resolution is explicit rather than a column read, because page_ocr is a
-    # separate table precisely so extraction cannot destroy it - see ADR-0006.
-    # Anything reading pages.text directly will silently ignore recognised
-    # text, which is why this is the one place pages are loaded.
+    # Recognised text overrides the empty extraction that triggered it, explicitly
+    # rather than a column read: page_ocr is a separate table precisely so extraction
+    # cannot destroy it (ADR-0006). Anything reading pages.text directly silently
+    # ignores recognised text, which is why this is the one place pages are loaded.
     pages, raw_tables, page_rows = _load_pages(conn, doc_id)
     recognised_pages = {r["page_no"] for r in page_rows if r["recognised"]}
     page_conf = {r["page_no"]: r["min_conf"] for r in page_rows if r["recognised"]}
@@ -2910,7 +2909,8 @@ def chunk_document(doc_id: str, force: bool = False,
     build = sheet_chunks.structured(doc)
     page_kinds = ({pno: "prose" for pno, _ in pages} if build
                   else classify_document_pages(pages, total_pages))
-    signature = _chunk_signature(doc["sha256"], pages, raw_tables)
+    sha = pdf_headings.signature_key(doc["sha256"], dict(doc).get("pagination"))
+    signature = _chunk_signature(sha, pages, raw_tables)
     existing = conn.execute(
         "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
     ).fetchone()[0]
@@ -2946,11 +2946,11 @@ def chunk_document(doc_id: str, force: bool = False,
         running, removed, chunks = set(), 0, build()
     else:
         running = detect_running_lines(pages)
-        # Ruled tables replace their own lines with one structured stand-in
-        # BEFORE segmentation, so no cell is read as a heading, stripped as a
-        # running line, or published twice (as the table and as shredded prose).
+        # Ruled tables replace their own lines with one structured stand-in BEFORE
+        # segmentation: no cell is read as a heading, stripped, or published twice.
         masked = mask_tables(pages, _decode_tables(raw_tables), running)
-        blocks, removed = segment_document(masked, running, page_kinds, paths_out=paths)
+        styled = pdf_headings.for_document(doc["stored_path"], recognised_pages)
+        blocks, removed = segment_document(masked, running, page_kinds, paths, styled)
         chunks = build_chunks(blocks, document_vocabulary(pages), stray)
 
     ceiling = settings.chunk_max_tokens

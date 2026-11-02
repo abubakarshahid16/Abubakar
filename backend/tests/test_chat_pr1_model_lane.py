@@ -50,7 +50,7 @@ def _stream_events(payload: dict):
 def _claude_on(monkeypatch, tmp_path, seen,
                text='The NDFT is 280 um [S1 "NDFT nominal dry film thickness of 280 um"].', usage=None):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.setattr(settings, "anthropic_api_key", KEY)
     monkeypatch.setattr(settings, "standards_reader_enabled", True)
@@ -87,7 +87,7 @@ def _claude_on_tool_use(monkeypatch, tmp_path, seen, *, final_text,
     whatever the test uploaded), then answers with `final_text` citing
     whatever that real tool call actually returned."""
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.setattr(settings, "anthropic_api_key", KEY)
     monkeypatch.setattr(settings, "standards_reader_enabled", True)

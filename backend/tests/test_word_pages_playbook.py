@@ -262,3 +262,20 @@ def test_not_found_keeps_its_words_with_the_switch_off(monkeypatch, held_standar
     cut = [s for s in HAZOP_SECTIONS if s[0] != CUT]
     rows = _rows(pdf_doc("nogap", cut), held=held_standard)
     assert all("a guess" not in r["comment"] for r in rows)
+
+
+def test_a_section_not_found_keeps_the_heading_guess_and_the_listed_gaps(monkeypatch):
+    """Two different doubts, and the row says both."""
+    from app import playbooks, reading_state
+
+    _not_held(monkeypatch)
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    monkeypatch.setattr(reading_state, "stored", lambda _doc: {"body_gaps": 2})
+    monkeypatch.setattr(playbooks, "_structure_is_a_guess", lambda _body: True)
+    cut = [s for s in HAZOP_SECTIONS if s[0] != CUT]
+    rows = _rows(pdf_doc("both", cut), held=False)
+    found = [r for r in rows if "Section not found" in r["comment"]]
+    assert found
+    for row in found:
+        assert "known only from how lines are printed" in row["comment"]
+        assert "a guess: 2 pages or pictures" in row["comment"]
