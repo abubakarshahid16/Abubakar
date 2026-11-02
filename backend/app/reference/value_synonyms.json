@@ -1,0 +1,25 @@
+{
+  "_about": "Words a sheet may use for a term a typed check lists: the one home for them, read by rule_typed_check.signed_synonyms. An entry counts only for its own role and listed term, and only when it is signed: status 'signed' with signed_by and signed_on. A proposed entry gives no Pass; a value that matches nothing is a Query, never a Fail. Signing is the owner's: a new entry goes in as 'proposed' and becomes 'signed' only on the owner's written word, recorded here with the date. Do not widen an entry beyond what the owner named.",
+  "entries": [
+    {
+      "role": "valve_type",
+      "listed": "direct spring-loaded",
+      "synonym": "conventional",
+      "source": "owner's order of 2 Nov 2026 on the typed checks: the spring-loaded subtypes to accept",
+      "status": "signed",
+      "signed_by": "owner",
+      "signed_on": "2026-11-02",
+      "signed_how": "the owner's order of 2 Nov 2026 is recorded as the sign-off for this entry"
+    },
+    {
+      "role": "valve_type",
+      "listed": "direct spring-loaded",
+      "synonym": "balanced bellows",
+      "source": "owner's order of 2 Nov 2026 on the typed checks: the spring-loaded subtypes to accept",
+      "status": "signed",
+      "signed_by": "owner",
+      "signed_on": "2026-11-02",
+      "signed_how": "the owner's order of 2 Nov 2026 is recorded as the sign-off for this entry"
+    }
+  ]
+}
