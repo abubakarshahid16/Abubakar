@@ -89,9 +89,10 @@ STATES = (COMPLETE, TRUNCATED, UNKNOWN)
 #: The stop reasons that mean "the cap ended it": Ollama's `done_reason`
 #: (`length`) and Anthropic's `stop_reason` (`max_tokens`), either spelling.
 LENGTH_STOPS = frozenset({"length", "max_tokens"})
-#: Nothing readable came back: no stop reason at all, or the engine's own
-#: error word (`reasoning_provider._answered` for an empty payload).
-UNREADABLE_STOPS = frozenset({"", "error"})
+#: Nothing readable came back: no stop reason at all, the engine's own error
+#: word (`reasoning_provider._answered` for an empty payload), or the API's
+#: `refusal` (HTTP 200), which may carry text written before it declined.
+UNREADABLE_STOPS = frozenset({"", "error", "refusal"})
 
 
 class Truncated(RuntimeError):
@@ -179,13 +180,14 @@ def model_call_for(transport, route: str, *, cfg=None, env=None, salvage: bool =
     #501)."""
     import dataclasses
 
-    from .. import reader_api
+    from .. import claude_models, reader_api
 
     base = cfg if cfg is not None else reader_api.ReaderSettings.from_env(env)
     cfg = dataclasses.replace(base, max_tokens=max_tokens_for(route))
 
     def model_call(prompt: str) -> str:
         request = reader_api.build_request(prompt, cfg=cfg, env=env)
+        claude_models.shape_output(request["body"], route)
         payload = transport(request["url"], headers=request["headers"],
                             body=request["body"], timeout=request["timeout"])
         state = state_of_payload(payload)
@@ -202,7 +204,16 @@ def model_call_for(transport, route: str, *, cfg=None, env=None, salvage: bool =
 
     model_call.route = route
     model_call.max_tokens = cfg.max_tokens
+    model_call.send = transport
     return model_call
+
+
+def model_used(call) -> str | None:
+    """The model a run record names for a `model_call` wrapped in `claude_budget.Budget`:
+    the one that ANSWERED on the Claude lane (`claude_spend.metered`), what was asked for
+    only until an answer has come back, and the local engine's own tag on that lane."""
+    send = getattr(getattr(call, "_call", None), "send", None)
+    return getattr(send, "last_model", None) or getattr(call, "model", None)
 
 
 __all__ = [
@@ -227,6 +238,7 @@ __all__ = [
     "complete_text",
     "max_tokens_for",
     "model_call_for",
+    "model_used",
     "state_of",
     "state_of_payload",
     "state_of_response",

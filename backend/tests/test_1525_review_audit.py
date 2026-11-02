@@ -15,7 +15,14 @@ import json
 
 import pytest
 
-from app import access, review_audit, review_jobs, review_trace
+from app import (
+    access,
+    claude_models,
+    claude_spend,
+    review_audit,
+    review_jobs,
+    review_trace,
+)
 from app.config import settings
 from app.db import connect
 from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
@@ -115,6 +122,126 @@ def test_markdown_and_json_carry_the_same_figures(world, audit_dir, monkeypatch)
     ):
         assert heading in md
     assert run_id in md
+
+
+def test_the_run_record_and_audit_name_the_models_that_answered(
+    world, audit_dir, tmp_path, monkeypatch
+):
+    """Owner: the model ACTUALLY used, the response's `model`, in the run row and AUDIT.json."""
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    run_id, job_id = _enqueue(world)
+    review_jobs.claim_next(W)
+    for step, model in (
+        ("a-review-step", "claude-sonnet-5-5"),
+        ("labels", "claude-haiku-5-5"),
+        ("chat", "chat-is-not-this-run"),
+    ):
+        held = claude_spend.reserve(
+            step, 0.01, model="what-was-asked-for", prompt_sha256="x"
+        )
+        claude_spend.settle(
+            held,
+            model=model,
+            usage={"input_tokens": 1, "output_tokens": 1},
+            finish_reason="stop",
+        )
+    assert review_jobs.run(job_id, W) == "done"
+    row = (
+        connect()
+        .execute("SELECT model_name FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    assert row["model_name"] == "claude-haiku-5-5, claude-sonnet-5-5"
+    used = review_audit.build(run_id, _scope(world))["run"]["models_used"]
+    assert "claude-haiku-5-5" in used and "claude-sonnet-5-5" in used
+    assert "what-was-asked-for" not in used and "chat-is-not-this-run" not in used
+
+
+def test_a_run_no_claude_call_answered_has_no_model_name(
+    world, audit_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    run_id = _review(world)
+    row = (
+        connect()
+        .execute("SELECT model_name FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    assert row["model_name"] is None
+
+
+def test_the_matcher_section_names_the_model_not_the_word_claude(
+    world, audit_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    run_id = _review(world)
+    with connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET outcome_json = ?, started_at = ? WHERE id = ?",
+            (
+                json.dumps({"ai_matcher": {"engine": "claude", "model": "claude"}}),
+                "2000-01-01T00:00:00+00:00",
+                run_id,
+            ),
+        )
+    held = claude_spend.reserve("matcher", 0.01, model="asked", prompt_sha256="x")
+    claude_spend.settle(
+        held,
+        model="claude-sonnet-5-5",
+        usage={"input_tokens": 1, "output_tokens": 1},
+        finish_reason="stop",
+    )
+    claude_models.record_run(run_id, match_step="matcher")
+    row = (
+        connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    assert json.loads(row["outcome_json"])["ai_matcher"]["model"] == "claude-sonnet-5-5"
+
+
+def test_an_unreadable_ledger_never_reads_as_a_local_only_run(
+    world, audit_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    run_id = _review(world)
+
+    def unreadable(**_kw):
+        raise OSError("no")
+
+    monkeypatch.setattr(claude_spend, "models_used", unreadable)
+    claude_models.record_run(run_id, match_step="matcher")
+    row = (
+        connect()
+        .execute("SELECT model_name FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    assert row["model_name"] == claude_models.LEDGER_UNREADABLE
+    used = review_audit.build(run_id, _scope(world))["run"]["models_used"]
+    assert claude_models.LEDGER_UNREADABLE in used
+
+
+def test_a_cache_hit_names_the_model_on_the_run(
+    world, audit_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    run_id, job_id = _enqueue(world)
+    review_jobs.claim_next(W)
+    claude_spend.record(
+        step="a-review-step",
+        model="claude-sonnet-5-5",
+        usage={},
+        prompt_sha256="x",
+        wall_time_s=0.0,
+        finish_reason="cache_hit",
+    )
+    assert review_jobs.run(job_id, W) == "done"
+    row = (
+        connect()
+        .execute("SELECT model_name FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    assert row["model_name"] == "claude-sonnet-5-5"
 
 
 def test_a_figure_that_was_not_recorded_reads_not_recorded_never_zero(world, audit_dir):

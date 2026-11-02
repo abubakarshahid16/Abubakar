@@ -130,7 +130,7 @@ def read_equipment(
     The first of classification, title and equipment-describing fields that
     names an equipment type is the reading. When `equipment_doubt` finds the
     datasheet itself disagrees, the equipment is read as UNKNOWN (empty) with
-    source "unsure", so nothing is ruled out by equipment type."""
+    source "unsure": nothing is ruled out by type (`equipment_scope.hold_unsure` holds, never drops)."""
     classification = classification or {}
     sources = (
         ("classification", classification.get("equipment_type")),

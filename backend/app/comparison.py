@@ -2462,12 +2462,12 @@ def _run_comparison(
         is_materials_standard=applicability_mod.is_materials_standard)
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
-    # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a
-    # relief valve: its relief-device rules only). See `subject_scope.partial_gate` (in `eqs.gate_for_run`
-    # with the rules-by-equipment-scope gate).
+    # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a relief valve: its
+    # relief-device rules only), the rules-by-equipment-scope gate. See `eqs.gate_for_run`.
     requirements, es = eqs.gate_for_run(
         requirements, stored, facts, submittal_id, standard_labels, extra_not_applied
     )
+    held_items.extend(es["held"])
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
     # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
     from . import ai_applicability as ai_div
@@ -4334,10 +4334,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
     which pages were read into fields and why the others were not - so the
     run keeps saying what it searched after the ledger is refreshed again.
-
-    The FINAL code is not written here. The AI recommends; the engineer
-    decides, and `record_engineer_code` is where that happens - section 15's
-    "the engineer's final action is governance, not the initial review".
+    The FINAL code is the engineer's decision, in `record_engineer_code` (section 15).
     """
     conn = connect()
     with conn:
@@ -4383,6 +4380,9 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
             }), _now(), _now(), review_run_id))
+    from . import claude_models
+
+    claude_models.record_run(review_run_id, match_step=MATCH_STEP)
 
 
 def record_engineer_code(

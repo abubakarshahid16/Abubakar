@@ -90,6 +90,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `classification` | What a document IS. Never who may read it |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
 | `claude_approved` | Which documents the owner approved for the cloud model, and the refusal for any other (#806 S3) |
+| `claude_models` | What a Claude model id accepts, and the models a run record names |
 | `claude_auto_approve` | #1584: a document uploaded for review, and a standard its review cites, join the approved list by themselves unless blocked; behind `claude_auto_approve_reviews_enabled` |
 | `claude_budget` | The two numbers that keep a $20 API credit from vanishing in one run |
 | `claude_datasheet` | Read a contractor datasheet into facts |
