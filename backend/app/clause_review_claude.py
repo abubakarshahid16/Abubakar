@@ -16,7 +16,9 @@ THE USD CAP IS NEVER RAISED. Every request is reserved at its worst case and `ro
 so a batch cannot cross them. What does not fit waits for the next tick: once the batch settles at its real cost
 the room grows, and the next tranche goes. When the room no longer fits one more ask, the run closes partial and
 counts what was not reviewed. The cap's keying is `claude_spend`'s: `_room` reads the step's spend from it, and takes
-the per-run cap of #1595 from there when that lands; nothing here keys a cap itself.
+the per-run caps of #1595 from there when that lands (owner on #1584, 2 Nov 2026: USD 10 for this step, USD 15 for one
+run); nothing here keys a cap itself. May run on Claude when its switch is on; the live default stays local until the
+A/B proof is posted.
 
 WAITING DOES NOT BLOCK THE APP. `for_review` submits and returns, never sleeping (`max_wait_s=0`); the review job
 finishes, and its CRS and audit say "pending". `poll_due` runs from the idle worker loop, one poll every
