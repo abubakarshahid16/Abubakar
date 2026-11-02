@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1570,
+ "total": 1569,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -51,7 +51,6 @@
   "backend/app/chunker.py::RUF021": 1,
   "backend/app/chunker.py::SIM102": 3,
   "backend/app/chunker.py::SIM103": 2,
-  "backend/app/chunker.py::SIM118": 1,
   "backend/app/chunker.py::SIM905": 1,
   "backend/app/chunker.py::UP017": 1,
   "backend/app/claims.py::B007": 2,
