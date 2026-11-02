@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
-from .. import access, errors, schemas, stored_paths
+from .. import access, errors, schemas, stored_paths, word_pages
 from .. import applicability as applicability_mod
 from .. import highlight as highlight_mod
 from .. import page_ledger as page_ledger_mod
@@ -267,9 +267,16 @@ def page_image(
         # layout that matches none of its reading pages or citations.
         return JSONResponse(
             status_code=404,
-            content={"detail": errors.safe_error(
-                errors.NOT_FOUND, "a Word document has no printed pages; it is cited by "
-                "heading path and paragraph", document_id=document_id)},
+            content={
+                "detail": errors.safe_error(
+                    errors.NOT_FOUND,
+                    word_pages.no_image_words(
+                        "a Word document has no printed pages; it is cited by "
+                        "heading path and paragraph"
+                    ),
+                    document_id=document_id,
+                )
+            },
         )
 
     rects: list[tuple[float, float, float, float]] = []

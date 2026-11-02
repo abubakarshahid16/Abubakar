@@ -209,6 +209,13 @@ class SettingsExt(BaseModel):
     #: cannot read is refused with a reason. Local only, no model, no socket. OFF: nothing changes.
     #: Env: ONE_INTAKE_ENABLED.
     one_intake_enabled: bool = False
+    #: A Word file's real pages (`docx_reader`): its saved page markers number its blocks, its tables
+    #: and pictures are counted against what reached the reader, and an embedded picture goes to the
+    #: local OCR engine (`word_pictures`; no Claude lane, no reader model). No markers: the section
+    #: heading is shown in the page cells, but comment text can still say a part number is a page, so
+    #: this must not go on for Word files with no markers. OFF: reading parts as before, nothing recognised,
+    #: nothing stored. Env: WORD_PAGE_MARKERS_ENABLED.
+    word_page_markers_enabled: bool = False
     #: #525 slice 2 (with ONE_INTAKE_ENABLED on as well): the upload accepts PNG, JPEG and TIFF images
     #: (stored as picture-only PDF pages beside the original, so OCR reads them like a scanned page) and
     #: indexes .xlsx workbooks, each sheet chunked with a sheet + cell-range citation. Local only, no
@@ -236,6 +243,12 @@ class SettingsExt(BaseModel):
     #: type is taken from the body: no heading, title or field reads as the equipment. OFF: unchanged.
     #: Env: EQUIPMENT_FROM_TITLE_BLOCK_ENABLED.
     equipment_from_title_block_enabled: bool = False
+    #: #1476/#1522 (owner, 1 Nov): a PDF's section headings are also read from how a line is set
+    #: (`pdf_headings`): a font larger than the body, or bold where the body is not, on a short title-like
+    #: line standing alone with body text after it; or, in body type, a short line opening with a dotted
+    #: section number (1.2, A.1). A lone '1.' never. Part of the chunk signature: ON marks every stored PDF stale until re-chunked.
+    #: OFF: nothing is read, chunks and signature byte-identical. Env: PDF_HEADING_DETECTION_ENABLED.
+    pdf_heading_detection_enabled: bool = False
     #: Order 4b: an expired sign-in (a 401) tells the reader so, once, on the sign-in form, and says
     #: unsaved decisions are kept; while signed in the page also asks `/api/auth/me` once a minute,
     #: because reads outside the gated routes answer an empty 200 instead of a 401. Sent to the page on
@@ -245,7 +258,8 @@ class SettingsExt(BaseModel):
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print
-    #: the pair always. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
+    #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
+    #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
     one_checked_definition_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page

@@ -166,6 +166,16 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
     ("canonical_field_names", "quote"): (
         DELETED_BY_ROUTE, "a quote from the document that justified a field name;"
         " the delete route removes the rows drawn from the document (#437)"),
+    ("document_reading", "document_id"): (
+        FK_CASCADE,
+        "what was read of the document, in counts and places (`reading_state`)",
+    ),
+    # OCR text of a Word file's pictures, keyed by file hash with no foreign key.
+    ("word_picture_readings", "text"): (
+        DELETED_BY_ROUTE,
+        "OCR text from the document's pictures; `erase_document_text`"
+        " removes it when no other document holds the same file (PR 1581)",
+    ),
 }
 
 #: Columns that name a document. The test finds these by name in the full
@@ -303,7 +313,32 @@ def erase_document_text(conn: sqlite3.Connection, document_id: str, filename: st
         cur = conn.execute(f"UPDATE {table} SET filename = ? WHERE document_id = ?",
                            (ERASED, document_id))
         counts["erased_filenames"] += cur.rowcount
-    return counts
+    return counts | forget_picture_readings(conn, document_id)
+
+
+def forget_picture_readings(
+    conn: sqlite3.Connection, document_id: str
+) -> dict[str, int]:
+    """A Word file's OCR text (`word_pictures`) is keyed by file hash, so no foreign
+    key removes it: it goes with the last document holding those bytes. No table
+    (the switch was never on): nothing to say."""
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'word_picture_readings'"
+    ).fetchone()
+    row = conn.execute(
+        "SELECT sha256 FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
+    if not exists or row is None:
+        return {}
+    shared = conn.execute(
+        "SELECT 1 FROM documents WHERE sha256 = ? AND id <> ?", (row[0], document_id)
+    ).fetchone()
+    if shared:
+        return {"word_picture_readings": 0}
+    cur = conn.execute(
+        "DELETE FROM word_picture_readings WHERE file_sha256 = ?", (row[0],)
+    )
+    return {"word_picture_readings": cur.rowcount}
 
 
 def record_document_deleted(conn: sqlite3.Connection, document_id: str,
