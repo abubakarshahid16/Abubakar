@@ -388,7 +388,9 @@ def is_table_row(answer: object, tables) -> bool:
 def context_flags(
     answer: dict, sentence: str, strength: str, pages, tables
 ) -> list[str]:
-    """Why this rule may not stand alone. Errs towards a flag: a flag costs a look at approval."""
+    """Why this rule may not stand alone, as far as these word tests can see. NO FLAG DOES NOT MEAN A RULE STANDS
+    ALONE: scope named as a plain noun phrase in a heading, a parent heading, a previous sentence holding a number,
+    an exception in the next sentence and a lead-in on the prior page all stay unflagged."""
     page, text = answer["page"], pages[answer["page"]]
     flags = []
     if is_table_row(answer, tables):

@@ -30,7 +30,7 @@ THE TEXT is what the app cites, recognised text included (`_page_rows`). Each re
 natively, from OCR and not at all, with OCR's confidence when stored, and each rule says which its page was. Pages
 with no text are listed. A standard with no usable page is "not_compiled", never a standard with no rules.
 
-CONTEXT. Code cannot prove that a rule stands alone: a table row, or a sentence whose scope sits in a heading, caption
+CONTEXT. Code cannot prove that a rule stands alone, and no flag does not mean it does: a table row, or a sentence whose scope sits in a heading, caption
 or the next sentence, can be kept with no condition and be over-broad. Such a rule gets `context_flag` and the strength
 `context_dependent` (its own word stays in `sentence_strength`), so an approval path can refuse it.
 

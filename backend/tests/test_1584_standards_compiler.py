@@ -2256,3 +2256,12 @@ def test_a_limit_of_its_own_before_it_does_not_flag_the_next_sentence():
     }
     rule, why = standards_compiler.verify(answer, chunk, pages)
     assert why is None and rule["context_flag"] is None
+
+
+def test_pages_answered_leaves_out_the_pages_whose_request_was_not_answered():
+    pages = _two_chunk_pages()
+    _document(pages=pages)
+    second_id = standards_compiler.chunks_of(dict(enumerate(pages, 1)))[1].custom_id
+    report = _compile(FakeBatches([], kinds={second_id: ["expired", "errored"]}))
+    assert (report["pages_answered"], report["pages_total"]) == (1, 2)
+    assert report["pages_no_text"] == [] and report["pages_not_read"] == [2]
