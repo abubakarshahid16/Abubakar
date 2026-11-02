@@ -33,6 +33,7 @@ from . import (
     field_links,
     kind_rules,
     match_rules,
+    material_reference,
     requirements_3b,
     rule_trust,
     rule_typed_check,
@@ -457,7 +458,7 @@ def _typed(rule: dict, found: Pair, op: str, values: list[str]) -> Row:
     )
     if not field_links.states_a_value(stated):
         return _query(rule, VALUE_UNCLEAR, found)
-    status, words = rule_typed_check.decide(op, values, stated)
+    status, words = rule_typed_check.decide(op, values, stated, rule.get("_reference"))
     if status is None:
         return _query(rule, VALUE_UNCLEAR, found, words)
     verdict = comparison._hold_low_trust_breach(
@@ -557,6 +558,7 @@ class Review:
     snapshot_id: str | None = None
     rows: list[Row] = field(default_factory=list)
     rules: int = 0
+    reference_version: str | None = None
 
     def settle_with_findings(self, prepared: list[dict], findings: list[dict]) -> None:
         settle_with_findings(self, prepared, findings)
@@ -587,6 +589,10 @@ def begin(
         rulebook_v2.record_run(conn, review_run_id)
         return Review(review_run_id, document_id, BOOK_NOT_READY, equipment_type)
     rules = approved(conn, equipment_type)
+    reference = (
+        material_reference.signed(conn) if settings.material_reference_enabled else None
+    )
+    rules = [{**rule, "_reference": reference} for rule in rules]
     # An approval comes after the compile's snapshot, so the run freezes the book as it uses it; a re-run of this run
     # finds the same snapshot and reads the same rules.
     actor = f"review:{review_run_id}"
@@ -606,7 +612,14 @@ def begin(
         ]
     _hold_on_incomplete_reading(rows, document_id)
     return Review(
-        review_run_id, document_id, USED, equipment_type, snapshot_id, rows, len(rules)
+        review_run_id,
+        document_id,
+        USED,
+        equipment_type,
+        snapshot_id,
+        rows,
+        len(rules),
+        reference.version if reference else None,
     )
 
 
@@ -767,4 +780,9 @@ def summary(review: Review) -> dict:
         "snapshot_id": review.snapshot_id,
         "rules": review.rules,
         "reasons": dict(sorted(reasons.items())),
+        **(
+            {"material_reference": review.reference_version}
+            if review.reference_version
+            else {}
+        ),
     }

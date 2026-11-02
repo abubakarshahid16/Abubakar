@@ -108,9 +108,17 @@ def could_decide(rule: dict, facts: list[dict], equipment_type: str) -> tuple:
 def counts_for_document(rows, facts: list[dict], equipment_type: str) -> dict:
     """Per standard, against one document's read values: how many rules pair, how many are not on a datasheet, how many
     could decide. Counts and fixed reason names only: no value, no verdict, no document text."""
+    from app import material_reference
     from app import rulebook_v2_review as review
+    from app.config import settings
+    from app.db import connect
 
-    rules = [rule_of_compiled(r) for r in rows]
+    table = (
+        material_reference.signed(connect())
+        if settings.material_reference_enabled
+        else None
+    )
+    rules = [{**rule_of_compiled(r), "_reference": table} for r in rows]
     found = [review.pairs(rule, facts, equipment_type) for rule in rules]
     deciding = [could_decide(rule, facts, equipment_type) for rule in rules]
     stopped: dict[str, int] = {}

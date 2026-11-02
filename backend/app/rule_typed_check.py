@@ -23,6 +23,7 @@ from . import (
     condition_choice,
     conditions,
     field_links,
+    material_reference,
     rule_field_naming,
     standards_compiler,
     standards_converter,
@@ -127,9 +128,14 @@ def _material(values: list[str], stated: str) -> bool | None:
     )
 
 
-def decide(op: str, values: list[str], stated: str) -> tuple[str | None, str]:
-    """(COMPLIANT or NON_COMPLIANT, words), or (None, words) when code cannot prove either."""
+def decide(
+    op: str, values: list[str], stated: str, reference=None
+) -> tuple[str | None, str]:
+    """(COMPLIANT or NON_COMPLIANT, words), or (None, words) when code cannot prove either. `reference`: the signed
+    material table, with its switch on; then only it can pass an `is_not`."""
     named = field_links.is_named_value(stated, tuple(values))
+    if reference is not None and op == IS_NOT and not named:
+        return material_reference.is_not(reference, values, stated)
     among = True if named else _material(values, stated)
     listed = "; ".join(values)
     if op == AT_LEAST_CLASS:

@@ -428,6 +428,12 @@ def _rulebook_v2(part: dict, findings: list[dict], wrong_ids: set[int] | None) -
     )
     rules = part.get("rules") or 0
     said = f"{wrong} wrong of {decided} decided" if wrong is not None else NOT_MEASURED
+    reference = part.get("material_reference")
+    told = (
+        f" Material families come from an owner-signed reference, version {reference}, not engineer-confirmed."
+        if reference
+        else ""
+    )
     return {
         "state": part.get("state"),
         "equipment_type": part.get("equipment_type"),
@@ -442,7 +448,7 @@ def _rulebook_v2(part: dict, findings: list[dict], wrong_ids: set[int] | None) -
         "line": (
             f"Rulebook version 2, stated apart, not added to the rules: {decided} of {rules} approved rules"
             f" for this equipment type decided (pass {passed}, fail {failed}, query {rules - decided})."
-            f" Risk: {said}."
+            f" Risk: {said}.{told}"
             if rules
             else f"Rulebook version 2 read no rule: {part.get('state')}."
         ),
