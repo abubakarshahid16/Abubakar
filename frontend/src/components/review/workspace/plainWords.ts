@@ -39,6 +39,7 @@ import { RUN_STATUS_LABEL, STATUS_LABEL, TRUST_WORDS } from "../reviewFormat";
  *  Moved here unchanged from CrsEvidenceDrawer, which imports it. */
 export const REASON_WORDS: Record<TierReason, string> = {
   "page not read": "The reader did not read this page into fields, so the value may still be on the page. Read the page yourself.",
+  "no field taken": "The page was read, but no datasheet field was taken from it, so the value may still be on the page. Read the page yourself.",
   "standard not in library": "The standard this comment rests on is not in the library, so the clause could not be checked. Upload it, or decide from the datasheet.",
   "no standard linked": "This is a blank value with no standard behind it, so there was no clause to check. Decide from the datasheet.",
   "standard outside this review": "The standard this comment rests on was not part of this review (it may be in the library). An engineer can add it with \"Add a standard\" under \"Engineer: change the standards\", or you can decide from the datasheet.",

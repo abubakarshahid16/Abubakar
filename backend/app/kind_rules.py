@@ -185,6 +185,13 @@ def reading_for(document_id: str, equipment: set, source, doubt, facts) -> tuple
     return equipment, source, doubt, facts
 
 
+def unknown_type_words(document_id: str) -> dict:
+    """`comparison`'s door to `equipment_title_block.unknown_type_words`."""
+    from . import equipment_title_block
+
+    return equipment_title_block.unknown_type_words(document_id)
+
+
 def gate(note: dict | None, scope, *args) -> list:
     """The datasheet checks of a run: none for a non-datasheet kind."""
     return [] if note and note["blocked"] else scope.evaluate(*args)

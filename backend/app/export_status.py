@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import json
 
-from . import page_ledger
+from . import page_ledger, page_not_read
+from .config import settings
 from .db import connect
 
 COMPLETED = "completed"
@@ -101,13 +102,17 @@ def _listed(values: list, label: str, unit: str) -> str:
     return f"{label}: {len(items)} {unit}" + (f" ({shown})" if items else "")
 
 
-def unread_pages_line(pages: list, known: bool = True, note: str | None = None) -> str:
+def unread_pages_line(
+    pages: list, known: bool = True, note: str | None = None, by_reading: bool = False
+) -> str:
     """The unread pages, as the readiness strip counts them. `known` is False
     when the page ledger cannot be counted on: then the line says the count is
-    not known rather than printing 0 for "nobody looked"."""
+    not known rather than printing 0 for "nobody looked". `by_reading` (#1550):
+    the pages no reading came back for - "not read", never "into fields"."""
     if not known:
         return "Unread pages: not known" + (f" - {note}" if note else "")
-    return _listed(pages, "Unread pages", "page(s) not read into fields")
+    unit = "page(s) not read" + ("" if by_reading else " into fields")
+    return _listed(pages, "Unread pages", unit)
 
 
 def missing_standards_line(missing: list[str]) -> str:
@@ -128,22 +133,46 @@ def pdf_header_lines(document_id: str, allowed: frozenset[str] | None) -> tuple[
              else "Review run: none recorded for this document"]
     if incomplete(run):
         lines.append(status_line(run["status"], run["reason"]))
-    lines.append(unread_pages_line(pages["unread_pages"],
-                                   known=pages["ledger_state"] == page_ledger.CURRENT,
-                                   note=pages.get("ledger_note")))
+    lines.append(
+        unread_pages_line(
+            pages["unread_pages"],
+            known=pages["ledger_state"] == page_ledger.CURRENT,
+            note=pages.get("ledger_note"),
+            by_reading=settings.page_read_by_reading_enabled,
+        )
+    )
     lines.append(missing_standards_line(missing_standards(document_id, allowed)))
     return run, lines
 
 
-def crs_header_note(status: str | None, reason: str | None,
-                    unread: list, missing: list[str]) -> str:
+def crs_header_note(
+    status: str | None,
+    reason: str | None,
+    unread: list,
+    missing: list[str],
+    by_reading: bool = False,
+) -> str:
     """The first line of a CRS whose run did not complete: '' for a completed
     run (its sheet is unchanged), else the status, its reason and the same
     two counts the readiness strip shows. Both copies print it."""
     if status == COMPLETED:
         return ""
-    return (f"REVIEW INCOMPLETE: run {status or 'unknown'} - {_reason(reason)}. "
-            f"{unread_pages_line(unread)}. {missing_standards_line(missing)}.")
+    return (
+        f"REVIEW INCOMPLETE: run {status or 'unknown'} - {_reason(reason)}. "
+        f"{unread_pages_line(unread, by_reading=by_reading)}. "
+        f"{missing_standards_line(missing)}."
+    )
+
+
+def run_header_note(status: str | None, outcome: dict, unread: list, missing: list[str]) -> str:
+    """`crs_header_note` for a stored run. #1550: a run stored with
+    PAGE_READ_BY_READING_ENABLED counts its unread pages as the issue gate and
+    the CRS footer do (`page_ledger.run_unread_pages`), not the fields list."""
+    cov = outcome.get("page_coverage") or {}
+    on = page_not_read.by_reading(cov)
+    if on:
+        unread = page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome))
+    return crs_header_note(status, outcome.get("error"), unread, missing, by_reading=on)
 
 
 def standards_check(submittal_id: str, allowed: frozenset[str]) -> dict:
@@ -160,11 +189,11 @@ def standards_sheet(rows: list[dict], submittal_id: str) -> list[dict]:
     return procedure_crs.standards_sheet(rows, submittal_id)
 
 
-def equipment_notes(submittal_id: str) -> list[dict]:
-    """The Review note when the equipment type waits for an engineer (the title block
+def equipment_notes(submittal_id: str, run_id: str, allowed: frozenset) -> list[dict]:
+    """The Review notes when the equipment type waits for an engineer (the title block
     named none or two types; `equipment_title_block`). Empty with the switch off."""
     from . import equipment_title_block, procedure_crs
 
     if procedure_crs.no_equipment(submittal_id):
         return []
-    return equipment_title_block.for_submittal(submittal_id)
+    return equipment_title_block.for_submittal(submittal_id, run_id, allowed)
