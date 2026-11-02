@@ -49,6 +49,14 @@ from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
 
 STEP = division_text.CLAUDE_STEP
 AA_SCOPE = "The rules of Part AA apply to all vessels of this code."
+#: Part AA with no words of scope, so a "no" with no sentence stands.
+PLAIN_PAGES = [
+    (
+        1,
+        "PART AA\nGENERAL REQUIREMENTS FOR ALL VESSELS\nAA-2 The shell thickness shall be at least 6 mm.\n",
+    ),
+    *PAGES[1:],
+]
 NO_SENTENCE = "PART QQ\nGENERAL NOTES\nQQ-1 Bolts shall be tight.\n"
 UNSURE = {"limited": "unsure", "construction": None, "quote": None}
 
@@ -62,7 +70,7 @@ def _reply_to(prompt: str) -> dict:
         return {**LIMITED, "scope_sentence": ZZ_SCOPE}
     if TT_SCOPE in prompt:
         return {**LIMITED_TT, "scope_sentence": TT_SCOPE}
-    return {**NOT_LIMITED, "scope_sentence": AA_SCOPE}
+    return {**NOT_LIMITED, "scope_sentence": None}
 
 
 def _prompt(body: dict) -> str:
@@ -127,7 +135,7 @@ def lane(tmp_path, monkeypatch, send):
         "STANDARDS_READER_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(subject_scope, "standard_pages", lambda sid: PAGES)
+    monkeypatch.setattr(subject_scope, "standard_pages", lambda sid: PLAIN_PAGES)
     monkeypatch.setattr(reader_transport, "transport", lambda: send)
     return monkeypatch
 
@@ -353,7 +361,7 @@ def _claude_task():
     ("reply", "text", "wanted"),
     [
         ({**NOT_LIMITED, "scope_sentence": None}, NO_SENTENCE, None),
-        ({**NOT_LIMITED, "scope_sentence": AA_SCOPE}, AA_SCOPE, None),
+        ({**NOT_LIMITED, "scope_sentence": AA_SCOPE}, AA_SCOPE, "cannot be no"),
         ({**UNSURE, "scope_sentence": AA_SCOPE}, AA_SCOPE, None),
         ({**UNSURE, "scope_sentence": None}, NO_SENTENCE, "unsure needs"),
         ({**NOT_LIMITED, "scope_sentence": None}, AA_SCOPE, "words of scope"),
@@ -369,24 +377,17 @@ def test_code_checks_the_claim_about_the_scope_sentence(reply, text, wanted):
     assert (said == []) if wanted is None else (wanted in said[0])
 
 
-def _sentence_of(prompt: str) -> dict:
-    sentence = next(s for s in (ZZ_SCOPE, TT_SCOPE, AA_SCOPE) if s in prompt)
-    return {**NOT_LIMITED, "scope_sentence": sentence}
-
-
 def test_a_rejected_reply_gets_one_corrective_ask_is_charged_and_the_reason_is_recorded(
     send,
 ):
     calls = []
 
     def reply(prompt):
-        if '"titles"' in prompt:
-            return {"titles": []}
+        if '"titles"' in prompt or "\nSTATED:\n" in prompt:
+            return _reply_to(prompt)
         calls.append(prompt)
         wrong = {**UNSURE, "scope_sentence": None}
-        return (
-            _sentence_of(prompt) if "previous answer was rejected" in prompt else wrong
-        )
+        return _reply_to(prompt) if "previous answer was rejected" in prompt else wrong
 
     send.reply = reply
     out = _gate()
@@ -408,12 +409,10 @@ def test_two_rejections_hold_the_part_and_there_is_never_a_third_ask(send):
 
 def test_a_rejected_reply_is_not_stored_and_a_repeat_pays_only_for_that(send):
     def reply(prompt):
-        if '"titles"' in prompt:
-            return {"titles": []}
+        if '"titles"' in prompt or "\nSTATED:\n" in prompt:
+            return _reply_to(prompt)
         wrong = {**UNSURE, "scope_sentence": None}
-        return (
-            _sentence_of(prompt) if "previous answer was rejected" in prompt else wrong
-        )
+        return _reply_to(prompt) if "previous answer was rejected" in prompt else wrong
 
     send.reply = reply
     _gate()
@@ -474,22 +473,23 @@ def test_limited_to_counts_as_words_of_scope():
     [
         "This annex applies only to vessels of invented alloy Z in this code.",
         "The scope of this part is limited to vessels of invented alloy Z.",
+        "This part is limited to vessels of invented alloy Z in this code.",
+        "This part covers only vessels of invented alloy Z in this code.",
+        "This part is restricted to vessels of invented alloy Z in this code.",
+        "This part is intended only for vessels of invented alloy Z here.",
+        "The rules of this part apply to all vessels of this code.",
     ],
 )
-def test_a_sentence_that_limits_the_part_cannot_be_read_as_no(text):
+def test_any_quoted_sentence_with_words_of_scope_rejects_no(text):
     said = _claude_task().check({**NOT_LIMITED, "scope_sentence": text}, text)
     assert "cannot be no" in said[0]
     assert _claude_task().check({**UNSURE, "scope_sentence": text}, text) == []
 
 
-def test_a_sentence_that_applies_to_all_is_a_good_no():
-    assert (
-        _claude_task().check({**NOT_LIMITED, "scope_sentence": AA_SCOPE}, AA_SCOPE)
-        == []
-    )
-
-
-def test_a_passage_with_scope_words_and_no_such_sentence_holds_the_part(send):
+def test_a_passage_with_scope_words_and_no_such_sentence_holds_the_part(
+    send, monkeypatch
+):
+    monkeypatch.setattr(subject_scope, "standard_pages", lambda sid: PAGES)
     """Asked twice, then held: the rule never reaches comparison on that reply."""
 
     def reply(prompt):

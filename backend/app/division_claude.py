@@ -38,12 +38,6 @@ _SCOPE_WORDS = re.compile(
     r"|intended\s+(?:only\s+)?for|covers)\b",
     re.IGNORECASE,
 )
-#: A sentence that says the part is limited cannot be read as "no".
-_SAYS_LIMITED = re.compile(
-    r"\b(?:appl(?:y|ies|icable)\s+(?:only|exclusively)\s+to|only\s+appl(?:y|ies)"
-    r"|scope\b.*\b(?:limited|restricted|confined)\s+to)\b",
-    re.IGNORECASE | re.DOTALL,
-)
 _SENTENCE = (
     "\n- scope_sentence: the division's own scope sentence, copied exactly from the TEXT; "
     "null when the TEXT has none.\n"
@@ -98,8 +92,10 @@ def scope_problems(data: dict, text: str) -> list[str]:
         {"limited": "yes", "quote": sentence, "construction": "named"}
     ):
         return ["the quoted scope sentence is not a whole sentence"]
-    if limited == "no" and _SAYS_LIMITED.search(sentence):
-        return ["the quoted sentence limits the part, so the answer cannot be no"]
+    if limited == "no":
+        return [
+            "the quoted sentence carries words of scope, so the answer cannot be no"
+        ]
     return []
 
 
