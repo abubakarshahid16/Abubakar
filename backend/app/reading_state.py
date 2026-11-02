@@ -32,19 +32,23 @@ import json
 import zipfile
 from datetime import UTC, datetime
 
+from pydantic import BaseModel
+
 from . import errors, states, stored_paths
 from .config import settings
 from .db import connect
 
 STATE_READ, STATE_LISTED, STATE_UNACCOUNTED = "read", "listed", "unaccounted"
+UNIT_PAGE, UNIT_PART, UNIT_PICTURE = "page", "part", "picture"
 WHY_NO_LEDGER_ROW = "no page ledger row"
+WHY_NO_PAGES = "no page count and no page ledger row"
 WHY_NOT_EXTRACTED = "not extracted"
 WHY_RECOGNITION_PENDING = "recognition has not finished"
 WHY_NOT_CHUNKED = "not chunked"
 WHY_NOT_SEARCHABLE = "read, but search cannot see this page"
 WHY_NO_ANSWER = "no reader has answered for this picture"
 WHY_NO_INVENTORY = "the file could not be opened to count its pictures"
-WHY_WORD_NOT_COUNTED = "not walked: WORD_PAGE_MARKERS_ENABLED is off"
+WHY_WORD_NOT_COUNTED = "a Word file's pictures are not read until WORD_PAGE_MARKERS_ENABLED is on and the file is re-read"
 WHY_FURNITURE = "in a header or footer: kept beside the body and not sent to a reader"
 WHY_PDF_NOT_RECOGNISED = (
     "on a page with a usable text layer, which was not sent to recognition"
@@ -57,6 +61,32 @@ STILL_PROCESSING = (
     "A selected document is still processing or has no searchable content. "
     "Wait for every document to show Ready, then ask again."
 )
+
+
+class DocumentReading(BaseModel):
+    """What `/api/document-reading` says of one document. A count not made is null, never 0."""
+
+    pages_total: int | None
+    pages_read: int | None
+    page_unit: str
+    page_source: str | None
+    word_saved_pages: int | None
+    pictures_total: int | None
+    pictures_read: int | None
+    picture_unit: str
+    furniture_pictures: int
+    not_read_listed: int
+    body_gaps: int
+    unaccounted: int
+    ready: bool
+    fully_read: bool
+    line: str
+    not_read: list[dict]
+    unaccounted_list: list[dict]
+
+
+class DocumentReadings(BaseModel):
+    documents: dict[str, DocumentReading]
 
 
 def _page_state(row: dict) -> tuple[str, str | None]:
@@ -80,17 +110,11 @@ def _page_state(row: dict) -> tuple[str, str | None]:
     return STATE_LISTED, unread_page_words(row)
 
 
-def assess(
-    page_count: int | None,
-    rows: list[dict],
-    pictures: list[dict] | None,
-    furniture_pictures: int,
-    vectors_complete: bool,
-) -> dict:
-    """THE decision. `pictures`: {"state", "page", "no", "count", "reason"}; None when
-    they could not be counted at all, which is unaccounted, never zero."""
+def _walk_pages(
+    numbers: list[int], rows: list[dict]
+) -> tuple[int, list[dict], list[dict]]:
+    """(pages read, listed, unaccounted). No page known at all says nothing was read."""
     by_page = {r["page_no"]: r for r in rows}
-    numbers = sorted(set(range(1, (page_count or 0) + 1)) | set(by_page))
     listed: list[dict] = []
     unaccounted: list[dict] = []
     read = 0
@@ -105,7 +129,21 @@ def assess(
             listed.append(item)
         elif state == STATE_UNACCOUNTED:
             unaccounted.append(item)
-    pictures_read = 0
+    if not numbers:
+        unaccounted.append(
+            {"kind": "page", "page": None, "no": None, "reason": WHY_NO_PAGES}
+        )
+    return read, listed, unaccounted
+
+
+def _walk_pictures(
+    pictures: list[dict] | None,
+    furniture: int,
+    listed: list[dict],
+    unaccounted: list[dict],
+) -> int:
+    """Pictures read; the rest go on the two lists. Not counted at all is unaccounted."""
+    done = 0
     for picture in pictures or []:
         count = picture.get("count", 1)
         item = {
@@ -116,7 +154,7 @@ def assess(
             "reason": picture.get("reason"),
         }
         if picture["state"] == STATE_READ:
-            pictures_read += count
+            done += count
         elif picture["state"] == STATE_LISTED:
             listed.append(item)
         else:
@@ -131,20 +169,47 @@ def assess(
                 "reason": WHY_NO_INVENTORY,
             }
         )
-    if furniture_pictures:
+    if furniture:
         listed.append(
             {
                 "kind": "picture",
                 "page": None,
                 "no": None,
-                "count": furniture_pictures,
+                "count": furniture,
                 "reason": WHY_FURNITURE,
             }
         )
+    return done
+
+
+def assess(
+    page_count: int | None,
+    rows: list[dict],
+    pictures: list[dict] | None,
+    furniture_pictures: int,
+    vectors_complete: bool,
+    *,
+    picture_unit: str = "picture",
+    page_unit: str = "page",
+    page_source: str | None = None,
+    word_saved_pages: int | None = None,
+) -> dict:
+    """THE decision. `pictures`: {"state", "page", "no", "count", "reason"}; None when
+    they could not be counted at all, which is unaccounted, never zero."""
+    numbers = sorted(
+        set(range(1, (page_count or 0) + 1)) | {r["page_no"] for r in rows}
+    )
+    read, listed, unaccounted = _walk_pages(numbers, rows)
+    pictures_read = _walk_pictures(pictures, furniture_pictures, listed, unaccounted)
     size = lambda items: sum(i.get("count") or 1 for i in items)  # noqa: E731
     out = {
-        "pages_total": len(numbers),
-        "pages_read": read,
+        "pages_total": len(numbers) if numbers else None,
+        "pages_read": read if numbers else None,
+        "page_unit": page_unit,
+        "page_source": page_source,
+        "word_saved_pages": word_saved_pages,
+        "picture_unit": picture_unit,
+        "body_gaps": size([i for i in listed if i["reason"] != WHY_FURNITURE]),
         "pictures_total": None
         if pictures is None
         else sum(p.get("count", 1) for p in pictures),
@@ -171,17 +236,36 @@ def _places(items: list[dict]) -> str:
 
 
 def _line(out: dict) -> str:
-    """The count with its denominator; a total not counted prints as not counted."""
-    pictures = (
-        "pictures not counted"
-        if out["pictures_total"] is None
-        else f"{out['pictures_read']} of {out['pictures_total']} pictures"
-    )
-    said = f"Read {out['pages_read']} of {out['pages_total']} pages, {pictures}; "
-    said += f"{out['not_read_listed']} not read, listed"
+    """The count in its true unit, with its denominator. Not counted prints as not counted."""
+    total = out["pages_total"]
+    if total is None:
+        pages = "pages not counted"
+    elif out["page_unit"] == UNIT_PART:
+        pages = (
+            f"Read {out['pages_read']} of {total} reading parts "
+            "(no page numbers: this Word file gives none)"
+        )
+    elif out["page_source"] == "partial":
+        pages = (
+            f"Read {out['pages_read']} of the {total} pages its page marks reach "
+            f"(Word saved {out['word_saved_pages'] if out['word_saved_pages'] is not None else 'no count'})"
+        )
+    else:
+        pages = f"Read {out['pages_read']} of {total} pages"
+    if out["pictures_total"] is None:
+        pictures = "pictures not counted"
+    elif out["picture_unit"] == UNIT_PAGE:
+        pictures = f"{out['pictures_read']} of {out['pictures_total']} pages holding pictures recognised"
+    else:
+        pictures = f"{out['pictures_read']} of {out['pictures_total']} pictures"
+    said = f"{pages}, {pictures}; {out['not_read_listed']} not read, listed"
     if out["unaccounted"]:
-        said += f"; not ready: {out['unaccounted']} not accounted for" + _places(
-            out["unaccounted_list"]
+        why = list(dict.fromkeys(str(i["reason"]) for i in out["unaccounted_list"]))
+        said += (
+            f"; not ready: {out['unaccounted']} not accounted for"
+            + _places(out["unaccounted_list"])
+            + ": "
+            + "; ".join(why[:3])
         )
     return said
 
@@ -189,9 +273,10 @@ def _line(out: dict) -> str:
 # ------------------------------------------------------------- the file's pictures
 
 
-def _on_page(row: dict | None, page: int, count: int) -> dict:
-    """A picture of a file with no per-picture reader: it stands with its page's OCR."""
-    item = {"page": page, "no": None, "count": count, "reason": None}
+def _on_page(row: dict | None, page: int) -> dict:
+    """A page holding pictures, in a file with no per-picture reader: the engine reads
+    the page, so one box says nothing of each picture. Counted as a page, never as pictures."""
+    item = {"page": page, "no": None, "count": 1, "reason": None}
     if row is None or row["ocr_status"] == "pending":
         return {**item, "state": STATE_UNACCOUNTED, "reason": WHY_RECOGNITION_PENDING}
     if row["ocr_status"] == "done" and row["ocr_mean_conf"] is not None:
@@ -202,7 +287,7 @@ def _on_page(row: dict | None, page: int, count: int) -> dict:
     return {**item, "state": STATE_LISTED, "reason": reason}
 
 
-def _word_pictures(path: str, document_id: str) -> tuple[list[dict], int]:
+def _word_pictures(path: str, document_id: str) -> dict:
     from . import docx_pages, word_pages
 
     proof = word_pages.read_proof(document_id)
@@ -210,7 +295,7 @@ def _word_pictures(path: str, document_id: str) -> tuple[list[dict], int]:
         proof is None
     ):  # the Word switch is off: counted from the file, and none answered for
         total, furniture = docx_pages.picture_counts(path)
-        return (
+        items = (
             [
                 {
                     "state": STATE_UNACCOUNTED,
@@ -221,10 +306,10 @@ def _word_pictures(path: str, document_id: str) -> tuple[list[dict], int]:
                 }
             ]
             if total
-            else [],
-            furniture,
+            else []
         )
-    out = (
+        return {"items": items, "furniture": furniture, "page_unit": UNIT_PART}
+    items = (
         [
             {
                 "state": STATE_READ,
@@ -241,7 +326,7 @@ def _word_pictures(path: str, document_id: str) -> tuple[list[dict], int]:
         if item["kind"] != "picture":
             continue
         final = item["reason"] != docx_pages.WHY_NOT_SENT
-        out.append(
+        items.append(
             {
                 "state": STATE_LISTED if final else STATE_UNACCOUNTED,
                 "page": item["page"],
@@ -250,30 +335,35 @@ def _word_pictures(path: str, document_id: str) -> tuple[list[dict], int]:
                 "reason": item["reason"] if final else WHY_NO_ANSWER,
             }
         )
-    return out, proof["furniture_pictures"]
+    return {
+        "items": items,
+        "furniture": proof["furniture_pictures"],
+        "page_unit": UNIT_PART if proof["page_source"] == "none" else UNIT_PAGE,
+        "page_source": proof["page_source"],
+        "word_saved_pages": proof["word_saved_pages"],
+    }
 
 
-def _pdf_pictures(path: str, rows: dict[int, dict]) -> tuple[list[dict], int]:
+def _pdf_pictures(path: str, rows: dict[int, dict]) -> dict:
     from .pdf_guard import open_pdf
 
-    out = []
+    items = []
     with open_pdf(path) as doc:
         for index in range(doc.page_count):
-            found = {image[0] for image in doc.load_page(index).get_images(full=False)}
-            if found:
-                out.append(_on_page(rows.get(index + 1), index + 1, len(found)))
-    return out, 0
+            if doc.load_page(index).get_images(full=False):
+                items.append(_on_page(rows.get(index + 1), index + 1))
+    return {"items": items, "picture_unit": UNIT_PAGE}
 
 
-def _sheet_pictures(path: str) -> tuple[list[dict], int]:
+def _sheet_pictures(path: str) -> dict:
     with zipfile.ZipFile(path) as zf:
         total = sum(
             zf.read(name).count(b"<xdr:pic>")
             for name in zf.namelist()
             if name.startswith("xl/drawings/") and name.endswith(".xml")
         )
-    return (
-        [
+    return {
+        "items": [
             {
                 "state": STATE_LISTED,
                 "page": None,
@@ -283,18 +373,15 @@ def _sheet_pictures(path: str) -> tuple[list[dict], int]:
             }
         ]
         if total
-        else [],
-        0,
-    )
+        else []
+    }
 
 
-def _pictures(
-    document_id: str, stored: str | None, rows: list[dict]
-) -> tuple[list[dict] | None, int]:
-    """(pictures, those in headers and footers). None: they could not be counted."""
+def _pictures(document_id: str, stored_path: str | None, rows: list[dict]) -> dict:
+    """What the file holds, per kind. `items` None: the pictures could not be counted."""
     from . import intake
 
-    path = stored_paths.local(stored) if stored else None
+    path = stored_paths.local(stored_path) if stored_path else None
     by_page = {r["page_no"]: r for r in rows}
     try:
         kind = intake.detect(path)
@@ -302,11 +389,13 @@ def _pictures(
             return _word_pictures(path, document_id)
         if kind == intake.KIND_SHEET:
             return _sheet_pictures(path)
-        if kind == intake.KIND_IMAGE:
-            return [_on_page(by_page.get(1), 1, 1)], 0
+        if kind == intake.KIND_IMAGE:  # one file, one picture, one page: the same thing
+            return {"items": [_on_page(by_page.get(1), 1)]}
         return _pdf_pictures(path, by_page)
     except Exception as exc:  # noqa: BLE001 - logged; not counted is unaccounted, and said
-        return errors.fell_back("reading_state: pictures not counted", exc, (None, 0))
+        return errors.fell_back(
+            "reading_state: pictures not counted", exc, {"items": None}
+        )
 
 
 def decide(document_id: str) -> dict | None:
@@ -323,13 +412,17 @@ def decide(document_id: str) -> dict | None:
     if doc is None:
         return None
     rows = page_ledger.rows(document_id)
-    pictures, furniture = _pictures(document_id, doc["stored_path"], rows)
+    file = _pictures(document_id, doc["stored_path"], rows)
     return assess(
         doc["page_count"],
         rows,
-        pictures,
-        furniture,
+        file["items"],
+        file.get("furniture", 0),
         (doc["embedded_count"] or 0) >= (doc["chunk_count"] or 0),
+        picture_unit=file.get("picture_unit", UNIT_PICTURE),
+        page_unit=file.get("page_unit", UNIT_PAGE),
+        page_source=file.get("page_source"),
+        word_saved_pages=file.get("word_saved_pages"),
     )
 
 
@@ -351,10 +444,15 @@ def _summary(decided: dict) -> dict:
     keep = (
         "pages_total",
         "pages_read",
+        "page_unit",
+        "page_source",
+        "word_saved_pages",
         "pictures_total",
         "pictures_read",
+        "picture_unit",
         "furniture_pictures",
         "not_read_listed",
+        "body_gaps",
         "unaccounted",
         "ready",
         "fully_read",
@@ -420,18 +518,59 @@ def hooks_may_run(document_id: str, status: str) -> bool:
     return decided is not None and not decided["ready"] and decided["unaccounted"] > 0
 
 
-def api_part(document_id: str) -> dict:
-    """The key a document record gains; nothing when off or never decided."""
-    summary = stored(document_id)
-    if summary is None:
+def readable(scope) -> dict[str, dict]:
+    """What was decided, for the documents this caller may already read: an intersection
+    (rule 5), and it never adds one. Empty when off or never decided."""
+    if not settings.one_checked_definition_enabled:
         return {}
+    conn = connect()
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_reading'"
+    ).fetchone():
+        return {}
+    rows = conn.execute("SELECT document_id, summary FROM document_reading").fetchall()
     return {
-        "reading": {
-            k: v
-            for k, v in summary.items()
-            if k not in ("not_read", "unaccounted_list")
-        }
+        r["document_id"]: json.loads(r["summary"])
+        for r in rows
+        if scope.may_read(r["document_id"])
     }
+
+
+def release_held() -> int:
+    """ROLLBACK. Only this module holds a document back from READY, so with the switch off
+    (seen at server start: a switch only changes on a restart) every document it held goes
+    where the old rule puts it, and what it stored goes too. Nothing is re-read, and the
+    hooks ran when it was held. Off with nothing ever held: one read, nothing written."""
+    if settings.one_checked_definition_enabled:
+        return 0
+    conn = connect()
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_reading'"
+    ).fetchone():
+        return 0
+    with conn:
+        done = conn.execute(
+            "UPDATE documents SET status = ? WHERE status = ? AND embedded_count >= chunk_count"
+            " AND indexed_at IS NOT NULL AND id IN (SELECT document_id FROM document_reading)",
+            (states.READY, states.PARTIALLY_SEARCHABLE),
+        ).rowcount
+        conn.execute("DELETE FROM document_reading")
+    return done
+
+
+def not_found_words(document_id: str, reason: str) -> str:
+    """ "Not found" with body gaps listed may be wrong: the section can sit in an unread
+    picture. So it is said as a guess, with the count (rule 4). Off: the words as they were."""
+    if not settings.one_checked_definition_enabled:
+        return reason
+    decided = stored(document_id) or decide(document_id)
+    gaps = (decided or {}).get("body_gaps") or 0
+    if not gaps:
+        return reason
+    return (
+        f"{reason} (a guess: {gaps} page{'' if gaps == 1 else 's'} or pictures of the body "
+        "are listed as not read, and it may be in one of them)"
+    )
 
 
 def coverage_part(document_id: str) -> dict:
@@ -474,12 +613,14 @@ def review_notes(findings: list[dict]) -> list[dict]:
 
 
 def picture_counts(document_id: str) -> tuple[int | None, int | None] | None:
-    """(pictures read, pictures in the body) as `decide` counts them, or as the Word read
-    proof does when only its switch is on. None: nothing here counts pictures."""
+    """(pictures read, pictures in the body), one definition: a reader's answer per picture.
+    None when nothing here counts per picture (a PDF counts pages holding pictures)."""
     from . import word_pages
 
     decided = decide(document_id)
     if decided is not None:
+        if decided["picture_unit"] != UNIT_PICTURE:
+            return None
         return decided["pictures_read"], decided["pictures_total"]
     proof = word_pages.read_proof(document_id)
     return (

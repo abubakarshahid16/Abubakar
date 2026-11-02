@@ -170,6 +170,11 @@ describe("presentStatus with what was read (one_checked_definition_enabled)", ()
     pages_total: 1,
     pictures_read: null,
     pictures_total: null,
+    picture_unit: "picture" as const,
+    page_unit: "page" as const,
+    page_source: null,
+    word_saved_pages: null,
+    body_gaps: 0,
     furniture_pictures: 0,
   });
 

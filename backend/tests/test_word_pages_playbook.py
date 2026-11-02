@@ -22,7 +22,7 @@ from app import main as main_mod
 from app.config import settings
 from tests import docx_builder as d
 from tests.fake_tokenizer import install_if_missing
-from tests.test_1522_presence_without_standard import _moved
+from tests.test_1522_presence_without_standard import CUT, _moved
 from tests.test_1522_procedure_playbook_rows import _doc as pdf_doc
 from tests.test_w5b_679_playbooks import HAZOP_SECTIONS, hold
 
@@ -235,3 +235,30 @@ def test_switch_off_a_word_cell_is_left_as_it_was_with_fields_on(tmp_path, monke
     doc_id = _word_doc(tmp_path, "off", marks=True, saved_pages=pages)
     assert word_pages.without_lead("page 2, a > para 1", doc_id) == "page 2, a > para 1"
     assert _rows(doc_id)
+
+
+@pytest.mark.parametrize("held_standard", [True, False])
+def test_not_found_is_marked_a_guess_when_body_gaps_are_listed(
+    monkeypatch, held_standard
+):
+    """Both homes: the section can sit in an unread body picture."""
+    from app import reading_state
+
+    if not held_standard:
+        _not_held(monkeypatch)
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    monkeypatch.setattr(reading_state, "stored", lambda _doc: {"body_gaps": 2})
+    cut = [s for s in HAZOP_SECTIONS if s[0] != CUT]
+    rows = _rows(pdf_doc("gap", cut), held=held_standard)
+    found = [r for r in rows if "ot found" in r["comment"]]
+    assert found
+    assert all("a guess: 2 pages or pictures" in r["comment"] for r in found)
+
+
+@pytest.mark.parametrize("held_standard", [True, False])
+def test_not_found_keeps_its_words_with_the_switch_off(monkeypatch, held_standard):
+    if not held_standard:
+        _not_held(monkeypatch)
+    cut = [s for s in HAZOP_SECTIONS if s[0] != CUT]
+    rows = _rows(pdf_doc("nogap", cut), held=held_standard)
+    assert all("a guess" not in r["comment"] for r in rows)

@@ -23,8 +23,8 @@ from app import (
     page_ledger,
     reading_state,
     review_audit,
+    schemas,
     states,
-    upload,
     word_pictures,
 )
 from app.config import settings
@@ -356,13 +356,15 @@ def test_a_pdf_goes_through_the_same_function(tmp_path, monkeypatch):
     assert got["fully_read"] is True
 
 
-def test_a_pdf_picture_on_a_text_page_is_listed(tmp_path, monkeypatch):
+def test_a_pdf_picture_on_a_text_page_is_listed_as_a_page(tmp_path, monkeypatch):
     doc = _ingest(_pdf_file(tmp_path, picture=True), "pdf2")
     assert _finish(monkeypatch, doc) == states.READY
     got = reading_state.stored(doc)
+    assert got["picture_unit"] == reading_state.UNIT_PAGE
     assert (got["pictures_read"], got["pictures_total"]) == (0, 1)
     item = got["not_read"][0]
     assert (item["page"], item["reason"]) == (1, reading_state.WHY_PDF_NOT_RECOGNISED)
+    assert "0 of 1 pages holding pictures recognised" in got["line"]
 
 
 def test_a_workbook_picture_is_listed_and_an_image_stands_with_its_page(tmp_path):
@@ -372,13 +374,11 @@ def test_a_workbook_picture_is_listed_and_an_image_stands_with_its_page(tmp_path
         zf.writestr(
             "xl/drawings/drawing1.xml", "<x><xdr:pic></xdr:pic><xdr:pic></xdr:pic></x>"
         )
-    pictures, _ = reading_state._sheet_pictures(str(book))
+    pictures = reading_state._sheet_pictures(str(book))["items"]
     assert [(p["state"], p["count"]) for p in pictures] == [
         (reading_state.STATE_LISTED, 2)
     ]
-    assert (
-        reading_state._on_page(None, 1, 1)["state"] == reading_state.STATE_UNACCOUNTED
-    )
+    assert reading_state._on_page(None, 1)["state"] == reading_state.STATE_UNACCOUNTED
 
 
 def test_a_missing_file_is_unaccounted_not_zero_pictures(tmp_path, monkeypatch):
@@ -471,10 +471,7 @@ def test_the_record_ledger_and_crs_state_the_count(tmp_path, monkeypatch):
     doc = _ingest(_word_file(tmp_path))
     _finish(monkeypatch, doc)
     line = "Read 2 of 2 pages, 1 of 1 pictures; 0 not read, listed"
-    row = (
-        db.connect().execute("SELECT * FROM documents WHERE id = ?", (doc,)).fetchone()
-    )
-    assert upload.to_api(row)["reading"]["line"] == line
+    assert reading_state.readable(access.unrestricted_scope())[doc]["line"] == line
     assert page_ledger.coverage(doc)["reading"]["line"] == line
     notes = crs_mapping.build_review_notes([{"document_id": doc}], [])
     assert any(n["note"] == reading_state.NOTE and line in n["detail"] for n in notes)
@@ -533,6 +530,244 @@ def test_both_switches_off_the_audit_keeps_its_page_count(tmp_path, monkeypatch)
     assert "pictures" not in "\n".join(review_audit._md_pages({"pages": section}))
 
 
+# ------------------------------------------------------------------ second review
+
+
+def _row(page: int = 1, **more) -> dict:
+    return {
+        "page_no": page,
+        "native_status": "text",
+        "ocr_status": "not_required",
+        "index_status": "retrievable",
+        "index_reason": None,
+        "ocr_mean_conf": None,
+        "facts_reason": None,
+        "ocr_reason": None,
+        **more,
+    }
+
+
+def test_one_ocr_box_never_says_each_picture_on_a_pdf_page_was_read(
+    tmp_path, monkeypatch
+):
+    """Four pictures on one page, one box of text: the page was recognised, and that is
+    all that is known. So the count is in pages, and the audit does not call them pictures."""
+    doc_file = pymupdf.open()
+    page = doc_file.new_page()
+    for line in range(30):
+        page.insert_text((40, 170 + 18 * line), f"{line} The vessel {LONG}", fontsize=9)
+    for x in range(4):
+        out = io.BytesIO()
+        Image.new("RGB", (8 + x, 8), "white").save(out, "PNG")
+        page.insert_image(
+            pymupdf.Rect(40 + 60 * x, 40, 90 + 60 * x, 90), stream=out.getvalue()
+        )
+    path = tmp_path / "four.pdf"
+    doc_file.save(path)
+    doc_file.close()
+    doc = _ingest(path, "pdf4")
+    conn = db.connect()
+    values = {
+        "document_id": doc,
+        "page_no": 1,
+        "text": "one box",
+        "char_count": 7,
+        "mean_conf": 0.9,
+        "min_conf": 0.9,
+        "box_count": 1,
+        "engine": "stub",
+        "model": "stub",
+        "dpi": 150,
+    }
+    for col in conn.execute("PRAGMA table_info('page_ocr')"):
+        if col["notnull"] and col["dflt_value"] is None:
+            values.setdefault(col["name"], 0)
+    with conn:
+        conn.execute(
+            f"INSERT INTO page_ocr ({','.join(values)}) VALUES ({','.join('?' * len(values))})",
+            tuple(values.values()),
+        )
+    page_ledger.refresh(doc)
+    got = reading_state.decide(doc)
+    assert got["picture_unit"] == reading_state.UNIT_PAGE
+    assert (got["pictures_read"], got["pictures_total"]) == (1, 1)
+    assert "1 of 1 pages holding pictures recognised" in got["line"]
+    assert " pictures;" not in got["line"]
+    assert reading_state.picture_counts(doc) is None
+
+
+def test_no_page_count_and_no_ledger_rows_is_held_and_says_why():
+    got = reading_state.assess(None, [], [], 0, True)
+    assert got["ready"] is False and got["fully_read"] is False
+    assert got["pages_total"] is None
+    assert "0 of 0 pages" not in got["line"]
+    assert "pages not counted" in got["line"]
+    assert reading_state.WHY_NO_PAGES in got["line"]
+
+
+def test_no_marks_word_says_reading_parts_never_pages(tmp_path, monkeypatch):
+    path = d.build(
+        tmp_path / "parts.docx",
+        d.para("Scope", style="Heading1") + d.para("One " + LONG),
+    )
+    doc = _ingest(path)
+    _finish(monkeypatch, doc)
+    line = reading_state.stored(doc)["line"]
+    assert "reading parts" in line and "no page numbers" in line
+    assert " pages," not in line
+
+
+def test_partial_marks_say_their_reach_against_words_own_count():
+    got = reading_state.assess(
+        1, [_row()], [], 0, True, page_source="partial", word_saved_pages=69
+    )
+    assert got["line"].startswith(
+        "Read 1 of the 1 pages its page marks reach (Word saved 69)"
+    )
+    got = reading_state.assess(1, [_row()], [], 0, True, page_source="partial")
+    assert "Word saved no count" in got["line"]
+
+
+def test_the_held_line_gives_the_reason_and_the_route_keeps_it(tmp_path, monkeypatch):
+    _stub(monkeypatch, {1: "x"})
+    doc = _ingest(_word_file(tmp_path))
+    with db.connect() as conn:
+        conn.execute("DELETE FROM word_picture_readings")
+    _finish(monkeypatch, doc)
+    got = reading_state.readable(access.unrestricted_scope())[doc]
+    assert got["line"].endswith(reading_state.WHY_NO_ANSWER)
+    assert got["unaccounted_list"][0]["reason"] == reading_state.WHY_NO_ANSWER
+
+
+def test_the_word_switch_dependency_is_on_the_screen(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "word_page_markers_enabled", False)
+    doc = _ingest(_word_file(tmp_path))
+    _finish(monkeypatch, doc)
+    assert (
+        "WORD_PAGE_MARKERS_ENABLED"
+        in reading_state.readable(access.unrestricted_scope())[doc]["line"]
+    )
+
+
+def test_the_route_only_narrows_what_a_caller_may_read(tmp_path, monkeypatch):
+    _stub(monkeypatch, {1: "x"})
+    doc = _ingest(_word_file(tmp_path))
+    _finish(monkeypatch, doc)
+    scope = access.AccessScope(user_id="u", allowed_document_ids=frozenset({"other"}))
+    assert reading_state.readable(scope) == {}
+    scope = access.AccessScope(user_id="u", allowed_document_ids=frozenset({doc}))
+    assert set(reading_state.readable(scope)) == {doc}
+
+
+def test_a_guess_when_body_gaps_are_listed_and_not_for_a_header_alone():
+    listed = reading_state.assess(
+        1, [_row()], [{"state": "listed", "page": 1, "reason": "x"}], 7, True
+    )
+    assert listed["body_gaps"] == 1 and listed["not_read_listed"] == 8
+    alone = reading_state.assess(1, [_row()], [], 7, True)
+    assert alone["body_gaps"] == 0
+
+
+def test_not_found_is_said_as_a_guess_with_the_count(monkeypatch):
+    monkeypatch.setattr(reading_state, "stored", lambda _doc: {"body_gaps": 3})
+    assert reading_state.not_found_words("d", "not found") == (
+        "not found (a guess: 3 pages or pictures of the body are listed as not read, and it may be in one of them)"
+    )
+    monkeypatch.setattr(reading_state, "stored", lambda _doc: {"body_gaps": 0})
+    assert reading_state.not_found_words("d", "not found") == "not found"
+
+
+def test_not_found_keeps_its_words_with_the_switch_off_whatever_is_stored(monkeypatch):
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
+    monkeypatch.setattr(reading_state, "stored", lambda _doc: {"body_gaps": 3})
+    assert reading_state.not_found_words("d", "not found") == "not found"
+
+
+# ------------------------------------------------------------------ rollback
+
+
+def _held(tmp_path, monkeypatch) -> str:
+    _stub(monkeypatch, {1: "x"})
+    doc = _ingest(_word_file(tmp_path))
+    with db.connect() as conn:
+        conn.execute("DELETE FROM word_picture_readings")
+    assert _finish(monkeypatch, doc) == states.PARTIALLY_SEARCHABLE
+    return doc
+
+
+def test_rollback_with_the_switch_off_a_held_document_goes_to_ready_at_server_start(
+    tmp_path, monkeypatch
+):
+    doc = _held(tmp_path, monkeypatch)
+    ran = []
+    monkeypatch.setattr(ingest, "_worker", None)
+    monkeypatch.setattr(
+        ingest.IngestionWorker, "start", lambda self: ran.append("started")
+    )
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
+    ingest.start_worker()
+    conn = db.connect()
+    row = conn.execute(
+        "SELECT status, indexed_at FROM documents WHERE id = ?", (doc,)
+    ).fetchone()
+    assert (row["status"], bool(row["indexed_at"])) == (states.READY, True)
+    assert ran == ["started"]
+    assert conn.execute("SELECT COUNT(*) FROM document_reading").fetchone()[0] == 0
+    assert reading_state.release_held() == 0
+
+
+def test_rollback_with_the_switch_on_nothing_is_released(tmp_path, monkeypatch):
+    doc = _held(tmp_path, monkeypatch)
+    assert reading_state.release_held() == 0
+    status = (
+        db.connect()
+        .execute("SELECT status FROM documents WHERE id = ?", (doc,))
+        .fetchone()[0]
+    )
+    assert status == states.PARTIALLY_SEARCHABLE
+
+
+def test_rollback_leaves_a_document_still_embedding_alone(tmp_path, monkeypatch):
+    held = _held(tmp_path, monkeypatch)
+    pdf = _ingest(_pdf_file(tmp_path), "still")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE documents SET embedded_count = 0, chunk_count = 3, indexed_at = ? WHERE id = ?",
+            (NOW, pdf),
+        )
+        conn.execute(
+            "INSERT INTO document_reading (document_id, summary, decided_at)"
+            " SELECT ?, summary, decided_at FROM document_reading WHERE document_id = ?",
+            (pdf, held),
+        )
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
+    assert reading_state.release_held() == 1
+    conn = db.connect()
+    assert (
+        conn.execute("SELECT status FROM documents WHERE id = ?", (pdf,)).fetchone()[0]
+        == states.PARTIALLY_SEARCHABLE
+    )
+    assert (
+        conn.execute("SELECT status FROM documents WHERE id = ?", (held,)).fetchone()[0]
+        == states.READY
+    )
+
+
+def test_rollback_with_nothing_ever_held_writes_nothing(monkeypatch):
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
+    assert reading_state.release_held() == 0
+    assert (
+        not db.connect()
+        .execute("SELECT 1 FROM sqlite_master WHERE name = 'document_reading'")
+        .fetchone()
+    )
+
+
+def test_the_schema_is_not_changed_by_this_work():
+    assert "extra" not in schemas.Document.model_config
+    assert "reading" not in schemas.Document.model_fields
+
+
 # ------------------------------------------------------------------ switch off
 
 
@@ -549,9 +784,7 @@ def test_switch_off_nothing_changes(tmp_path, monkeypatch):
     ).fetchone()
     assert reading_state.decide(doc) is None
     assert reading_state.stored(doc) is None
-    assert "reading" not in upload.to_api(
-        conn.execute("SELECT * FROM documents WHERE id = ?", (doc,)).fetchone()
-    )
+    assert reading_state.readable(access.unrestricted_scope()) == {}
     assert "reading" not in page_ledger.coverage(doc)
     assert crs_mapping.build_review_notes([{"document_id": doc}], []) == []
     assert reading_state.finish_status(doc) == states.READY

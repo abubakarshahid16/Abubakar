@@ -19,7 +19,15 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 
-from .. import access, document_refs, errors, orphan_guard, schemas, stored_paths
+from .. import (
+    access,
+    document_refs,
+    errors,
+    orphan_guard,
+    reading_state,
+    schemas,
+    stored_paths,
+)
 from .. import admin as admin_mod
 from .. import chunker as chunk_mod
 from .. import classification as classification_mod
@@ -103,6 +111,14 @@ async def upload_document(
         "duplicate_of": duplicate_of,
         "awaiting_grant": False,
     }
+
+
+@router.get("/api/document-reading", response_model=reading_state.DocumentReadings,
+            tags=["documents"])
+def document_reading(scope: access.AccessScope = Depends(access.current_scope)) -> dict:
+    """What was read of each document this caller may read: counts and places, as the status
+    line shows them. Empty with `one_checked_definition_enabled` off (`reading_state`)."""
+    return {"documents": reading_state.readable(scope)}
 
 
 @router.get("/api/documents", response_model=list[schemas.Document],

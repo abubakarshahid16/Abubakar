@@ -835,9 +835,8 @@ class IngestionWorker(ReviewDrain):
         if row["embedded_count"] >= row["chunk_count"]:
             finish = reading_state.finish_status(doc_id)
             with conn:
-                # Recount and advance in ONE transaction, guarded by the status
-                # we expect, so the terminal stamp can never be applied on the
-                # strength of a count that changed underneath it.
+                # Recount and advance in ONE transaction, guarded by the status we expect,
+                # so the stamp can never rest on a count that changed underneath it.
                 conn.execute(
                     f"""UPDATE documents SET
                          embedded_count = (SELECT COUNT(*) FROM chunk_vectors v
@@ -1102,6 +1101,7 @@ def get_worker() -> IngestionWorker:
 
 
 def start_worker() -> IngestionWorker:
+    reading_state.release_held()
     w = get_worker()
     w.start()
     return w
