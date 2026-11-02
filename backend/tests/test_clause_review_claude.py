@@ -789,7 +789,7 @@ def test_this_runs_other_steps_trim_the_batch_at_the_run_cap_not_refuse_it(
     _sub, run, scope = _world(_reqs(5))
     _spend_on(run, "requirement-matcher", 10.0 - _worst_one() * 2.5)
     clause_review.for_review(run, scope)
-    assert [len(b) for b in fake.created][0] == 2
+    assert len(fake.created[0]) == 2
     assert clause_review.status_of(run)["results"]["reviewed"] >= 2
 
 
