@@ -2960,7 +2960,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "incomplete_notice": absence_mod.notice_for(unchecked),
         # #633 item 7: row 1 of a sheet whose run did not complete - status, reason,
         # unread pages, missing standards. "" for a completed run (sheet unchanged).
-        "run_status_note": export_status_mod.crs_header_note(run.get("status"), outcome.get("error"), unread, missing),
+        "run_status_note": export_status_mod.run_header_note(run.get("status"), outcome, unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }

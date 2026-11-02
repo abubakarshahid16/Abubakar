@@ -16,6 +16,7 @@
  */
 import { useId, useState, type FormEvent } from "react";
 
+import type { SessionExpired } from "../hooks/useSessionExpiry";
 import type { LoginRequest, Me } from "../types/api";
 
 export type LoginOutcome =
@@ -31,10 +32,27 @@ const RATE_LIMITED_MESSAGE =
 const OFFLINE_MESSAGE =
   "The backend is not running, so sign-in cannot be checked. This is not a password problem.";
 
+/** Says why the form is here. The drafts are kept under the person's id, so
+ *  "the same person" is part of the promise (App's keepOnlyDraftsOf). */
+function ExpiredNotice({ unsaved }: { unsaved: number }) {
+  return (
+    <div role="status" className="mb-4 rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">
+      <p>Sign-in expired, sign in again.</p>
+      {unsaved > 0 && (
+        <p className="mt-1">
+          {unsaved === 1 ? "1 decision" : `${unsaved} decisions`} not saved yet are kept in this browser tab.
+          Sign in again as the same person to get them back.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function LoginView({
   onLogin,
   onResetPassword = async () => ({ ok: false, message: "Password reset could not be completed." }),
   connected,
+  expired = null,
 }: {
   /** Resolves with ok:false and an optional kind. A `message` on a
    *  credentials failure is deliberately IGNORED so a backend that
@@ -42,6 +60,8 @@ export function LoginView({
   onLogin: (req: LoginRequest) => Promise<LoginOutcome>;
   onResetPassword?: (token: string, password: string) => Promise<ResetOutcome>;
   connected: boolean;
+  /** Why this form is showing when a sign-in ran out (order 4b); null otherwise. */
+  expired?: SessionExpired | null;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -113,6 +133,8 @@ export function LoginView({
             </div>
             <ConnectionLine connected={connected} />
           </header>
+
+      {expired && <ExpiredNotice unsaved={expired.unsaved} />}
 
       <form onSubmit={submit} noValidate className="space-y-4" aria-describedby={errorId}>
         <div>

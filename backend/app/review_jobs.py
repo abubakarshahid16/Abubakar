@@ -28,6 +28,7 @@ from pathlib import Path
 
 from . import (
     access,
+    ai_call_ledger,
     job_progress,
     job_queue,
     nothing_read,
@@ -420,6 +421,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         _record_check_failure(run_id, "web_check_status", "Web standards check", exc)
 
 
+@ai_call_ledger.recorded  # #1525: only with REVIEW_AUDIT_REPORT_ENABLED on
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     """Run one claimed review job to its end. Returns the job's final state.
 

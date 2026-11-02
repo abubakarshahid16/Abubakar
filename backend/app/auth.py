@@ -558,6 +558,7 @@ def describe(user_id: str) -> dict | None:
         "email": row["email"],
         "display_name": row["display_name"],
         "roles": roles,
+        "session_expired_notice": settings.session_expired_notice_enabled,
     }
 
 

@@ -19,6 +19,7 @@ from .. import (
     access,
     dashboard_pool,
     errors,
+    page_not_read,
     review_jobs,
     review_tiers,
     review_trace,
@@ -116,6 +117,7 @@ class TierRow(BaseModel):
             "unit unknown",
             "no standard linked",
             "standard outside this review",
+            "no field taken",
         ]
         | None
     ) = None
@@ -546,7 +548,8 @@ def _facts(
         .fetchall()
     )
     return review_tiers.RunFacts(
-        pages_not_read=frozenset(coverage.get("pages_not_read_into_fields") or []),
+        # #1550: one meaning of "not read" (the reading's) with the page-read switch.
+        **page_not_read.tier_pages(coverage),
         reader_timed_out_pages=frozenset(timed_out or []),
         missing_standards=tuple(
             m["identifier"]
