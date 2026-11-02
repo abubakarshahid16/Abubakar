@@ -113,8 +113,11 @@ async def upload_document(
     }
 
 
-@router.get("/api/document-reading", response_model=reading_state.DocumentReadings,
-            tags=["documents"])
+@router.get(
+    "/api/document-reading",
+    response_model=reading_state.DocumentReadings,
+    tags=["documents"],
+)
 def document_reading(scope: access.AccessScope = Depends(access.current_scope)) -> dict:
     """What was read of each document this caller may read: counts and places, as the status
     line shows them. Empty with `one_checked_definition_enabled` off (`reading_state`)."""
