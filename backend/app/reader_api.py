@@ -58,7 +58,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from . import comparators, numparse
+from . import claude_models, comparators, numparse
 from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
@@ -630,11 +630,8 @@ class ReaderSettings:
     #: the other one.
     allowed_hosts: tuple = ("api.anthropic.com",)
     model: str = "claude-sonnet-4-5"
-    #: One sentence in, one small JSON object out. A large budget here buys
-    #: nothing and pays for a model that decided to explain itself.
+    #: One sentence in, one small JSON object out (`claude_models.shape_output`).
     max_tokens: int = 512
-    #: Determinism is rule 5's precondition, so temperature is fixed at the
-    #: request and is not a setting anyone can raise.
     timeout_seconds: float = 30.0
     extra_headers: dict = field(default_factory=dict)
 
@@ -648,7 +645,7 @@ class ReaderSettings:
                 env, "STANDARDS_READER_ALLOW_PUBLIC_EGRESS",
                 fallback and fallback.standards_reader_allow_public_egress),
             base_url=env.get("STANDARDS_READER_BASE_URL") or DEFAULT_BASE_URL,
-            model=env.get("STANDARDS_READER_MODEL") or cls.model,
+            model=claude_models.reader_model(env, fallback) or cls.model,
             timeout_seconds=float(env.get("STANDARDS_READER_TIMEOUT_SECONDS") or 30.0),
         )
 
@@ -727,13 +724,11 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
         "max_tokens": cfg.max_tokens,
         "messages": [{"role": "user", "content": content}],
     }
-    # SOME MODELS REJECT `temperature` (config `claude_models_without_temperature`,
-    # the list `reasoning_provider.no_temperature` reads). R32, 2026-10-11:
-    # the datasheet reader and the matcher were pointed at the reasoning
-    # model, this function still sent temperature 0, and EVERY call came back
-    # an HTTP error (unbilled, nothing read). Sent wherever it is accepted.
+    # SOME MODELS REJECT `temperature` (`claude_models_without_temperature`). R32:
+    # sending it failed EVERY datasheet and matcher call. Sent where accepted.
     if not _rejects_temperature(cfg.model):
         body["temperature"] = 0
+    claude_models.shape_output(body)
     return {"url": cfg.base_url.rstrip("/") + MESSAGES_PATH,
             "headers": headers, "body": body, "timeout": cfg.timeout_seconds}
 
@@ -754,10 +749,12 @@ def build_models_request(*, cfg: ReaderSettings | None = None, env=None) -> dict
 def response_text(payload) -> str:
     """The model's text out of a Messages response.
 
-    Returns "" for any shape that carries none, which `parse_response` then
-    reports as `model_malformed`: an empty answer and an unparseable one are
-    both "the model said nothing usable", and neither may become a proposal.
+    Returns "" for any shape that carries none, and for `stop_reason: refusal`
+    (HTTP 200: text written before a decline is no answer). `parse_response` reports
+    that as `model_malformed`; "said nothing usable" may never become a proposal.
     """
+    if isinstance(payload, dict) and payload.get("stop_reason") == "refusal":
+        return ""
     blocks = (payload or {}).get("content") if isinstance(payload, dict) else None
     if not isinstance(blocks, list):
         return ""
@@ -776,8 +773,11 @@ def call_claude(prompt: str, *, transport, cfg: ReaderSettings | None = None, en
     by whoever writes that client.
     """
     request = build_request(prompt, cfg=cfg, env=env)
+    claude_models.shape_output(request["body"], claude_models.ROUTE_SENTENCE_READER)
     payload = transport(request["url"], headers=request["headers"],
                         body=request["body"], timeout=request["timeout"])
+    if isinstance(payload, dict) and payload.get("stop_reason") == "max_tokens":
+        return ""  # cut off: `model_malformed`, could not read; never parsed as partial
     return response_text(payload)
 
 
