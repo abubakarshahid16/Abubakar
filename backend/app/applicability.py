@@ -48,10 +48,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
-from .word_pages import other_document_page
 from .claude_auto_approve import lists_cited
 from .db import connect
 from .held_standards import mark_rows
+from .word_pages import other_document_page
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
