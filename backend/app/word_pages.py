@@ -7,8 +7,9 @@ the same thing:
   * markers: "p.12", a real page.
   * partial: "p.12 (page marks partial)": Word saved more pages than its markers
     prove, so the number may be low. Never extrapolated.
-  * none: the section heading, and plainly no page. A reading part is never
-    printed as a page.
+  * none: the section heading, and plainly no page, in the cells this module
+    writes. KNOWN GAP: comment text built elsewhere can still say "page N" and mean
+    a reading part, so the switch must not go on for a Word file with no marks.
 
 Off, or not a Word file: `page_cell` returns what it was given and the rest return
 nothing. Reads the file (cached); no model, no socket, nothing written.
@@ -37,6 +38,8 @@ NOTE_NOT_READ = "Word tables or pictures not read"
 _LEAD = re.compile(
     rf"^(?:p\.[\d, -]+ \({PARTIAL}\)|Section .*? \({NO_PAGE}\)|No page number: [^-]*?marks)(?: - |$)"
 )
+
+_PAGE_WORD_LEAD = re.compile(rf"^pages? \d+(?:-\d+)?(?: \({PARTIAL}\))?(?:, | - |$)")
 
 #: Parsed files, by path, its state and how many readings it has. Small: one review
 #: reads one submittal, and a parse is cheap beside a CRS row per finding.
@@ -150,9 +153,13 @@ def at_pages(pages: list[int], group: list[dict]) -> str:
     return page_cell(f"p.{page_list(pages)}", pages, group)
 
 
-def without_lead(section: str) -> str:
-    """A page cell with this module's lead taken off, so it can be set again."""
-    return _LEAD.sub("", section) if settings.word_page_markers_enabled else section
+def without_lead(section: str, document_id: str | None) -> str:
+    """A Word file's page cell with this module's lead, or a page already named in
+    words ("page 2", a locator's "page 2, 4.2 > para 1"), taken off, so it can be set
+    once. Switch off, or not a Word file: the cell as it was."""
+    if page_source(document_id) is None:
+        return section
+    return _PAGE_WORD_LEAD.sub("", _LEAD.sub("", section))
 
 
 def no_image_words(default: str) -> str:

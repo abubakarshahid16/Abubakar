@@ -52,11 +52,6 @@ REASON_NOT_FOR_KIND = (
 #: Exactly the lead code prints: "p.1-2, 7", then " - " or the end of the cell. Anything
 #: else may be a section's own digits ("p.7 - 2 Close out", "p.3, 5. Follow-up").
 _PAGE_LEAD = re.compile(r"^p\.\d+(?:-\d+)?(?:, \d+(?:-\d+)?)*(?: - |$)")
-#: A page a row already names in words ("page 2", a locator's "page 2, 4.2 > para 1"):
-#: the printed lead takes its place, so a row never says its page twice.
-_PAGE_WORD_LEAD = re.compile(
-    r"^pages? \d+(?:-\d+)?(?: \(page marks partial\))?(?:, | - |$)"
-)
 _FOUND_QUOTE = re.compile(rf'^{FOUND}: found on page (\d+): "(.+?)" - ', re.S)
 _LABELLED = re.compile(document_kind._NUMBER_LABEL.pattern + r"[\s:.|#-]*(\S*)", re.I)
 
@@ -145,7 +140,7 @@ def fill_pages(rows: list[dict], findings: list[dict], document_id: str) -> None
             {p for q, stated in quotes if (p := verified_page(q, stated, texts))}
         )
         rest = _PAGE_LEAD.sub("", str(row.get("page_section") or ""))
-        rest = _PAGE_WORD_LEAD.sub("", word_pages.without_lead(rest))
+        rest = word_pages.without_lead(rest, document_id)
         group = [
             {"document_id": document_id, "contractor_evidence_text": q}
             for q, _ in quotes

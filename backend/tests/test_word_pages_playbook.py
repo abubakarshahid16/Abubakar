@@ -16,6 +16,7 @@ from app import (
     fts_index,
     procedure_playbook_rows,
     submittal_review,
+    word_pages,
 )
 from app import main as main_mod
 from app.config import settings
@@ -177,15 +178,6 @@ def test_real_pages_an_unclear_row_says_its_page_once(tmp_path, monkeypatch, fie
         assert PAGE_WORDS.search(row["comment"]), row["comment"]
 
 
-def test_a_pdf_unclear_row_says_its_page_once_with_fields_on(monkeypatch):
-    _not_held(monkeypatch)
-    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
-    rows = _cites_a_page(_rows(pdf_doc("pdf3", _moved()), held=False))
-    assert rows
-    for row in rows:
-        assert len(PAGE_WORDS.findall(row["page_section"])) <= 1, row["page_section"]
-
-
 @pytest.mark.parametrize("fields", [False, True])
 def test_real_pages_say_their_page_once(tmp_path, monkeypatch, fields):
     monkeypatch.setattr(settings, "word_page_markers_enabled", True)
@@ -215,17 +207,31 @@ def test_partial_marks_are_said_on_the_cell_and_the_comment(
             assert "page marks partial" in row["comment"], row["comment"]
 
 
-def test_a_pdf_row_says_its_page_once_with_fields_on(monkeypatch):
-    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
-    rows = _rows(pdf_doc("pdf1", HAZOP_SECTIONS))
-    numbered = [r["page_section"] for r in rows if PAGE_WORDS.search(r["page_section"])]
-    assert numbered
-    for cell in numbered:
-        assert len(PAGE_WORDS.findall(cell)) == 1, cell
-
-
 def test_a_pdf_row_keeps_its_words_with_both_switches_off():
     rows = _rows(pdf_doc("pdf2", HAZOP_SECTIONS))
     numbered = [r["page_section"] for r in rows if PAGE_WORDS.search(r["page_section"])]
     assert numbered
     assert all(c.startswith("page ") for c in numbered)
+
+
+def _cited_doubles(rows: list[dict]) -> list[str]:
+    return [
+        r["page_section"]
+        for r in rows
+        if re.match(r"^p\.\d+ - page \d", r["page_section"])
+    ]
+
+
+def test_a_pdf_cell_is_left_as_it_was_with_this_switch_on(monkeypatch):
+    """The PDF double is not this PR's: this switch only touches Word files."""
+    monkeypatch.setattr(settings, "word_page_markers_enabled", True)
+    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
+    assert _cited_doubles(_rows(pdf_doc("pdf4", HAZOP_SECTIONS)))
+
+
+def test_switch_off_a_word_cell_is_left_as_it_was_with_fields_on(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
+    pages = len(HAZOP_SECTIONS) + 1
+    doc_id = _word_doc(tmp_path, "off", marks=True, saved_pages=pages)
+    assert word_pages.without_lead("page 2, a > para 1", doc_id) == "page 2, a > para 1"
+    assert _rows(doc_id)

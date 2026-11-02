@@ -7,7 +7,7 @@ section break). A file that holds them is paged by them: a block's page is the p
 it STARTS on, a table row the page its row starts on, and page N's stored text is
 what started on page N, so a quote cited to page N is found there. A page nothing
 started on stays, empty, so no number shifts. No markers at all: the reading parts
-stay, and `Pagination.source` says "none", so nothing may print one as a page. Fewer
+stay, and `Pagination.source` says "none", so a page cell shows the heading (comment text: see `word_pages`). Fewer
 pages than Word's own saved count (`docProps/app.xml`): "partial", and said. Pages
 are never extrapolated.
 
