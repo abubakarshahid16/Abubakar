@@ -170,9 +170,21 @@ leaves unless every document its prompt carries is on the owner's list
 `status: approved`, `approved_by`, `approved_on`; missing or empty = nothing approved). Every caller
 declares its documents (`claude_approved.carrying`); a caller that declares nothing is refused too
 (fail closed). The check sits in `claude_spend.reserve_all`, which both Claude lanes pass. A refusal
-is in the spend ledger at USD 0 (ids only) and a change to the list is in the audit table. Chat on
+is in the spend ledger at USD 0 (ids only). A change to the list reaches the audit table only with
+the #1584 switch on (`sync_audit` has no other caller; A-1587). Chat on
 an unapproved document: the Claude-first path answers with the local model and says so; the other
 chat paths say the document is not approved and ask the reader to choose the Local model.
+
+**Automatic list entries (#1584, owner decision, `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED`, off).** With the
+switch on, `claude_auto_approve` lists a contractor submittal, the subject of a review and a standard
+that review cites or that governs its equipment type; the register file (rule 3) and any blocked hash
+never. To block a file: a `status: blocked` row on the list, or its hash in
+`backend/data/claude_blocked_hashes.json` (`{"blocked_sha256": ["<sha256>"]}`, outside git). The hash is
+the block; the name check is a backstop, and a re-saved copy needs its own hash. Before the switch is
+turned on that file must hold the owner's real register hash: absent, unreadable or empty, nothing
+carrying a document is sent. Blocks apply with the switch off too; off, an automatic row does not count.
+Sends are in the spend ledger (`sent_documents`), list changes in `audit_events`
+(`claude_auto_approved`, `claude_auto_blocked`, `claude_auto_withdrawn`). No route shows the list; read the file.
 
 **Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, ON BY
 DEFAULT (local engine) since the owner order of 2026-10-11. Measured on copies

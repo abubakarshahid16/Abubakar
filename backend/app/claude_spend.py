@@ -481,6 +481,9 @@ def reserve_all(items: list[tuple[str, float]], *, model: str, prompt_sha256: st
                 line["documents"] = sorted(claude_approved.carried() or ())
                 _append(line)
         raise DocumentNotApproved(code, reason)
+    # #1584: what this call carries goes on its reservation line, so a send and
+    # its record are one write (switch off, or no document content: nothing).
+    sent_documents = claude_approved.sent_documents()
     explicit = caps
     caps = caps or Caps.from_settings()
     now = time.time()
@@ -508,6 +511,8 @@ def reserve_all(items: list[tuple[str, float]], *, model: str, prompt_sha256: st
                           estimated_usd=r.worst_usd)
             line["reservation"] = r.id
             line["reserved"] = True
+            if sent_documents:
+                line["sent_documents"] = sent_documents
             _append(line)
     return out
 
