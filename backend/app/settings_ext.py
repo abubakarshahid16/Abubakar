@@ -177,6 +177,12 @@ class SettingsExt(BaseModel):
     #: cannot read is refused with a reason. Local only, no model, no socket. OFF: nothing changes.
     #: Env: ONE_INTAKE_ENABLED.
     one_intake_enabled: bool = False
+    #: #525 slice 2 (with ONE_INTAKE_ENABLED on as well): the upload accepts PNG, JPEG and TIFF images
+    #: (stored as picture-only PDF pages beside the original, so OCR reads them like a scanned page) and
+    #: indexes .xlsx workbooks, each sheet chunked with a sheet + cell-range citation. Local only, no
+    #: model, no socket. OFF: images refused and workbooks stored-not-indexed, as today.
+    #: Env: INTAKE_IMAGES_XLSX_ENABLED.
+    intake_images_xlsx_enabled: bool = False
     #: #645 slice 3 (`ai_requirement_chunks.py`): the LOCAL model reads a held standard chunks
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
