@@ -139,12 +139,17 @@ def for_screen(review_run_id: str, allowed_document_ids: frozenset[str]) -> dict
     )
 
 
-def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
+def plain_outcome(
+    outcome: dict, run_id: str | None = None
+) -> tuple[str | None, str | None]:
     """`comparison.plain_outcome`, in the one meaning of "checked" with the switch on."""
     from . import comparison, coverage_pair
 
     reason, details = comparison.plain_outcome(outcome)
-    return coverage_pair.reason_words(reason), coverage_pair.reason_words(details)
+    return (
+        coverage_pair.reason_words(reason, outcome, run_id),
+        coverage_pair.reason_words(details, outcome, run_id),
+    )
 
 
 def crs_meta(meta: dict, review_run_id: str, allowed: frozenset[str]) -> dict:
