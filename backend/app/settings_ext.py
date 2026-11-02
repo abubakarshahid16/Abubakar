@@ -20,6 +20,10 @@ class SettingsExt(BaseModel):
     #: The default of `--max-usd`: the owner's USD 100 a day, across every standard, read from the spend ledger.
     #: Env: STANDARDS_COMPILER_MAX_USD_PER_DAY.
     standards_compiler_max_usd_per_day: float = Field(100.0, gt=0)
+    #: #805 plan change 6, part A: the rulebook's version 2 tables (`rulebook_v2.py`, `scripts/rulebook_v2.py`), on a
+    #: database COPY. No verdict reads them; no rule is in force until a person approves it. OFF: nothing is read,
+    #: created or written. Env: RULEBOOK_V2_ENABLED.
+    rulebook_v2_enabled: bool = False
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every
