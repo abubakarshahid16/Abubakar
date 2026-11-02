@@ -629,6 +629,13 @@ STATUS_TEXT: dict[str, tuple[str, str]] = {
         "Try again; if it repeats, check the backend log."),
 }
 
+#: Same state, other words: raising the step or total cap does nothing for a day cap, and nothing needs raising.
+DAY_CAP_TEXT = {
+    "reason": "The Claude spending cap for today is reached.",
+    "fix": "It clears by itself the next day, at 00:00 UTC (05:00 in Pakistan). A call still in flight counts "
+    "until it settles. Nothing needs changing.",
+}
+
 _status_cache: dict[str, Any] = {}
 
 
@@ -662,11 +669,14 @@ def _local_status(now: float) -> dict | None:
     if claude_spend_report.enabled():
         day = claude_spend_report.charged_today(claude_spend.entries())
         if day >= claude_spend_report.day_cap():
-            return _status(
-                "BUDGET_REACHED",
-                now=now,
-                detail=f"today (UTC): ${day:.2f} of ${claude_spend_report.day_cap():.2f}",
-            )
+            return {
+                **_status(
+                    "BUDGET_REACHED",
+                    now=now,
+                    detail=f"today (UTC): ${day:.2f} of ${claude_spend_report.day_cap():.2f}",
+                ),
+                **DAY_CAP_TEXT,
+            }
     return None
 
 

@@ -716,7 +716,9 @@ def test_the_vision_status_says_the_day_cap_is_reached(monkeypatch):
     assert _vision_block() is None
     _write(_settled(100.0))
     state = _vision_block()
-    assert "today (UTC)" in json.dumps(state)
+    assert state["state"] == "BUDGET_REACHED" and "today (UTC)" in state["detail"]
+    assert "for today" in state["reason"] and "the next day" in state["fix"]
+    assert "CLAUDE_BUDGET" not in state["fix"] and "Raise" not in state["fix"]
     monkeypatch.setattr(settings, "claude_cost_controls_enabled", False)
     assert _vision_block() is None
 
@@ -838,3 +840,12 @@ def test_the_script_guard_sees_an_unguarded_script():
         "from app.reader_transport import transport\n",
     ):
         assert _lane_openers(ast.parse(source))
+
+
+def test_the_vision_status_at_the_step_cap_keeps_its_own_words(monkeypatch):
+    """Only the day cap clears by itself: the step and total caps stay the owner's to raise."""
+    monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    monkeypatch.setattr(vision_reader, "engine_setting", lambda: "claude")
+    _write(_settled(5.0, step=vision_reader.VISION_STEP))
+    state = _vision_block()
+    assert state["state"] == "BUDGET_REACHED" and "CLAUDE_BUDGET" in state["fix"]
