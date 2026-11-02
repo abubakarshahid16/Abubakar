@@ -52,8 +52,8 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from . import clause_review_kind, clause_review_status, job_progress
-from . import local_engine_bar, scope_quote
+from . import clause_review_status, job_progress, local_engine_bar, scope_quote
+from .clause_review_kind import ask_fields, cache_model, not_for_kind
 from .config import settings
 from .crs_draft_lanes import CLAUSE_ORIGIN
 from .db import connect
@@ -638,7 +638,7 @@ def _answer(provider, kind, req, passages, status, submittal, model, cache_only=
     from . import reasoning_provider as rp
 
     state = status["kind_state"]
-    key = cache_key(passages, req, clause_review_kind.cache_model(model, kind, state))
+    key = cache_key(passages, req, cache_model(model, kind, state))
     conn = connect()
     ensure_schema(conn)
     stored = conn.execute(
@@ -658,9 +658,7 @@ def _answer(provider, kind, req, passages, status, submittal, model, cache_only=
         step=STEP,
         think=True,
         timeout_s=float(settings.clause_review_call_timeout_s),
-        **clause_review_kind.ask_fields(
-            SYSTEM, SCHEMA, PROMPT_VERSION, kind, status["kind_state"]
-        ),
+        **ask_fields(SYSTEM, SCHEMA, PROMPT_VERSION, kind, status["kind_state"]),
     )
     status["calls"] += 1
     try:
@@ -709,9 +707,7 @@ def _row_or_line(
 ) -> None:
     """Code classifies; a requirement not for this document kind is counted for the one line, with no row."""
     outcome, page, quote = _classify(answer, pages)
-    if clause_review_kind.not_for_kind(
-        answer, outcome, req, status["kind"], status["kind_state"]
-    ):
+    if not_for_kind(answer, outcome, req, status["kind"], status["kind_state"]):
         status.setdefault("not_for_kind", []).append(_label(req))
         return
     status[outcome] += 1

@@ -19,6 +19,7 @@ from app import (
     claude_spend,
     clause_review,
     clause_review_claude,
+    clause_review_kind,
     comparison,
     db,
     review_audit,
@@ -97,10 +98,7 @@ def test_off_keeps_the_cache_key(on):
     assert clause_review.cache_key([], req, "m") == clause_review.cache_key(
         [], req, "m"
     )
-    assert (
-        clause_review.clause_review_kind.cache_model("m", "procedure", "confirmed")
-        == "m"
-    )
+    assert clause_review_kind.cache_model("m", "procedure", "confirmed") == "m"
 
 
 # ------------------------------------------------------- only a confirmed procedure
@@ -233,8 +231,6 @@ def test_the_ask_says_what_to_propose_and_when_in_doubt(on, content_only):
 def test_a_stored_answer_from_before_the_switch_is_not_reused_without_the_field(
     on, content_only
 ):
-    from app import clause_review_kind
-
     assert clause_review_kind.cache_model("m", "procedure", "confirmed") != "m", (
         "an old answer has no `about`, so every requirement would stay a row"
     )
@@ -242,8 +238,6 @@ def test_a_stored_answer_from_before_the_switch_is_not_reused_without_the_field(
 
 
 def test_nothing_in_the_code_names_a_standard_or_a_field():
-    from app import clause_review_kind
-
     source = Path(clause_review_kind.__file__).read_text(encoding="utf-8").lower()
     for word in ("saes", "api ", "asme", "iso ", "gauge", "flange", "psv", "hazop"):
         assert word not in source
