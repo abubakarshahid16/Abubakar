@@ -328,6 +328,10 @@ class SettingsExt(BaseModel):
     #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
     #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
     owner_approved_rules_decide_enabled: bool = False
+    #: #1638: a checklist `required` row only asks that a field is stated. ON: it counts for
+    #: no approval and is not a decided rule, and is named "stated, not checked". OFF: a
+    #: Pass like any other. Env: PRESENCE_NOT_PASS_ENABLED.
+    presence_not_pass_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion

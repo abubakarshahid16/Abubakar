@@ -1277,8 +1277,7 @@ def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
 
 
 def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
-    """`_run_summary`'s finding numbers for one run: the total (findings with no status
-    included), the count per status, the distinct tags and the AI drafts (their own bucket)."""
+    """`_run_summary`'s numbers: total (no-status included), per status, tags, AI drafts."""
     by_status: dict[str, int] = {}
     total = drafts = 0
     for row in connect().execute(
@@ -1295,6 +1294,7 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
             " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
             " ORDER BY equipment_tag", (run_id,))
     ]
+    by_status = submittal_review_mod.presence_check.with_stated_apart(run_id, by_status)
     return total, by_status, tags, drafts
 
 

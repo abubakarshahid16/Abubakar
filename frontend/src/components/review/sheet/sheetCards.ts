@@ -346,5 +346,5 @@ export function headline(cards: SheetCard[], gate: CrsIssueGate | null, finalCod
 
 /** Plain words for the passed findings, with their boundary (this run). */
 export function passedCount(findings: ReviewFinding[]): number {
-  return findings.filter((f) => f.compliance_status === "COMPLIANT").length;
+  return findings.filter((f) => f.compliance_status === "COMPLIANT" && !f.stated_only).length;
 }
