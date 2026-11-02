@@ -65,19 +65,16 @@ MIN_HITS = 3
 MAX_QUOTE = 400
 #: #1570 (`settings.pdf_passage_join_lines_enabled`): which printed lines are one sentence.
 _WITHIN_RUN = re.compile(r"(?<=[.;:!?])\s+")
-#: A bullet (a PDF's second-level bullet is often a plain "o"), a number (4.1.2, 2., 3),
-#: a letter or roman numeral in a list, or a reference list's entry ("ABC 123, Title").
-_LIST_ITEM = re.compile(
-    r"[\u2022\u00b7\u25aa\u25e6\u2023\u25cf\u25cb\u25a0\u25a1*\-\u2013\u2014]"
-    r"|\d+(?:\.\d+)*[.)]?(?:\s|$)"
-    r"|\(?[a-z]\)|[a-z]\.\s|\(?[ivxlc]+\)|o(?:\s|$)"
-    r"|[A-Z][A-Z0-9/&\-]+ \d[\w.\-/]*,"
-)
-#: A tab or a wide gap inside a line: columns, not prose.
-_COLUMN_GAP = re.compile(r"\t| {3,}")
-#: A line wrapped when its next word would have run past this share of the page's widest line
-#: (character counts only approximate a proportional font).
-MARGIN_SHARE = 0.95
+#: A list item that starts in lowercase: "a)", "iv)", or a PDF's plain "o" bullet.
+_LIST_ITEM = re.compile(r"[a-z]\)|[ivxlc]+\)|o(?:\s|$)")
+#: A tab or a gap of two spaces or more inside a line: columns, not prose.
+_COLUMN_GAP = re.compile(r"\t| {2,}")
+#: A short line holding a figure and no end of sentence is a label and a value.
+_LABEL_VALUE_WORDS = 6
+#: A line wrapped only if it reached this share of the page's widest line. Character counts
+#: only approximate a proportional font; a page narrower than MIN_COLUMN is cells, not prose.
+MARGIN_SHARE = 0.8
+MIN_COLUMN = 40
 _LINE_END_HYPHEN = re.compile(r"(?<=[a-z])-[ \t]*\r?\n\s*(?=[a-z])")
 
 
@@ -128,33 +125,37 @@ def load_pages(document_id: str) -> list[tuple[int, str]]:
 
 
 def _is_table_row(line: str) -> bool:
-    return "|" in line or bool(_COLUMN_GAP.search(line))
+    if "|" in line or _COLUMN_GAP.search(line):
+        return True
+    words = line.split()
+    return (
+        len(words) <= _LABEL_VALUE_WORDS
+        and any(ch.isdigit() for ch in line)
+        and line[-1] not in ".;:!?"
+    )
 
 
 def _is_heading(line: str) -> bool:
-    """Capitals only, or no letters at all (a page number, a figure, a bare bullet)."""
-    return line.upper() == line
+    """Every long word starts with a capital: Title Case, or all capitals."""
+    long_words = [w for w in line.split() if len(w) >= 4 and w[0].isalpha()]
+    return len(long_words) >= 2 and all(w[0].isupper() for w in long_words)
 
 
 def _wraps(line: str, following: str, width: int) -> bool:
     """Does `following` carry on the sentence of `line`? Two stripped lines of a page whose
-    widest line is `width`. General shape only, and when in doubt, no: a false passage is
-    worse than none."""
-    if (
-        not line
-        or not following
-        or _LIST_ITEM.match(following)
-        or _is_table_row(line)
-        or _is_table_row(following)
-        or _is_heading(line)
-        or _is_heading(following)
-    ):
-        return False
-    # A capital may be a new line of a list, a reference, a title or a cell: it continues a line
-    # only when its first word did not fit on that line. Had it fitted, the break was meant.
-    next_word = following.split()[0]
-    return following[0].islower() or (
-        len(line) + 1 + len(next_word) >= MARGIN_SHARE * width
+    widest line is `width`. General shape only, and when unsure, no: a false passage is worse
+    than none. A line ending a sentence needs no check here: `sentences` cuts it there."""
+    return bool(
+        line
+        and following
+        and following[0].islower()
+        and width >= MIN_COLUMN
+        and len(line) >= MARGIN_SHARE * width
+        and not _LIST_ITEM.match(following)
+        and not _is_table_row(line)
+        and not _is_table_row(following)
+        and not _is_heading(line)
+        and not _is_heading(following)
     )
 
 

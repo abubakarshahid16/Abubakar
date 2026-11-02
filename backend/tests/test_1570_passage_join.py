@@ -13,8 +13,8 @@ from app.config import settings
 
 REQ = "The hydrostatic pressure test records shall be witnessed by the inspector."
 WRAPPED = (
-    "The hydrostatic pressure test shall\n"
-    "be witnessed by the inspector and the\n"
+    "The hydrostatic pressure test is carried out on every spool and shall\n"
+    "be witnessed by the inspector and the site team before release, with\n"
     "records kept on site."
 )
 
@@ -53,8 +53,8 @@ def test_the_returned_quote_is_a_true_slice_of_the_page(on):
 
 def test_a_word_hyphenated_at_a_line_end_is_read_as_one_word(on):
     text = (
-        "The hydro-\nstatic pressure test shall be wit-\n"
-        "nessed by the inspector and the records kept."
+        "The hydrostatic pressure test on each and every spool of the plant is wit-\n"
+        "nessed by the inspector and the site team, and the records are kept there."
     )
     found = procedure_text.find_passage(REQ, [(2, text)])
     assert found is not None
@@ -66,75 +66,93 @@ def test_a_word_hyphenated_at_a_line_end_is_read_as_one_word(on):
 
 def test_a_compound_hyphenated_at_a_line_end_still_matches_its_hyphenated_form(on):
     req = "The self-closing valve shall be tested."
-    text = "The self-\nclosing valve shall be\ntested by the vendor on site."
+    text = (
+        "On every line of the plant the vendor fits one valve of the type self-\n"
+        "closing, and it is run through the shop before it is tested on site."
+    )
     assert procedure_text.find_passage(req, [(1, text)]) is not None
 
 
-def test_a_full_line_continues_onto_a_capitalised_word(on):
-    # Proper nouns start lines in engineering prose: a line that ran to the margin is wrapped.
-    text = (
-        "The hydrostatic pressure test is run on every spool of the plant and is seen by\n"
-        "Inspector staff, who have witnessed the records on site for the whole project."
-    )
-    assert not _no_passage(text)
-
-
 def test_two_sentences_on_one_wrapped_run_stay_two_sentences(on):
-    text = "Hydrostatic pressure was\nchecked.\nThe test records were\nwitnessed by the inspector."
+    text = (
+        "On each spool of the plant the hydrostatic pressure was then finally\n"
+        "checked.\n"
+        "On each spool of the plant the test records were then finally signed and\n"
+        "witnessed by the inspector."
+    )
     parts = [" ".join(p.split()) for p in procedure_text.sentences(text)]
-    assert "Hydrostatic pressure was checked." in parts
-    assert "The test records were witnessed by the inspector." in parts
+    assert (
+        "On each spool of the plant the hydrostatic pressure was then finally checked."
+        in parts
+    )
+    assert (
+        "On each spool of the plant the test records were then finally signed and "
+        "witnessed by the inspector." in parts
+    )
 
 
 # --- never joined: each of these would make a false passage ----------------------------------
+
+#: Each line holds half of REQ's words, reaches the margin and has no table, heading or list shape,
+#: so these two join. Each case below changes ONE thing, so it tests that one rule.
+LINE = "The hydrostatic pressure test is carried out on every spool of the plant"
+NEXT = "records witnessed by the inspector and the site team before release"
+
+
+def test_the_two_plain_lines_do_join_so_the_cases_below_test_something(on):
+    assert not _no_passage(f"{LINE}\n{NEXT}")
 
 
 @pytest.mark.parametrize(
     "text",
     [
         # a paragraph break
-        "The hydrostatic pressure test\n\nrecords witnessed by the inspector",
-        # sentence ended on the line
-        "The hydrostatic pressure test.\nrecords witnessed by the inspector",
-        # the next line is a list item, by bullet, number, letter or roman
-        "The hydrostatic pressure test\n- records witnessed by the inspector",
-        "The hydrostatic pressure test\n• records witnessed by the inspector",
-        "The hydrostatic pressure test\n•\nrecords witnessed by the inspector",
-        "The hydrostatic pressure test\no\nrecords witnessed by the inspector",
-        "The hydrostatic pressure test\no records witnessed by the inspector",
-        "The hydrostatic pressure test\n2. records witnessed by the inspector",
-        "The hydrostatic pressure test\n4.1.2 records witnessed by the inspector",
-        "The hydrostatic pressure test\na) records witnessed by the inspector",
-        "The hydrostatic pressure test\n(iv) records witnessed by the inspector",
-        # the next line, or this one, is a heading
-        "THE HYDROSTATIC PRESSURE TEST\nrecords witnessed by the inspector",
-        "The hydrostatic pressure test\nRECORDS WITNESSED BY THE INSPECTOR",
-        # a short line before a capital is a title or a cell, not a wrapped line
-        (
-            "A long line of ordinary words that sets the width of this page of text.\n"
-            "The hydrostatic pressure test\nRecords witnessed by the inspector"
-        ),
-        # a capital whose first word would have fitted: a list of references, not a wrapped line
-        (
-            "A long line of ordinary words that sets the width of this page and runs on to the margin.\n"
-            "EN 100, Hydrostatic pressure test of steel flat product (method)\n"
-            "EN 134, Records witnessed by the inspector"
-        ),
-        # an entry of a reference list, even after a line that did reach the margin
-        (
-            "EN 100, Hydrostatic pressure test of steel flat product of thickness over 6 mm (method)\n"
-            "EN 134, Records witnessed by the inspector"
-        ),
-        # table rows
-        "| hydrostatic pressure test |\n| records witnessed by the inspector |",
-        "hydrostatic pressure test | a\nrecords witnessed by the inspector | b",
-        "hydrostatic pressure   test\nrecords   witnessed by the inspector",
-        "hydrostatic\tpressure test\nrecords\twitnessed by the inspector",
-        "The hydrostatic pressure test\n10\nrecords witnessed by the inspector",
+        f"{LINE}\n\n{NEXT}",
+        # the sentence ended on the line
+        f"{LINE}.\n{NEXT}",
+        # the next line starts a list item
+        f"{LINE}\na) {NEXT}",
+        f"{LINE}\na. {NEXT}",
+        f"{LINE}\niv) {NEXT}",
+        f"{LINE}\no {NEXT}",
+        f"{LINE}\no\n{NEXT}",
+        # either line is a heading
+        f"{LINE.upper()}\n{NEXT}",
+        f"{LINE.title()}\n{NEXT}",
+        f"{LINE}\nthe {NEXT.title()}",
+        # a capital never continues a line, even one that reached the margin (unsure: no join)
+        f"{LINE}\n{NEXT.capitalize()}",
+        # the line stopped short of the margin: a cell or a label
+        f"{LINE} and on every vessel of it too\nthe hydrostatic pressure test\n{NEXT}",
+        # a page too narrow to be prose: cells, though each line fills it
+        "hydrostatic pressure test\nrecords witnessed by inspector",
+        # only the LINE has table shape
+        f"{LINE.replace('every spool', 'every  spool')}\n{NEXT}",
+        f"{LINE.replace('every spool', 'every	spool')}\n{NEXT}",
+        f"{LINE} | a\n{NEXT}",
+        "hydrostatic pressure tested thoroughly 14 bar\nrecords witnessed inspector and the site team",
+        # only the NEXT line has table shape
+        f"{LINE}\n{NEXT.replace('the site', 'the  site')}",
+        f"{LINE}\n{NEXT.replace('the site', 'the	site')}",
+        f"{LINE}\n{NEXT} | b",
+        f"{LINE}\nrecords witnessed inspector 12 bar",
     ],
 )
 def test_lines_that_are_not_one_sentence_are_not_joined(on, text):
     assert _no_passage(text)
+
+
+@pytest.mark.parametrize(
+    "last",
+    [
+        # short, no figure: a sentence's last line
+        "records witnessed by the inspector",
+        # short, with a figure, and it ends the sentence: not a label and a value
+        "records witnessed by inspector, 12 copies.",
+    ],
+)
+def test_a_short_last_line_of_a_sentence_still_joins(on, last):
+    assert not _no_passage(f"{LINE}\n{last}")
 
 
 def test_a_sentence_does_not_run_across_pages(on):
@@ -151,12 +169,11 @@ def test_a_run_too_long_to_quote_whole_is_not_a_passage(on):
     filler = "\n".join(
         f"and another plain line of words number {w}" for w in "abcdefghijkl"
     )
-    text = (
-        f"the hydrostatic pressure test\n{filler}\nrecords witnessed by the inspector"
-    )
+    first = "the hydrostatic pressure test on all spools"
+    text = f"{first}\n{filler}\nrecords witnessed by the inspector on site"
     assert _no_passage(text)
     # its lines are still searched, as they are with the switch off
-    assert "the hydrostatic pressure test" in procedure_text.sentences(text)
+    assert first in procedure_text.sentences(text)
 
 
 # --- switch off ------------------------------------------------------------------------------
@@ -195,8 +212,14 @@ def test_switch_off_returns_the_same_passage_as_before():
 # --- the other homes of the split (rule 8) ---------------------------------------------------
 
 ITEM = {"terms": [["hydrostatic", "witnessed"]]}
-SPEC = "The hydrostatic test shall\nbe witnessed by the purchaser."
-HYPHEN_SPEC = "The hydro-\nstatic test shall be witnessed by the purchaser."
+SPEC = (
+    "On each spool the hydrostatic test is carried out at the shop and shall\n"
+    "be witnessed by the purchaser."
+)
+HYPHEN_SPEC = (
+    "On each spool of the plant, at the shop, the test named here is the hydro-\n"
+    "static test, and it shall be witnessed by the purchaser."
+)
 FACT = {
     "field_label": "Design pressure",
     "field_name": "design_pressure",
@@ -205,7 +228,10 @@ FACT = {
     "unit": "bar",
     "page": 2,
 }
-SPEC_NUMBER = "The design pressure of the vessel\nshall be 12 bar at the top."
+SPEC_NUMBER = (
+    "On each vessel of the plant the value called the design pressure of the vessel\n"
+    "shall be 12 bar at the top."
+)
 
 
 def test_spec_kit_item_search_reads_a_wrapped_sentence(on):
@@ -231,4 +257,27 @@ def test_spec_kit_numeric_rows_off_is_as_before():
     assert (
         spec_kit.numeric_rows([(1, SPEC_NUMBER)], [FACT], "datasheet D1", "doc_d1")
         == []
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "design pressure\nnormal flow 12 bar\nmax",
+        (
+            "A long line of ordinary words that sets the width of this page and runs to the margin.\n"
+            "design pressure\nnormal flow 12 bar\nmax"
+        ),
+    ],
+)
+def test_table_cells_do_not_make_a_number_the_specification_says(on, text):
+    assert spec_kit.numeric_rows([(1, text)], [FACT], "datasheet D1", "doc_d1") == []
+
+
+def test_a_long_title_case_heading_stays_alone(on):
+    assert "The Hydrostatic Pressure Test Of Spools And Vessels On The Plant" in (
+        procedure_text.sentences(
+            "The Hydrostatic Pressure Test Of Spools And Vessels On The Plant\n"
+            "records witnessed by the inspector and the team."
+        )
     )
