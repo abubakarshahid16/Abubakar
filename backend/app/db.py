@@ -1431,15 +1431,15 @@ def init_db(path: Path | None = None) -> None:
     if path is not None:
         settings.db_path = path
     conn = connect()
-    # #554: another process migrating can answer "schema has changed"; SCHEMA can run again.
+    # #554: another process's "schema has changed": SCHEMA can run again. The write lock below serialises the rest.
     for attempt in range(1, _SCHEMA_CHANGED_RETRIES + 1):
         try:
             conn.executescript(SCHEMA)
             break
         except sqlite3.OperationalError as exc:
-            if "schema has changed" not in str(exc).lower() or attempt == _SCHEMA_CHANGED_RETRIES:
+            changed = "schema has changed" in str(exc).lower()
+            if not changed or attempt == _SCHEMA_CHANGED_RETRIES:
                 raise
-    # #554: the write lock first: a second process waits, then re-reads what the first added.
     if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN IMMEDIATE")

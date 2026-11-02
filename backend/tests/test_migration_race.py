@@ -237,7 +237,7 @@ def test_init_db_survives_a_schema_change_in_its_script(fresh_db, monkeypatch):
     assert wrapped.failures == 0
 
 
-def test_init_db_still_fails_loudly_on_a_script_that_never_settles(fresh_db, monkeypatch):
+def test_init_db_fails_loudly_on_a_script_that_never_settles(fresh_db, monkeypatch):
     db.init_db()
     wrapped = _ScriptSchemaChanged(db.connect(), 99)
     monkeypatch.setattr(db, "connect", lambda: wrapped)
