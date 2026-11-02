@@ -41,6 +41,8 @@ stays the record. Here, at the gate:
   * OFF IS A ROLLBACK: with the switch off a row whose `source` starts `auto` does
     not count as approved, so what the switch added stops at once. The block file
     is then not required (a damaged one still refuses).
+  * A LAPSED ROLE: an automatic submittal row whose document no longer has a
+    qualifying role is refused, whether or not its withdrawal was written.
   * FAIL CLOSED, SWITCH ON: if the list cannot be read, or the block file is
     missing, cannot be read or holds NO hash, nothing carrying a document is sent.
     The owner's real register hash must be in it before the switch is turned on.
@@ -67,6 +69,7 @@ APPROVED = "approved"
 BLOCKED = "blocked"
 WITHDRAWN = "withdrawn"
 AUTO_SOURCE = "auto"
+REVIEW_ROLE = "CONTRACTOR_SUBMITTAL"
 BLOCK_FILE_NAME = "claude_blocked_hashes.json"
 #: The register file of CLAUDE.md rule 3, letters and digits only, lower case.
 REGISTER_NAME_KEY = "engineeringdeliverables"
@@ -267,6 +270,36 @@ def _blocked_ids(hashes: dict[str, str | None]) -> frozenset[str]:
     return frozenset(d for d, h in hashes.items() if h in blocks or d in named)
 
 
+def _lapsed_ids(hashes: dict[str, str | None]) -> frozenset[str]:
+    """#1584: the documents whose only approval is a submittal's automatic row
+    (`source` exactly `auto`) and whose role no longer qualifies. A withdrawal can
+    fail to be written (switch off, list unreadable), so the gate asks the role
+    itself. A row from the owner or a citation does not lean on the role."""
+    leaning, standing = set(), set()
+    for row in _entries():
+        if str(row.get("status") or "").strip().lower() == APPROVED:
+            sha = str(row.get("sha256") or "").strip().lower()
+            (leaning if row.get("source") == AUTO_SOURCE else standing).add(sha)
+    ids = sorted(d for d, h in hashes.items() if h in leaning and h not in standing)
+    if not ids:
+        return frozenset()
+    from .db import connect
+
+    marks = ",".join("?" for _ in ids)
+    rows = (
+        connect()
+        .execute(
+            f"SELECT document_id, document_role FROM document_classification"
+            f" WHERE document_id IN ({marks})",
+            ids,
+        )
+        .fetchall()
+    )
+    return frozenset(
+        r["document_id"] for r in rows if r["document_role"] not in (None, REVIEW_ROLE)
+    )
+
+
 def sent_documents() -> list[dict]:
     """#1584: what the call being reserved carries, for its ledger line: id and
     hash, never a title. Empty with the switch off or with no document content."""
@@ -364,7 +397,8 @@ def refusal() -> tuple[str, str] | None:
     if _REQUEST_CONSENT.get():
         return None
     approved = approved_hashes()
-    missing = sorted(d for d, h in hashes.items() if h not in approved)
+    lapsed = _lapsed_ids(hashes)
+    missing = sorted(d for d, h in hashes.items() if h not in approved or d in lapsed)
     if missing:
         return NOT_APPROVED, (f"{len(missing)} of {len(ids)} document(s) in this prompt are not approved "
                               f"for the cloud model (ids: {', '.join(missing)}), so nothing is sent")
@@ -398,6 +432,7 @@ def local_instead() -> str | None:
         blocked = _blocked_ids(hashes)
     except BlockListUnreadable:
         blocked = ids
+    blocked = blocked | _lapsed_ids(hashes)
     missing = sum(1 for d, h in hashes.items() if h not in approved or d in blocked)
     return LOCAL_INSTEAD.format(n=missing, of=len(ids))
 

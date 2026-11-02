@@ -465,7 +465,6 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
                 reference_coverage=selection.get("reference_coverage"),
                 missing_references=[m["identifier"] for m in selection["missing_references"]])
             company_standard_confirm.record_on_run(run_id, held)
-            claude_auto_approve.record_on_run(run_id)  # #1584
         _label(conn, job_id, FINISHING)
         with _phase(conn, job_id, None, heartbeat, timings, "checks"):
             missing = [m["identifier"] for m in selection["missing_references"]]

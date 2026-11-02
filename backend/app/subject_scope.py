@@ -45,7 +45,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import numparse
+from . import equipment_title_block, numparse
 
 VOCABULARY_PATH = Path(__file__).parent / "reference" / "equipment_vocabulary.json"
 
@@ -146,7 +146,7 @@ def read_equipment(
             ),
         ),
     )
-    for source, text in sources:
+    for source, text in equipment_title_block.equipment_sources(sources):
         found = vocab.equipment_in(text)
         if found:
             doubt = equipment_doubt(classification, facts, found, source, vocab)

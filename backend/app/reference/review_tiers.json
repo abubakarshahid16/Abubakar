@@ -12,7 +12,8 @@
     "value conflict",
     "unit unknown",
     "no standard linked",
-    "standard outside this review"
+    "standard outside this review",
+    "no field taken"
   ],
   "needs_you": {"tier": "C", "label": "Needs you"},
   "tier_c_statuses": ["NEEDS_ENGINEER_REVIEW", "CONDITIONAL"],
@@ -31,6 +32,7 @@
   },
   "unsettled_order": [
     "page not read",
+    "no field taken",
     "standard not in library",
     "AI guess",
     "rule not proven",

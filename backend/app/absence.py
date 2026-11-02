@@ -21,7 +21,7 @@ import json
 import logging
 from pathlib import Path
 
-from . import equipment_scope, kind_rules
+from . import equipment_scope, kind_rules, page_not_read
 from .claude_auto_approve import run_lines
 
 _log = logging.getLogger(__name__)
@@ -169,10 +169,15 @@ def unchecked_share(not_compared: int, checked: int) -> float | None:
     return (not_compared or 0) / applies
 
 
-def reader_summary_line(reader: dict | None) -> str | None:
+def reader_summary_line(
+    reader: dict | None, pages_total: int | None = None
+) -> str | None:
     """One plain line on what read the datasheet (owner order 2026-10-11):
     the AI engine and model with the pages it read, or the code readers only,
-    and the pages the AI left to the code readers, grouped by reason."""
+    and the pages the AI left to the code readers, grouped by reason.
+    #1550: `pages_total` (a run stored with PAGE_READ_BY_READING_ENABLED) other
+    than the pages the AI reader was given: its count states its own boundary,
+    so "68 of 68" never reads as "every page" beside "page 2 was not read"."""
     if not reader:
         return None
     pages = reader.get("pages") or 0
@@ -183,6 +188,8 @@ def reader_summary_line(reader: dict | None) -> str | None:
         return (f"AI reader {name} was not available ({reader['unavailable']}); the datasheet "
                 f"was read by the code readers only ({pages} page(s)).")
     line = f"AI reader {name} read {reader.get('pages_read', 0)} of {pages} page(s)"
+    if pages_total is not None and pages_total != pages:
+        line += f" it was given ({pages_total} page(s) in this submittal)"
     by_reason: dict[str, list[str]] = {}
     for page, why in (reader.get("code_only") or {}).items():
         by_reason.setdefault(why, []).append(str(page))
@@ -235,9 +242,10 @@ def scope_question_lines(questions: list[dict] | None) -> list[str]:
     return lines
 
 
-def split_lines(split: dict | None) -> list[str]:
+def split_lines(split: dict | None, page_coverage: dict | None = None) -> list[str]:
     """The reasons behind the two groups that have one, as plain lines, most
-    common first (the CRS prints the top three of each)."""
+    common first (the CRS prints the top three of each). `page_coverage`: the
+    run's, for the AI reader line's boundary (#1550)."""
     if not split:
         return []
     lines = []
@@ -248,7 +256,9 @@ def split_lines(split: dict | None) -> list[str]:
         lines.append(f"Reviewed against the {note['type']} checklist ({note['items']} items); "
                      f"{split['not_used']} library requirement(s) of the standard(s) it cites "
                      "were not used one by one.")
-    reader_line = reader_summary_line(split.get("reader"))
+    total = (page_coverage or {}).get("pages_total")
+    on = page_not_read.by_reading(page_coverage)
+    reader_line = reader_summary_line(split.get("reader"), total if on else None)
     if reader_line:
         lines.append(reader_line)
     cov = split.get("checklist_coverage")
@@ -348,10 +358,9 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     if held:
         add("text_quality_held_back",
             f"{held} requirement(s) were held back: their text could not be read reliably.")
-    unread = (outcome.get("page_coverage") or {}).get("pages_not_read_into_fields") or []
-    if unread:
-        add("unread_pages", f"{len(unread)} page(s) of this submittal were not read into fields; "
-                            "values on them could not be checked.")
+    cov = outcome.get("page_coverage") or {}
+    for part, line in page_not_read.unchecked_page_parts(cov):  # #1550
+        add(part, line)
     degraded = (outcome.get("requirement_split") or {}).get("degraded_read")
     from . import degraded_read
 
@@ -370,7 +379,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         add("unchecked_share", sentence)
         from . import requirement_split
 
-        for line in split_lines(outcome.get("requirement_split") or requirement_split.from_counts(counts)):
+        for line in split_lines(outcome.get("requirement_split") or requirement_split.from_counts(counts), cov):
             add("requirement_reasons", line, detail=True)
     elif any(not p.get("detail") for p in parts) and not counts:
         add("unchecked_share", "The share of requirements not compared is not known: "

@@ -389,6 +389,8 @@ def test_a_standard_applied_without_a_citation_is_not_listed_and_the_review_says
     parts = absence.unchecked_parts(run_status="completed", outcome=outcome)
     line = next(p["line"] for p in parts if p["part"] == "claude_unlisted_standards")
     assert "1 of 2 standard(s)" in line and "doc_std" not in line
+    note = next(p["note"] for p in parts if p["part"] == "claude_unlisted_standards")
+    assert note == "Not read by the cloud model"  # the local check did read them
     assert (
         absence.notice_for(parts) == ""
     )  # the local check ran: the sheet is not called incomplete
@@ -504,6 +506,88 @@ def test_a_review_of_a_subject_whose_role_stopped_qualifying_withdraws():
         )
     _start_review(doc)
     assert _rows_for(SHA_A)[0]["status"] == "withdrawn"
+
+
+def _lapsed_row(doc, role=STANDARD):
+    """An approved automatic row whose document lost its role with no hook behind it."""
+    classification.set_role(doc, SUBMITTAL)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE document_classification SET document_role = ? WHERE document_id = ?",
+            (role, doc),
+        )
+    assert _rows_for(SHA_A)[0]["status"] == "approved"
+
+
+def test_the_gate_refuses_an_auto_row_whose_role_stopped_qualifying():
+    doc = _doc("doc_a", SHA_A)
+    _lapsed_row(doc)
+    assert _refused_code([doc]) == claude_approved.NOT_APPROVED
+
+
+def test_a_role_change_while_the_switch_was_off_is_refused_when_it_comes_back(
+    monkeypatch,
+):
+    doc = _doc("doc_a", SHA_A)
+    classification.set_role(doc, SUBMITTAL)
+    monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", False)
+    classification.set_role(doc, STANDARD)  # the hook is off: the row stays approved
+    monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", True)
+    assert _rows_for(SHA_A)[0]["status"] == "approved"
+    assert _refused_code([doc]) == claude_approved.NOT_APPROVED
+
+
+def test_a_role_change_while_the_list_was_unreadable_is_refused_when_it_is_repaired():
+    doc = _doc("doc_a", SHA_A)
+    classification.set_role(doc, SUBMITTAL)
+    good = claude_approved.list_path().read_text(encoding="utf-8")
+    claude_approved.list_path().write_text("{not json", encoding="utf-8")
+    classification.set_role(doc, STANDARD)
+    claude_approved.list_path().write_text(good, encoding="utf-8")
+    assert _rows_for(SHA_A)[0]["status"] == "approved"
+    assert _refused_code([doc]) == claude_approved.NOT_APPROVED
+
+
+def test_a_lapsed_row_says_so_when_the_step_runs_local():
+    doc = _doc("doc_a", SHA_A)
+    _lapsed_row(doc)
+    with claude_approved.carrying([doc]):
+        assert claude_approved.local_instead() == claude_approved.LOCAL_INSTEAD.format(
+            n=1, of=1
+        )
+
+
+@pytest.mark.parametrize(
+    "beside",
+    [
+        {"status": "approved", "approved_by": "owner"},
+        {"status": "approved", "source": "auto: cited by doc_x"},
+    ],
+)
+def test_a_human_or_citation_row_beside_it_still_passes(beside):
+    doc = _doc("doc_a", SHA_A)
+    _lapsed_row(doc)
+    rows = [*_rows(), {"sha256": SHA_A, **beside}]
+    claude_approved.list_path().write_text(
+        json.dumps({"documents": rows}), encoding="utf-8"
+    )
+    with claude_approved.carrying([doc]):
+        _reserve()
+
+
+def test_an_auto_row_with_no_role_or_a_review_role_passes():
+    no_role = _doc("doc_a", SHA_A)
+    with db.connect() as conn:  # a classification row that records no role
+        conn.execute(
+            "INSERT INTO document_classification (document_id, suggested_by) VALUES (?, 'test')",
+            (no_role,),
+        )
+    _start_review(no_role)
+    with claude_approved.carrying([no_role]):
+        _reserve()
+    submittal = _doc("doc_b", SHA_B, SUBMITTAL)
+    with claude_approved.carrying([submittal]):
+        _reserve()
 
 
 def test_a_human_approved_row_is_not_withdrawn():

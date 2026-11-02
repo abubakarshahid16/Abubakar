@@ -57,7 +57,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import claude_approved
-from .claude_approved import APPROVED, BLOCKED, WITHDRAWN
+from .claude_approved import APPROVED, BLOCKED, REVIEW_ROLE, WITHDRAWN
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -74,7 +74,6 @@ LISTED_METHODS = {
 }
 RUN_KEY = "claude_unlisted_standards"
 SOURCE = "auto"
-REVIEW_ROLE = "CONTRACTOR_SUBMITTAL"
 
 _THREAD_LOCK = threading.Lock()
 
@@ -397,7 +396,21 @@ def run_lines(outcome: dict) -> list[dict]:
         "were not cited by it, so they are not on the cloud model's approved list and "
         "the cloud model did not read them."
     )
-    return [{"part": RUN_KEY, "line": line, "note": "Not checked", "detail": True}]
+    note = "Not read by the cloud model"
+    return [{"part": RUN_KEY, "line": line, "note": note, "detail": True}]
+
+
+def notes_after(compare):
+    """For the comparison: it rewrites the run's stored outcome, so every comparison
+    of a run, a repeat included, puts `record_on_run`'s count back."""
+
+    @functools.wraps(compare)
+    def compared(review_run_id, *args, **kwargs):
+        result = compare(review_run_id, *args, **kwargs)
+        record_on_run(review_run_id)
+        return result
+
+    return compared
 
 
 def lists_cited(record):

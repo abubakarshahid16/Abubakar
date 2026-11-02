@@ -8,6 +8,7 @@ from ._base import APP, Mutation
 
 _T = "tests/test_1584_claude_auto_approve.py"
 _S = APP / "claude_spend.py"
+_C = APP / "comparison.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
@@ -41,6 +42,17 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="            if True:\n",
         target=_T,
         keyword="no_document_content or switch_off_nothing",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M1587-04",
+        phase=1587,
+        description="a comparison rewrites the outcome and loses the could-not-check count",
+        path=_C,
+        anchor="@notes_after  # #1584\n",
+        replacement="",
+        target="tests/test_1584_review_run_note.py",
+        keyword="re_comparison or review_job_records",
         tags=("honesty",),
     ),
 )
