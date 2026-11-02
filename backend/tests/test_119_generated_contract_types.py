@@ -151,8 +151,9 @@ def test_a_rule_label_changed_without_regenerating_is_drift(tmp_path):
 def test_a_dict_field_keeps_its_screen_type_and_its_null():
     text = gen.render(RUN_SUMMARY)
     assert "  page_coverage?: PageCoverage | null;" in text
+    assert "  coverage_pair?: RunCoveragePair | null;" in text
     assert (
-        'import type { AiStepNumbers, PageCoverage, RequirementSplit, ReviewRunSummary } from "../types";'
+        'import type { AiStepNumbers, PageCoverage, RequirementSplit, ReviewRunSummary, RunCoveragePair } from "../types";'
         in text
     )
 
@@ -163,6 +164,7 @@ def test_a_schemas_dict_field_takes_its_screen_type_from_the_module():
     text = gen.render(REVIEW_RUNS)
     assert "  by_status: StatusCounts;" in text
     assert "  completeness?: ReviewRunCompleteness | null;" in text
+    assert "  coverage_pair?: RunCoveragePair | null;" in text
     assert "  table_values_not_compared: TableValuesNotCompared[];" in text
     types_ts = TYPES_TS.read_text(encoding="utf-8")
     for _, ts in REVIEW_RUNS.ts_types:
