@@ -135,11 +135,14 @@ def _run_section(run: dict, sub: str, filename, steps: dict, ai_use: dict) -> di
             "cue": evidence.get("cue") or evidence.get("rule"),
         }
     ai = _loads(run.get("ai_check_status"))
+    # `model_name`: the Claude models that answered up to the end of the comparison,
+    # comma-joined (`claude_models.record_run`). NULL: none answered by then. The AI check
+    # runs AFTER it, so its model is not in `model_name` and is taken from `ai` here.
     models = sorted(
         {
             m
             for m in (
-                run.get("model_name"),
+                *(run.get("model_name") or "").split(", "),
                 ai.get("model"),
                 *(s.get("model") for s in ai_use["steps"]),
             )

@@ -66,15 +66,23 @@ from .config import settings
 
 #: (input, output, 5-minute cache write, cache read) USD per million tokens.
 PRICES: dict[str, tuple[float, float, float, float]] = {
+    "claude-sonnet-5-5": (2.0, 10.0, 2.5, 0.20),
     "claude-sonnet-5": (2.0, 10.0, 2.5, 0.20),
     "claude-sonnet-4-6": (3.0, 15.0, 3.75, 0.30),
     "claude-sonnet-4-5": (3.0, 15.0, 3.75, 0.30),
+    "claude-haiku-5-5": (0.10, 0.50, 0.125, 0.01),
     "claude-haiku-4-5": (1.0, 5.0, 1.25, 0.10),
     "claude-opus-5-5": (4.0, 20.0, 5.0, 0.20),
     "claude-opus-5": (5.0, 25.0, 6.25, 0.50),
 }
 #: The price used for a model id not in the table: the dearest listed.
 _UNKNOWN = max(PRICES.values())
+#: Haiku 5.5 has two rate cards, chosen by the length of the PROMPT (input plus
+#: cache tokens): over this many tokens every token of the call costs five times as much.
+LONG_PROMPT_TOKENS = 100_000
+LONG_PROMPT_PRICES: dict[str, tuple[float, float, float, float]] = {
+    "claude-haiku-5-5": (0.50, 2.50, 0.625, 0.05),
+}
 #: Order 271.3 (owner, #805 plan change 4): a call whose step starts with this is charged to ONE
 #: standard's step and capped at `claude_budget_usd_per_standard` (the converter, `standards_converter`).
 STANDARD_STEP_PREFIX = "standards_convert:"
@@ -118,11 +126,16 @@ class DocumentNotApproved(BudgetExceeded):
         self.code = code
 
 
-def price_for(model: str | None) -> tuple[float, float, float, float]:
-    """List prices for `model`; a dated id ('...-20251001') finds its family."""
+def price_for(
+    model: str | None, prompt_tokens: int = 0
+) -> tuple[float, float, float, float]:
+    """List prices for `model`; a dated id ('...-20251001') finds its family.
+    `prompt_tokens` picks the rate card of a model that has two."""
     name = (model or "").lower()
     for key in sorted(PRICES, key=len, reverse=True):
         if name == key or name.startswith(key + "-") or re.fullmatch(rf"{re.escape(key)}-\d{{8}}", name):
+            if prompt_tokens > LONG_PROMPT_TOKENS and key in LONG_PROMPT_PRICES:
+                return LONG_PROMPT_PRICES[key]
             return PRICES[key]
     return _UNKNOWN
 
@@ -131,12 +144,34 @@ def cost_usd(model: str | None, usage: dict | None, *, batch: bool = False) -> f
     """USD for one call from the API's `usage` block; a Message Batches
     result (`batch=True`) at half price."""
     usage = usage or {}
-    p_in, p_out, p_write, p_read = price_for(model)
+    prompt_tokens = (
+        int(usage.get("input_tokens") or 0)
+        + int(usage.get("cache_creation_input_tokens") or 0)
+        + int(usage.get("cache_read_input_tokens") or 0)
+    )
+    p_in, p_out, p_write, p_read = price_for(model, prompt_tokens)
     full = (int(usage.get("input_tokens") or 0) * p_in
             + int(usage.get("output_tokens") or 0) * p_out
             + int(usage.get("cache_creation_input_tokens") or 0) * p_write
             + int(usage.get("cache_read_input_tokens") or 0) * p_read) / 1_000_000
     return full * BATCH_DISCOUNT if batch else full
+
+
+def thinks_by_default(model: str | None) -> bool:
+    """True for an id in `settings.claude_models_thinking_by_default` (prefix match)."""
+    name = (model or "").lower()
+    return any(
+        name == p or name.startswith(p + "-")
+        for p in settings.claude_models_thinking_by_default
+    )
+
+
+def output_cap(model: str | None, max_tokens: int) -> int:
+    """The `max_tokens` a request carries: a short cap is raised for a model that
+    thinks by default (`settings.claude_min_output_tokens`), never lowered."""
+    if thinks_by_default(model):
+        return max(int(max_tokens), int(settings.claude_min_output_tokens))
+    return int(max_tokens)
 
 
 def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int,
@@ -145,8 +180,9 @@ def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int,
     English runs nearer 4), plus any image's tokens (width x height / 750),
     priced as an uncached cache WRITE (the dearest input rate), plus every
     allowed output token. Half for a batch request."""
-    p_in, p_out, p_write, _ = price_for(model)
     tokens_in = prompt_chars // 3 + 1 + max(0, int(image_tokens))
+    p_in, p_out, p_write, _ = price_for(model, tokens_in)
+    max_tokens = output_cap(model, max_tokens)  # what the request will actually carry
     full = (tokens_in * max(p_in, p_write) + max_tokens * p_out) / 1_000_000
     return full * BATCH_DISCOUNT if batch else full
 
@@ -246,6 +282,34 @@ def entries() -> list[dict]:
         e.get("releases") for e in lines if e.get("releases")}
     return [e for e in lines
             if not e.get("releases") and not (e.get("reservation") and e["reservation"] in closed)]
+
+
+def models_used(
+    *, since: str, steps=None, exclude_prefixes: tuple[str, ...] = ()
+) -> list[str]:
+    """The models that ANSWERED since `since` (ISO time), sorted: the ledger's
+    settled lines and cache hits, which name the model the API reported. An open reservation
+    only names what was asked for, and a call charged at an estimate never
+    showed an answer, so neither counts. `steps` narrows to those steps;
+    `exclude_prefixes` leaves out steps starting with these. Whole seconds, like
+    the ledger's `at`. The boundary is this time window on this ledger, so another
+    run in the same window is counted too."""
+    start = datetime.fromisoformat(since).replace(microsecond=0)
+    start = start if start.tzinfo else start.replace(tzinfo=UTC)
+    found = set()
+    for entry in entries():
+        answered = entry.get("settles") and not entry.get("estimated")
+        served = entry.get("finish_reason") == "cache_hit"
+        if not (answered or served) or not entry.get("model"):
+            continue
+        step = str(entry.get("step") or "")
+        if step.startswith(exclude_prefixes) or (
+            steps is not None and step not in steps
+        ):
+            continue
+        if datetime.fromisoformat(entry["at"]) >= start:
+            found.add(str(entry["model"]))
+    return sorted(found)
 
 
 def _append(entry: dict) -> None:
@@ -597,7 +661,10 @@ def metered(send, step: str, *, unbilled=None):
         answer = payload if isinstance(payload, dict) else {}
         settle(held, model=str(answer.get("model") or model), usage=answer.get("usage"),
                finish_reason=str(answer.get("stop_reason") or "error"))
+        # What ANSWERED, for a run record; the ledger line above says the same.
+        _metered.last_model = str(answer.get("model") or "") or _metered.last_model
         return payload
     _metered.usage = getattr(send, "usage", None)
     _metered.step = step
+    _metered.last_model = None
     return _metered
