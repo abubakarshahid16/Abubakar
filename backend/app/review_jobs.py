@@ -455,14 +455,13 @@ def _audit_ended(job_id: str) -> None:
     from . import review_audit
 
     try:
-        job = connect().execute(
-            "SELECT review_run_id, created_by FROM jobs WHERE id = ?", (job_id,)
-        ).fetchone()
+        sql = "SELECT review_run_id, created_by FROM jobs WHERE id = ?"
+        job = connect().execute(sql, (job_id,)).fetchone()
         scope = access.AccessScope(
             user_id=job["created_by"], allowed_document_ids=_scope_of(job["created_by"])
         )
         review_audit.write(job["review_run_id"], scope)
-    except Exception:  # noqa: BLE001 - an audit never breaks or changes a review
+    except Exception:  # an audit never breaks or changes a review
         logging.getLogger(__name__).warning("review audit not written", exc_info=True)
 
 

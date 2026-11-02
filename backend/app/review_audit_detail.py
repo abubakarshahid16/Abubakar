@@ -10,6 +10,7 @@ never 0. General for every document: nothing here knows a layout or a sheet.
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections import Counter
 from pathlib import Path
 
@@ -347,7 +348,7 @@ def phase_seconds(review_run_id: str, timings: dict | None) -> dict | None:
             )
             .fetchone()
         )
-    except Exception:  # noqa: BLE001 - the table may not exist; not recorded
+    except sqlite3.OperationalError:  # the table may not exist; not recorded
         return None
     if row is None:
         return None
