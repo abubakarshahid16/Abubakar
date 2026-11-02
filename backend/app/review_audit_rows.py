@@ -47,7 +47,9 @@ def crs_reconciliation(rows: list[dict], meta: dict) -> dict:
             ),
             "withheld_no_text": view["rows_withheld_no_text"],
         }
-    composed, exported, total = len(rows), len(view["rows"]), sum(removed.values())
+    # the rows the copy itself adds to what was composed (`crs_export._copy_and_rows`)
+    composed = len(ce._copy_and_rows(rows, meta)[1])
+    exported, total = len(view["rows"]), sum(removed.values())
     adds_up = composed == exported + total
     words = ", ".join(f"{_REMOVED_WORDS[k]} {v}" for k, v in removed.items())
     return {
@@ -90,12 +92,12 @@ def not_sent(row: dict) -> dict:
     )
 
 
-def clause_step(clause: dict, not_recorded: str) -> dict:
-    """The clause review's step. A batch still out is pending, never completed; limit, cap or expiry: the counts say how far."""
-    state = "completed" if clause.get("ran") else not_recorded
-    return {
+def clause_step(clause: dict, not_recorded: str, figures: dict) -> dict:
+    """The clause review's step. A batch still out is pending, never completed or stopped; `figures` hold the counts
+    with their denominators (`review_audit_detail.clause_figures`)."""
+    step = {
         "name": "clause_review",
-        "state": "pending" if clause.get("pending") else state,
+        "state": "completed" if clause.get("ran") else not_recorded,
         "model": clause.get("model"),
         "calls": clause.get("calls"),
         "fresh": clause.get("calls"),
@@ -103,7 +105,9 @@ def clause_step(clause: dict, not_recorded: str) -> dict:
         "results": clause.get("results"),
         "plain": clause.get("plain"),
         "usd": clause.get("usd"),
+        **figures,
     }
+    return {**step, "state": "pending"} if clause.get("pending") else step
 
 
 def skipped_steps(outcome: dict) -> list[dict]:

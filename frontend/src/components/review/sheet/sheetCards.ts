@@ -29,6 +29,7 @@ export interface SheetCard {
 /** The plain words of the owner's spec. Stored statuses are untouched. */
 export const PLAIN_OUTCOME: Record<string, string> = {
   COMPLIANT: "meets the standard",
+  STATED_NOT_CHECKED: "stated, not checked",
   NON_COMPLIANT: "does not meet",
   MISSING_INFORMATION: "needs you",
   NEEDS_ENGINEER_REVIEW: "needs you",
@@ -164,6 +165,7 @@ export function cardTitle(card: SheetCard): string {
     : fields.length === 1 ? fields[0]
     : fields.length === 2 ? `${fields[0]} and ${fields[1]}`
     : `${fields[0]}, ${fields[1]} and ${fields.length - 2} more`;
+  if (isTickFinding(leader) && leader.stated_only) return capital(`${subject} is stated, not checked: a safety field, please check the value`);
   if (isTickFinding(leader)) return capital(`${subject} meets the standard: a safety field, please check it`);
   if (isTableRow(leader) && card.findings.length > 1) {
     // #1062: the table, not its rows; the page is the standard's (where the table is).
@@ -346,5 +348,5 @@ export function headline(cards: SheetCard[], gate: CrsIssueGate | null, finalCod
 
 /** Plain words for the passed findings, with their boundary (this run). */
 export function passedCount(findings: ReviewFinding[]): number {
-  return findings.filter((f) => f.compliance_status === "COMPLIANT").length;
+  return findings.filter((f) => f.compliance_status === "COMPLIANT" && !f.stated_only).length;
 }

@@ -14,6 +14,12 @@ in a folder beside it. A row counts as caught only when the clean sheet does not
 have that row with that status, so a Query the clean sheet has anyway catches
 nothing. A planted defect with no such row and a Pass on its field is the headline.
 
+RISK AND COVERAGE per equipment type: the sheets carry a known answer, so risk is
+measured here, where the stored runs mostly say "not measured". Two sides, never added:
+a planted defect (decided: Fail or Pass on its field; wrong: the Pass) and the clean
+sheet's checklist rows (the counts of `coverage_pair`; wrong: a Fail). A review that
+failed everything would have no wrong plant, so the clean side has to be printed.
+
 Rule 13: nothing here names an equipment type, a field or a layout; a new kind of
 equipment is a new base file. No verdict code changes. Nothing is sent to Claude
 (`no_claude` in every reader mode). The output holds counts and sheet names of
@@ -55,6 +61,8 @@ FAIL = "NON_COMPLIANT"
 PASS = "COMPLIANT"
 #: `review_audit.VERDICT`: what the CRS and the owner call a Query.
 QUERY = ("MISSING_INFORMATION", "NEEDS_ENGINEER_REVIEW", "CONDITIONAL")
+#: `presence_check.STATUS`, a test holds them together.
+STATED = "STATED_NOT_CHECKED"
 
 A4 = (595, 842)
 FONT = 9
@@ -338,6 +346,132 @@ def per_kind(sheets: list[dict]) -> dict[str, dict]:
     return out
 
 
+def _type_of(item: dict) -> str:
+    from app.coverage_pair import NO_TYPE
+
+    return item.get("equipment_type") or NO_TYPE
+
+
+def _one_pair(kind: str, applicable: int, decided: int, wrong: int) -> dict:
+    """In the shape `coverage_pair.by_equipment_type` adds, so the one adder is used."""
+    return {
+        "equipment_type": kind,
+        "applicable": applicable,
+        "decided": decided,
+        "risk": {"measured": True, "wrong": wrong, "decided": decided},
+        "wrong_verdicts": {"all": wrong},
+    }
+
+
+def _add_pairs(pairs: list[dict], kind: str) -> dict | None:
+    from app.coverage_pair import by_equipment_type
+
+    mine = [p for p in pairs if p["equipment_type"] == kind]
+    return by_equipment_type(mine)[kind] if mine else None
+
+
+def _read_otherwise(item: dict) -> bool:
+    return bool(item.get("equipment_type")) and item.get("typed_as") != item.get(
+        "equipment_type"
+    )
+
+
+def _of_type(items: list[dict], kind: str) -> list[dict]:
+    return [item for item in items if _type_of(item) == kind]
+
+
+def per_type(sheets: list[dict], controls: list[dict]) -> dict[str, dict]:
+    """Risk and coverage per equipment type: `planted` and `clean` stay apart. A sheet
+    that did not run is in neither and is counted as not run; `None`: nothing to count."""
+    ran = [s for s in sheets if s["got"] != "not_run"]
+    read = [c for c in controls if not c.get("not_run")]
+    planted = [
+        _one_pair(
+            _type_of(s),
+            1,
+            int(s["got"] in ("fail", "wrongly_passed")),
+            int(s["got"] == "wrongly_passed"),
+        )
+        for s in ran
+    ]
+    clean = [
+        _one_pair(
+            _type_of(c),
+            c["checklist"]["rows"],
+            c["checklist"]["decided"],
+            c["checklist"]["fail"],
+        )
+        for c in read
+        if (c.get("checklist") or {}).get("rows")
+    ]
+    out: dict[str, dict] = {}
+    for kind in dict.fromkeys(_type_of(item) for item in [*sheets, *controls]):
+        out[kind] = {
+            "planted": _add_pairs(planted, kind),
+            "clean": _add_pairs(clean, kind),
+            "not_run": len(_of_type(sheets, kind))
+            - len(_of_type(ran, kind))
+            + len(_of_type(controls, kind))
+            - len(_of_type(read, kind)),
+            "false_new": sum(s.get("false_new") or 0 for s in _of_type(ran, kind)),
+            "typed_otherwise": sum(
+                1 for item in _of_type([*ran, *read], kind) if _read_otherwise(item)
+            ),
+        }
+    return out
+
+
+def _pair_cells(slot: dict | None) -> tuple[str, str]:
+    """(coverage, risk). Null renders as nothing; nothing decided is not 0 wrong."""
+    from app.coverage_pair import NOT_MEASURED
+
+    if slot is None:
+        return "", NOT_MEASURED
+    risk = slot["risk"]
+    said = f"{risk['wrong']} of {risk['decided']}" if risk["decided"] else NOT_MEASURED
+    return f"{slot['decided']} of {slot['applicable']}", said
+
+
+def _type_table(sheets: list[dict], controls: list[dict]) -> list[str]:
+    lines = [
+        "### Risk and coverage per equipment type (planted sheets)",
+        "",
+        "Decided: a Fail or a Pass. A Query or no row is not decided, and a Query is often"
+        " the answer wanted, so low coverage is not a defect by itself. Risk on a planted"
+        " defect: read as a Pass, of those decided. Risk on a clean sheet: a checklist Fail,"
+        " of its rows decided. The two sides are never added; library standard rows have no"
+        " known answer and are not counted. Invented sheets, one layout per type: a first"
+        " number, not a rate.",
+        "",
+        "| equipment type | planted: coverage | planted: risk | clean checklist: coverage"
+        " | clean checklist: risk | not run | new rows on other fields"
+        " | typed as something else |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for kind, row in per_type(sheets, controls).items():
+        planted, clean = _pair_cells(row["planted"]), _pair_cells(row["clean"])
+        lines.append(
+            f"| {kind} | {planted[0]} | {planted[1]} | {clean[0]} | {clean[1]}"
+            f" | {row['not_run']} | {row['false_new']} | {row['typed_otherwise']} |"
+        )
+    return lines
+
+
+def _kind_table(kinds: dict[str, dict]) -> list[str]:
+    lines = [
+        "| defect kind | planted | caught as Fail | caught as Query | missed | read as a Pass"
+        " | not run | as wanted | on the CRS | new rows on other fields |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for kind, k in kinds.items():
+        lines.append(
+            f"| {kind} | {k['planted']} | {k['fail']} | {k['query']} | {k['missed']}"
+            f" | {k['wrongly_passed']} | {k['not_run']} | {k['as_wanted']} | {k['on_crs']}"
+            f" | {k['false_new']} |"
+        )
+    return lines
+
+
 def render(result: dict) -> str:
     """The table the bench and the script print: counts only."""
     sheets, controls = result["sheets"], result["controls"]
@@ -351,20 +485,24 @@ def render(result: dict) -> str:
         f"reader: {result['reader']}; base: {result['base']}. Invented sheets on a database copy;"
         " a catch is a Fail or Query row on the planted field that the clean sheet does not have.",
         "",
-        f"**Planted defects read as a Pass: {passed} of {planted} planted defects"
-        + (f"; {not_run} not run, so this count is not a result" if not_run else "")
-        + ".**",
+        (
+            f"**Planted defects read as a Pass: {passed} of {planted} planted defects"
+            + (f"; {not_run} not run, so this count is not a result" if not_run else "")
+            + ".**"
+            if planted
+            else "**Planted defects read as a Pass: not measured (no planted sheet was"
+            " selected).**"
+        ),
         "",
-        "| defect kind | planted | caught as Fail | caught as Query | missed | read as a Pass"
-        " | not run | as wanted | on the CRS | new rows on other fields |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        *_type_table(sheets, controls),
     ]
-    for kind, k in kinds.items():
-        lines.append(
-            f"| {kind} | {k['planted']} | {k['fail']} | {k['query']} | {k['missed']}"
-            f" | {k['wrongly_passed']} | {k['not_run']} | {k['as_wanted']} | {k['on_crs']}"
-            f" | {k['false_new']} |"
-        )
+    for kind in dict.fromkeys(_type_of(s) for s in sheets):
+        lines += [
+            "",
+            f"### {kind}: per defect kind",
+            "",
+            *_kind_table(per_kind(_of_type(sheets, kind))),
+        ]
     fails = sum(c["fail"] for c in controls)
     queries = sum(c["query"] for c in controls)
     library = sum(c["fail_library"] + c["query_library"] for c in controls)
@@ -497,6 +635,7 @@ def rows_of_run(conn, run_id: str, rules: dict, labels: dict[str, str]) -> list[
     """The run's findings as `judge` reads them. A row is on a field when its rule reads
     that field, its value is that field, or (checklist calculations) its words name it."""
     from app import datasheet_checks as dc
+    from app import presence_check
 
     items = _item_roles(rules)
     facts = {
@@ -532,7 +671,12 @@ def rows_of_run(conn, run_id: str, rules: dict, labels: dict[str, str]) -> list[
                     check or f["requirement_id"] or f["requirement_source_text"],
                     f["equipment_tag"],
                 ),
-                "status": f["compliance_status"],
+                # #1638, switch on: "is stated" read no value, so it is no Pass on the field
+                "status": (
+                    STATED
+                    if presence_check.is_stated_only(dict(f))
+                    else f["compliance_status"]
+                ),
                 "roles": roles,
                 "tier": "checklist" if checklist else "library",
             }
@@ -668,7 +812,7 @@ def score(
 ) -> dict:
     """Plant, review on a throw-away copy of `db_path`, judge. `db_path` is not written;
     the copy lives in `work` (default: beside `db_path`) and is deleted at the end."""
-    from app import datasheet_ai, db, live_guard
+    from app import coverage_pair, datasheet_ai, db, live_guard
     from app import datasheet_checks as dc
     from tools import crs_bench
 
@@ -707,12 +851,24 @@ def score(
                     log(
                         f"{entry['sheet']}: {len(rows)} rows{f' ({why})' if why else ''}"
                     )
+                # case=None: the one definition, without looking for a truth case
+                pair = (
+                    coverage_pair.for_run(conn, run_id, case=None)
+                    if run_id and not why
+                    else None
+                )
+                typed = {
+                    "equipment_type": base["equipment_type"],
+                    "typed_as": (pair or {}).get("equipment_type"),
+                }
                 if answer.get("control"):
                     if entry is manifest["sheets"][0]:
                         clean, baseline_missing = rows, bool(why)
                     controls.append(
                         {
                             **_control_counts(entry["sheet"], rows),
+                            **typed,
+                            **({"checklist": pair["checklist"]} if pair else {}),
                             **({"not_run": why} if why else {}),
                         }
                     )
@@ -740,6 +896,7 @@ def score(
                 sheets.append(
                     {
                         "sheet": entry["sheet"],
+                        **typed,
                         "defect": answer["defect"],
                         "fields": answer["fields"],
                         "wanted": answer["wanted"],

@@ -44,6 +44,27 @@ class SettingsExt(BaseModel):
     #: database COPY. No verdict reads them; no rule is in force until a person approves it. OFF: nothing is read,
     #: created or written. Env: RULEBOOK_V2_ENABLED.
     rulebook_v2_enabled: bool = False
+    #: #805 plan change 6: a review reads the approved version 2 rules for the document's equipment type beside version
+    #: 1 (`rulebook_v2_review.py`). Needs RULEBOOK_V2_ENABLED and the tables, so a database copy today. OFF: a review
+    #: reads none of it and is byte-identical. Env: RULEBOOK_V2_REVIEW_ENABLED.
+    rulebook_v2_review_enabled: bool = False
+    #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
+    #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
+    #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
+    rule_field_naming_engine: str = "off"
+    #: #1584, the proof run only: a rule forbidding a material decides through the owner-signed grade table
+    #: (`material_reference.py`), and each finding says it is not engineer-confirmed. Env: MATERIAL_REFERENCE_ENABLED.
+    material_reference_enabled: bool = False
+    #: Who proposes that table: "off" sends nothing. One call, no document text. Env: MATERIAL_REFERENCE_ENGINE.
+    material_reference_engine: str = "off"
+    #: Sonnet, not Haiku: one short call, and a wrong family is what a verdict would rest on. Env: MATERIAL_REFERENCE_MODEL.
+    material_reference_model: str = "claude-sonnet-5-5"
+    #: #805 plan change 6, the owner's to turn on: an owner's written note on a context-dependent rule lets that rule
+    #: decide, and the finding says so. It lifts the context flag only, never an unverifiable condition or a low reading
+    #: confidence. OFF: such a rule is a Query. Env: OWNER_NOTE_LIFTS_CONTEXT_FLAG_ENABLED.
+    owner_note_lifts_context_flag_enabled: bool = False
+    #: The model of that step. Env: RULE_FIELD_NAMING_MODEL.
+    rule_field_naming_model: str = "claude-haiku-5-5"
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, on the local model unless its engine says otherwise, every
@@ -168,6 +189,12 @@ class SettingsExt(BaseModel):
     #: Priority from the fixed list. EXPORT ONLY: no verdict, status or finding changes.
     #: OFF: nothing changes. Env: CRS_EXPORT_QUALITY_ENABLED.
     crs_export_quality_enabled: bool = False
+    #: #1503 remainder, needs the switch above: rows with no page merge on one clause when
+    #: they print the same reason (a safety tick stays its own row), a comment that was only the
+    #: "not yet proven" flag counts as no comment, more spellings of a material standard, and
+    #: the screen shows the Internal sheet. EXPORT ONLY. OFF: as #1509 left it.
+    #: Env: CRS_EXPORT_QUALITY_STRICT_ENABLED.
+    crs_export_quality_strict_enabled: bool = False
     #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
     #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
@@ -296,18 +323,32 @@ class SettingsExt(BaseModel):
     #: the signed-in user (`Me.session_expired_notice`). OFF: the form with no reason and no extra
     #: request, as before. Env: SESSION_EXPIRED_NOTICE_ENABLED.
     session_expired_notice_enabled: bool = False
+    #: #1592 items d and e: the CRS notice names each part that could not be checked by what it is,
+    #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
+    #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
+    crs_plain_notes_enabled: bool = False
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print
     #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
     #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
     one_checked_definition_enabled: bool = False
+    #: #1568: a page recognition failed on because the stored file could not be opened holds the document
+    #: at partially_searchable with the reason (`reading_state`, `page_not_read.is_file_error`), and the OCR
+    #: pools carry the parent's data directory to their workers (`stored_paths.pool_options`). Any other recognition
+    #: failure stays as it was. Works with ONE_CHECKED_DEFINITION_ENABLED on or off. OFF: byte-identical,
+    #: and at the next start a document it held goes back. Env: OCR_FILE_ERROR_HOLD_ENABLED.
+    ocr_file_error_hold_enabled: bool = False
     #: Owner's text on #1584: a rule the owner approved (`approval.tier == "owner"`) may decide a verdict, labelled
     #: "AI-built, quote-verified, owner-approved" (`rule_trust.tier_for_approved`), never "engineer-approved". Code
     #: still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick and, until ticked, no Approved
     #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
     #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
     owner_approved_rules_decide_enabled: bool = False
+    #: #1638: a checklist `required` row only asks that a field is stated. ON: it counts for
+    #: no approval and is not a decided rule, and is named "stated, not checked". OFF: a
+    #: Pass like any other. Env: PRESENCE_NOT_PASS_ENABLED.
+    presence_not_pass_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion
@@ -356,6 +397,12 @@ class SettingsExt(BaseModel):
     #: lane's own gates stay. OFF: no hook writes and an automatic row does not count; blocks still apply.
     #: Env: CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED.
     claude_auto_approve_reviews_enabled: bool = False
+    #: Lock 2 (QA order 1.2, 2 Nov): a DRAFT checklist does not mark the requirements of the standards it cites
+    #: "not used". They stay in scope, rule by rule; each verdict carries its own trust label even with
+    #: RULE_AUTO_USE off, so an unproven rule is held for the engineer. A signed checklist governs as before. More
+    #: rules reach the matcher, inside its existing per-run caps. OFF: as before.
+    #: Env: DRAFT_CHECKLIST_KEEPS_STANDARDS_ENABLED.
+    draft_checklist_keeps_standards_enabled: bool = False
     #: #805 plan change 6 E (`claude_spend_report`): each review run's spend per step in its record and audit. OFF:
     #: nothing is written. The USD 100 a day does not read this: it always binds (owner, #1584).
     #: Env: CLAUDE_COST_CONTROLS_ENABLED.

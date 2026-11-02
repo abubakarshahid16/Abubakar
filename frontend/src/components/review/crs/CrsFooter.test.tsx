@@ -135,3 +135,23 @@ describe("one meaning of checked (plan change 6 B)", () => {
     cleanup();
   });
 });
+
+describe("#1638 stated rows in the footer", () => {
+  it("names them, so the parts add up to the sheet", () => {
+    const run = {} as ReviewRunSummary;
+    const counts = { comment: 1, needsYou: 1, met: 2, stated: 17, notApplicable: 0, anotherDocument: 0 };
+    const { container } = render(
+      <CrsFooter run={run} counts={counts} standards={null} missing={[]} standardsError={null} rejected={0} />,
+    );
+    expect(container.textContent).toContain("17 stated, not checked");
+    expect(container.textContent).toContain("2 met the standard");
+  });
+
+  it("says nothing of them when there are none", () => {
+    const counts = { comment: 1, needsYou: 1, met: 2, notApplicable: 0, anotherDocument: 0 };
+    const { container } = render(
+      <CrsFooter run={{} as ReviewRunSummary} counts={counts} standards={null} missing={[]} standardsError={null} rejected={0} />,
+    );
+    expect(container.textContent).not.toContain("stated, not checked");
+  });
+});

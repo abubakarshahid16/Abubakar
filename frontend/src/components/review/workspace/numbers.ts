@@ -53,6 +53,7 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     needsYou: counts.needsYou,
     findingsInComments,
     met: counts.met,
+    stated: counts.stated ?? 0,
     // Rows and clauses are different things: the table folds ROWS (as
     // CrsSheetView's rowCounts), the clause count is said on its own.
     notApplicableRows: counts.notApplicable,
