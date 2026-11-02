@@ -42,6 +42,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
 | `scan_quality` | #505: how well a scanned page was read (the recogniser's own confidence grouped clear / mixed / poor, or a named state), shown beside the citation on `/evidence` |
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
+| `review_audit_rows` | #1525: reconciles, per CRS copy, the rows composed for a run with the rows the file prints and what was removed, for the audit report |
+| `ai_call_ledger` | #1525: counts, per step and model, the AI answers a review job asked for fresh and the stored answers it reused, for the audit report; open only with REVIEW_AUDIT_REPORT_ENABLED on |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
 | `answer_model_notice` | Order 238.2: the dashboard warning when the default 35B answer model is not installed, naming the earlier model |

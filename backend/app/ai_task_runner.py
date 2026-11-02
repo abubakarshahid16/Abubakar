@@ -48,7 +48,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
-from . import heavy_lock, model_transport, progress
+from . import ai_call_ledger, heavy_lock, model_transport, progress
 from .ai import output_limits
 from .config import settings
 from .db import connect
@@ -273,18 +273,22 @@ def reuse_or_ask(
     on a fresh one: the cache decides nothing.
     """
     if not settings.ai_answer_reuse_enabled:
+        ai_call_ledger.fresh(task, model)  # #1525
         return ask()  # reuse off (the final client test): nothing read, nothing kept
     identity = model_identity(model)
     if identity is None:
+        ai_call_ledger.fresh(task, model)  # #1525
         return ask()
     if asked is not None:
         nth = asked.get(prompt, 0)
     key = answer_cache_key(task, version, identity, schema, prompt, nth)
     reused = cached_answer(key)
     if reused is not None:
+        ai_call_ledger.reused(task, model)  # #1525: never counted as a call
         if asked is not None:
             asked[prompt] = nth + 1
         return reused
+    ai_call_ledger.fresh(task, model)  # #1525
     text = ask()
     # Only an answer worth keeping uses up its slot: a malformed or empty one
     # is never stored, and the next ask of the prompt takes the same slot.
@@ -431,6 +435,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
     if use_cache:
         hit = _cache_get(key)
         if hit is not None:
+            ai_call_ledger.reused(f"ai_task:{spec.name}", model)  # #1525
             return TaskResult(spec.name, STATE_OK, hit, None, model, True, 0)
 
     problems: list[str] = []
@@ -442,6 +447,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
         packet = Packet(prompt=prompt, num_ctx=2048, num_predict=spec.num_predict,
                         json_schema=spec.schema, step=f"ai_task:{spec.name}",
                         prompt_version=spec.version)
+        ai_call_ledger.fresh(packet.step, model)  # #1525: each attempt is a call
         try:
             response = provider.reason(packet)
         except ProviderRefused as exc:

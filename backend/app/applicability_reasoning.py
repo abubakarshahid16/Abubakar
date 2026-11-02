@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 
-from . import applicability_v2
+from . import ai_call_ledger, applicability_v2
 from .ai import output_limits
 from .reasoning_provider import Packet
 
@@ -169,6 +169,7 @@ def decide_by_reasoning(record: dict | None, equipment_type: str | None, provide
         return empty("no equipment type classified for this submittal")
     if not record:
         return empty("no verified scope record for this standard")
+    ai_call_ledger.fresh(step, ai_call_ledger.model_of(provider))  # #1525
     response = provider.reason(packet(record, equipment_type, step=step, seed=seed))
     parsed = _usable(response)
     if parsed is None:
@@ -189,6 +190,13 @@ def decide_by_reasoning(record: dict | None, equipment_type: str | None, provide
     # every READ of a decision, not on write - hence it lives in the caller.
     return {"decision": decision, "basis": parsed.get("basis"), "quote": quote, "page": page,
            "term": equipment_type}
+
+
+def reused_decision(decision: dict, record: dict | None, step: str) -> dict:
+    """A stored scope decision, counted as reused for the audit (#1525). Its table
+    does not store which model answered, so no model is claimed."""
+    ai_call_ledger.reused(step, None)
+    return with_covered_evidence(decision, record)
 
 
 def with_covered_evidence(decision: dict, record: dict | None) -> dict:
