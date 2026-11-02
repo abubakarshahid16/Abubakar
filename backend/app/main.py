@@ -24,6 +24,7 @@ from . import crs_ai_cell as crs_ai_cell_mod
 from . import crs_issue as crs_issue_mod
 from . import crs_carry as crs_carry_mod
 from . import crs_mapping as crs_mapping_mod
+from . import word_pages as word_pages_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
 from . import export_status as export_status_mod
@@ -1699,6 +1700,7 @@ def list_review_findings(
              "allowed_document_ids": scope.allowed_document_ids}
     findings = review_mod.list_findings(**where, limit=limit, offset=offset)
     total = len(findings) if limit is None and not offset else finding_query.count_findings(**where)
+    findings = [word_pages_mod.finding_for_reader(f) for f in findings]
     return {"findings": findings, "total": total, "limit": limit, "offset": offset}
 
 
@@ -2929,6 +2931,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     stamp = _now_date()
     meta = {
         "document_title": submittal_name,
+        # Never printed: `crs_mapping.for_reader` reads whether its numbers are pages.
+        "submittal_document_id": submittal_id,
         "submittal_number": submittal_number,
         # Never printed. Half of the key each row's stable reference is minted
         # from, so re-exporting this run quotes the same references.
@@ -3227,6 +3231,7 @@ def _xlsx_response(workbook: bytes, filename: str, headers: dict | None = None) 
 def _crs_workbook(review_run_id: str, scope: access.AccessScope, copy: str) -> tuple[bytes, str]:
     """The CRS workbook for one copy and its file name. No gate: callers gate."""
     rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)
+    rows, meta = crs_mapping_mod.for_reader(rows, meta)
     workbook = crs_export_mod.build_crs(rows, meta)
     safe = "".join(
         ch for ch in Path(submittal_name).stem if ch.isalnum() or ch in "-_")
@@ -3466,6 +3471,7 @@ def preview_review_crs(
     """
     reject_unknown_params(request, {"copy"})
     rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope, copy)
+    rows, meta = crs_mapping_mod.for_reader(rows, meta)
     return crs_export_mod.build_crs_view(rows, meta)
 
 

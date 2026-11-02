@@ -28,7 +28,7 @@ import json
 import logging
 import re
 
-from . import procedure_text, spec_kit
+from . import procedure_text, spec_kit, word_pages
 from .config import settings
 from .db import connect
 
@@ -461,7 +461,7 @@ def listed_rows(listed: list[dict], held: dict[str, list[str]]) -> list[dict]:
                     f"revision:{number}",
                     f"The revision listed for {number} is the held document's.",
                     f"{number}: listed revision {listed_rev} (transmittal page {entry['page']}), "
-                    f"held document {doc} cover states revision {cover[0]} (page {cover[1]}); "
+                    f"held document {doc} cover states revision {cover[0]} ({word_pages.other_document_page(cover[1])}); "
                     f"engineer to resolve.",
                     f'{number} listed {listed_rev}, cover says {cover[0]}: "{cover[2]}"',
                     entry["page"],
@@ -605,10 +605,10 @@ def required_rows(items: list[dict], listed: list[dict], boundary: str) -> list[
         # otherwise the list page is only named.
         verified = bool(req.get("cite"))
         where = (
-            f"required-submissions list {req['document']} page {req['page']}"
+            f"required-submissions list {req['document']} {word_pages.other_document_page(req['page'])}"
             if verified
-            else f"named on required-submissions list {req['document']} page "
-            f"{req['page']}; quote not verified on that page"
+            else f"named on required-submissions list {req['document']} "
+            f"{word_pages.other_document_page(req['page'])}; quote not verified on that page"
         )
         rows.append(
             _row(

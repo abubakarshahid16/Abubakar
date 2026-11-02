@@ -47,7 +47,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
+from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review, word_pages
 from .claude_auto_approve import lists_cited
 from .db import connect
 from .held_standards import mark_rows
@@ -1335,7 +1335,7 @@ def select(
         # citation. `decide_by_reasoning` backs every APPLICABLE(_CANDIDATE)
         # with the record's verified quote; a NULL that survives (a generic
         # scope naming no item) says so in plain words.
-        cited = (f"\"{decision.get('quote')}\" (page {decision.get('page')})"
+        cited = (f"\"{decision.get('quote')}\" ({word_pages.other_document_page(decision.get('page'))})"
                  if decision.get("quote") else "no specific quoted clause")
         row = selected.get(standard_id)
         if verdict == v2.APPLICABLE and (row is None or row["method"] not in INCLUDING_METHODS):

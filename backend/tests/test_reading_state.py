@@ -636,7 +636,9 @@ def test_the_held_line_gives_the_reason_and_the_route_keeps_it(tmp_path, monkeyp
         conn.execute("DELETE FROM word_picture_readings")
     _finish(monkeypatch, doc)
     got = reading_state.readable(access.unrestricted_scope())[doc]
-    assert got["line"].endswith(reading_state.WHY_NO_ANSWER)
+    assert got["line"].endswith(
+        f"{reading_state.WHY_NO_ANSWER}. {reading_state.WAY_FORWARD_REREAD}"
+    )
     assert got["unaccounted_list"][0]["reason"] == reading_state.WHY_NO_ANSWER
 
 

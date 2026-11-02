@@ -8,8 +8,17 @@ the same thing:
   * partial: "p.12 (page marks partial)": Word saved more pages than its markers
     prove, so the number may be low. Never extrapolated.
   * none: the section heading, and plainly no page, in the cells this module
-    writes. KNOWN GAP: comment text built elsewhere can still say "page N" and mean
-    a reading part, so the switch must not go on for a Word file with no marks.
+    writes.
+  * stale: the file has page marks, but what is stored was read before the switch,
+    so a stored number is a reading part, not a page. Said as no page until re-read.
+  * unreadable: the database calls it a Word file and the file cannot be opened, so
+    no stored number can be shown to be a page. Said the same way.
+
+Comment text is built in dozens of places, and a model can write "page 12" itself, so
+the guard is where text reaches a reader: `no_false_pages`, called on what the CRS and
+the findings screen print. What is stored keeps its number: the quote check and the
+row's page are built on it. A sentence about ANOTHER document says so
+(`other_document_page`) and keeps its number.
 
 Off, or not a Word file: `page_cell` returns what it was given and the rest return
 nothing. Reads the file (cached); no model, no socket, nothing written.
@@ -17,6 +26,7 @@ nothing. Reads the file (cached); no model, no socket, nothing written.
 
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import asdict
 from pathlib import Path
@@ -33,10 +43,19 @@ PARTIAL = "page marks partial"
 NOTE_NO_PAGES = "Word file with no page numbers"
 NOTE_PARTIAL_PAGES = "Word file with partial page numbers"
 NOTE_NOT_READ = "Word tables or pictures not read"
+#: The stored numbers are reading parts of a file that has page marks.
+PAGES_STALE = "stale"
+#: `page_source`: what a stored number of these files is not: a page.
+NO_REAL_PAGE = (PAGES_NONE, PAGES_STALE)
+READ_BEFORE_MARKS = "read before its page marks were used, so re-read it to get pages"
+NO_PAGE_SHORT = "no page number"
+NO_PAGE_UNREADABLE = "No page number: this Word file could not be opened to find its pages"
+_OTHER_DOCUMENT = "of that document"
 
 #: A lead `page_cell` writes, other than a plain "p.3".
 _LEAD = re.compile(
-    rf"^(?:p\.[\d, -]+ \({PARTIAL}\)|Section .*? \({NO_PAGE}\)|No page number: [^-]*?marks)(?: - |$)"
+    rf"^(?:p\.[\d, -]+ \({PARTIAL}\)|Section .*? \((?:{NO_PAGE}|{READ_BEFORE_MARKS})\)"
+    rf"|\({READ_BEFORE_MARKS}\)|No page number: [^-]*?(?:marks|pages))(?: - |$)"
 )
 
 _PAGE_WORD_LEAD = re.compile(rf"^pages? \d+(?:-\d+)?(?: \({PARTIAL}\))?(?:, | - |$)")
@@ -82,16 +101,91 @@ def _readings(path: str) -> dict:
     return word_pictures.stored_readings(path)
 
 
+#: How much of a page's start is compared: enough to tell one cut from another.
+_HEAD = 40
+
+
+@functools.lru_cache(maxsize=_CACHE_MAX)
+def _page_heads(path: str, _mtime_ns: int, _size: int) -> tuple[str, ...]:
+    """The start of each page of the file, with no picture's text: a picture's reading
+    can come later than the read, and must not look like another cut."""
+    from .extract import normalise_text
+
+    pages = docx_reader.read_structure(path, picture_readings={}).pages
+    return tuple(_squash(normalise_text(text))[:_HEAD] for text in pages)
+
+
+#: (document, its stored pages' count and size, the file's state) -> read as parts.
+_PARTS: dict[tuple, bool] = {}
+
+
+def _read_as_parts(document_id: str) -> bool:
+    """The stored pages are not this file's own pages: read before the switch. Each
+    page's start must be in the stored page of that number: another cut shows. Nothing
+    stored yet: nothing to be wrong."""
+    conn = connect()
+    count, chars = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(char_count), 0) FROM pages WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
+    if not count:
+        return False
+    row = conn.execute(
+        "SELECT stored_path FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
+    path = stored_paths.local(row["stored_path"])
+    state = Path(path).stat()
+    key = (document_id, count, chars, path, state.st_mtime_ns, state.st_size)
+    if key not in _PARTS:
+        if len(_PARTS) >= _CACHE_MAX:
+            _PARTS.pop(next(iter(_PARTS)))
+        heads = _page_heads(path, state.st_mtime_ns, state.st_size)
+        stored = conn.execute(
+            "SELECT text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        ).fetchall()
+        _PARTS[key] = len(stored) != len(heads) or any(
+            head not in _squash(r["text"]) for r, head in zip(stored, heads)
+        )
+    return _PARTS[key]
+
+
 def page_source(document_id: str | None) -> str | None:
-    """ "markers", "partial" or "none" for a Word file; None for anything else."""
+    """ "markers", "partial", "none" or "stale" for a Word file; None for anything else."""
     structure = _structure(document_id)
-    return structure.pagination.source if structure and structure.pagination else None
+    if structure is None or structure.pagination is None:
+        return None
+    source = structure.pagination.source
+    if source != PAGES_NONE and _read_as_parts(document_id):
+        return PAGES_STALE
+    return source
+
+
+def _is_flow(document_id: str | None) -> bool:
+    if not document_id:
+        return False
+    row = (
+        connect()
+        .execute("SELECT pagination FROM documents WHERE id = ?", (document_id,))
+        .fetchone()
+    )
+    return row is not None and row["pagination"] == "flow"
+
+
+def numbers_are_not_pages(document_id: str | None) -> bool:
+    """A stored page number of this document must never be printed as a page: a Word
+    file with no marks, one read before them, or one whose file cannot be opened."""
+    if not settings.word_page_markers_enabled or not document_id:
+        return False
+    return page_source(document_id) in NO_REAL_PAGE or (
+        _structure(document_id) is None and _is_flow(document_id)
+    )
 
 
 def unit(document_id: str | None) -> str:
     """What a progress line calls this file's numbered units: "part" only when a
     Word file has no pages to name. Switch off or a PDF: "page", as it always said."""
-    return "part" if page_source(document_id) == PAGES_NONE else "page"
+    return "part" if page_source(document_id) in NO_REAL_PAGE else "page"
 
 
 def _squash(text: str) -> str:
@@ -113,21 +207,35 @@ def _section_of(structure: Structure, part: int, quotes: list[str]) -> str:
     return names[0] if len(names) == 1 else f"{names[0]} to {names[-1]}"
 
 
+def _section_by_quote(structure: Structure, quotes: list[str]) -> str:
+    """ "Section X " when a quote sits under heading X; "" when nothing places it."""
+    wanted = [_squash(q) for q in quotes if _squash(q)]
+    for block in structure.blocks:
+        text = _squash(" ".join(docx_reader.block_lines(block)))
+        if block.chain and any(q in text for q in wanted):
+            return f"Section {block.chain[-1]} "
+    return ""
+
+
 def page_cell(plain: str, pages: list[int], group: list[dict]) -> str:
     """What a CRS row says for `plain` ("p.3"): itself, itself marked partial, or
     the section heading when the file has no pages. Display only."""
     if not plain or not settings.word_page_markers_enabled:
         return plain
     documents = {g.get("document_id") for g in group if g.get("document_id")}
-    structure = _structure(next(iter(documents))) if len(documents) == 1 else None
-    if structure is None or structure.pagination is None:
-        return plain
-    source = structure.pagination.source
-    if source == PAGES_MARKERS:
+    document = next(iter(documents)) if len(documents) == 1 else None
+    if numbers_are_not_pages(document) and _structure(document) is None:
+        return NO_PAGE_UNREADABLE
+    source = page_source(document)
+    if source is None or source == PAGES_MARKERS:
         return plain
     if source == PAGES_PARTIAL:
         return f"{plain} ({PARTIAL})"
+    structure = _structure(document)
     quotes = [str(g.get("contractor_evidence_text") or "") for g in group]
+    if source == PAGES_STALE:
+        # The numbers are from another cut: only a quote can place the row.
+        return f"{_section_by_quote(structure, quotes)}({READ_BEFORE_MARKS})"
     sections = list(
         dict.fromkeys(
             s for s in (_section_of(structure, p, quotes) for p in pages) if s
@@ -162,6 +270,106 @@ def without_lead(section: str, document_id: str | None) -> str:
     return _PAGE_WORD_LEAD.sub("", _LEAD.sub("", section))
 
 
+#: Words that hold a document's own text: a stored quote is the document's, as printed.
+_QUOTED = re.compile(r"\"[^\"]*\"|\u201c[^\u201d]*\u201d|(?<!\w)'[^']*'(?!\w)")
+_NUMBERS = r"\d+(?:\s*(?:-|\u2013|to)\s*\d+)?(?:\s*(?:,|and|&)\s*\d+(?:\s*(?:-|\u2013)\s*\d+)?)*"
+#: "page 12", "pages 1-3, 7", "p.12", "pp. 3-4", "pg 12", with what leads into it.
+_PAGE_WORDS = re.compile(
+    r"(?P<clause>\b(?:cl\.|clause)\s+\S+\s+\(?)?"
+    r"(?P<lead>\b(?:on|at|in)\s+)?"
+    rf"\b(?P<word>pages?\s+|pp?\.\s*|pgs?\.?\s*)(?P<numbers>{_NUMBERS})"
+    # "of 25" is the count of parts; "of SAES-L-100" names another document.
+    rf"(?P<of>\s+of\s+\d+\b)?(?P<other>\s+{_OTHER_DOCUMENT}|\s+of\s+[A-Z][\w./]*[-\d][\w./-]*)?",
+    re.IGNORECASE,
+)
+
+
+def other_document_page(page) -> str:
+    """How a sentence about a Word file names a page of ANOTHER document, so its number
+    is not taken for one of that file's. Off: "page N", as it always said."""
+    if settings.word_page_markers_enabled:
+        return f"page {page} {_OTHER_DOCUMENT}"
+    return f"page {page}"
+
+
+def _no_page_words(match: re.Match, structure: Structure | None) -> str:
+    if match["clause"] or match["other"]:
+        return match[0]  # a clause's page or a named document's: not this file's
+    lead = "in " if match["lead"] else ""
+    numbers = match["numbers"]
+    if numbers.isdigit() and structure is not None:
+        section = _section_of(structure, int(numbers), [])
+        if section:
+            return f'{lead}section "{section}"'
+    many = match["word"].lower().startswith("pp") or not numbers.isdigit()
+    return f"{lead}{'parts' if many else 'a part'} with {NO_PAGE_SHORT}"
+
+
+def no_false_pages(text, document_id: str | None):
+    """`text` as a reader may see it: a page number of a Word file whose numbers are
+    not pages becomes the section it sits under, or plainly no page. A quoted passage
+    is the document's own words and stays. Anything else, and off: `text` itself."""
+    if not text or not isinstance(text, str) or not numbers_are_not_pages(document_id):
+        return text
+    # The numbers of a stale file are from another cut, so they name no section.
+    structure = (
+        _structure(document_id) if page_source(document_id) == PAGES_NONE else None
+    )
+    out, at = [], 0
+    for quoted in _QUOTED.finditer(text):
+        out.append(
+            _PAGE_WORDS.sub(
+                lambda m: _no_page_words(m, structure), text[at : quoted.start()]
+            )
+        )
+        out.append(quoted[0])
+        at = quoted.end()
+    out.append(_PAGE_WORDS.sub(lambda m: _no_page_words(m, structure), text[at:]))
+    return "".join(out)
+
+
+#: What a findings screen shows of a stored finding. Engineer's own words are not here.
+_FINDING_TEXT = ("finding", "ai_rationale", "required_action")
+
+
+def finding_for_reader(finding: dict) -> dict:
+    """A copy of a stored finding, its machine text safe to show. Off: the finding."""
+    document_id = finding.get("document_id")
+    if not numbers_are_not_pages(document_id):
+        return finding
+    shown = {**finding, "contractor_page": None}
+    for key in _FINDING_TEXT:
+        shown[key] = no_false_pages(finding.get(key), document_id)
+    return shown
+
+
+#: The CRS cells built from machine text. `engineer_worded` rows are the engineer's.
+_CRS_TEXT = ("comment", "ai_review_comment", "reasoning", "page_section")
+
+
+def crs_rows_for_reader(rows: list[dict], document_id: str | None) -> list[dict]:
+    """Every CRS row of this document, its machine text safe to print, as the last step
+    before it is drawn. Off or a document with real pages: the rows as they came."""
+    if not numbers_are_not_pages(document_id):
+        return rows
+    for row in rows:
+        keys = _CRS_TEXT[-1:] if row.get("engineer_worded") else _CRS_TEXT
+        for key in keys:
+            if key in row:
+                row[key] = no_false_pages(row[key], document_id)
+    return rows
+
+
+def notes_for_reader(notes: list[dict], document_id: str | None) -> list[dict]:
+    """The CRS review notes of this document, safe to print."""
+    if not numbers_are_not_pages(document_id):
+        return notes
+    return [
+        {**note, "detail": no_false_pages(note.get("detail"), document_id)}
+        for note in notes
+    ]
+
+
 def no_image_words(default: str) -> str:
     """Why a Word page has no picture to show. It may well have a page number now,
     so "no printed pages" would be false with the switch on."""
@@ -181,13 +389,14 @@ def read_proof(document_id: str | None) -> dict | None:
         return None
     page = structure.pagination
     proof = structure.proof
+    source = page_source(document_id)
     return {
-        "page_source": page.source,
+        "page_source": source,
         "saved_markers": page.saved_markers,
         "typed_breaks": page.typed_breaks,
         "word_saved_pages": page.word_pages,
         # None: no page is available; a part count is not a page count.
-        "pages": None if page.source == PAGES_NONE else page.last_page,
+        "pages": None if source in NO_REAL_PAGE else page.last_page,
         "tables_in_file": proof.tables_in_file,
         "tables_read": proof.tables_read,
         "pictures_in_file": proof.pictures_in_file,
@@ -225,7 +434,19 @@ def review_notes(findings: list[dict]) -> list[dict]:
         proof = read_proof(document_id)
         if proof is None:
             continue
-        if proof["page_source"] == PAGES_NONE:
+        if proof["page_source"] == PAGES_STALE:
+            notes.append(
+                {
+                    "note": NOTE_NO_PAGES,
+                    "standard": "",
+                    "count": None,
+                    "detail": (
+                        f"This Word file was {READ_BEFORE_MARKS}: its rows name a section "
+                        "where a quote places one."
+                    ),
+                }
+            )
+        elif proof["page_source"] == PAGES_NONE:
             notes.append(
                 {
                     "note": NOTE_NO_PAGES,

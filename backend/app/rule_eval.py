@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims, deferred_value, errors, numparse
+from . import claims, deferred_value, errors, numparse, word_pages
 
 import logging
 
@@ -696,7 +696,7 @@ def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | No
                 rule = errors.fell_back("rule_eval: the model's rule could not be drafted; it stays with an engineer", exc, None)
     if rule is None:
         page = requirement.get("page") or requirement.get("chunk_page")
-        return None, (f"the table on page {page} could not be read" if page
+        return None, (f"the table on {word_pages.other_document_page(page)} could not be read" if page
                       else "the table could not be read")
     if requirement.get("id"):
         with connect() as conn:

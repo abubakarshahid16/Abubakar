@@ -9,7 +9,7 @@ from __future__ import annotations
 import bisect
 import re
 
-from . import subject_scope
+from . import subject_scope, word_pages
 
 #: A division heading: the structural word, a short id (a number, or one to
 #: four capitals with an optional "-A" letter), then the end of the line or a
@@ -403,7 +403,7 @@ def _not_read_item(requirement: dict, rec: dict, standard_labels: dict) -> dict:
     sid = requirement.get("standard_document_id")
     unit, why = rec["unit"], rec["not_read"]
     head = f"{unit['div']['heading']} of {standard_labels.get(sid) or sid}"
-    page = f" (page {unit['page']})" if unit["page"] is not None else ""
+    page = f" ({word_pages.other_document_page(unit['page'])})" if unit["page"] is not None else ""
     if why == "construction":
         scope = rec["scope"]
         reason = (
@@ -446,7 +446,7 @@ def ledger_item(
     sid = requirement.get("standard_document_id")
     scope, unit = rec["scope"], rec["unit"]
     head = f"{unit['div']['heading']} of {standard_labels.get(sid) or sid}"
-    page = f" (page {unit['page']})" if unit["page"] is not None else ""
+    page = f" ({word_pages.other_document_page(unit['page'])})" if unit["page"] is not None else ""
     if scope.get("limited") == "yes":
         construction, quote = scope["construction"].strip(), scope["quote"].strip()
         said = f'{head} applies only to {construction}: "{quote}"{page}'

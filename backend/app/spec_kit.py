@@ -38,7 +38,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import claims, procedure_text
+from . import claims, procedure_text, word_pages
 from .config import settings
 from .crs_draft_lanes import KIND_NOUNS, SPEC_LANE
 from .db import connect
@@ -325,11 +325,11 @@ def numeric_rows(
                 "requirement": f"The specification and the datasheet state the same {label}.",
                 "finding": (
                     f"{label}: specification says {spec_says} (page {hit[0]}), "
-                    f"{datasheet_name} says {sheet_says} (page {fact['page']}); engineer to resolve."
+                    f"{datasheet_name} says {sheet_says} ({word_pages.other_document_page(fact['page'])}); engineer to resolve."
                 ),
                 "rationale": (
                     f'{MISMATCH}: specification says {spec_says} on page {hit[0]}: "{hit[1]}"; '
-                    f"{datasheet_name} says {sheet_says} on page {fact['page']}; "
+                    f"{datasheet_name} says {sheet_says} on {word_pages.other_document_page(fact['page'])}; "
                     f"not a verdict, engineer to resolve"
                 ),
                 "page": hit[0],

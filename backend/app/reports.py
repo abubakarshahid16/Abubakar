@@ -260,7 +260,9 @@ th { background: #e5f0f3; color: #123b52; }
 
 
 def _passage_html(p: dict, n: int) -> str:
-    where = (f"{_esc(p['filename'])}, page {p['page_start']}"
+    where = (f"{_esc(p['filename'])}, {_esc(p['locator'])}"
+             if settings.word_page_markers_enabled and p.get("locator")
+             else f"{_esc(p['filename'])}, page {p['page_start']}"
              if p.get("page_start") == p.get("page_end")
              else f"{_esc(p['filename'])}, pages {p.get('page_start')}-{p.get('page_end')}")
     # NO CLAUSE LABEL. The chunker's `section` was wrong on 5 of 6 cited

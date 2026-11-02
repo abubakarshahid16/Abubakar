@@ -876,7 +876,13 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
             "pages_total": row["page_count"], "pages_unread": [],
             "pages_excluded": [],
         })
-    unfinished = [d for d in boundary["documents"] if d["status"] != states.READY]
+    for doc in boundary["documents"]:
+        if doc["status"] != states.READY and (
+            line := reading_state.text_only_answer(doc["document_id"], doc["status"])
+        ):
+            doc["read_in_part"] = line
+    unfinished = [d for d in boundary["documents"]
+                  if d["status"] != states.READY and not d.get("read_in_part")]
     if unfinished:
         return refused(reading_state.not_ready_words(unfinished))
 
@@ -1038,6 +1044,10 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
                      if actual_words < target_words * 0.6 else "")
     citation_notice = (" Unsupported draft sentences were removed by the source checks."
                        if summary.dropped_sentences else "")
+    read_in_part = "".join(
+        f" {doc['filename']} is not fully accounted for, so this covers its text only. "
+        f"{doc['read_in_part']}."
+        for doc in boundary["documents"] if doc.get("read_in_part"))
     return {"question": question, "answer_type": "generated",
             "answer": summary.text, "reason": None, "passages": passages,
             "cited": list(range(1, len(passages) + 1)),
@@ -1050,7 +1060,7 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
                         f"documents and {len(evidence)} readable chunks. "
                         f"{excluded_pages} intentionally excluded {excluded_label} "
                         f"{excluded_verb} not used."
-                        f"{coverage_notice}{length_notice}{citation_notice}"],
+                        f"{coverage_notice}{length_notice}{citation_notice}{read_in_part}"],
             "seconds": time.monotonic() - started,
             **({"provider_note": local_note} if local_note else {})}
 

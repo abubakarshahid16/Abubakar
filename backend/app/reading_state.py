@@ -64,6 +64,12 @@ WHY_PDF_NOT_RECOGNISED = (
 )
 WHY_SHEET = "in a workbook, which is read as cells"
 #: Stored and shown at most this many of each list; the counts stay whole.
+#: The way forward for a Word file held because a picture has no reader's answer.
+WAY_FORWARD_REREAD = (
+    "Reprocess the file so the local recogniser reads its pictures; until then, "
+    "answers can use its text only"
+)
+_WHY_NEEDS_REREAD = frozenset({WHY_NO_ANSWER, WHY_WORD_NOT_COUNTED})
 MAX_LISTED = 40
 NOTE = "What was read of this document"
 STILL_PROCESSING = (
@@ -238,7 +244,10 @@ def assess(
     return out
 
 
-def _places(items: list[dict]) -> str:
+def _places(items: list[dict], page_unit: str = "page") -> str:
+    """A part number is not a page (a Word file with no page marks): no place is said."""
+    if page_unit == UNIT_PART:
+        return ""
     pages = sorted({i["page"] for i in items if i.get("page")})
     shown = ", ".join(str(p) for p in pages[:5]) + (
         " and more" if len(pages) > 5 else ""
@@ -252,10 +261,12 @@ def _line(out: dict) -> str:
     if total is None:
         pages = "pages not counted"
     elif out["page_unit"] == UNIT_PART:
-        pages = (
-            f"Read {out['pages_read']} of {total} reading parts "
-            "(no page numbers: this Word file gives none)"
+        why = (
+            "no page numbers: this Word file was read before its page marks were used"
+            if out["page_source"] == "stale"
+            else "no page numbers: this Word file gives none"
         )
+        pages = f"Read {out['pages_read']} of {total} reading parts ({why})"
     elif out["page_source"] == "partial":
         pages = (
             f"Read {out['pages_read']} of the {total} pages its page marks reach "
@@ -274,10 +285,12 @@ def _line(out: dict) -> str:
         why = list(dict.fromkeys(str(i["reason"]) for i in out["unaccounted_list"]))
         said += (
             f"; not ready: {out['unaccounted']} not accounted for"
-            + _places(out["unaccounted_list"])
+            + _places(out["unaccounted_list"], out["page_unit"])
             + ": "
             + "; ".join(why[:3])
         )
+        if set(why) & _WHY_NEEDS_REREAD:
+            said += f". {WAY_FORWARD_REREAD}"
     return said
 
 
@@ -351,7 +364,9 @@ def _word_pictures(path: str, document_id: str) -> dict:
     return {
         "items": items,
         "furniture": proof["furniture_pictures"],
-        "page_unit": UNIT_PART if proof["page_source"] == "none" else UNIT_PAGE,
+        "page_unit": UNIT_PART
+        if proof["page_source"] in word_pages.NO_REAL_PAGE
+        else UNIT_PAGE,
         "page_source": proof["page_source"],
         "word_saved_pages": proof["word_saved_pages"],
     }
@@ -697,6 +712,30 @@ def coverage_part(document_id: str) -> dict:
     """What `page_ledger.coverage` adds: the decision as it stands, in full."""
     decided = decide(document_id)
     return {} if decided is None else {"reading": decided}
+
+
+def text_only_answer(document_id: str, status: str) -> str | None:
+    """What a full-document answer must say about a held Word file whose text is all
+    searchable and whose only gap is pictures with no answer: the answer goes ahead on
+    its text, and says so. None for anything else, and with the switches off."""
+    from . import datasheet_inputs, states
+
+    if status != states.PARTIALLY_SEARCHABLE or not _any_switch():
+        return None
+    saved = stored(document_id)
+    if not saved or not saved["unaccounted"] or not saved["unaccounted_list"]:
+        return None
+    if any(i.get("kind") != "picture" for i in saved["unaccounted_list"]):
+        return None
+    row = (
+        connect()
+        .execute("SELECT stored_path FROM documents WHERE id = ?", (document_id,))
+        .fetchone()
+    )
+    path = row["stored_path"] if row else None
+    if not path or datasheet_inputs.office_kind(path) != datasheet_inputs.KIND_DOCX:
+        return None
+    return saved["line"]
 
 
 def not_ready_words(documents: list[dict]) -> str:

@@ -1433,6 +1433,34 @@ def _one_row_findings(items: list[dict], *buckets: str) -> list[dict]:
     return [item["findings"][0] for item in items if item["bucket"] in buckets]
 
 
+#: The sheet's sentences beside its rows, each built from machine text.
+_META_TEXT = ("run_status_note", "incomplete_notice", "recommended_code_reason")
+
+
+def for_reader(rows: list[dict], meta: dict) -> tuple[list[dict], dict]:
+    """The CRS as it is drawn: every comment, cell and note of a Word file whose numbers
+    are not pages says no number as a page, whichever module or model wrote the words.
+    The LAST step, after numbering and carry-over, which compare the stored words. Off
+    or a document with real pages: as they came."""
+    document_id = meta.get("submittal_document_id")
+    if not word_pages.numbers_are_not_pages(document_id):
+        return rows, meta
+    shown = {
+        **meta,
+        "review_notes": word_pages.notes_for_reader(
+            meta.get("review_notes") or [], document_id
+        ),
+        "unchecked_parts": [
+            word_pages.no_false_pages(line, document_id)
+            for line in meta.get("unchecked_parts") or []
+        ],
+    }
+    for key in _META_TEXT:
+        if key in shown:
+            shown[key] = word_pages.no_false_pages(shown[key], document_id)
+    return word_pages.crs_rows_for_reader(rows, document_id), shown
+
+
 def build_crs_rows(findings: list[dict], missing_references: list[str],
                    submittal_name: str,
                    unread_pages: list[int] | None = None,

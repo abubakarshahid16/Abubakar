@@ -531,15 +531,25 @@ def _md_pages(audit: dict) -> list[str]:
         out.append(f"- not read: {NOT_RECORDED}")
     else:
         out.append(f"- not read: {len(pages['not_read'])} of {pages['total']}")
-        out += [f"  - page {p['page']}: {p['reason']}" for p in pages["not_read"]]
+        out += [f"  - {_page_of(p, pages)}: {p['reason']}" for p in pages["not_read"]]
     out += [
-        f"- page {p['page']}: rule {p['rule']}"
+        f"- {_page_of(p, pages)}: rule {p['rule']}"
         for p in (pages["per_page"] or [])
         if p.get("rule")
     ]
     if pages.get("word_read"):
         out += _md_word_read(pages["word_read"])
     return [*out, ""]
+
+
+def _page_of(row: dict, pages: dict) -> str:
+    """A ledger row's page; a part of a Word file with no pages names no number."""
+    from . import word_pages
+
+    source = (pages.get("word_read") or {}).get("page_source")
+    if source in word_pages.NO_REAL_PAGE:
+        return f"a part with {word_pages.NO_PAGE_SHORT}"
+    return f"page {row['page']}"
 
 
 def _md_word_read(word: dict) -> list[str]:
