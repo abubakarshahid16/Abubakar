@@ -1596,10 +1596,11 @@ def _outcome(sentence, **over):
 
 
 NOZZLE = "The pressure of a 100 mm nozzle shall not exceed 200 psi."
+PLAIN_LIMIT = "The nozzle pressure shall not exceed 200 psi."
 
 
 def test_the_limit_the_sentence_binds_to_the_comparator_is_kept():
-    rule, why = _outcome(NOZZLE)
+    rule, why = _outcome(PLAIN_LIMIT)
     assert why is None and (rule["limit_value"], rule["unit"]) == (200.0, "psi")
 
 
@@ -1853,7 +1854,7 @@ def test_applies_to_is_marked_verified_only_when_the_page_says_it():
     _document()
     _compile(FakeBatches([_rule(applies_to="relief flanges")]))
     assert _rules()[0]["applies_to_verified"] == 1
-    rule, _why = _outcome(NOZZLE, applies_to="gearboxes")
+    rule, _why = _outcome(PLAIN_LIMIT, applies_to="gearboxes")
     assert rule["applies_to_verified"] is False
 
 
@@ -2281,7 +2282,7 @@ def test_a_line_with_no_verb_is_flagged_row_like():
 
 
 def test_a_plain_sentence_under_a_plain_heading_carries_no_flag():
-    rule, why = _outcome(NOZZLE)
+    rule, why = _outcome(PLAIN_LIMIT)
     assert why is None and rule["context_flag"] is None and rule["strength"] == "shall"
 
 
@@ -4122,3 +4123,215 @@ def test_ensure_schema_takes_no_argument_like_every_other_module():
         )
     }
     assert {"compiled_rules", "compile_runs", "claude_batches"} <= names
+
+
+# --------------------------------------------------------------------------------------- third review
+
+
+@pytest.mark.parametrize(
+    "sentence, comparator",
+    [
+        ("The pressure shall not be above 200 psi.", ">"),
+        ("The pressure shall not be over 200 psi.", ">"),
+        ("The pressure shall not be below 200 psi.", "<"),
+        ("The pressure shall not be under 200 psi.", "<"),
+        ("No pressure shall be above 200 psi.", ">"),
+        ("No widget pressure shall exceed 200 psi.", ">"),
+        ("The pressure shall never be above 200 psi.", ">"),
+    ],
+)
+def test_a_negated_comparator_never_stores_the_opposite_direction(sentence, comparator):
+    assert _plain(sentence, comparator=comparator) == (None, "comparator_negated")
+
+
+@pytest.mark.parametrize(
+    "sentence, comparator",
+    [
+        ("The pressure shall not exceed 200 psi.", "<="),
+        ("The pressure shall not be more than 200 psi.", "<="),
+        ("The pressure shall not be less than 200 psi.", ">="),
+        ("The pressure shall be no more than 200 psi.", "<="),
+    ],
+)
+def test_a_comparator_whose_words_hold_the_negation_is_kept(sentence, comparator):
+    rule, why = _plain(sentence, comparator=comparator)
+    assert why is None and rule["comparator"] == comparator
+
+
+@pytest.mark.parametrize(
+    "rest",
+    ["or 30 bar for gas.", "alternatively 30 bar.", "30 bar whichever is greater."],
+)
+def test_an_alternative_in_the_next_semicolon_clause_keeps_no_figure(rest):
+    sentence = f"The pressure shall be 25 bar; {rest}"
+    quote = "The pressure shall be 25 bar;"
+    assert _verify_on(
+        f"7.3 Part\n{sentence}", quote, comparator="=", limit="25", unit="bar"
+    ) == (None, "alternative_not_one_figure")
+
+
+def test_a_separate_rule_after_a_semicolon_is_not_an_alternative():
+    sentence = "The pressure shall be 25 bar; the widget load shall be 30 bar."
+    quote = "The pressure shall be 25 bar;"
+    assert (
+        _verify_on(
+            f"7.3 Part\n{sentence}", quote, comparator="=", limit="25", unit="bar"
+        )[1]
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "opener",
+    [
+        "In frost",
+        "On rails",
+        "When wet",
+        "If wet",
+        "Where wet",
+        "While wet",
+        "Until dry",
+        "Once dry",
+        "Unless dry",
+        "Within plants",
+        "After tests",
+        "Before tests",
+        "Given frost",
+        "Provided dry",
+    ],
+)
+def test_an_opener_with_no_comma_holds_a_scope(opener):
+    assert _plain(f"{opener} the pressure shall not exceed 200 psi.")[0] is None
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Pumps 5 kW and larger pressure shall not exceed 200 psi.",
+        "The 10 inch widget pressure shall not exceed 200 psi.",
+    ],
+)
+def test_a_figure_in_the_subject_is_a_scope(sentence):
+    assert _plain(sentence) == (None, "condition_not_captured")
+
+
+def test_a_figure_in_the_second_subject_is_a_scope():
+    sentence = (
+        "Covers shall be painted and 10 inch widget pressure shall not exceed 200 psi."
+    )
+    assert _plain(sentence)[0] is None
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The pressure (gas lines) shall not exceed 25 bar.",
+        "The pressure shall not exceed 25 bar (gas lines).",
+    ],
+)
+def test_a_bracketed_noun_is_a_scope(sentence):
+    assert _plain(sentence, limit="25", unit="bar") == (None, "condition_not_captured")
+    assert (
+        _plain(sentence, limit="25", unit="bar", condition="gas lines")[1]
+        != "condition_not_captured"
+    )
+
+
+def test_a_bracket_the_field_names_is_not_a_scope():
+    sentence = "The drain pressure (sump hole) shall not exceed 25 bar."
+    rule, why = _plain(
+        sentence, field="drain pressure (sump hole)", limit="25", unit="bar"
+    )
+    assert why is None and rule["field"] == "drain pressure"
+
+
+def test_a_pressure_reference_in_brackets_is_not_a_scope():
+    _rule_kept, why = _plain(
+        "The pressure shall not exceed 25 bar (gauge).", limit="25", unit="bar"
+    )
+    assert why is None
+
+
+def test_a_bracket_after_the_modal_of_a_sentence_with_no_figure_is_not_a_scope():
+    sentence = "Covers shall be made of Alloy 9 (UNS N1)."
+    _rule_kept, why = _plain(
+        sentence, field="covers", limit=None, unit=None, comparator=None
+    )
+    assert why is None
+
+
+def test_a_held_condition_does_not_excuse_a_second_one_in_the_middle():
+    sentence = "For frost, the widget in gas service shall be painted."
+    over = {
+        "field": "widget",
+        "limit": None,
+        "unit": None,
+        "comparator": None,
+        "condition": "For frost",
+    }
+    assert _plain(sentence, **over) == (None, "condition_not_captured")
+    assert (
+        _plain(sentence, **{**over, "condition": "For frost; in gas service"})[1]
+        is None
+    )
+
+
+def test_the_limit_belongs_to_the_subject_of_its_own_modal():
+    sentence = "Pumps shall be vented and the valve pressure shall not exceed 200 psi."
+    assert _plain(sentence, field="pump") == (None, "limit_not_bound")
+    assert _plain(sentence, field="valve pressure")[1] is None
+
+
+def test_an_exception_in_the_next_sentence_is_flagged():
+    sentence = "The pressure shall not exceed 200 psi."
+    page = f"7.3 Part\n{sentence}\nThis does not apply to cold plants."
+    rule, why = _verify_on(page, sentence)
+    assert why is None and "next_sentence_exception" in rule["context_flag"]
+    assert rule["strength"] == "context_dependent"
+
+
+@pytest.mark.parametrize(
+    "words", ["Exception:", "However, cold plants may differ.", "Except cold plants."]
+)
+def test_other_exception_openers_are_flagged(words):
+    sentence = "The pressure shall not exceed 200 psi."
+    rule, why = _verify_on(f"7.3 Part\n{sentence} {words}", sentence)
+    assert why is None and "next_sentence_exception" in rule["context_flag"]
+
+
+def test_unset_means_no_normal_send_even_after_a_flagged_run_left_a_batch_canceling():
+    _document()
+    fake = FakeBatches()
+    fake.never_ends = True
+    assert _fallback(fake)[0]["status"] == "waiting"
+    fake.never_ends = False
+    report = standards_compiler.compile_standard(
+        db.connect(), DOC, LABEL, client=fake, send=fake.send, sleep=lambda _s: None
+    )
+    assert fake.normal == [] and report["sent_at_normal_price"] == 0
+    assert report["status"] == "all_pages_answered" and len(fake.created) == 2
+
+
+def test_unset_waits_on_a_canceling_batch_and_sends_nothing():
+    _document()
+    fake = FakeBatches()
+    fake.never_ends = True
+    _fallback(fake)
+    clock = _Clock()
+    report = standards_compiler.compile_standard(
+        db.connect(),
+        DOC,
+        LABEL,
+        client=fake,
+        send=fake.send,
+        sleep=clock.sleep,
+        clock=clock,
+        max_wait_s=120.0,
+    )
+    assert (
+        report["status"] == "waiting" and fake.normal == [] and len(fake.created) == 1
+    )
+
+
+def test_shall_not_be_a_figure_is_never_an_equal_limit():
+    assert _plain("The pressure shall not be 200 psi.", comparator="=")[0] is None

@@ -122,7 +122,33 @@ _FIGURE_SCOPE = re.compile(
 )
 #: A sentence opening with one of these has its scope in front, comma or not.
 _OPENS_WITH_SCOPE = re.compile(
-    r"^\W*(?:for|at|with|over|having|during|under|above|below)\b"
+    r"^\W*(?:for|at|with|without|over|having|during|under|above|below|in|on|when|whenever|if|where|while|until|once|"
+    r"unless|within|after|before|except|given|providing|provided|as\s+long\s+as)\b"
+)
+#: Words that deny what follows. Left over once the comparator phrases that hold a negation are read, the direction of
+#: the sentence is not the one its comparator word says: "shall not be above" stores no "above".
+_NEGATION = re.compile(r"\b(?:not|no|never|none|neither|nor)\b")
+_NEGATED_CUES = tuple(
+    sorted(
+        (
+            c
+            for cues in sc._CUES.values()
+            for c in cues
+            if re.search(r"\b(?:not|no)\b", c)
+        ),
+        key=len,
+        reverse=True,
+    )
+)
+#: A clause after a semicolon that offers another figure for the same thing.
+_ALTERNATIVE_CLAUSE = re.compile(r"\b(?:or|alternatively|otherwise|whichever)\b")
+#: A bracket that only says how a pressure is read, or makes a plural.
+_READING_NOTE = re.compile(
+    r"^\W*(?:s|es|g|a|ga|abs|absolute|gauge|typ|typical|approx)\W*$"
+)
+#: The next sentence takes the rule back, in part.
+_NEXT_EXCEPTION = re.compile(
+    r"^\W*(?:exception|exceptions|except|however|but|unless|this\s+(?:\w+\s+)?does\s+not)\b"
 )
 #: Two figures for one property. One stored figure would be wrong for the other.
 _ALTERNATIVE = re.compile(r"\bwhichever\b|\d[^,;.()]{0,30}\bor\s+(?:\w+\s+)?\d")
@@ -333,6 +359,14 @@ def _modal_binds(number, comparator: str, body: str, field: str) -> bool:
             return False
         return _bound_to_comparator(number, "", comparator, body)
     modal = modals[-1]
+    clause_from = modals[-2].end() if len(modals) > 1 else 0
+    named = {
+        w
+        for w in _field_words(field)
+        if w not in _GENERIC_FIELD_WORDS and w not in sc.field_naming._QUALIFIERS
+    }
+    if not named <= _field_words(text[clause_from:]):
+        return False
     span = text[modal.end() : number.start]
     between = [
         n for n in numparse.find_numbers(text) if modal.end() <= n.start < number.start
@@ -366,6 +400,35 @@ def _equal_binds(span: str, around: str, field: str) -> bool:
         return False
     named = {w for w in _field_words(field) if w not in _GENERIC_FIELD_WORDS}
     return named <= _field_words(around)
+
+
+def is_negated(body: str, number) -> bool:
+    """Is a negation still standing before the figure, once the comparator phrases that hold one are out?"""
+    text = numparse.fold(body).lower()[: number.start]
+    for cue in _NEGATED_CUES:
+        text = text.replace(cue, " ")
+    return bool(_NEGATION.search(text))
+
+
+def alternative_follows(quote: str, page: str) -> bool:
+    """Does the next semicolon clause on the page offer another figure? The quote stops at the semicolon; the sentence
+    goes on. A clause with its own modal is a rule of its own."""
+    folded, q = _fold(page), _fold(quote).rstrip(" ;")
+    at = folded.find(q)
+    if at < 0:
+        return False
+    rest = folded[at + len(q) :].lstrip()
+    if not rest.startswith(";"):
+        return False
+    clause = re.split(r"[.;](?:\s|$)", rest[1:], maxsplit=1)[0]
+    return (
+        bool(re.search(r"\d", clause))
+        and not _MODAL.search(clause)
+        and (
+            bool(_ALTERNATIVE_CLAUSE.search(clause))
+            or bool(numparse.find_numbers(clause))
+        )
+    )
 
 
 def has_alternative(sentence: str) -> bool:
@@ -425,6 +488,8 @@ def _limit_problem(limit, unit, comparator, body, sentence, field) -> str | None
     in_whole = _written(limit, whole)
     if _INSIDE_A_CONDITION.search(numparse.fold(body).lower()[: number.start]):
         return "limit_inside_a_condition"
+    if is_negated(body, number):
+        return "comparator_negated"
     if _is_range(number, unit, body) or (in_whole and _is_range(in_whole, unit, whole)):
         return "range_not_single"
     if sc.limit_scope(body, body, number.raw, unit) is None:
@@ -472,36 +537,49 @@ def _tail_read_as_property(limit: str, unit: str, body: str, field: str) -> bool
     return not _field_words(tail) <= _field_words(field)
 
 
-def _bracketed_scope(sentence: str) -> list[str]:
-    """A scope in brackets anywhere in the sentence: `limit_scope` passes over them."""
-    return [
-        _unhyphen(_fold(inner))
-        for inner in _BRACKET.findall(_fold(sentence))
-        if not _CONVERSION.match(inner)
-        and (_is_scope(inner) or _SCOPE_ANYWHERE.search(inner))
-    ]
+def _bracketed_scope(
+    sentence: str, head: str, has_limit: bool, field: str
+) -> list[str]:
+    """A scope in brackets: `limit_scope` passes over them. Any words in brackets before the modal, or anywhere in a rule
+    with a figure, unless they only say how a value is read or are the field's own. After the modal of a sentence with no
+    figure, only what reads as a scope ("made of Alloy 9 (UNS N1)" names the thing)."""
+    out = []
+    folded = _fold(sentence)
+    for found in _BRACKET.finditer(folded):
+        inner = found.group(1)
+        if _CONVERSION.match(inner) or _READING_NOTE.match(inner):
+            continue
+        reads_as_scope = _is_scope(inner) or _SCOPE_ANYWHERE.search(inner)
+        near = has_limit or _fold(f"({inner})") in _fold(head)
+        if reads_as_scope or (near and not _field_words(inner) <= _field_words(field)):
+            out.append(_unhyphen(_fold(inner)))
+    return out
 
 
 def _condition_captured(
     condition: str, sentence: str, limit, unit, body, field
 ) -> bool:
-    """Every scope of the sentence is held by the rule. The trailing one is read off the main clause, so what is held
-    has left it already; what is still there is lost. A figure in the subject scoped by a preposition, or a proviso before
-    the limit, is still there too when nobody captured it."""
+    """Every scope of the sentence is held by the rule. What is held has left `body`, so a scope still there is lost: after
+    the limit, in the subject (a figure, a proviso), or anywhere `_is_conditional` can read one."""
     if _trailing_scope(limit, unit, body, field):
         return False
     said = _unhyphen(_fold(condition))
-    head = _MODAL.split(body, maxsplit=1)[0]
+    plain = _core(body)
+    parts = _MODAL.split(plain)
+    head = " ".join(parts[:-1]) if len(parts) > 1 else parts[0]
     if _FIGURE_SCOPE.search(head) or _INSIDE_A_CONDITION.search(head):
         return False
-    if any(part not in said for part in _bracketed_scope(sentence)):
+    if len(parts) > 1 and re.search(r"(?<![\w.])\d", head):
+        return False
+    held_brackets = _bracketed_scope(sentence, head, bool(limit), field)
+    if any(part not in said for part in held_brackets):
+        return False
+    if ai_requirements._is_conditional(plain):
         return False
     leading = _leading_scope(sentence)
     if said:
         return not leading or leading in said
-    if _OPENS_WITH_SCOPE.match(sentence):
-        return False
-    return not leading and not ai_requirements._is_conditional(sentence)
+    return not leading and not _OPENS_WITH_SCOPE.match(sentence)
 
 
 def quote_span(quote: str, text: str) -> tuple[int | None, int | None]:
@@ -617,6 +695,15 @@ def _adjacent_scope(sentence: str, text: str) -> bool:
     return bool(after and _REFERS_BACK.match(after) and _is_scope(after))
 
 
+def _next_is_an_exception(sentence: str, text: str) -> bool:
+    found = sentences_of(text)
+    cores = [_core(s) for s in found]
+    if sentence not in cores:
+        return False
+    at = cores.index(sentence)
+    return at + 1 < len(found) and bool(_NEXT_EXCEPTION.match(found[at + 1]))
+
+
 def is_table_row(answer: object, tables) -> bool:
     """Does the table reader's record hold this proposal's quote? Only where a record exists."""
     if not isinstance(answer, dict) or not tables:
@@ -648,6 +735,8 @@ def context_flags(
         flags.append("caption_scope")
     if _adjacent_scope(sentence, text):
         flags.append("adjacent_scope")
+    if _next_is_an_exception(sentence, text):
+        flags.append("next_sentence_exception")
     return flags
 
 
@@ -726,7 +815,7 @@ def verify(
         return None, "condition_not_captured"
     if lead_in and _LEAD_HOLDS.search(lead_in):
         return None, "lead_in_holds_the_obligation"
-    if limit and has_alternative(sentence):
+    if limit and (has_alternative(sentence) or alternative_follows(quote, text)):
         return None, "alternative_not_one_figure"
     whole = f"{lead_in} {sentence}" if lead_in else sentence
     scope = _scope_problem(condition, exception, whole)
@@ -742,7 +831,7 @@ def verify(
     elif comparator or unit:
         return None, "comparator_without_limit"
     held = "; ".join(p for p in (condition, exception) if p)
-    if not _condition_captured(held, whole, limit, unit, body, name):
+    if not _condition_captured(held, whole, limit, unit, body, glossed):
         return None, "condition_not_captured"
     stated = strength_of(sentence)
     flags = context_flags(answer, sentence, stated, pages, tables)
