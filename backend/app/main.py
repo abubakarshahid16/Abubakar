@@ -33,7 +33,7 @@ from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import ingest as ingest_mod, dashboard_pool
 from . import job_queue as job_queue_mod
-from . import review_jobs as review_jobs_mod
+from . import review_jobs as review_jobs_mod, run_record as run_record_mod
 from . import orphan_guard
 from . import page_ledger as page_ledger_mod
 from . import fts_index as keyword_mod
@@ -2929,8 +2929,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta = {
         "document_title": submittal_name,
         "submittal_number": submittal_number,
-        # Never printed. Half of the key each row's stable reference is minted
-        # from, so re-exporting this run quotes the same references.
+        # Never printed: half the key of each row's stable reference, so re-exports match.
         "review_run_id": review_run_id,
         "date_issued": stamp,
         # Left blank on purpose - see above. Absent, not invented.
@@ -2959,6 +2958,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "run_status_note": export_status_mod.run_header_note(run.get("status"), outcome, unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
+        **run_record_mod.crs_meta(run, outcome, unchecked, missing, copy, allowed),
     }
     meta = absence_mod.with_plain_notes(meta, rows, unchecked)
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)

@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims, deferred_value, numparse
+from . import claims, deferred_value, numparse, unit_case
 
 import logging
 
@@ -270,7 +270,7 @@ def _parse_rule(text: str, *, output: str, input_names: list[str], comparator: s
             hi = _n(m.group(5)) if m.group(5) else None
             u = m.group(6) or u
         if u:
-            if unit and u.lower() != unit.lower():
+            if unit and unit_case.fold_unit(u) != unit_case.fold_unit(unit):
                 return None
             unit = unit or u
         expr = _parse_expr(rest, symbols)
@@ -364,7 +364,7 @@ def same_value_key(fact: dict) -> tuple:
             return ("q", round(float(m.normalized_value), 9), m.normalized_unit, basis)
         number = claims.parse_value(str(raw))
         if number is not None:
-            return ("n", round(number, 9), " ".join(unit.lower().split()))
+            return ("n", round(number, 9), unit_case.fold_unit(unit))
     text = _value_of(fact).lower()
     return ("t", re.sub(r"(?<=\d),(?=\d{3}\b)", "", text))
 
