@@ -1391,8 +1391,9 @@ class _RuleTrust:
     made under another model or another revision of the standard is INVALID
     (`rule_trust.load_proof`), so the rule reads as UNPROVEN."""
 
-    def __init__(self, equipment_type: str | None) -> None:
+    def __init__(self, equipment_type: str | None, *, always: bool = False) -> None:
         self.equipment_type = equipment_type
+        self.always = always
         self._proofs: dict[tuple[str, str], dict | None] = {}
         self._revisions: dict[str, str | None] = {}
 
@@ -1417,7 +1418,7 @@ class _RuleTrust:
 
     def label(self, verdict: dict, rule: dict, fact: dict | None = None) -> dict:
         from . import rule_trust
-        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact)
+        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact, always=self.always)
 
 
 def _trust_columns(verdict: dict, status: str | None) -> dict:
@@ -2420,6 +2421,7 @@ def _run_comparison(
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
     trust = _RuleTrust(stored.get("equipment_type")) if _rule_trust_on() else None
+    kept_trust = _RuleTrust(stored.get("equipment_type"), always=True)
     # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
     # except pressure relief valves 115 dB(A)"); derived HERE, once, so no
     # caller can forget it (audit 2026-09-30); a caller's own subject wins.
@@ -2492,11 +2494,15 @@ def _run_comparison(
     # the kept requirements and the table cells no field answered - is "not used".
     covered_items: list[dict] = []
     checklist_note = None
+    kept_standards: set[str] = set()
     from . import checklist_scope
     from . import datasheet_checks as _checks
     governing = _checks.checklist_sources(checklist_scope.review_type(stored))
     if governing:
         covered_ids = governed_standards(standard_ids, governing["standards"])
+        # Lock 2: a DRAFT checklist cannot decide, so it sets nothing aside (`checklist_scope.keeps_standards`).
+        if checklist_scope.keeps_standards(governing):
+            kept_standards, covered_ids = covered_ids, set()
         if covered_ids:
             detail = (f"the {governing['key']} review checklist governs this standard "
                       f"({governing['items']} items); not checked one by one")
@@ -2888,7 +2894,10 @@ def _run_comparison(
             # never decides COMPLIANT or NON_COMPLIANT (held for the engineer,
             # the rule's own verdict kept as `rule_said`); a SAFETY-tier
             # COMPLIANT is flagged for an engineer's tick.
-            if trust is not None:
+            if requirement.get("standard_document_id") in kept_standards:
+                # kept by a draft checklist: always under its own label, whatever `rule_auto_use_enabled` says
+                verdict = kept_trust.label(verdict, requirement, fact)
+            elif trust is not None:
                 verdict = trust.label(verdict, requirement, fact)
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`

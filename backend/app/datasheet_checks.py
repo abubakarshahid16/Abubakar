@@ -445,7 +445,7 @@ def checklist_sources(equipment_type: str | None, rules: dict | None = None) -> 
     if not checklist:
         return None
     return {"key": checklist["key"], "items": len(checklist["items"]),
-            "standards": standards(checklist)}
+            "standards": standards(checklist), "draft": checklist["draft"]}
 
 
 def _measure(fact: dict):

@@ -319,3 +319,9 @@ class SettingsExt(BaseModel):
     #: lane's own gates stay. OFF: no hook writes and an automatic row does not count; blocks still apply.
     #: Env: CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED.
     claude_auto_approve_reviews_enabled: bool = False
+    #: Lock 2 (QA order 1.2, 2 Nov): a DRAFT checklist does not mark the requirements of the standards it cites
+    #: "not used". They stay in scope, rule by rule; each verdict carries its own trust label even with
+    #: RULE_AUTO_USE off, so an unproven rule is held for the engineer. A signed checklist governs as before. More
+    #: rules reach the matcher, inside its existing per-run caps. OFF: as before.
+    #: Env: DRAFT_CHECKLIST_KEEPS_STANDARDS_ENABLED.
+    draft_checklist_keeps_standards_enabled: bool = False

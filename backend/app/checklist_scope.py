@@ -26,6 +26,14 @@ def standards(checklist: dict) -> list[str]:
     return sorted({item["source"]["standard"] for item in checklist["items"]})
 
 
+def keeps_standards(checklist: dict) -> bool:
+    """Lock 2: a checklist not yet signed cannot decide, so while it is a draft the standards it cites stay in
+    scope, rule by rule, each under its own trust label. A signed checklist governs as before."""
+    from .config import settings
+
+    return settings.draft_checklist_keeps_standards_enabled and bool(checklist.get("draft"))
+
+
 def review_type(classification: dict | None) -> str | None:
     """The equipment type a REVIEW CHECKLIST may be chosen from (order 264, found by the 2p gate on a vessel sheet). A
     checklist marked `type_from_title_only` (the vessel and exchanger drafts) is chosen only when the
