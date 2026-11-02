@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import acronyms as acronyms_mod
-from . import doc_router, errors, intake, job_queue, page_ledger, states
+from . import doc_router, errors, intake, job_queue, page_ledger, sheet_chunks, states
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
@@ -480,7 +480,7 @@ class IngestionWorker(ReviewDrain):
                     result["stages"].append(f"unknown_status:{status}->extracting")
                     continue
 
-                if status in (states.FAILED, states.NO_SEARCHABLE_CONTENT):
+                if status in states.NOT_SEARCHABLE_STATES:  # failed, none, not indexed
                     result["stages"].append(status)
                     return result
 
@@ -680,7 +680,8 @@ class IngestionWorker(ReviewDrain):
                 conn.executemany(
                     """INSERT OR REPLACE INTO chunk_vectors
                        (chunk_id, document_id, dim, vector, model, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                       SELECT ?, ?, ?, ?, ?, ?  -- not for a chunk withdrawn meanwhile
+                       WHERE EXISTS (SELECT 1 FROM chunks WHERE id = ?1)""",
                     [
                         (r["id"], doc_id, int(v.shape[0]), v.astype("float32").tobytes(),
                          embedding_tag(embedder.config.model_file), _now())
@@ -897,8 +898,7 @@ def on_role_changed(document_id: str, *, classify: bool = True) -> None:
     classifier must not overwrite what was typed a moment ago.
     """
     try:
-        row = connect().execute(
-            "SELECT status FROM documents WHERE id = ?", (document_id,)).fetchone()
+        row = sheet_chunks.status_after_role(document_id)  # #525: a workbook's role
     except Exception as exc:  # noqa: BLE001 - assigning a role must not fail here
         errors.record_failure(exc, document_id=document_id, stage="role_changed")
         return

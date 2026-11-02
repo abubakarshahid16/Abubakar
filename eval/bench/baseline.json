@@ -5,7 +5,7 @@
    "run": "a5c45c82-063c-4ad3-9abb-e25f896dc391",
    "kind": "datasheet",
    "baseline": {
-    "checklist_decided": 22,
+    "checklist_decided": 21,
     "checklist_decided_before_d2_rule": 28,
     "wrong": 0,
     "untrue": 5,
@@ -14,13 +14,14 @@
    "untrue": [
     {
      "origin": "datasheet_check",
-     "section": "Inlet rating",
+     "check": "PSV-S02",
      "status": "MISSING_INFORMATION",
-     "why": "rating is in the combined size/rating/connection line (planner check 29 Oct 02:55 PKT, row 11; 29 Oct night: 4 rows, one per tag)"
+     "why": "row asks the contractor for the rating; the rating is in a note on a later page, not on the combined line (hand check 2 Nov; 4 rows, one per tag)"
     },
     {
      "origin": "datasheet_check",
-     "section": "Viscosity relieving",
+     "check": "PSV-23",
+     "value": "absent",
      "status": "NEEDS_ENGINEER_REVIEW",
      "why": "row says viscosity not given; it is given (planner 29 Oct night: viscosity p3/p4)"
     }
@@ -34,7 +35,7 @@
    ],
    "wrong": []
   },
-  "config": "9b399d1791a595cc",
+  "config": "9b399d1791a595cc datasheet_one_value_enabled=True",
   "stored": {
    "run": "a5c45c82-063c-4ad3-9abb-e25f896dc391",
    "document": "doc_d30f4c63d481",
@@ -67,7 +68,7 @@
    "wrong": 0,
    "untrue": 5,
    "irrelevant": 0,
-   "checklist_decided": 22,
+   "checklist_decided": 21,
    "checklist_total": 172,
    "fails": 0,
    "rules_decided": 0,
@@ -100,7 +101,7 @@
    ],
    "wrong": []
   },
-  "config": "9b399d1791a595cc",
+  "config": "9b399d1791a595cc datasheet_one_value_enabled=True",
   "stored": {
    "run": "10f84aa7-6b5b-4e17-92bb-86049d991965",
    "document": "doc_0d5c6f72ad0d",
@@ -170,7 +171,7 @@
    ],
    "wrong": []
   },
-  "config": "9b399d1791a595cc",
+  "config": "9b399d1791a595cc datasheet_one_value_enabled=True",
   "stored": {
    "run": "47f71615-8728-417a-8ecd-cc1ea4c9c4e1",
    "document": "doc_b4f0d52bf927",
@@ -231,7 +232,7 @@
    "irrelevant": [],
    "wrong": []
   },
-  "config": "9b399d1791a595cc",
+  "config": "9b399d1791a595cc datasheet_one_value_enabled=True",
   "stored": {
    "run": "ea26f990-0e5d-47e9-9277-6558f9554d2f",
    "document": "doc_da3fcc0aaacc",
@@ -292,7 +293,7 @@
    "irrelevant": [],
    "wrong": []
   },
-  "config": "9b399d1791a595cc",
+  "config": "9b399d1791a595cc datasheet_one_value_enabled=True",
   "stored": {
    "run": "b0d5067b-8cfc-4cfd-bd5a-be0941b4a87f",
    "document": "doc_2ec2934f8d3f",

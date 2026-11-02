@@ -18,6 +18,7 @@ import { StandardsView } from "./views/StandardsView";
 import { DocumentsView } from "./views/DocumentsView";
 import { IngestionView } from "./views/IngestionView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
+import { useSessionExpiry } from "./hooks/useSessionExpiry";
 import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
@@ -198,6 +199,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     document.title = route.kind === "forbidden" ? "Access denied · RAG Intelligence System" : titleForView(route.view);
   }, [route]);
   const { connection, recheck } = useConnection();
+  const readUnsaved = useCallback(() => workspaceUnsaved.current, []);
+  const expiry = useSessionExpiry(readUnsaved);
+  const { signedInAs, on401 } = expiry;
   // The conversation open on the Chat screen, held here because two places
   // choose it: the chat itself (a new conversation) and the recent-chats list
   // in the navigation.
@@ -237,6 +241,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         setCookieSession(true);
         setDraftOwner(r.data.user.id);
         keepOnlyDraftsOf(r.data.user.id);
+        signedInAs(r.data.user);
       }
       setSession(r.data.required ? { s: "required", me: r.data.user } : { s: "disabled" });
     } else if (r.disconnected) {
@@ -249,7 +254,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     } else {
       setSession({ s: "unknown" });
     }
-  }, []);
+  }, [signedInAs]);
 
   useEffect(() => {
     void check();
@@ -279,12 +284,13 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   // them back on the same review. Only a chosen sign-out removes them.
   useEffect(() => {
     onSignedOut(() => {
+      on401();
       tokenRef.current = null;
       clearWatchedReviews();
       setSession({ s: "required", me: null });
     });
     return () => onSignedOut(null);
-  }, []);
+  }, [on401]);
 
   const signIn = useCallback(
     async ({ email, password }: { email: string; password: string }): Promise<LoginOutcome> => {
@@ -299,6 +305,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         setDraftOwner(r.data.user?.id ?? null);
         // Another person's draft (their sign-in ran out on this tab) goes.
         keepOnlyDraftsOf(r.data.user?.id ?? null);
+        signedInAs(r.data.user);
         setSession({ s: "required", me: r.data.user });
         return { ok: true };
       }
@@ -309,11 +316,12 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         message: r.error.message,
       };
     },
-    [],
+    [signedInAs],
   );
 
   const signOut = useCallback(() => {
     // Ask the server to clear the cookie; the page forgets at once either way.
+    signedInAs(null);
     void auth.logout();
     setToken(null);
     setCookieSession(false);
@@ -325,7 +333,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     // unsaved): their decision drafts in this tab go too.
     clearDecisionDrafts();
     setSession({ s: "required", me: null });
-  }, []);
+  }, [signedInAs]);
   const guardedSignOut = useCallback(() => { guard("signout", signOut); }, [guard, signOut]);
 
   const resetPassword = useCallback(async (resetToken: string, password: string) => {
@@ -399,7 +407,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
 
   if (session.s === "required" && session.me === null) {
     return <LoginView onLogin={signIn} onResetPassword={resetPassword}
-      connected={connection.state !== "offline"} />;
+      connected={connection.state !== "offline"} expired={expiry.expired} />;
   }
 
   return (

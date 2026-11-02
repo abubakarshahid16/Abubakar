@@ -2885,6 +2885,9 @@ def chunk_document(doc_id: str, force: bool = False,
     doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")
+    from . import sheet_chunks
+    if sheet_chunks.withhold(doc_id):  # #525: a workbook waits for its role
+        return {"document_id": doc_id, "filename": doc["filename"], "withdrawn": True}
 
     # Recognised text overrides the empty extraction that triggered it. The
     # resolution is explicit rather than a column read, because page_ocr is a
@@ -2900,12 +2903,12 @@ def chunk_document(doc_id: str, force: bool = False,
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
     total_pages = doc["page_count"] or len(pages)
-    # A WORD document (pagination 'flow') states its structure, so none of the
-    # PDF heuristics below (page classes, running lines, ruled-table masks,
-    # clause-number headings) is applied to it: its chunks are built from the
-    # structure by `docx_chunks`. Everything after chunking is shared.
-    flow = "pagination" in doc.keys() and doc["pagination"] == "flow"
-    page_kinds = ({pno: "prose" for pno, _ in pages} if flow
+    # A WORD document (pagination 'flow') or, #525 slice 2, a workbook states its
+    # structure, so none of the PDF heuristics below (page classes, running
+    # lines, ruled-table masks, clause-number headings) is applied to it: its
+    # chunks are built from the file (`sheet_chunks.structured`). The rest is shared.
+    build = sheet_chunks.structured(doc)
+    page_kinds = ({pno: "prose" for pno, _ in pages} if build
                   else classify_document_pages(pages, total_pages))
     signature = _chunk_signature(doc["sha256"], pages, raw_tables)
     existing = conn.execute(
@@ -2939,11 +2942,8 @@ def chunk_document(doc_id: str, force: bool = False,
 
     paths: dict[str, str | None] = {}
     stray: list[Block] = []     # #918: fragments the runt pass dropped
-    if flow:
-        from . import docx_chunks, docx_reader, stored_paths
-
-        running, removed = set(), 0
-        chunks = docx_chunks.build_chunks(docx_reader.read_structure(stored_paths.local(doc["stored_path"])))
+    if build:
+        running, removed, chunks = set(), 0, build()
     else:
         running = detect_running_lines(pages)
         # Ruled tables replace their own lines with one structured stand-in
