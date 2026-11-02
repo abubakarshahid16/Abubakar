@@ -409,7 +409,7 @@ def image_to_pdf(src: str | os.PathLike, dst: str | os.PathLike) -> int:
     import pymupdf
     from PIL import Image, ImageOps, ImageSequence
 
-    from .pdf_guard import held
+    from . import pdf_guard
 
     check_image(src)
     scale = 72.0 / settings.ocr_dpi
@@ -443,7 +443,7 @@ def image_to_pdf(src: str | os.PathLike, dst: str | os.PathLike) -> int:
         raise IntakeRefused(
             "bad_image", f"The image cannot be opened ({type(exc).__name__})."
         ) from exc
-    with held():
+    with pdf_guard.held():
         out = pymupdf.open()
         try:
             for data, w, h in frames:

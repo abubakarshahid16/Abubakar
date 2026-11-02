@@ -205,7 +205,10 @@ def cell_range(
 # ------------------------------------------------------------ displayed value
 
 _QUOTED = re.compile(r'"([^"]*)"|\\(.)|\[\$([^\]-]*)[^\]]*\]|\[[^\]]*\]|[_*].')
-_NUMBER = re.compile(r"[#0?][#0?,]*(?:\.[#0?]+)?")
+#: The digit placeholders of an Excel FORMAT CODE (`#,##0.00`), which say how many
+#: decimals to show. It never reads a value: the value is already a number from
+#: openpyxl, and document text is read by `numparse`.
+_FORMAT_PLACEHOLDERS = re.compile(r"[#0?][#0?,]*(?:\.[#0?]+)?")
 _DATE_TOKEN = re.compile(r"(?i)yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d|hh|h|ss|s|am/pm")
 
 
@@ -231,7 +234,7 @@ def _shown_number(value: float, fmt: str) -> str | None:
     if value < 0 and len(sections) > 1:  # a negative section writes its own sign
         section, value = sections[1], -value
     code, kept = _protect(section)
-    m = _NUMBER.search(code)
+    m = _FORMAT_PLACEHOLDERS.search(code)
     if not m or re.search(r"[eE][+-]|/", code):
         return None
     spec = m.group(0)
