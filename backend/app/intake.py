@@ -336,11 +336,8 @@ def read_sheet(path: str | os.PathLike) -> IntakeResult:
     return IntakeResult(KIND_SHEET, pages, notes, reasons=reasons)
 
 
-def read_image(path: str | os.PathLike) -> IntakeResult:
-    """A PNG or JPEG is recognised as an image and REFUSED in this slice, with the reason.
-
-    The OCR stage renders pages of a stored PDF only, so an image page could
-    be neither read nor explained; accepting it is the next slice."""
+def check_image(path: str | os.PathLike) -> tuple[int, int]:
+    """(width, height) of an image that opens and is within the pixel limit; else IntakeRefused."""
     from PIL import Image
 
     try:
@@ -356,11 +353,107 @@ def read_image(path: str | os.PathLike) -> IntakeResult:
         raise IntakeRefused(
             "image_too_large", f"The image is {w}x{h} pixels, over the limit."
         )
+    return w, h
+
+
+def read_image(path: str | os.PathLike) -> IntakeResult:
+    """A PNG or JPEG reaching extraction as itself is REFUSED, with the reason.
+
+    The OCR stage renders pages of a stored PDF only. An image UPLOAD (slice 2,
+    `uploads_enabled()`) never reaches here: it is stored with `image_to_pdf`
+    pages beside it, and those pages are what extraction reads."""
+    check_image(path)
     raise IntakeRefused(
         "image_not_read_yet",
         "Image files (PNG, JPEG) are not read yet: the OCR stage reads PDF pages only. "
         "Put the picture in a PDF. Reading images is the next slice of #525.",
     )
+
+
+# ------------------------------------------------- slice 2 (INTAKE_IMAGES_XLSX_ENABLED)
+
+_TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
+#: A multi-page TIFF is read page by page; past this many frames it is refused.
+MAX_IMAGE_FRAMES = 500
+
+
+def uploads_enabled() -> bool:
+    """#525 slice 2: images and workbooks are accepted and indexed through intake.
+
+    Needs INTAKE_IMAGES_XLSX_ENABLED and ONE_INTAKE_ENABLED both on (slice 2
+    reads through the slice 1 layer). Either off: uploads behave as today."""
+    return bool(settings.intake_images_xlsx_enabled and settings.one_intake_enabled)
+
+
+def image_suffix(head: bytes) -> str | None:
+    """`.png`, `.jpg` or `.tif` from a file's first bytes; None for anything else."""
+    if head.startswith(_IMAGE_MAGIC[0]):
+        return ".png"
+    if head.startswith(_IMAGE_MAGIC[1]):
+        return ".jpg"
+    if head.startswith(_TIFF_MAGIC):
+        return ".tif"
+    return None
+
+
+def image_to_pdf(src: str | os.PathLike, dst: str | os.PathLike) -> int:
+    """Write an image (every frame of a TIFF) as a PDF of picture-only pages; the page count.
+
+    The page is sized so the OCR stage, rendering at `ocr_dpi`, sees the
+    image's own pixels, neither scaled up nor down. The pages hold no text
+    layer, so extraction routes each to OCR exactly as it routes a scanned PDF
+    page, and the page ledger, page images and citations work unchanged. The
+    picture is stored lossless (PNG); a JPEG's EXIF rotation is applied first.
+    Local only: Pillow and PyMuPDF, no model, no socket."""
+    import io
+
+    import pymupdf
+    from PIL import Image, ImageOps, ImageSequence
+
+    from . import pdf_guard
+
+    check_image(src)
+    scale = 72.0 / settings.ocr_dpi
+    frames: list[tuple[bytes, int, int]] = []
+    pixels = 0
+    try:
+        with Image.open(src) as img:
+            # Every page's DECLARED size first, read from its header without
+            # decoding a pixel: a small first page cannot hide a huge later one.
+            for n, frame in enumerate(ImageSequence.Iterator(img), start=1):
+                if n > MAX_IMAGE_FRAMES:
+                    raise IntakeRefused(
+                        "image_too_many_frames",
+                        f"The image has more than {MAX_IMAGE_FRAMES} pages, over the limit.",
+                    )
+                pixels += frame.size[0] * frame.size[1]
+                if pixels > MAX_IMAGE_PIXELS:
+                    raise IntakeRefused(
+                        "image_too_large", "The image's pages are over the pixel limit."
+                    )
+            for frame in ImageSequence.Iterator(img):
+                page = ImageOps.exif_transpose(frame)
+                if page.mode not in ("1", "L", "RGB", "RGBA"):
+                    page = page.convert("RGB")
+                buf = io.BytesIO()
+                page.save(buf, "PNG")
+                frames.append((buf.getvalue(), page.width, page.height))
+    except IntakeRefused:
+        raise
+    except Exception as exc:
+        raise IntakeRefused(
+            "bad_image", f"The image cannot be opened ({type(exc).__name__})."
+        ) from exc
+    with pdf_guard.held():
+        out = pymupdf.open()
+        try:
+            for data, w, h in frames:
+                page = out.new_page(width=w * scale, height=h * scale)
+                page.insert_image(page.rect, stream=data)
+            out.save(str(dst))
+        finally:
+            out.close()
+    return len(frames)
 
 
 _READERS = {

@@ -2797,10 +2797,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
               .get("pages_not_read_into_fields") or [])
     missing = _missing_references(submittal_id, allowed)
     # #754 F5b: required vs cited, recomputed like `missing` (no stored copy to go stale).
-    check = applicability_mod.standards_check(submittal_id, allowed_document_ids=allowed)
+    check = export_status_mod.standards_check(submittal_id, allowed)  # order 4c
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
-    rows, pb_notes = ppr_mod.merge(rows, submittal_id, submittal_name, allowed)  # #1522
+    rows, added = ppr_mod.merge(rows, submittal_id, submittal_name, allowed, findings)
     # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.
@@ -2844,8 +2844,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
                 crs_mapping_mod.carry_issued_wording(row, record, _display_names)
     _replaced_numbers(crs_scope, rows)
     crs_issue_mod.apply_row_decisions(review_run_id, rows)  # #986: rows with no finding
-    # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover
-    # 2026-09-30). A new run of the same submittal raises the same comment
+    # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO: a new run raises the same comment
     # again as an unconfirmed draft; it is kept (a new run may be right), but
     # the engineer is never asked twice blind: its byline names who rejected
     # it and when, from the rejection on record. Never on a confirmed row.
@@ -2958,14 +2957,15 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
-        # #633 item 7: row 1 of a sheet whose run did not complete - status, reason,
-        # unread pages, missing standards. "" for a completed run (sheet unchanged).
-        "run_status_note": export_status_mod.crs_header_note(run.get("status"), outcome.get("error"), unread, missing),
+        # #633 item 7: row 1 of an incomplete run's sheet; "" for a completed run.
+        "run_status_note": export_status_mod.run_header_note(run.get("status"), outcome, unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
-    meta["review_notes"] += pb_notes + export_status_mod.equipment_notes(submittal_id)
+    meta["review_notes"] += added + export_status_mod.equipment_notes(
+        submittal_id, review_run_id, allowed
+    )
     return rows, meta, submittal_name, stamp
 
 
@@ -3028,7 +3028,7 @@ def _crs_standards(review_run_id: str, submittal_id: str,
                     "reason": "cited by the submittal and not held locally; "
                               "its requirements were not checked",
                     "evidence": ""})
-    return out
+    return export_status_mod.standards_sheet(out, submittal_id)
 
 
 def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) -> dict:
@@ -3489,7 +3489,7 @@ def _crs_comment(review_run_id: str, crs_ref: str, scope: access.AccessScope) ->
     indistinguishable from one that is not there, exactly as an unreadable
     run is."""
     crs_scope, label, _submittal = _crs_run_scope(review_run_id, scope)
-    parsed = crs_numbers_mod.parse_ref(crs_ref)
+    parsed = crs_numbers_mod.parse_own_ref(crs_ref, label, crs_scope)
     if parsed is None or parsed[0] != label or crs_numbers_mod.get(crs_scope, parsed[1]) is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no CRS comment with that number on this run"))
@@ -3636,11 +3636,11 @@ def import_crs_reply(
               "not_a_crs_number": 0, "other_submittal": 0, "unknown_number": 0}
     rows = []
     for reply in replies:
-        parsed = crs_numbers_mod.parse_ref(reply["item"])
+        parsed = crs_numbers_mod.parse_reply_ref(reply, label, crs_scope, _submittal)
         if parsed is None:
             key, outcome = "not_a_crs_number", "not a CRS number"
         elif parsed[0] != label:
-            key, outcome = "other_submittal", "another submittal's number"
+            key, outcome = "other_submittal", crs_numbers_mod.refusal(reply)
         elif crs_numbers_mod.get(crs_scope, parsed[1]) is None:
             key, outcome = "unknown_number", "no such number"
         elif not reply["response"]:

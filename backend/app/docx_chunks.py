@@ -55,6 +55,20 @@ _FURNITURE_KIND = {
 }
 
 
+class _Heading(str):
+    """A heading waiting for the block it is carried in with. `page`: its own page when
+    the file has real pages, so a chunk starts where its first line is; None: as before."""
+
+    page: int | None = None
+
+    @classmethod
+    def of(cls, text: str, page: int, structure: Structure) -> _Heading:
+        heading = cls(text)
+        pagination = structure.pagination
+        heading.page = page if pagination and pagination.source != PAGES_NONE else None
+        return heading
+
+
 def _where(path: tuple[str, ...]) -> str:
     return " > ".join(path)
 
@@ -114,7 +128,7 @@ def build_chunks(structure: Structure) -> list[Block]:
         if pending_heading is not None:
             lines.append(pending_heading)
             tokens += count_tokens(pending_heading)
-            pages.append(block.page)
+            pages.append(pending_heading.page or block.page)
             pending_heading = None
         lines.append(line)
         tokens += t
@@ -127,7 +141,7 @@ def build_chunks(structure: Structure) -> list[Block]:
         if b.kind == KIND_HEADING:
             flush()
             path, chain = b.path, b.chain
-            pending_heading = block_lines(b)[0]
+            pending_heading = _Heading.of(block_lines(b)[0], b.page, structure)
             continue
         if b.path != path:           # body text before the first heading
             flush()

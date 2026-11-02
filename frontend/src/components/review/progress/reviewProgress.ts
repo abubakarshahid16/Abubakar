@@ -33,6 +33,8 @@ function minutes(seconds: number): string {
 /** `extra` is whole seconds passed since the detail was received. */
 export function shown(d: ReviewProgressDetail, extra = 0): Shown {
   const done = d.pages_done, total = d.pages_total;
+  // A Word file has no pages: the server reads it in parts (the live review).
+  const unit = d.pages_unit === "part" ? "part" : "page";
   const hasPages = typeof done === "number" && typeof total === "number" && total > 0;
   const cDone = d.clauses_done, cTotal = d.clauses_total;
   const hasClauses = typeof cDone === "number" && typeof cTotal === "number" && cTotal > 0;
@@ -41,7 +43,7 @@ export function shown(d: ReviewProgressDetail, extra = 0): Shown {
   let estimate: string | null = null;
   if (hasPages && elapsedS !== null && elapsedS > 0 && done >= ESTIMATE_MIN_PAGES && done < total) {
     const left = (elapsedS / done) * (total - done);
-    estimate = `about ${minutes(left)} left reading pages (estimate, from the pages done so far)`;
+    estimate = `about ${minutes(left)} left reading ${unit}s (estimate, from the ${unit}s done so far)`;
   }
   // The clause step's own clock (server: since its first clause). Unknown -> hidden.
   if (hasClauses && cElapsed !== null && cElapsed > 0 && cDone >= ESTIMATE_MIN_CLAUSES && cDone < cTotal) {
@@ -52,13 +54,16 @@ export function shown(d: ReviewProgressDetail, extra = 0): Shown {
   let stall: Shown["stall"] = null;
   if (d.stale) stall = { level: "red", text: "The run may be stuck; see System Health." };
   else if (idle !== null && idle >= d.stall_amber_seconds) {
-    stall = { level: "amber", text: `No progress for ${minutes(idle)}.` };
+    // The threshold is the server's, per step (a model page may take minutes);
+    // the line names the sub-step it waits on (the live review: one slow page).
+    const still = d.waiting_on ? ` Still ${d.waiting_on}.` : "";
+    stall = { level: "amber", text: `No progress for ${minutes(idle)}.${still}` };
   }
   return {
     percent: hasPages
       ? Math.round((done / total) * 100)
       : hasClauses ? Math.round((cDone / cTotal) * 100) : null,
-    pagesLine: hasPages ? `${done} of ${total} pages read` : null,
+    pagesLine: hasPages ? `${done} of ${total} ${unit}s read` : null,
     clausesLine: hasClauses ? `${cDone} of ${cTotal} clauses checked` : null,
     elapsed: elapsedS !== null ? `Elapsed ${clock(elapsedS)}` : null,
     estimate,

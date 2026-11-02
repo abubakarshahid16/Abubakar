@@ -189,24 +189,44 @@ class _PagePlan:
     rows: dict[int, list[int]] = field(default_factory=dict)
     #: id(block element) -> its pictures as (element, page).
     pictures: dict[int, list[tuple[ET.Element, int]]] = field(default_factory=dict)
+    #: `_section_page_starts`.
+    section_starts: dict[int, bool] = field(default_factory=dict)
 
 
 def _para_breaks(p: ET.Element) -> tuple[bool, bool]:
-    """(page break before, a section break that starts a new page)."""
+    """(page break before, does this paragraph end a section?)."""
     ppr = p.find(_W + "pPr")
     if ppr is None:
         return False, False
     before = ppr.find(_W + "pageBreakBefore")
-    section = ppr.find(_W + "sectPr")
-    kind = section.find(_W + "type") if section is not None else None
     return (
         before is not None and before.get(_W + "val") not in ("0", "false"),
-        section is not None and (kind is None or kind.get(_W + "val") != "continuous"),
+        ppr.find(_W + "sectPr") is not None,
     )
 
 
+def _section_page_starts(body: ET.Element) -> dict[int, bool]:
+    """id(paragraph ending a section) -> does the NEXT section open a page? A section's
+    `w:type` says how that section itself starts, and it is held at the section's END,
+    so the break after a section is the next one's. `continuous` and `nextColumn` stay
+    on the page; `nextPage` (also when no type is given) and the odd and even kinds open one."""
+    ends = [
+        node for node in _blocks(body) if node.tag == _W + "p" and _para_breaks(node)[1]
+    ]
+    sections = [p.find(_W + "pPr").find(_W + "sectPr") for p in ends]
+    sections.append(body.find(_W + "sectPr"))
+    out: dict[int, bool] = {}
+    for end, following in zip(ends, sections[1:], strict=True):
+        kind = following.find(_W + "type") if following is not None else None
+        out[id(end)] = kind is None or kind.get(_W + "val") not in (
+            "continuous",
+            "nextColumn",
+        )
+    return out
+
+
 def _plan_para(p: ET.Element, count: _PageCount, plan: _PagePlan) -> None:
-    before, section = _para_breaks(p)
+    before, _ = _para_breaks(p)
     if before:
         count.typed_break()
     start: int | None = None
@@ -222,8 +242,18 @@ def _plan_para(p: ET.Element, count: _PageCount, plan: _PagePlan) -> None:
             count.content()
             plan.pictures.setdefault(id(p), []).append((event, count.page))
     plan.starts[id(p)] = start if start is not None else count.page
-    if section:
+    if plan.section_starts.get(id(p)):
         count.typed_break()
+
+
+def _cell_paragraphs(el: ET.Element):
+    """A cell's paragraphs, nested tables included. A text box sits inside a
+    paragraph and is never entered: its markers are not the body's."""
+    for child in el:
+        if child.tag == _W + "p":
+            yield child
+        else:
+            yield from _cell_paragraphs(child)
 
 
 def _plan_row(
@@ -244,7 +274,7 @@ def _plan_row(
     for tc in tr.findall(_W + "tc"):
         cell = _PageCount()
         seen_text = False
-        for p in tc.iter(_W + "p"):
+        for p in _cell_paragraphs(tc):
             for event in _para_events(p):
                 if event in ("marker", "break"):
                     runs_over = runs_over or seen_text
@@ -282,6 +312,7 @@ def word_pages_plan(body: ET.Element, word_pages: int | None) -> _PagePlan:
     """Walk the file's markers once and decide what its pages may say."""
     count = _PageCount()
     plan = _PagePlan(Pagination(PAGES_NONE, word_pages=word_pages))
+    plan.section_starts = _section_page_starts(body)
     for node in _blocks(body):
         if node.tag == _W + "tbl":
             count.row_ran_over = False
@@ -449,7 +480,8 @@ class PageWalk:
         if self.proof is None:
             return
         if rows:
-            self.proof.tables_read += sum(1 for _ in node.iter(_W + "tbl"))
+            nested, boxed, _ = _count_in_part(node)
+            self.proof.tables_read += 1 + nested - boxed
         else:
             where = page if self.real else None
             self.proof.not_read.append(

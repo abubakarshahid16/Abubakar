@@ -154,6 +154,7 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_clause_checks_enabled": False,
     "ai_requirement_extraction_enabled": False,
     "ai_requirement_quote_page_enabled": False,
+    "ai_requirement_extraction_resume_enabled": False,
     # #141: a local model call per division of a standard a review holds.
     "ai_division_scope_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
@@ -198,6 +199,8 @@ EGRESS_SAFE: dict[str, object] = {
     "docx_input_enabled": True,
     # --- local only, no model or socket: one intake layer for every file type (off by default)
     "one_intake_enabled": False,
+    # --- local only, no model or socket: images and workbooks accepted through intake (off by default)
+    "intake_images_xlsx_enabled": False,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,
@@ -253,6 +256,8 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
     "leading_dot_decimal_enabled": False,
     "data_page_not_frontmatter_enabled": False,
+    # --- local only, no model or socket: a repeated rights footer is not front-matter evidence (#1478, off by default)
+    "running_footer_not_frontmatter_enabled": False,
     # --- local only, no model or socket: a drawing page with a header only is routed to recognition (off by default)
     "figure_page_ocr_enabled": False,
     # --- local only, no model or socket: duty-point style column rows and stacked labels (#1478, off by default)
@@ -260,8 +265,14 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: only the title block sets the equipment type (1 Nov, off by default)
     "equipment_from_title_block_enabled": False,
     "word_page_markers_enabled": False,
+    # --- read by the page only, one local /api/auth/me a minute, no model or socket (order 4b, off by default)
+    "session_expired_notice_enabled": False,
+    # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
+    "procedure_crs_fields_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
+    # --- local only, no model or socket: presence check of a playbook whose standard is not held (#1522, off by default)
+    "playbook_presence_without_standard_enabled": False,
     # --- local only, no model or socket: a procedure's CRS gets its playbook rows as engineer rows (#1522 b, off by default)
     "procedure_playbook_rows_enabled": False,
     # --- local only, no model or socket: draft exchanger kit cards join the heat exchanger checklist (#1481, off by default)

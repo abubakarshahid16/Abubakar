@@ -16,6 +16,7 @@ nothing. Reads the file (cached); no model, no socket, nothing written.
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 from pathlib import Path
 
@@ -31,6 +32,11 @@ PARTIAL = "page marks partial"
 NOTE_NO_PAGES = "Word file with no page numbers"
 NOTE_PARTIAL_PAGES = "Word file with partial page numbers"
 NOTE_NOT_READ = "Word tables or pictures not read"
+
+#: A lead `page_cell` writes, other than a plain "p.3".
+_LEAD = re.compile(
+    rf"^(?:p\.[\d, -]+ \({PARTIAL}\)|Section .*? \({NO_PAGE}\)|No page number: [^-]*?marks)(?: - |$)"
+)
 
 #: Parsed files, by path, its state and how many readings it has. Small: one review
 #: reads one submittal, and a parse is cheap beside a CRS row per finding.
@@ -83,18 +89,6 @@ def unit(document_id: str | None) -> str:
     """What a progress line calls this file's numbered units: "part" only when a
     Word file has no pages to name. Switch off or a PDF: "page", as it always said."""
     return "part" if page_source(document_id) == PAGES_NONE else "page"
-
-
-def progress_label(conn, job_id: str, label: str) -> str:
-    """A progress line never names a page a Word file does not have."""
-    if not settings.word_page_markers_enabled:
-        return label
-    row = conn.execute(
-        "SELECT document_id FROM jobs WHERE id = ?", (job_id,)
-    ).fetchone()
-    if row is None or unit(row["document_id"]) != "part":
-        return label
-    return label.replace(", page ", ", part ")
 
 
 def _squash(text: str) -> str:
@@ -154,6 +148,11 @@ def at_pages(pages: list[int], group: list[dict]) -> str:
     from .crs_blank_fields import page_list
 
     return page_cell(f"p.{page_list(pages)}", pages, group)
+
+
+def without_lead(section: str) -> str:
+    """A page cell with this module's lead taken off, so it can be set again."""
+    return _LEAD.sub("", section) if settings.word_page_markers_enabled else section
 
 
 def no_image_words(default: str) -> str:

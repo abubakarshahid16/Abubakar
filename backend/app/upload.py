@@ -39,6 +39,11 @@ KIND_XLSX = "xlsx"
 #: while the flag is off - a .docx is then refused as `not_xlsx`, as before.
 KIND_DOCX = "docx"
 _SUFFIX_FOR_KIND = {KIND_PDF: ".pdf", KIND_XLSX: ".xlsx", KIND_DOCX: ".docx"}
+#: #525 slice 2 (`intake.uploads_enabled()`, off by default): an image upload.
+#: Its original is stored under its own suffix; what the pipeline reads is the
+#: picture-only PDF written beside it (`intake.image_to_pdf`).
+IMAGE_KINDS = {"png": ".png", "jpg": ".jpg", "tif": ".tif"}
+_SUFFIX_FOR_KIND.update(IMAGE_KINDS)
 
 #: The entry every real Word document has and no workbook does.
 _DOCX_REQUIRED_ENTRY = "word/document.xml"
@@ -71,6 +76,17 @@ OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 UNSUPPORTED_OFFICE_HINT = (
     "This system reads PDF and Word (.docx) files. Save the file as a PDF or, for a "
     "Word document, as .docx.")
+#: The same sentence while #525 slice 2 also reads workbooks and images.
+SLICE2_OFFICE_HINT = (
+    "This system reads PDF, Word (.docx), Excel (.xlsx) and image (PNG, JPEG, TIFF) "
+    "files. Save the file as one of those.")
+
+
+def _office_hint() -> str:
+    """What this system reads, true for the switch as it is now."""
+    from . import intake
+
+    return SLICE2_OFFICE_HINT if intake.uploads_enabled() else UNSUPPORTED_OFFICE_HINT
 
 
 class UploadError(Exception):
@@ -271,6 +287,13 @@ def zip_office_type(temp_path: Path) -> str:
     return KIND_XLSX
 
 
+def _accepted_image(head: bytes) -> bool:
+    """An image's first bytes, while #525 slice 2 accepts images (off: never)."""
+    from . import intake
+
+    return intake.uploads_enabled() and intake.image_suffix(head) is not None
+
+
 def detect_kind(temp_path: Path) -> str:
     """`pdf` or `xlsx`, from the first bytes of the STORED file.
 
@@ -279,7 +302,11 @@ def detect_kind(temp_path: Path) -> str:
     off a file that was just written is free.
     """
     with open(temp_path, "rb") as fh:
-        head = fh.read(len(ZIP_MAGIC))
+        head = fh.read(16)  # a PNG signature is 8 bytes
+    if _accepted_image(head):
+        from . import intake
+
+        return intake.image_suffix(head).lstrip(".")
     return KIND_XLSX if head.startswith(ZIP_MAGIC) else KIND_PDF
 
 
@@ -316,9 +343,13 @@ def stream_to_temp(src: BinaryIO, temp_path: Path) -> tuple[str, int]:
                     raise UploadError(
                         "unsupported_office",
                         "Old Office files (.doc, .xls, .ppt) are not supported. "
-                        + UNSUPPORTED_OFFICE_HINT,
+                        + _office_hint(),
                         "legacy Office container")
-                if not (block.startswith(PDF_MAGIC) or block.startswith(ZIP_MAGIC)):
+                if not (
+                    block.startswith(PDF_MAGIC)
+                    or block.startswith(ZIP_MAGIC)
+                    or _accepted_image(block)
+                ):
                     raise UploadError(
                         "not_pdf",
                         "That file is not a PDF",
@@ -372,17 +403,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
         # document is a datasheet input. Flag off: it stays `xlsx` here and
         # `validate_xlsx` refuses it as `not_xlsx`, exactly as before.
         if kind == KIND_XLSX:
-            office = zip_office_type(temp_path)
-            if office == "pptx":
-                raise UploadError(
-                    "unsupported_office",
-                    "PowerPoint files (.pptx) are not supported yet. " + UNSUPPORTED_OFFICE_HINT,
-                    "ppt/presentation.xml present")
-            if office == "odf":
-                raise UploadError(
-                    "unsupported_office",
-                    "OpenDocument files (.odt, .ods, .odp) are not supported yet. "
-                    + UNSUPPORTED_OFFICE_HINT, "OpenDocument mimetype")
+            _refuse_unread_office(temp_path)
         if (kind == KIND_XLSX and docx_accepted() and is_docx(temp_path)):
             kind = KIND_DOCX
             validate_docx(temp_path)
@@ -419,6 +440,8 @@ def ingest(src: BinaryIO, raw_filename: str, *,
         temp_path.unlink(missing_ok=True)
     else:
         os.replace(temp_path, final_path)  # atomic within the same volume
+    # An image: the original stays as uploaded; the pipeline reads its pages.
+    read_path = _image_pages(final_path) if kind in IMAGE_KINDS else final_path
 
     doc_id = f"doc_{sha256[:12]}"
     job_id = f"job_{uuid.uuid4().hex[:12]}"
@@ -426,7 +449,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     conn = connect()
 
     # ---------------------------------------------------------------------
-    # A WORKBOOK IS STORED AND NEVER INDEXED. THIS IS A DECISION, NOT A CRASH.
+    # SWITCH OFF: A WORKBOOK IS STORED AND NEVER INDEXED. A DECISION, NOT A CRASH.
     #
     # A CRS template is a FORM TO BE FILLED, not corpus content. Extracting it
     # would put spreadsheet scaffolding - blank cells, header rows, the word
@@ -446,9 +469,11 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # DATASHEET_OFFICE_INPUT seam (off by default): with the flag on a
     # workbook or Word document IS indexed - its pages are rendered by
     # `datasheet_inputs` in the extract stage - so a datasheet sent as one can
-    # be reviewed. Off: a workbook is stored and never indexed, as above.
+    # be reviewed. #525 slice 2: an image is indexed; a workbook is stored and waits
+    # for its role (`sheet_chunks.withhold`), never a CRS template. Off: as above.
     indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())
                or bool(settings.datasheet_office_input))
+    indexed = indexed or _slice2_indexed(kind)
     status = states.QUEUED if indexed else states.STORED_NOT_INDEXED
 
     try:
@@ -458,7 +483,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
                    (id, filename, sha256, size_bytes, stored_path, status,
                     uploaded_at, priority)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (doc_id, filename, sha256, size, stored_paths.to_stored(final_path), status, now,
+                (doc_id, filename, sha256, size, stored_paths.to_stored(read_path), status, now,
                  priority),
             )
             if indexed:
@@ -488,10 +513,100 @@ def ingest(src: BinaryIO, raw_filename: str, *,
         # explicitly rather than relying on the function's own except clause:
         # "it happens to be caught" is not a design, and the log line it would
         # emit would report a failure that is not one.
-        _suggest_classification(doc_id, filename, final_path)
+        _suggest_classification(doc_id, filename, read_path)
     else:
-        _suggest_workbook_classification(doc_id, filename)
+        _stored_not_indexed(doc_id, filename, kind, read_path)
     return row, (job_id if indexed else None), None
+
+
+def _refuse_unread_office(temp_path: Path) -> None:
+    """A PowerPoint or OpenDocument zip is refused with what it is and what to do."""
+    office = zip_office_type(temp_path)
+    if office == "pptx":
+        raise UploadError(
+            "unsupported_office",
+            "PowerPoint files (.pptx) are not supported yet. "
+            + _office_hint(),
+            "ppt/presentation.xml present",
+        )
+    if office == "odf":
+        raise UploadError(
+            "unsupported_office",
+            "OpenDocument files (.odt, .ods, .odp) are not supported yet. "
+            + _office_hint(),
+            "OpenDocument mimetype",
+        )
+
+
+def _slice2_indexed(kind: str) -> bool:
+    """#525 slice 2 (`intake.uploads_enabled()`, off by default): an image is
+    indexed at upload as its picture-only PDF pages (an image never gets this
+    far with the switch off). A workbook is NOT indexed at upload: it waits for
+    its role (`_stored_not_indexed`)."""
+    return kind in IMAGE_KINDS
+
+
+def _slice2_workbook(kind: str) -> bool:
+    from . import intake
+
+    return kind == KIND_XLSX and intake.uploads_enabled()
+
+
+def _stored_not_indexed(doc_id: str, filename: str, kind: str, path: Path) -> None:
+    """A document stored without indexing. A slice-2 workbook (fail-closed, lead
+    decision on #1560) is held until a person sets its role - page 0 of its
+    intake reasons says so - and is suggested from its first sheet; any other
+    is suggested from its filename, as before."""
+    if not _slice2_workbook(kind):
+        _suggest_workbook_classification(doc_id, filename)
+        return
+    from . import sheet_chunks
+
+    sheet_chunks.withhold(doc_id)
+    _suggest_classification(doc_id, filename, path)
+
+
+def image_original(stored: Path) -> Path | None:
+    """The uploaded image behind a stored image-pages PDF (`<sha>.<ext>.pdf` ->
+    `<sha>.<ext>`); None for any other stored file. The pair is fixed by the
+    names `_image_pages` writes, so every reader of `stored_path` finds the
+    original the same way: delete removes both, `/original` serves the image."""
+    stem = Path(stored).name.removesuffix(".pdf")
+    if stem == Path(stored).name or Path(stem).suffix not in IMAGE_KINDS.values():
+        return None
+    return Path(stored).with_name(stem)
+
+
+def stored_files(stored: Path) -> list[Path]:
+    """Every file on disk that belongs to a document's `stored_path`: an image
+    upload (#525 slice 2) is two, the original and its pages."""
+    original = image_original(stored)
+    return [Path(stored)] + ([original] if original is not None else [])
+
+
+def _image_pages(original: Path) -> Path:
+    """The picture-only PDF the pipeline reads for a stored image, written once beside it.
+
+    Content-addressed like the original (`<sha256>.<suffix>.pdf`), written to a
+    temp name and renamed, so a crash leaves no half-written file under the name.
+    An image intake refuses (it does not open, too many pixels or pages) is
+    removed again, so a refused upload leaves nothing behind."""
+    from . import intake
+
+    pages = original.with_name(original.name + ".pdf")
+    if not pages.exists():
+        part = original.with_name(f".{original.name}.{uuid.uuid4().hex}.part")
+        try:
+            intake.image_to_pdf(original, part)
+            part.replace(pages)
+        except intake.IntakeRefused as exc:
+            part.unlink(missing_ok=True)
+            original.unlink(missing_ok=True)
+            raise UploadError(exc.code, exc.message) from exc
+        except Exception:
+            part.unlink(missing_ok=True)
+            raise
+    return pages
 
 
 def _suggest_workbook_classification(doc_id: str, filename: str) -> None:
@@ -576,9 +691,9 @@ def _first_page_text(pdf_path: Path) -> str:
             ):  # a real page 1 can hold only a picture
                 return next((p for p in pages if p.strip()), "")
             return pages[0] if pages else ""
-        if settings.datasheet_office_input:
-            # DATASHEET_OFFICE_INPUT seam: an office file's page 1 is its
-            # first rendered sheet / page, never PyMuPDF's reading of it.
+        if settings.datasheet_office_input or _slice2_workbook(KIND_XLSX):
+            # DATASHEET_OFFICE_INPUT seam (and #525 slice 2): an office file's page
+            # 1 is its first rendered sheet / page, never PyMuPDF's reading of it.
             from . import datasheet_inputs
 
             if datasheet_inputs.office_kind(pdf_path) is not None:

@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 
 from app import (
+    ai_requirement_chunks,
     clause_review,
     document_refs,
     field_naming,
@@ -33,6 +34,7 @@ def _full_schema() -> None:
     """Tables created lazily by their own module are created here too."""
     standards_acquisition.ensure_schema()
     clause_review.ensure_schema()
+    ai_requirement_chunks.ensure_reads_schema()
     with connect() as conn:
         conn.execute(field_naming._TABLE)
     word_pictures._ensure_table(connect())

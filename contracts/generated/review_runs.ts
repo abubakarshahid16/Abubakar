@@ -7,6 +7,10 @@ import type { AiCheckStatus, PageCoverage, RequirementSplit, RequirementsNotAppl
 export interface ReviewProgressDetail {
   pages_done?: number | null;
   pages_total?: number | null;
+  /** "page", or "part" for a Word file; null outside the reading step. */
+  pages_unit?: string | null;
+  /** The sub-step the job is on, e.g. "reading page 3 of 5: waiting for the model" or "comparing requirements with the document"; null when none. */
+  waiting_on?: string | null;
   clauses_done?: number | null;
   clauses_total?: number | null;
   clauses_elapsed_seconds?: number | null;

@@ -34,6 +34,7 @@ def _fold(value) -> str:
 
 
 _ITEM_HEADERS = {"itemno", "itemnumber", "item", "sno", "no", "commentno", "commentid"}
+_NAME_HEADERS = {"documentname", "document"}
 _RESPONSE_HEADERS = {"contractorsresponse", "contractorresponse", "contractorsreply",
                      "contractorreply", "response", "vendorresponse", "vendorreply"}
 
@@ -74,6 +75,8 @@ def read_replies(data: bytes) -> list[dict]:
                 responses = [i for i, v in enumerate(folded) if v in _RESPONSE_HEADERS]
                 if items and responses:
                     header_at, item_col, response_col = index, items[0], responses[0]
+                    names = [i for i, v in enumerate(folded) if v in _NAME_HEADERS]
+                    name_col = names[0] if names else None
                     break
                 if index >= _HEADER_SCAN_ROWS:
                     break
@@ -88,8 +91,16 @@ def read_replies(data: bytes) -> list[dict]:
                 if not item:
                     continue
                 response = cells[response_col]
-                out.append({"row": number, "item": item,
-                            "response": str(response).strip() if response is not None else ""})
+                named = name_col is not None and name_col < len(cells)
+                name = cells[name_col] if named else None
+                out.append(
+                    {
+                        "row": number,
+                        "item": item,
+                        "response": str(response).strip() if response is not None else "",
+                        "document_name": str(name).strip() if name is not None else "",
+                    }
+                )
             return out
     finally:
         workbook.close()

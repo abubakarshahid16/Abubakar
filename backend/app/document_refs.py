@@ -54,10 +54,7 @@ ERASED = "[removed: the document was deleted]"
 #: (table, column) -> (disposition, reason)
 REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
     # ---- removed with the document by the foreign key -------------------
-    ("chunk_vectors", "document_id"): (
-        FK_CASCADE,
-        "derived from the document's chunks",
-    ),
+    ("chunk_vectors", "document_id"): (FK_CASCADE, "derived from the document's chunks"),
     ("chunks", "document_id"): (FK_CASCADE, "the document's own text"),
     ("company_standard_confirmations", "document_id"): (
         FK_CASCADE,
@@ -67,23 +64,11 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
         FK_CASCADE,
         "stored AI answers about this submittal (#1477)",
     ),
-    ("document_classification", "document_id"): (
-        FK_CASCADE,
-        "metadata about this document",
-    ),
-    ("document_kinds", "document_id"): (
-        FK_CASCADE,
-        "the document-type router's suggestion or a person's confirmed kind",
-    ),
-    ("document_role_access", "document_id"): (
-        FK_CASCADE,
-        "grants on a document that is gone",
-    ),
+    ("document_classification", "document_id"): (FK_CASCADE, "metadata about this document"),
+    ("document_kinds", "document_id"): (FK_CASCADE, "the document-type router's suggestion or a person's confirmed kind"),
+    ("document_role_access", "document_id"): (FK_CASCADE, "grants on a document that is gone"),
     ("document_subjects", "document_id"): (FK_CASCADE, "metadata about this document"),
-    ("exclusions", "document_id"): (
-        FK_CASCADE,
-        "records of this document's dropped text",
-    ),
+    ("exclusions", "document_id"): (FK_CASCADE, "records of this document's dropped text"),
     ("intake_reasons", "document_id"): (
         FK_CASCADE,
         "what intake left out of this file, and why (#525)",
@@ -93,146 +78,99 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
     ("page_ocr", "document_id"): (FK_CASCADE, "OCR text of this document"),
     ("pages", "document_id"): (FK_CASCADE, "the document's own pages"),
     ("review_runs", "submittal_document_id"): (
-        FK_CASCADE,
-        "reviews of this submittal; the delete is refused by "
-        "orphan_guard unless the caller acknowledges the loss",
-    ),
+        FK_CASCADE, "reviews of this submittal; the delete is refused by "
+                    "orphan_guard unless the caller acknowledges the loss"),
     ("submittal_facts", "submittal_document_id"): (
-        FK_CASCADE,
-        "facts read from this submittal",
-    ),
+        FK_CASCADE, "facts read from this submittal"),
     ("review_findings", "document_id"): (
-        FK_CASCADE,
-        "findings about this submittal; guarded by orphan_guard.check_submittal_delete",
-    ),
+        FK_CASCADE, "findings about this submittal; guarded by "
+                    "orphan_guard.check_submittal_delete"),
     ("standard_requirements", "standard_document_id"): (
-        FK_CASCADE,
-        "requirements of this standard; guarded by orphan_guard.check",
-    ),
+        FK_CASCADE, "requirements of this standard; guarded by orphan_guard.check"),
     ("standard_scope_records", "standard_document_id"): (
+        FK_CASCADE, "scope reading of this standard"),
+    ("ai_requirement_chunk_reads", "standard_document_id"): (
         FK_CASCADE,
-        "scope reading of this standard",
+        "which chunks of this standard the local model has read (#645 slice 4)",
     ),
     ("review_applicable_standards", "standard_document_id"): (
-        FK_CASCADE,
-        "applicability choice naming this standard",
-    ),
+        FK_CASCADE, "applicability choice naming this standard"),
     ("applicability_scope_decision_cache", "standard_document_id"): (
-        FK_CASCADE,
-        "cache of decisions about this standard",
-    ),
+        FK_CASCADE, "cache of decisions about this standard"),
+
     # ---- removed by the delete route itself ------------------------------
     ("chunks_fts", "document_id"): (
-        DELETED_BY_ROUTE,
-        "keyword index rows; a virtual table has no foreign key",
-    ),
+        DELETED_BY_ROUTE, "keyword index rows; a virtual table has no foreign key"),
+
     # ---- row stays, link becomes NULL -----------------------------------
     ("conversations", "document_id"): (
-        FK_SET_NULL,
-        "a chat is not deleted because a document was",
-    ),
+        FK_SET_NULL, "a chat is not deleted because a document was"),
     ("deliverables", "document_id"): (
-        FK_SET_NULL,
-        "the register entry outlives the file; org_wide stays 0, "
-        "so the row is not shown to everyone",
-    ),
+        FK_SET_NULL, "the register entry outlives the file; org_wide stays 0, "
+                     "so the row is not shown to everyone"),
     ("review_findings", "baseline_document_id"): (
-        FK_SET_NULL,
-        "a finding keeps existing if its comparison baseline goes",
-    ),
+        FK_SET_NULL, "a finding keeps existing if its comparison baseline goes"),
+
     # ---- kept on purpose, ids or counts only ----------------------------
     ("review_findings", "standard_document_id"): (
-        KEPT,
-        "id of the standard a finding cited; the finding is the CRS record",
-    ),
+        KEPT, "id of the standard a finding cited; the finding is the CRS record"),
     ("chat_filed_comments", "document_id"): (
-        KEPT,
-        "id only; record that a chat answer was filed as a comment",
-    ),
+        KEPT, "id only; record that a chat answer was filed as a comment"),
     ("crs_comment_numbers", "first_document_id"): (
-        KEPT,
-        "id only; comment numbers are never reused (CRS rule)",
-    ),
+        KEPT, "id only; comment numbers are never reused (CRS rule)"),
     ("deliverable_expectations", "source_document_id"): (
-        KEPT,
-        "id only; where an expectation was inferred from",
-    ),
+        KEPT, "id only; where an expectation was inferred from"),
     ("document_provenance", "document_id"): (
-        KEPT,
-        "record of where a standard was obtained; no document text",
-    ),
+        KEPT, "record of where a standard was obtained; no document text"),
     ("reports", "scope_document_ids"): (
-        KEPT,
-        "ids only; the record that a report was issued must survive",
-    ),
+        KEPT, "ids only; the record that a report was issued must survive"),
     ("report_documents", "document_id"): (
-        KEPT,
-        "id only; the record of which documents a report covered",
-    ),
+        KEPT, "id only; the record of which documents a report covered"),
     ("risks", "document_id"): (
-        KEPT,
-        "id only; hidden from non-admin lists because the document is "
-        "in nobody's scope any more",
-    ),
+        KEPT, "id only; hidden from non-admin lists because the document is "
+              "in nobody's scope any more"),
     ("stage_runs", "document_id"): (KEPT, "id and timing only; a speed log"),
     ("standard_acquisitions", "obtained_document_id"): (
-        KEPT,
-        "id only; the record that a standard was obtained",
-    ),
+        KEPT, "id only; the record that a standard was obtained"),
     ("vector_generation", "document_id"): (
-        KEPT,
-        "a random cache token; triggers rewrite it, holds no content",
-    ),
-    ("watch_events", "document_id"): (KEPT, "id only; the intake log row stays"),
+        KEPT, "a random cache token; triggers rewrite it, holds no content"),
+    ("watch_events", "document_id"): (
+        KEPT, "id only; the intake log row stays"),
     ("crs_document_scope", "document_id"): (
-        KEPT,
-        "id and a scope key; numbering scopes must not be reused. "
-        "NOT CHECKED: whether its `label` can carry a document name",
-    ),
+        KEPT, "id and a scope key; numbering scopes must not be reused. "
+              "NOT CHECKED: whether its `label` can carry a document name"),
+
     # ---- text taken from a document, erased by the delete (#436) ---------
     ("messages", "text"): (
-        ERASED_ON_DELETE,
-        "an answer citing the document is replaced; its filename "
-        "is removed from every other message",
-    ),
+        ERASED_ON_DELETE, "an answer citing the document is replaced; its filename "
+                          "is removed from every other message"),
     ("messages", "payload"): (
-        ERASED_ON_DELETE,
-        "every passage or citation of the document loses its text "
-        "and filename; ids and page numbers stay",
-    ),
+        ERASED_ON_DELETE, "every passage or citation of the document loses its text "
+                          "and filename; ids and page numbers stay"),
     ("reports", "snapshot_json"): (
-        ERASED_ON_DELETE,
-        "the snapshot is redacted the same way and its hash "
-        "recomputed; an audit row holds the old and new hash",
-    ),
+        ERASED_ON_DELETE, "the snapshot is redacted the same way and its hash "
+                          "recomputed; an audit row holds the old and new hash"),
     ("report_documents", "filename"): (
-        ERASED_ON_DELETE,
-        "the filename copied at report time; the row stays as the "
-        "record of what the report covered",
-    ),
+        ERASED_ON_DELETE, "the filename copied at report time; the row stays as the "
+                          "record of what the report covered"),
     ("watch_events", "filename"): (
-        ERASED_ON_DELETE,
-        "the filename seen by the folder watcher; the intake row stays",
-    ),
+        ERASED_ON_DELETE, "the filename seen by the folder watcher; the intake row stays"),
+
     # ---- rows that still hold text taken from a document -----------------
     ("crs_comment_numbers", "document_name"): (
-        HOLDS_TEXT,
-        "a document name copied beside the comment number; CRS output "
-        "is the review path, left to s2 (#436 lane note)",
-    ),
+        HOLDS_TEXT, "a document name copied beside the comment number; CRS output "
+                    "is the review path, left to s2 (#436 lane note)"),
     # #437: removed by the delete route (`field_naming.forget_document`), so a
-    # OCR text of a Word file's pictures, keyed by file hash (`word_pictures`).
+    # quote no longer outlives its document. Its own section because it is a
+    # side table with no foreign key, like the keyword rows.
+    ("canonical_field_names", "quote"): (
+        DELETED_BY_ROUTE, "a quote from the document that justified a field name;"
+        " the delete route removes the rows drawn from the document (#437)"),
+    # OCR text of a Word file's pictures, keyed by file hash with no foreign key.
     ("word_picture_readings", "text"): (
         DELETED_BY_ROUTE,
         "OCR text from the document's pictures; `erase_document_text`"
         " removes it when no other document holds the same file (PR 1581)",
-    ),
-    # quote no longer outlives its document. Its own section because it is a
-    # side table with no foreign key, like the keyword rows.
-    ("canonical_field_names", "quote"): (
-        DELETED_BY_ROUTE,
-        "a quote from the document that justified a field name;"
-        " the delete route removes the rows drawn from the document (#437)",
     ),
 }
 

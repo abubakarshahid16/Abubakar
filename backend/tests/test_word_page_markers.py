@@ -478,26 +478,6 @@ def test_a_pdf_finding_keeps_its_plain_page(tmp_path):
     assert _words([4], [finding]) == "p.4"
 
 
-def test_progress_says_part_only_when_a_word_file_has_no_pages(tmp_path):
-    conn = db.connect()
-    none = _ingest(_doc(tmp_path, d.para("Text " + LONG), pages=4, name="none.docx"))
-    real = _ingest(_doc(tmp_path, THREE_PAGES, pages=3, name="real.docx"))
-    _run_job(none)
-    _run_job(real)
-    review_jobs._page(conn, "job_" + none, 1, 1)
-    assert (
-        conn.execute("SELECT progress_label FROM jobs WHERE id = ?", ("job_" + none,))
-        .fetchone()[0]
-        .endswith(", part 1 of 1")
-    )
-    review_jobs._page(conn, "job_" + real, 2, 3)
-    assert (
-        conn.execute("SELECT progress_label FROM jobs WHERE id = ?", ("job_" + real,))
-        .fetchone()[0]
-        .endswith(", page 2 of 3")
-    )
-
-
 def test_no_page_image_words_do_not_claim_a_word_file_has_no_pages():
     assert "no printed pages" not in word_pages.no_image_words(
         "a Word document has no printed pages"
@@ -832,13 +812,6 @@ def test_switch_off_no_home_changes_its_words_and_no_engine_is_asked(
     assert word_pages.read_proof(doc_id) is None
     assert word_pages.unit(doc_id) == "page"
     assert word_pages.no_image_words("said before") == "said before"
-    conn = db.connect()
-    review_jobs._page(conn, "job_" + doc_id, 1, 2)
-    assert (
-        conn.execute("SELECT progress_label FROM jobs WHERE id = ?", ("job_" + doc_id,))
-        .fetchone()[0]
-        .endswith(", page 1 of 2")
-    )
     page_ledger.refresh(doc_id)
     assert "word_read" not in page_ledger.coverage(doc_id)
     assert "word_read" not in review_audit._pages_section(doc_id)
@@ -1000,3 +973,159 @@ def test_anything_else_going_wrong_with_pictures_never_fails_the_document(
         .fetchone()["status"]
         != "failed"
     )
+
+
+# ------------------------------------------------------------------ second review
+
+
+def _boxed_marker() -> str:
+    return (
+        f"<w:r><w:drawing {PIC_NS}><w:txbxContent><w:p>{MARK}{d.run('boxed')}</w:p>"
+        "</w:txbxContent></w:drawing></w:r>"
+    )
+
+
+def test_a_marker_in_a_text_box_in_a_table_cell_is_not_a_page(tmp_path):
+    cell = f"<w:p>{d.run('in a cell')}{_boxed_marker()}</w:p>"
+    body = f"<w:tbl>{_row(cell)}</w:tbl>" + _para("Next page " + LONG, marker=True)
+    s = docx_reader.read_structure(_doc(tmp_path, body), picture_readings={})
+    assert s.pagination.saved_markers == 1
+    assert s.pagination.last_page == 2
+    assert s.blocks[0].row_pages == [1]
+    assert s.blocks[-1].page == 2
+
+
+def test_a_table_in_a_text_box_in_a_cell_is_not_counted_read(tmp_path):
+    boxed = (
+        f"<w:r><w:drawing {PIC_NS}><w:txbxContent><w:tbl>{_row(_cell('x'))}</w:tbl>"
+        "</w:txbxContent></w:drawing></w:r>"
+    )
+    body = f"<w:tbl>{_row(f'<w:p>{d.run(chr(97))}{boxed}</w:p>')}</w:tbl>"
+    proof = docx_reader.read_structure(_doc(tmp_path, body), picture_readings={}).proof
+    assert (proof.tables_in_file, proof.tables_read) == (2, 1)
+    assert [n.reason for n in proof.not_read if n.kind == "table"] == [
+        docx_pages.WHY_TABLE_IN_TEXT_BOX
+    ]
+
+
+def _section_end(text: str, kind: str | None) -> str:
+    start = f'<w:type w:val="{kind}"/>' if kind else ""
+    return f"<w:p><w:pPr><w:sectPr>{start}</w:sectPr></w:pPr>{d.run(text)}</w:p>"
+
+
+def _sections_doc(tmp_path, first: str | None, second: str | None, name: str):
+    """Two sections. A section's own type says how THAT section starts."""
+    body = _section_end("One " + LONG, first) + d.para("Two " + LONG)
+    path = d.build(tmp_path / name, body)
+    if second:
+        import zipfile
+
+        with zipfile.ZipFile(path) as zf:
+            parts = {n: zf.read(n) for n in zf.namelist()}
+        parts["word/document.xml"] = parts["word/document.xml"].replace(
+            b"<w:sectPr/>", f'<w:sectPr><w:type w:val="{second}"/></w:sectPr>'.encode()
+        )
+        with zipfile.ZipFile(path, "w") as zf:
+            for n, data in parts.items():
+                zf.writestr(n, data)
+    return path
+
+
+@pytest.mark.parametrize("kind", ["continuous", "nextColumn"])
+def test_a_section_that_starts_on_the_same_page_opens_no_page(tmp_path, kind):
+    path = _sections_doc(tmp_path, None, kind, "same.docx")
+    s = docx_reader.read_structure(path, picture_readings={})
+    assert s.pagination.last_page == 1
+
+
+@pytest.mark.parametrize("kind", [None, "nextPage", "oddPage", "evenPage"])
+def test_a_section_that_starts_a_page_opens_one_whatever_the_section_before_says(
+    tmp_path, kind
+):
+    path = _sections_doc(tmp_path, "continuous", kind, "new.docx")
+    s = docx_reader.read_structure(path, picture_readings={})
+    assert [b.page for b in s.blocks] == [1, 2]
+
+
+def test_a_column_break_is_not_a_page(tmp_path):
+    body = (
+        f'<w:p>{d.run("One " + LONG)}<w:r><w:br w:type="column"/></w:r></w:p>'
+        + d.para("Two " + LONG)
+    )
+    body += d.para("Three " + LONG, page_break=True)
+    s = docx_reader.read_structure(_doc(tmp_path, body), picture_readings={})
+    assert s.pagination.typed_breaks == 1
+    assert [b.page for b in s.blocks[:3]] == [1, 1, 1]
+
+
+def test_a_heading_carried_into_a_chunk_keeps_its_own_page(tmp_path):
+    body = (
+        d.para("One " + LONG)
+        + d.para("Layout", style="Heading1")
+        + _para("Two " + LONG, marker=True)
+    )
+    s = docx_reader.read_structure(_doc(tmp_path, body, pages=2), picture_readings={})
+    chunk = next(c for c in docx_chunks.build_chunks(s) if "Layout" in c.text)
+    assert (chunk.page_start, chunk.page_end) == (1, 2)
+    assert "Layout" in s.pages[chunk.page_start - 1]
+
+
+def test_a_heading_with_no_real_pages_stays_as_it_was(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "word_page_markers_enabled", False)
+    body = (
+        d.para("One " + LONG, page_break=True)
+        + d.para("Layout", style="Heading1")
+        + d.para("Two " + LONG)
+    )
+    s = docx_reader.read_structure(_doc(tmp_path, body))
+    assert s.blocks[1].page == 2
+    chunk = next(c for c in docx_chunks.build_chunks(s) if "Layout" in c.text)
+    assert chunk.page_start == 2
+
+
+def test_the_review_says_page_with_markers_and_part_only_without(tmp_path):
+    none = _ingest(_doc(tmp_path, d.para("Text " + LONG), pages=4, name="n.docx"))
+    real = _ingest(_doc(tmp_path, THREE_PAGES, pages=3, name="r.docx"))
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE documents SET pagination = 'flow'")
+    assert review_jobs.document_words(none)[1] == "part"
+    assert review_jobs.document_words(real)[1] == "page"
+
+
+def test_switch_off_a_word_file_still_says_part(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "word_page_markers_enabled", False)
+    real = _ingest(_doc(tmp_path, THREE_PAGES, pages=3, name="r.docx"))
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE documents SET pagination = 'flow'")
+    assert review_jobs.document_words(real)[1] == "part"
+
+
+def test_the_procedure_page_cell_uses_the_same_words(tmp_path, monkeypatch):
+    from app import procedure_crs
+
+    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
+    for pages, want in ((9, "p.2 (page marks partial)"), (3, "p.2")):
+        doc_id = _ingest(
+            _doc(tmp_path, THREE_PAGES, pages=pages, name=f"proc{pages}.docx")
+        )
+        _run_job(doc_id)
+        extract.extract_document(doc_id)
+        row = {
+            "quote": "Second page paragraph " + LONG,
+            "page_section": "p.1 (page marks partial) - Scope",
+        }
+        procedure_crs.fill_pages([row], [], doc_id)
+        assert row["page_section"] == f"{want} - Scope"
+    body = d.para("Scope", style="Heading1") + d.para("Second page paragraph " + LONG)
+    none = _ingest(_doc(tmp_path, body, pages=4, name="procn.docx"))
+    _run_job(none)
+    extract.extract_document(none)
+    row = {"quote": "Second page paragraph " + LONG, "page_section": ""}
+    procedure_crs.fill_pages([row], [], none)
+    assert "p.1" not in row["page_section"]
+    assert word_pages.NO_PAGE in row["page_section"]
+    first = row["page_section"]
+    procedure_crs.fill_pages([row], [], none)
+    assert row["page_section"] == first

@@ -42,6 +42,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
 | `scan_quality` | #505: how well a scanned page was read (the recogniser's own confidence grouped clear / mixed / poor, or a named state), shown beside the citation on `/evidence` |
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
+| `review_audit_rows` | #1525: reconciles, per CRS copy, the rows composed for a run with the rows the file prints and what was removed, for the audit report |
+| `ai_call_ledger` | #1525: counts, per step and model, the AI answers a review job asked for fresh and the stored answers it reused, for the audit report; open only with REVIEW_AUDIT_REPORT_ENABLED on |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
 | `answer_model_notice` | Order 238.2: the dashboard warning when the default 35B answer model is not installed, naming the earlier model |
@@ -162,6 +164,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `intake` | One intake layer (#525, ONE_INTAKE_ENABLED): PDF, Word, Excel and image files read into one page shape; every unread page or refused file states its reason |
 | `docx_pages` | A Word file's own page numbers from its saved markers, and its tables and pictures counted against what was read (WORD_PAGE_MARKERS_ENABLED) |
+| `sheet_chunks` | Chunks for an Excel workbook (#525 slice 2, INTAKE_IMAGES_XLSX_ENABLED): each chunk cited by sheet and cell range |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
@@ -234,6 +237,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default. Also routes a parked KIND (`reference/kind_kits/`, drawing from SAES-A-202, #1484) behind `parked_kits_draft_enabled` |
 | `transmittal_kit` | #1482: a transmittal's header fields, listed documents (revision, sheets) against the held documents' covers and page counts, and a required-submissions list named at run time (client data, local DB only); no model; engineer rows only, never a verdict; behind `transmittal_kit_enabled` (off by default) |
 | `procedure_text` | A procedure submittal's own page text answers its requirements: engineer row with a verified quote, or missing; never compliant (#1476) |
+| `procedure_crs` | Order 4c: the CRS fields of a procedure or other non-datasheet kind: no equipment type, the page from the verified quote, the suggested document number; behind `procedure_crs_fields_enabled` |
 | `procedure_playbook_rows` | #1522 (b): a procedure's CRS rows from the matching review playbooks, as engineer rows (never compliant, no model), behind `procedure_playbook_rows_enabled` |
 | `progress` | What the machine is doing right now, recorded when it actually happens |
 | `provenance` | Which code read which input: provenance for extracted rows (issue #177) |
