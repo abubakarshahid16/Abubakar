@@ -647,16 +647,6 @@ def test_the_board_call_refuses_the_live_database(tmp_path):
 # ------------------------------------------------------------ the switch
 
 
-def test_switch_defaults_off():
-    """Read from the source, and from the class with no environment or .env under it:
-    the test suite pins this switch, so the running settings could not show a flip."""
-    source = (REPO / "backend" / "app" / "settings_ext.py").read_text(encoding="utf-8")
-    assert "    one_checked_definition_enabled: bool = False\n" in source
-    assert (
-        type(settings).model_fields["one_checked_definition_enabled"].default is False
-    )
-
-
 def test_switch_off_leaves_the_crs_notes_as_they_were(run):
     r = _run(
         clause_coverage={

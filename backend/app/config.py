@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .settings_ext import SettingsExt
+from .settings_ext import SettingsExt, answer_affecting_when_changed
 
 
 class ModelHostRefused(RuntimeError):
@@ -428,10 +428,6 @@ class Settings(SettingsExt, BaseSettings):
     #: The queue pauses below this much free memory, so a chat answer is never
     #: starved by background work.
     ai_task_min_free_ram_gb: float = 1.5
-    #: #647 AI applicability: the model PROPOSES "does not apply" with a quote;
-    #: code confirms it or it stays a check. OFF by default; capped per run.
-    ai_applicability_enabled: bool = False
-    ai_applicability_max_per_run: int = 200
     #: #141 a part limited by its own scope sentence to one construction
     #: (`ai_applicability.division_gate`). ON (#805 rule 1); off: nothing changes; a part not read or past the limit is HELD.
     ai_division_scope_enabled: bool = True
@@ -1285,12 +1281,6 @@ class Settings(SettingsExt, BaseSettings):
     #: (`market_live_enabled`, `market_allow_public_egress`) and a configured search
     #: tier, and goes through that lane's host allowlist, rate limit and audit.
     review_web_standards_enabled: bool = False
-    #: Owner order 2a: let Claude turn a table/formula clause the code parser
-    #: cannot read into rule_eval's structured form. Accepted ONLY when every
-    #: number in the parse appears verbatim on the clause's page; the
-    #: arithmetic is always Python. OFF BY DEFAULT; also needs the Claude lane
-    #: and stays within the USD caps (step "rule_parse").
-    rule_parse_model_enabled: bool = False
 
     # ------------------------------------------------- Claude-first chat (tools)
     #
@@ -1531,10 +1521,9 @@ ANSWER_AFFECTING_SETTINGS = (
     # reader read the sheet, whether applicability is decided by taxonomy or
     # by model reasoning), not only a chat answer; config_version is stamped
     # on every review run (review_jobs.py, submittal_review.py) as well as on
-    # chat reports, so leaving them out let a run's AI settings change with
-    # no change in the version a report compares against.
+    # chat reports, so leaving them out hid a change of a run's AI settings.
     "ai_task_model", "datasheet_ai_reader", "match_engine",
-    "ai_applicability_enabled", "applicability_reasoning_enabled",
+    "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
     "ai_answer_reuse_enabled",
 )
@@ -1552,6 +1541,7 @@ def config_version() -> str:
     import json
 
     subset = {k: getattr(settings, k) for k in sorted(ANSWER_AFFECTING_SETTINGS)}
+    subset.update(answer_affecting_when_changed(settings))
     return hashlib.sha256(
         json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:16]

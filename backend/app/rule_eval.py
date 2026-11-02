@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims, deferred_value, errors, numparse
+from . import claims, deferred_value, numparse
 
 import logging
 
@@ -316,39 +316,6 @@ _OP_WORDS = {
 }
 
 
-def unit_in_text(unit: str, text: str) -> bool:
-    """Is the rule's unit written in the text, as a unit (the gauge or
-    absolute letter and the case aside)?"""
-    base, _basis = _split_basis(unit or "")
-    base = (base or "").strip()
-    if not base:
-        return False
-    return re.search(r"(?<![A-Za-z])" + re.escape(base) + r"(?:\s?\(?[ga]\)?)?(?![A-Za-z])",
-                     text or "", re.IGNORECASE) is not None
-
-
-def ops_proven(rule: dict, text: str) -> bool:
-    """Every row's `max` / `min` is said by a word in the text, and a row with
-    several terms and no such word ("single") is not a rule."""
-    for row in rule.get("rows", []):
-        terms = row.get("terms")
-        if not isinstance(terms, list) or not terms:
-            return False
-        op = row.get("op", "single")
-        if op == "single":
-            if len(terms) != 1:
-                return False
-        elif op not in _OP_WORDS or not _OP_WORDS[op].search(text or ""):
-            return False
-    return True
-
-
-def verify_model_rule(rule: dict, text: str) -> bool:
-    """A model's parse is kept only when the NUMBERS, the UNIT and each row's
-    max / min are all in the text. The arithmetic is always Python."""
-    return verify_numbers(rule, text) and unit_in_text(rule.get("unit", ""), text) and ops_proven(rule, text)
-
-
 # ------------------------------------------------------------ pairing (2b)
 
 #: What a pressure-from-operating-pressure rule reads from a datasheet. Field
@@ -576,17 +543,6 @@ def dumps(rule: dict) -> str:
 
 # ------------------------------------------------------- store and fetch
 
-MODEL_STEP = "rule_parse"
-MODEL_PROMPT = """Turn this engineering table/formula clause into JSON rows. Each row: \
-{"from": number|null, "to": number|null, "op": "single"|"max"|"min", \
-"terms": [{"k": number, "c": number}]} meaning output = op(k * input + c) for input in (from, to]. \
-Also give "unit" (the unit of the table's numbers). Use ONLY numbers printed in the text. \
-Answer {"unit": "...", "rows": [...]} and nothing else.
-
-TEXT:
-"""
-
-
 def _page_texts(requirement: dict) -> list[str]:
     """The clause's own text, its chunk, and - for a garbled table - the
     page's ruled table re-read by the table reader, in that order."""
@@ -612,25 +568,6 @@ def _page_texts(requirement: dict) -> list[str]:
     return texts
 
 
-def _model_parse(text: str, known: dict, provider) -> dict | None:
-    """The model's parse, kept only if every number in it is on the page."""
-    from . import reasoning_provider as rp
-    from .config import settings
-    response = provider.reason(rp.Packet(
-        prompt=MODEL_PROMPT + text[:6000], num_ctx=settings.num_ctx, num_predict=800,
-        step=MODEL_STEP, prompt_version="rule-parse-v1", timeout_s=120))
-    try:
-        body = json.loads(response.text.strip().strip("`").removeprefix("json").strip())
-        rule = {"output": known["output"], "input": known["input_names"][-1],
-                "input_names": known["input_names"], "unit": str(body["unit"]),
-                "comparator": known["comparator"], "rows": list(body["rows"])}
-    except (ValueError, KeyError, TypeError):
-        return None
-    # REJECT, NEVER REPAIR: a number that is not on the page is an invention,
-    # and so is a unit or a max / min the text does not say (#916).
-    return rule if rule["rows"] and verify_model_rule(rule, text) else None
-
-
 def cross_rule(requirement: dict) -> dict | None:
     """The one-row rule a clause that compares two fields states, or None.
     output field `op` factor * reference field + offset, read by
@@ -647,10 +584,9 @@ def cross_rule(requirement: dict) -> dict | None:
                       "terms": [{"k": cross["factor"], "c": cross["offset"]}]}]}
 
 
-def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | None]:
+def rule_for(requirement: dict) -> tuple[dict | None, str | None]:
     """(rule, source) for a table/relative requirement - parsed once and
     stored on the requirement, or (None, why) when it stays with an engineer."""
-    from .config import settings
     from .db import connect
     if requirement.get("rule_json"):
         try:
@@ -679,21 +615,6 @@ def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | No
             source = SOURCE_CODE
             break
         rule = None
-    if rule is None and settings.rule_parse_model_enabled:
-        from . import reasoning_provider as rp
-        if provider is not None or rp.claude_available()[0]:
-            try:
-                engine = provider or rp.get_provider("reasoning", step=MODEL_STEP)
-                # #806 S3: the prompt carries this standard's requirement text.
-                from . import claude_approved
-                with claude_approved.carrying([requirement.get("standard_document_id")]):
-                    for text in texts:
-                        rule = _model_parse(text, known, engine)
-                        if rule is not None:
-                            source = SOURCE_MODEL
-                            break
-            except Exception as exc:  # noqa: BLE001 - budget or refusal: stays with an engineer
-                rule = errors.fell_back("rule_eval: the model's rule could not be drafted; it stays with an engineer", exc, None)
     if rule is None:
         page = requirement.get("page") or requirement.get("chunk_page")
         return None, (f"the table on page {page} could not be read" if page

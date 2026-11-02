@@ -210,16 +210,3 @@ class _NoteReader:
         )
 
 
-def test_the_clause_gate_records_the_model_that_ran_too(store, monkeypatch):
-    _RAN.clear()
-    monkeypatch.setattr(ai_task_runner, "OllamaProvider", _NoteReader)
-    _engine(monkeypatch, ["reader:4b"])
-    clause = "NOTE A vessel may be insulated."
-    out = ai_applicability.gate(
-        [{"id": "n", "requirement_text": clause, "source_text": clause}],
-        classification={"equipment_type": "Pressure vessel"},
-        facts=STEEL,
-    )
-    [item] = out["items"]
-    assert set(_RAN) == {"reader:4b"}
-    assert item["decided_by"] == "ai:reader:4b+code"

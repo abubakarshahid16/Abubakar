@@ -23,7 +23,6 @@ import pytest
 
 from app import comparison, datasheets, db, rule_eval, standards, submittal_review
 from app import reasoning_provider as rp
-from app.config import settings
 import tests.test_b3_page_ledger as ledger_tests
 from tests.test_b3_page_ledger import NOW, temp_storage  # noqa: F401 - autouse
 
@@ -222,25 +221,6 @@ GARBLED = "Design pressure: up to 1,800 kPa add 170 kPa to MOP."
 def _req():
     return {"id": None, "requirement_text": GARBLED, "source_text": GARBLED,
             "chunk_id": None, "standard_document_id": None}
-
-
-def test_a_model_parse_is_kept_only_when_every_number_is_on_the_page(monkeypatch):
-    """M1081: reject, never repair."""
-    monkeypatch.setattr(settings, "rule_parse_model_enabled", True)
-    honest = _FakeModel({"unit": "kPa", "rows": [
-        {"from": None, "to": 1800, "op": "single", "terms": [{"k": 1, "c": 170}]}]})
-    invented = _FakeModel({"unit": "kPa", "rows": [
-        {"from": None, "to": 1800, "op": "single", "terms": [{"k": 1.1, "c": 170}]}]})
-    rule, source = rule_eval.rule_for(_req(), provider=honest)
-    assert source == rule_eval.SOURCE_MODEL and rule["rows"][0]["terms"][0]["c"] == 170
-    assert rule_eval.rule_for(_req(), provider=invented)[0] is None
-
-
-def test_the_model_is_not_asked_when_its_flag_is_off(monkeypatch):
-    class Explode:
-        def reason(self, packet):
-            raise AssertionError("the model was asked with the flag off")
-    assert rule_eval.rule_for(_req(), provider=Explode())[0] is None
 
 
 # ------------------------------------------- conflict is not absence (fix)

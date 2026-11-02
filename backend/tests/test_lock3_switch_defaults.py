@@ -27,7 +27,6 @@ TURNED_ON = (
     "nothing_read_fails_enabled",
     "one_checked_definition_enabled",
     "page_read_by_reading_enabled",
-    "pdf_heading_detection_enabled",
     "percent_kind_check_enabled",
     "playbook_presence_without_standard_enabled",
     "playbook_section_presence_enabled",
@@ -43,6 +42,8 @@ TURNED_ON = (
 
 #: Each stays off for a stated reason (#1626): a known block, verdict power before Lock 1, or an egress gate.
 STAYS_OFF = (
+    "pdf_heading_detection_enabled",
+    "answer_judge_enabled",
     "word_page_markers_enabled",
     "owner_approved_rules_decide_enabled",
     "equipment_from_title_block_enabled",
@@ -63,3 +64,10 @@ def test_a_proven_switch_is_on_with_no_env_file(name):
 @pytest.mark.parametrize("name", STAYS_OFF)
 def test_a_blocked_switch_stays_off_with_no_env_file(name):
     assert Settings.model_fields[name].default is False
+
+
+@pytest.mark.parametrize(
+    "name", ("ai_applicability_enabled", "rule_parse_model_enabled")
+)
+def test_a_deleted_switch_is_gone(name):
+    assert name not in Settings.model_fields

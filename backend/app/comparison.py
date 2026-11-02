@@ -2466,22 +2466,7 @@ def _run_comparison(
     requirements = divided["kept"]
     extra_not_applied.extend(divided["items"])
     held_items.extend(divided["held"])
-    # #647 AI APPLICABILITY, when switched on: the model proposes "does not
-    # apply" with a quoted reason; only what code confirms leaves the check.
-    # What it suggested and code did not confirm is kept on the requirement's
-    # decision, for the engineer. See `ai_applicability`.
     ai_notes: dict = dict(divided.get("notes") or {})
-    ai_applicability_summary = None
-    if settings.ai_applicability_enabled:
-        from . import ai_applicability
-        ai = ai_applicability.gate(requirements, classification=stored, facts=facts,
-                                   limit=settings.ai_applicability_max_per_run)
-        requirements = ai["kept"]
-        extra_not_applied.extend(ai["items"])
-        ai_notes.update(ai["notes"])
-        ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
-                                    "confirmed_does_not_apply": len(ai["items"]),
-                                    "unconfirmed": len(ai["notes"])}
     # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this submittal's
     # equipment type has a review checklist, the library requirements of a standard the checklist CITES
     # are not checked one by one: the checklist items are. They stay quotable. GUARD: only standards
@@ -3055,7 +3040,6 @@ def _run_comparison(
         # PF4 (#884): the same decisions as PF4's four states, with the line
         "clause_coverage": clause_cov,
         "service_declarations": service_declarations,
-        "ai_applicability": ai_applicability_summary,
         "clause_checks": clause_checks,
         "requirements_held_back": held_back,
         "standards_not_checked": unchecked_standards,
