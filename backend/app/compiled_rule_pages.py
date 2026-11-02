@@ -51,6 +51,15 @@ class Chunk:
     clauses: dict[int, set[str]] = field(default_factory=dict)
 
 
+def _sentence_is_open(words: str) -> bool:
+    """Has this run of lines an obligation with no stop after it, or a quotation not closed? Then a short line that a
+    capital follows is a wrapped sentence on a narrow page, not a title."""
+    tail = re.split(r"[.;:](?:\s|$)", words)[-1]
+    return bool(re.search(r"\b(?:shall|must|should|may|will)\b", tail)) or tail.count(
+        "\u201c"
+    ) > tail.count("\u201d")
+
+
 def _blocks_of(text: str) -> list[str]:
     """Runs of lines that may hold one sentence: broken at a blank line, a clause heading, and after a short line
     followed by one in capitals. A wrapped line stays with the sentence it belongs to."""
@@ -62,7 +71,12 @@ def _blocks_of(text: str) -> list[str]:
             blocks.append([])
             before = ""
             continue
-        title = before and len(before) <= _TITLE_CHARS and line[0].isupper()
+        title = (
+            before
+            and len(before) <= _TITLE_CHARS
+            and line[0].isupper()
+            and not _sentence_is_open(" ".join(blocks[-1]))
+        )
         if title or _CLAUSE_HEADING.match(line) or _LONE_NUMBER.match(line):
             blocks.append([])
         blocks[-1].append(line)
@@ -75,7 +89,7 @@ def sentences_of(text: str) -> list[str]:
     out: list[str] = []
     for block in _blocks_of(text):
         held = ""
-        for piece in re.split(r"(?<=[.;])\s+", block):
+        for piece in re.split(r"(?<=[.;])\s+|(?<=[.;][\"\u201d\u2019)])\s+", block):
             held = f"{held} {piece}" if held else piece
             if not held.lower().endswith(_ABBREVIATED):
                 out.append(_fold(held))
@@ -86,7 +100,7 @@ def sentences_of(text: str) -> list[str]:
 
 
 def _core(sentence: str) -> str:
-    return _STRIP_PREFIX.sub("", _fold(sentence)).rstrip(" .;:,")
+    return _STRIP_PREFIX.sub("", _fold(sentence)).rstrip(' .;:,"\u201d\u2019')
 
 
 def core_of(sentence: str) -> str:

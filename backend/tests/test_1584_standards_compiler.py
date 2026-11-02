@@ -4335,3 +4335,333 @@ def test_unset_waits_on_a_canceling_batch_and_sends_nothing():
 
 def test_shall_not_be_a_figure_is_never_an_equal_limit():
     assert _plain("The pressure shall not be 200 psi.", comparator="=")[0] is None
+
+
+def test_a_rule_with_no_figure_takes_a_paraphrased_field_and_says_so():
+    sentence = "The widget covers shall be painted orange."
+    over = {"limit": None, "unit": None, "comparator": None}
+    rule, why = _plain(sentence, field="colour of widget covers", **over)
+    assert (
+        why is None and rule["field_printed"] is False and rule["limit_value"] is None
+    )
+
+
+def test_a_rule_with_no_figure_whose_field_is_printed_says_so():
+    sentence = "The widget covers shall be painted orange."
+    rule, why = _plain(
+        sentence, field="widget covers", limit=None, unit=None, comparator=None
+    )
+    assert why is None and rule["field_printed"] is True
+
+
+def test_a_rule_with_no_figure_needs_one_word_of_its_field_in_the_quote():
+    sentence = "The widget covers shall be painted orange."
+    over = {"limit": None, "unit": None, "comparator": None}
+    assert _plain(sentence, field="vane speed", **over) == (None, "field_not_in_quote")
+
+
+def test_a_paraphrased_field_never_passes_with_a_figure():
+    sentence = "The widget covers shall be 200 psi."
+    assert _plain(sentence, field="colour of widget covers", comparator="=") == (
+        None,
+        "field_not_in_quote",
+    )
+
+
+def test_a_paraphrased_field_does_not_excuse_a_lost_condition():
+    sentence = "The widget covers in gas service shall be painted orange."
+    over = {"limit": None, "unit": None, "comparator": None}
+    assert _plain(sentence, field="colour of widget covers", **over) == (
+        None,
+        "condition_not_captured",
+    )
+
+
+def test_field_printed_is_stored():
+    _document()
+    _compile(FakeBatches())
+    assert _rules()[0]["field_printed"] == 1
+
+
+# ---------------------------------------------------------------- wrong drops the second prompt's answers showed
+
+
+NO_FIGURE = {"limit": None, "unit": None, "comparator": None, "field": "widget"}
+
+
+def test_a_section_number_alone_is_the_heading_over_its_words():
+    quote = "The widget shall be painted."
+    page = f"7.3 Part\nSome words here.\n8\nDocuments\n{quote}"
+    assert _verify_on(page, quote, clause="8", **NO_FIGURE)[1] is None
+
+
+def test_a_section_number_with_its_title_is_the_heading():
+    quote = "The widget shall be painted."
+    page = f"7.3 Part\nSome words here.\n8 Documents\n{quote}"
+    assert _verify_on(page, quote, clause="8", **NO_FIGURE)[1] is None
+
+
+def test_a_section_number_before_the_clause_in_force_is_not_the_heading():
+    quote = "The widget shall be painted."
+    page = f"8\nDocuments\n8.3 Part\n{quote}"
+    assert _verify_on(page, quote, clause="8", **NO_FIGURE) == (
+        None,
+        "clause_not_nearest",
+    )
+
+
+def test_a_number_not_printed_as_a_heading_is_not_the_clause():
+    quote = "The widget shall be painted."
+    page = f"7.3 Part\nSome 8 words here.\n{quote}"
+    assert _verify_on(page, quote, clause="8", **NO_FIGURE) == (
+        None,
+        "clause_not_nearest",
+    )
+
+
+def test_the_chunk_label_stays_frozen_for_a_section_number():
+    chunk = standards_compiler.chunks_of(
+        {1: "8\nDocuments\nThe widget shall be painted."}
+    )[0]
+    assert "clause none" in chunk.text
+
+
+@pytest.mark.parametrize(
+    "sentence, condition",
+    [
+        ("For gas plants the widget shall be painted.", "For gas plants"),
+        (
+            "The widget lines shall be used for lines that may become wet.",
+            "that may become wet",
+        ),
+        ("Widget lines that rely on clips, shall not be used.", "that rely on clips"),
+        ("The widget shall be painted as applicable.", "as applicable"),
+        (
+            "The widget shall be used when all the rails are dry.",
+            "all the rails are dry",
+        ),
+        ("Widget lines exposed to frost shall be painted.", "exposed to frost"),
+        ("Widget lines containing wet gas shall be painted.", "wet gas"),
+    ],
+)
+def test_a_condition_the_sentence_writes_as_a_clause_is_one(sentence, condition):
+    rule, why = _plain(sentence, condition=condition, **NO_FIGURE)
+    assert why is None and rule["condition_text"] == condition.lower()
+
+
+@pytest.mark.parametrize(
+    "sentence, condition",
+    [
+        ("For gas plants the widget shall be painted.", "For gas"),
+        ("The widget lines shall be used for lines that may become wet.", "may become"),
+        ("Widget lines containing wet gas shall be painted.", "wet"),
+    ],
+)
+def test_part_of_such_a_clause_is_still_not_one(sentence, condition):
+    assert _plain(sentence, condition=condition, **NO_FIGURE) == (
+        None,
+        "condition_not_a_clause",
+    )
+
+
+def test_the_whole_subject_as_condition_leaves_a_limit_named_after_the_modal():
+    sentence = "Widgets in sour plants shall discharge at a minimum distance of 7 m from any fence."
+    over = {
+        "field": "minimum distance from any fence",
+        "comparator": ">=",
+        "limit": "7",
+        "unit": "m",
+    }
+    rule, why = _plain(sentence, condition="Widgets in sour plants", **over)
+    assert why is None and rule["limit_value"] == 7.0
+
+
+def test_the_whole_subject_as_condition_cannot_take_the_field_with_it():
+    sentence = "The pressure shall not exceed 200 psi."
+    assert _plain(sentence, condition="The pressure")[0] is None
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The alternate rails (i.e., red rails and blue rails) shall be painted.",
+        "The alternate rails (e.g., red rails) shall be painted.",
+        "Mandatory Widget Rules (MWRs) shall be read.",
+    ],
+)
+def test_a_bracket_that_glosses_is_not_a_scope(sentence):
+    rule, why = _plain(
+        sentence,
+        field="rules" if "Rules" in sentence else "rails",
+        limit=None,
+        unit=None,
+        comparator=None,
+    )
+    assert why is None and rule is not None
+
+
+def test_a_bracket_that_only_looks_like_an_acronym_is_a_scope():
+    sentence = "The widget pressure (GL) shall not exceed 25 bar."
+    assert _plain(sentence, limit="25", unit="bar") == (None, "condition_not_captured")
+
+
+def test_a_number_in_a_documents_name_is_not_a_figure_of_the_subject():
+    rule, why = _plain(
+        "Standard AB-319 shall be followed.",
+        field="standard",
+        limit=None,
+        unit=None,
+        comparator=None,
+    )
+    assert why is None and rule is not None
+
+
+@pytest.mark.parametrize("comparator", [">=", "=", ">"])
+def test_a_comparator_with_no_figure_stores_no_comparator(comparator):
+    rule, why = _plain(
+        "The widget capacity shall equal rail capacity.",
+        field="widget capacity",
+        limit=None,
+        unit=None,
+        comparator=comparator,
+    )
+    assert why is None and rule["comparator"] is None and rule["limit_value"] is None
+
+
+def test_a_comparator_with_no_figure_still_needs_its_conditions():
+    assert _plain(
+        "For frost, the widget shall equal the rail.",
+        comparator=">=",
+        limit=None,
+        unit=None,
+        field="widget",
+    ) == (None, "condition_not_captured")
+
+
+def test_a_reworded_exception_on_a_rule_with_no_figure_is_not_stored_and_is_flagged():
+    rule, why = _plain(
+        "The widget shall be painted.",
+        exceptions="Unless the moon is full.",
+        **NO_FIGURE,
+    )
+    assert why is None and rule["exception_text"] is None
+    assert (
+        "exception_reworded" in rule["context_flag"]
+        and rule["strength"] == "context_dependent"
+    )
+
+
+def test_a_reworded_exception_on_a_rule_with_a_figure_still_drops():
+    sentence = "The pressure shall not exceed 200 psi."
+    assert _plain(sentence, exceptions="Unless the moon is full.") == (
+        None,
+        "exception_not_on_page",
+    )
+
+
+def test_a_sentence_that_points_at_a_list_is_flagged():
+    sentence = "The widget shall be used when all of the following are met."
+    rule, why = _plain(sentence, condition="all of the following are met", **NO_FIGURE)
+    assert why is None and "refers_to_a_list" in rule["context_flag"]
+
+
+def test_a_sentence_ending_inside_quotation_marks_ends_there():
+    pages = {
+        1: "7.3 Part\nThe widget shall be stamped \u201cUD.\u201d\nCovers shall be red."
+    }
+    chunk = standards_compiler.chunks_of(pages)[0]
+    answer = {
+        "applies_to": "widgets",
+        "field": "widget",
+        "clause": "7.3",
+        "page": 1,
+        "quote": "The widget shall be stamped \u201cUD.\u201d",
+    }
+    assert standards_compiler.verify(answer, chunk, pages)[1] is None
+
+
+def test_the_start_of_a_longer_leading_scope_is_held():
+    sentence = "For gas plants the widget shall be painted, or be red."
+    rule, why = _plain(sentence, condition="For gas plants", **NO_FIGURE)
+    assert why is None and rule["condition_text"] == "for gas plants"
+
+
+def test_a_clause_ending_before_they_is_whole():
+    _rule_kept, why = _plain(
+        "When the rails are wet they shall be painted.",
+        condition="When the rails are wet",
+        field="rails",
+        limit=None,
+        unit=None,
+        comparator=None,
+    )
+    assert why is None
+
+
+def test_a_plural_acronym_counts_its_own_last_letter():
+    sentence = "High Integrity Widget Systems (HIWS) shall be read."
+    assert (
+        _plain(sentence, field="systems", limit=None, unit=None, comparator=None)[1]
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    ["A check per Std 521 shall be made.", "A check per Section 9.2 shall be made."],
+)
+def test_a_number_naming_a_document_part_is_not_a_figure_of_the_subject(sentence):
+    assert (
+        _plain(sentence, field="check", limit=None, unit=None, comparator=None)[1]
+        is None
+    )
+
+
+def test_a_figure_that_is_a_scope_is_still_held_after_those_words():
+    sentence = "A check of 5 kW plants shall be made."
+    assert _plain(sentence, field="check", limit=None, unit=None, comparator=None) == (
+        None,
+        "condition_not_captured",
+    )
+
+
+@pytest.mark.parametrize(
+    "page, quote",
+    [
+        (
+            "7.3 Part\nThe widget shall meet the rules of\nRail Code and be red.\nCovers shall be red.",
+            "The widget shall meet the rules of Rail Code and be red.",
+        ),
+        (
+            "7.3 Part\nForm \u201cWidget rules for\nRails\u201d shall be used for the widget.\nCovers shall be red.",
+            "Form \u201cWidget rules for Rails\u201d shall be used for the widget.",
+        ),
+    ],
+)
+def test_a_sentence_wrapped_before_a_capital_on_a_narrow_page_is_one_sentence(
+    page, quote
+):
+    assert (
+        _verify_on(page, quote, field="widget", limit=None, unit=None, comparator=None)[
+            1
+        ]
+        is None
+    )
+
+
+def test_a_short_title_before_a_capital_still_ends_where_it_ends():
+    page = "7.3 Part\nWidget Rules\nThe widget shall be painted."
+    quote = "The widget shall be painted."
+    assert (
+        _verify_on(page, quote, field="widget", limit=None, unit=None, comparator=None)[
+            1
+        ]
+        is None
+    )
+
+
+def test_the_next_sentence_after_a_wrapped_one_is_not_swallowed():
+    sentences = compiled_rule_proof.sentences_of(
+        "The widget shall be red.\nCovers shall be red."
+    )
+    assert len(sentences) == 2

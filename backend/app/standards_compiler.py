@@ -30,14 +30,11 @@ THE TEXT is what the app cites, recognised text included (`_page_rows`). Each re
 natively, from OCR and not at all, with OCR's confidence when stored, and each rule says which its page was. Pages
 with no text are listed. A standard with no usable page is "not_compiled", never a standard with no rules.
 
-CONTEXT. Code cannot prove that a rule stands alone, and no flag does not mean it does: a table row, or a sentence whose scope sits in a heading, caption
-or the next sentence, can be kept with no condition and be over-broad. Such a rule gets `context_flag` and the strength
-`context_dependent` (its own word stays in `sentence_strength`), so an approval path can refuse it.
+CONTEXT. Code cannot prove that a rule stands alone (`compiled_rule_context`), and no flag does not mean it does. A
+flagged rule's strength is `context_dependent`, its own word stays in `sentence_strength`: an approval path can refuse it.
 
-CACHING. One stable system block per standard (instructions plus the start of the standard), and only the pages
-of that chunk after the breakpoint. It is marked only when it pays: two or more chunks, and the block over the
-model's minimum. Five-minute entries, the price the ledger knows. In a batch a hit is best effort, so the report
-gives the tokens the API said it read from cache.
+CACHING. One stable system block per standard; only the chunk's pages after the breakpoint. Marked only when it pays:
+two or more chunks, and the block over the model's minimum. The report gives the tokens the API read from cache.
 
 Standards text goes out only through `claude_batch_run` and `reader_transport`. No text in any report.
 """
@@ -66,6 +63,7 @@ from .compile_budget import (
     _spent_on,
     release_left_over_holds,
 )
+from .compiled_rule_context import is_table_row
 from .compiled_rule_pages import (
     CHUNK_CHARS,
     HEAD_CHARS,
@@ -77,7 +75,7 @@ from .compiled_rule_pages import (
     shall_count,
     shall_sentences,
 )
-from .compiled_rule_proof import ANSWER_SCHEMA, is_table_row, verify
+from .compiled_rule_proof import ANSWER_SCHEMA, verify
 from .compiled_rule_report import (
     NOT_RECORDED,
     _has_table,
@@ -156,6 +154,7 @@ def ensure_schema(conn=None) -> None:
         add_column_if_missing(conn, "compile_runs", "status", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "page_source", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "strength", "TEXT")
+        add_column_if_missing(conn, "compiled_rules", "field_printed", "INTEGER")
         add_column_if_missing(conn, "compiled_rules", "sentence_strength", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "context_flag", "TEXT")
         add_column_if_missing(conn, "compiled_rules", "exception_text", "TEXT")
@@ -426,8 +425,8 @@ def _store(
                 "INSERT INTO compiled_rules (id, run_id, rule_version, standard_document_id, standard, applies_to,"
                 " condition_text, field, comparator, limit_text, limit_value, unit, unit_dimension, clause, page,"
                 " quote, status, model, prompt_version, batch_id, text_sha256, created_at, page_source, page_min_conf,"
-                " strength, applies_to_verified, exception_text, quote_sha256, quote_start, quote_end, edition, sentence_strength, context_flag)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'held',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " strength, applies_to_verified, exception_text, quote_sha256, quote_start, quote_end, edition, sentence_strength, context_flag, field_printed)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'held',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     uuid.uuid4().hex,
                     run_id,
@@ -461,6 +460,7 @@ def _store(
                     edition,
                     rule["sentence_strength"],
                     rule["context_flag"],
+                    int(rule["field_printed"]),
                 ),
             )
     return run_id
