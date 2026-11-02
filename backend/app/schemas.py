@@ -2665,8 +2665,7 @@ class CrsPreview(BaseModel):
     #: comment text - the issue copy only (0 when none; always 0 on the
     #: internal copy, which prints them with a sentence saying so).
     rows_withheld_no_text: int = 0
-    #: #1503 (CRS_EXPORT_QUALITY_STRICT_ENABLED, internal copy): the file's Internal sheet.
-    internal_preview: dict = {}
+    internal_preview: dict = {}  #: #1503 (strict switch, internal copy): the Internal sheet.
 
 
 class ReviewRunStandard(BaseModel):
