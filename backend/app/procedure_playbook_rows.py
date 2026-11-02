@@ -13,7 +13,10 @@ What a row may say, and no more:
   * unclear / missing  -> says so (and which cues were not found).
   * could not be checked -> says so, with the reason.
   * standard_not_held  -> the playbook's own wording: the standard is not held, so
-                          the element is never met.
+                          the element is never met. With the presence switches on
+                          (`playbooks._section_without_standard`): "Section not found:
+                          ...; engineer to confirm", or the page and heading where the
+                          section was found, content not checked, engineer to confirm.
   * NEVER compliant. Every row is unconfirmed (`engineer_confirmed` False): it rides
     on the internal copy and is not on the contractor's copy until an engineer
     accepts it. No model is called (no proposer). The playbook's draft notice
@@ -140,11 +143,17 @@ def _comment(playbook: playbooks.Playbook, report: dict, entry: dict) -> str:
 
 
 def _row(playbook, report, entry, submittal_name: str) -> dict:
-    ev = (entry["evidence"] or [{}])[0] if entry["state"] == playbooks.PRESENT else {}
+    shown = entry["state"] == playbooks.PRESENT or entry.get("section_state") in (
+        playbooks.PRESENT,
+        playbooks.UNCLEAR,
+    )
+    ev = (entry["evidence"] or [{}])[0] if shown else {}
+    # an unclear row's page column is the page its comment cites (the verified one)
+    cited = entry.get("cited_page")
     return {
         "finding_id": "",
         "document_name": submittal_name,
-        "page_section": ev.get("locator") or "",
+        "page_section": f"page {cited}" if cited else ev.get("locator") or "",
         "comment": _comment(playbook, report, entry),
         "comment_by": BY,
         "standard_reference": f"{entry['source']['standard']} {entry['source']['clause']}",
@@ -156,6 +165,8 @@ def _row(playbook, report, entry, submittal_name: str) -> dict:
         ),
         "priority": crs_mapping.PRIORITY_ENGINEER_TO_CHECK,
         "playbook_state": entry["state"],
+        # Never printed: the quote the page cell is proved from (`procedure_crs`).
+        **({"quote": ev.get("quote")} if settings.procedure_crs_fields_enabled else {}),
     }
 
 
@@ -194,11 +205,20 @@ def crs_rows(
 
 
 def merge(
-    rows: list[dict], submittal_id: str, submittal_name: str, allowed: frozenset[str]
+    rows: list[dict],
+    submittal_id: str,
+    submittal_name: str,
+    allowed: frozenset[str],
+    findings: list[dict] = (),
 ) -> tuple[list[dict], list[dict]]:
     """The CRS rows with the playbook rows added in rank order (the same list, untouched,
-    when there are none), and the review notes this adds."""
+    when there are none), and the review notes this adds. Order 4c, switch on: each
+    quoted row's page cell, and the note that says what the Item No label is."""
+    from . import procedure_crs
+
     mine, notes = crs_rows(submittal_id, submittal_name, allowed)
-    if not mine:
-        return rows, notes
-    return sorted([*rows, *mine], key=lambda r: r.get("priority") or 0), notes
+    merged = (
+        sorted([*rows, *mine], key=lambda r: r.get("priority") or 0) if mine else rows
+    )
+    procedure_crs.fill_pages(merged, list(findings), submittal_id)
+    return merged, notes + procedure_crs.number_notes(submittal_id)

@@ -161,6 +161,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `intake` | One intake layer (#525, ONE_INTAKE_ENABLED): PDF, Word, Excel and image files read into one page shape; every unread page or refused file states its reason |
+| `sheet_chunks` | Chunks for an Excel workbook (#525 slice 2, INTAKE_IMAGES_XLSX_ENABLED): each chunk cited by sheet and cell range |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
@@ -233,6 +234,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default. Also routes a parked KIND (`reference/kind_kits/`, drawing from SAES-A-202, #1484) behind `parked_kits_draft_enabled` |
 | `transmittal_kit` | #1482: a transmittal's header fields, listed documents (revision, sheets) against the held documents' covers and page counts, and a required-submissions list named at run time (client data, local DB only); no model; engineer rows only, never a verdict; behind `transmittal_kit_enabled` (off by default) |
 | `procedure_text` | A procedure submittal's own page text answers its requirements: engineer row with a verified quote, or missing; never compliant (#1476) |
+| `procedure_crs` | Order 4c: the CRS fields of a procedure or other non-datasheet kind: no equipment type, the page from the verified quote, the suggested document number; behind `procedure_crs_fields_enabled` |
 | `procedure_playbook_rows` | #1522 (b): a procedure's CRS rows from the matching review playbooks, as engineer rows (never compliant, no model), behind `procedure_playbook_rows_enabled` |
 | `progress` | What the machine is doing right now, recorded when it actually happens |
 | `provenance` | Which code read which input: provenance for extracted rows (issue #177) |
