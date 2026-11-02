@@ -295,10 +295,21 @@ def _in_passage(sentence: str, passage: str) -> bool:
     return compiled_rule_proof.quote_verified(sentence, passage)
 
 
-def _apart(others: set[str], ours: set[str], vocab) -> bool:
+def _families() -> dict[str, str]:
+    """{type: its family}: equipment that can be a kind of one another shares one. Read only here."""
+    data = json.loads(subject_scope.VOCABULARY_PATH.read_text(encoding="utf-8"))
+    return {
+        subject_scope._fold(name): entry["family"]
+        for name, entry in (data.get("types") or {}).items()
+        if (entry or {}).get("family")
+    }
+
+
+def _apart(others: set[str], ours: set[str]) -> bool:
     """Does the vocabulary put every one of these in another family than this type? A type with no family: it cannot say."""
-    theirs = {vocab.family.get(t) for t in others}
-    mine = {vocab.family.get(t) for t in ours}
+    families = _families()
+    theirs = {families.get(t) for t in others}
+    mine = {families.get(t) for t in ours}
     return None not in theirs and None not in mine and not theirs & mine
 
 
@@ -325,7 +336,7 @@ def _names_type(sentence: str, equipment_type: str) -> bool | None:
         others |= types - ours
     if shared or not others:
         return None
-    return False if _apart(others, ours, vocab) else None
+    return False if _apart(others, ours) else None
 
 
 def _unknown(words: str, division: str | None = None) -> Scope:

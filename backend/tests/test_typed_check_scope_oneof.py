@@ -498,8 +498,9 @@ def test_a_type_that_may_be_a_kind_of_what_the_clause_names_is_a_question(code):
 
 
 def test_a_type_with_no_family_is_never_outside(code, monkeypatch):
-    vocab = subject_scope.vocabulary()
-    monkeypatch.delitem(vocab.family, "relief valve")
+    held = rule_part_scope._families()
+    del held["relief valve"]
+    monkeypatch.setattr(rule_part_scope, "_families", lambda: held)
     rule = _in(CODE, "XCL-10", 3, LINED_RULE)
     assert rule_part_scope.of_rule(code, rule, TYPE).state == UNKNOWN
 
@@ -507,7 +508,8 @@ def test_a_type_with_no_family_is_never_outside(code, monkeypatch):
 def test_every_equipment_type_has_a_family_and_no_component_does():
     vocab = subject_scope.vocabulary()
     for name, kind in vocab.kind.items():
-        assert bool(vocab.family.get(name)) == (kind == subject_scope.EQUIPMENT), name
+        family = rule_part_scope._families().get(name)
+        assert bool(family) == (kind == subject_scope.EQUIPMENT), name
 
 
 def test_a_rule_that_names_the_type_is_not_left_out_by_a_clause_naming_other_equipment(
