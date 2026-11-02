@@ -133,7 +133,10 @@ def trailing_refused(sentence: str) -> bool:
     starts = [found[0].start() for found in _trailing_candidates(sentence)]
     if any(not numparse.value_may_start(sentence, start) for start in starts):
         return True
-    return _dash_apart(sentence, starts) or _unclear_after_comparator().search(sentence or "") is not None
+    return (
+        _dash_apart(sentence, starts)
+        or _unclear_after_comparator().search(sentence or "") is not None
+    )
 
 
 def _dash_apart(sentence: str, starts: list[int]) -> bool:

@@ -53,7 +53,8 @@ def test_on_a_leading_dot_decimal_is_the_decimal(on, text, expected):
 
 
 @pytest.mark.parametrize(
-    "text,expected", [("set to 5.", None), ("5.", 5.0), ("p.4", None), ("approx. 5", None)]
+    "text,expected",
+    [("set to 5.", None), ("5.", 5.0), ("p.4", None), ("approx. 5", None)],
 )
 def test_on_a_sentence_final_or_glued_dot_is_not_a_decimal(on, text, expected):
     # #1640: words that are no comparator ("set to", "p.", "approx.") before the number: None.

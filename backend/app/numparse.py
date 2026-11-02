@@ -314,8 +314,16 @@ def find_numbers(text: str) -> list[Number]:
         sign, begin = sign_before(text, m.start())
         if value is not None and sign == "-":
             value = -value
-        joined = m.start() >= 2 and text[m.start() - 1] in HYPHENS + DASHES and text[m.start() - 2].isalpha()
-        out.append(Number(value, m.group(0), begin, m.end(), sign, ambiguous, m.start(), joined))
+        joined = (
+            m.start() >= 2
+            and text[m.start() - 1] in HYPHENS + DASHES
+            and text[m.start() - 2].isalpha()
+        )
+        out.append(
+            Number(
+                value, m.group(0), begin, m.end(), sign, ambiguous, m.start(), joined
+            )
+        )
     return out
 
 
@@ -465,7 +473,7 @@ def _prefix_refused(prefix: str) -> bool:
     if prefix[-1] not in _SPACES + _BINDS:
         return True  # glued: "A5", "A+5", "PN16", "#5"
     binds = list(_LAST_BIND.finditer(prefix))
-    words = prefix[binds[-1].end():] if binds else prefix
+    words = prefix[binds[-1].end() :] if binds else prefix
     words = " ".join(words.split())
     if not words:
         return False
@@ -482,9 +490,13 @@ def has_label_number(value_str: str | None) -> bool:
     """One number after words or a glued mark that are no comparator ("Note 5", "A5"): `parse_value`
     reads no number. A check that holds a value it cannot trust asks this (#1640), as for
     `has_joining_minus`."""
-    s = re.sub(f"[{MINUS_SIGNS}]", "-", (value_str or "").strip()).translate(_HYPHEN_AS_DASH)
+    s = re.sub(f"[{MINUS_SIGNS}]", "-", (value_str or "").strip()).translate(
+        _HYPHEN_AS_DASH
+    )
     m = _VALUE.fullmatch(s)
-    return m is not None and not _minus_is_joined(m) and _prefix_refused(_value_prefix(m))
+    return (
+        m is not None and not _minus_is_joined(m) and _prefix_refused(_value_prefix(m))
+    )
 
 
 def has_joining_minus(value_str: str | None) -> bool:
@@ -541,7 +553,7 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
     if _minus_is_joined(m):
         return None  # "A-5", "T--5": a joining hyphen, not a sign (#1619)
     if _prefix_refused(_value_prefix(m)):
-        return None  # "A5", "Note 5", "Class 150": a label's number, not the value (#1640)
+        return None  # "A5", "Note 5", "Class 150": a label's number (#1640)
     stripped = prefix.rstrip()
     negative_dash = False
     if stripped and stripped[-1] in "-" + DASHES:

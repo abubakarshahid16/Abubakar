@@ -623,7 +623,9 @@ def _owners(numbers: list, text: str, at: int) -> list:
     if not before or not _UNIT_GAP.fullmatch(text[before[-1].end : at]):
         return []
     owners = [before[-1]]
-    if len(before) > 1 and _RANGE_GAP.fullmatch(text[before[-2].end : before[-1].start]):
+    if len(before) > 1 and _RANGE_GAP.fullmatch(
+        text[before[-2].end : before[-1].start]
+    ):
         owners.append(before[-2])
     return owners
 
@@ -644,7 +646,11 @@ def unit_with_value(value: object, unit: str | None, text: object) -> bool:
     folded = numparse.fold_numbers(text)
     numbers = [n for n in numparse.find_numbers(folded) if n.value is not None]
     printed = r"(?<![^\W\d_])" + re.escape(folded_unit) + r"(?![^\W_])"
-    owners = [o for m in re.finditer(printed, folded) for o in _owners(numbers, folded, m.start())]
+    owners = [
+        o
+        for m in re.finditer(printed, folded)
+        for o in _owners(numbers, folded, m.start())
+    ]
     if owners:
         return any(o.value == wanted and not o.joined for o in owners)
     for n in numbers:
