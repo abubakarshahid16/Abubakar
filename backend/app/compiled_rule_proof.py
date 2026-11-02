@@ -38,8 +38,8 @@ from .compiled_rule_pages import (
 )
 from .compiled_rule_shape import FIGURE_NOT_STORED, figure_is_plain
 from .compiled_rule_shape import cue_spans as _cue_spans
+from .converter_gates import as_printed_on, fold_for_gate, in_example, quote_unreadable
 from .converter_gates import fold as _fold
-from .converter_gates import in_example, quote_unreadable
 from .datasheet_ai import unit_in_quote
 
 MIN_QUOTE_CHARS = 8
@@ -570,8 +570,10 @@ def _lead_in(pages: dict[int, str], page: int, quote: str) -> str:
 
 def _condition_on_page(condition: str, text: str) -> bool:
     """Each part (two conditions are written "a; b") stands on the page."""
-    folded = _fold(text)
-    return all(_fold(part) in folded for part in condition.split(";") if part.strip())
+    folded = fold_for_gate(text)
+    return all(
+        fold_for_gate(part) in folded for part in condition.split(";") if part.strip()
+    )
 
 
 def strength_of(sentence: str) -> str:
@@ -623,8 +625,8 @@ def _kept_rule(answer, facts: dict, flags: list[str], stated: str, text: str) ->
     return {
         "applies_to": facts["applies_to"],
         "applies_to_verified": _applies_to_on_page(facts["applies_to"], text),
-        "condition_text": _fold(facts["condition"]) or None,
-        "exception_text": _fold(facts["exception"]) or None,
+        "condition_text": as_printed_on(facts["condition"], text) or None,
+        "exception_text": as_printed_on(facts["exception"], text) or None,
         "field": facts["name"],
         "field_printed": _field_printed(quote, facts["name"], bool(limit)),
         "comparator": facts["comparator"] or None,
@@ -672,8 +674,9 @@ def verify(
         "applies_to": " ".join(str(answer.get("applies_to")).split()),
         "field": _without_gloss(" ".join(str(answer.get("field")).split())),
         "clause": str(answer.get("clause")).strip(),
-        "condition_text": _fold(condition) or None,
-        "exception_text": rule["exception_text"] and (_fold(exception) or None),
+        "condition_text": as_printed_on(condition, pages[answer["page"]]) or None,
+        "exception_text": rule["exception_text"]
+        and (as_printed_on(exception, pages[answer["page"]]) or None),
         "quote": quote,
         "quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
         "quote_start": start,

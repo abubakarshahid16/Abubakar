@@ -601,6 +601,77 @@ def fold(text: object) -> str:
     return s.translate(_CHARACTER_TABLE) if s else s
 
 
+#: Units whose case is their meaning (#1618): see `unit_case`. Here because this
+#: module depends on nothing else in the app and a quote check needs the list.
+CASE_KEPT_UNITS = frozenset(
+    {
+        "mPa",
+        "mPA",
+        "mPag",
+        "mPaa",
+        "mPaG",
+        "mPaA",
+        "mPa·s",
+        "mPa.s",
+        "mPa-s",
+        "mPas",
+        "mW",
+        "mWh",
+        "mJ",
+        "mS",
+        "MA",
+        "MV",
+        "Mg",
+        "ML",
+    }
+)
+
+_CASE_KEPT_WORD = re.compile(
+    r"(?<![A-Za-z])(?:"
+    + "|".join(re.escape(u) for u in sorted(CASE_KEPT_UNITS, key=len, reverse=True))
+    + r")(?![A-Za-z])"
+)
+
+#: Set before a case-kept unit so that it stays apart from its other-case twin
+#: once the text is folded. A letter, so "mpa" is not a whole word beside it, and
+#: one no engineering document prints.
+CASE_KEPT_MARK = "\u0283"
+
+
+def mark_case_kept(text: object) -> str:
+    """`text` ready for a case-insensitive match that must still tell a case-kept
+    unit from its other-case twin: "10 mPa" stops matching "10 MPa" or "MPa". Every
+    gate's fold starts with this, on the text as printed: once lower-cased, the
+    case is gone. Text already folded this way passes through unchanged."""
+    return _CASE_KEPT_WORD.sub(lambda m: CASE_KEPT_MARK + m.group(0), str(text))
+
+
+#: Every spelling of a unit with a case-kept twin, for a case-blind search.
+_CASE_TWIN_WORD = re.compile(_CASE_KEPT_WORD.pattern, re.IGNORECASE)
+
+
+def as_printed(text: object, printed: object) -> str:
+    """`text` with a unit that has a case-kept twin spelled as `printed` spells it:
+    "20 mA" with "SIGNAL 20 MA" is "20 MA". Left alone when `printed` holds both
+    twins, since it then cannot say which one is meant."""
+    spelled: dict[str, set[str]] = {}
+    for word in _CASE_TWIN_WORD.findall(str(printed)):
+        spelled.setdefault(word.lower(), set()).add(word)
+
+    def respell(found: re.Match) -> str:
+        word = found.group(0)
+        said = spelled.get(word.lower(), set())
+        one = next(iter(said)) if len(said) == 1 else word
+        return one if word in CASE_KEPT_UNITS or one in CASE_KEPT_UNITS else word
+
+    return _CASE_TWIN_WORD.sub(respell, str(text))
+
+
+def case_kept_words(text: object) -> list[str]:
+    """The case-kept units `text` prints, in order."""
+    return _CASE_KEPT_WORD.findall(str(text))
+
+
 def contains_whole(haystack: str, needle: str) -> bool:
     """Whole-word containment on folded text, for NON-numeric values.
 
@@ -642,7 +713,8 @@ def value_in_text(value: object, text: object) -> bool:
     against every number the text states: 5 is not stated by "-5" or "2.5",
     and 370.0 is stated by "370". Any other value ("10 barg", "316L", "DN50")
     must occur as whole words with the same boundary rules (`contains_whole`).
-    Both sides are folded first, so U+2212 and a hyphen-minus are one spelling.
+    Both sides are folded first, so U+2212 and a hyphen-minus are one spelling;
+    "10 mPa" still does not state "10 MPa" (#1618).
     """
     if value is None or str(value).strip() == "":
         return False
@@ -650,7 +722,10 @@ def value_in_text(value: object, text: object) -> bool:
     if wanted is not None:
         return any(n.value == wanted for n in find_numbers(fold(text))
                    if n.value is not None and not n.joined)
-    return contains_whole(_strip_thousands(fold(text)), _strip_thousands(fold(value)))
+    return contains_whole(
+        _strip_thousands(fold(mark_case_kept(text))),
+        _strip_thousands(fold(mark_case_kept(value))),
+    )
 
 
 _THOUSANDS = re.compile(r"(?<=\d)(?<!(?<![\d,.])0),(?=\d{3}(?!\d))")

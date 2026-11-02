@@ -117,7 +117,7 @@ QUOTE_NOT_IN_SOURCE = "the quoted words are not in the passage"
 
 
 def _squash(text: str) -> str:
-    return " ".join((text or "").split()).casefold()
+    return " ".join(numparse.mark_case_kept(text or "").split()).casefold()
 
 
 def split_passages(text: str, max_words: int = MAX_WORDS) -> list[str]:

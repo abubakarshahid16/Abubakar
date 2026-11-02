@@ -198,18 +198,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1655,
         description="a value carrying a different unit of its own is not refused",
         path=_TIE,
-        anchor=(
-            "            and claims._fold_unit(word) != claims._fold_unit(folded_unit)\n"
-            "        ):\n"
-            "            return False\n"
-        ),
-        replacement=(
-            "            and claims._fold_unit(word) != claims._fold_unit(folded_unit)\n"
-            "        ):\n"
-            "            continue\n"
-        ),
+        anchor="        if word and claims.is_unit(_unmarked(word)) and _key(word) != _key(folded_unit):\n            return False\n",
+        replacement="        if word and claims.is_unit(_unmarked(word)) and _key(word) != _key(folded_unit):\n            continue\n",
         target=_T,
-        keyword="unit_must_sit",
+        keyword="unit_must_sit or case_kept_twin",
         tags=_TAG,
     ),
     Mutation(

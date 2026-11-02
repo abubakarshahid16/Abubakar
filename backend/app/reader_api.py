@@ -201,9 +201,9 @@ def _fold(text: str) -> str:
 
     A clause arrives from `chunker` broken across lines and hyphenated by the
     PDF; the model answers in one line. Folding is what lets rule 1 be exact
-    about the WORDS without being exact about the typesetting.
+    about the WORDS without being exact about the typesetting. mPa stays apart.
     """
-    return re.sub(r"\s+", " ", str(text)).strip().lower()
+    return re.sub(r"\s+", " ", numparse.mark_case_kept(text)).strip().lower()
 
 
 def _contains(haystack: str, needle: str) -> bool:

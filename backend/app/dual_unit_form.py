@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from . import claims
+from . import claims, unit_case
 
 #: Returned for a cell that must be refused: a text no value pattern matches, so the cell reader
 #: ends with "no value" (what it does for any text that is not a quantity).
@@ -61,7 +61,7 @@ def _dimension(text: str) -> str | None:
 
 
 def _fold(unit: str) -> str:
-    return " ".join(unit.lower().split())
+    return unit_case.fold_unit(unit)
 
 
 def _far_apart(v1: str, u1: str, v2: str, u2: str) -> bool | None:

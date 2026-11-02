@@ -125,6 +125,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
 | `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
+| `run_record` | Record on a review run its rulebook, models and ticks imported, and make the internal CRS's Run record sheet with the could-not-check list |
 | `crs_checklist` | Make a checklist item held for the engineer a CRS row, and say when it is a draft |
 | `recommendations` | A "should" sentence of a standard is stored as a recommendation with no limit; no review reads it (order 288.2) |
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
@@ -179,6 +180,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `intake` | One intake layer (#525, ONE_INTAKE_ENABLED): PDF, Word, Excel and image files read into one page shape; every unread page or refused file states its reason |
 | `docx_pages` | A Word file's own page numbers from its saved markers, and its tables and pictures counted against what was read (WORD_PAGE_MARKERS_ENABLED) |
+| `intake_blocks` | One block shape for every file (#525 slice 3, INTAKE_BLOCKS_ENABLED): numbered text and table blocks with a hash, and a scanned page's table grid from its line positions |
 | `sheet_chunks` | Chunks for an Excel workbook (#525 slice 2, INTAKE_IMAGES_XLSX_ENABLED): each chunk cited by sheet and cell range |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
@@ -343,6 +345,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `submittal_review` | Schema and scoped read paths for the AI submittal review workflow |
 | `symbols` | Repair glyphs an old PDF's symbol font extracted as the wrong character |
 | `synthesis` | Stage 3 and stage 4: the consolidated summary, and the advisory recommendation |
+| `unit_case` | The units whose case is their meaning (mPa and MPa): the one home of that rule (#1618) |
 | `time_units` | The time rows of the one unit table: hours, minutes, seconds, milliseconds, days (#896) |
 | `rate_units` | The flow-rate rows of the one unit table: kg/s, t/h, l/min, m3/s and their kin, exact factors only (#1290) |
 | `read_elsewhere` | A checklist row MISSING for one equipment tag, while the field was read for another tag, becomes an engineer check that says where the value was read, never "not read" (order 307.1) |

@@ -1682,7 +1682,7 @@ def test_a_whole_sentence_with_its_leading_condition_captured_is_kept():
     rule, why = _outcome(
         SOUR, field="hardness", limit="22", unit="HRC", condition="for sour service"
     )
-    assert why is None and rule["condition_text"] == "for sour service"
+    assert why is None and rule["condition_text"] == "For sour service"
 
 
 def test_a_list_of_subjects_is_not_a_leading_condition():
@@ -2434,7 +2434,7 @@ def test_the_comparator_is_read_outside_the_condition():
     )
     assert (
         why is None
-        and rule["condition_text"] == "when the top rail is at least 9 m above the deck"
+        and rule["condition_text"] == "When the top rail is at least 9 m above the deck"
     )
 
 
@@ -2609,7 +2609,7 @@ def test_a_sentence_crossing_a_page_keeps_its_condition_from_the_page_before_and
     rule, why = _verify_on(
         {1: LEAD, 2: FOLLOW}, FOLLOW, **FOLLOW_OVER, condition="When the widget is wet"
     )
-    assert why is None and rule["condition_text"] == "when the widget is wet"
+    assert why is None and rule["condition_text"] == "When the widget is wet"
     assert (
         "crosses_page" in rule["context_flag"]
         and rule["strength"] == "context_dependent"
@@ -4454,7 +4454,7 @@ def test_the_chunk_label_stays_frozen_for_a_section_number():
 )
 def test_a_condition_the_sentence_writes_as_a_clause_is_one(sentence, condition):
     rule, why = _plain(sentence, condition=condition, **NO_FIGURE)
-    assert why is None and rule["condition_text"] == condition.lower()
+    assert why is None and rule["condition_text"] == condition
 
 
 @pytest.mark.parametrize(
@@ -4482,7 +4482,7 @@ def test_the_whole_subject_as_condition_leaves_a_limit_named_after_the_modal():
     }
     rule, why = _plain(sentence, condition="Widgets in sour plants", **over)
     assert why is None and rule["limit_value"] is None
-    assert rule["condition_text"] == "widgets in sour plants"
+    assert rule["condition_text"] == "Widgets in sour plants"
 
 
 def test_the_whole_subject_as_condition_cannot_take_the_field_with_it():
@@ -4592,7 +4592,7 @@ def test_a_sentence_ending_inside_quotation_marks_ends_there():
 def test_the_start_of_a_longer_leading_scope_is_held():
     sentence = "For gas plants the widget shall be painted, or be red."
     rule, why = _plain(sentence, condition="For gas plants", **NO_FIGURE)
-    assert why is None and rule["condition_text"] == "for gas plants"
+    assert why is None and rule["condition_text"] == "For gas plants"
 
 
 def test_a_clause_ending_before_they_is_whole():
@@ -4715,7 +4715,7 @@ def test_a_held_condition_does_not_stop_a_plain_figure():
     sentence = "When the rails are wet, the pressure shall not exceed 5 bar."
     rule = _stored(sentence, condition="When the rails are wet")
     assert (
-        rule["limit_value"] == 5 and rule["condition_text"] == "when the rails are wet"
+        rule["limit_value"] == 5 and rule["condition_text"] == "When the rails are wet"
     )
 
 

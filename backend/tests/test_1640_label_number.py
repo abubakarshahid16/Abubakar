@@ -460,6 +460,21 @@ def test_a_unit_must_sit_with_its_number(value, unit, quote, ok):
     assert unit_tie.unit_with_value(value, unit, quote) is ok
 
 
+@pytest.mark.parametrize(
+    "value, unit, quote, ok",
+    [
+        ("10", "MPa", "10 mPa and 5 MPa", False),
+        ("5", "MPa", "10 mPa and 5 MPa", True),
+        ("10", "mPa", "10 mPa and 5 MPa", True),
+        ("10", "MPa", "MPa: 10 mPa", False),
+        ("10", "\u00b0C", "\u00b0C: 10 C", True),
+    ],
+)
+def test_a_case_kept_twin_is_another_unit(value, unit, quote, ok):
+    # #1618: mPa is not MPa, so 10 mPa does not carry the MPa printed after 5.
+    assert unit_tie.unit_with_value(value, unit, quote) is ok
+
+
 def test_a_word_value_or_no_unit_is_left_to_the_other_checks():
     assert unit_tie.unit_with_value("Carbon steel", "mm", "5 mm Carbon steel")
     assert unit_tie.unit_with_value("10", None, "10 bar and 5 MPa")

@@ -32,6 +32,15 @@ def _owners(numbers: list, text: str, at: int) -> list:
     return owners
 
 
+def _unmarked(word: str) -> str:
+    return word.replace(numparse.CASE_KEPT_MARK, "")
+
+
+def _key(unit: str) -> tuple[bool, str]:
+    """One unit however spelled ("C", "°C"), but a case-kept "mPa" is never "MPa"."""
+    return numparse.CASE_KEPT_MARK in unit, claims._fold_unit(_unmarked(unit))
+
+
 def unit_with_value(value: object, unit: str | None, text: object) -> bool:
     """Does `text` leave `unit` as the unit of the number `value`? (#1653)
 
@@ -42,10 +51,11 @@ def unit_with_value(value: object, unit: str | None, text: object) -> bool:
     stands apart while the value has no unit beside it ("Pressure, MPa: 10"), or when the value is
     no bare number or the unit is not printed: other checks decide those. General: positions only."""
     wanted = numparse.as_number(value)
-    folded_unit = numparse.fold(unit or "")
+    # mPa is not MPa (#1618): both sides are marked as printed before the case goes
+    folded_unit = numparse.fold(numparse.mark_case_kept(unit or ""))
     if wanted is None or not folded_unit:
         return True
-    folded = numparse.fold_numbers(text or "")
+    folded = numparse.fold_numbers(numparse.mark_case_kept(text or ""))
     numbers = [n for n in numparse.find_numbers(folded) if n.value is not None]
     printed = r"(?<![^\W\d_])" + re.escape(folded_unit) + r"(?![^\W_])"
     places = [m.start() for m in re.finditer(printed, folded)]
@@ -59,10 +69,6 @@ def unit_with_value(value: object, unit: str | None, text: object) -> bool:
             continue
         after = re.match(r"[\s\u00b0]*([^\s,;:()]+)", folded[n.end :])
         word = after.group(1).rstrip(".") if after else ""
-        if (
-            word
-            and claims.is_unit(word)
-            and claims._fold_unit(word) != claims._fold_unit(folded_unit)
-        ):
+        if word and claims.is_unit(_unmarked(word)) and _key(word) != _key(folded_unit):
             return False
     return True

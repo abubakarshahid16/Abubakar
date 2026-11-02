@@ -18,6 +18,32 @@ NOT_COMPILED = "not compiled"
 BOUNDARY = "active rows of the standards named in this report, this database copy only"
 
 
+def rule_documents(conn, documents: list[str]) -> dict[str, str]:
+    """{compiled rule id: its standard document} for `documents`, for `run_record`'s tick counts. Reads only."""
+    if not documents:
+        return {}
+    marks = ",".join("?" for _ in documents)
+    rows = conn.execute(
+        f"SELECT id, standard_document_id FROM compiled_rules WHERE standard_document_id IN ({marks})",
+        documents,
+    )
+    return {r[0]: r[1] for r in rows}
+
+
+def run_book(conn, review_run_id: str) -> tuple[int, str | None] | None:
+    """The rulebook's own record of a run (`rulebook_v2_schema.run_used`)."""
+    from . import rulebook_v2_schema
+
+    return rulebook_v2_schema.run_used(conn, review_run_id)
+
+
+def decisions_on(conn, documents: list[str]) -> list[tuple[str, str, str]]:
+    """The rulebook's decisions on rules read in `documents` (`rulebook_v2_schema.decisions_on`)."""
+    from . import rulebook_v2_schema
+
+    return rulebook_v2_schema.decisions_on(conn, documents)
+
+
 def _page_rows(conn, document_id: str) -> list:
     """The app's one way to read a document's pages, the text it chunks and cites: recognised text over the text
     layer (`chunker._load_pages`). So a scanned standard is read here, and quotes are verified, as it is cited."""
