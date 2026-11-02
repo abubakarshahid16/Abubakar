@@ -50,6 +50,7 @@ from typing import Any
 
 import httpx
 
+from . import local_engine_bar
 from .config import ModelHostRefused, check_model_url, settings
 
 log = logging.getLogger(__name__)
@@ -99,6 +100,11 @@ def _audit_remote(host: str, path: str) -> None:
     )
 
 
+class LocalEngineNotLoaded(httpx.ConnectError):
+    """A review on the Claude lane may not load the local engine (`local_engine_bar`).
+    Shaped like a stopped engine, the state every caller already handles."""
+
+
 def endpoint(path: str) -> str:
     """The validated absolute URL for an answer-model API path.
 
@@ -108,7 +114,12 @@ def endpoint(path: str) -> str:
     check. Raises `ModelHostRefused` - never returns an unchecked URL, and
     never returns a fallback: there is no safe default destination for a
     prompt containing client documents.
+
+    A CLAUDE-LANE REVIEW STOPS HERE: every call in this module passes this gate,
+    so a step that forgot to ask `local_engine_bar` still loads nothing.
     """
+    if local_engine_bar.refuses(f"local engine {path}"):
+        raise LocalEngineNotLoaded(local_engine_bar.NOTE)
     if not path.startswith("/"):
         path = "/" + path
     base, remote_host = check_model_url(

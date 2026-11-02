@@ -210,9 +210,11 @@ def ask_local_model(
     `model_transport`. Returns a scope dict (method local_model) or None. Code verifies:
     every type must be an equipment type of the vocabulary and the quote must be a run of
     the clause's own words."""
-    from . import model_transport
+    from . import local_engine_bar, model_transport
     from .config import settings
 
+    if post is None and local_engine_bar.refuses("rule_equipment_scope"):
+        return None  # stays unknown, and the run says the step was skipped
     vocab = vocab or subject_scope.vocabulary()
     text = str(requirement.get("requirement_text") or "")
     allowed = sorted(t for t, k in vocab.kind.items() if k == subject_scope.EQUIPMENT)

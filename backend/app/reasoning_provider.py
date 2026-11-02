@@ -39,7 +39,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from . import model_metrics, model_transport, worker_review
+from . import local_engine_bar, model_metrics, model_transport, worker_review
 from .ai.json_reply import unfenced
 from .config import settings
 
@@ -128,7 +128,7 @@ class Packet:
     system: str = ""
     #: The budget step this call is charged to (claude_spend).
     step: str = "unassigned"
-    #: Part of the Claude response-cache key: a changed prompt must say so.
+    #: Part of the Claude response-cache key (`claude_answer_cache`): a changed prompt must say so.
     prompt_version: str = "unversioned"
     #: Off by default. Measured on the frozen packet: thinking on cost roughly
     #: seven times the wall time for the same answer, and twice ran out of
@@ -150,10 +150,9 @@ class Packet:
     #: (system/user/assistant/tool_result turns), replacing the single
     #: `prompt` string. None (the default) keeps every existing caller on the
     #: one-prompt path unchanged. When set, `.prompt` is ignored by the
-    #: request builder and the response cache is skipped entirely (a
-    #: multi-turn tool conversation is never the same call twice, and hashing
-    #: only `prompt`+`system` would collide two different conversations onto
-    #: one cached answer - see `ClaudeProvider.reason`).
+    #: request builder; the response cache's key is the whole request body, so
+    #: two different conversations never share a stored answer, and a turn that
+    #: stopped for a tool is not an answer and is not kept.
     messages: tuple[dict, ...] | None = None
     #: Anthropic tool definitions offered on this call. Empty for every
     #: existing caller.
@@ -272,6 +271,8 @@ class OllamaProvider:
             # The local engine is not a vision reader here; an image packet is
             # refused rather than sent as text that silently lost its page.
             raise ProviderRefused(f"{self.name}: this provider does not read images")
+        if local_engine_bar.refuses(packet.step):
+            raise ProviderRefused(f"{self.name}: {local_engine_bar.NOTE}")
         options: dict[str, object] = {
             "temperature": packet.temperature,
             "num_ctx": packet.num_ctx,
@@ -328,6 +329,8 @@ class OllamaProvider:
 
 def _ollama_stream(provider: "OllamaProvider", packet: Packet, on_text, cancel) -> Response:
     """The local engine, streamed through `model_transport.stream_json`."""
+    if local_engine_bar.refuses(packet.step):
+        raise ProviderRefused(f"{provider.name}: {local_engine_bar.NOTE}")
     options: dict[str, object] = {"temperature": packet.temperature, "num_ctx": packet.num_ctx,
                                   "num_predict": packet.num_predict, **packet.options}
     body = {"model": provider.requested_model,
@@ -502,37 +505,32 @@ class ClaudeProvider:
                                "cache_control": {"type": "ephemeral"}}]
         return request, body, prompt
 
-    def _cached(self, key: str, packet: Packet, step: str) -> Response | None:
-        from . import claude_spend
-
-        cached = _cache_read(key)
-        if cached is None:
-            return None
-        errors = schema_errors(cached["text"], packet.json_schema)
-        if errors:
-            # #458: an answer cached before invalid ones were refused is a
-            # miss, not a hit - serving it would repeat the bad answer free.
-            return None
-        claude_spend.record(step=step, model=cached["model_tag"], usage={},
-                            prompt_sha256=packet.sha256, wall_time_s=0.0,
-                            finish_reason="cache_hit")
-        return Response(
-            text=cached["text"], provider=self.name, model_tag=cached["model_tag"],
-            digest=hashlib.sha256(cached["text"].encode("utf-8")).hexdigest(),
-            finish_reason=cached["finish_reason"], prompt_sha256=packet.sha256,
-            tokens_in=cached.get("tokens_in"), tokens_out=cached.get("tokens_out"),
-            wall_time_s=0.0, schema_errors=errors, cost_usd=0.0)
-
-    def _answered(self, payload: dict | None, packet: Packet, key: str, step: str, wall: float,
-                  *, batch: bool = False, cacheable: bool = True, reservation=None) -> Response:
-        """Ledger, cache and Response for one Messages answer."""
-        from . import claude_spend, reader_api
+    def _response(self, payload: dict | None, packet: Packet, wall: float, cost: float) -> Response:
+        """The Response for one Messages answer, fresh or stored."""
+        from . import reader_api
 
         text = reader_api.response_text(payload).strip() if payload else ""
         blocks = tuple((payload or {}).get("content") or []) if isinstance(payload, dict) else ()
         thinking_text = "".join(
             str(b.get("thinking") or "") for b in blocks
             if isinstance(b, dict) and b.get("type") == "thinking")
+        usage = (payload.get("usage") if isinstance(payload, dict) else None) or {}
+        stop = str((payload or {}).get("stop_reason") or "")
+        return Response(
+            text=text, provider=self.name,
+            model_tag=str((payload or {}).get("model") or "") or f"{self.requested_model} (unreported)",
+            digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            finish_reason=_STOP.get(stop, stop or "error"), prompt_sha256=packet.sha256,
+            tokens_in=usage.get("input_tokens"), tokens_out=usage.get("output_tokens"),
+            wall_time_s=round(wall, 3), schema_errors=schema_errors(text, packet.json_schema),
+            cost_usd=cost, thinking=thinking_text, content_blocks=blocks,
+        )
+
+    def _answered(self, payload: dict | None, packet: Packet, key: str, step: str, wall: float,
+                  *, batch: bool = False, reservation=None) -> Response:
+        """Ledger, cache and Response for one Messages answer."""
+        from . import claude_spend
+
         usage = payload.get("usage") if isinstance(payload, dict) else None
         reported = str((payload or {}).get("model") or "")
         stop = str((payload or {}).get("stop_reason") or "")
@@ -544,22 +542,10 @@ class ClaudeProvider:
             entry = claude_spend.record(step=step, model=reported or self.requested_model, usage=usage,
                                         prompt_sha256=packet.sha256, wall_time_s=wall,
                                         finish_reason=finish, batch=batch)
-        errors = schema_errors(text, packet.json_schema)
         # #458: only a complete AND valid answer is kept. A truncated one or one
         # that fails its schema would be served again, free, on every repeat.
-        if cacheable and finish == "stop" and not errors:
-            _cache_write(key, {"text": text, "model_tag": reported or self.requested_model,
-                               "finish_reason": finish, "tokens_in": (usage or {}).get("input_tokens"),
-                               "tokens_out": (usage or {}).get("output_tokens")})
-        return Response(
-            text=text, provider=self.name,
-            model_tag=reported or f"{self.requested_model} (unreported)",
-            digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            finish_reason=finish, prompt_sha256=packet.sha256,
-            tokens_in=(usage or {}).get("input_tokens"), tokens_out=(usage or {}).get("output_tokens"),
-            wall_time_s=round(wall, 3), schema_errors=errors,
-            cost_usd=entry["cost_usd"], thinking=thinking_text, content_blocks=blocks,
-        )
+        claude_spend.keep_answer(key, step, payload, cost_usd=entry["cost_usd"], valid=_valid_for(packet))
+        return self._response(payload, packet, wall, entry["cost_usd"])
 
     def reason_batch(self, packets: list[Packet], *, poll_seconds: float = 30.0, max_wait_s: float = 86400.0,
                      sleep=time.sleep, client=None) -> list[Response]:
@@ -585,12 +571,11 @@ class ClaudeProvider:
         batch_requests, worsts, request = [], [], None
         for i, packet in enumerate(packets):
             step = self._step or packet.step
-            key = cache_key(self.requested_model, packet)
-            hit = self._cached(key, packet, step)
-            if hit is not None:
-                out[i] = hit
-                continue
             request, body, prompt = self._request(packet)
+            stored, key = _stored_answer(step, body, packet)
+            if stored is not None:
+                out[i] = self._response(stored, packet, 0.0, 0.0)
+                continue
             worsts.append((step, claude_spend.worst_case_usd(
                 self.requested_model, len(packet.system) + len(prompt), packet.num_predict,
                 image_tokens=sum(i.tokens for i in packet.images), batch=True)))
@@ -635,19 +620,12 @@ class ClaudeProvider:
 
         step = self._step or packet.step
         request, body, prompt = self._request(packet)
-        # RESPONSE CACHE (owner rule 2026-09-25): the same (model, prompt
-        # version, input) is answered from disk at USD 0, never re-bought.
-        # SKIPPED for a tool-loop turn (`packet.messages` set): the cache key
-        # hashes `prompt`+`system` only, so a multi-turn conversation carried
-        # in `messages` with an empty `prompt` would collide with every other
-        # tool-loop call on the same system prompt - a wrong answer served
-        # from someone else's turn, not just a missed optimisation.
-        cacheable = packet.messages is None
-        key = cache_key(self.requested_model, packet) if cacheable else ""
-        if cacheable:
-            hit = self._cached(key, packet, step)
-            if hit is not None:
-                return hit
+        # RESPONSE CACHE (owner rule 2026-09-25): the same request is answered
+        # from disk at USD 0, never re-bought. The key is the whole request body,
+        # so a tool-loop turn is its whole conversation and two never collide.
+        stored, key = _stored_answer(step, body, packet)
+        if stored is not None:
+            return self._response(stored, packet, 0.0, 0.0)
         image_tokens = sum(i.tokens for i in packet.images)
         prompt_chars = len(packet.system) + len(prompt) + sum(
             len(json.dumps(m, default=str)) for m in (packet.messages or ()))
@@ -678,19 +656,51 @@ class ClaudeProvider:
                 refused = ProviderRefused(f"{refused} - {why}")
             refused.cost_usd = charged
             raise refused from exc
-        return self._answered(payload, packet, key, step, time.time() - started, cacheable=cacheable,
-                              reservation=held)
+        return self._answered(
+            payload, packet, key, step, time.time() - started, reservation=held
+        )
+
+
+def _stream_delta(block: dict | None, delta: dict, parts: list[str], on_text) -> None:
+    """One `content_block_delta` into its block (None: a block never started), and
+    text to the reader as it arrives."""
+    dtype = delta.get("type")
+    if dtype == "input_json_delta":
+        if block is not None:
+            block["_input_json"] = block.get("_input_json", "") + str(delta.get("partial_json") or "")
+    elif dtype == "thinking_delta":
+        if block is not None:
+            block["thinking"] = block.get("thinking", "") + str(delta.get("thinking") or "")
+    elif dtype == "signature_delta":
+        # A thinking block is only valid when sent back WITH its
+        # signature (2026-09-30: it was dropped, so round 2 of a
+        # thinking turn with a tool call was refused).
+        if block is not None:
+            block["signature"] = str(delta.get("signature") or "")
+    else:
+        piece = str(delta.get("text") or "")
+        if piece:
+            parts.append(piece)
+            on_text(piece)
+            if block is not None and block.get("type") == "text":
+                block["text"] = block.get("text", "") + piece
 
 
 def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) -> Response:
     """The Messages API through `reader_transport.stream`: the same gates and worst-case
     RESERVATION, settled AFTER whether it finished, was stopped (it cost what it produced)
     or failed (may have been billed: its reported final usage, else its worst case). A
-    refusal raises `ProviderRefused`, charged. Never cached: a stream is a conversation turn."""
+    refusal raises `ProviderRefused`, charged. A stored answer is played back through
+    `on_text` once, whole, at USD 0; only a stream that finished by itself is kept."""
     from . import claude_spend
 
     step = provider._step or packet.step
     request, body, prompt = provider._request(packet)
+    stored, key = _stored_answer(step, body, packet)
+    if stored is not None:
+        response = provider._response(stored, packet, 0.0, 0.0)
+        on_text(response.text)
+        return response
     prompt_chars = len(packet.system) + len(prompt) + sum(
         len(json.dumps(m, default=str)) for m in (packet.messages or ()))
     max_tokens = packet.num_predict + (packet.thinking_budget or 0)
@@ -733,33 +743,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
                 if idx not in order:
                     order.append(idx)
             elif kind == "content_block_delta":
-                idx = event.get("index")
-                delta = event.get("delta") or {}
-                dtype = delta.get("type")
-                if dtype == "input_json_delta":
-                    block = blocks.get(idx)
-                    if block is not None:
-                        block["_input_json"] = block.get("_input_json", "") + str(
-                            delta.get("partial_json") or "")
-                elif dtype == "thinking_delta":
-                    block = blocks.get(idx)
-                    if block is not None:
-                        block["thinking"] = block.get("thinking", "") + str(delta.get("thinking") or "")
-                elif dtype == "signature_delta":
-                    # A thinking block is only valid when sent back WITH its
-                    # signature (2026-09-30: it was dropped, so round 2 of a
-                    # thinking turn with a tool call was refused).
-                    block = blocks.get(idx)
-                    if block is not None:
-                        block["signature"] = str(delta.get("signature") or "")
-                else:
-                    piece = str(delta.get("text") or "")
-                    if piece:
-                        parts.append(piece)
-                        on_text(piece)
-                        block = blocks.get(idx)
-                        if block is not None and block.get("type") == "text":
-                            block["text"] = block.get("text", "") + piece
+                _stream_delta(blocks.get(event.get("index")), event.get("delta") or {}, parts, on_text)
             elif kind == "content_block_stop":
                 block = blocks.get(event.get("index"))
                 if block is not None and block.get("type") == "tool_use":
@@ -795,6 +779,19 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
         refused.cost_usd = entry["cost_usd"]
         raise refused
     content_blocks = tuple(blocks[i] for i in order if i in blocks)
+    if finish == "stop":
+        claude_spend.keep_answer(
+            key,
+            step,
+            {
+                "model": model,
+                "stop_reason": stop,
+                "content": list(content_blocks),
+                "usage": usage,
+            },
+            cost_usd=entry["cost_usd"],
+            valid=_valid_for(packet),
+        )
     thinking_text = "".join(
         str(b.get("thinking") or "") for b in content_blocks if b.get("type") == "thinking")
     return Response(
@@ -813,37 +810,26 @@ def no_temperature(model: str) -> bool:
 
 # ----------------------------------------------------------- response cache
 
-def cache_key(model: str, packet: Packet) -> str:
-    """Everything that changes the answer: model id, prompt version, the input
-    (system + prompt) hash, schema, temperature, seed, max tokens."""
-    parts = [model, packet.prompt_version, packet.sha256,
-             json.dumps(packet.json_schema, sort_keys=True), str(packet.temperature),
-             str(packet.seed), str(packet.num_predict)]
-    if packet.effort:
-        # Appended only when set, so every key cached before it existed holds.
-        parts.append("effort=" + packet.effort)
-    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+def _cache_version(packet: Packet) -> str:
+    """What the request body cannot say: the prompt's version, and the seed of a
+    caller that asks once per seed (the seed is not sent to this engine)."""
+    return (
+        packet.prompt_version
+        if packet.seed is None
+        else f"{packet.prompt_version}|seed={packet.seed}"
+    )
 
 
-def _cache_path(key: str):
-    from pathlib import Path
-    return Path(settings.claude_cache_dir) / key[:2] / f"{key}.json"
+def _valid_for(packet: Packet):
+    """The packet's own check on an answer, for keeping it and for serving it again."""
+    return lambda text: not schema_errors(text, packet.json_schema)
 
 
-def _cache_read(key: str) -> dict | None:
-    path = _cache_path(key)
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+def _stored_answer(step: str, body: dict, packet: Packet) -> tuple[dict | None, str]:
+    from . import claude_spend
 
-
-def _cache_write(key: str, value: dict) -> None:
-    path = _cache_path(key)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    return claude_spend.answer_on_file(step, body, version=_cache_version(packet),
+                                       valid=_valid_for(packet), prompt_sha256=packet.sha256)
 
 
 # ------------------------------------------------------------------- selection

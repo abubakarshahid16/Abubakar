@@ -45,7 +45,7 @@ def lane(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "max_tokens.sqlite")
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setenv("STANDARDS_READER_ENABLED", "true")
     monkeypatch.setenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "true")
     monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
