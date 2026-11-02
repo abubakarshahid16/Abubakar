@@ -62,7 +62,9 @@ RUNNING_PAGES = 3
 #: A heading is a short line: it ends before this share of the column's width.
 SHORT_LINE = 0.8
 _BOLD_NAME = re.compile(r"bold|black|heavy|semibold|demibold|extrabold", re.I)
-_NUMBER = re.compile(
+#: A section label at the start of a line (1, 1.2, A.1, Appendix B): where a line sits,
+#: never a value read from the document. Values go through `app.numparse`.
+_SECTION_NO = re.compile(
     r"^(?:(?:appendix|annex|section|chapter|part)\s+[A-Z0-9]+\b|[A-Z]\.\d+(?:\.\d+)*\b|\d+(?:\.\d+)*\.?(?=\s))",
     re.I,
 )
@@ -166,7 +168,7 @@ def read_lines(
 
 
 def numbered(text: str) -> bool:
-    return bool(_NUMBER.match(text))
+    return bool(_SECTION_NO.match(text))
 
 
 def _reads_as_title(text: str) -> bool:
@@ -179,7 +181,7 @@ def _reads_as_title(text: str) -> bool:
         return False
     if _CAPTION.match(text) or _DATE.match(text) or text.count("(") != text.count(")"):
         return False  # a caption, a date, or a piece of a title wrapped over lines
-    title = _NUMBER.sub("", text, count=1).strip(" .-\u2013\u2014")
+    title = _SECTION_NO.sub("", text, count=1).strip(" .-\u2013\u2014")
     first = next((ch for ch in title if ch.isalpha()), "")
     if not first or not first.isupper():
         return False
