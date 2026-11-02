@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import coverage_pair, material_reference, rule_trust
+from . import coverage_pair, material_reference, rule_trust, rulebook_v2_stated
 from .rulebook_v2_stated import ORIGIN
 
 ROW_KIND = "rulebook_v2_pass"
 NOTE = "Rulebook version 2"
 COMMENT_BY = "Rulebook version 2, not confirmed by an engineer"
+CONFIRMED_BY = "Rulebook version 2, confirmed by an engineer"
 
 
 def labels_of(finding: dict) -> list[str]:
@@ -53,11 +54,11 @@ def _row(finding: dict) -> dict:
         "document_name": "",
         "page_section": where,
         "comment": f"Meets, {tag}: {text}" if tag else f"Meets: {text}",
-        "comment_by": COMMENT_BY,
+        "comment_by": CONFIRMED_BY if finding.get("confirmed_by") else COMMENT_BY,
         "row_kind": ROW_KIND,
         "standard_reference": finding.get("standard_clause") or "",
         "severity": "",
-        "engineer_confirmed": False,
+        "engineer_confirmed": bool(finding.get("confirmed_by")),
         "reasoning": finding.get("ai_rationale") or "",
         "rule_trust": "; ".join(labels_of(finding)),
     }
@@ -74,9 +75,14 @@ def part(
         return meta
     labels = sorted({w for f in findings for w in labels_of(f)})
     decided = (stated or {}).get("decided") or 0
+    waiting = any(
+        f.get("compliance_status") in rulebook_v2_stated.DECIDED
+        and not f.get("confirmed_by")
+        for f in findings
+    )
     short = (
         f"Rulebook version 2: {decided} of {stated.get('rules')} approved rules decided by code. "
-        f"{'; '.join(labels)}. Not yet confirmed by an engineer."
+        f"{'; '.join(labels)}.{' Not yet confirmed by an engineer.' if waiting else ''}"
         if decided and labels
         else ""
     )

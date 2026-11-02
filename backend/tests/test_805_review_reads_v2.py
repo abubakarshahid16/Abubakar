@@ -29,6 +29,7 @@ from app import (
     rulebook_v2_crs,
     rulebook_v2_review,
     run_parts,
+    schemas,
 )
 from app.config import settings
 from app.rulebook_v2 import Reading
@@ -1110,6 +1111,62 @@ def test_the_note_leaves_rows_numbers_and_reply_import_alone(monkeypatch):
     assert [r["item"] for r in replies if r["item"].startswith("CRS-")] == [
         "CRS-INVENTED-001"
     ]
+
+
+def test_not_yet_confirmed_prints_only_while_it_is_true(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    with db.connect() as conn:
+        one = conn.execute(
+            "SELECT id FROM review_findings WHERE origin = ? ORDER BY id LIMIT 1",
+            (ORIGIN,),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE review_findings SET confirmed_by = NULL WHERE origin = ?", (ORIGIN,)
+        )
+    assert (
+        "Not yet confirmed"
+        in _view(run, crs_export.COPY_INTERNAL)[1]["rulebook_v2_note"]
+    )
+    with db.connect() as conn:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute(
+            "UPDATE review_findings SET confirmed_by = 'x' WHERE id = ?", (one,)
+        )
+    partly, view = _view(run, crs_export.COPY_INTERNAL)
+    assert "Not yet confirmed" in view["rulebook_v2_note"], "three of four still wait"
+    assert sorted(r["engineer_confirmed"] for r in partly["rulebook_v2_rows"]) == [
+        False,
+        False,
+        False,
+        True,
+    ]
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET confirmed_by = 'x' WHERE origin = ?", (ORIGIN,)
+        )
+    done, view = _view(run, crs_export.COPY_INTERNAL)
+    assert (
+        view["rulebook_v2_note"]
+        and "confirmed" not in view["rulebook_v2_note"].split(".")[-2]
+    )
+    assert "Not yet confirmed" not in view["rulebook_v2_note"]
+    assert not [r for r in view["rows"] if "not confirmed" in r["comment_by"]]
+    with db.connect() as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def test_the_preview_keeps_the_note(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    _told, view = _view(run, crs_export.COPY_ISSUE)
+    assert view["rulebook_v2_note"]
+    fields = schemas.CrsPreview.model_fields
+    assert "rulebook_v2_note" in fields
+    kept = {k: v for k, v in view.items() if k in fields}
+    kept.setdefault("recommended_code_label", "x")
+    assert (
+        schemas.CrsPreview.model_validate(kept).rulebook_v2_note
+        == view["rulebook_v2_note"]
+    )
 
 
 def test_no_decided_rule_no_note(monkeypatch):
