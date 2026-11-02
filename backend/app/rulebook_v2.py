@@ -16,7 +16,8 @@ made in a returned checklist. No route or job does. The database refuses an appr
 row of `users`, or that names no tier (owner or engineer) or no equipment type. No rule is in force without one.
 `approved_rules` is the only way out of the book for a review, and holds only what such an approval covers.
 
-NOTHING READS THIS FOR A VERDICT. `rulebook_run` says so: used version 1, no snapshot, until a later change is approved.
+NOTHING READS THIS FOR A VERDICT unless RULEBOOK_V2_REVIEW_ENABLED is on (`rulebook_v2_review`). `rulebook_run` says
+which: version 1 and no snapshot, or version 2 and the snapshot the run froze.
 
 A COPY ONLY. Only `ensure_schema` creates the tables; nothing at startup calls it, and it refuses a live-shaped file.
 The tables grant nothing: read access stays with the grant tables (CLAUDE.md rule 5). `standard_requirements` is not
@@ -50,6 +51,7 @@ from .rulebook_v2_schema import (
     V2,
     trigger_sql,
 )
+from .rulebook_v2_signed import content_to_sign, field_role_of
 
 logger = logging.getLogger(__name__)
 
@@ -321,13 +323,25 @@ def _standing(conn, version_id: str) -> dict[str, dict]:
     """{equipment type: the approval that stands for it}. For each type the LAST decision counts, and it must be an
     approval. A decision that names no type (a retirement) ends every approval before it."""
     standing: dict[str, dict] = {}
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)")}
+    signed = "signed_content" if "signed_content" in columns else "NULL"
     for row in conn.execute(
-        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier, provenance_viewed"
-        " FROM rulebook_approval"
-        " WHERE rule_version_id = ? ORDER BY rowid",
+        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier, note, provenance_viewed,"
+        f" {signed} FROM rulebook_approval WHERE rule_version_id = ? ORDER BY rowid",
         (version_id,),
     ):
-        names = ("id", "decision", "type", "by_id", "by", "at", "tier", "viewed")
+        names = (
+            "id",
+            "decision",
+            "type",
+            "by_id",
+            "by",
+            "at",
+            "tier",
+            "note",
+            "viewed",
+            "signed",
+        )
         one = dict(zip(names, row, strict=True))
         kind = _fold_type(one["type"])
         if not kind:
@@ -364,6 +378,7 @@ def _insert_decision(
     provenance_viewed: tuple[str, ...] = (),
     note: str | None = None,
     source_sha256: str | None = None,
+    signed_content: str | None = None,
 ) -> str:
     if decision == APPROVE:
         held = {
@@ -383,8 +398,8 @@ def _insert_decision(
     approval_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO rulebook_approval (id, rule_version_id, decision, approver_id, decided_at, note,"
-        " provenance_viewed, tier, equipment_type, approver_name, source_sha256)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        " provenance_viewed, tier, equipment_type, approver_name, source_sha256, signed_content)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             approval_id,
             version_id,
@@ -397,6 +412,7 @@ def _insert_decision(
             equipment_type,
             person[0] if person else None,
             source_sha256,
+            signed_content,
         ),
     )
     return approval_id
@@ -437,6 +453,13 @@ def checklist_stamp(equipment_type: str, rows) -> str:
     ]
     blob = json.dumps(body, separators=(",", ":")).encode("utf-8")
     return "rb2-" + hashlib.sha256(blob).hexdigest()[:24]
+
+
+def signed_content_of(conn, version_id: str, equipment_type: str) -> str | None:
+    """What the approval standing for this type recorded, or None."""
+    return (_standing(conn, version_id).get(_fold_type(equipment_type)) or {}).get(
+        "signed"
+    )
 
 
 def approved_rules(conn, equipment_type: str) -> list[dict]:
@@ -534,6 +557,8 @@ def _read_book(conn, equipment_type: str) -> tuple[list[dict], list[dict]]:
                 "applies_to": next((k[1] for k in keys if k[0] == "subject"), None),
                 "conditions": [k[1] for k in keys if k[0] != "subject"],
                 "exceptions": [e[0] for e in exceptions],
+                **field_role_of(conn, row[0]),
+                "signed_matches": approval["signed"] == content_to_sign(conn, row[0]),
                 "clause": source[0],
                 "page": source[1],
                 "quote": source[2],
@@ -547,6 +572,7 @@ def _read_book(conn, equipment_type: str) -> tuple[list[dict], list[dict]]:
                     "by": approval["by"] or approval["by_id"],
                     "at": approval["at"],
                     "tier": approval["tier"],
+                    "note": approval["note"],
                 },
             }
         )
@@ -622,11 +648,24 @@ def in_force(conn, snapshot_id: str) -> list[str]:
     ]
 
 
+def in_force_versions(conn, snapshot_id: str) -> list[tuple[str, int]]:
+    """`in_force`, as the (rule id, version number) pairs a rule is known by."""
+    return [
+        (r[0], r[1])
+        for r in conn.execute(
+            "SELECT v.rule_id, v.version_no FROM rulebook_snapshot_rule s"
+            " JOIN rulebook_version v ON v.id = s.rule_version_id"
+            " WHERE s.snapshot_id = ? AND s.approval_id IS NOT NULL",
+            (snapshot_id,),
+        )
+    ]
+
+
 def record_run(
     conn, review_run_id: str, used_snapshot_id: str | None = None
 ) -> dict | None:
-    """The run says which rulebook it used. Verdicts read version 1 today, so: version 1, no snapshot, and the newest
-    snapshot named apart as not used. Off, or tables not created (a live database): nothing, and nothing is created.
+    """The run says which rulebook it used: version 1 and no snapshot, with the newest snapshot named apart as not
+    used, or version 2 and its snapshot. Off, or tables not created (a live database): nothing, and nothing is created.
     A run's record is written once."""
     if not settings.rulebook_v2_enabled or not has_schema(conn):
         return None
