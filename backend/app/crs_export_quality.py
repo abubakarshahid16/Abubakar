@@ -490,6 +490,14 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
     return view
 
 
+def notice_height(view: dict) -> int:
+    """The notice row's height. Off: as it was, whatever the length. With
+    CRS_PLAIN_NOTES_ENABLED the notice names its parts, so its words must fit."""
+    if not settings.crs_plain_notes_enabled:
+        return 30
+    return max(30, 15 * (len(view["incomplete_notice"]) // 110 + 1))
+
+
 def tail_cells(view: dict, entry: dict, current: list) -> list:
     """The cells after Priority on a row. Switch off: `current`, the caller's
     own three columns. On: the AI column when this copy has it, else none."""

@@ -115,6 +115,10 @@ class SettingsExt(BaseModel):
     #: Priority from the fixed list. EXPORT ONLY: no verdict, status or finding changes.
     #: OFF: nothing changes. Env: CRS_EXPORT_QUALITY_ENABLED.
     crs_export_quality_enabled: bool = False
+    #: #1592 items d and e: the CRS notice names each part that could not be checked by what it is,
+    #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
+    #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
+    crs_plain_notes_enabled: bool = False
     #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
     #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every

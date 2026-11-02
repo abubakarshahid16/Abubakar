@@ -675,7 +675,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.merge_cells(start_row=notice_row, start_column=1, end_row=notice_row,
                        end_column=7)
         put(notice_row, 1, view["incomplete_notice"], bold=True, wrap=True)
-        ws.row_dimensions[notice_row].height = 30
+        ws.row_dimensions[notice_row].height = quality.notice_height(view)
     code = view["recommended_code"]
     if code:
         row = COLUMN_HEADER_ROW + len(view["rows"]) + 2

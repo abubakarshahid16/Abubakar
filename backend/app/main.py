@@ -2717,8 +2717,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
       submittal_number        the submittal's own number: one an engineer
                               recorded in the metadata editor, else its
                               document number and revision read from its page
-                              (`_crs_submittal_label`),
-                              and BLANK when it carried none
+                              (`_crs_submittal_label`), and BLANK when it carried none
       date_issued             today - the date this file was exported, which
                               is the only date this system actually knows
       company_transmittal     as an engineer ENTERED it on the run (#725 F7,
@@ -2962,6 +2961,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
+    meta = absence_mod.with_plain_notes(meta, rows, unchecked)
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed

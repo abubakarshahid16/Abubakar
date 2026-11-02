@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import equipment_scope, kind_rules, page_not_read
 from .claude_auto_approve import run_lines
+from .config import settings
 
 _log = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ COULD_NOT_BE_CHECKED = "could_not_be_checked"
 #: search ran and nothing fit, or the model read the sources and said they do
 #: not contain it. Any other refusal is a failure to check, not an absence.
 ABSENCE_KIND_NOT_FOUND = "not_found"
+#: The Review note on rows an engineer has still to tick (`tick_note`).
+TICK_NOTE = "Rows for the engineer to tick"
 
 #: Answer types that are a finished answer.
 _FINISHED_TYPES = frozenset({"extract", "generated", "comparison"})
@@ -387,14 +390,67 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     return parts + run_lines(outcome)
 
 
-def notice_for(parts: list[dict]) -> str:
-    """The one line a sheet prints when something could not be checked."""
+def notice_for(parts: list[dict], *, internal: bool = False) -> str:
+    """The one line a sheet prints when something could not be checked. `internal`: the
+    copy that lists each part; the contractor's copy has the count and the share."""
     parts = [p for p in parts if not p.get("detail")]
     if not parts:
         return ""
     notice = (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
               "- this sheet is not a complete review.")
+    if internal and settings.crs_plain_notes_enabled:
+        # #1592 item e: every part by what it is, its own plain line, never an internal id.
+        said = " ".join(f"Part {n}: {p['line']}" for n, p in enumerate(parts, start=1))
+        return f"{notice} {said}"
     # The unchecked share, with its denominator, is part of the notice on every
     # copy (#633, owner decision 2026-10-09).
     share = next((p["line"] for p in parts if p["part"] == "unchecked_share"), "")
     return f"{notice} {share}" if share else notice
+
+
+def with_plain_notes(meta: dict, rows: list[dict], parts: list[dict]) -> dict:
+    """The internal CRS meta with the parts named and the tick note said (#1592 items d
+    and e). Off, and on the contractor's copy: `meta` as it was."""
+    if not settings.crs_plain_notes_enabled or meta.get("copy") != "internal":
+        return meta
+    note = tick_note(rows)
+    notice = notice_for(parts, internal=True)
+    return {
+        **meta,
+        "incomplete_notice": " ".join(
+            p for p in (notice, note and note["detail"]) if p
+        ),
+        "review_notes": [*meta["review_notes"], *([note] if note else [])],
+    }
+
+
+def tick_note(rows: list[dict]) -> dict | None:
+    """#1592 item d: the Review note on the rows an engineer has still to tick, from the
+    rows on this sheet (`crs_mapping`: a tested rule's Pass on a safety field). None with
+    the switch off, or with none open. Why they are the engineer's, in plain words: the
+    rule's result stands on the row, but a safety field's result is not a decision until
+    an engineer has read the value on the page (`rule_trust.label_check`)."""
+    from .crs_mapping import ROW_KIND_SAFETY_TICK
+
+    if not settings.crs_plain_notes_enabled:
+        return None
+    n = sum(
+        1
+        for r in rows
+        if r.get("row_kind") == ROW_KIND_SAFETY_TICK and not r.get("engineer_confirmed")
+    )
+    if not n:
+        return None
+    return {
+        "note": TICK_NOTE,
+        "standard": "",
+        "count": n,
+        "detail": (
+            f"{n} row{'s' if n != 1 else ''} of this sheet say{'' if n != 1 else 's'}"
+            " ENGINEER TO TICK. A tested rule found the value meets the standard, and the"
+            " field is a safety field, so the rule does not decide it alone: it is on"
+            " purpose, and it is not a fault. Until an engineer reads the value on the page"
+            " and ticks, these rows are not decided and this sheet does not count them as"
+            " decided."
+        ),
+    }
