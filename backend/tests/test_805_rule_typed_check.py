@@ -213,6 +213,16 @@ def test_a_typed_rule_on_a_low_trust_value_is_a_query(monkeypatch):
     assert row["compliance_status"] == QUERY and _reason(row) == "value_not_trusted"
 
 
+def test_a_typed_rule_on_a_deferred_value_is_a_query(monkeypatch):
+    run, scope = _material_sheet("cast iron")
+    with db.connect() as conn:
+        conn.execute("UPDATE submittal_facts SET value_note = 'by vendor'")
+    row = _one(
+        _review(monkeypatch, run, scope, _typed(NOT_COPPER, IS_NOT, ["cast iron"]))
+    )
+    assert row["compliance_status"] == QUERY and _reason(row) == "value_not_trusted"
+
+
 def test_a_typed_rule_with_an_unverifiable_condition_is_a_query(monkeypatch):
     run, scope = _material_sheet("cast iron")
     rule = {

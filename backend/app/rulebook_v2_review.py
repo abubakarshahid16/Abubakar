@@ -28,6 +28,7 @@ from . import (
     conditions,
     datasheet_checks,
     datasheet_roles,
+    deferred_value,
     degraded_read,
     field_links,
     kind_rules,
@@ -490,6 +491,12 @@ def _judge(
         if numeric
         else _typed(rule, found, op, values)
     )
+    # an owner-approved rule's verdict on a deferred value is a query, whatever D2's own switch says
+    held = deferred_value.hold_owner_rule(
+        {"status": row.status, "rationale": row.words}, found.fact
+    )
+    if held["status"] != row.status:
+        return _query(rule, VALUE_NOT_TRUSTED, found, held["rationale"])
     if row.status in DECIDED and _context_dependent(rule):
         note = rule["approval"]["note"]
         row.words = f"{row.words}. Its scope sits outside its sentence; decided on the owner's note: {note}"
