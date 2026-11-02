@@ -17,7 +17,7 @@ import { onSignedOut, setCookieSession, setToken } from "./api/client";
 import { fetchImageObjectUrl, reportResponseStatus, request, signOutOn401 } from "./api/core";
 import { FAST_MS, IDLE_MS } from "./hooks/usePoll";
 
-const NOTICE = /your sign-in has expired/i;
+const NOTICE = /sign-in expired, sign in again/i;
 const ME = { id: "u1", email: "eng@example.test", display_name: "Eng", roles: [] };
 const reply = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
 const unauthenticated = () => reply({ detail: { code: "unauthenticated", message: "sign in to continue" } }, 401);

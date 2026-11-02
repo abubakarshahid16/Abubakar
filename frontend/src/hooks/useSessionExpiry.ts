@@ -1,5 +1,5 @@
 /**
- * "Your sign-in has expired": the one place that decides to say it (order 4b).
+ * "Sign-in expired, sign in again": the one place that decides to say it (order 4b).
  *
  * Every transport already reports a 401 to one place (`signOutOn401`, api/core),
  * which App hands to `on401` here. So a poll, a save, a page image and an upload

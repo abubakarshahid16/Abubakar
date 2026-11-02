@@ -37,7 +37,7 @@ const OFFLINE_MESSAGE =
 function ExpiredNotice({ unsaved }: { unsaved: number }) {
   return (
     <div role="status" className="mb-4 rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">
-      <p>Your sign-in has expired. Sign in again to carry on.</p>
+      <p>Sign-in expired, sign in again.</p>
       {unsaved > 0 && (
         <p className="mt-1">
           {unsaved === 1 ? "1 decision" : `${unsaved} decisions`} not saved yet are kept in this browser tab.

@@ -257,7 +257,7 @@ describe("sign-out and a sign-in that ran out (v2.1 N1)", () => {
     const draftKey = draftStorageKey("run-1", "user-a");
     sessionStorage.setItem(draftKey, JSON.stringify({ decisions: { "row-1": { kind: "keep" } }, opened: [] }));
     act(() => { signOutOn401(401); });
-    expect(await screen.findByText(/your sign-in has expired/i)).toBeInTheDocument();
+    expect(await screen.findByText(/sign-in expired, sign in again/i)).toBeInTheDocument();
     expect(screen.getByText(/2 decisions not saved yet are kept in this browser tab/i)).toBeInTheDocument();
     expect(sessionStorage.getItem(draftKey)).not.toBeNull();
   });
