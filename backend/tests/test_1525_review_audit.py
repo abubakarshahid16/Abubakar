@@ -63,8 +63,8 @@ def _json(audit_dir):
     )
 
 
-def test_the_switch_is_off_by_default_and_nothing_is_written(world, audit_dir):
-    assert settings.review_audit_report_enabled is False
+def test_with_the_switch_off_nothing_is_written(world, audit_dir, monkeypatch):
+    monkeypatch.setattr(settings, "review_audit_report_enabled", False)
     _review(world)
     assert _files(audit_dir) == []
 

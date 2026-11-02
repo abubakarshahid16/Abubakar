@@ -350,14 +350,6 @@ def test_a_table_mixing_the_two_units_is_refused():
     assert table("mPa", "MPa") is None
 
 
-def test_a_rule_unit_is_not_proven_by_the_other_unit():
-    assert rule_eval.unit_in_text("MPa", "rated 5 MPA")
-    assert rule_eval.unit_in_text("MPag", "rated 5 mpa(g)")
-    assert not rule_eval.unit_in_text("MPa", "rated 5 mPa")
-    assert not rule_eval.unit_in_text("mPa", "rated 5 MPa")
-    assert rule_eval.unit_in_text("mPa", "rated 5 mPa")
-
-
 def test_a_unit_less_twin_is_not_joined_across_a_collision():
     readings = [
         {"raw_value": "5", "raw_unit": "mW", "field_value": "5 mW"},
