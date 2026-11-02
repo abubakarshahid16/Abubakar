@@ -58,17 +58,17 @@ POT_RULE = "Invented bar steel shall stay out of every heated invented pot."
 VALVE_RULE = "The invented valve body shall not be cast iron."
 SERVICE_RULE = "Invented valves shall be limited to clean gas and thin liquid service."
 
-ALL_SENTENCE = "Part XG applies to all invented equipment and to its parts."
-LINED_SENTENCE = "Part XCL applies to glazed drums made of lined plate and strip."
+ALL_SENTENCE = "The rules of Part XG apply to all invented equipment and to its parts."
+LINED_SENTENCE = "The rules of Part XCL apply to glazed drums made of lined plate and strip."
 POT_SENTENCE = (
     "This Appendix adds rules for heated jacketed pots of this invented code."
 )
-VALVE_SENTENCE = "Part XV applies to pressure relief valves made of invented alloy."
-GENERIC_SENTENCE = "Part XQ applies to valves made of invented alloy only."
+VALVE_SENTENCE = "The rules of Part XV apply to pressure relief valves made of invented alloy."
+GENERIC_SENTENCE = "The rules of Part XQ apply to valves made of invented alloy only."
 NEGATED_SENTENCE = (
-    "Part XA applies to glazed drums and does not apply to relief valves."
+    "The rules of Part XA apply to glazed drums and do not apply to relief valves."
 )
-FOOTNOTED_SENTENCE = "Part XM applies to glazed drums made of lined plate.13"
+FOOTNOTED_SENTENCE = "The rules of Part XM apply to glazed drums made of lined plate.13"
 UNSURE_SENTENCE = "Part XU may perhaps apply to some assemblies in some invented cases."
 
 
@@ -76,6 +76,7 @@ def _part(word, ident, title, sentence, *rest):
     return "\n".join((f"{word} {ident}", title, f"{ident}-1", "SCOPE", sentence, *rest))
 
 
+SUBJECT_RULE_WORDS = "Each one shall carry an invented mark."
 PAGES = [
     (
         1,
@@ -110,7 +111,7 @@ PAGES = [
             "PART",
             "XF",
             "FALSE QUOTE",
-            "Part XF holds a sentence the model did not copy here.",
+            "The rules of Part XF hold a sentence the model did not copy here.",
             "XF-2",
             VALVE_RULE,
         ),
@@ -171,6 +172,60 @@ PAGES = [
 ]
 
 
+SUBJECT_SENTENCE = "The rules of Part XH apply to all pressure vessels and to their parts."
+SECOND_SUBJECT_SENTENCE = "The rules of Part XI apply to all pressure vessels and to their parts."
+PAGES += [
+    (
+        16,
+        _part("PART", "XH", "ALL DRUMS", SUBJECT_SENTENCE, "XH-2", SUBJECT_RULE_WORDS),
+    ),
+    (
+        17,
+        _part(
+            "PART",
+            "XI",
+            "ALL DRUMS AGAIN",
+            SECOND_SUBJECT_SENTENCE,
+            "XI-2",
+            SUBJECT_RULE_WORDS,
+        ),
+    ),
+    (
+        18,
+        _part(
+            "PART",
+            "XS",
+            "NOT ALL",
+            "This Part describes invented methods used on invented days.",
+            "XS-2",
+            SUBJECT_RULE_WORDS,
+        ),
+    ),
+    (
+        19,
+        _part(
+            "PART",
+            "XY",
+            "NEXT ONE",
+            "This Part describes other invented methods used on days.",
+            "XY-2",
+            SUBJECT_RULE_WORDS,
+        ),
+    ),
+    (
+        20,
+        _part(
+            "PART",
+            "XZ",
+            "AFTER IT",
+            "The rules of Part XZ apply to glazed drums made of another lined plate.",
+            "XZ-2",
+            SUBJECT_RULE_WORDS,
+        ),
+    ),
+]
+
+
 def _store_pages(conn, document_id, pages):
     with conn:
         conn.execute(
@@ -221,7 +276,8 @@ def _limited(sentence, words="invented"):
 
 
 @pytest.fixture
-def code(lane):  # noqa: F811
+def code(lane, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(settings, "answer_model", MODEL)
     conn = db.connect()
     _store_pages(conn, CODE, PAGES)
     _read(conn, "XG", {"limited": "no", "construction": None, "quote": ALL_SENTENCE})
@@ -234,7 +290,7 @@ def code(lane):  # noqa: F811
     _read(
         conn,
         "XF",
-        _limited("Part XF applies only to invented drums of lined plate.", "drums"),
+        _limited("The rules of Part XF apply only to invented drums of lined plate.", "drums"),
     )
     _read(
         conn,
@@ -252,6 +308,19 @@ def code(lane):  # noqa: F811
         model="another-model",
     )
     _read(conn, "XE", {"limited": "no", "construction": None, "quote": None})
+    _read(
+        conn, "XH", {"limited": "no", "construction": None, "quote": SUBJECT_SENTENCE}
+    )
+    _read(conn, "XI", {"limited": "no", "construction": None, "quote": None})
+    _read(conn, "XS", {"limited": "no", "construction": None, "quote": None})
+    _read(
+        conn,
+        "XY",
+        _limited(
+            "The rules of Part XZ apply to glazed drums made of another lined plate.",
+            "glazed drums",
+        ),
+    )
     _read(conn, "XM", _limited(FOOTNOTED_SENTENCE, "glazed drums"))
     _store_pages(
         conn,
@@ -281,7 +350,7 @@ def _in(document_id, clause, page, quote=VALVE_RULE):
 
 @pytest.mark.parametrize(
     ("clause", "page", "quote"),
-    [("XCL-10", 3, LINED_RULE), ("19-3", 4, POT_RULE), ("XA-2", 7, VALVE_RULE)],
+    [("XCL-10", 3, LINED_RULE), ("XA-2", 7, "Each one shall carry an invented mark.")],
 )
 def test_a_part_whose_own_clause_names_other_equipment_is_outside(
     code, clause, page, quote
@@ -311,7 +380,7 @@ def test_an_outside_rule_is_not_paired_and_names_its_reason(code, monkeypatch):
 
 def test_an_outside_rule_never_decides_and_the_run_counts_it(code, monkeypatch):
     run, scope = _sheet(label="Body material", value="carbon steel")
-    rule = _in(CODE, "19-3", 4, POT_RULE)
+    rule = _in(CODE, "XCL-10", 3, LINED_RULE)
     typed = {**_typed(rule["quote"], IS_NOT, ["invented bar steel"]), **rule}
     result = _run(monkeypatch, run, scope, typed)
     assert _ours(result) == []
@@ -367,7 +436,7 @@ def test_a_general_part_decides_end_to_end(code, monkeypatch):
         (_in(CODE, "XU-2", 8), "the model is unsure"),
         (_in(CODE, "XF-2", 10), "the quote is not on the page"),
         (_in(CODE, "XD-2", 11), "two readings disagree"),
-        (_in(CODE, "XE-2", 12), "a no with no sentence shown"),
+        (_in(CODE, "XE-2", 12), "a no whose text does not say all"),
         (_in(CODE, "XQ-2", 6), "only a word shared with other types"),
         (
             _in(CODE, "7.1", 15, "The invented stray rule stands here."),
@@ -381,11 +450,6 @@ def test_scope_that_cannot_be_established_is_never_in_scope(code, rule, why):
     said = rule_part_scope.of_rule(code, rule, TYPE)
     assert (said.state, said.reason) == (UNKNOWN, SCOPE_NOT_ESTABLISHED), why
     assert said.words
-
-
-def test_a_no_with_no_sentence_says_so_in_plain_words(code):
-    said = rule_part_scope.of_rule(code, _in(CODE, "XE-2", 12), TYPE)
-    assert said.words == "no scope sentence of Part XE was shown"
 
 
 def test_a_limited_part_with_no_equipment_type_is_not_established(code):
@@ -408,6 +472,98 @@ def test_unknown_scope_is_not_paired_on_the_checklist(code):
         _ro(), SHEET, {**_in(CODE, "XN-2", 9), "field": "Body material"}
     )
     assert said["paired"] is False and said["reason"] == SCOPE_NOT_ESTABLISHED
+
+
+def test_a_limit_naming_no_known_equipment_is_a_question_not_outside(code):
+    said = rule_part_scope.of_rule(code, _in(CODE, "19-3", 4, POT_RULE), TYPE)
+    assert (said.state, said.reason) == (UNKNOWN, SCOPE_NOT_ESTABLISHED), said.words
+
+
+def test_a_type_that_may_be_a_kind_of_what_the_clause_names_is_a_question(code):
+    """The sentence names a vessel. A valve is in another family; an exchanger is not."""
+    rule = _in(CODE, "XCL-10", 3, LINED_RULE)
+    assert rule_part_scope.of_rule(code, rule, TYPE).state == OUTSIDE
+    assert rule_part_scope.of_rule(code, rule, "Heat Exchanger").state == UNKNOWN
+    assert rule_part_scope.of_rule(code, rule, "Pressure Vessel").state == NAMED
+
+
+def test_a_type_with_no_family_is_never_outside(code, monkeypatch):
+    vocab = subject_scope.vocabulary()
+    monkeypatch.delitem(vocab.family, "relief valve")
+    rule = _in(CODE, "XCL-10", 3, LINED_RULE)
+    assert rule_part_scope.of_rule(code, rule, TYPE).state == UNKNOWN
+
+
+def test_every_equipment_type_has_a_family_and_no_component_does():
+    vocab = subject_scope.vocabulary()
+    for name, kind in vocab.kind.items():
+        assert bool(vocab.family.get(name)) == (kind == subject_scope.EQUIPMENT), name
+
+
+def test_a_rule_that_names_the_type_is_not_left_out_by_a_clause_naming_other_equipment(
+    code,
+):
+    rule = _in(
+        CODE, "XCL-10", 3, "A pressure relief valve shall carry an invented mark."
+    )
+    assert rule_part_scope.of_rule(code, rule, TYPE).state == UNKNOWN
+
+
+SUBJECT_RULE = "Each one shall carry an invented mark."
+NAMING_RULE = "A pressure relief valve shall carry an invented mark."
+
+
+@pytest.mark.parametrize("ident", ["XH", "XI"])
+def test_a_part_general_for_its_subject_is_general_only_for_it(code, ident):
+    """Part XH's reading quotes its sentence and Part XI's quotes none: the two are treated the same."""
+    page = {"XH": 16, "XI": 17}[ident]
+    other = rule_part_scope.of_rule(
+        code, _in(CODE, f"{ident}-2", page, SUBJECT_RULE), TYPE
+    )
+    assert (other.state, other.reason) == (UNKNOWN, SCOPE_NOT_ESTABLISHED), other.words
+    assert "general for its own subject" in other.words
+    named = rule_part_scope.of_rule(
+        code, _in(CODE, f"{ident}-2", page, NAMING_RULE), TYPE
+    )
+    assert named.state == GENERAL, named.words
+    own = rule_part_scope.of_rule(
+        code, _in(CODE, f"{ident}-2", page, SUBJECT_RULE), "Pressure Vessel"
+    )
+    assert own.state == GENERAL, own.words
+
+
+def test_a_no_whose_text_does_not_say_all_is_not_general(code):
+    said = rule_part_scope.of_rule(code, _in(CODE, "XS-2", 18, NAMING_RULE), TYPE)
+    assert said.state == UNKNOWN and "does not say so" in said.words
+
+
+def test_the_next_parts_sentence_is_not_this_parts(code):
+    said = rule_part_scope.of_rule(code, _in(CODE, "XY-2", 19, SUBJECT_RULE), TYPE)
+    assert said.state == UNKNOWN and "not in its own text" in said.words
+
+
+def test_a_lesser_model_alone_does_not_set_scope(code):
+    conn = code
+    _read(
+        conn,
+        "XN",
+        _limited("The rules in Part XN were never read by any model at all."),
+        model="lesser-model",
+    )
+    said = rule_part_scope.of_rule(conn, _in(CODE, "XN-2", 9), TYPE)
+    assert said.state == UNKNOWN and "does not set scope" in said.words
+
+
+@pytest.mark.parametrize("stored", ["[1, 2]", "not json at all", "null", '"words"'])
+def test_a_stored_row_that_is_not_a_reading_does_not_stop_the_review(code, stored):
+    _read(code, "XN", {"limited": "yes"})
+    with code:
+        code.execute(
+            "UPDATE ai_task_cache SET result_json = ? WHERE result_json = ?",
+            (stored, json.dumps({"limited": "yes"})),
+        )
+    said = rule_part_scope.of_rule(code, _in(CODE, "XN-2", 9), TYPE)
+    assert said.state == UNKNOWN and "has not been read" in said.words
 
 
 # ------------------------------------------------------------- a clause in a standard with no Part of its own: unchanged
@@ -597,11 +753,13 @@ def test_the_cell_the_engineer_reads_says_what_a_subtype_rests_on(code, monkeypa
 
 def test_the_note_the_engineer_reads_counts_a_rule_left_out(code, monkeypatch):
     run, scope = _sheet(label="Body material", value="carbon steel")
-    rule = _in(CODE, "19-3", 4, POT_RULE)
+    rule = _in(CODE, "XCL-10", 3, LINED_RULE)
     typed = {**_typed(rule["quote"], IS_NOT, ["invented bar steel"]), **rule}
     _run(monkeypatch, run, scope, typed)
     meta = rulebook_v2_crs.part({}, db.connect(), run, frozenset({CODE}))
-    assert "1 outside this equipment type's scope" in meta["review_notes"][0]["detail"]
+    for said in (meta["review_notes"][0]["detail"], meta["rulebook_v2_note"]):
+        assert "1 outside this equipment type's scope" in said
+        assert "(Part XCL 1)" in said and str(typed["rule_id"]) in said
 
 
 def test_an_unknown_word_is_a_query_end_to_end(code, monkeypatch):

@@ -8,6 +8,21 @@ NOT_MEASURED = "not measured"
 ORIGIN = "rulebook_v2"
 
 
+def outside_line(held_back: dict) -> str:
+    """The rules a Part's scope clause left out, by Part, with their ids: a wrong "outside" can be audited. "" with none."""
+    count = held_back.get("outside_equipment_scope") or 0
+    if not count:
+        return ""
+    parts = "; ".join(
+        f"{name} {n}" for name, n in (held_back.get("outside_by_part") or {}).items()
+    )
+    ids = ", ".join(str(i) for i in held_back.get("outside_rule_ids") or [])
+    return (
+        f"Rules not paired, not counted above: {count} outside this equipment type's scope, by the scope clause of their"
+        f" own Part or Appendix ({parts}). Rule ids: {ids}."
+    )
+
+
 def rulebook_part(part: dict, findings: list[dict], wrong_ids: set[int] | None) -> dict:
     """The version 2 rows of a run that read them: decided of the approved rules for this
     equipment type. Never in `decided`; a run with no rule says why, not 0 of 0."""
@@ -53,12 +68,9 @@ def rulebook_part(part: dict, findings: list[dict], wrong_ids: set[int] | None) 
             f" Approved rules left out, not counted above: {no_grant} this reader may not read, {by_book} withheld"
             " by the rulebook."
         )
-    outside = held_back.get("outside_equipment_scope") or 0
+    outside = outside_line(held_back)
     if outside:
-        told += (
-            f" Rules not paired, not counted above: {outside} outside this equipment type's scope, by the scope clause"
-            " of their own Part or Appendix."
-        )
+        told += f" {outside}"
     return {
         "state": part.get("state"),
         "equipment_type": part.get("equipment_type"),
@@ -70,6 +82,7 @@ def rulebook_part(part: dict, findings: list[dict], wrong_ids: set[int] | None) 
         "query": rules - decided,
         "wrong": wrong,
         "reasons": part.get("reasons") or {},
+        "outside_line": outside,
         "line": (
             f"Rulebook version 2, stated apart, not added to the rules: {decided} of {rules} approved rules"
             f" for this equipment type decided (pass {passed}, fail {failed}, query {rules - decided})."

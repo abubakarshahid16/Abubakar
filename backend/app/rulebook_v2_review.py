@@ -620,19 +620,25 @@ class Review:
 
 def _by_part_scope(
     conn, rules: list[dict], equipment_type: str
-) -> tuple[list[dict], int]:
-    """(the rules this review reads, how many were left out). A rule outside the type's scope is left out and counted; one
-    whose scope is not established stays, marked, and can only be a Query."""
-    kept, outside = [], 0
+) -> tuple[list[dict], dict]:
+    """(the rules this review reads, what was left out: how many, by Part, and which rules, so a wrong "outside" can be
+    audited). A rule whose scope is not established stays, marked, and can only be a Query."""
+    kept, parts, ids = [], {}, []
     for rule in rules:
         scope = rule_part_scope.of_rule(conn, rule, equipment_type)
         if scope.reason == OUTSIDE_EQUIPMENT_SCOPE:
-            outside += 1
+            parts[scope.division] = parts.get(scope.division, 0) + 1
+            ids.append(rule.get("rule_id"))
         elif scope.reason:
             kept.append({**rule, "_scope_unknown": scope.words})
         else:
             kept.append(rule)
-    return kept, outside
+    left_out = {
+        "outside_equipment_scope": len(ids),
+        "outside_by_part": dict(sorted(parts.items())),
+        "outside_rule_ids": ids,
+    }
+    return kept, left_out
 
 
 def begin(
@@ -666,8 +672,8 @@ def begin(
         material_reference.signed(conn) if settings.material_reference_enabled else None
     )
     rules = [{**rule, "_reference": reference} for rule in rules]
-    rules, outside = _by_part_scope(conn, rules, equipment_type)
-    withheld["outside_equipment_scope"] = outside
+    rules, left_out = _by_part_scope(conn, rules, equipment_type)
+    withheld |= left_out
     # An approval comes after the compile's snapshot, so the run freezes the book as it uses it; a re-run of this run
     # finds the same snapshot and reads the same rules.
     actor = f"review:{review_run_id}"

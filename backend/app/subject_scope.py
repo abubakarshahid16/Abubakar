@@ -59,12 +59,16 @@ class Vocabulary:
     def __init__(self, data: dict) -> None:
         self.kind: dict[str, str] = {}
         self.drivers: set[str] = set()
+        #: Equipment that can be a kind of one another shares a family; read only by `rule_part_scope`.
+        self.family: dict[str, str] = {}
         self.phrases: dict[str, set[str]] = {}
         for name, entry in (data.get("types") or {}).items():
             canonical = _fold(name)
             self.kind[canonical] = (entry or {}).get("kind", EQUIPMENT)
             if (entry or {}).get("driver"):
                 self.drivers.add(canonical)
+            if (entry or {}).get("family"):
+                self.family[canonical] = entry["family"]
             for spelling in [name, *((entry or {}).get("synonyms") or ())]:
                 folded = _fold(spelling)
                 if folded:

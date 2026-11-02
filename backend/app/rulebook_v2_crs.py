@@ -86,6 +86,8 @@ def part(
         if decided and labels
         else ""
     )
+    outside = (stated or {}).get("outside_line") or ""
+    short = " ".join(x for x in (short, outside) if x)
     said = (stated or {}).get("line") or ""
     words = f"{said} Labels on these rules: {'; '.join(labels)}." if labels else said
     return {

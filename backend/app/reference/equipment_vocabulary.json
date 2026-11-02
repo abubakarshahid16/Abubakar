@@ -1,8 +1,9 @@
 {
-  "_about": "The equipment and component types a standard's clause or a submittal can be about (#453). ONE shared, editable vocabulary: read by app/subject_scope.py to decide what a requirement is about (from its own wording and its heading path) and what a submittal is (from its equipment type, title and fields). Each type lists the other spellings that mean it. 'kind' is 'equipment' (a machine or vessel: a clause about a DIFFERENT one does not apply to this submittal) or 'component' (a part that every kind of equipment has: a clause about it can apply to anything, so it never excludes). A spelling listed under two types is ambiguous on purpose: it matches both, and the requirement is kept. 'driver': true marks a machine that drives another (a motor or turbine drives a pump or compressor): a code for it stated on a datasheet describes that driver, so it never puts the sheet's own equipment type in doubt (order 142). Edit here, not in code. A change takes effect on the next review run.",
+  "_about": "The equipment and component types a standard's clause or a submittal can be about (#453). 'family' groups equipment that can be a kind of one another; different families are apart, and only that lets a Part's scope clause put a rule outside a type (app/rule_part_scope.py). ONE shared, editable vocabulary: read by app/subject_scope.py to decide what a requirement is about (from its own wording and its heading path) and what a submittal is (from its equipment type, title and fields). Each type lists the other spellings that mean it. 'kind' is 'equipment' (a machine or vessel: a clause about a DIFFERENT one does not apply to this submittal) or 'component' (a part that every kind of equipment has: a clause about it can apply to anything, so it never excludes). A spelling listed under two types is ambiguous on purpose: it matches both, and the requirement is kept. 'driver': true marks a machine that drives another (a motor or turbine drives a pump or compressor): a code for it stated on a datasheet describes that driver, so it never puts the sheet's own equipment type in doubt (order 142). Edit here, not in code. A change takes effect on the next review run.",
   "types": {
     "steam turbine": {
       "kind": "equipment",
+      "family": "rotating",
       "driver": true,
       "synonyms": [
         "steam turbines",
@@ -16,6 +17,7 @@
     },
     "gas turbine": {
       "kind": "equipment",
+      "family": "rotating",
       "driver": true,
       "synonyms": [
         "gas turbines",
@@ -29,6 +31,7 @@
     },
     "relief valve": {
       "kind": "equipment",
+      "family": "valve",
       "synonyms": [
         "relief valves",
         "pressure relief valve",
@@ -61,6 +64,7 @@
     },
     "control valve": {
       "kind": "equipment",
+      "family": "valve",
       "synonyms": [
         "control valves",
         "valve"
@@ -68,6 +72,7 @@
     },
     "check valve": {
       "kind": "equipment",
+      "family": "valve",
       "synonyms": [
         "check valves",
         "non-return valve",
@@ -77,6 +82,7 @@
     },
     "pump": {
       "kind": "equipment",
+      "family": "rotating",
       "synonyms": [
         "pumps",
         "centrifugal pump",
@@ -88,6 +94,7 @@
     },
     "compressor": {
       "kind": "equipment",
+      "family": "rotating",
       "synonyms": [
         "compressors",
         "centrifugal compressor",
@@ -98,6 +105,7 @@
     },
     "heat exchanger": {
       "kind": "equipment",
+      "family": "vessel",
       "synonyms": [
         "heat exchangers",
         "exchanger",
@@ -114,6 +122,7 @@
     },
     "pressure vessel": {
       "kind": "equipment",
+      "family": "vessel",
       "synonyms": [
         "pressure vessels",
         "vessel",
@@ -131,6 +140,7 @@
     },
     "storage tank": {
       "kind": "equipment",
+      "family": "vessel",
       "synonyms": [
         "storage tanks",
         "tank",
@@ -141,6 +151,7 @@
     },
     "boiler": {
       "kind": "equipment",
+      "family": "vessel",
       "synonyms": [
         "boilers",
         "steam generator",
@@ -150,6 +161,7 @@
     },
     "fired heater": {
       "kind": "equipment",
+      "family": "vessel",
       "synonyms": [
         "fired heaters",
         "furnace",
@@ -160,6 +172,7 @@
     },
     "motor": {
       "kind": "equipment",
+      "family": "rotating",
       "driver": true,
       "synonyms": [
         "motors",
@@ -169,6 +182,7 @@
     },
     "transformer": {
       "kind": "equipment",
+      "family": "electrical",
       "synonyms": [
         "transformers",
         "power transformer",
@@ -177,6 +191,7 @@
     },
     "pressure transmitter": {
       "kind": "equipment",
+      "family": "instrument",
       "synonyms": [
         "pressure transmitters",
         "differential pressure transmitter",
@@ -185,24 +200,28 @@
     },
     "temperature transmitter": {
       "kind": "equipment",
+      "family": "instrument",
       "synonyms": [
         "temperature transmitters"
       ]
     },
     "flow transmitter": {
       "kind": "equipment",
+      "family": "instrument",
       "synonyms": [
         "flow transmitters"
       ]
     },
     "level transmitter": {
       "kind": "equipment",
+      "family": "instrument",
       "synonyms": [
         "level transmitters"
       ]
     },
     "battery": {
       "kind": "equipment",
+      "family": "electrical",
       "synonyms": [
         "batteries",
         "battery bank",
@@ -211,6 +230,7 @@
     },
     "cable": {
       "kind": "equipment",
+      "family": "electrical",
       "synonyms": [
         "cables",
         "power cable",
