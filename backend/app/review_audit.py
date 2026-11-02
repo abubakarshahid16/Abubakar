@@ -329,6 +329,7 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
             "fresh": row["fresh"],
             "failed": row["failed"],
             "reused": row["reused"],
+            **review_audit_rows.not_sent(row),
         }
         for row in ledger
     ]
@@ -336,7 +337,7 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
 
 def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
     """The steps whose own stored status counts their calls: the clause review
-    (with its stored answers) and the CRS wording (it keeps no answers to reuse)."""
+    (with its stored answers) and the CRS wording (stored Claude answers: `fold_stored_hits`)."""
     from .clause_review import STATUS_KEY
 
     out = []
@@ -407,7 +408,7 @@ def _ai_section(
             "rejected": status.get("rejected"),
         }
     step["name"] = "ai_engineering_check"
-    # This step's answers are never stored, so none can be reused: a true 0.
+    # Stored Claude answers are moved here by `fold_stored_hits`; otherwise a true 0.
     step["fresh"] = step["calls"]
     step["reused"] = None if step["calls"] is None else 0
     step["clauses_read_of_total"] = NOT_RECORDED
@@ -419,8 +420,15 @@ def _ai_section(
         if step["state"] == "failed"
         else "see the findings; code decides"
     )
-    steps = [step, *_stored_steps(status, wording), *_ledger_steps(ledger)]
-    return {"steps": steps, "totals": _totals(steps)}
+    figures = review_audit_rows.cache_figures(run)
+    own = [step, *_stored_steps(status, wording)]
+    ledger = review_audit_rows.fold_stored_hits(own, ledger, figures)
+    steps = [
+        *own,
+        *_ledger_steps(ledger),
+        *review_audit_rows.skipped_steps(_loads(run.get("outcome_json"))),
+    ]
+    return {"steps": steps, "totals": _totals(steps), **figures}
 
 
 def _gates_section(outcome: dict, steps: dict) -> dict:
@@ -634,12 +642,14 @@ def _md_ai(audit: dict) -> list[str]:
         f"reused answers {_v(totals['reused'])}",
         f"  - {totals['boundary']}",
     ]
+    out += review_audit_rows.cache_lines(audit["ai_use"])
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
             f"{_v(s['fresh'])}; failed calls {_v(s.get('failed'))}; reused answers "
             f"{_v(s['reused'])}"
         )
+        out += [f"  - {s['not_sent']}"] if s.get("not_sent") else []
         if "clauses_read_of_total" not in s:
             continue
         out[-1] += (

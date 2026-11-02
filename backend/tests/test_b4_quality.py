@@ -12,8 +12,19 @@ import json
 import pymupdf
 import pytest
 
-from app import (claude_spend, comparison, datasheets, db, field_naming, reader_api,
-                 reasoning_provider as rp, row_noise, submittal_review, vision_reader)
+from app import (
+    claude_answer_cache,
+    claude_spend,
+    comparison,
+    datasheets,
+    db,
+    field_naming,
+    reader_api,
+    reasoning_provider as rp,
+    row_noise,
+    submittal_review,
+    vision_reader,
+)
 from app.config import settings
 from app.reasoning_provider import PageImage, Response
 
@@ -53,7 +64,7 @@ def test_an_image_request_keeps_every_gate():
 @pytest.fixture
 def claude_env(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.setattr(settings, "anthropic_api_key", KEY)
     monkeypatch.setattr(settings, "standards_reader_enabled", True)
@@ -90,19 +101,27 @@ def test_the_claude_provider_sends_the_image_and_the_effort(claude_env):
     assert seen[1]["body"]["messages"][0]["content"] == "q"
 
 
-def test_the_image_is_part_of_the_digest_and_the_cache_key():
+def test_the_image_is_part_of_the_digest_and_the_cache_key(claude_env):
     """THE MUTATION TARGET (M643): two pages never share a cached answer."""
+
+    def key(packet):
+        provider = rp.ClaudeProvider("claude-sonnet-5")
+        return claude_answer_cache.key_of(
+            "s", packet.prompt_version, provider._request(packet)[1]
+        )
+
     a = rp.Packet(prompt="p", num_ctx=1, num_predict=1, images=(IMG,))
     b = rp.Packet(prompt="p", num_ctx=1, num_predict=1,
                   images=(PageImage("image/png", "OTHER", 1000, 1500),))
     plain = rp.Packet(prompt="p", num_ctx=1, num_predict=1)
     assert len({a.sha256, b.sha256, plain.sha256}) == 3
-    assert rp.cache_key("m", a) != rp.cache_key("m", b)
-    # the key of a packet without effort is what it was before effort existed
-    assert rp.cache_key("m", plain) == rp.cache_key("m", rp.Packet(prompt="p", num_ctx=1,
-                                                                    num_predict=1, effort=None))
-    assert rp.cache_key("m", plain) != rp.cache_key("m", rp.Packet(prompt="p", num_ctx=1,
-                                                                    num_predict=1, effort="low"))
+    assert key(a) != key(b) != key(plain)
+    assert key(plain) == key(
+        rp.Packet(prompt="p", num_ctx=1, num_predict=1, effort=None)
+    )
+    assert key(plain) != key(
+        rp.Packet(prompt="p", num_ctx=1, num_predict=1, effort="low")
+    )
 
 
 def test_the_worst_case_counts_the_image(claude_env, monkeypatch):

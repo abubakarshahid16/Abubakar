@@ -21,7 +21,7 @@ import json
 import logging
 from pathlib import Path
 
-from . import equipment_scope, kind_rules, page_not_read
+from . import equipment_scope, kind_rules, local_engine_bar, page_not_read
 from .claude_auto_approve import run_lines
 
 _log = logging.getLogger(__name__)
@@ -344,6 +344,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
             "The datasheet revision-block check could not be checked: "
             + str(outcome["datasheet_check_not_run"]) + ".")
     parts.extend(kind_rules.lines(outcome) + equipment_scope.lines(outcome))
+    parts.extend(local_engine_bar.unchecked_lines(outcome))
     stds = outcome.get("standards_not_checked") or []
     if stds:
         add("standards_not_checked",

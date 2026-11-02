@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 
+from . import claude_answer_cache, claude_spend, local_engine_bar
+
 #: What "audit rows" and "exported rows" are over, printed with them.
 ROWS_BOUNDARY = (
     "Audit rows: the CRS rows composed for this run, before the export removes any, over "
@@ -78,3 +80,82 @@ def for_copy(review_run_id: str, scope, copy: str) -> dict | None:
             "review audit: the %s CRS copy could not be composed", copy, exc_info=True
         )
         return None
+
+
+def not_sent(row: dict) -> dict:
+    """A step's Claude calls that were answered from the stored answers."""
+    hits = row.get("cache_hits")
+    return (
+        {"not_sent": f"{claude_answer_cache.NOT_SENT} ({hits} of them)"} if hits else {}
+    )
+
+
+def skipped_steps(outcome: dict) -> list[dict]:
+    """The steps a Claude-lane run did not run: a true 0 calls, and said so."""
+    return [
+        {
+            "name": row["step"],
+            "state": row["note"],
+            "model": None,
+            "calls": 0,
+            "fresh": 0,
+            "failed": 0,
+            "reused": 0,
+        }
+        for row in outcome.get(local_engine_bar.OUTCOME_KEY) or []
+    ]
+
+
+#: The steps whose own stored status counts calls attempted, hits included.
+_COUNT_THEIR_OWN = {
+    "ai_engineering_check": "review_ai_check",
+    "crs_wording": "crs_wording",
+}
+
+
+def cache_figures(run: dict) -> dict:
+    """The stored Claude answers of this run, by the run's id on the ledger lines; nothing
+    on a run with no Claude call."""
+    if not run.get("id"):
+        return {}
+    try:
+        report = claude_spend.cache_report(run_id=str(run["id"]))
+    except (OSError, ValueError):
+        return {}
+    wanted = report["hits"] or report["misses"]
+    return {"claude_answer_cache": report} if wanted else {}
+
+
+def fold_stored_hits(
+    steps: list[dict], ledger: list[dict] | None, figures: dict
+) -> list[dict] | None:
+    """A stored answer is never a fresh call. `steps` that keep their own count move their
+    hits from fresh to reused; their ledger row, which says the same, is dropped so no hit
+    is counted twice. Returns the ledger rows left."""
+    hits = (figures.get("claude_answer_cache") or {}).get("hits_by_step") or {}
+    for step in steps:
+        got = hits.get(_COUNT_THEIR_OWN.get(step.get("name"), ""))
+        if got and step.get("fresh") is not None:
+            step["fresh"] = max(0, step["fresh"] - got)
+            step["reused"] = (step.get("reused") or 0) + got
+            step.update(not_sent({"cache_hits": got}))
+    if ledger is None:
+        return None
+    return [row for row in ledger if row["step"] not in _COUNT_THEIR_OWN.values()]
+
+
+def cache_lines(ai_use: dict) -> list[str]:
+    cache = ai_use.get("claude_answer_cache")
+    if not cache:
+        return []
+    off = (
+        [f"  - the answer cache is off: {cache['cache_off']}"]
+        if cache.get("cache_off")
+        else []
+    )
+    return [
+        f"- stored Claude answers, this review run: {cache['hits']} hits, {cache['misses']} "
+        f"misses, USD {cache['saved_usd']} saved",
+        f"  - {cache['boundary']}",
+        *off,
+    ]
