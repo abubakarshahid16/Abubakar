@@ -872,6 +872,50 @@ def test_the_approval_reason_reads_one_meaning_and_the_code_does_not_change(
     assert coverage_pair.REASON_OLD not in json.dumps(meta)
 
 
+def _code_step(body):
+    return next(s for s in body["steps"] if s["step"] == "CODE")["summary"]
+
+
+def test_the_code_step_of_the_trace_route_reads_one_meaning(run, monkeypatch):
+    result = _approval_outcome()
+    r = _run(recommended_code=result["code"], reason=result["reason"])
+    built = _trace_body(r)  # no stored trace yet: built now
+    assert built["source"].startswith("built now")
+    assert coverage_pair.REASON_OLD in _code_step(built)
+    scope = access.AccessScope(
+        user_id="t", allowed_document_ids=frozenset({"std", "sub"})
+    )
+    assert review_trace.store(r, scope) is not None
+    stored = _trace_body(r)
+    assert stored["source"].startswith("stored")
+    assert coverage_pair.REASON_OLD in _code_step(stored)
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    on = _trace_body(r)
+    assert on["source"].startswith("stored")
+    assert coverage_pair.REASON_OLD not in json.dumps(on)
+    assert coverage_pair.REASON_NEW in _code_step(on)
+    assert _code_step(on).startswith(f"{result['code']} | rule: ")
+    fresh = _run(recommended_code=result["code"], reason=result["reason"])
+    now = _trace_body(fresh)
+    assert now["source"].startswith("built now")
+    assert coverage_pair.REASON_OLD not in json.dumps(now)
+
+
+def test_an_engineers_typed_reason_is_never_reworded(run, monkeypatch):
+    typed = f"I read it: 5 of 8 {coverage_pair.REASON_OLD}, and I accept that."
+    result = _approval_outcome()
+    r = _run(recommended_code=result["code"], reason=result["reason"])
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code = ?, override_reason = ?"
+            " WHERE id = ?",
+            (result["code"], typed, r),
+        )
+    assert _meta(r)["recommended_code_reason"] == typed
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    assert _meta(r)["recommended_code_reason"] == typed
+
+
 def test_the_stored_reason_itself_is_not_rewritten(run, monkeypatch):
     result = _approval_outcome()
     r = _run(recommended_code=result["code"], reason=result["reason"])

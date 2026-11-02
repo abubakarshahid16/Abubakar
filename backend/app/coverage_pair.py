@@ -587,6 +587,8 @@ def trace_view(trace: dict | None, run_id: str) -> dict | None:
         return trace
     steps = []
     for step in trace.get("steps") or []:
+        if step.get("step") == "CODE":  # prints the stored reason
+            step = {**step, "summary": reason_words(step.get("summary")) or ""}
         if step.get("step") == "RULES":
             words = (step.get("summary") or "").replace(
                 "not checked or not applying:",
@@ -630,8 +632,15 @@ def crs_meta(meta: dict, conn: sqlite3.Connection, run_id: str) -> dict:
         return meta
     from . import absence
 
-    runs = _rows(conn, "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+    runs = _rows(
+        conn,
+        "SELECT outcome_json, engineer_final_code FROM review_runs WHERE id = ?",
+        (run_id,),
+    )
     outcome = json.loads((runs[0]["outcome_json"] if runs else None) or "{}")
+    # with a final code the reason on the sheet is the engineer's own typing: never reworded
+    typed = bool(runs and runs[0]["engineer_final_code"])
+    reason = meta.get("recommended_code_reason")
     counts = outcome.get("unchecked_counts") or {}
     old = absence.share_sentence(
         counts.get("not_compared", 0),
@@ -651,7 +660,7 @@ def crs_meta(meta: dict, conn: sqlite3.Connection, run_id: str) -> dict:
     ]
     return {
         **meta,
-        "recommended_code_reason": reason_words(meta.get("recommended_code_reason")),
+        "recommended_code_reason": reason if typed else reason_words(reason),
         "review_notes": notes,
         "unchecked_parts": [swap(p) for p in meta.get("unchecked_parts") or []],
         "incomplete_notice": swap(meta.get("incomplete_notice") or ""),
