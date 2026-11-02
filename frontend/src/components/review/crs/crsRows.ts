@@ -312,6 +312,7 @@ export function sheetCountsOf(
         met: sheet.met, notApplicable: sheet.not_applicable, anotherDocument: sheet.another_document,
         // the server sends the comment rows and the needs-you rows together
         comment: sheet.comments - sheet.needs_you, needsYou: sheet.needs_you,
+        ...(sheet.stated ? { stated: sheet.stated } : {}),
       },
       findingsInComments: sheet.findings_in_comments,
     };

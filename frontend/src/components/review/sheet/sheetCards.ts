@@ -164,6 +164,7 @@ export function cardTitle(card: SheetCard): string {
     : fields.length === 1 ? fields[0]
     : fields.length === 2 ? `${fields[0]} and ${fields[1]}`
     : `${fields[0]}, ${fields[1]} and ${fields.length - 2} more`;
+  if (isTickFinding(leader) && leader.stated_only) return capital(`${subject} is stated, not checked: a safety field, please check the value`);
   if (isTickFinding(leader)) return capital(`${subject} meets the standard: a safety field, please check it`);
   if (isTableRow(leader) && card.findings.length > 1) {
     // #1062: the table, not its rows; the page is the standard's (where the table is).
