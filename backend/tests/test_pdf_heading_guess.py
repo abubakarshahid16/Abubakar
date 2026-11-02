@@ -109,6 +109,114 @@ def _font_only_section(tmp_path, doc_id="f1"):
     assert "Plant Nodes" in pdf_headings.font_only_headings(doc_id)
 
 
+def _numbered_bold_section(tmp_path, doc_id="n1"):
+    """Bold, numbered, and the text rules refuse it: the owner's "found" case."""
+    _store(
+        tmp_path,
+        doc_id,
+        [[("3. PLANT NODES", "hebo", BODY), (CUE, "helv", BODY), *PLANT * 2]],
+    )
+    assert pdf_headings.font_only_headings(doc_id) == frozenset()
+    with db.connect() as conn:
+        rows = conn.execute("SELECT section FROM chunks WHERE document_id=?", (doc_id,))
+        assert "3. PLANT NODES" in {r[0] for r in rows}
+
+
+def test_a_numbered_bold_heading_is_found_without_the_standard(tmp_path):
+    _numbered_bold_section(tmp_path)
+    entry = _entry("n1")
+    assert entry["section_state"] == playbooks.PRESENT
+    assert "section found" in entry["reason"]
+    assert "guess" not in entry["reason"]
+
+
+def test_a_numbered_bold_heading_is_found_with_the_standard_held(tmp_path):
+    hold("IEC 61882")
+    _numbered_bold_section(tmp_path)
+    assert _entry("n1")["state"] == playbooks.PRESENT
+
+
+def test_a_numbered_bold_heading_is_a_guess_when_the_file_cannot_be_read(tmp_path):
+    _numbered_bold_section(tmp_path)
+    (tmp_path / "uploads" / "n1.pdf").unlink()
+    assert pdf_headings.font_only_headings("n1") == frozenset({"3. PLANT NODES"})
+    # no font read: one heading from the stored chunks, too few to check against
+    assert _entry("n1")["section_state"] == playbooks.COULD_NOT_BE_CHECKED
+
+
+def _mixed_line(tmp_path, doc_id: str) -> None:
+    """A bold number, then a body sentence on the same line."""
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=600, height=800)
+    page.insert_text((40, 130), "3.", fontname="hebo", fontsize=BODY)
+    page.insert_text(
+        (54, 130), "Plant nodes are listed", fontname="helv", fontsize=BODY
+    )
+    for k in range(1, 12):
+        page.insert_text((40, 130 + 20 * k), CUE, fontname="helv", fontsize=BODY)
+    path = tmp_path / f"{doc_id}.pdf"
+    pdf.save(str(path))
+    pdf.close()
+
+
+def test_a_bold_number_before_a_body_sentence_is_not_a_numbered_bold_heading(tmp_path):
+    _mixed_line(tmp_path, "b1")
+    with pymupdf.open(str(tmp_path / "b1.pdf")) as pdf:
+        pages = pdf_headings.read_lines(pdf)
+    assert pdf_headings.detect(pages) == {}
+    assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
+def test_a_run_of_bold_list_items_is_not_a_heading(tmp_path):
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=600, height=800)
+    items = [
+        (LINE, "helv"),
+        ("1. Close Plant Nodes", "hebo"),
+        ("2. Open Plant Nodes", "hebo"),
+        ("3. Vent Plant Nodes", "hebo"),
+        (LINE, "helv"),
+        (LINE, "helv"),
+        (LINE, "helv"),
+    ]
+    for k, (text, font) in enumerate(items):
+        page.insert_text((40, 130 + 20 * k), text, fontname=font, fontsize=BODY)
+    pdf.save(str(tmp_path / "l.pdf"))
+    pdf.close()
+    with pymupdf.open(str(tmp_path / "l.pdf")) as doc:
+        pages = pdf_headings.read_lines(doc)
+    assert pdf_headings.detect(pages) == {}
+    assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
+def test_a_bold_numbered_table_row_is_not_a_heading(tmp_path):
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=600, height=800)
+    for k in range(4):
+        page.insert_text((40, 130 + 20 * k), LINE, fontname="helv", fontsize=BODY)
+    page.insert_text((40, 210), "7 Plant Nodes", fontname="hebo", fontsize=BODY)
+    page.insert_text((300, 210), "Listed", fontname="helv", fontsize=BODY)
+    page.insert_text((40, 230), LINE, fontname="helv", fontsize=BODY)
+    pdf.save(str(tmp_path / "r.pdf"))
+    pdf.close()
+    with pymupdf.open(str(tmp_path / "r.pdf")) as doc:
+        pages = pdf_headings.read_lines(doc)
+    assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
+def test_a_short_body_line_with_a_dotted_number_stays_a_guess(tmp_path):
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=600, height=800)
+    for k, text in enumerate([LINE, "7.1 Plant nodes", LINE, LINE]):
+        page.insert_text((40, 130 + 20 * k), text, fontname="helv", fontsize=BODY)
+    pdf.save(str(tmp_path / "d.pdf"))
+    pdf.close()
+    with pymupdf.open(str(tmp_path / "d.pdf")) as doc:
+        pages = pdf_headings.read_lines(doc)
+    assert pdf_headings.detect(pages) == {1: ["7.1 Plant nodes"]}
+    assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
 def test_a_font_only_heading_is_never_section_found_without_the_standard(tmp_path):
     _font_only_section(tmp_path)
     entry = _entry("f1")

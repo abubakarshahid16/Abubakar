@@ -286,6 +286,25 @@ def _resumes_lower(line: Line | None) -> bool:
     return first.islower()
 
 
+def _level(text: str) -> int | None:
+    """The depth of a line's section number (1. = 0, 1.2 = 1); None without one."""
+    label = _SECTION_NO.match(text)
+    if not label or label.group().split()[0].isalpha():
+        return None
+    return label.group().rstrip(".").count(".")
+
+
+def _in_a_list(i: int, lines: list[Line], like: list[bool]) -> bool:
+    """Numbered lines of one level right next to each other are a list, not headings."""
+    level = _level(lines[i].text)
+    if level is None:
+        return False
+    return any(
+        0 <= j < len(lines) and like[j] and _level(lines[j].text) == level
+        for j in (i - 1, i + 1)
+    )
+
+
 def detect(pages: dict[int, list[Line]]) -> dict[int, list[str]]:
     """{page number: the heading lines on it, as normalised text}."""
     running = _running(pages)
@@ -303,10 +322,25 @@ def detect(pages: dict[int, list[Line]]) -> dict[int, list[str]]:
                 continue  # the second line of a wrapped title
             if not ln.styled and _resumes_lower(lines[i + 1]):
                 continue  # the first line of a numbered requirement
+            if _in_a_list(i, lines, like):
+                continue
             heads.append(ln.text)
         if heads:
             found[n] = heads
     return found
+
+
+def numbered_bold(pages: dict[int, list[Line]]) -> frozenset[str]:
+    """Headings that are set apart AND carry a section number: two independent signals, so
+    the owner counts them as found (2 Nov, #1522). A bold number before a body sentence is
+    not one: the line as a whole is not bold."""
+    heads = detect(pages)
+    return frozenset(
+        ln.text
+        for n, found in heads.items()
+        for ln in pages[n]
+        if ln.styled and ln.text in found and numbered(ln.text)
+    )
 
 
 def enabled() -> bool:
@@ -321,8 +355,9 @@ def signature_key(sha: str, pagination: str | None) -> str:
 
 def font_only_headings(document_id: str) -> frozenset[str] | None:
     """The stored section titles of a PDF that only the font says are headings: what is
-    left once the text rules are replayed on its pages. A title here is a guess (CLAUDE.md
-    rule 4). None with the switch off or for a Word file, whose headings are its styles."""
+    left once the text rules are replayed on its pages and the numbered bold headings are
+    taken out. A title here is a guess (CLAUDE.md rule 4); so is every font heading when the
+    file cannot be read. None with the switch off or for a Word file (its styles decide)."""
     if not enabled():
         return None
     from . import chunker
@@ -334,9 +369,12 @@ def font_only_headings(document_id: str) -> frozenset[str] | None:
     ).fetchone()
     if row is None or dict(row).get("pagination") == "flow":
         return None
-    pages, raw_tables, _ = chunker._load_pages(conn, document_id)
+    pages, raw_tables, page_rows = chunker._load_pages(conn, document_id)
     if not pages:
         return frozenset()
+    recognised = {r["page_no"] for r in page_rows if r["recognised"]}
+    lines = _font_pages(row["stored_path"], recognised)
+    confirmed = numbered_bold(lines) if lines else frozenset()
     kinds = chunker.classify_document_pages(pages, row["page_count"] or len(pages))
     running = chunker.detect_running_lines(pages)
     masked = chunker.mask_tables(pages, chunker._decode_tables(raw_tables), running)
@@ -345,17 +383,14 @@ def font_only_headings(document_id: str) -> frozenset[str] | None:
         "SELECT DISTINCT section FROM chunks WHERE document_id = ? AND section IS NOT NULL",
         (document_id,),
     ).fetchall()
-    return frozenset({r[0] for r in stored} - {b.section for b in blocks})
+    return frozenset({r[0] for r in stored} - {b.section for b in blocks} - confirmed)
 
 
-def for_document(
+def _font_pages(
     stored_path: str | None, skip_pages: set[int]
-) -> dict[int, set[str]] | None:
-    """The styled heading lines of a stored PDF, by page; None when the switch is
-    off or the file cannot be opened (the text rules then decide alone, as before).
+) -> dict[int, list[Line]] | None:
+    """A stored PDF's lines with size and weight; None when it cannot be opened.
     Recognised (OCR) pages carry no font and are skipped."""
-    if not enabled() or not stored_path:
-        return None
     from . import stored_paths
 
     path = stored_paths.local(stored_path)
@@ -367,7 +402,7 @@ def for_document(
         with pdf_guard.held():
             pdf = pymupdf.open(path)
         try:
-            found = detect(read_lines(pdf, skip_pages))
+            return read_lines(pdf, skip_pages)
         finally:
             with pdf_guard.held():
                 pdf.close()
@@ -376,4 +411,16 @@ def for_document(
             "pdf_headings: font read failed, text rules only (%s)", type(exc).__name__
         )
         return None
-    return {n: set(heads) for n, heads in found.items()}
+
+
+def for_document(
+    stored_path: str | None, skip_pages: set[int]
+) -> dict[int, set[str]] | None:
+    """The styled heading lines of a stored PDF, by page; None when the switch is
+    off or the file cannot be opened (the text rules then decide alone, as before)."""
+    if not enabled() or not stored_path:
+        return None
+    lines = _font_pages(stored_path, skip_pages)
+    if lines is None:
+        return None
+    return {n: set(heads) for n, heads in detect(lines).items()}
