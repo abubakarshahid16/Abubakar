@@ -53,6 +53,12 @@ def rulebook_part(part: dict, findings: list[dict], wrong_ids: set[int] | None) 
             f" Approved rules left out, not counted above: {no_grant} this reader may not read, {by_book} withheld"
             " by the rulebook."
         )
+    outside = held_back.get("outside_equipment_scope") or 0
+    if outside:
+        told += (
+            f" Rules not paired, not counted above: {outside} outside this equipment type's scope, by the scope clause"
+            " of their own Part or Appendix."
+        )
     return {
         "state": part.get("state"),
         "equipment_type": part.get("equipment_type"),

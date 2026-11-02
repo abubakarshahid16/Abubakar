@@ -6,9 +6,13 @@ a proposal only when every value is in the quote, the field is a text field, the
 `is_not`, none for the other two), a list names at least two, and a class reads as a class. Else no check: a Query.
 
 THE DECISION uses what the project already reads: `conditions` for a material, `field_links` for a class and for a named
-value letter for letter. No spelling table, nothing per layout (rule 13). It says a verdict only when it can prove one. A
-value that is merely different from a forbidden one is not proof it is not that one; another name for a listed one is not
-a breach. Missing, unclear or multi-valued is decided before this, in `rulebook_v2_review`: a Query.
+value letter for letter. Nothing per layout (rule 13). It says a verdict only when it can prove one. A value that is
+merely different from a forbidden one is not proof it is not that one; another name for a listed one is not a breach.
+Missing, unclear or multi-valued is decided before this, in `rulebook_v2_review`: a Query.
+
+A ONE-OF ON A FREE-TEXT FIELD NEVER FAILS (owner's order, 2 Nov 2026). A role is free text unless the role table says a
+reader can read its value (`reads_as`); no word of a label decides that. There a value passes when it is a listed term or
+a signed synonym of one (`reference/value_synonyms.json`), and anything else is a Query.
 
 A person's tick signs the check with the rule; `plain_words` is what the checklist shows. On a COPY's `compiled_rules`.
 """
@@ -17,11 +21,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 from . import (
     claude_batch_run,
     condition_choice,
     conditions,
+    datasheet_checks,
     field_links,
     material_reference,
     rule_field_naming,
@@ -49,6 +55,8 @@ NOT_A_CLASS = "not_a_class"
 REPLY_UNREADABLE = "reply_unreadable"
 CONDITIONAL_SENTENCE = "conditional_sentence"
 MAX_OUTPUT_TOKENS = 150
+SYNONYMS_PATH = Path(__file__).parent / "reference" / "value_synonyms.json"
+SIGNED = "signed"
 _COLUMNS = (
     "check_op",
     "check_values",
@@ -144,8 +152,55 @@ def _is_only_a_material(part: str) -> bool:
     return len(found) == 1 and _fold(found[0].value) == _fold(part)
 
 
-def _one_part(op: str, values: list[str], stated: str) -> tuple[str | None, str]:
+def is_free_text(role: str | None) -> bool:
+    """Free text, unless the role table says a reader can read this role's value. No role: nothing says one can."""
+    table = datasheet_checks.load_rules().get("roles") or {}
+    return not (table.get(role) or {}).get("reads_as")
+
+
+def signed_synonyms(role: str | None, path: Path | None = None) -> dict[str, tuple[str, ...]]:
+    """{listed term: its signed synonyms} for this role. An entry with no status, signer and date does not count."""
+    data = json.loads((path or SYNONYMS_PATH).read_text(encoding="utf-8"))
+    found: dict[str, tuple[str, ...]] = {}
+    for entry in data.get("entries") or []:
+        if (
+            entry.get("role") == role
+            and entry.get("status") == SIGNED
+            and entry.get("signed_by")
+            and entry.get("signed_on")
+        ):
+            listed = entry["listed"]
+            found[listed] = (*found.get(listed, ()), entry["synonym"])
+    return found
+
+
+def _free_text_part(
+    values: list[str], stated: str, synonyms: dict[str, tuple[str, ...]]
+) -> tuple[str | None, str]:
+    """A part of a free-text value: a listed term or a signed synonym of one passes. Anything else is a Query."""
+    listed = "; ".join(values)
+    if field_links.is_named_value(stated, tuple(values)):
+        return COMPLIANT, f"{stated} against one of {listed}"
+    for term, words in synonyms.items():
+        if field_links.is_named_value(
+            term, tuple(values)
+        ) and field_links.is_named_value(stated, words):
+            return COMPLIANT, (
+                f"{stated} against one of {listed}: a signed synonym of {term}"
+            )
+    return None, f"{stated} is free text and matches no listed term of {listed}"
+
+
+def _one_part(
+    op: str,
+    values: list[str],
+    stated: str,
+    free_text: bool = False,
+    synonyms: dict[str, tuple[str, ...]] | None = None,
+) -> tuple[str | None, str]:
     """An allow-list: the whole part equals a named value, or a known material, or a class. Any other word is a Query."""
+    if free_text and op == IS_ONE_OF:
+        return _free_text_part(values, stated, synonyms or {})
     named = field_links.is_named_value(stated, tuple(values))
     among = None
     if named:
@@ -170,11 +225,18 @@ def _one_part(op: str, values: list[str], stated: str) -> tuple[str | None, str]
 
 
 def decide(
-    op: str, values: list[str], stated: str, reference=None
+    op: str,
+    values: list[str],
+    stated: str,
+    reference=None,
+    *,
+    free_text: bool = False,
+    synonyms: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[str | None, str]:
     """(COMPLIANT or NON_COMPLIANT, words), or (None, words) when code cannot prove either. Every part of a value that
     lists several must meet the rule: any part that does not fails, and any part code cannot read holds a Pass back.
-    `reference`: the signed material table, with its switch on; then only it can pass an `is_not`."""
+    `reference`: the signed material table, with its switch on; then only it can pass an `is_not`. `free_text`, with its
+    `synonyms`: the field is one no reader can read, so a one-of on it cannot fail (`is_free_text`)."""
     if (
         reference is not None
         and op == IS_NOT
@@ -182,7 +244,8 @@ def decide(
     ):
         return material_reference.is_not(reference, values, stated)
     judged = [
-        _one_part(op, values, part) for part in material_reference.split_list(stated)
+        _one_part(op, values, part, free_text, synonyms)
+        for part in material_reference.split_list(stated)
     ]
     words = f"the sheet states {stated}: " + "; ".join(w for _s, w in judged)
     said = [status for status, _w in judged]
