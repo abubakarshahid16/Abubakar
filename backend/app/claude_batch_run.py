@@ -1,22 +1,32 @@
-"""A Message Batches run that survives a crash and never pays twice (#1584).
+"""Message Batches for many standards at once: survives a crash, never pays twice, can fall back to normal sends (#1584).
 
 `ClaudeProvider.reason_batch` holds its state in memory: a crash while it waits loses the batch id, and the
 next run sends and pays again. This module keeps that state in the database the run writes (a disposable copy,
 `scripts/compile_standards.py`): the batch id, and per request its reservation, state and answer.
 
 ONE LANE. Bodies come from `ClaudeProvider._request`, answers go through `ClaudeProvider._answered` (ledger,
-response cache), bytes through `reader_transport.batch_*` or a test's fake. Nothing here opens a socket.
+answer cache), bytes through `reader_transport.batch_*` or a test's fake. Nothing here opens a socket.
 
-THE LEDGER. Every request's worst case is reserved in one locked step (`claude_spend.reserve_all`, which also
-asks the approved list) BEFORE the batch is created, and the reservation id is stored. So after a crash the
-reservation is still counted at its worst case and a resumed run settles the SAME reservation.
+ONE BATCH ACROSS STANDARDS. `run_many` takes several jobs, one per standard, and sends them together. Each request
+reserves on its own standard's step, so the per-standard cap holds inside one batch. Only the API's own size limits
+split it (`MAX_BATCH_REQUESTS`, `MAX_BATCH_BYTES`).
+
+THE LEDGER. Every request's worst case is reserved BEFORE the batch is created, and the reservation id is stored.
+So after a crash the reservation is still counted at its worst case and a resumed run settles the SAME one.
 
   * succeeded: settled to its usage at the batch price, keyed by custom_id, results in any order.
   * errored, expired, canceled: not billed, so released; re-queued once, then listed and counted.
-  * no result row at all: charged its worst case (unknown is never free), re-queued once.
+  * no result row at all: charged its worst case (unknown is never free), re-queued once; if the row turns up on a
+    later read it is used, and not charged again.
   * a crash, or a failed poll, while waiting: nothing is settled; the next run polls the same batch.
   * a crash or a timeout inside create: the API may hold the batch and its id is unknown. The requests are
     "unconfirmed", stay charged, and are NOT sent again unless the operator says so.
+
+THE FALLBACK (`fallback_after_s`, default off). A batch older than that is cancelled. NOTHING IS SENT UNTIL THE BATCH HAS
+ENDED, so no request can be paid twice: a cancel that fails, or one not finished within `CANCEL_WAIT_S`, leaves the run
+"waiting". What the batch had finished is kept at the batch price; only what it did not is sent, one by one through
+`ClaudeProvider.reason`: same model, same prompt version, same answer cache, at the normal price. Before each send its
+worst case at that price must fit what is free (`room`). What does not fit is not sent and is named.
 
 One known overcount: a crash between a settlement and the commit after it settles that reservation twice when
 the batch is read again. That errs toward spent, never toward unspent.
@@ -26,13 +36,35 @@ Stored: answers, in the disposable copy only. Logged: nothing here; the ledger h
 
 from __future__ import annotations
 
+import contextlib
 import json
+import math
 import time
 import uuid
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 
-from . import claude_spend
+from . import claude_approved, claude_spend, reader_api
+from .claude_batch_store import (
+    FROM_CACHE,
+    MAX_ATTEMPTS,
+    NO_RESULT,
+    NORMAL_SEND,
+    NOT_BILLED,
+    OPEN_STATES,
+    Outcome,
+    _answered_elsewhere,
+    _failed,
+    _finish,
+    _keep_raw,
+    _mark_unconfirmed,
+    _now,
+    _reopen,
+    _set,
+    _state,
+    ensure_schema,
+    stored_ids,
+    stored_outcome,
+)
 from .reasoning_provider import (
     ClaudeProvider,
     Packet,
@@ -42,94 +74,74 @@ from .reasoning_provider import (
     _valid_for,
 )
 
-#: A request is sent at most this many times: the first send and one re-queue.
-MAX_ATTEMPTS = 2
+#: Names other modules read from here.
+__all__ = [
+    "MAX_ATTEMPTS",
+    "stored_ids",
+    "stored_outcome",
+]
+
+#: The Batch API's own limits are 100,000 requests and 256 MB. The bytes here stay under that for the JSON around them.
+MAX_BATCH_REQUESTS = 100_000
+MAX_BATCH_BYTES = 200 * 1024 * 1024
+#: How long a cancelled batch may take to end before the run stops and says "waiting". Seconds.
+CANCEL_WAIT_S = 600.0
 #: The instruction `ClaudeProvider._request` writes around a packet's JSON schema, in characters.
 _SCHEMA_WRAPPER_CHARS = 120
-NOT_BILLED = ("errored", "expired", "canceled")
-NO_RESULT = "no_result"
-#: Written in place of a batch id when the answer came from the response cache.
-FROM_CACHE = "response_cache"
-
-SCHEMA = (
-    """CREATE TABLE IF NOT EXISTS claude_batches (
-        id TEXT PRIMARY KEY, job TEXT NOT NULL, api_batch_id TEXT, state TEXT NOT NULL,
-        model TEXT NOT NULL, created_at TEXT NOT NULL)""",
-    """CREATE TABLE IF NOT EXISTS claude_batch_requests (
-        job TEXT NOT NULL, custom_id TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-        state TEXT NOT NULL, batch_row TEXT, reservation_id TEXT, worst_usd REAL, step TEXT, failure TEXT,
-        answer TEXT, model TEXT, finish_reason TEXT, api_batch_id TEXT, cache_key TEXT, PRIMARY KEY (job, custom_id))""",
-    """CREATE TABLE IF NOT EXISTS claude_batch_answers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, job TEXT NOT NULL, custom_id TEXT NOT NULL, prompt_version TEXT NOT NULL,
-        model TEXT, api_batch_id TEXT, raw_json TEXT NOT NULL, received_at TEXT NOT NULL)""",
-)
 
 
 @dataclass
-class Outcome:
-    #: custom_id -> {text, model, finish_reason, batch_id}
-    answers: dict[str, dict] = field(default_factory=dict)
-    #: custom_id -> why, for requests that failed twice and are given up.
-    gave_up: dict[str, str] = field(default_factory=dict)
-    #: custom_id -> the failure that re-queued it (closed words, never text).
-    failures: dict[str, str] = field(default_factory=dict)
-    requeued: int = 0
-    from_cache: int = 0
-    resumed_batches: int = 0
-    batch_ids: list[str] = field(default_factory=list)
-    unconfirmed: list[str] = field(default_factory=list)
-    #: A batch had not ended when the wait ran out; the next run polls it.
-    waiting: bool = False
-    unknown_results: int = 0
-    #: custom_ids left out because their worst case did not fit the budget.
-    over_budget: list[str] = field(default_factory=list)
+class _Run:
+    """What one call of `run_many` holds on to."""
+
+    conn: object
+    provider: ClaudeProvider
+    work: dict[str, dict[str, Packet]]
+    client: object
+    room: object
+    declared: dict[str, set[str]]
+    cache_system: dict[str, bool]
+    out: dict[str, Outcome]
+    poll_seconds: float
+    sleep: object
+    clock: object
+    deadline: float
+    fallback_after_s: float | None
+
+    def carrying(self, job: str):
+        """This request's own standard, only. No declaration given: the caller's stands."""
+        ids = self.declared.get(job)
+        return (
+            claude_approved.carrying(ids)
+            if ids is not None
+            else contextlib.nullcontext()
+        )
 
 
-def ensure_schema(conn) -> None:
-    with conn:
-        for statement in SCHEMA:
-            conn.execute(statement)
-
-
-def worst_usd(model: str, packet: Packet) -> float:
-    """The most this request can cost at the batch price; needs no key, so an estimate can run with the lane shut."""
+def _chars(packet: Packet) -> int:
     chars = len(packet.system) + len(packet.prompt)
     if packet.json_schema is not None:
         chars += _SCHEMA_WRAPPER_CHARS + len(
             json.dumps(packet.json_schema, separators=(",", ":"))
         )
-    return claude_spend.worst_case_usd(model, chars, packet.num_predict, batch=True)
+    return chars
 
 
-def _fitting(worsts: list[tuple[str, float]], room: float) -> int:
-    """How many requests, from the first, fit `room` at their worst case together."""
-    total, count = 0.0, 0
-    for _step, worst in worsts:
-        total += worst
-        if total > room:
-            break
-        count += 1
-    return count
+def worst_usd(model: str, packet: Packet, *, batch: bool = True) -> float:
+    """The most this request can cost, at the batch price or the normal one (about twice); needs no key, so an estimate
+    can run with the lane shut."""
+    return claude_spend.worst_case_usd(
+        model, _chars(packet), packet.num_predict, batch=batch
+    )
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _state(conn, job: str) -> dict[str, dict]:
-    rows = conn.execute(
-        "SELECT * FROM claude_batch_requests WHERE job = ?", (job,)
-    ).fetchall()
-    return {r["custom_id"]: dict(r) for r in rows}
-
-
-def _set(conn, job: str, custom_id: str, **values) -> None:
-    columns = ", ".join(f"{name} = ?" for name in values)
-    with conn:
-        conn.execute(
-            f"UPDATE claude_batch_requests SET {columns} WHERE job = ? AND custom_id = ?",
-            (*values.values(), job, custom_id),
-        )
+def batches_needed(requests: int, request_bytes: int) -> int:
+    """How many batches this much work takes under the API's limits."""
+    return max(
+        1 if requests else 0,
+        math.ceil(requests / MAX_BATCH_REQUESTS),
+        math.ceil(request_bytes / MAX_BATCH_BYTES),
+    )
 
 
 def _reservation(row: dict, model: str) -> claude_spend.Reservation:
@@ -144,76 +156,40 @@ def _reservation(row: dict, model: str) -> claude_spend.Reservation:
     )
 
 
-def _failed(conn, job: str, row: dict, why: str) -> None:
-    """Re-queue once, then give up. The failure is a closed word."""
-    state = "gave_up" if row["attempts"] >= MAX_ATTEMPTS else "retry"
-    _set(conn, job, row["custom_id"], state=state, failure=why)
-
-
-def _keep_raw(conn, job, custom_id, packet, model, api_batch_id, message) -> None:
-    """Every answer as the API sent it, cut off or dropped by the proof too, never replaced: a later reading of the
-    answers (a new table shape, a stricter proof) needs no second payment. Local copy only."""
-    with conn:
-        conn.execute(
-            "INSERT INTO claude_batch_answers (job, custom_id, prompt_version, model, api_batch_id, raw_json,"
-            " received_at) VALUES (?,?,?,?,?,?,?)",
-            (
-                job,
-                custom_id,
-                packet.prompt_version,
-                model,
-                api_batch_id,
-                json.dumps(message, ensure_ascii=False, sort_keys=True),
-                _now(),
-            ),
-        )
-
-
-def _from_cache(conn, job: str, custom_id: str, hit) -> None:
-    with conn:
-        conn.execute(
-            "INSERT INTO claude_batch_requests (job, custom_id, state, answer, model, finish_reason, api_batch_id)"
-            " VALUES (?,?,'answered',?,?,?,?) ON CONFLICT (job, custom_id) DO UPDATE SET state = 'answered',"
-            " answer = excluded.answer, model = excluded.model, finish_reason = excluded.finish_reason,"
-            " api_batch_id = excluded.api_batch_id",
-            (job, custom_id, hit.text, hit.model_tag, hit.finish_reason, FROM_CACHE),
-        )
-
-
-def _hold(
-    conn, job: str, model: str, sending: list[str], held: list, keys: list[str]
-) -> str:
+def _hold(conn, run: _Run, model: str, rows: list[dict]) -> str:
     """Written BEFORE the send: a crash from here on still knows every reservation."""
     batch_row = uuid.uuid4().hex
     with conn:
         conn.execute(
-            "INSERT INTO claude_batches (id, job, state, model, created_at) VALUES (?,?,'creating',?,?)",
-            (batch_row, job, model, _now()),
+            "INSERT INTO claude_batches (id, job, state, model, created_at, created_epoch)"
+            " VALUES (?,?,'creating',?,?,?)",
+            (batch_row, rows[0]["job"], model, _now(), run.clock()),
         )
-        for custom_id, reservation, key in zip(sending, held, keys, strict=True):
+        for row in rows:
             conn.execute(
                 "INSERT INTO claude_batch_requests (job, custom_id, attempts, state, batch_row, reservation_id,"
-                " worst_usd, step, cache_key) VALUES (?,?,1,'held',?,?,?,?,?) ON CONFLICT (job, custom_id) DO UPDATE SET"
-                " attempts = attempts + 1, state = 'held', batch_row = excluded.batch_row,"
+                " worst_usd, step, cache_key, api_id) VALUES (?,?,1,'held',?,?,?,?,?,?) ON CONFLICT (job, custom_id)"
+                " DO UPDATE SET attempts = attempts + 1, state = 'held', batch_row = excluded.batch_row,"
                 " reservation_id = excluded.reservation_id, worst_usd = excluded.worst_usd, step = excluded.step,"
-                " cache_key = excluded.cache_key",
+                " cache_key = excluded.cache_key, api_id = excluded.api_id",
                 (
-                    job,
-                    custom_id,
+                    row["job"],
+                    row["custom_id"],
                     batch_row,
-                    reservation.id,
-                    reservation.worst_usd,
-                    reservation.step,
-                    key,
+                    row["reservation"].id,
+                    row["reservation"].worst_usd,
+                    row["reservation"].step,
+                    row["key"],
+                    row["api_id"],
                 ),
             )
     return batch_row
 
 
-def _create_failed(conn, batch_row: str, held: list, exc: Exception) -> None:
+def _create_failed(conn, batch_row: str, rows: list[dict], exc: Exception) -> None:
     """Charged unless it provably cost nothing. A create that may have worked is "unconfirmed", never re-sent alone."""
-    for reservation in held:
-        claude_spend.settle_failure(reservation, exc, unbilled=_unbilled)
+    for row in rows:
+        claude_spend.settle_failure(row["reservation"], exc, unbilled=_unbilled)
     state = "not_sent" if _unbilled(exc) else "unconfirmed"
     with conn:
         conn.execute(
@@ -225,97 +201,177 @@ def _create_failed(conn, batch_row: str, held: list, exc: Exception) -> None:
         )
 
 
-def _submit(
-    conn,
-    provider: ClaudeProvider,
-    job,
-    packets,
-    todo,
-    client,
-    room,
-    out: Outcome,
-    cache_system: bool,
-) -> str | None:
-    """Send `todo` as one batch and store its id. Returns the local batch row, or None when all were cached."""
+class _Free:
+    """What is still free in this send, ledger and earlier requests of it together."""
+
+    def __init__(self, room) -> None:
+        self.room, self.used, self.shared_used, self.seen = room, {}, 0.0, {}
+
+    def fits(self, step: str, worst: float) -> bool:
+        if self.room is None:
+            return True
+        if step not in self.seen:
+            self.seen[step] = self.room(step)
+        step_free, shared_free = self.seen[step]
+        used = self.used.get(step, 0.0)
+        if used + worst > step_free or self.shared_used + worst > shared_free:
+            return False
+        self.used[step] = used + worst
+        self.shared_used += worst
+        return True
+
+
+def _prepare(run: _Run, todo: dict[str, list[str]]) -> list[dict]:
+    """The bodies to send, what the answer cache already holds taken out, what does not fit left out and named."""
+    conn, provider = run.conn, run.provider
     model = provider.requested_model
-    to_send, worsts, sending, keys, request = [], [], [], [], None
-    for custom_id in todo:
-        packet = packets[custom_id]
-        step = provider._step or packet.step
-        request, body, _prompt = provider._request(packet)
-        if not cache_system:  # a job that would only ever pay the dearer write
-            body["system"] = [
-                {k: v for k, v in block.items() if k != "cache_control"}
-                for block in body.get("system", [])
-            ]
-        stored, key = claude_spend.answer_on_file(
-            step,
-            body,
-            version=_cache_version(packet),
-            valid=_valid_for(packet),
-            prompt_sha256=packet.sha256,
-        )
-        if stored is not None:
-            _from_cache(
-                conn, job, custom_id, provider._response(stored, packet, 0.0, 0.0)
+    free, rows, taken = _Free(run.room), [], set()
+    for job, custom_ids in todo.items():
+        out = run.out[job]
+        for custom_id in custom_ids:
+            packet = run.work[job][custom_id]
+            step = provider._step or packet.step
+            request, body, _prompt = provider._request(packet)
+            if not run.cache_system.get(
+                job, True
+            ):  # would only ever pay the dearer write
+                body["system"] = [
+                    {k: v for k, v in block.items() if k != "cache_control"}
+                    for block in body.get("system", [])
+                ]
+            with run.carrying(job):
+                stored, key = claude_spend.answer_on_file(
+                    step,
+                    body,
+                    version=_cache_version(packet),
+                    valid=_valid_for(packet),
+                    prompt_sha256=packet.sha256,
+                )
+            if stored is not None:
+                answer = provider._response(stored, packet, 0.0, 0.0)
+                _answered_elsewhere(conn, job, custom_id, answer, FROM_CACHE)
+                _keep_raw(
+                    conn,
+                    job,
+                    custom_id,
+                    packet,
+                    stored.get("model"),
+                    FROM_CACHE,
+                    stored,
+                )
+                out.from_cache += 1
+                continue
+            worst = worst_usd(model, packet)
+            if not free.fits(step, worst):
+                out.over_budget.append(custom_id)
+                continue
+            api_id = (
+                custom_id if custom_id not in taken else f"d{len(taken)}-{custom_id}"
             )
-            _keep_raw(
-                conn, job, custom_id, packet, stored.get("model"), FROM_CACHE, stored
+            taken.add(api_id)
+            rows.append(
+                {
+                    "job": job,
+                    "custom_id": custom_id,
+                    "api_id": api_id,
+                    "key": key,
+                    "step": step,
+                    "worst": worst,
+                    "request": request,
+                    "params": body,
+                }
             )
-            out.from_cache += 1
-            continue
-        keys.append(key)
-        to_send.append({"custom_id": custom_id, "params": body})
-        worsts.append((step, worst_usd(model, packet)))
-        sending.append(custom_id)
-    if not to_send:
-        return None
-    if (
-        room is not None
-    ):  # the first requests that fit go; the rest are named, never sent
-        fits = _fitting(worsts, room())
-        out.over_budget += sending[fits:]
-        to_send, worsts, sending, keys = (
-            to_send[:fits],
-            worsts[:fits],
-            sending[:fits],
-            keys[:fits],
-        )
-    if not to_send:
-        return None
-    held = claude_spend.reserve_all(worsts, model=model, batch=True)
-    batch_row = _hold(conn, job, model, sending, held, keys)
+    return rows
+
+
+def _reserve(run: _Run, rows: list[dict]) -> None:
+    """Per standard, so each reservation line names its own document. One refusal takes back the rest."""
+    model = run.provider.requested_model
+    held = []
     try:
-        batch = client.batch_create(
-            request["url"], headers=request["headers"], requests=to_send
-        )
-    except Exception as exc:
-        _create_failed(conn, batch_row, held, exc)
-        raise ProviderRefused(
-            f"claude: the batch was not created: {claude_spend.failure_word(exc)}"
-        ) from exc
-    with conn:
-        conn.execute(
-            "UPDATE claude_batches SET api_batch_id = ?, state = 'open' WHERE id = ?",
-            (str(batch.get("id")), batch_row),
-        )
-        conn.execute(
-            "UPDATE claude_batch_requests SET api_batch_id = ? WHERE batch_row = ?",
-            (str(batch.get("id")), batch_row),
-        )
-    return batch_row
+        for job in {row["job"] for row in rows}:
+            own = [row for row in rows if row["job"] == job]
+            with run.carrying(job):
+                reservations = claude_spend.reserve_all(
+                    [(row["step"], row["worst"]) for row in own],
+                    model=model,
+                    batch=True,
+                )
+            for row, reservation in zip(own, reservations, strict=True):
+                row["reservation"] = reservation
+                held.append(reservation)
+    except claude_spend.StopRun:
+        for reservation in held:
+            claude_spend.release(reservation, "unbilled:not_sent")
+        raise
 
 
-def _take_result(
-    conn, provider, job, packets, held: dict, result: dict, wall: float
-) -> None:
+def _slices(rows: list[dict]) -> list[list[dict]]:
+    """As few batches as the API's limits allow."""
+    out: list[list[dict]] = []
+    size = 0
+    for row in rows:
+        bytes_ = len(json.dumps(row["params"], ensure_ascii=False).encode("utf-8"))
+        if (
+            not out
+            or len(out[-1]) >= MAX_BATCH_REQUESTS
+            or size + bytes_ > MAX_BATCH_BYTES
+        ):
+            out.append([])
+            size = 0
+        out[-1].append(row)
+        size += bytes_
+    return out
+
+
+def _submit(run: _Run, todo: dict[str, list[str]]) -> list[str]:
+    """Send `todo` in as few batches as allowed and store their ids. Returns the local batch rows."""
+    conn = run.conn
+    model = run.provider.requested_model
+    rows = _prepare(run, todo)
+    if not rows:
+        return []
+    _reserve(run, rows)
+    made = []
+    for part in _slices(rows):
+        batch_row = _hold(conn, run, model, part)
+        request = part[0]["request"]
+        try:
+            batch = run.client.batch_create(
+                request["url"],
+                headers=request["headers"],
+                requests=[
+                    {"custom_id": row["api_id"], "params": row["params"]}
+                    for row in part
+                ],
+            )
+        except Exception as exc:
+            _create_failed(conn, batch_row, part, exc)
+            raise ProviderRefused(
+                f"claude: the batch was not created: {claude_spend.failure_word(exc)}"
+            ) from exc
+        with conn:
+            conn.execute(
+                "UPDATE claude_batches SET api_batch_id = ?, state = 'open' WHERE id = ?",
+                (str(batch.get("id")), batch_row),
+            )
+            conn.execute(
+                "UPDATE claude_batch_requests SET api_batch_id = ? WHERE batch_row = ?",
+                (str(batch.get("id")), batch_row),
+            )
+        made.append(batch_row)
+    return made
+
+
+def _take_result(run: _Run, held: dict, result: dict, wall: float) -> None:
     """One result row, whichever position it came in."""
+    conn, provider = run.conn, run.provider
     model = provider.requested_model
-    custom_id = held["custom_id"]
+    job, custom_id = held["job"], held["custom_id"]
     kind = str(result.get("type"))
     reservation = _reservation(held, model)
     if kind == "succeeded":
-        packet = packets[custom_id]
+        packet = run.work[job][custom_id]
         message = result.get("message") or {}
         _keep_raw(
             conn,
@@ -326,15 +382,16 @@ def _take_result(
             held["api_batch_id"],
             message,
         )
-        answer = provider._answered(
-            result.get("message"),
-            packet,
-            held["cache_key"],
-            held["step"],
-            wall,
-            batch=True,
-            reservation=reservation,
-        )
+        with run.carrying(job):
+            answer = provider._answered(
+                result.get("message"),
+                packet,
+                held["cache_key"],
+                held["step"],
+                wall,
+                batch=True,
+                reservation=reservation,
+            )
         _set(
             conn,
             job,
@@ -354,152 +411,298 @@ def _take_result(
         _failed(conn, job, held, NO_RESULT)
 
 
-def _collect(
-    conn,
-    provider,
-    job,
-    packets,
-    batch_row,
-    client,
-    *,
-    poll_seconds,
-    deadline,
-    sleep,
-    out: Outcome,
-) -> bool:
-    """Wait for one batch and take its results. False when the wait ran out (nothing settled, nothing lost)."""
-    found = conn.execute(
-        "SELECT api_batch_id FROM claude_batches WHERE id = ?", (batch_row,)
-    ).fetchone()
-    api_id = found["api_batch_id"]
-    request, _body, _prompt = provider._request(next(iter(packets.values())))
-    url, headers = request["url"], request["headers"]
+def _rows_of(run: _Run, batch_row: str) -> dict[str, dict]:
+    """{what the API calls it: its row} for one local batch."""
+    rows = run.conn.execute(
+        "SELECT * FROM claude_batch_requests WHERE batch_row = ?", (batch_row,)
+    ).fetchall()
+    return {(r["api_id"] or r["custom_id"]): dict(r) for r in rows}
+
+
+def _take_late(run: _Run, held: dict, result: dict) -> None:
+    """A result for a request no longer waiting on this batch: another send answered it. Billed by the batch, so
+    charged at the batch price; its answer is kept raw and does not replace the one in use."""
+    job, custom_id = held["job"], held["custom_id"]
+    run.out[job].late_results += 1
+    if str(result.get("type")) != "succeeded":
+        return
+    message = result.get("message") or {}
+    _keep_raw(
+        run.conn,
+        job,
+        custom_id,
+        run.work[job][custom_id],
+        message.get("model"),
+        held["api_batch_id"],
+        message,
+    )
+    claude_spend.record(
+        step=held["step"],
+        model=str(message.get("model") or run.provider.requested_model),
+        usage=message.get("usage"),
+        prompt_sha256="",
+        wall_time_s=0.0,
+        finish_reason="late_batch_result",
+        batch=True,
+    )
+
+
+def _read_ended(run: _Run, batch_row: str, batch: dict, headers: dict) -> None:
+    """Take every result of an ended batch."""
+    conn = run.conn
+    rows = _rows_of(run, batch_row)
     started = time.time()
-    batch = client.batch_retrieve(url, api_id, headers=headers)
-    while batch.get("processing_status") != "ended":
-        if time.time() >= deadline:
-            return False
-        sleep(poll_seconds)
-        batch = client.batch_retrieve(url, api_id, headers=headers)
-    rows = _state(conn, job)
-    for row in client.batch_results(str(batch.get("results_url")), headers=headers):
-        custom_id = str(row.get("custom_id"))
-        held = rows.get(custom_id)
-        if (
-            held is None
-            or held["state"] != "held"
-            or held["batch_row"] != batch_row
-            or custom_id not in packets
-        ):
-            out.unknown_results += 1
+    results = run.client.batch_results(str(batch.get("results_url")), headers=headers)
+    for row in results:
+        api_id = str(row.get("custom_id"))
+        held = rows.get(api_id)
+        if held is None or held["custom_id"] not in run.work.get(held["job"], {}):
+            for out in run.out.values():
+                out.unknown_results += 1
+                break
             continue
-        _take_result(
-            conn,
-            provider,
-            job,
-            packets,
-            held,
-            row.get("result") or {},
-            time.time() - started,
-        )
-    for held in _state(conn, job).values():  # a request the results never named
-        if held["state"] == "held" and held["batch_row"] == batch_row:
-            _take_result(conn, provider, job, packets, held, {}, time.time() - started)
+        if held["state"] == "held":
+            _take_result(run, held, row.get("result") or {}, time.time() - started)
+        elif held["state"] == "answered":
+            _take_late(run, held, row.get("result") or {})
+    missing = False
+    for held in _rows_of(run, batch_row).values():  # a request the results never named
+        if held["state"] == "held":
+            missing = True
+            _take_result(run, held, {}, time.time() - started)
     with conn:
         conn.execute(
-            "UPDATE claude_batches SET state = 'ended' WHERE id = ?", (batch_row,)
+            "UPDATE claude_batches SET state = ? WHERE id = ?",
+            ("ended_missing" if missing else "ended", batch_row),
         )
+
+
+def _batch_of(run: _Run, batch_row: str) -> tuple[dict, dict, str, dict]:
+    found = run.conn.execute(
+        "SELECT * FROM claude_batches WHERE id = ?", (batch_row,)
+    ).fetchone()
+    first = next(iter(run.work.values()))
+    request, _body, _prompt = run.provider._request(next(iter(first.values())))
+    return dict(found), request, request["url"], request["headers"]
+
+
+def _poll(run: _Run, url, api_id, headers, deadline) -> dict | None:
+    """The batch once it has ended, or None when `deadline` passed first."""
+    batch = run.client.batch_retrieve(url, api_id, headers=headers)
+    while batch.get("processing_status") != "ended":
+        if run.clock() >= deadline:
+            return None
+        run.sleep(run.poll_seconds)
+        batch = run.client.batch_retrieve(url, api_id, headers=headers)
+    return batch
+
+
+def _cancel_and_read(run: _Run, batch_row: str, found, url, headers) -> bool:
+    """Cancel, and read the batch once it has ended. False when it did not: then nothing may be sent."""
+    api_id = found["api_batch_id"]
+    if found["state"] != "canceling":
+        try:
+            run.client.batch_cancel(url, api_id, headers=headers)
+        except Exception:  # noqa: BLE001 - an unsure cancel means the batch may still answer: send nothing
+            return False
+        with run.conn:
+            run.conn.execute(
+                "UPDATE claude_batches SET state = 'canceling' WHERE id = ?",
+                (batch_row,),
+            )
+    for out in run.out.values():
+        out.batches_cancelled += 1
+    batch = _poll(run, url, api_id, headers, run.clock() + CANCEL_WAIT_S)
+    if batch is None:
+        return False
+    _read_ended(run, batch_row, batch, headers)
     return True
 
 
-def _reopen(conn, job: str, usable) -> None:
-    """A new run reads again what the last one left unread: requests given up, and answers it could not use (cut off,
-    unreadable). Once per run, before anything is collected, so nothing is re-bought inside a run."""
-    for custom_id, row in _state(conn, job).items():
-        answered = {"text": row["answer"], "finish_reason": row["finish_reason"]}
-        bad = row["state"] == "answered" and usable is not None and not usable(answered)
-        if row["state"] == "gave_up" or bad:
-            _set(
-                conn,
-                job,
-                custom_id,
-                state="retry",
-                attempts=0,
-                failure=None,
-                answer=None,
-            )
+def _collect(run: _Run, batch_row: str) -> tuple[bool, bool]:
+    """(ended, timed out). Wait for one batch and take its results; with a fallback, cancel one older than it."""
+    found, _request, url, headers = _batch_of(run, batch_row)
+    deadline = run.deadline
+    if run.fallback_after_s is not None:
+        born = float(found.get("created_epoch") or run.clock())
+        deadline = born + run.fallback_after_s
+    if found["state"] == "canceling":
+        return _cancel_and_read(run, batch_row, found, url, headers), True
+    batch = _poll(run, url, found["api_batch_id"], headers, deadline)
+    if batch is None:
+        if run.fallback_after_s is None:
+            return False, False
+        return _cancel_and_read(run, batch_row, found, url, headers), True
+    _read_ended(run, batch_row, batch, headers)
+    return True, False
 
 
-def _open_batches(conn, job: str) -> list[str]:
+def _open_batches(conn, jobs) -> list[str]:
+    """The batches of these jobs still out. One that also holds a job not named here is refused: its results have
+    nowhere to go in this run."""
+    marks = ",".join("?" for _ in jobs)
+    states = ",".join("?" for _ in OPEN_STATES)
     rows = conn.execute(
-        "SELECT id FROM claude_batches WHERE job = ? AND state = 'open' ORDER BY created_at, id",
-        (job,),
+        "SELECT DISTINCT b.id AS id, b.created_at AS at FROM claude_batches b JOIN claude_batch_requests r"
+        f" ON r.batch_row = b.id WHERE r.job IN ({marks}) AND b.state IN ({states}) ORDER BY b.created_at, b.id",
+        (*jobs, *OPEN_STATES),
     ).fetchall()
+    for row in rows:
+        others = conn.execute(
+            f"SELECT COUNT(*) AS n FROM claude_batch_requests WHERE batch_row = ? AND job NOT IN ({marks})",
+            (row["id"], *jobs),
+        ).fetchone()["n"]
+        if others:
+            raise ProviderRefused(
+                f"claude: an open batch also holds {others} request(s) of a standard not named in this run; "
+                "name every standard that went with it"
+            )
     return [r["id"] for r in rows]
 
 
-def _mark_unconfirmed(conn, job: str) -> None:
-    """A batch still 'creating' at the start of a run: the process died inside create."""
-    with conn:
-        rows = conn.execute(
-            "SELECT id FROM claude_batches WHERE job = ? AND state = 'creating'", (job,)
-        ).fetchall()
-        for row in rows:
-            conn.execute(
-                "UPDATE claude_batches SET state = 'unconfirmed' WHERE id = ?",
-                (row["id"],),
+def _read_late(run: _Run) -> None:
+    """A batch that ended with requests missing is read again: a row that turns up is used, not bought twice. It was
+    charged its worst case when it was missing, so nothing is charged now."""
+    conn = run.conn
+    rows = conn.execute(
+        "SELECT DISTINCT b.id AS id FROM claude_batches b JOIN claude_batch_requests r ON r.batch_row = b.id"
+        f" WHERE b.state = 'ended_missing' AND r.job IN ({','.join('?' for _ in run.work)})",
+        tuple(run.work),
+    ).fetchall()
+    for row in rows:
+        found, _request, url, headers = _batch_of(run, row["id"])
+        batch = run.client.batch_retrieve(url, found["api_batch_id"], headers=headers)
+        by_api = _rows_of(run, row["id"])
+        for item in run.client.batch_results(
+            str(batch.get("results_url")), headers=headers
+        ):
+            held = by_api.get(str(item.get("custom_id")))
+            result = item.get("result") or {}
+            if (
+                held is None
+                or held["failure"] != NO_RESULT
+                or result.get("type") != "succeeded"
+            ):
+                continue
+            job, custom_id = held["job"], held["custom_id"]
+            message = result.get("message") or {}
+            _keep_raw(
+                conn,
+                job,
+                custom_id,
+                run.work[job][custom_id],
+                message.get("model"),
+                held["api_batch_id"],
+                message,
             )
-            conn.execute(
-                "UPDATE claude_batch_requests SET state = 'unconfirmed' WHERE batch_row = ?",
-                (row["id"],),
+            run.out[job].late_results += 1
+            if held["state"] != "answered":
+                _set(
+                    conn,
+                    job,
+                    custom_id,
+                    state="answered",
+                    answer=reader_api.response_text(message).strip(),
+                    model=message.get("model"),
+                    finish_reason="stop",
+                    failure=None,
+                )
+        still_missing = [
+            r
+            for r in _rows_of(run, row["id"]).values()
+            if r["failure"] == NO_RESULT and r["state"] != "answered"
+        ]
+        if not still_missing:
+            with conn:
+                conn.execute(
+                    "UPDATE claude_batches SET state = 'ended' WHERE id = ?",
+                    (row["id"],),
+                )
+
+
+def _send_rest_normally(run: _Run) -> None:
+    """The batch has ended: what it did not answer, one by one at the normal price, while its worst case fits."""
+    conn, provider = run.conn, run.provider
+    model = provider.requested_model
+    stopped = False
+    for job, packets in run.work.items():
+        rows = _state(conn, job)
+        out = run.out[job]
+        out.over_budget = []  # what the batch could not fit is weighed again, at this price and what is free now
+        for custom_id, packet in packets.items():
+            row = rows.get(custom_id)
+            if row and row["state"] in ("answered", "held", "unconfirmed"):
+                continue
+            step = provider._step or packet.step
+            step_free, shared_free = (
+                run.room(step) if run.room else (math.inf, math.inf)
             )
-
-
-def _finish(conn, job: str, packets, out: Outcome) -> Outcome:
-    for custom_id, row in _state(conn, job).items():
-        if custom_id not in packets:
-            continue
-        if row["state"] == "answered":
-            out.answers[custom_id] = {
-                "text": row["answer"] or "",
-                "model": row["model"],
-                "finish_reason": row["finish_reason"],
-                "batch_id": row["api_batch_id"],
-            }
-        elif row["state"] == "gave_up":
-            out.gave_up[custom_id] = row["failure"] or "unknown"
-        elif row["state"] == "unconfirmed":
-            out.unconfirmed.append(custom_id)
-        if row["failure"]:
-            out.failures[custom_id] = row["failure"]
-        if row["attempts"] >= MAX_ATTEMPTS:
-            out.requeued += 1
-    out.batch_ids = sorted(
-        {
-            r["api_batch_id"]
-            for r in conn.execute(
-                "SELECT api_batch_id FROM claude_batches WHERE job = ? AND api_batch_id IS NOT NULL",
-                (job,),
+            worst = worst_usd(model, packet, batch=False)
+            if stopped or worst > step_free or worst > shared_free:
+                out.over_budget.append(custom_id)
+                continue
+            try:
+                with run.carrying(job):
+                    answer = provider.reason(packet)
+            except claude_spend.DocumentNotApproved:
+                raise
+            except claude_spend.StopRun:
+                out.over_budget.append(custom_id)
+                continue
+            except ProviderRefused:
+                # A failed call may have been charged; do not keep paying into a failure. The rest is named.
+                out.over_budget.append(custom_id)
+                stopped = True
+                continue
+            _keep_raw(
+                conn,
+                job,
+                custom_id,
+                packet,
+                answer.model_tag,
+                NORMAL_SEND,
+                {
+                    "model": answer.model_tag,
+                    "stop_reason": answer.finish_reason,
+                    "content": list(answer.content_blocks)
+                    or [{"type": "text", "text": answer.text}],
+                    "usage": {
+                        "input_tokens": answer.tokens_in,
+                        "output_tokens": answer.tokens_out,
+                    },
+                    "sent": NORMAL_SEND,
+                },
             )
-        }
-    )
-    return out
+            _answered_elsewhere(conn, job, custom_id, answer, NORMAL_SEND)
+            out.sent_normal += 1
 
 
-def stored_ids(conn, job: str) -> list[str]:
-    return sorted(_state(conn, job))
+def _todo(run: _Run, again) -> dict[str, list[str]]:
+    todo = {}
+    for job, packets in run.work.items():
+        rows = _state(run.conn, job)
+        left = run.out[job].over_budget
+        wanted = [
+            c
+            for c in packets
+            if (c not in rows or rows[c]["state"] in again) and c not in left
+        ]
+        if wanted:
+            todo[job] = wanted
+    return todo
 
 
-def stored_outcome(conn, job: str, custom_ids: set[str]) -> Outcome:
-    """What this copy already holds for a job. Opens nothing and sends nothing."""
-    return _finish(conn, job, custom_ids, Outcome())
+def _results(run: _Run) -> dict[str, Outcome]:
+    return {
+        job: _finish(run.conn, job, packets, run.out[job])
+        for job, packets in run.work.items()
+    }
 
 
-def run(
+def run_many(
     conn,
     provider: ClaudeProvider,
-    job: str,
-    packets: dict[str, Packet],
+    work: dict[str, dict[str, Packet]],
     *,
     client=None,
     room=None,
@@ -507,11 +710,15 @@ def run(
     poll_seconds: float = 60.0,
     max_wait_s: float = 86400.0,
     sleep=time.sleep,
+    clock=time.time,
     resend_unconfirmed: bool = False,
-    cache_system: bool = True,
-) -> Outcome:
-    """Answer every packet, or say which were not. Open batches of this job are read first, so a run after a crash
-    polls what it already paid for; only then is anything new sent. `room()` is the USD still free: what does not fit is left out."""
+    cache_system: dict[str, bool] | None = None,
+    declared: dict[str, set[str]] | None = None,
+    fallback_after_s: float | None = None,
+) -> dict[str, Outcome]:
+    """Answer every packet of every job, or say which were not, in as few batches as the API allows. Open batches are read
+    first, so a run after a crash polls what it already paid for; only then is anything new sent. `room(step)` is
+    (USD free on this step, USD free in total and today): what does not fit is left out."""
     ensure_schema(conn)
     if client is None:
         from . import reader_transport
@@ -521,35 +728,63 @@ def run(
                 "claude: egress is disabled (STANDARDS_READER_ENABLED / STANDARDS_READER_ALLOW_PUBLIC_EGRESS)"
             )
         client = reader_transport
-    out = Outcome()
-    _mark_unconfirmed(conn, job)
-    _reopen(conn, job, usable)
-    waits = {
-        "poll_seconds": poll_seconds,
-        "deadline": time.time() + max_wait_s,
-        "sleep": sleep,
-        "out": out,
-    }
-    for batch_row in _open_batches(conn, job):
-        out.resumed_batches += 1
-        if not _collect(conn, provider, job, packets, batch_row, client, **waits):
-            out.waiting = True
-            return _finish(conn, job, packets, out)
+    run = _Run(
+        conn,
+        provider,
+        work,
+        client,
+        room,
+        declared or {},
+        cache_system or {},
+        {job: Outcome() for job in work},
+        poll_seconds,
+        sleep,
+        clock,
+        clock() + max_wait_s,
+        fallback_after_s,
+    )
+    _read_late(run)  # before re-opening: a late row is what a re-send would buy
+    for job in work:
+        _mark_unconfirmed(conn, job)
+        _reopen(conn, job, usable)
+    timed_out = False
+    for batch_row in _open_batches(conn, list(work)):
+        for out in run.out.values():
+            out.resumed_batches += 1
+        ended, late = _collect(run, batch_row)
+        timed_out = timed_out or late
+        if not ended:
+            return _waiting(run)
     again = ("retry", "not_sent") + (("unconfirmed",) if resend_unconfirmed else ())
-    while True:
-        rows = _state(conn, job)
-        todo = [
-            c
-            for c in packets
-            if (c not in rows or rows[c]["state"] in again) and c not in out.over_budget
-        ]
+    while not timed_out:
+        todo = _todo(run, again)
         if not todo:
-            return _finish(conn, job, packets, out)
-        batch_row = _submit(
-            conn, provider, job, packets, todo, client, room, out, cache_system
-        )
-        if batch_row is not None and not _collect(
-            conn, provider, job, packets, batch_row, client, **waits
-        ):
-            out.waiting = True
-            return _finish(conn, job, packets, out)
+            return _results(run)
+        for batch_row in _submit(run, todo):
+            ended, late = _collect(run, batch_row)
+            timed_out = timed_out or late
+            if not ended:
+                return _waiting(run)
+    _send_rest_normally(run)
+    return _results(run)
+
+
+def _waiting(run: _Run) -> dict[str, Outcome]:
+    for out in run.out.values():
+        out.waiting = True
+    return _results(run)
+
+
+def run(
+    conn,
+    provider: ClaudeProvider,
+    job: str,
+    packets: dict[str, Packet],
+    *,
+    cache_system: bool = True,
+    **kw,
+) -> Outcome:
+    """One job's `run_many`."""
+    return run_many(
+        conn, provider, {job: packets}, cache_system={job: cache_system}, **kw
+    )[job]

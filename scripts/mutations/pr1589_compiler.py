@@ -5,16 +5,17 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _N = APP / "numparse.py"
+_R = APP / "reader_transport.py"
 _T = "tests/test_1584_standards_compiler.py"
 _TAGS = ("numparse", "standards_compiler")
 
 
-def _m(n, description, anchor, replacement, keyword):
+def _m(n, description, anchor, replacement, keyword, path=_N):
     return Mutation(
         id=f"M1589-{n}",
         phase=1589,
         description=description,
-        path=_N,
+        path=path,
         anchor=anchor,
         replacement=replacement,
         target=_T,
@@ -44,5 +45,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    if len(found) == 1 and found[0].start == 0 and found[0].end == len(text.strip()):\n",
         "    if found:\n",
         "not_one_fraction",
+    ),
+    _m(
+        "05",
+        "a batch cancel takes any text as its id",
+        'def batch_cancel(messages_url: str, batch_id: str, *, headers: Mapping[str, str],\n                 timeout: float = 60.0) -> dict:\n    """POST a batch\'s cancel. Requests already finished stay finished, and billed; the batch ends once the rest stop."""\n    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", batch_id or ""):\n',
+        'def batch_cancel(messages_url: str, batch_id: str, *, headers: Mapping[str, str],\n                 timeout: float = 60.0) -> dict:\n    """POST a batch\'s cancel. Requests already finished stay finished, and billed; the batch ends once the rest stop."""\n    if False:\n',
+        "strange_id",
+        path=_R,
     ),
 )
