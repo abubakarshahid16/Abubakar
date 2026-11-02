@@ -900,6 +900,8 @@ def reading_relation(rule_fact: dict, ai_fact: dict) -> str:
     theirs, ours = rule_unit(rule_fact), ai_unit(ai_fact)
     if theirs and ours:
         return SAME if same_unit(theirs, ours) else UNIT_DIFFERS
+    if ours and not claims.unit_with_value(ai_fact.get("value"), ours, ai_fact.get("quote") or ""):
+        return SAME  # #1653: the quote prints this unit with another number: it proves nothing
     if ours and unit_in_quote(ours, ai_fact.get("quote")):
         return AI_UNIT
     return SAME

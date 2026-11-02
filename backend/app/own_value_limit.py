@@ -126,9 +126,42 @@ def trailing_refused(sentence: str) -> bool:
 
     "10-12 mm or larger" is refused too. The hyphen is no minus, so main's -12 was wrong, but it
     could be a size range or a tag, and no general rule tells it from "Item 3-15 C or lower". As
-    a range no single bound is stated: 11 mm passes from 10 and fails from 12."""
+    a range no single bound is stated: 11 mm passes from 10 and fails from 12.
+
+    A dash kept apart from its digits, and a sign `_LIMIT` cannot read after a comparator, are
+    refused the same way (#1640: `_dash_apart`, `_unclear_after_comparator`)."""
     starts = [found[0].start() for found in _trailing_candidates(sentence)]
-    return any(not numparse.value_may_start(sentence, start) for start in starts)
+    if any(not numparse.value_may_start(sentence, start) for start in starts):
+        return True
+    return _dash_apart(sentence, starts) or _unclear_after_comparator().search(sentence or "") is not None
+
+
+def _dash_apart(sentence: str, starts: list[int]) -> bool:
+    """A trailing limit's digits follow a dash that space, a bracket or a colon keeps apart from them
+    ("Zone 2 - 29 C or lower", "A- 29", "A-(29", "A-:29"). The dash is no sign, so the regex reads
+    29, but it may be a minus, a range or a tag: the text cannot say (#1640). A sign written on the
+    digits ("-20 - -10 C or lower") is the value's own and stays."""
+    for start in starts:
+        before = sentence[:start].rstrip(" \t([{:")
+        if sentence[start] not in "+-" and before and before[-1] in numparse.DASH_LIKE:
+            return True
+    return False
+
+
+@cache
+def _unclear_after_comparator() -> re.Pattern:
+    """A comparator whose number `_LIMIT` cannot read: after a Unicode minus, a dash, a hyphen kept
+    apart from its digits, a bracket or a colon ("shall not exceed - 29 C", "max \u221229 C",
+    "shall not exceed (29 C"). `_LIMIT` then skips this comparator and can read a later one
+    ("minimum 5 C"), so NO limit of the sentence is trusted (#1640)."""
+    from . import requirements_3b as r3b
+
+    dashes = re.escape(numparse.DASH_LIKE)
+    return re.compile(
+        r"(?<![A-Za-z])(?:" + r3b._CMP_RE + r")(?>\s*(?:of\s+)?)(?![-+]?\d)"
+        r"[\s(\[{:]*(?:[" + dashes + r"][\s(\[{:]*)?\d",
+        re.IGNORECASE,
+    )
 
 
 def trailing(sentence: str) -> dict | None:

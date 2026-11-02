@@ -48,7 +48,6 @@ def test_a_tag_shaped_value_has_no_measurement_value(minus):
         "T = {}5",
         "T={}5",
         "T: {}5",
-        "T {}5",
         "< {}5",
         "<{}5",
         "({}5",

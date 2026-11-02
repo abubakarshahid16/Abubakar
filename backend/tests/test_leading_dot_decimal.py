@@ -20,19 +20,11 @@ def off(monkeypatch):
     monkeypatch.setattr(settings, "leading_dot_decimal_enabled", False)
 
 
-@pytest.mark.parametrize(
-    "text,today",
-    [
-        (".30", 30.0),
-        (".5", 5.0),
-        ("-.5", 5.0),
-        ("+.5", 5.0),
-        ("< .5", 5.0),
-        (".5.3", 5.3),
-    ],
-)
-def test_off_pins_todays_wrong_reading(off, text, today):
-    assert claims.parse_value(text) == today
+@pytest.mark.parametrize("text", [".30", ".5", "-.5", "+.5", "< .5", ".5.3"])
+def test_off_a_leading_dot_value_reads_no_number(off, text):
+    # #1640: a dot glued before the digits is no comparator, so no number is read. These read
+    # 30, 5, 5, 5, 5 and 5.3 before: a wrong number, "-.5" without its sign.
+    assert claims.parse_value(text) is None
 
 
 def test_off_a_leading_dot_measurement_is_silently_dropped(off):
@@ -61,9 +53,10 @@ def test_on_a_leading_dot_decimal_is_the_decimal(on, text, expected):
 
 
 @pytest.mark.parametrize(
-    "text,expected", [("set to 5.", 5.0), ("5.", 5.0), ("p.4", 4.0), ("approx. 5", 5.0)]
+    "text,expected", [("set to 5.", None), ("5.", 5.0), ("p.4", None), ("approx. 5", None)]
 )
 def test_on_a_sentence_final_or_glued_dot_is_not_a_decimal(on, text, expected):
+    # #1640: words that are no comparator ("set to", "p.", "approx.") before the number: None.
     assert claims.parse_value(text) == expected
 
 
@@ -119,9 +112,10 @@ def _status(operator: str, limit: str, observed: str) -> str:
     return comparison.compare(requirement, fact)["status"]
 
 
-def test_off_a_minimum_is_falsely_passed_by_a_misread_leading_dot(off):
-    # ".5 mm" against a 3 mm minimum is a FAIL; read as 5 it passes. Pinned.
-    assert _status(">=", "3", ".5") == comparison.COMPLIANT
+def test_off_a_misread_leading_dot_no_longer_passes_a_minimum(off):
+    # ".5 mm" against a 3 mm minimum is a FAIL; read as 5 it passed. Since #1640 the dot before
+    # the digits gives no number, so the engineer reads it.
+    assert _status(">=", "3", ".5") == comparison.NEEDS_ENGINEER_REVIEW
 
 
 def test_on_a_minimum_fails_a_leading_dot_value_below_it(on):

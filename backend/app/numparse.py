@@ -183,6 +183,9 @@ class Number:
     ambiguous: bool = False
     #: index of the first digit (`start` is the sign character when there is one)
     digits_at: int = 0
+    #: a dash joins the digits to a letter ("PN-16", "MDMT-29"): a joiner, or a minus that folding
+    #: made a hyphen. The text cannot say which, so no gate takes it as a stated figure (#1640).
+    joined: bool = False
 
     @property
     def key(self) -> float | str:
@@ -311,7 +314,8 @@ def find_numbers(text: str) -> list[Number]:
         sign, begin = sign_before(text, m.start())
         if value is not None and sign == "-":
             value = -value
-        out.append(Number(value, m.group(0), begin, m.end(), sign, ambiguous, m.start()))
+        joined = m.start() >= 2 and text[m.start() - 1] in HYPHENS + DASHES and text[m.start() - 2].isalpha()
+        out.append(Number(value, m.group(0), begin, m.end(), sign, ambiguous, m.start(), joined))
     return out
 
 
@@ -332,7 +336,7 @@ def number_keys(text: str) -> set[float | str]:
     """The set of numbers a text states, for "every number in the answer must
     appear in the source" gates. Signed: -5 and 5 are different members. A
     compound token ("5.3.2") is a member as its text."""
-    return {n.key for n in find_numbers(text)}
+    return {n.key for n in find_numbers(text) if not n.joined}
 
 
 def as_number(text: str | float | int | None) -> float | None:
@@ -440,6 +444,49 @@ def _minus_is_joined(m: re.Match) -> bool:
     return prefix[-1] not in _SIGN_LEAD
 
 
+#: What may stand directly before a number in `parse_value`: whitespace, or a symbol that ends a
+#: label or states a comparison. Not a letter, a digit, a comma, "#" or a dot (#1640).
+_SPACES = " \t\r\n\u00a0\u202f\u2009"
+_BINDS = "([{=<>:;~\u2264\u2265\u2a7d\u2a7e\u00b1\u2248\u223c"
+_LAST_BIND = re.compile("[" + re.escape(_BINDS) + "]")
+
+#: Is this phrase one comparator ("max", "not less than")? Set by `claims` from its one vocabulary, so
+#: this module still imports nothing from the app. Unset means no word is a comparator: words give None.
+COMPARATOR_PHRASE = None
+
+
+def _prefix_refused(prefix: str) -> bool:
+    """A word stands before the number with only space between, and is no comparator: a label ending
+    in the number ("A5", "A+5", "PN16", "Note 5", "Class 150"). A symbol that ends a label or states a
+    comparison binds the number as the value ("T = -5", "Note: 5", "<= 5"), and so does one comparator
+    phrase ("max 5"). Nothing here knows a label's spelling (#1640)."""
+    if not prefix:
+        return False
+    if prefix[-1] not in _SPACES + _BINDS:
+        return True  # glued: "A5", "A+5", "PN16", "#5"
+    binds = list(_LAST_BIND.finditer(prefix))
+    words = prefix[binds[-1].end():] if binds else prefix
+    words = " ".join(words.split())
+    if not words:
+        return False
+    return COMPARATOR_PHRASE is None or not COMPARATOR_PHRASE(words)
+
+
+def _value_prefix(m: re.Match) -> str:
+    """The text before the number, without a dash that `parse_value` reads as the sign."""
+    prefix = m.string[: m.start("num")]
+    return prefix[:-1] if prefix[-1:] in DASHES else prefix
+
+
+def has_label_number(value_str: str | None) -> bool:
+    """One number after words or a glued mark that are no comparator ("Note 5", "A5"): `parse_value`
+    reads no number. A check that holds a value it cannot trust asks this (#1640), as for
+    `has_joining_minus`."""
+    s = re.sub(f"[{MINUS_SIGNS}]", "-", (value_str or "").strip()).translate(_HYPHEN_AS_DASH)
+    m = _VALUE.fullmatch(s)
+    return m is not None and not _minus_is_joined(m) and _prefix_refused(_value_prefix(m))
+
+
 def has_joining_minus(value_str: str | None) -> bool:
     """One number glued to a joining hyphen ("PN-16"): `parse_value` reads no number from it.
     A check that holds a value it cannot trust asks this, because None alone also means
@@ -472,6 +519,8 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
       dash separated from its digits ("- 29"), glued to a letter, or inside a
       range ("29-343") is ambiguous: None. U+2010 and U+2011 follow the same rule.
     * An ASCII minus is a sign only at the start or after `_SIGN_LEAD`; "A-5": None (#1619).
+    * Before the number only symbols or one comparator phrase ("max", "<=", "not less than"); a
+      label ending in a number ("A5", "A+5", "PN16", "Note 5", "Class 150"): None (#1640).
     """
     s = (value_str or "").strip().translate(_HYPHEN_AS_DASH)
     for c in MINUS_SIGNS:
@@ -491,6 +540,8 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
     prefix = s[:m.start("num")]
     if _minus_is_joined(m):
         return None  # "A-5", "T--5": a joining hyphen, not a sign (#1619)
+    if _prefix_refused(_value_prefix(m)):
+        return None  # "A5", "Note 5", "Class 150": a label's number, not the value (#1640)
     stripped = prefix.rstrip()
     negative_dash = False
     if stripped and stripped[-1] in "-" + DASHES:
@@ -554,8 +605,9 @@ def contains_whole(haystack: str, needle: str) -> bool:
     unit can end in a bracket ("noise level dB(A)")."""
     if not needle:
         return False
-    negative_starts = {n.start + 1 for n in find_numbers(haystack)
-                       if n.sign == "-" and n.start < n.end}
+    found = find_numbers(haystack)
+    negative_starts = {n.start + 1 for n in found if n.sign == "-" and n.start < n.end}
+    joined_starts = {n.digits_at for n in found if n.joined}
     word_start, word_end = bool(re.match(r"\w", needle)), bool(re.search(r"\w$", needle))
     digit_start, digit_end = needle[0].isdigit(), needle[-1].isdigit()
     for m in re.finditer(re.escape(needle), haystack):
@@ -564,6 +616,8 @@ def contains_whole(haystack: str, needle: str) -> bool:
         starts_inside = (
             (word_start and re.match(r"\w", before) is not None)
             or (digit_start and s in negative_starts)
+            or (digit_start and s in joined_starts)
+            or (needle[0] in DASH_LIKE and before.isalpha())
             or (digit_start and before in (".", ",") and haystack[s - 2:s - 1].isdigit()))
         ends_inside = (
             (word_end and re.match(r"\w", after) is not None)
@@ -587,7 +641,7 @@ def value_in_text(value: object, text: object) -> bool:
     wanted = as_number(value)
     if wanted is not None:
         return any(n.value == wanted for n in find_numbers(fold(text))
-                   if n.value is not None)
+                   if n.value is not None and not n.joined)
     return contains_whole(_strip_thousands(fold(text)), _strip_thousands(fold(value)))
 
 

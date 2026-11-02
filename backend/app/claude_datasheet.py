@@ -84,6 +84,8 @@ class Reason(Enum):
     QUOTE_TOO_BROAD = "quote_too_broad"
     #: Audit M2. The unit the model reports is not in its own quote.
     UNIT_NOT_IN_QUOTE = "unit_not_in_quote"
+    #: #1653. The quote prints the unit, but with another number ("10 bar and 5 MPa" for 10 MPa).
+    UNIT_NOT_WITH_VALUE = "unit_not_with_value"
     #: Rule 2. The value is not inside the words the model says it read it
     #: from.
     VALUE_NOT_IN_QUOTE = "value_not_in_quote"
@@ -608,6 +610,9 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         unit_from = None
         if p.get("unit"):
             if _contains(quote, _fold(p["unit"])):
+                if not claims.unit_with_value(p["value"], p["unit"], printed):
+                    drop(p, Reason.UNIT_NOT_WITH_VALUE)
+                    continue
                 unit_from = "quote"
             elif _unit_in_column_header(p["unit"], p["quote"], p["value"], page_text):
                 unit_from = "column_header"

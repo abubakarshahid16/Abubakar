@@ -58,7 +58,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from . import claude_models, comparators, numparse
+from . import claims, claude_models, comparators, numparse
 from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
@@ -116,6 +116,8 @@ class Reason(Enum):
     #: Rule 2. The number is not inside the words the model says it read the
     #: number from.
     VALUE_NOT_IN_QUOTE = "value_not_in_quote"
+    #: #1653: the quote prints the unit with another number ("10 bar and 5 MPa" for 10 MPa).
+    UNIT_NOT_WITH_VALUE = "unit_not_with_value"
     #: Rule 3. Same, for the subject.
     SUBJECT_NOT_IN_QUOTE = "subject_not_in_quote"
     #: A limit with no subject - unmatchable by `match_by_containment`, which
@@ -423,6 +425,9 @@ def accept(proposals: list[dict], sentence: str) -> dict:
             continue
         if not _value_in_quote(p["value"], quote):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
+            continue
+        if p.get("unit") and not claims.unit_with_value(p["value"], p["unit"], quote):
+            drop(p, Reason.UNIT_NOT_WITH_VALUE)
             continue
         if not _contains(quote, _fold(p["subject"])):
             drop(p, Reason.SUBJECT_NOT_IN_QUOTE)
