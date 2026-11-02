@@ -143,6 +143,7 @@ DECLARED_BY = {
     "applicability.py": "applicability.py",
     "applicability_reasoning.py": "applicability.py",  # called per standard from there
     "chat_answers.py": "chat_answers.py",
+    "clause_review_claude.py": "clause_review_claude.py",  # its submittal and each standard asked about
     "standards_compiler.py": "standards_compiler.py",
     "rule_field_naming.py": "claude_batch_run.py",
     "rule_typed_check.py": "claude_batch_run.py",
