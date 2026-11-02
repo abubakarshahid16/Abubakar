@@ -67,6 +67,7 @@ does not make one.
 | `datasheet_office_input` | `False` | rollout | 2026-10-17 | 2026-10-31 | Index workbooks and Word datasheets |
 | `docx_input_enabled` | `True` | rollout | 2026-10-17 | 2026-10-31 | Word input |
 | `one_intake_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | One intake layer: PDF, Word, Excel (a page per sheet) and images read into one page shape, every unread page or refused file states its reason (#525 part 1) |
+| `intake_blocks_enabled` | `False` | rollout | 2026-11-02 | 2026-11-16 | With `one_intake_enabled`: every page of every file is stored as numbered text and table blocks with a hash and one citation form, and recognition keeps a scanned page's table grid from where its lines sit (#525 slice 3). Additive: nothing reads the blocks yet |
 | `intake_images_xlsx_enabled` | `False` | rollout | 2026-11-01 | 2026-11-15 | With `one_intake_enabled`: upload accepts PNG / JPEG / TIFF (OCR'd like a scanned page) and indexes .xlsx sheets with a sheet + cell-range citation, a CRS_TEMPLATE workbook excepted (#525 slice 2). Not wired yet: the upload picker (`frontend/src/components/Uploader.tsx`, PDF and Word only) and the watched folder (`backend/app/watcher.py`, `.pdf` only) still offer only their old types |
 | `startup_warmup` | `True` | permanent | | | Operator setting: model warm-up at start |
 | `onnx_cpu_arena_rerank` | `True` | permanent | | | Machine-specific memory tuning |

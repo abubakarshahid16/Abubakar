@@ -300,6 +300,11 @@ class SettingsExt(BaseModel):
     #: model, no socket. OFF: images refused and workbooks stored-not-indexed, as today.
     #: Env: INTAKE_IMAGES_XLSX_ENABLED.
     intake_images_xlsx_enabled: bool = False
+    #: #525 slice 3 (with ONE_INTAKE_ENABLED on as well): every page of every file is stored as numbered
+    #: text and table blocks with a hash and one citation form (`intake_blocks`), and recognition keeps a
+    #: scanned page's table grid from where its lines sit. Additive: nothing reads the blocks yet. Local
+    #: only, no model, no socket. OFF: nothing is stored. Env: INTAKE_BLOCKS_ENABLED.
+    intake_blocks_enabled: bool = False
     #: #645 slice 3 (`ai_requirement_chunks.py`): the LOCAL model reads a held standard chunks
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
