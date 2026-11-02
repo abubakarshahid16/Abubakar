@@ -443,21 +443,6 @@ def _row_text(
     return (asked + TEXT_UNREADABLE, None)
 
 
-def outcome_of(finding_text) -> str:
-    """Which outcome wrote these finding words (`_row_text`, the one place that words
-    them; no column stores it), "" when they are none of its words."""
-    text = str(finding_text or "")
-    if text.startswith(TEXT_VERIFIED):
-        return "verified"
-    if text.endswith(TEXT_NO_EVIDENCE):
-        return "no_evidence"
-    if text.endswith(TEXT_UNREADABLE):
-        return "unreadable"
-    head, _, tail = TEXT_UNVERIFIED.partition("{page}")
-    start = text.rfind(head)
-    return "unverified" if start >= 0 and text.endswith(tail) else ""
-
-
 def _store_row(
     review_run_id: str,
     submittal: str,

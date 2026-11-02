@@ -256,13 +256,13 @@ def test_the_outcome_is_read_for_every_outcome_the_review_writes():
         text, _page = clause_review._row_text(
             outcome, 3, None, {"requirement_text": "A sentence.", "clause": "4.1"}
         )
-        assert clause_review.outcome_of(text) == outcome
+        assert one.clause_outcome(text) == outcome
     text, _page = clause_review._row_text(
         "verified", 3, "Quote.", {"requirement_text": "A sentence.", "clause": "4.1"}
     )
-    assert clause_review.outcome_of(text) == "verified"
-    assert clause_review.outcome_of("Anything else.") == ""
-    assert clause_review.outcome_of(None) == ""
+    assert one.clause_outcome(text) == "verified"
+    assert one.clause_outcome("Anything else.") == ""
+    assert one.clause_outcome(None) == ""
 
 
 def test_rows_each_holding_two_verdicts_never_merge():

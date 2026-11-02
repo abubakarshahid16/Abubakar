@@ -105,13 +105,27 @@ def _value(members: list[dict]) -> str:
     return next(iter(values)) if len(values) == 1 and "" not in values else ""
 
 
+def clause_outcome(finding_text) -> str:
+    """Which clause review outcome wrote these words (`clause_review._row_text`; no column
+    stores it), "" when they are none of its words."""
+    text = str(finding_text or "")
+    if text.startswith(clause_review.TEXT_VERIFIED):
+        return "verified"
+    if text.endswith(clause_review.TEXT_NO_EVIDENCE):
+        return "no_evidence"
+    if text.endswith(clause_review.TEXT_UNREADABLE):
+        return "unreadable"
+    head, _, tail = clause_review.TEXT_UNVERIFIED.partition("{page}")
+    return "unverified" if head in text and text.endswith(tail) else ""
+
+
 def _outcome(members: list[dict]) -> str | None:
     """A clause review's outcome is part of the problem: "no evidence", "quote failed" and
     "answer unreadable" store the same verdict and no value, and a retryable failed check
     must not share a decision with a true no-evidence row. "" for any other finding; None
     when a clause review's outcome differs inside the row or cannot be told."""
     found = {
-        clause_review.outcome_of(f.get("finding"))
+        clause_outcome(f.get("finding"))
         if f.get("origin") == clause_review.ORIGIN
         else ""
         for f in members
