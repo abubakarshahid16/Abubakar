@@ -14,13 +14,14 @@
    "untrue": [
     {
      "origin": "datasheet_check",
-     "section": "Inlet rating",
+     "check": "PSV-S02",
      "status": "MISSING_INFORMATION",
-     "why": "rating is in the combined size/rating/connection line (planner check 29 Oct 02:55 PKT, row 11; 29 Oct night: 4 rows, one per tag)"
+     "why": "row asks the contractor for the rating; the rating is in a note on a later page, not on the combined line (hand check 2 Nov; 4 rows, one per tag)"
     },
     {
      "origin": "datasheet_check",
-     "section": "Viscosity relieving",
+     "check": "PSV-23",
+     "value": "absent",
      "status": "NEEDS_ENGINEER_REVIEW",
      "why": "row says viscosity not given; it is given (planner 29 Oct night: viscosity p3/p4)"
     }

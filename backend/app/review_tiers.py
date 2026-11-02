@@ -59,6 +59,7 @@ REMOVED = "removed"
     UNIT_UNKNOWN,
     NO_STANDARD_LINKED,
     OUTSIDE_REVIEW,
+    NO_FIELD_TAKEN,
 ) = RULES["reasons"]
 
 _NEEDS_YOU = (RULES["needs_you"]["tier"], RULES["needs_you"]["label"])
@@ -87,6 +88,9 @@ class RunFacts:
     #: the standards INCLUDED in this review (not the whole library); None when
     #: not known - then nothing is called "outside this review" on that ground
     library_standard_ids: frozenset[str] | None = field(default=None)
+    #: #1550: a run stored with PAGE_READ_BY_READING_ENABLED: pages read, with no
+    #: datasheet field taken from them (`pages_not_read` is then the reading's)
+    pages_no_field: frozenset[int] = frozenset()
 
 
 def _fold(text: str | None) -> str:
@@ -98,6 +102,12 @@ def page_not_read(finding: dict, facts: RunFacts) -> bool:
     if not isinstance(page, int) or isinstance(page, bool):
         return False
     return page in facts.pages_not_read or page in facts.reader_timed_out_pages
+
+
+def no_field_taken(finding: dict, facts: RunFacts) -> bool:
+    """#1550: the finding's page was read and no datasheet field was taken."""
+    page = finding.get("contractor_page")
+    return isinstance(page, int) and page in facts.pages_no_field
 
 
 def missing_standard_of(finding: dict, facts: RunFacts) -> str | None:
@@ -158,6 +168,7 @@ def safety_tick_open(finding: dict) -> bool:
 #: are asked in is the data's `unsettled_order`
 PREDICATES = {
     PAGE_NOT_READ: page_not_read,
+    NO_FIELD_TAKEN: no_field_taken,
     NOT_IN_LIBRARY: lambda f, facts: missing_standard_of(f, facts) is not None,
     AI_GUESS: lambda f, _facts: _pairing_unconfirmed(f),
     RULE_NOT_PROVEN: lambda f, _facts: (

@@ -265,7 +265,17 @@ def test_the_script_refuses_the_live_database(capsys):
 
 def test_the_truth_file_holds_no_document_text():
     truth = json.loads((REPO / "eval" / "bench" / "truth.json").read_text())
-    allowed = {"origin", "section", "status", "requirement_id", "match_method", "why"}
+    # no "section": a label can change while the claim stays (#1569)
+    allowed = {
+        "origin",
+        "check",
+        "value",
+        "page",
+        "status",
+        "requirement_id",
+        "match_method",
+        "why",
+    }
     for case in truth["cases"]:
         assert len(case["run"]) == 36
         for key in ("untrue", "irrelevant", "wrong"):
@@ -699,3 +709,78 @@ def test_draft_rows_count_only_unconfirmed_code_verdicts(run_id):
     assert crs_bench._source_cell(m, label) == "2 (1 draft rows with a code verdict)"
     case = {"name": "t", "run": run_id}
     assert not any(label in r for r in crs_bench.gate([{"case": case, "stored": m}]))
+
+
+def _known_untrue_case():
+    truth = json.loads((REPO / "eval" / "bench" / "truth.json").read_text())
+    return next(c for c in truth["cases"] if c["untrue"])
+
+
+def _claim(run, status, check, *, section, page=None, quote=None):
+    """A checklist row as `datasheet_checks` stores it: the check's id in the source text."""
+    _add(run, status, origin="datasheet_check", section=section, page=page, quote=quote)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET requirement_source_text = ?"
+            " WHERE rowid = (SELECT MAX(rowid) FROM review_findings)",
+            (f"Datasheet check {check}: invented wording",),
+        )
+
+
+@pytest.mark.parametrize(
+    ("status", "check"),
+    [("MISSING_INFORMATION", "PSV-S02"), ("NEEDS_ENGINEER_REVIEW", "PSV-23")],
+)
+@pytest.mark.parametrize("section", ["Old label", "A completely new label", None])
+def test_a_known_untrue_row_is_counted_under_any_label(run_id, status, check, section):
+    """#1569: the real truth file, a row saying 'no value' under any label."""
+    case = {**_known_untrue_case(), "kind": "datasheet"}
+    assert _score(run_id, case)["untrue"] == 0
+    _claim(run_id, status, check, section=section)
+    assert _score(run_id, case)["untrue"] == 1
+
+
+def test_the_value_key_decides_the_claim_only_where_the_truth_names_it(run_id):
+    """Hand check: PSV-23 with a quote is true; PSV-S02 with a quote is still untrue."""
+    case = {**_known_untrue_case(), "kind": "datasheet"}
+    _claim(
+        run_id,
+        "NEEDS_ENGINEER_REVIEW",
+        "PSV-23",
+        section="x",
+        page=1,
+        quote="invented",
+    )
+    assert _score(run_id, case)["untrue"] == 0
+    _claim(
+        run_id, "MISSING_INFORMATION", "PSV-S02", section="x", page=1, quote="invented"
+    )
+    assert _score(run_id, case)["untrue"] == 1
+
+
+def test_another_check_or_status_under_the_known_label_is_not_counted(run_id):
+    case = {**_known_untrue_case(), "kind": "datasheet"}
+    _claim(run_id, "MISSING_INFORMATION", "PSV-S01", section="Inlet rating")
+    _claim(run_id, "NEEDS_ENGINEER_REVIEW", "PSV-S02", section="Inlet rating")
+    assert _score(run_id, case)["untrue"] == 0
+
+
+def test_a_matcher_key_the_bench_does_not_know_is_refused(run_id):
+    """An unknown key used to be ignored, so the matcher quietly widened."""
+    case = {"kind": "datasheet", "untrue": [{"origin": "x", "field": "inlet_rating"}]}
+    with pytest.raises(ValueError, match="field"):
+        _score(run_id, case)
+
+
+def test_a_value_state_other_than_absent_or_present_is_refused(run_id):
+    case = {"kind": "datasheet", "untrue": [{"value": "some sheet text"}]}
+    with pytest.raises(ValueError, match="value"):
+        _score(run_id, case)
+
+
+def test_page_is_part_of_the_claim(run_id):
+    _claim(run_id, "COMPLIANT", "PSV-01", section="x", page=2, quote="invented")
+    on_two = {"kind": "datasheet", "untrue": [{"check": "PSV-01", "page": 2}]}
+    on_three = {"kind": "datasheet", "untrue": [{"check": "PSV-01", "page": 3}]}
+    assert _score(run_id, on_two)["untrue"] == 1
+    assert _score(run_id, on_three)["untrue"] == 0

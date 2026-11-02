@@ -228,6 +228,19 @@ describe("B3: which pages were read into fields", () => {
     expect(pageCoverageLine(one)).toContain("page 1 read, no checklist field found; page 2 not read into fields");
   });
 
+  it("#1550: a run stored with the page-read switch says 'not read' only of pages with no reading", () => {
+    const run = { page_coverage: {
+      pages_total: 3, fact_pages: [], pages_not_read_into_fields: [1, 2, 3], not_read_reasons: {},
+      pages_read: [1, 3], pages_not_read: [2],
+    } } as unknown as ReviewRunSummary;
+    // an unread page is never also counted as no field taken
+    expect(pageCoverageLine(run)).toBe("Fields read from 0 of 3 pages; no datasheet field taken from pages 1, 3, "
+      + "so a value not found may still be there; page 2 not read.");
+    const clean = { page_coverage: { ...run.page_coverage, pages_read_no_field: [4] } } as unknown as ReviewRunSummary;
+    expect(pageCoverageLine(clean)).toContain("page 4 read, both readers found no checklist field; no datasheet field taken from pages 1, 3");
+    expect(pageCoverageLine(run)).not.toContain("into fields");
+  });
+
   it("does not warn when every page was read", () => {
     const line = pageCoverageLine(coverage([1, 2], [], 2));
     expect(line).toBe("Fields read from 2 of 2 pages (pages 1-2).");

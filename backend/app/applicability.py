@@ -847,7 +847,7 @@ def _cached_scope_decision(standard_document_id: str, equipment_type: str,
         except ValueError:
             cached = None  # corrupt row - fall through and recompute rather than crash
         if cached is not None:
-            return applicability_reasoning.with_covered_evidence(cached, record)
+            return applicability_reasoning.reused_decision(cached, record, step)
     decision = applicability_reasoning.decide_with_confirmation_by_reasoning(
         record, equipment_type, provider, step=step)
     with conn:
