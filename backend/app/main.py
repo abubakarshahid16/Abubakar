@@ -2800,11 +2800,11 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
     rows, added = ppr_mod.merge(rows, submittal_id, submittal_name, allowed, findings)
-    # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
-    # make a comment an engineer's (`_mint_crs_numbers`); this composition
-    # serves the export and the preview, which write nothing.
+    # PERMANENT COMMENT NUMBERS, READ ONLY: `_mint_crs_numbers` writes them, never this.
     crs_scope, _crs_label = _crs_scope_of(submittal_id)
-    rows, added = export_status_mod.one_row(rows, added, findings, check, review_run_id, crs_scope, allowed)  # #1503
+    rows, added = export_status_mod.one_row(  # #1503
+        rows, added, findings, check, review_run_id, crs_scope, allowed
+    )
     crs_keys = crs_numbers_mod.row_keys(rows)
     numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
     # ORDER 139 PART 2 (spec d): a field row stands on many clauses, and each

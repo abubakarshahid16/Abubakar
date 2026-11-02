@@ -183,8 +183,13 @@ def standards_check(submittal_id: str, allowed: frozenset[str]) -> dict:
 
 
 def one_row(
-    rows: list[dict], notes: list[dict], findings: list[dict], check: dict,
-    run_id: str, crs_scope: str, allowed: frozenset[str],
+    rows: list[dict],
+    notes: list[dict],
+    findings: list[dict],
+    check: dict,
+    run_id: str,
+    crs_scope: str,
+    allowed: frozenset[str],
 ) -> tuple[list[dict], list[dict]]:
     """One row per problem (#1503): as they came with the switch off."""
     from . import crs_one_row
