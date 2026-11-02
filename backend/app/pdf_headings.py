@@ -319,6 +319,35 @@ def signature_key(sha: str, pagination: str | None) -> str:
     return sha + ":" + SIGNATURE_TAG if enabled() and pagination != "flow" else sha
 
 
+def font_only_headings(document_id: str) -> frozenset[str] | None:
+    """The stored section titles of a PDF that only the font says are headings: what is
+    left once the text rules are replayed on its pages. A title here is a guess (CLAUDE.md
+    rule 4). None with the switch off or for a Word file, whose headings are its styles."""
+    if not enabled():
+        return None
+    from . import chunker
+    from .db import connect
+
+    conn = connect()
+    row = conn.execute(
+        "SELECT * FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
+    if row is None or dict(row).get("pagination") == "flow":
+        return None
+    pages, raw_tables, _ = chunker._load_pages(conn, document_id)
+    if not pages:
+        return frozenset()
+    kinds = chunker.classify_document_pages(pages, row["page_count"] or len(pages))
+    running = chunker.detect_running_lines(pages)
+    masked = chunker.mask_tables(pages, chunker._decode_tables(raw_tables), running)
+    blocks, _ = chunker.segment_document(masked, running, kinds)
+    stored = conn.execute(
+        "SELECT DISTINCT section FROM chunks WHERE document_id = ? AND section IS NOT NULL",
+        (document_id,),
+    ).fetchall()
+    return frozenset({r[0] for r in stored} - {b.section for b in blocks})
+
+
 def for_document(
     stored_path: str | None, skip_pages: set[int]
 ) -> dict[int, set[str]] | None:
