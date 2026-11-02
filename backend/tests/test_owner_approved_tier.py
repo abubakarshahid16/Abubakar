@@ -4,7 +4,7 @@ A rule whose approval tier is `owner` may decide, labelled exactly "AI-built, qu
 never "engineer-approved". Code still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick; a
 missing, low-trust or deferred value is a query. Off, everything is byte-identical. Invented text only.
 
-MUTATION PROOF (danger zone, CLAUDE.md rule 6): the owner-approved entries in `scripts/mutations/`.
+MUTATION PROOF (danger zone, CLAUDE.md rule 6): `scripts/mutations/pr1611_owner_approved_tier.py` (M1611-01..).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from tests.test_947_rule_trust_wiring import (  # noqa: F401 - fixtures
     temp_storage,
     world,
 )
-from tests.test_w5_677_scope_ledger import _req
+from tests.test_w5_677_scope_ledger import NOW, _req
 
 WORDS = "AI-built, quote-verified, owner-approved"
 APPROVAL = {"by": "owner", "at": "2026-11-02T10:00:00Z", "tier": "owner"}
@@ -455,6 +455,67 @@ def test_the_pair_states_owner_approved_apart_from_engineer_approved(
     assert f"1 by rules labelled {WORDS}" in pair["line"]
     assert "0 by engineer-approved rules" in pair["line"]
     assert coverage_pair.public_view(pair)["decided_by_tier"] == pair["decided_by_tier"]
+
+
+def test_an_engineer_approved_rule_beside_it_is_counted_apart(owner_world, monkeypatch):
+    """Both switches on: an engineer's rule and the owner's, each in its own count, each in its own words."""
+    monkeypatch.setattr(settings, SWITCH, True)
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    chunk = (
+        connect()
+        .execute(
+            "SELECT chunk_id FROM standard_requirements WHERE id = ?",
+            (owner_world["limit"],),
+        )
+        .fetchone()[0]
+    )
+    fact_chunk = (
+        connect()
+        .execute("SELECT id FROM chunks WHERE document_id = ? LIMIT 1", (SUB,))
+        .fetchone()[0]
+    )
+    theirs = _req(
+        SPEC,
+        chunk,
+        "The gland length shall not exceed 5 mm.",
+        requirement_type="numeric_limit",
+        operator="<=",
+        value=5.0,
+        unit="mm",
+        raw_value="5",
+        raw_unit="mm",
+        field="gland length",
+        subject="gland length",
+    )
+    datasheets.create_fact(
+        submittal_document_id=SUB,
+        chunk_id=fact_chunk,
+        field_label="Gland length",
+        raw_value="6 mm",
+        page=1,
+    )
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, password_hash, created_at)"
+            " VALUES ('eng', 'eng@example.invalid', 'Eng', 'x', ?)",
+            (NOW,),
+        )
+        conn.execute(
+            "UPDATE standard_requirements SET confirmed_by = 'eng' WHERE id = ?",
+            (theirs,),
+        )
+    out = _rerun(owner_world)["rule_trust"]["decided_by_tier"]
+    assert (out["owner_approved"], out["engineer_approved"]) == (1, 1)
+    pair = coverage_pair.for_run(connect(), owner_world["run"], case=None)
+    assert pair["decided_by_tier"] == {"owner_approved": 1, "engineer_approved": 1}
+    assert "1 by engineer-approved rules" in pair["line"]
+    by_row = {
+        r["page_section"]: r["rule_trust"]
+        for r in _crs(owner_world)["rows"]
+        if r["row_kind"] != "safety_tick"
+    }
+    assert by_row["p.1 - Bonnet thickness"] == WORDS
+    assert by_row["p.1 - Gland length"] == "engineer-approved rule"
 
 
 def test_a_pair_with_no_owner_rule_is_as_it_was(owner_world):
