@@ -30,13 +30,29 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import deferred_pass
+from app import datasheet_checks, deferred_pass
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
 
 
-MATCH_KEYS = ("origin", "status", "requirement_id", "match_method", "section")
+# What a row CLAIMS, so a matcher survives a label change (#1569): `check` is the
+# checklist item's id, `value` whether the row carries a value from the sheet
+# ("absent"/"present": never the value itself, the truth file holds no document
+# text), `page` the page it cites. `section` is the row's label: it can change
+# while the claim stays, so the truth file does not use it.
+MATCH_KEYS = (
+    "origin",
+    "status",
+    "requirement_id",
+    "match_method",
+    "section",
+    "check",
+    "value",
+    "page",
+)
+VALUE_STATES = ("absent", "present")
+_CHECK_ID = re.compile(rf"{re.escape(datasheet_checks.LABEL)} (\S+):")
 
 
 class ModelCallRefused(RuntimeError):
@@ -46,9 +62,21 @@ class ModelCallRefused(RuntimeError):
 # ----------------------------------------------------------------- matching
 
 
+def _check_id(finding: dict) -> str | None:
+    found = _CHECK_ID.match(finding.get("requirement_source_text") or "")
+    return found.group(1) if found else None
+
+
 def _matches(finding: dict, matcher: dict) -> bool:
     if not set(matcher) & set(MATCH_KEYS):
         raise ValueError(f"a truth matcher must name at least one of {MATCH_KEYS}")
+    # an unknown key used to be ignored, which quietly widened the matcher
+    unknown = set(matcher) - set(MATCH_KEYS) - {"why"}
+    if unknown:
+        raise ValueError(f"a truth matcher has unknown keys: {sorted(unknown)}")
+    if "value" in matcher and matcher["value"] not in VALUE_STATES:
+        raise ValueError(f"a truth matcher's value must be one of {VALUE_STATES}")
+    has_value = (finding.get("contractor_evidence_text") or "").strip()
     for key in MATCH_KEYS:
         if key not in matcher:
             continue
@@ -56,6 +84,9 @@ def _matches(finding: dict, matcher: dict) -> bool:
         got = {
             "status": finding.get("compliance_status"),
             "section": finding.get("contractor_section"),
+            "check": _check_id(finding),
+            "value": "present" if has_value else "absent",
+            "page": finding.get("contractor_page"),
         }.get(key, finding.get(key))
         if (got or "") != want:
             return False
