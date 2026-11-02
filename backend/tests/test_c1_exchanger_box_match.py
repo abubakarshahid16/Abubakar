@@ -1,4 +1,4 @@
-"""A heat exchanger checklist box reads the value the sheet gives (finding on the TEMA proof run 79c0c68d).
+"""A heat exchanger checklist box reads the value the sheet gives (finding on an exchanger proof run).
 
 Two general causes, both behind `datasheet_label_join_enabled` (off by default):
 1. a split abbreviation: the stored name "tube o d" (printed "O.D.") matched no role, so "Tube outside
@@ -68,8 +68,8 @@ def test_on_a_blank_under_the_joined_label_is_missing_not_stated(on):
 def test_off_a_unit_left_off_one_copy_is_two_values():
     row = _row(
         [
-            fact("corrosion allowance", "0.0625", page=1),
-            fact("corrosion allowance", "0.0625", "in", page=5),
+            fact("corrosion allowance", "0.0472", page=1),
+            fact("corrosion allowance", "0.0472", "in", page=5),
         ],
         "HEX-08",
     )
@@ -80,8 +80,8 @@ def test_off_a_unit_left_off_one_copy_is_two_values():
 def test_on_a_unit_left_off_one_copy_is_one_value(on):
     row = _row(
         [
-            fact("corrosion allowance", "0.0625", page=1),
-            fact("corrosion allowance", "0.0625", "in", page=5),
+            fact("corrosion allowance", "0.0472", page=1),
+            fact("corrosion allowance", "0.0472", "in", page=5),
         ],
         "HEX-08",
     )
@@ -91,11 +91,11 @@ def test_on_a_unit_left_off_one_copy_is_one_value(on):
 
 @pytest.mark.parametrize(
     "second",
-    [("0.125", "in"), ("0.0625", "mm"), ("0.125", None)],
+    [("0.125", "in"), ("0.0472", "mm"), ("0.125", None)],
 )
 def test_on_different_numbers_or_units_stay_two_values(on, second):
     value, unit = second
-    first = fact("corrosion allowance", "0.0625", "in", page=1)
+    first = fact("corrosion allowance", "0.0472", "in", page=1)
     row = _row([first, fact("corrosion allowance", value, unit, page=5)], "HEX-08")
     assert row["status"] == "NEEDS_ENGINEER_REVIEW"
     assert "two different values" in row["detail"]

@@ -1,4 +1,4 @@
-"""Two misses traced on the TEMA exchanger proof run e7c1ff28 (both switches on, result unchanged).
+"""Two misses traced on an exchanger proof run (both switches on, result unchanged).
 
 1. RULES BY EQUIPMENT SCOPE (`rules_by_equipment_scope_enabled`): a sheet named "Heat Exchanger"
    that states ASME VIII Division 1 (a pressure-vessel code) as its design code is read as
@@ -6,7 +6,7 @@
    sheet still rules nothing out: a rule about none of its possible types is HELD for the engineer,
    counted on its own line ("applies only if this is a ..."), never `other_equipment`.
 2. LABEL JOIN (`datasheet_label_join_enabled`): the unit check (DS-U1) read every copy of a field,
-   so the unit-less twin of "0.0625 in" was still reported "needs a unit" after `_one` had already
+   so the unit-less twin of "0.0472 in" was still reported "needs a unit" after `_one` had already
    united the two copies (#1533 fixed one of the two homes, rule 8).
 
 Invented labels, values and rules only (rule 13); no fixture file."""
@@ -192,8 +192,8 @@ def test_review_with_the_switch_off_compares_the_rule_as_before(
 
 
 TWINS = [
-    fact("corrosion allowance", "0.0625", page=1),
-    fact("corrosion allowance", "0.0625", "in", page=5),
+    fact("corrosion allowance", "0.0472", page=1),
+    fact("corrosion allowance", "0.0472", "in", page=5),
 ]
 
 
