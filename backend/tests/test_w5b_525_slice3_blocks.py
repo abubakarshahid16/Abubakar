@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 
 import openpyxl
@@ -28,6 +29,7 @@ from app import (
     ocr,
     sheet_chunks,
     states,
+    stored_paths,
     upload,
 )
 from app.config import settings
@@ -257,15 +259,58 @@ def test_one_changed_value_changes_only_that_blocks_hash(tmp_path, monkeypatch):
     assert same == [True, False, True, True]
 
 
-def test_spacing_case_and_unicode_form_do_not_change_a_hash_but_a_digit_does():
-    def text_hash(line):
-        return intake_blocks._assemble(1, [("text", line)])[0].block_hash
+def _text_hash(line):
+    return intake_blocks._assemble(1, [("text", line)])[0].block_hash
 
-    base = text_hash("Rated 12.5 barg at site")
-    assert text_hash("RATED  12.5\n barg AT site") == base
-    assert text_hash("Rated 12\uff0e5 barg at site") == base  # a full-width stop
-    assert text_hash("Rated 12.6 barg at site") != base
-    assert text_hash("Rated -12.5 barg at site") != base
+
+def test_spacing_case_and_width_do_not_change_a_hash_but_a_digit_does():
+    base = _text_hash("Rated 12.5 barg at site")
+    assert _text_hash("RATED  12.5\n barg AT site") == base
+    assert _text_hash("Rated 12\uff0e5 barg at site") == base  # a full-width stop
+    assert _text_hash("Rated \uff11\uff12.5 barg at site") == base  # full-width digits
+    assert _text_hash("Rated 12.6 barg at site") != base
+    assert _text_hash("Rated -12.5 barg at site") != base
+
+
+def test_nfc_forms_of_one_letter_hash_the_same():
+    assert _text_hash("caf\u00e9") == _text_hash("cafe\u0301")
+
+
+@pytest.mark.parametrize(
+    "printed,plain",
+    [
+        ("10\u00b2", "102"),  # a superscript 2 after 10 is a power, not 102
+        ("10\u207b\u2076", "10-6"),  # an exponent is not ten minus six
+        ("1000 m\u00b3", "1000 m3"),  # a cubed sign, as the block holds it
+        ("\u00bd inch", "1/2 inch"),  # a one-half sign
+        ("x\u2082", "x2"),  # a subscript
+    ],
+)
+def test_the_hash_folds_no_power_or_fraction_into_plain_digits(printed, plain):
+    assert _text_hash(printed) != _text_hash(plain)
+
+
+def test_a_superscript_or_fraction_in_a_table_cell_keeps_its_own_hash():
+    def table_hash(cell):
+        rows = [["Name", "Value"], ["Area", cell]]
+        return intake_blocks._assemble(1, [("table", rows)])[0].block_hash
+
+    assert table_hash("10\u00b2") != table_hash("102")
+    assert table_hash("\u00bd") != table_hash("1/2")
+
+
+def test_a_real_workbook_keeps_a_power_and_a_fraction_apart_from_plain_digits():
+    def hashes(value):
+        wb = openpyxl.Workbook()
+        wb.active.append([f"The invented reading on this sheet is {value} here."])
+        buf = io.BytesIO()
+        wb.save(buf)
+        doc_id = _ingest(buf.getvalue(), f"{value.encode().hex()}.xlsx")
+        intake_blocks.refresh(doc_id)
+        return intake_blocks.stored(doc_id)[0].block_hash
+
+    assert hashes("10\u00b2") != hashes("102")
+    assert hashes("\u00bd") != hashes("1/2")
 
 
 @pytest.mark.slow
@@ -407,6 +452,56 @@ def test_a_file_that_cannot_be_read_is_could_not_check_never_empty(monkeypatch, 
     assert [(b.page_no, b.kind) for b in blocks] == [(0, "not_read")]
     assert blocks[0].reason == intake_blocks.WHY_COULD_NOT_CHECK
     assert BEFORE not in caplog.text  # ids and counts only, never document text
+
+
+def _drop_stored_page(doc_id, page_no):
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "DELETE FROM pages WHERE document_id = ? AND page_no = ?",
+            (doc_id, page_no),
+        )
+
+
+def test_a_pdf_page_with_no_stored_row_is_named_not_skipped():
+    doc_id = _ingest(_pdf(), "same.pdf")
+    _drop_stored_page(doc_id, 1)
+    intake_blocks.refresh(doc_id)
+    blocks = intake_blocks.stored(doc_id)
+    assert (blocks[0].page_no, blocks[0].kind, blocks[0].reason) == (
+        1,
+        "not_read",
+        intake_blocks.WHY_NOT_STORED,
+    )
+    assert [b.page_no for b in blocks[1:]] == [2]
+    assert [b.page_no for b in intake_blocks.build(doc_id)] == [1, 2]  # page order
+
+
+def test_a_sheet_with_no_stored_row_is_named_not_skipped():
+    doc_id = _ingest(_workbook(), "same.xlsx")
+    _drop_stored_page(doc_id, 2)
+    intake_blocks.refresh(doc_id)
+    assert intake_blocks.stored(doc_id)[-1].reason == intake_blocks.WHY_NOT_STORED
+
+
+def test_a_document_with_no_stored_page_at_all_is_not_an_empty_pass():
+    doc_id = _ingest(_pdf(), "same.pdf")
+    _drop_stored_page(doc_id, 1)
+    _drop_stored_page(doc_id, 2)
+    intake_blocks.refresh(doc_id)
+    assert [(b.page_no, b.reason) for b in intake_blocks.stored(doc_id)] == [
+        (1, intake_blocks.WHY_NOT_STORED),
+        (2, intake_blocks.WHY_NOT_STORED),
+    ]
+
+
+def test_a_file_missing_from_disk_is_could_not_check():
+    doc_id = _ingest(_pdf(), "same.pdf")
+    Path(stored_paths.local(_doc_paths(doc_id)[0])).unlink()
+    intake_blocks.refresh(doc_id)
+    assert [b.reason for b in intake_blocks.stored(doc_id)] == [
+        intake_blocks.WHY_COULD_NOT_CHECK
+    ]
 
 
 def test_a_refresh_logs_no_document_text(caplog, tmp_path, monkeypatch):

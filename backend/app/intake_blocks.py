@@ -7,14 +7,19 @@ block 1". A page with no block gets a `not_read` row that says why, and a file
 that cannot be read gets one at page 0 ("could not check"), so an empty result
 is never a silent pass (CLAUDE.md rule 4).
 
-THE HASH is over the block's kind and its text with spacing, letter case and
-Unicode forms made equal, so a wrapped PDF line and a Word paragraph agree. It
-never makes a digit, a sign or a word equal to another: one changed value
-changes the hash. It says whether two blocks hold the same content; it decides
-no verdict. An empty cell does not count, because the workbook reader drops it.
+THE HASH is over the block's kind and its text with spacing, letter case, NFC
+and full-width forms made equal, so a wrapped PDF line and a Word paragraph
+agree. NOT NFKC: that folds 10 with a superscript 2 into 102 and a one-half sign
+into 1/2 (audit F14), so the hash adds no folding of a digit, a sign or a power.
+Text the pages already hold is hashed as stored, and `quality.normalise_text`
+has written a unit power there as a plain digit, so m with a cubed sign is m3 on
+a stored page before it gets here. It says whether two blocks hold the same
+content; it decides no verdict. An empty cell does not count, because the
+workbook reader drops it.
 
-A workbook page is its own sheet, and a Word page is its reading part, so a
-block's page is the same number the stored pages use. The native citation (a
+A page the file holds with no stored row is named too, not skipped. A workbook
+page is its own sheet, and a Word page is its reading part, so a block's page is
+the same number the stored pages use. The native citation (a
 workbook's cell range, a Word heading path) stays on the chunk.
 
 A SCAN'S TABLES come from where the recognised lines sit, never from what they
@@ -45,6 +50,10 @@ KIND_TEXT, KIND_TABLE, KIND_NOT_READ = "text", "table", "not_read"
 
 WHY_OCR_FAILED = "recognition failed on this page, so it holds no reading"
 WHY_COULD_NOT_CHECK = "could not check: the file's blocks could not be read"
+WHY_NOT_STORED = "in the file, but no reading of this page was stored"
+
+#: Full-width ASCII (U+FF01..U+FF5E) to ASCII: the same character at another width.
+_WIDTH = str.maketrans({chr(c): chr(c - 0xFEE0) for c in range(0xFF01, 0xFF5F)})
 
 #: One page's content in reading order: ("text", line) or ("table", rows).
 Item = tuple[str, object]
@@ -77,7 +86,7 @@ def _squeeze(text: str) -> str:
 
 
 def _hash(kind: str, body: str) -> str:
-    canon = unicodedata.normalize("NFKC", body).casefold()
+    canon = unicodedata.normalize("NFC", body).translate(_WIDTH).casefold()
     return hashlib.sha256(f"{kind}\n{canon}".encode()).hexdigest()
 
 
@@ -221,9 +230,22 @@ def _file_items(doc, path) -> tuple[dict[int, list[Item]] | None, str | None]:
     return None, None
 
 
+def _file_pages(by_file: dict | None, path) -> set[int]:
+    """The page numbers the file itself holds, to hold the stored rows against. A
+    Word file on the datasheet reader's path has its rows stored in one batch."""
+    from . import extract, intake
+
+    if by_file is not None:
+        return set(by_file)
+    if intake.detect(path) != intake.KIND_PDF:
+        return set()
+    return set(range(1, extract.page_count(str(path)) + 1))
+
+
 def build(doc_id: str) -> list[Block]:
     """Every page's blocks, read from what ingestion stored (a recognised page
-    from its recognised text). A page with nothing in it says why."""
+    from its recognised text). A page with nothing in it says why, and so does a
+    page of the file with no stored row."""
     from . import intake, stored_paths
     from .db import connect
 
@@ -240,7 +262,8 @@ def build(doc_id: str) -> list[Block]:
            WHERE p.document_id = ? ORDER BY p.page_no""",
         (doc_id,),
     ).fetchall()
-    by_file, why_empty = _file_items(doc, stored_paths.local(doc["stored_path"]))
+    path = stored_paths.local(doc["stored_path"])
+    by_file, why_empty = _file_items(doc, path)
     out: list[Block] = []
     for r in page_rows:
         if by_file is not None:
@@ -260,7 +283,9 @@ def build(doc_id: str) -> list[Block]:
         else:
             why = why_empty or intake.WHY_BLANK_PDF
         out.append(Block(r["page_no"], 1, KIND_NOT_READ, reason=why))
-    return out
+    missing = _file_pages(by_file, path) - {r["page_no"] for r in page_rows}
+    out.extend(Block(n, 1, KIND_NOT_READ, reason=WHY_NOT_STORED) for n in missing)
+    return sorted(out, key=lambda b: (b.page_no, b.seq))
 
 
 def refresh(doc_id: str) -> int | None:
