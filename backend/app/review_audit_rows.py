@@ -90,6 +90,22 @@ def not_sent(row: dict) -> dict:
     )
 
 
+def clause_step(clause: dict, not_recorded: str) -> dict:
+    """The clause review's step. A batch still out is pending, never completed; limit, cap or expiry: the counts say how far."""
+    state = "completed" if clause.get("ran") else not_recorded
+    return {
+        "name": "clause_review",
+        "state": "pending" if clause.get("pending") else state,
+        "model": clause.get("model"),
+        "calls": clause.get("calls"),
+        "fresh": clause.get("calls"),
+        "reused": clause.get("cache_hits"),
+        "results": clause.get("results"),
+        "plain": clause.get("plain"),
+        "usd": clause.get("usd"),
+    }
+
+
 def skipped_steps(outcome: dict) -> list[dict]:
     """The steps a Claude-lane run did not run: a true 0 calls, and said so."""
     return [

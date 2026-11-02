@@ -341,13 +341,6 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
     ]
 
 
-def _clause_state(clause: dict) -> str:
-    """A batch still out is pending, never completed. Limit, cap or expiry: the counts say how far."""
-    if clause.get("pending"):
-        return "pending"
-    return "completed" if clause.get("ran") else NOT_RECORDED
-
-
 def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
     """The steps whose own stored status counts their calls: the clause review
     (with its stored answers) and the CRS wording (stored Claude answers: `fold_stored_hits`)."""
@@ -356,19 +349,7 @@ def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
     out = []
     clause = status.get(STATUS_KEY)
     if isinstance(clause, dict):
-        out.append(
-            {
-                "name": "clause_review",
-                "state": _clause_state(clause),
-                "model": clause.get("model"),
-                "calls": clause.get("calls"),
-                "fresh": clause.get("calls"),
-                "reused": clause.get("cache_hits"),
-                "results": clause.get("results"),
-                "plain": clause.get("plain"),
-                "usd": clause.get("usd"),
-            }
-        )
+        out.append(review_audit_rows.clause_step(clause, NOT_RECORDED))
     if wording and wording.get("enabled"):
         tried = wording.get("tried")
         out.append(
