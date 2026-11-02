@@ -17,6 +17,8 @@ layout (rule 13): it reads the finding's own fields only.
 
 from __future__ import annotations
 
+from . import word_pages
+
 #: The datasheet checklist's rule for a mandatory field the sheet left blank
 #: (`datasheet_checks`, "DS-M2").
 BLANK_RULE = "DS-M2"
@@ -92,15 +94,19 @@ def page_list(pages: list[int]) -> str:
     return ", ".join(out)
 
 
-def _where(pages: list[int]) -> str:
-    return f" (p.{page_list(pages)})" if pages else ""
+def _where(pages: list[int], group: list[dict] | None = None) -> str:
+    return (
+        f" ({word_pages.page_cell(f'p.{page_list(pages)}', pages, group or [])})"
+        if pages
+        else ""
+    )
 
 
 def comment(group: list[dict]) -> str:
     """The row's comment: one plain sentence naming every field and its pages.
     At most MAX_FIELDS are named; the rest are counted, never dropped silently."""
     named = entries(group)
-    parts = [f"{label}{_where(p)}" for label, p in named[:MAX_FIELDS]]
+    parts = [f"{label}{_where(p, group)}" for label, p in named[:MAX_FIELDS]]
     if len(named) > MAX_FIELDS:
         parts.append(
             f"and {len(named) - MAX_FIELDS} more of these {len(named)} (see the datasheet pages)"
@@ -123,7 +129,9 @@ def page_section(group: list[dict]) -> str:
             if isinstance(g.get("contractor_page"), int)
         }
     )
-    return f"p.{page_list(pages)} - Fields left blank" if pages else "Fields left blank"
+    if not pages:
+        return "Fields left blank"
+    return f"{word_pages.page_cell(f'p.{page_list(pages)}', pages, group)} - Fields left blank"
 
 
 def is_row(group: list[dict]) -> bool:

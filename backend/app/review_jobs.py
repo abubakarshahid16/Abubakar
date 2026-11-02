@@ -39,6 +39,7 @@ from . import (
     reread_for_standards,
     review_progress,
     submittal_fill,
+    word_pages,
 )
 from .config import config_version, settings
 from .db import connect
@@ -68,8 +69,8 @@ NEUTRAL_WORDS = ("document", "page")
 
 def document_words(document_id: str) -> tuple[str, str]:
     """(noun, unit) for the progress lines of a review of `document_id`. The
-    unit is "part" for a Word file (`pagination = 'flow'`: no fixed pages, its
-    reading units are parts), else "page"."""
+    unit is "part" for a Word file read in parts (`pagination = 'flow'`), else "page".
+    WORD_PAGE_MARKERS_ENABLED: a Word file shows pages, "part" only with no page marks."""
     from . import doc_router, document_kind
 
     stored = document_kind.stored_kind(document_id)
@@ -81,6 +82,8 @@ def document_words(document_id: str) -> tuple[str, str]:
         .fetchone()
     )
     unit = "part" if row is not None and row["pagination"] == "flow" else "page"
+    if settings.word_page_markers_enabled:
+        unit = word_pages.unit(document_id)
     return noun, unit
 
 
