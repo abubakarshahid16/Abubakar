@@ -241,3 +241,38 @@ class SettingsExt(BaseModel):
     #: marked as a guess, else NO-NUMBER. OFF: byte-identical, except that rows numbered while it was on
     #: keep printing NO-NUMBER and the reply guard stays for them. Env: PROCEDURE_CRS_FIELDS_ENABLED.
     procedure_crs_fields_enabled: bool = False
+    #: Models that REJECT `temperature` (400 "deprecated for this model", measured on
+    #: claude-sonnet-5, 2026-09-25). Prefix match on the id, so "claude-opus-5" also covers
+    #: claude-opus-5-5. Sonnet 5.5 and Haiku 5.5 refuse any non-default value, and the value
+    #: sent is never the default. The API version in use (2023-06-01) bars it only per model.
+    claude_models_without_temperature: tuple[str, ...] = (
+        "claude-sonnet-5",
+        "claude-opus-5",
+        "claude-haiku-5",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-fable-5",
+        "claude-mythos-5",
+    )
+    #: The ONLY models still sent `thinking.budget_tokens` (`claude_models.thinking_for`).
+    claude_models_with_thinking_budget: tuple[str, ...] = (
+        "claude-haiku-4-5",
+        "claude-sonnet-4-5",
+        "claude-opus-4-5",
+        "claude-opus-4-1",
+        "claude-opus-4-0",
+        "claude-sonnet-4-0",
+    )
+    #: These models think by default and that output counts inside `max_tokens`, so a short
+    #: cap (the reader's 512, the matcher's 200) could be spent before any answer. Theirs is
+    #: raised to `claude_min_output_tokens` (`claude_spend.output_cap`; billed by use, and the
+    #: budget gate's worst case sees it). Env: CLAUDE_MIN_OUTPUT_TOKENS.
+    claude_models_thinking_by_default: tuple[str, ...] = (
+        "claude-sonnet-5-5",
+        "claude-opus-5-5",
+        "claude-haiku-5-5",
+    )
+    claude_min_output_tokens: int = Field(4096, gt=0)
+    #: The standards reader's and datasheet reader's model. Empty: `claude_reasoning_model`.
+    #: The process environment wins over `backend/.env`. Env: STANDARDS_READER_MODEL.
+    standards_reader_model: str = ""

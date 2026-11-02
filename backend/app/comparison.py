@@ -4334,10 +4334,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
     which pages were read into fields and why the others were not - so the
     run keeps saying what it searched after the ledger is refreshed again.
-
-    The FINAL code is not written here. The AI recommends; the engineer
-    decides, and `record_engineer_code` is where that happens - section 15's
-    "the engineer's final action is governance, not the initial review".
+    The FINAL code is the engineer's decision, in `record_engineer_code` (section 15).
     """
     conn = connect()
     with conn:
@@ -4383,6 +4380,9 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
             }), _now(), _now(), review_run_id))
+    from . import claude_models
+
+    claude_models.record_run(review_run_id, match_step=MATCH_STEP)
 
 
 def record_engineer_code(
