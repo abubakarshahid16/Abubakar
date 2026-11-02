@@ -475,9 +475,17 @@ def test_the_stand_in_reader_reads_the_same_sheet_through_the_ai_path(
 
 
 def test_the_scorer_can_report_a_pass_through_the_real_path(base, copy_db, tmp_path):
-    """The headline is not vacuous. Today a negative back pressure meets its limit, so this
-    plant reads as a Pass; a fix for that will move this test, on purpose, to another plant."""
-    small = _small(base, (("wrong_sign", "built_up_back_pressure"),))
+    """The headline is not vacuous. A changed value still within its limit reads as a Pass, so
+    the scorer reports it, whatever later fixes do to the real plants."""
+    small = _small(base, ())
+    small["plants"] = [
+        {
+            "defect": "over_limit",
+            "field": "overpressure",
+            "value": "20",
+            "wanted": "does_not_meet",
+        }
+    ]
     result = pd.score(copy_db, [small], reader="rules", work=tmp_path / "w")
     assert result["sheets"][0]["got"] == "wrongly_passed", result["sheets"][0]
     assert "1 of 1 planted defects" in pd.render(result)
