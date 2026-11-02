@@ -542,9 +542,10 @@ def refusal_of(exc: BaseException, last_error: dict) -> tuple[str, str]:
 def coverage_part(document_id: str) -> dict:
     """What `page_ledger.coverage` adds: `_reasons_part`, and a Word file's read
     proof (`word_pages`, WORD_PAGE_MARKERS_ENABLED; off, nothing)."""
-    from . import word_pages
+    from . import reading_state, word_pages
 
-    return _reasons_part(document_id) | word_pages.coverage_part(document_id)
+    part = _reasons_part(document_id) | word_pages.coverage_part(document_id)
+    return part | reading_state.coverage_part(document_id)
 
 
 def _reasons_part(document_id: str) -> dict:

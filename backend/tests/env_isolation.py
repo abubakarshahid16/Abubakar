@@ -273,6 +273,7 @@ EGRESS_SAFE: dict[str, object] = {
     "one_checked_definition_enabled": False,
     # --- local only, no model or socket: the internal copy's Item No is the sheet order (#1592, off by default)
     "crs_item_sheet_order_enabled": False,
+    "owner_approved_rules_decide_enabled": False,
     # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
     "procedure_crs_fields_enabled": False,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own

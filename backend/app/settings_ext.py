@@ -246,13 +246,20 @@ class SettingsExt(BaseModel):
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print
-    #: the pair always. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
+    #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
+    #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
     one_checked_definition_enabled: bool = False
     #: #1592 item c: on the quality export's internal copy, Item No is the sheet order, 001 up, and the
     #: permanent number moves to the Internal sheet. The issue copy keeps the permanent number: a
     #: reply is matched by it alone. Needs CRS_EXPORT_QUALITY_ENABLED. OFF: nothing changes.
     #: Env: CRS_ITEM_SHEET_ORDER_ENABLED.
     crs_item_sheet_order_enabled: bool = False
+    #: Owner's text on #1584: a rule the owner approved (`approval.tier == "owner"`) may decide a verdict, labelled
+    #: "AI-built, quote-verified, owner-approved" (`rule_trust.tier_for_approved`), never "engineer-approved". Code
+    #: still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick and, until ticked, no Approved
+    #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
+    #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
+    owner_approved_rules_decide_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion
