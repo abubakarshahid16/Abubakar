@@ -35,7 +35,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from . import claude_auto_approve, review, rule_trust, run_finishing
+from . import claude_auto_approve, presence_check, review, rule_trust, run_finishing
 from .db import add_column_if_missing, connect, schema_once
 
 
@@ -1156,7 +1156,7 @@ def list_run_findings(
 def _finding_item(row) -> dict:
     """One finding row as the API hands it on: the three list columns decoded,
     an unreadable one read as empty. THE ONE decoder for findings rows."""
-    item = dict(row)
+    item = presence_check.marked(dict(row))
     for field in ("citation_ids", "governing_sources", "unresolved_evidence"):
         try:
             item[field] = json.loads(item.get(field) or "[]")

@@ -17,6 +17,7 @@ export interface ReviewScopeDecision {
 }
 
 export interface ReviewFinding {
+  stated_only?: boolean;
   id: string;
   document_id: string;
   baseline_document_id: string | null;
