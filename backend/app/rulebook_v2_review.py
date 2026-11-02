@@ -5,6 +5,9 @@ type, a snapshot of the book that the run records, then one row per rule. Code d
 role table and the field names the project already has, the number through `comparison.compare`. No second parser and
 no second comparator. Rule 13: nothing here knows a layout or a label's spelling.
 
+WHO IT IS FOR. A rule whose Part or Appendix's own scope clause covers other equipment is left out, counted on the run with
+a named reason; one whose scope cannot be established is a Query that says so (`rule_part_scope`).
+
 WHEN UNSURE, A QUERY. Only a rule with one figure, its quote hash intact, owner approved, its conditions shown to hold
 and its exceptions shown not to, on one trusted value, gets a verdict. Every other row is NEEDS_ENGINEER_REVIEW and
 leads with one of `REASONS`. "Not mentioned" is never compliant. A version 1 row or checklist item on the same field
@@ -35,6 +38,7 @@ from . import (
     match_rules,
     material_reference,
     requirements_3b,
+    rule_part_scope,
     rule_trust,
     rule_typed_check,
     rulebook_v2,
@@ -42,6 +46,7 @@ from . import (
 )
 from .config import settings
 from .rule_field_naming import VERIFIED as ROLE_VERIFIED
+from .rule_part_scope import OUTSIDE_EQUIPMENT_SCOPE, SCOPE_NOT_ESTABLISHED
 from .rulebook_v2_check import NO_UNIT
 
 ORIGIN = "rulebook_v2"
@@ -66,6 +71,8 @@ ROLE_NOT_VERIFIED = (
     "role_not_verified"  # the field-naming step proposed a role code could not verify
 )
 PAIR_REASONS = (
+    OUTSIDE_EQUIPMENT_SCOPE,
+    SCOPE_NOT_ESTABLISHED,
     NOT_ON_DATASHEET,
     ROLE_NOT_VERIFIED,
     NO_SUCH_FIELD,
@@ -252,11 +259,19 @@ def pair_rule_to_document(
         "SELECT equipment_type FROM document_classification WHERE document_id = ?",
         (document_id,),
     )
-    found = pairs(rule, facts, (kinds[0]["equipment_type"] or None) if kinds else None)
+    equipment_type = (kinds[0]["equipment_type"] or None) if kinds else None
+    found = pairs(rule, facts, equipment_type)
     read = [f.fact for f in found if f.fact is not None]
-    said = sorted({_value_read(fact) for fact in read})
     stopped = next((f.reason for f in found if f.reason), None)
+    told = {}
+    if settings.rulebook_v2_review_enabled:
+        scope = rule_part_scope.of_rule(conn, rule, equipment_type)
+        told = {"scope": scope.state, "scope_words": scope.words}
+        if scope.reason:
+            read, stopped = [], scope.reason
+    said = sorted({_value_read(fact) for fact in read})
     return {
+        **told,
         "paired": bool(read),
         "reason": None if read else stopped,
         "value_read": said[0] if len(said) == 1 else None,
@@ -467,7 +482,15 @@ def _typed(rule: dict, found: Pair, op: str, values: list[str]) -> Row:
     )
     if not field_links.states_a_value(stated):
         return _query(rule, VALUE_UNCLEAR, found)
-    status, words = rule_typed_check.decide(op, values, stated, rule.get("_reference"))
+    role = found.role or rule.get("field_role")
+    status, words = rule_typed_check.decide(
+        op,
+        values,
+        stated,
+        rule.get("_reference"),
+        free_text=rule_typed_check.is_free_text(role),
+        synonyms=rule_typed_check.signed_synonyms(role),
+    )
     if status is None:
         return _query(rule, VALUE_UNCLEAR, found, words)
     verdict = comparison._hold_low_trust_breach(
@@ -532,6 +555,12 @@ def decide_rule(
         return [_query(rule, SIGNED_CONTENT_CHANGED)]
     if (rule.get("rule_id"), rule.get("version")) not in in_force:
         return [_query(rule, NOT_IN_SNAPSHOT)]
+    unknown = rule.get("_scope_unknown")
+    if unknown:
+        return [
+            _query(rule, SCOPE_NOT_ESTABLISHED, found, unknown)
+            for found in pairs(rule, facts, equipment_type)
+        ]
     return [
         _judge(rule, found, facts, equipment_type, approved=_approved)
         for found in pairs(rule, facts, equipment_type)
@@ -589,6 +618,29 @@ class Review:
         return summary(self)
 
 
+def _by_part_scope(
+    conn, rules: list[dict], equipment_type: str
+) -> tuple[list[dict], dict]:
+    """(the rules this review reads, what was left out: how many, by Part, and which rules, so a wrong "outside" can be
+    audited). A rule whose scope is not established stays, marked, and can only be a Query."""
+    kept, parts, ids = [], {}, []
+    for rule in rules:
+        scope = rule_part_scope.of_rule(conn, rule, equipment_type)
+        if scope.reason == OUTSIDE_EQUIPMENT_SCOPE:
+            parts[scope.division] = parts.get(scope.division, 0) + 1
+            ids.append(rule.get("rule_id"))
+        elif scope.reason:
+            kept.append({**rule, "_scope_unknown": scope.words})
+        else:
+            kept.append(rule)
+    left_out = {
+        "outside_equipment_scope": len(ids),
+        "outside_by_part": dict(sorted(parts.items())),
+        "outside_rule_ids": ids,
+    }
+    return kept, left_out
+
+
 def begin(
     conn,
     review_run_id: str,
@@ -620,6 +672,8 @@ def begin(
         material_reference.signed(conn) if settings.material_reference_enabled else None
     )
     rules = [{**rule, "_reference": reference} for rule in rules]
+    rules, left_out = _by_part_scope(conn, rules, equipment_type)
+    withheld |= left_out
     # An approval comes after the compile's snapshot, so the run freezes the book as it uses it; a re-run of this run
     # finds the same snapshot and reads the same rules.
     actor = f"review:{review_run_id}"

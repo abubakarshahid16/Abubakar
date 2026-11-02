@@ -115,6 +115,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `coverage` | Which documents the question was about, and which of them the answer used |
 | `presence_check` | #1638: a checklist `required` row only asks that a field is stated: with the switch on it counts for no approval and is no decided rule, and is named "stated, not checked" |
 | `coverage_pair` | Plan change 6 B: one meaning of "checked": risk (wrong among decided) and coverage (decided of the rules the run states apply), checklist apart, for the bench, the board call and, behind ONE_CHECKED_DEFINITION_ENABLED, the CRS and the screen |
+| `coverage_values` | #1592: the CRS footer's one count of values read: checklist fields read, and standard rules tied to a field, each rule once, beside `coverage_pair`; words only, behind ONE_CHECKED_DEFINITION_ENABLED |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
@@ -209,6 +210,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_check` | #805 plan change 6, part A: one rule's requirement against one submitted value: meets, does not meet or cannot tell; pure; not mentioned is never compliant |
 | `rulebook_v2_review` | #805 plan change 6: a review reads approved version 2 rules beside version 1: pairs each to a read value by field, decides through `comparison.compare`, a Query with a named reason when unsure; `pair_rule_to_document` is the pairing alone, read only; off by default |
 | `rule_field_naming` | #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list, code verifies it; a rule no field answers is kept, marked not on a datasheet; off by default |
+| `rule_part_scope` | Which equipment a rule is for, from the scope clause of its Part or Appendix: reads the division gate's stored reading, verifies the sentence on its page, says in scope, outside (not paired) or not established (a Query); sends nothing; only with the review switch on |
 | `rule_typed_check` | #805 plan change 6: a rule with a verified field role and no figure gets a typed check proposed from its quote; code verifies it and decides with the readers the project has; off by default |
 | `material_reference` | #1584: specification grade to material family, proposed from general knowledge with no document text, signed by the owner's tick, read only with its switch on; a grade not in the signed table is a Query |
 | `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |
