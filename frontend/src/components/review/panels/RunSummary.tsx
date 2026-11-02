@@ -24,7 +24,8 @@ export function RunSummary({ findings }: { findings: ReviewFinding[] }) {
       </div>
       <p className="text-xs text-slateish-400">
         Of {totals.counted.toLocaleString()} requirement checks in this run
-        {totals.notApplicable ? `, ${totals.notApplicable.toLocaleString()} not applicable` : ""}.
+        {totals.notApplicable ? `, ${totals.notApplicable.toLocaleString()} not applicable` : ""}
+        {totals.stated ? `, ${totals.stated.toLocaleString()} stated, not checked` : ""}.
         {" "}AI engineering check items are drafts and are not counted here.
       </p>
       <p className="text-xs text-slateish-300" data-testid="kind-counts">

@@ -44,6 +44,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `scan_quality` | #505: how well a scanned page was read (the recogniser's own confidence grouped clear / mixed / poor, or a named state), shown beside the citation on `/evidence` |
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
 | `review_audit_rows` | #1525: reconciles, per CRS copy, the rows composed for a run with the rows the file prints and what was removed, for the audit report |
+| `review_audit_detail` | #1525: the audit report's gates, rule-row limits and approval, standards' split and editions, clause review figures and CRS copy paths |
+| `run_measures` | #1525: the headline counts of one review run, in one home: the CRS bench and the audit report both read it |
 | `ai_call_ledger` | #1525: counts, per step and model, the AI answers a review job asked for fresh and the stored answers it reused, for the audit report; open only with REVIEW_AUDIT_REPORT_ENABLED on |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
@@ -111,6 +113,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `context_budget` | Keep the evidence inside the model's context window, and say when it does not |
 | `corpus` | Questions about the corpus itself, and counts that pretend to be about it |
 | `coverage` | Which documents the question was about, and which of them the answer used |
+| `presence_check` | #1638: a checklist `required` row only asks that a field is stated: with the switch on it counts for no approval and is no decided rule, and is named "stated, not checked" |
 | `coverage_pair` | Plan change 6 B: one meaning of "checked": risk (wrong among decided) and coverage (decided of the rules the run states apply), checklist apart, for the bench, the board call and, behind ONE_CHECKED_DEFINITION_ENABLED, the CRS and the screen |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |

@@ -2196,6 +2196,7 @@ class ReviewScopeDecision(BaseModel):
 
 
 class ReviewFinding(BaseModel):
+    stated_only: bool = False  # #1638, `presence_check`
     id: str
     document_id: str
     baseline_document_id: str | None
@@ -2223,7 +2224,6 @@ class ReviewFinding(BaseModel):
     created_at: str
     updated_at: str
     # ------------------------------------- AI submittal review, phases 5A/5B
-    #
     # THE COMPLIANCE SHAPE, ADDED AND NOTHING REMOVED. This model was the
     # phase-1 approval-workflow view of a finding, and the columns phase 5B
     # writes were invisible through it: a run produced 1,580 findings, the API
@@ -2631,8 +2631,7 @@ class CrsPreview(BaseModel):
     download come from `crs_export.build_crs_view` over the rows
     `crs_mapping.build_crs_rows` returns; the export then draws that view into
     the client's template. A preview that could disagree with the file the
-    client receives would be worse than no preview at all, so there is no
-    second path that could decide something different.
+    client receives would be worse than no preview at all: there is no second path.
     """
 
     title: str
@@ -2666,6 +2665,7 @@ class CrsPreview(BaseModel):
     #: comment text - the issue copy only (0 when none; always 0 on the
     #: internal copy, which prints them with a sentence saying so).
     rows_withheld_no_text: int = 0
+    internal_preview: dict = {}  #: #1503 (strict switch, internal copy): the Internal sheet.
 
 
 class ReviewRunStandard(BaseModel):
