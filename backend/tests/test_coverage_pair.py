@@ -916,6 +916,33 @@ def test_an_engineers_typed_reason_is_never_reworded(run, monkeypatch):
     assert _meta(r)["recommended_code_reason"] == typed
 
 
+def test_the_debug_console_and_its_file_read_one_meaning(run, monkeypatch):
+    """`review_trace.emit` builds its own trace: it is a home of its own."""
+    result = _approval_outcome()
+    r = _run(
+        recommended_code=result["code"],
+        reason=result["reason"],
+        clause_coverage=STORED_CLAUSE,
+    )
+    scope = access.AccessScope(
+        user_id="t", allowed_document_ids=frozenset({"std", "sub"})
+    )
+    log_file = review_trace.debug_dir() / f"review-{r}.log"
+    monkeypatch.setattr(settings, "review_debug", True)
+
+    off = "\n".join(review_trace.emit(r, scope))
+    assert coverage_pair.REASON_OLD in off and "0 of 9" in off
+    assert coverage_pair.REASON_OLD in log_file.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    on = "\n".join(review_trace.emit(r, scope))
+    assert coverage_pair.REASON_OLD not in on and "0 of 9" not in on
+    assert coverage_pair.REASON_NEW in on
+    assert coverage_pair.for_run(_conn(), r)["line"] in on
+    written = log_file.read_text(encoding="utf-8")
+    assert coverage_pair.REASON_OLD not in written and "0 of 9" not in written
+
+
 def test_the_stored_reason_itself_is_not_rewritten(run, monkeypatch):
     result = _approval_outcome()
     r = _run(recommended_code=result["code"], reason=result["reason"])
