@@ -253,6 +253,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `unsupported_script` | A page written mostly in Arabic script is not searched and says so: "language not supported, engineer review" (#564) |
 | `rates` | Throughput reporting |
 | `reader_api` | Layer 1 for STANDARDS: the model READS one sentence, Python VERIFIES it |
+| `reading_state` | What "ready" means: every page and picture read or listed as not read, from the ledger; one function for every kind of file (ONE_CHECKED_DEFINITION_ENABLED) |
 | `reader_transport` | The one place in this codebase that may open a socket to the standards reader |
 | `reasoning_provider` | One interface for "give this bounded packet to a model and tell me exactly what answered" |
 | `reports` | Single-answer evidence reports, rendered from a frozen snapshot |
