@@ -101,6 +101,19 @@ def _compile(doc=DOC, label=LABEL, rules=None, pages=None, edition=None):
     return rulebook_v2_ingest.ingest_latest(_conn(), doc)
 
 
+def _compile_with_exception():
+    """A stored row holding a condition and an exception. What the proof keeps is its own tests' business."""
+    _document()
+    standards_compiler.compile_standard(
+        _conn(), DOC, LABEL, client=FakeBatches([_rule()]), sleep=lambda _s: None
+    )
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE compiled_rules SET exception_text = 'unless the flange is blind'"
+        )
+    return rulebook_v2_ingest.ingest_latest(_conn(), DOC)
+
+
 def _exists(doc):
     return _conn().execute("SELECT 1 FROM documents WHERE id = ?", (doc,)).fetchone()
 
@@ -254,24 +267,7 @@ def _a_full_book():
 @pytest.mark.parametrize("table", rulebook_v2.TABLES)
 def test_no_row_of_any_table_can_be_changed_or_deleted(table):
     if table == "rulebook_exception":
-        _compile(
-            pages=(
-                "Invented standard.\n4.1 Bolts\nThe invented bolt torque shall be at least 40 Nm unless the bolt is a stud.",
-                PAGE_2,
-            ),
-            rules=[
-                _rule(
-                    applies_to="invented bolts",
-                    field="bolt torque",
-                    condition=None,
-                    exceptions="unless the bolt is a stud",
-                    comparator=">=",
-                    limit="40",
-                    unit="Nm",
-                    quote="The invented bolt torque shall be at least 40 Nm unless the bolt is a stud.",
-                )
-            ],
-        )
+        _compile_with_exception()
     else:
         _a_full_book()
     conn = _conn()
@@ -509,31 +505,14 @@ def test_the_table_refuses_a_requirement_of_the_wrong_shape(
 
 
 def test_applicability_and_exceptions_are_rows_apart():
-    _compile(
-        pages=(
-            "Invented standard.\n4.1 Bolts\nFor gas service the invented bolt torque shall be at least 40 Nm unless the bolt is a stud.",
-            PAGE_2,
-        ),
-        rules=[
-            _rule(
-                applies_to="invented bolts",
-                field="bolt torque",
-                condition="for gas service",
-                exceptions="unless the bolt is a stud",
-                comparator=">=",
-                limit="40",
-                unit="Nm",
-                quote="For gas service the invented bolt torque shall be at least 40 Nm unless the bolt is a stud.",
-            )
-        ],
-    )
+    _compile_with_exception()
     version = _version()
     assert {
         (r["key_type"], r["value"])
         for r in _rows("SELECT key_type, value FROM rulebook_applicability")
-    } == {("subject", "invented bolts"), ("condition", "for gas service")}
+    } == {("subject", "relief flanges"), ("condition", "for gas service")}
     assert [r["condition_text"] for r in _rows("SELECT * FROM rulebook_exception")] == [
-        "unless the bolt is a stud"
+        "unless the flange is blind"
     ]
     assert (version["applicability_count"], version["exception_count"]) == (2, 1)
 
@@ -887,24 +866,7 @@ def test_the_outcome_of_one_requirement(rule, value, unit, outcome, reason):
 
 def test_a_rule_reads_who_it_is_for_then_unless_then_what_it_demands():
     _person()
-    _compile(
-        pages=(
-            "Invented standard.\n4.1 Bolts\nFor gas service the invented bolt torque shall be at least 40 Nm unless the bolt is a stud.",
-            PAGE_2,
-        ),
-        rules=[
-            _rule(
-                applies_to="invented bolts",
-                field="bolt torque",
-                condition="for gas service",
-                exceptions="unless the bolt is a stud",
-                comparator=">=",
-                limit="40",
-                unit="Nm",
-                quote="For gas service the invented bolt torque shall be at least 40 Nm unless the bolt is a stud.",
-            )
-        ],
-    )
+    _compile_with_exception()
     version_id = _version()["id"]
     _approve(version_id)
     conn = _conn()
@@ -912,7 +874,7 @@ def test_a_rule_reads_who_it_is_for_then_unless_then_what_it_demands():
     (exception,) = [r["id"] for r in _rows("SELECT id FROM rulebook_exception")]
 
     def outcome(**kw):
-        got = rulebook_v2.check_version(conn, version_id, "10", "Nm", **kw)
+        got = rulebook_v2.check_version(conn, version_id, "26", "bar", **kw)
         return got.outcome, got.reason
 
     assert outcome() == (CANNOT_TELL, "applicability_unknown")
