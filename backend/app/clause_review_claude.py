@@ -9,8 +9,7 @@ decides: rows are the same NEEDS_ENGINEER_REVIEW suggestions, never a verdict, n
 WHAT ONE ASK CARRIES. One requirement and its few small passages (`clause_review.retrieve`, keyword only, no
 local model). Never a whole document or a library.
 
-WHO HOLDS WHAT. Spend, approval, answer cache and crash recovery are `claude_batch_run`'s (#1584), which goes
-through `reader_transport`, `claude_spend.reserve_all` and `claude_answer_cache`. This file only asks it.
+WHO HOLDS WHAT. Spend, approval, answer cache and crash recovery are `claude_batch_run`'s (#1584).
 
 THE USD CAP IS NEVER RAISED. Every request is reserved at its worst case and `room()` says what the caps leave,
 so a batch cannot cross them. What does not fit waits for the next tick: once the batch settles at its real cost
@@ -38,9 +37,8 @@ checked against the stored rows on every entry. A missing row comes back from th
 the close from the answer cache (a USD 0 cache line, no send, no charge). An answer the cache no longer holds is counted
 not reviewed and is not bought again.
 
-A SEAM OF `claude_batch_run.run`: it re-queues given-up requests each time it is called, because it was written
-for one call per run. A polling caller must not resend them, so they are read before each call, kept here and
-left out of the packets it is given. Expired or cancelled twice is not reviewed; errored or lost is failed.
+A SEAM OF `claude_batch_run.run`: it re-queues given-up requests on each call, so they are read before each call, kept
+here and left out of its packets. Expired or cancelled twice is not reviewed; errored or lost is failed.
 
 Stored here: ids, counts and closed words. Raw answers in the batch tables are removed at the close and when the
 submittal is deleted. Logged: error type only.
@@ -139,10 +137,9 @@ def _client():
     return
 
 
-def _system(kind: str, state: str | None) -> str:
+def _system(kind: str) -> str:
     """The stable part, sent as the cached system block, so asks after the first read it at the cache price."""
-    base = clause_review_kind.system(clause_review.SYSTEM, kind, state)
-    return base + "\n\n" + clause_review.examples_prefix(kind)
+    return clause_review.SYSTEM + "\n\n" + clause_review.examples_prefix(kind)
 
 
 def packet_for(
@@ -150,12 +147,12 @@ def packet_for(
 ) -> rp.Packet:
     return rp.Packet(
         prompt=clause_review.question(requirement, passages),
-        system=_system(kind, state),
         num_ctx=0,
         num_predict=MAX_OUTPUT_TOKENS,
-        json_schema=clause_review_kind.schema(clause_review.SCHEMA, kind, state),
         step=STEP,
-        prompt_version=clause_review_kind.version(PROMPT_VERSION, kind, state),
+        **clause_review_kind.ask_fields(
+            _system(kind), clause_review.SCHEMA, PROMPT_VERSION, kind, state
+        ),
     )
 
 
@@ -174,11 +171,16 @@ def _requirements(asks: dict[str, str]) -> dict[str, dict]:
     return out
 
 
-def _build_packets(submittal: str, kind: str, state, requirements: dict[str, dict]) -> dict:
+def _build_packets(
+    submittal: str, kind: str, state, requirements: dict[str, dict]
+) -> dict:
     pages = clause_review.page_texts(submittal)
     return {
         custom_id: packet_for(
-            kind, req, clause_review.retrieve(submittal, req["requirement_text"], pages), state
+            kind,
+            req,
+            clause_review.retrieve(submittal, req["requirement_text"], pages),
+            state,
         )
         for custom_id, req in requirements.items()
     }

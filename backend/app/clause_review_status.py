@@ -52,6 +52,12 @@ def _not_ai_reviewed(status: dict) -> str:
     )
 
 
+def note_run(status: dict, whole: bool, cap: int, wanted: int, claude_note) -> None:
+    status.update(whole_document=whole, limit=cap, over_limit=max(0, wanted - cap))
+    if claude_note:
+        status["engine_note"] = claude_note
+
+
 def not_for_kind_line(status: dict) -> str:
     """The one line for requirements left out of the rows: count, boundary, and what it does not mean. Ids apart."""
     apart = len(status.get("not_for_kind") or [])
@@ -64,13 +70,21 @@ def not_for_kind_line(status: dict) -> str:
     )
 
 
-def not_for_kind_part(status: dict) -> tuple[str, str] | None:
-    """(part, line) for the internal copy's notes: the line and every rule id, so an engineer can read them."""
+def not_for_kind_parts(ai_status: dict | None) -> list[dict]:
+    """The line and every rule id, as a detail part: on the internal copy's notes, not counted as a part unchecked."""
+    status = (ai_status or {}).get("clause_review") or {}
     line = not_for_kind_line(status)
     if not line:
-        return None
+        return []
     ids = ", ".join(str(i) for i in status["not_for_kind"])
-    return "clause_review_not_for_kind", f"{line}. Rule ids not for this document kind: {ids}."
+    return [
+        {
+            "part": "clause_review_not_for_kind",
+            "line": f"{line}. Rule ids not for this document kind: {ids}.",
+            "note": "Not checked",
+            "detail": True,
+        }
+    ]
 
 
 def _engine_sentence(status: dict) -> str:

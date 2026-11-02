@@ -6,9 +6,12 @@ Invented text only, fake model and fake batches. The AI proposes in the same ask
 
 from __future__ import annotations
 
+import io
 import json
+from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 
 from app import (
     absence,
@@ -18,10 +21,10 @@ from app import (
     clause_review_claude,
     comparison,
     db,
+    review_audit,
 )
 from app import main as main_mod
 from app import reasoning_provider as rp
-from app import review_audit
 from app.config import settings
 from tests.test_1477_clause_review import (  # noqa: F401 - fixtures and helpers
     GOOD_CHAIR,
@@ -241,7 +244,7 @@ def test_a_stored_answer_from_before_the_switch_is_not_reused_without_the_field(
 def test_nothing_in_the_code_names_a_standard_or_a_field():
     from app import clause_review_kind
 
-    source = open(clause_review_kind.__file__, encoding="utf-8").read().lower()
+    source = Path(clause_review_kind.__file__).read_text(encoding="utf-8").lower()
     for word in ("saes", "api ", "asme", "iso ", "gauge", "flange", "psv", "hazop"):
         assert word not in source
 
@@ -253,30 +256,45 @@ def _crs(run, copy):
     return main_mod._crs_content(run, access.unrestricted_scope(), copy)
 
 
+def _cells(workbook: bytes) -> str:
+    """Every cell of every sheet of the file itself: what the reader of that copy can see."""
+    book = load_workbook(io.BytesIO(workbook))
+    return "\n".join(
+        str(cell)
+        for sheet in book.worksheets
+        for row in sheet.iter_rows(values_only=True)
+        for cell in row
+        if cell is not None
+    )
+
+
+def _file(run, copy):
+    workbook, _name = main_mod._crs_workbook(run, access.unrestricted_scope(), copy)
+    return _cells(workbook)
+
+
 def test_follow_one_row_to_the_crs_cell_and_the_line_to_the_notes(on, content_only):
     _sub, run, scope = _world((REQ_GAUGE, REQ_CHAIR))
     _local(run, scope, {"Pressure gauges": HARDWARE, "HAZOP chair": CONTENT})
-    rows, meta, _n, _s = _crs(run, "internal")
+    rows, _meta, _n, _s = _crs(run, "internal")
     mine = [r for r in rows if r["row_kind"] == "clause_review"]
-    assert len(mine) == 1 and "HAZOP chair" in mine[0]["requirement"]
-    assert mine[0]["engineer_confirmed"] is False
+    assert len(mine) == 1 and mine[0]["engineer_confirmed"] is False
+    assert "HAZOP chair" in mine[0]["ai_review_comment"]
     assert "engineer to confirm" in mine[0]["comment_by"]
+    assert "not issued" in mine[0]["comment"].lower()
     assert "Pressure gauges" not in json.dumps(rows, default=str)
-    notes = [n["detail"] for n in meta["review_notes"]]
-    assert any(
-        "1 of 2 applicable requirement(s) not for this document kind" in n
-        for n in notes
-    )
-    assert any("Rule ids not for this document kind: 5.1" in n for n in notes)
+    cells = _file(run, "internal")
+    assert "HAZOP chair" in cells and "Pressure gauges" not in cells
+    assert "1 of 2 applicable requirement(s) not for this document kind" in cells
+    assert "Rule ids not for this document kind: 5.1" in cells
 
 
 def test_the_rule_ids_are_never_on_the_contractors_copy(on, content_only):
     _sub, run, scope = _world((REQ_GAUGE, REQ_CHAIR))
     _local(run, scope, {"Pressure gauges": HARDWARE, "HAZOP chair": CONTENT})
-    rows, meta, _n, _s = _crs(run, "issue")
-    assert "Rule ids not for this document kind" not in json.dumps(
-        [rows, meta], default=str
-    )
+    cells = _file(run, "issue")
+    assert "Rule ids not for this document kind" not in cells
+    assert "not for this document kind" not in cells and "Pressure gauges" not in cells
 
 
 def test_the_line_alone_does_not_mark_the_sheet_incomplete_nor_count_a_part(
@@ -342,6 +360,21 @@ def test_a_retried_job_does_not_take_the_line_for_a_lost_row(fake, content_only)
     assert [
         e for e in claude_spend.entries() if float(e.get("cost_usd") or 0) > 0
     ] == charged
+
+
+def test_the_line_needs_no_stored_answer_after_a_retried_job(fake, content_only):
+    import shutil
+
+    fake.answer = lambda text: HARDWARE
+    _sub, run, scope = _world((REQ_GAUGE,))
+    first = _start(run, scope)
+    shutil.rmtree(settings.claude_cache_dir)
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    again = _start(run, scope)
+    assert again["not_for_kind"] == first["not_for_kind"]
+    assert (
+        again["results"]["not_for_kind"] == 1 and again["results"]["not_reviewed"] == 0
+    )
 
 
 def test_a_repeat_review_reads_the_stored_answer_and_keeps_the_line(fake, content_only):

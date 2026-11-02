@@ -66,6 +66,17 @@ def version(base: str, kind, state) -> str:
     return f"{base}+{_VERSION}" if applies(kind, state) else base
 
 
+def ask_fields(
+    system_base: str, schema_base: dict, version_base: str, kind, state
+) -> dict:
+    """The `rp.Packet` fields this module may change, on either lane."""
+    return {
+        "system": system(system_base, kind, state),
+        "json_schema": schema(schema_base, kind, state),
+        "prompt_version": version(version_base, kind, state),
+    }
+
+
 def cache_model(model: str, kind, state) -> str:
     """Part of the local answer's key: an answer stored without the fields would keep every requirement a row."""
     return f"{model}|{_VERSION}" if applies(kind, state) else model
