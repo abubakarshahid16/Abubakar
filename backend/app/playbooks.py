@@ -380,13 +380,19 @@ def _chunk_of(ev: dict, body: list[dict]) -> dict:
     return next((c for c in body if _where(c) == ev["locator"]), {})
 
 
-def _place(ev: dict, body: list[dict], page: int | None = None, document_id: str = "") -> str:
+def _place(
+    ev: dict, body: list[dict], page: int | None = None, document_id: str = ""
+) -> str:
     """'page N (heading "...")' of an evidence passage, the heading as written."""
     chunk = _chunk_of(ev, body)
     page, heading = page or chunk.get("page_start"), _heading_of(chunk)
     named = f' (heading "{heading[:QUOTE_MAX]}")' if heading else ""
-    group = [{"document_id": document_id, "contractor_evidence_text": ev.get("quote") or ""}]
-    return (word_pages.page_cell(f"page {page}", [page], group) if page else ev["locator"]) + named
+    group = [
+        {"document_id": document_id, "contractor_evidence_text": ev.get("quote") or ""}
+    ]
+    return (
+        word_pages.page_cell(f"page {page}", [page], group) if page else ev["locator"]
+    ) + named
 
 
 def _verified_quote(

@@ -50,7 +50,12 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def _word_doc(
-    tmp_path, doc_id: str, *, marks: bool, saved_pages: int | None, sections=HAZOP_SECTIONS
+    tmp_path,
+    doc_id: str,
+    *,
+    marks: bool,
+    saved_pages: int | None,
+    sections=HAZOP_SECTIONS,
 ) -> str:
     """The playbook's sections as a Word file: each on its own page when `marks`."""
     body = d.para("HAZOP Procedure") + d.para("Document HP-001 revision 0")
@@ -96,7 +101,11 @@ def _not_held(monkeypatch) -> None:
 
 
 def _cites_a_page(rows: list[dict]) -> list[dict]:
-    return [r for r in rows if "unclear:" in r["comment"] or "section found at" in r["comment"]]
+    return [
+        r
+        for r in rows
+        if "unclear:" in r["comment"] or "section found at" in r["comment"]
+    ]
 
 
 def _rows(doc_id: str, held: bool = True) -> list[dict]:
@@ -105,7 +114,9 @@ def _rows(doc_id: str, held: bool = True) -> list[dict]:
     run = submittal_review.create_review_run(
         submittal_document_id=doc_id, allowed_document_ids=frozenset({doc_id})
     )
-    rows, _meta, _name, _stamp = main_mod._crs_content(run, access.unrestricted_scope(), "internal")
+    rows, _meta, _name, _stamp = main_mod._crs_content(
+        run, access.unrestricted_scope(), "internal"
+    )
     mine = [r for r in rows if r["row_kind"] == procedure_playbook_rows.ROW_KIND]
     assert mine
     return mine
@@ -125,13 +136,17 @@ def test_no_page_marks_no_row_names_a_page(tmp_path, monkeypatch, fields):
 
 
 @pytest.mark.parametrize("fields", [False, True])
-def test_no_page_marks_an_unclear_row_cites_no_part_as_a_page(tmp_path, monkeypatch, fields):
+def test_no_page_marks_an_unclear_row_cites_no_part_as_a_page(
+    tmp_path, monkeypatch, fields
+):
     """The owner's case: `cited_page` used to print as a bare "page 1" and, with the
     procedure fields on, after the heading cell as "... - page 1"."""
     _not_held(monkeypatch)
     monkeypatch.setattr(settings, "word_page_markers_enabled", True)
     monkeypatch.setattr(settings, "procedure_crs_fields_enabled", fields)
-    doc_id = _word_doc(tmp_path, "none", marks=False, saved_pages=None, sections=_moved())
+    doc_id = _word_doc(
+        tmp_path, "none", marks=False, saved_pages=None, sections=_moved()
+    )
     rows = _rows(doc_id, held=False)
     cited = _cites_a_page(rows)
     assert cited
@@ -149,12 +164,16 @@ def test_real_pages_an_unclear_row_says_its_page_once(tmp_path, monkeypatch, fie
     monkeypatch.setattr(settings, "word_page_markers_enabled", True)
     monkeypatch.setattr(settings, "procedure_crs_fields_enabled", fields)
     sections = _moved()
-    doc_id = _word_doc(tmp_path, "real", marks=True, saved_pages=len(sections) + 1, sections=sections)
+    doc_id = _word_doc(
+        tmp_path, "real", marks=True, saved_pages=len(sections) + 1, sections=sections
+    )
     rows = _cites_a_page(_rows(doc_id, held=False))
     assert rows
     for row in rows:
         if PAGE_WORDS.search(row["page_section"]):
-            assert len(PAGE_WORDS.findall(row["page_section"])) == 1, row["page_section"]
+            assert len(PAGE_WORDS.findall(row["page_section"])) == 1, row[
+                "page_section"
+            ]
         assert PAGE_WORDS.search(row["comment"]), row["comment"]
 
 
@@ -180,7 +199,9 @@ def test_real_pages_say_their_page_once(tmp_path, monkeypatch, fields):
 
 
 @pytest.mark.parametrize("fields", [False, True])
-def test_partial_marks_are_said_on_the_cell_and_the_comment(tmp_path, monkeypatch, fields):
+def test_partial_marks_are_said_on_the_cell_and_the_comment(
+    tmp_path, monkeypatch, fields
+):
     monkeypatch.setattr(settings, "word_page_markers_enabled", True)
     monkeypatch.setattr(settings, "procedure_crs_fields_enabled", fields)
     rows = _rows(_word_doc(tmp_path, "part", marks=True, saved_pages=99))

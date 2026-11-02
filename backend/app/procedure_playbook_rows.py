@@ -150,7 +150,9 @@ def _row(playbook, report, entry, submittal_name: str, submittal_id: str = "") -
     ev = (entry["evidence"] or [{}])[0] if shown else {}
     # an unclear row's page column is the page its comment cites (the verified one)
     cited = entry.get("cited_page")
-    group = [{"document_id": submittal_id, "contractor_evidence_text": ev.get("quote") or ""}]
+    group = [
+        {"document_id": submittal_id, "contractor_evidence_text": ev.get("quote") or ""}
+    ]
     return {
         "finding_id": "",
         "document_name": submittal_name,
@@ -204,7 +206,8 @@ def crs_rows(
     for pb in sorted(chosen, key=lambda p: p.id):
         report = playbooks.review(submittal_id, pb, allowed_document_ids=allowed)
         rows.extend(
-            _row(pb, report, e, submittal_name, submittal_id) for e in report["elements"]
+            _row(pb, report, e, submittal_name, submittal_id)
+            for e in report["elements"]
         )
     return rows, []
 

@@ -54,7 +54,9 @@ REASON_NOT_FOR_KIND = (
 _PAGE_LEAD = re.compile(r"^p\.\d+(?:-\d+)?(?:, \d+(?:-\d+)?)*(?: - |$)")
 #: A page a row already names in words ("page 2", a locator's "page 2, 4.2 > para 1"):
 #: the printed lead takes its place, so a row never says its page twice.
-_PAGE_WORD_LEAD = re.compile(r"^pages? \d+(?:-\d+)?(?: \(page marks partial\))?(?:, | - |$)")
+_PAGE_WORD_LEAD = re.compile(
+    r"^pages? \d+(?:-\d+)?(?: \(page marks partial\))?(?:, | - |$)"
+)
 _FOUND_QUOTE = re.compile(rf'^{FOUND}: found on page (\d+): "(.+?)" - ', re.S)
 _LABELLED = re.compile(document_kind._NUMBER_LABEL.pattern + r"[\s:.|#-]*(\S*)", re.I)
 
