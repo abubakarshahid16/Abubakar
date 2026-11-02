@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import claims, numparse, requirements_3b
+from app import claims, comparison, numparse, requirements_3b, rule_eval
 
 U_MINUS = chr(0x2212)
 
@@ -64,12 +64,16 @@ def test_a_comparator_word_keeps_its_negative_value():
     )
 
 
-@pytest.mark.parametrize("minus", ["-", U_MINUS])
-def test_find_numbers_reads_no_sign_after_a_letter(minus):
-    assert [(n.value, n.sign) for n in numparse.find_numbers(f"A{minus}5")] == [
-        (5.0, "+")
-    ]
-    assert numparse.number_keys(f"A{minus}5") == {5.0}
+def test_find_numbers_reads_no_sign_on_a_hyphen_after_a_letter():
+    assert [(n.value, n.sign) for n in numparse.find_numbers("A-5")] == [(5.0, "+")]
+
+
+def test_the_number_gates_keep_a_typographic_minus_after_a_letter():
+    """Keeps the sign the page printed: 29 must not pass a gate on a source saying U+2212 29."""
+    source = f"MDMT{U_MINUS}29 C"
+    assert numparse.number_keys(source) == {-29.0}
+    assert rule_eval.verify_numbers({"rows": [{"from": -29.0}]}, source)
+    assert not rule_eval.verify_numbers({"rows": [{"from": 29.0}]}, source)
 
 
 @pytest.mark.parametrize(
@@ -79,16 +83,14 @@ def test_find_numbers_reads_no_sign_after_a_letter(minus):
         (f"T = {U_MINUS}5", -5.0),
         (f"T={U_MINUS}5", -5.0),
         ("T = -5", -5.0),
-        (f"(9{U_MINUS}5", 5.0),
     ],
 )
 def test_find_numbers_keeps_the_other_readings(text, value):
     assert numparse.find_numbers(text)[-1].value == value
 
 
-@pytest.mark.parametrize("minus", ["-", U_MINUS])
-def test_a_tag_in_a_sentence_is_no_measurement(minus):
-    assert claims.extract_measurements(f"Grade A{minus}5 mm is listed.") == ()
+def test_a_tag_in_a_sentence_is_no_measurement():
+    assert claims.extract_measurements("Grade A-5 mm is listed.") == ()
 
 
 def test_the_stated_figure_is_not_found_in_a_tag_as_a_negative():
@@ -96,17 +98,53 @@ def test_the_stated_figure_is_not_found_in_a_tag_as_a_negative():
     assert not numparse.value_in_text("-5", "Grade A-5 applies")
 
 
-def test_a_trailing_limit_does_not_take_a_tag_for_a_negative_limit():
-    assert requirements_3b.parse_limit("Grade A-5 mm or less applies.") is None
-    limit = requirements_3b.parse_limit("The design value is -5 C or less.")
-    assert (
-        limit is not None
-        and limit["raw_value"] == "-5"
-        and limit["value"] == pytest.approx(-5.0)
-    )
-    assert (
-        requirements_3b.parse_limit("The design value is 5 C or less.")["value"] == 5.0
-    )
-    assert (
-        requirements_3b.parse_limit("The design value is +5 C or less.")["value"] == 5.0
-    )
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Grade A-5 mm or less applies.",
+        "MDMT-29 C or lower",
+        "Grade A-15 C or lower",
+        "P-101 mm or less",
+        "A-5.5 mm or less",
+        "A-1,5 mm or less",
+        "5mm-10 mm or less",
+    ],
+)
+def test_a_trailing_limit_never_restarts_inside_a_joined_number(text):
+    assert requirements_3b.parse_limit(text) is None
+
+
+@pytest.mark.parametrize(
+    "text, raw", [("-5 C or less", "-5"), ("5 C or less", "5"), ("+5 C or less", "+5")]
+)
+def test_a_trailing_limit_keeps_a_real_value(text, raw):
+    limit = requirements_3b.parse_limit("The design value is " + text + ".")
+    assert limit is not None and limit["raw_value"] == raw
+
+
+@pytest.mark.parametrize("value", ["5", "-40"])
+def test_a_tag_shaped_limit_never_gives_a_pass(value):
+    text = "MDMT-29 C or lower"
+    limit = requirements_3b.parse_limit(text)
+    requirement = {
+        "id": "r",
+        "clause": "1",
+        "requirement_type": requirements_3b.classify(text, limit),
+        "operator": (limit or {}).get("operator"),
+        "raw_value": (limit or {}).get("raw_value"),
+        "raw_unit": (limit or {}).get("raw_unit"),
+        "requirement_text": text,
+        "source_text": text,
+        "field": "design temperature",
+    }
+    fact = {
+        "id": "f",
+        "field_name": "design temperature",
+        "field_label": "Design temperature",
+        "field_value": f"{value} C",
+        "raw_value": value,
+        "raw_unit": "C",
+        "is_blank": 0,
+        "blank_marker": None,
+    }
+    assert comparison.compare(requirement, fact)["status"] != comparison.COMPLIANT

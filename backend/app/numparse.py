@@ -254,9 +254,8 @@ def sign_before(text: str, start: int) -> tuple[str, int]:
         return "+", start - 1
     lead = text[start - 2] if start >= 2 else ""
     if c in MINUS_SIGNS:
-        # Unambiguous minus; but "29\u2212343" is a subtraction/range and in
-        # "A\u22125" it joins a tag or grade (#1619).
-        if lead and (lead.isdigit() or lead.isalpha() or lead in ")]"):
+        # Unambiguous minus; but "29\u2212343" is a subtraction/range.
+        if lead and (lead.isdigit() or lead in ")]"):
             return "+", start
         return "-", start - 1
     if c in "-\u2010\u2011":

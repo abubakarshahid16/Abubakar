@@ -9,7 +9,6 @@ _T = "tests/test_1619_tag_minus.py"
 _TAG = ("pr1635", "numbers", "honesty")
 _NUM = APP / "numparse.py"
 _PARSE = '    if m.group("num").startswith("-") and prefix[-1:].isalpha():\n'
-_SIGN = '        if lead and (lead.isdigit() or lead.isalpha() or lead in ")]"):\n'
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
@@ -35,25 +34,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAG,
     ),
     Mutation(
-        id="M1635-03",
+        id="M1635-05",
         phase=1635,
-        description="find_numbers reads U+2212 after a letter as a minus again",
-        path=_NUM,
-        anchor=_SIGN,
-        replacement='        if lead and (lead.isdigit() or lead in ")]"):\n',
+        description="a trailing limit restarts on a later digit of a joined number",
+        path=APP / "requirements_3b.py",
+        anchor=r"""    r"(?<![^\W\d_]-)(?<![\d.,])(?P<value>""",
+        replacement=r"""    r"(?<![^\W\d_]-)(?P<value>""",
         target=_T,
-        keyword="find_numbers_reads_no_sign",
-        tags=_TAG,
-    ),
-    Mutation(
-        id="M1635-04",
-        phase=1635,
-        description="find_numbers drops the minus of a real negative after a comparator",
-        path=_NUM,
-        anchor=_SIGN,
-        replacement="        if lead and not lead.isspace():\n",
-        target=_T,
-        keyword="keeps_the_other_readings",
+        keyword="restarts_inside",
         tags=_TAG,
     ),
 )

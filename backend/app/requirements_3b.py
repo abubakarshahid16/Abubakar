@@ -1096,7 +1096,7 @@ def parse_limit_or_range(sentence: str) -> dict | None:
 #: stated a limit and the engine read none. The direction is the shared
 #: vocabulary's (`comparators`), never a second list here.
 _TRAILING_LIMIT = re.compile(
-    r"(?<![^\W\d_]-)(?P<value>(?:\+|(?<![^\W\d_])-)?" + _VALUE + r")\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
+    r"(?<![^\W\d_]-)(?<![\d.,])(?P<value>(?:\+|(?<![^\W\d_])-)?" + _VALUE + r")\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
 
 
 def _parse_trailing_limit(sentence: str) -> dict | None:
