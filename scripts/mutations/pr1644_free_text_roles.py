@@ -32,15 +32,4 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="free_text_comes_from_the_role_table",
         tags=_TAGS,
     ),
-    Mutation(
-        id="M1644-03",
-        phase=1644,
-        description="rule ids and Part labels left out by a scope clause reach the issue copy",
-        path=APP / "crs_export.py",
-        anchor='                meta.get("rulebook_v2_internal_note") if copy == COPY_INTERNAL else "",\n',
-        replacement='                meta.get("rulebook_v2_internal_note"),\n',
-        target=_T,
-        keyword="reach_the_internal_copy_only",
-        tags=_TAGS,
-    ),
 )

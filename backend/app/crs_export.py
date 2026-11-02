@@ -523,15 +523,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # copies. The count and the notice go to the contractor too; the
         # internal copy also lists each part.
         "incomplete_notice": meta.get("incomplete_notice") or "",
-        # The rules a Part's scope clause left out, by Part and rule id, are for the internal audit only.
-        "rulebook_v2_note": " ".join(
-            x
-            for x in (
-                meta.get("rulebook_v2_note"),
-                meta.get("rulebook_v2_internal_note") if copy == COPY_INTERNAL else "",
-            )
-            if x
-        ),
+        "rulebook_v2_note": meta.get("rulebook_v2_note") or "",
         "unchecked_parts": ([str(p) for p in (meta.get("unchecked_parts") or [])]
                             if copy == COPY_INTERNAL else []),
         # B5: WHICH STANDARDS THE REVIEW APPLIED, AND WHY - each with its

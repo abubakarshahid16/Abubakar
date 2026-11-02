@@ -776,11 +776,12 @@ def test_the_note_the_engineer_reads_counts_a_rule_left_out(code, monkeypatch):
     rule = _in(CODE, "XCL-10", 3, LINED_RULE)
     typed = {**_typed(rule["quote"], IS_NOT, ["invented bar steel"]), **rule}
     _run(monkeypatch, run, scope, typed)
-    meta = rulebook_v2_crs.part({}, db.connect(), run, frozenset({CODE}))
-    for said in (meta["review_notes"][0]["detail"], meta["rulebook_v2_internal_note"]):
+    meta = rulebook_v2_crs.part(
+        {"copy": crs_export.COPY_INTERNAL}, db.connect(), run, frozenset({CODE})
+    )
+    for said in (meta["review_notes"][0]["detail"], meta["rulebook_v2_note"]):
         assert "1 outside this equipment type's scope" in said
         assert "(Part XCL 1)" in said and str(typed["rule_id"]) in said
-    assert "Part XCL" not in meta["rulebook_v2_note"]
 
 
 def test_rule_ids_and_part_labels_reach_the_internal_copy_only(code, monkeypatch):
@@ -789,10 +790,13 @@ def test_rule_ids_and_part_labels_reach_the_internal_copy_only(code, monkeypatch
     typed = {**_typed(rule["quote"], IS_NOT, ["invented bar steel"]), **rule}
     _run(monkeypatch, run, scope, typed)
     allowed = frozenset(scope) | {CODE, PLAIN}
-    meta = rulebook_v2_crs.part({}, db.connect(), run, allowed)
     rule_id = str(typed["rule_id"])
     internal, issue = (
-        _every_cell(crs_export.build_crs([], {**meta, "copy": copy}))
+        _every_cell(
+            crs_export.build_crs(
+                [], rulebook_v2_crs.part({"copy": copy}, db.connect(), run, allowed)
+            )
+        )
         for copy in (crs_export.COPY_INTERNAL, crs_export.COPY_ISSUE)
     )
     assert any(rule_id in str(c) and "Part XCL" in str(c) for c in internal)

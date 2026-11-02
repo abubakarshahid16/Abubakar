@@ -92,8 +92,10 @@ def part(
     words = f"{words} {outside}" if outside else words
     return {
         **meta,
-        "rulebook_v2_note": short,
-        "rulebook_v2_internal_note": outside,
+        # The rules left out, by Part and rule id, are for the internal audit: never on the issue copy.
+        "rulebook_v2_note": " ".join(
+            x for x in (short, outside if meta.get("copy") == "internal" else "") if x
+        ),
         "rulebook_v2_rows": [
             _row(f)
             for f in findings
