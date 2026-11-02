@@ -5,6 +5,7 @@ OCR engine is a stub and the vectors are set directly."""
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 
 import pymupdf
@@ -751,6 +752,84 @@ def test_rollback_leaves_a_document_still_embedding_alone(tmp_path, monkeypatch)
         conn.execute("SELECT status FROM documents WHERE id = ?", (held,)).fetchone()[0]
         == states.READY
     )
+
+
+def _finished_partial(tmp_path, doc_id: str, *, chunks: int = 3) -> str:
+    """Partially searchable, every vector there and indexed: what a held document looks like."""
+    doc = _ingest(_pdf_file(tmp_path, name=f"{doc_id}.pdf"), doc_id)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE documents SET chunk_count = ?, embedded_count = ?, indexed_at = ? WHERE id = ?",
+            (chunks, chunks, NOW, doc),
+        )
+    return doc
+
+
+def _store_row(doc: str, unaccounted: int) -> None:
+    conn = db.connect()
+    reading_state._ensure_table(conn)
+    with conn:
+        conn.execute(
+            "INSERT INTO document_reading (document_id, summary, decided_at) VALUES (?,?,?)",
+            (
+                doc,
+                json.dumps({"unaccounted": unaccounted, "ready": unaccounted == 0}),
+                NOW,
+            ),
+        )
+
+
+def _status(doc: str) -> str:
+    return (
+        db.connect()
+        .execute("SELECT status FROM documents WHERE id = ?", (doc,))
+        .fetchone()[0]
+    )
+
+
+def test_rollback_leaves_an_older_document_with_no_decision_alone(
+    tmp_path, monkeypatch
+):
+    held = _held(tmp_path, monkeypatch)
+    older = _finished_partial(tmp_path, "older")
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
+    assert reading_state.release_held() == 1
+    assert _status(held) == states.READY
+    assert _status(older) == states.PARTIALLY_SEARCHABLE
+
+
+def test_rollback_needs_a_stored_decision_saying_something_is_unaccounted(
+    tmp_path, monkeypatch
+):
+    doc = _finished_partial(tmp_path, "saidready")
+    _store_row(doc, 0)
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
+    assert reading_state.release_held() == 0
+    assert _status(doc) == states.PARTIALLY_SEARCHABLE
+
+
+def test_rollback_leaves_a_document_with_no_chunks_alone(tmp_path, monkeypatch):
+    doc = _finished_partial(tmp_path, "nochunks", chunks=0)
+    _store_row(doc, 1)
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
+    assert reading_state.release_held() == 0
+    assert _status(doc) == states.PARTIALLY_SEARCHABLE
+
+
+def test_a_failed_release_never_stops_the_worker_starting(monkeypatch):
+    ran = []
+
+    def broken():
+        raise OSError("no database")
+
+    monkeypatch.setattr(ingest, "_worker", None)
+    monkeypatch.setattr(
+        ingest.IngestionWorker, "start", lambda self: ran.append("started")
+    )
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
+    monkeypatch.setattr(reading_state, "connect", broken)
+    ingest.start_worker()
+    assert ran == ["started"]
 
 
 def test_rollback_with_nothing_ever_held_writes_nothing(monkeypatch):

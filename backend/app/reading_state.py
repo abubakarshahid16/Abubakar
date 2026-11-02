@@ -29,6 +29,7 @@ document a caller already reads. Counts and places only, never page text.
 from __future__ import annotations
 
 import json
+import logging
 import zipfile
 from datetime import UTC, datetime
 
@@ -37,6 +38,8 @@ from pydantic import BaseModel
 from . import errors, states, stored_paths
 from .config import settings
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 STATE_READ, STATE_LISTED, STATE_UNACCOUNTED = "read", "listed", "unaccounted"
 UNIT_PAGE, UNIT_PART, UNIT_PICTURE = "page", "part", "picture"
@@ -528,33 +531,42 @@ def readable(scope) -> dict[str, dict]:
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_reading'"
     ).fetchone():
         return {}
-    rows = conn.execute("SELECT document_id, summary FROM document_reading").fetchall()
-    return {
-        r["document_id"]: json.loads(r["summary"])
-        for r in rows
-        if scope.may_read(r["document_id"])
-    }
+    rows = conn.execute(
+        "SELECT document_id, summary FROM document_reading"
+        " WHERE document_id IN (SELECT value FROM json_each(?))",
+        (json.dumps(sorted(scope.allowed_document_ids)),),
+    ).fetchall()
+    return {r["document_id"]: json.loads(r["summary"]) for r in rows}
 
 
 def release_held() -> int:
     """ROLLBACK. Only this module holds a document back from READY, so with the switch off
-    (seen at server start: a switch only changes on a restart) every document it held goes
-    where the old rule puts it, and what it stored goes too. Nothing is re-read, and the
-    hooks ran when it was held. Off with nothing ever held: one read, nothing written."""
+    (seen at server start: a switch only changes on a restart) a document it HELD goes where
+    the old rule puts it, and what it stored goes too. Held means its stored decision says
+    something is unaccounted and it has chunks, all with vectors: an older document with no
+    decision, or one whose decision says ready, stays as it is. Nothing is re-read, and the
+    hooks ran when it was held. Off with nothing ever held: one read, nothing written. A
+    failure here never stops the worker starting; it is logged, with the count only."""
     if settings.one_checked_definition_enabled:
         return 0
-    conn = connect()
-    if not conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_reading'"
-    ).fetchone():
-        return 0
-    with conn:
-        done = conn.execute(
-            "UPDATE documents SET status = ? WHERE status = ? AND embedded_count >= chunk_count"
-            " AND indexed_at IS NOT NULL AND id IN (SELECT document_id FROM document_reading)",
-            (states.READY, states.PARTIALLY_SEARCHABLE),
-        ).rowcount
-        conn.execute("DELETE FROM document_reading")
+    try:
+        conn = connect()
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_reading'"
+        ).fetchone():
+            return 0
+        with conn:
+            done = conn.execute(
+                "UPDATE documents SET status = ? WHERE status = ? AND chunk_count > 0"
+                " AND embedded_count >= chunk_count AND indexed_at IS NOT NULL AND id IN ("
+                "SELECT document_id FROM document_reading"
+                " WHERE json_extract(summary, '$.unaccounted') > 0)",
+                (states.READY, states.PARTIALLY_SEARCHABLE),
+            ).rowcount
+            conn.execute("DELETE FROM document_reading")
+    except Exception as exc:  # noqa: BLE001 - logged; the release is tried at the next start
+        return errors.fell_back("reading_state: held documents not released", exc, 0)
+    log.info("reading_state: %d held document(s) released", done)
     return done
 
 
