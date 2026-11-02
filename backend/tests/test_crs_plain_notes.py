@@ -123,7 +123,7 @@ def test_the_tick_note_counts_the_open_rows_and_says_why(monkeypatch):
     detail = note["detail"]
     assert detail.startswith("2 rows of this sheet say ENGINEER TO TICK.")
     assert "safety field" in detail and "on purpose" in detail
-    assert "does not wait for the tick" in detail
+    assert detail.endswith(absence.TICK_CODE_READS)
     assert "does not count" not in detail, "the review code does count them as met"
     assert absence.tick_note([_tick()])["detail"].startswith(
         "1 row of this sheet says ENGINEER TO TICK."
@@ -131,18 +131,26 @@ def test_the_tick_note_counts_the_open_rows_and_says_why(monkeypatch):
     assert absence.tick_note(rows[2:]) is None
 
 
-def test_what_the_note_says_of_the_code_is_what_the_code_does():
-    """A run of open ticks alone is recommended as approved: the note must say the code
-    does not wait. If the code changes, this fails and the note's words must change."""
+def test_what_the_note_says_of_the_code_is_what_the_code_does(monkeypatch):
+    """Switch off, open ticks alone are recommended as approved: the note must say the code
+    does not wait. On, the code waits. If the code changes, this fails: change the words."""
     tick = {
         "compliance_status": "COMPLIANT",
         "severity": "low",
         "show_for_engineer_tick": 1,
     }
-    result = comparison.recommend_code(
-        [tick, tick], {"completeness": 1.0, "sufficient": True}
-    )
+    enough = {"completeness": 1.0, "sufficient": True}
+    result = comparison.recommend_code([tick, tick], enough)
     assert result["code"] == comparison.review_codes()[0]
+    assert "does not wait" in absence.TICK_CODE_READS
+    monkeypatch.setattr(settings, "crs_plain_notes_enabled", True)
+    assert absence.tick_note([_tick()])["detail"].endswith(absence.TICK_CODE_READS)
+
+    monkeypatch.setattr(settings, "tick_holds_review_code_enabled", True)
+    result = comparison.recommend_code([tick, tick], enough)
+    assert result["code"] == comparison.review_codes()[3]
+    assert "waits for the tick" in absence.TICK_CODE_WAITS
+    assert absence.tick_note([_tick()])["detail"].endswith(absence.TICK_CODE_WAITS)
 
 
 def _shown(row, copy="internal"):

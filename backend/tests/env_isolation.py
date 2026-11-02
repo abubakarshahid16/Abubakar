@@ -273,6 +273,8 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_plain_notes_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,
+    # --- local only, no model or socket: the review code waits for the engineer's tick (#1584, off by default)
+    "tick_holds_review_code_enabled": False,
     "owner_approved_rules_decide_enabled": False,
     # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
     "procedure_crs_fields_enabled": False,

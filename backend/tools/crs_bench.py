@@ -631,7 +631,11 @@ def use_settings_of(env_file: Path) -> None:
         setattr(settings, name, getattr(fresh, name))
 
 
-BENCH_SWITCHES = ("datasheet_one_value_enabled", "owner_approved_rules_decide_enabled")
+BENCH_SWITCHES = (
+    "datasheet_one_value_enabled",
+    "owner_approved_rules_decide_enabled",
+    "tick_holds_review_code_enabled",
+)
 
 
 def fingerprint() -> str:

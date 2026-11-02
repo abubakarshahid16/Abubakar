@@ -612,7 +612,7 @@ def test_an_unticked_safety_pass_is_never_an_approved_code():
     assert "1 safety value" in out["reason"] and "tick" in out["reason"]
     # stored, so it says when it was true: a tick after this time does not rewrite it
     assert re.search(
-        r"at \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC, when this review ran", out["reason"]
+        r"at \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC, when this code was worked out", out["reason"]
     )
     assert "waits" not in out["reason"]
 

@@ -179,6 +179,7 @@ def test_the_baseline_holds_the_d2_count_and_says_which_switch_it_was_made_on(
     assert all(
         b["config"].endswith(
             "datasheet_one_value_enabled=True owner_approved_rules_decide_enabled=False"
+            " tick_holds_review_code_enabled=False"
         )
         for b in _baseline()
     )

@@ -253,6 +253,11 @@ class SettingsExt(BaseModel):
     #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
     #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
     one_checked_definition_enabled: bool = False
+    #: Owner on #1584: the review code waits for the engineer's tick. While any safety row is open, a
+    #: sheet that would be approved is Manual Review Required (`rule_trust.hold_open_ticks`); a breach
+    #: stays Rejected; a tick looks at the stored code again (`tick_code`); an engineer's final code
+    #: stays theirs. OFF: as before. Env: TICK_HOLDS_REVIEW_CODE_ENABLED.
+    tick_holds_review_code_enabled: bool = False
     #: Owner's text on #1584: a rule the owner approved (`approval.tier == "owner"`) may decide a verdict, labelled
     #: "AI-built, quote-verified, owner-approved" (`rule_trust.tier_for_approved`), never "engineer-approved". Code
     #: still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick and, until ticked, no Approved

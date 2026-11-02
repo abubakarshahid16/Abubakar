@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import finding_query, pdf_guard, severity_rule
+from . import finding_query, pdf_guard, severity_rule, tick_code
 from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
@@ -727,7 +727,7 @@ def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) 
         detail = ({**changed, "engineer_comment_before": current.get("engineer_comment")}
                   if "engineer_comment" in changed else changed)
         _event(conn, finding_id, "updated", detail, actor_user_id, now)
-    return get(finding_id)
+    return tick_code.checked(get(finding_id), actor_user_id)
 
 
 def _file_tag(document_id: str) -> str:

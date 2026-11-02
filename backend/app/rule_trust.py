@@ -81,6 +81,7 @@ from . import (
     rule_eval,
 )
 from .config import settings
+from .crs_decider import tick_done
 
 log = logging.getLogger(__name__)
 
@@ -462,27 +463,32 @@ def run_has_a_record(rows: list[dict]) -> bool:
 
 
 def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) -> dict:
-    """An owner-approved rule's safety Pass an engineer has not ticked is not an approval (owner's words on #1584):
-    a sheet that would be approved, with or without comments, is a manual review until it is ticked. A breach stays a
-    breach. Findings carrying the owner's label only: every other run's code stays as it was."""
+    """THE ONE PATH for a safety Pass an engineer has not ticked (`crs_decider.tick_done`; owner
+    on #1584): a sheet that would be approved, with or without comments, is a manual review
+    until it is ticked. A breach stays a breach. An owner-approved rule's row always holds; with
+    TICK_HOLDS_REVIEW_CODE_ENABLED every label's does. Off, every other run's code stays as it was.
+    A stored code is looked at again after a tick by `tick_code`."""
+    every_label = settings.tick_holds_review_code_enabled
     still_open = [
         f
         for f in findings
-        if f.get("trust_label") == OWNER_APPROVED
+        if (every_label or f.get("trust_label") == OWNER_APPROVED)
         and f.get("show_for_engineer_tick")
         and f.get("compliance_status") == COMPLIANT
-        and not f.get("confirmed_by")
+        and not tick_done(f)
     ]
     if not still_open or result["code"] not in (codes[0], codes[1]):
         return result
     n = len(still_open)
+    owners = all(f.get("trust_label") == OWNER_APPROVED for f in still_open)
+    rule = "an owner-approved rule" if owners else "a tested or approved rule"
     return {
         **result,
         "code": codes[3],
         "reason": (
-            # dated: the reason is stored, and a tick after this time does not rewrite it
-            f"Manual review: at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this review ran, {n} safety "
-            f"value{'s' if n != 1 else ''} met an owner-approved rule and "
+            # dated: the reason is stored, and a later tick rewrites it only if the code changes
+            f"Manual review: at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this code was worked out, "
+            f"{n} safety value{'s' if n != 1 else ''} met {rule} and "
             f"{'were' if n != 1 else 'was'} waiting for an engineer's tick, so the sheet was not called approved"
         ),
         "open_safety_ticks": n,

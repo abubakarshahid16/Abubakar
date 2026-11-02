@@ -41,6 +41,16 @@ _STEP_WORDS = {
 }
 #: The Review note on rows an engineer has still to tick (`tick_note`).
 TICK_NOTE = "Rows for the engineer to tick"
+TICK_CODE_WAITS = (
+    "The recommended review code waits for the tick: while any such row is open it is a manual"
+    " review, unless a requirement is shown not met, which stays a rejection. Once all are"
+    " ticked it is the code the other rows support, until an engineer records one."
+)
+TICK_CODE_READS = (
+    "The recommended review code does not wait for the tick, except on a rule the owner"
+    " approved: it reads these results as met, and it stays the AI's recommendation until an"
+    " engineer records one."
+)
 
 #: Answer types that are a finished answer.
 _FINISHED_TYPES = frozenset({"extract", "generated", "comparison"})
@@ -441,8 +451,8 @@ def tick_note(rows: list[dict]) -> dict | None:
     rows on this sheet (`crs_mapping`: a tested rule's Pass on a safety field). None with
     the switch off, or with none open. A ticked row no longer says it
     (`crs_export_quality.ticked_words`), so this counts the rows that do. It says what
-    the code does: `comparison.recommend_code` reads these results as met, tick or no
-    tick (a test holds the two together; change the words if the code changes)."""
+    the code does, switch on and off (`rule_trust.hold_open_ticks`; a test holds them
+    together; change the words if the code changes)."""
     from .crs_mapping import ROW_KIND_SAFETY_TICK
 
     if not settings.crs_plain_notes_enabled:
@@ -462,8 +472,11 @@ def tick_note(rows: list[dict]) -> dict | None:
             f"{n} row{'s' if n != 1 else ''} of this sheet say{'' if n != 1 else 's'}"
             " ENGINEER TO TICK. A tested rule found the value meets the standard, and the"
             " field is a safety field, so the result waits for an engineer to read the value"
-            " on the page and tick: it is on purpose, and it is not a fault. The recommended"
-            " review code does not wait for the tick: it reads these results as met, and"
-            " it stays the AI's recommendation until an engineer records one."
+            " on the page and tick: it is on purpose, and it is not a fault. "
+            + (
+                TICK_CODE_WAITS
+                if settings.tick_holds_review_code_enabled
+                else TICK_CODE_READS
+            )
         ),
     }

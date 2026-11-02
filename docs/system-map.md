@@ -242,6 +242,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `passages` | Small-to-big: search small, show big |
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |
 | `spec_kit` | #1479 (preparation): a DRAFT must-contain list per discipline (`reference/spec_kit/`) looked up in a specification's own pages, no model; found = engineer row with verified quote, not found = ONE note; numeric limits cross-checked with a datasheet of the same number or tag; never a verdict; off by default. Also routes a parked KIND (`reference/kind_kits/`, drawing from SAES-A-202, #1484) behind `parked_kits_draft_enabled` |
+| `tick_code` | Owner on #1584: a change to a safety tick row works the run's stored review code out again, behind TICK_HOLDS_REVIEW_CODE_ENABLED; an engineer's final code stays theirs |
 | `transmittal_kit` | #1482: a transmittal's header fields, listed documents (revision, sheets) against the held documents' covers and page counts, and a required-submissions list named at run time (client data, local DB only); no model; engineer rows only, never a verdict; behind `transmittal_kit_enabled` (off by default) |
 | `procedure_text` | A procedure submittal's own page text answers its requirements: engineer row with a verified quote, or missing; never compliant (#1476) |
 | `procedure_crs` | Order 4c: the CRS fields of a procedure or other non-datasheet kind: no equipment type, the page from the verified quote, the suggested document number; behind `procedure_crs_fields_enabled` |
