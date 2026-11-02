@@ -1,8 +1,8 @@
 """#805 plan change 6: what the CRS says about version 2 rules. Only with RULEBOOK_V2_REVIEW_ENABLED on.
 
 A Pass makes no CRS row, so a rule that met on every valve would leave no trace of who stands behind it. This adds, to the
-internal copy only, one row per tag for each Pass, and a Review note with the run's line and the labels. The issue copy's
-rows do not change: these rows are never engineer-confirmed, and no CRS number is given to them. An unticked safety Pass
+internal copy only, one row per tag for each Pass, and a Review note with the run's line and the labels; and, on both
+copies, one short line in a cell of its own. The issue copy's rows, item numbers and reply import do not change: these rows are never engineer-confirmed, and no CRS number is given to them. An unticked safety Pass
 already has its own row, so it gets no second one.
 """
 
@@ -73,10 +73,18 @@ def part(
     if not findings and not stated:
         return meta
     labels = sorted({w for f in findings for w in labels_of(f)})
+    decided = (stated or {}).get("decided") or 0
+    short = (
+        f"Rulebook version 2: {decided} of {stated.get('rules')} approved rules decided by code. "
+        f"{'; '.join(labels)}. Not yet confirmed by an engineer."
+        if decided and labels
+        else ""
+    )
     said = (stated or {}).get("line") or ""
     words = f"{said} Labels on these rules: {'; '.join(labels)}." if labels else said
     return {
         **meta,
+        "rulebook_v2_note": short,
         "rulebook_v2_rows": [
             _row(f)
             for f in findings

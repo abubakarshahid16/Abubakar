@@ -5,16 +5,19 @@ until the two pieces that hold them land."""
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import sqlite3
 import uuid
 
+import openpyxl
 import pytest
 
 from app import (
     comparison,
     coverage_pair,
     crs_export,
+    crs_reply,
     datasheet_checks,
     datasheets,
     db,
@@ -1061,3 +1064,75 @@ def test_the_internal_copys_audit_adds_up_with_the_rows_it_adds(monkeypatch):
     assert len(told["rulebook_v2_rows"]) == 4
     said = review_audit_rows.crs_reconciliation([], told)
     assert said["audit_rows"] == said["exported_rows"] == 4 and said["adds_up"] is True
+
+
+def _cells(data):
+    book = openpyxl.load_workbook(io.BytesIO(data))
+    return [
+        str(c.value) for line in book.worksheets[0].iter_rows() for c in line if c.value
+    ]
+
+
+def test_the_short_note_is_on_both_copies(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    for copy in (crs_export.COPY_INTERNAL, crs_export.COPY_ISSUE):
+        told, view = _view(run, copy)
+        assert view["rulebook_v2_note"].startswith(
+            "Rulebook version 2: 1 of 1 approved rules decided by code."
+        )
+        assert "Not yet confirmed by an engineer." in view["rulebook_v2_note"]
+        assert "AI-built, quote-verified, owner-approved" in view["rulebook_v2_note"]
+        assert RUN_FACT_LABEL not in view["rulebook_v2_note"]
+        assert view["rulebook_v2_note"] in _cells(crs_export.build_crs([], told))
+
+
+def test_the_note_leaves_rows_numbers_and_reply_import_alone(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    told = _view(run, crs_export.COPY_ISSUE)[0]
+    assert told["rulebook_v2_note"]
+    numbered = [
+        {
+            "comment": "An invented comment.",
+            "engineer_confirmed": True,
+            "crs_ref": "CRS-INVENTED-001",
+            "document_name": "d",
+            "page_section": "p",
+            "comment_by": "b",
+        }
+    ]
+    without = {k: v for k, v in told.items() if k != "rulebook_v2_note"}
+    assert (
+        crs_export.build_crs_view(numbered, told)["rows"]
+        == crs_export.build_crs_view(numbered, without)["rows"]
+    )
+    replies = crs_reply.read_replies(crs_export.build_crs(numbered, told))
+    assert replies == crs_reply.read_replies(crs_export.build_crs(numbered, without))
+    assert [r["item"] for r in replies if r["item"].startswith("CRS-")] == [
+        "CRS-INVENTED-001"
+    ]
+
+
+def test_no_decided_rule_no_note(monkeypatch):
+    run, scope = _sheet()
+    _review(
+        monkeypatch,
+        run,
+        scope,
+        _rule(field="Invented gadget thickness", unit="mm", value=2.0),
+    )
+    told = run_parts.crs_part(
+        {"review_notes": []}, _conn(), run, frozenset({"std-1", SHEET})
+    )
+    assert told["rulebook_v2_note"] == ""
+
+
+def test_a_reader_with_no_grant_gets_no_note(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    assert (
+        _view(run, crs_export.COPY_ISSUE, frozenset({SHEET}))[0]["rulebook_v2_note"]
+        == ""
+    )
+
+
+def test_switch_off_no_note():
+    assert crs_export.build_crs_view([], {"review_notes": []})["rulebook_v2_note"] == ""
