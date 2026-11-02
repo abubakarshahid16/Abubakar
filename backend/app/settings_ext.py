@@ -14,9 +14,9 @@ class SettingsExt(BaseModel):
     standards_compiler_enabled: bool = False
     #: The model it asks. Env: STANDARDS_COMPILER_MODEL.
     standards_compiler_model: str = "claude-sonnet-5-5"
-    #: Standard families it may send. API and ASME by the owner's decision on #1584 (2 Nov 2026), for this compiler
+    #: Standard families it may send. API, ASME and NACE (cited as ISO 15156 / NACE MR0175) by the owner's decision on #1584 (2 Nov 2026), for this compiler
     #: only (the old converter keeps its own list). Setting it can narrow the list. Env: STANDARDS_COMPILER_FAMILIES.
-    standards_compiler_families: str = "SAES,ISO,API,ASME"
+    standards_compiler_families: str = "SAES,ISO,API,ASME,NACE"
     #: The default of `--max-usd`: the owner's USD 100 a day, across every standard, read from the spend ledger.
     #: Env: STANDARDS_COMPILER_MAX_USD_PER_DAY.
     standards_compiler_max_usd_per_day: float = Field(100.0, gt=0)
