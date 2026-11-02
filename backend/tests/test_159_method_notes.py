@@ -170,6 +170,26 @@ def test_the_clause_unit_and_the_copies_notes_are_kept_off_too():
     assert method_notes.OPEN not in comment
 
 
+def test_a_pairing_note_is_kept_off_too_when_a_row_counts_what_it_asks():
+    """#1646 (M1204-02). Since K7/K8 the contractor comment carries no reason,
+    so the reason's own words no longer show it - but a field row still COUNTS
+    what it asks from each finding's reason. Two copies of one field asking
+    the same thing, paired differently, ask ONE thing: the pairing notes are
+    the program's words and must not make the contractor's row look like two
+    asks ("Clarification requested on ...", a supporting-clause list)."""
+    reason = "unit_mismatch: the units differ."
+    a = _finding(f"{reason} {method_notes.wrap(['field linked through the synonym table as x'])}",
+                 id="f1", crs_field_label="Flange rating")
+    b = _finding(f"{reason} {method_notes.wrap(['the same field is also on the sheet (page 5)'])}",
+                 id="f2", crs_field_label="Flange rating", contractor_page=3, fact_id="fb")
+    group = [a, b]
+    assert crs_mapping.point_count(group) == 1
+    assert crs_mapping.group_action(group) is None
+    comment = crs_mapping.engineer_comment_text(group)
+    assert "Supporting clause" not in comment
+    assert comment.count("Clarification requested") == 1
+
+
 @pytest.mark.usefixtures("temp_storage")
 def test_a_finding_with_no_notes_is_unchanged():
     stored = _run_with_copies([(2, "350 psi")])[0]["ai_rationale"] or ""

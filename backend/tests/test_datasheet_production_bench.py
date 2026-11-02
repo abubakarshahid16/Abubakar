@@ -168,6 +168,40 @@ def test_an_ai_only_fact_whose_quote_is_not_on_the_page_is_not_stored():
                    for f in out["facts"])
 
 
+def test_the_ai_reads_a_workbook_page_with_its_labels(monkeypatch):
+    """#1651 (M1720), fast and model-free: the page text the AI reader is given
+    for an office datasheet is the rendered page, labels beside their values -
+    never MuPDF's numbers-only reading of the workbook. (The slow test above
+    proves the same through the whole upload path.)"""
+    with_labels = re.compile(r"^Capacity \| m3/h \| 42$", re.M)
+    monkeypatch.setattr(settings, "datasheet_office_input", True)
+    text = datasheet_ai.page_text(str(XLSX), 1, [])
+    assert with_labels.search(text), text
+    # Control: the switch off, the workbook is not an office input here.
+    monkeypatch.setattr(settings, "datasheet_office_input", False)
+    assert not with_labels.search(datasheet_ai.page_text(str(XLSX), 1, []))
+
+
+def test_an_ai_only_quote_is_not_on_the_page_of_a_real_bench_sheet_so_it_is_not_kept():
+    """#1651 (M1737), fast and model-free: the AI reader, on the real text of a
+    benchmark PDF page, drops a proposal whose quote that page does not carry,
+    and keeps one whose quote it does (the control: the gate is not shut)."""
+    page = datasheet_ai.page_text(str(PSV), 1, [])
+    assert page.strip(), "anti-vacuity: the page must have text to check against"
+
+    def proposals(_page):
+        return [{"field": "Spring material", "value": "Inconel X-750", "unit": None,
+                 "quote": "Spring material : Inconel X-750", "kind": "offered"},
+                {"field": "Body material", "value": "Carbon steel", "unit": None,
+                 "quote": "Body material : Carbon steel", "kind": "offered"}]
+
+    read = datasheet_ai.read_pages({1: page}, _model(proposals))["pages"][1]
+    kept = {f["field"] for f in read["accepted"]}
+    assert "Spring material" not in kept, "an invented quote reached the facts"
+    assert "Body material" in kept
+    assert read["counts"].get("quote_not_on_page") == 1
+
+
 @pytest.mark.slow
 def test_a_disagreement_is_stored_as_a_conflict_and_counted(key):
     """The AI reads field A with row B's value (a quote from A's label to B's
