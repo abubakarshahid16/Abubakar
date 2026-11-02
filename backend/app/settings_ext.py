@@ -316,6 +316,10 @@ class SettingsExt(BaseModel):
     #: the signed-in user (`Me.session_expired_notice`). OFF: the form with no reason and no extra
     #: request, as before. Env: SESSION_EXPIRED_NOTICE_ENABLED.
     session_expired_notice_enabled: bool = False
+    #: #1592 items d and e: the CRS notice names each part that could not be checked by what it is,
+    #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
+    #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
+    crs_plain_notes_enabled: bool = False
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print
