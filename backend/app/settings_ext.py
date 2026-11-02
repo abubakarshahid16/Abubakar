@@ -28,6 +28,12 @@ class SettingsExt(BaseModel):
     #: 1 (`rulebook_v2_review.py`). Needs RULEBOOK_V2_ENABLED and the tables, so a database copy today. OFF: a review
     #: reads none of it and is byte-identical. Env: RULEBOOK_V2_REVIEW_ENABLED.
     rulebook_v2_review_enabled: bool = False
+    #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
+    #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
+    #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
+    rule_field_naming_engine: str = "off"
+    #: The model of that step. Env: RULE_FIELD_NAMING_MODEL.
+    rule_field_naming_model: str = "claude-haiku-5-5"
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every

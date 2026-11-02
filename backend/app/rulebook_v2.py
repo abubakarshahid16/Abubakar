@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -423,6 +424,22 @@ def checklist_stamp(equipment_type: str, rows) -> str:
     return "rb2-" + hashlib.sha256(blob).hexdigest()[:24]
 
 
+def field_role_of(conn, version_id: str) -> dict:
+    """The role the field-naming step gave the compiled row this version came from: its role, state and reason, all
+    None when the step has not run or a copy has no such column. Never a reason to decide: `rule_field_naming`."""
+    names = ("field_role", "field_role_state", "field_role_reason")
+    try:
+        row = conn.execute(
+            f"SELECT {', '.join('c.' + n for n in names)} FROM rulebook_compiled_row l"
+            " JOIN compiled_rules c ON c.id = l.compiled_row_id"
+            " WHERE l.rule_version_id = ? ORDER BY l.rowid DESC LIMIT 1",
+            (version_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    return dict(zip(names, row or (None, None, None), strict=True))
+
+
 def approved_rules(conn, equipment_type: str) -> list[dict]:
     """The rules a review of this equipment type may use: the current version of a rule, when the last decision on it
     for this type is a person's approval. An unapproved or superseded rule never appears: a rule whose newest reading
@@ -467,6 +484,7 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
                 "applies_to": next((k[1] for k in keys if k[0] == "subject"), None),
                 "conditions": [k[1] for k in keys if k[0] != "subject"],
                 "exceptions": [e[0] for e in exceptions],
+                **field_role_of(conn, row[0]),
                 "clause": source[0],
                 "page": source[1],
                 "quote": source[2],

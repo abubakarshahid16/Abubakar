@@ -1136,6 +1136,9 @@ def test_the_compilers_seam_fills_the_book_on_and_does_nothing_off(monkeypatch):
 
 
 CONTRACT_KEYS = {
+    "field_role",
+    "field_role_state",
+    "field_role_reason",
     "rule_id",
     "version",
     "field",

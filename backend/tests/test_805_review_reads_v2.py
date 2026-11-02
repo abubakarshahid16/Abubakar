@@ -766,6 +766,8 @@ def test_pair_rule_to_document_says_what_the_review_would_pair_and_writes_nothin
     rule = {"field": "Set pressure", "quote": SENTENCE, "unit": "barg"}
     conn = _read_only()
     said = rulebook_v2_review.pair_rule_to_document(conn, SHEET, rule)
+    assert said["role"] == "set_pressure"
+    del said["role"], said["not_on_datasheet_reason"]
     assert said == {"paired": True, "reason": None, "value_read": "9 barg", "page": 1}
 
 
@@ -779,6 +781,7 @@ def test_pair_rule_to_document_names_the_reason_and_needs_no_approval_and_gives_
         said = rulebook_v2_review.pair_rule_to_document(
             conn, SHEET, {"field": field, "quote": "Invented sentence."}
         )
+        del said["role"], said["not_on_datasheet_reason"]
         assert said == {
             "paired": False,
             "reason": reason,

@@ -55,7 +55,13 @@ ONLY_UNDER_QUALIFIER = (
 )
 SEVERAL_VALUES = "several_values"
 PAIR_REFUSED = "pair_refused"  # `match_rules` refuses or doubts the pair
+NOT_ON_DATASHEET = "not_on_datasheet"  # the field-naming step: no field of the type's list answers this rule
+ROLE_NOT_VERIFIED = (
+    "role_not_verified"  # the field-naming step proposed a role code could not verify
+)
 PAIR_REASONS = (
+    NOT_ON_DATASHEET,
+    ROLE_NOT_VERIFIED,
     NO_SUCH_FIELD,
     NOT_MENTIONED,
     LEFT_BLANK,
@@ -121,6 +127,8 @@ def as_requirement(rule: dict) -> dict:
     """The one place a rule's contract names become the names the comparison and `rule_trust` read. `approval` rides
     along for `rule_trust`; `confirmed_by` is never set: that path means an engineer's own approval."""
     unit = rule.get("unit")
+    if rule.get("value") is None and rule.get("limit_value") is not None:
+        rule = {**rule, "value": rule["limit_value"]}
     has_figure = rule.get("value") is not None and rule.get("comparator") is not None
     quote = rule.get("quote") or ""
     return {
@@ -156,7 +164,13 @@ def pair(rule: dict, facts: list[dict], equipment_type: str | None) -> Pair:
     rules = datasheet_checks.load_rules()
     wanted = datasheet_roles.wanted_roles(equipment_type, rules)
     name = rule.get("field") or ""
-    role = datasheet_checks.role_of(name, rules, wanted)
+    named = rule.get("field_role_state")
+    if named == NOT_ON_DATASHEET:
+        return Pair(None, NOT_ON_DATASHEET, None)
+    if named and named != "verified":
+        return Pair(None, ROLE_NOT_VERIFIED, None)
+    role = rule.get("field_role") if named else None
+    role = role or datasheet_checks.role_of(name, rules, wanted)
 
     def role_of_fact(fact: dict) -> str | None:
         return datasheet_checks.role_of(fact.get("field_name") or "", rules, wanted)
@@ -218,6 +232,10 @@ def pair_rule_to_document(
         "reason": found.reason,
         "value_read": None if fact is None else _value_read(fact),
         "page": None if fact is None else fact.get("page"),
+        "role": found.role,
+        "not_on_datasheet_reason": rule.get("field_role_reason")
+        if found.reason == NOT_ON_DATASHEET
+        else None,
     }
 
 
