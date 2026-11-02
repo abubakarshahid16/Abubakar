@@ -137,8 +137,20 @@ def test_crs_review_note_says_no_field_taken_when_on():
     )
     note = next(n for n in notes if n["count"] == 1)
     assert note["note"] == page_not_read.NOTE_NO_FIELD_PAGES
-    assert "no datasheet field was taken from pages 1-3" in note["detail"]
+    # an unread page is never also counted as no field taken
+    assert "page 2 was not read" in note["detail"]
+    assert "pages 1, 3 had no datasheet field taken from them" in note["detail"]
     assert "not yet read" not in note["detail"]
+
+
+def test_crs_review_note_on_only_unread_pages_is_not_called_no_field():
+    cov = {**ON, "pages_not_read": [1, 2, 3]}
+    notes = crs_mapping.build_review_notes(
+        [_unread_finding()], [], [1, 2, 3], {"page_coverage": cov}
+    )
+    note = next(n for n in notes if n["count"] == 1)
+    assert note["note"] == page_not_read.NOTE_PAGE_NOT_READ
+    assert "no datasheet field" not in note["detail"]
 
 
 def test_crs_review_note_unchanged_when_off():
@@ -155,7 +167,8 @@ def test_crs_review_note_unchanged_when_off():
     [
         (
             ON,
-            "pages 1-3 had no datasheet field taken from them, so the value may be there",
+            "page 2 was not read; pages 1, 3 had no datasheet field taken from them, "
+            "so the value may be there",
         ),
         (OFF, "pages 1-3 were not read into fields, so the value may be there"),
     ],
@@ -193,3 +206,51 @@ def test_the_held_approval_words_follow_the_switch_and_the_hold_stays(cov, words
     assert out["code"] == comparison.CODE_MANUAL
     assert out.get("reading_incomplete") is True
     assert words in out["reason"]
+
+
+STORED = "Both readers found no field on this page, so it is not counted as read"
+SAID = (
+    "Both readers found no field on this page, so no datasheet field was taken from it"
+)
+
+
+def test_a_stored_reason_on_a_read_page_is_said_as_no_field_taken():
+    """At render time only: the stored run is not rewritten."""
+    cov = {
+        **ON,
+        "pages_ai_not_read": [1],
+        "not_read_reasons": {"1": STORED, "2": STORED},
+    }
+    before = dict(cov["not_read_reasons"])
+    reasons = page_ledger.run_unread_reasons(cov)
+    assert reasons["1"] == SAID
+    assert reasons["2"] == ON["pages_not_read_why"]["2"]
+    assert cov["not_read_reasons"] == before
+
+
+def test_a_stored_reason_is_unchanged_when_off():
+    cov = {**OFF, "not_read_reasons": {"1": STORED}}
+    assert page_ledger.run_unread_reasons(cov)["1"] == STORED
+
+
+def test_the_no_field_part_states_its_boundary_against_the_clean_pages():
+    """Two lists, two meanings: `pages_read_no_field` (both readers looked and
+    found none; not held) is said apart from no field taken (value may be there)."""
+    cov = {**ON, "pages_read_no_field": [4, 5]}
+    line = next(
+        ln
+        for part, ln in page_not_read.unchecked_page_parts(cov)
+        if part == "no_field_pages"
+    )
+    assert line.startswith(
+        "2 page(s) of this submittal were read, but no datasheet field"
+    )
+    assert (
+        "2 other page(s) were read by both readers and held no checklist field" in line
+    )
+    plain = next(
+        ln
+        for part, ln in page_not_read.unchecked_page_parts(ON)
+        if part == "no_field_pages"
+    )
+    assert "other page(s)" not in plain

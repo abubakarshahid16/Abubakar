@@ -73,14 +73,26 @@ export function pageFacts(run: ReviewRunSummary) {
     // #1550: the reasons of the same meaning (`pages_not_read_why`), and the
     // fields list said apart as "no datasheet field taken".
     notReadReasons: (pc?.pages_not_read ? pc.pages_not_read_why : pc?.not_read_reasons) ?? {},
-    noFieldTaken: sourced(pc?.pages_not_read ? pc.pages_not_read_into_fields : null,
-                          "page_coverage.pages_not_read_into_fields"),
+    // An unread page is never also counted as no field taken.
+    noFieldTaken: sourced(pc?.pages_not_read ? pc.pages_not_read_into_fields.filter((n) => !pc.pages_not_read?.includes(n)) : null,
+                          "page_coverage.pages_not_read_into_fields without page_coverage.pages_not_read"),
     aiNotRead: sourced(pc?.pages_ai_not_read ?? null, "page_coverage.pages_ai_not_read"),
     aiNotReadReasons: pc?.ai_not_read_reasons ?? {},
     reading: pc?.reading ?? null,
     withoutOcr: sourced(withoutOcr, "page_coverage.ocr.pending + page_coverage.ocr.failed"),
     ocrDone: sourced(ocr ? ocrCount("done") : null, "page_coverage.ocr.done"),
   };
+}
+
+/** #1550, page-read switch: the reason of the one meaning for an unread page
+ *  (`pages_not_read_why`); a page that WAS read is not said to be "not counted
+ *  as read" (`page_not_read.stored_reasons`). The stored run is not rewritten. */
+function shownReason(pc: PageCoverage, key: string): string | null | undefined {
+  const stored = pc.not_read_reasons?.[key];
+  if (!pc.pages_not_read) return stored;
+  if (pc.pages_not_read.map(String).includes(key)) return pc.pages_not_read_why?.[key] ?? stored;
+  return stored?.replace("so it is not counted as read", "so no datasheet field was taken from it")
+    .replace("not counted as the page read into fields", "no datasheet field taken");
 }
 
 /** Each incomplete page with the reasons the run stored for it
@@ -90,7 +102,7 @@ export function incompletePageReasons(pc: PageCoverage): { page: number; reasons
   if (!reading) return [];
   return reading.incomplete_pages.map((page) => {
     const key = String(page);
-    const reasons = [pc.not_read_reasons?.[key], pc.ai_not_read_reasons?.[key], reading.failed_pages?.[key]]
+    const reasons = [shownReason(pc, key), pc.ai_not_read_reasons?.[key], reading.failed_pages?.[key]]
       .filter((r): r is string => typeof r === "string" && r.trim() !== "");
     return { page, reasons };
   });
@@ -162,6 +174,8 @@ export function pagesMeaning(run: ReviewRunSummary): string {
   const none = p.readNoField.value;
   if (none && none.length) {
     sentences.push(`${none.length} of ${total} pages (${none.length === 1 ? "page" : "pages"} ${pageList(none)}) were read and held no checklist field: the code readers and the AI reader both found none. They are not counted as pages fields were read from.`);
+    const taken = p.noFieldTaken.value;
+    if (taken && taken.length) sentences.push(`The ${plural(taken.length, "page")} with no datasheet field taken are apart from these: a value not found may still be on them.`);
   }
   return sentences.join(" ");
 }

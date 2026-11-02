@@ -1743,8 +1743,8 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
         return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
             f"{UNREAD_PAGES}: no value for this requirement was found in the "
             f"fields read from {where} of {total}; "
-            f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
-            f"{page_not_read.no_field_words(pages)}, so the value may be there. "  # 1550
+            f"{page_not_read.unread_clause(pages, unread)}"  # 1550
+            ", so the value may be there. "
             "An engineer must check those pages before this becomes a comment to "
             "the contractor")}
     page_reader_only = pages.get("pages_read_only_by_page_reader") or []

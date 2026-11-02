@@ -555,7 +555,7 @@ def run_unread_reasons(
     cov = page_coverage if isinstance(page_coverage, dict) else {}
     recorded = {
         **{str(k): v for k, v in (cov.get("ai_not_read_reasons") or {}).items()},
-        **{str(k): v for k, v in (cov.get("not_read_reasons") or {}).items()},
+        **{str(k): v for k, v in page_not_read.stored_reasons(cov).items()},
         # #1473: the plain-words reason, stored when the page-read switch was on.
         **{str(k): v for k, v in (cov.get("pages_not_read_why") or {}).items()},
     }

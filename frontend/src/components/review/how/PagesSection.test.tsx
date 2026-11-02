@@ -34,7 +34,11 @@ describe("PagesSection, one meaning of 'not read' (#1550)", () => {
     expect(row).toContain("pages 2");
     expect(screen.getByTestId("pages-not-read-reasons").textContent).toBe(
       "Page 2: excluded from the index on purpose (rule page_classified_toc)");
-    expect(screen.getByTestId("pages-no-field-taken").textContent).toContain("pages 1-3");
+    // an unread page is never also counted as no field taken
+    const noField = screen.getByTestId("pages-no-field-taken").textContent ?? "";
+    expect(noField).toContain("(pages 1, 3)");
+    expect(noField).toContain("2");
+    expect(noField).not.toContain("pages 1-3");
   });
   it("switch off: unchanged", () => {
     show(coverage);

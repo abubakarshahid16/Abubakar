@@ -269,12 +269,16 @@ export function pageCoverageLine(run: ReviewRunSummary): string {
   if (pc.pages_not_read) {
     // #1550: a run stored with PAGE_READ_BY_READING_ENABLED: "not read" is only
     // the pages no reading came back for; the fields list is said as that.
+    // An unread page is never also counted as no field taken; the pages both
+    // readers looked at and found none on are a different fact, said as that.
     const notRead = pc.pages_not_read;
-    const noTaken = unread.length
-      ? `; no datasheet field taken from ${unread.length === 1 ? "page" : "pages"} ${pageList(unread)}, so a value not found may still be there`
+    const taken = unread.filter((n) => !notRead.includes(n));
+    const clean = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, both readers found no checklist field` : "";
+    const noTaken = taken.length
+      ? `; no datasheet field taken from ${taken.length === 1 ? "page" : "pages"} ${pageList(taken)}, so a value not found may still be there`
       : "";
     const unreadPart = notRead.length ? `; ${notRead.length === 1 ? "page" : "pages"} ${pageList(notRead)} not read` : "";
-    return `${head}${noField}${noTaken}${unreadPart}.`;
+    return `${head}${clean}${noTaken}${unreadPart}.`;
   }
   if (!unread.length) return `${head}${noField}.`;
   return `${head}${noField}; ${unread.length === 1 ? "page" : "pages"} ${pageList(unread)}`
