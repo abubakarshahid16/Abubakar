@@ -108,7 +108,11 @@ def record_run(review_run_id: str, *, match_step: str) -> None:
     `review_runs.model_name` (comma-joined) and in its AI matcher's `model`,
     which until now says only the engine. The boundary is the run's time window
     on this ledger (`claude_spend.models_used`). A ledger that cannot be read says
-    so on the run and never breaks a finished review."""
+    so on the run and never breaks a finished review. It also records the rule
+    version the run used (`standards_compiler`, nothing with its switch off)."""
+    from . import standards_compiler
+
+    standards_compiler.record_rule_version(review_run_id)
     conn = connect()
     row = conn.execute(
         "SELECT started_at, created_at, outcome_json FROM review_runs WHERE id = ?",
