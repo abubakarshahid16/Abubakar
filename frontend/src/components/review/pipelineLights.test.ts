@@ -121,4 +121,13 @@ describe("pipeline lights", () => {
       { status: "MISSING_INFORMATION", count: 3, total: 7 },
     ]);
   });
+
+  it("live I-06: the read light never says datasheet (a procedure is read too)", () => {
+    const empty: ReviewTrace = { ...TRACE, steps: [tstep("READ", { values: 0, pages: 5 })] };
+    for (const t of [TRACE, empty, null]) {
+      const read = byKey(run(), t).read;
+      expect(`${read.title} ${read.reason}`).not.toMatch(/datasheet/i);
+    }
+    expect(byKey(run(), empty).read.reason).toBe("no value was read from the document");
+  });
 });

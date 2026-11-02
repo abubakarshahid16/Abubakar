@@ -146,9 +146,25 @@ def crs_header_note(status: str | None, reason: str | None,
             f"{unread_pages_line(unread)}. {missing_standards_line(missing)}.")
 
 
+def standards_check(submittal_id: str, allowed: frozenset[str]) -> dict:
+    """The required-vs-cited check as the CRS reads it (`procedure_crs`, order 4c)."""
+    from . import procedure_crs
+
+    return procedure_crs.standards_check(submittal_id, allowed)
+
+
+def standards_sheet(rows: list[dict], submittal_id: str) -> list[dict]:
+    """The "Applicable standards" rows as the CRS prints them (order 4c)."""
+    from . import procedure_crs
+
+    return procedure_crs.standards_sheet(rows, submittal_id)
+
+
 def equipment_notes(submittal_id: str) -> list[dict]:
     """The Review note when the equipment type waits for an engineer (the title block
     named none or two types; `equipment_title_block`). Empty with the switch off."""
-    from . import equipment_title_block
+    from . import equipment_title_block, procedure_crs
 
+    if procedure_crs.no_equipment(submittal_id):
+        return []
     return equipment_title_block.for_submittal(submittal_id)
