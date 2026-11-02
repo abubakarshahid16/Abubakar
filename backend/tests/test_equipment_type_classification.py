@@ -392,3 +392,10 @@ def test_a_confirmed_classification_is_not_overwritten_by_the_classifier(tmp_pat
         "a confirmed equipment_type must not be overwritten by the automated "
         "classifier re-running over the same document"
     )
+
+
+def test_a_vessel_datasheet_with_a_contested_kind_is_classified_from_its_body_text(tmp_path, monkeypatch):
+    """#1630: the title says datasheet, the number says specification: a guess with
+    a conflict does not close the body path."""
+    monkeypatch.setattr(settings, "document_kind_enabled", True)
+    test_a_vessel_datasheet_is_classified_from_its_body_text(tmp_path)

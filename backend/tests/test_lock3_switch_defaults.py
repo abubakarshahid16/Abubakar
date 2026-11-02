@@ -71,3 +71,21 @@ def test_a_blocked_switch_stays_off_with_no_env_file(name):
 )
 def test_a_deleted_switch_is_gone(name):
     assert name not in Settings.model_fields
+
+
+def test_the_lock3_pins_are_lifted_only_when_asked():
+    from tests import env_isolation
+
+    name = env_isolation.LOCK3_PINNED[0]
+    assert Settings.model_fields[name].default is True
+    held, lifted = Settings(_env_file=None), Settings(_env_file=None)
+    env_isolation.isolate(held, env={})
+    env_isolation.isolate(lifted, env={env_isolation.LIFT_ENV: "1"})
+    assert getattr(held, name) is False
+    assert getattr(lifted, name) is True
+
+
+def test_an_egress_gate_is_never_a_lifted_pin():
+    from tests import env_isolation
+
+    assert not set(env_isolation.LOCK3_PINNED) & set(STAYS_OFF)

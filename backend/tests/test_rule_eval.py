@@ -332,3 +332,25 @@ def test_the_most_specific_input_name_wins_over_the_generic_one():
     verdict, _f = rule_eval.judge(_rule(), facts)
     assert verdict["status"] == "COMPLIANT", verdict["rationale"]
     assert "operating pressure 3,000 kPa" in verdict["rationale"]
+
+
+REAL_TABLE = ("Design pressure per table.\nMaximum operating pressure (MOP) | Design pressure\n"
+              "Up to 1,800 kPa | MOP + 170 kPa")
+
+
+def test_the_direction_comes_from_the_known_rule_not_the_parser():
+    known = rule_eval.known_rule_for(_req())
+    assert known["comparator"] == ">="
+    rule = rule_eval.parse_rule(REAL_TABLE, output=known["output"], input_names=known["input_names"],
+                                comparator="<=")
+    assert rule["comparator"] == "<="
+    default = rule_eval.parse_rule(REAL_TABLE, output=known["output"], input_names=known["input_names"])
+    assert default["comparator"] == ">="
+
+
+def test_a_row_with_no_terms_gives_no_verdict_not_a_crash():
+    rule = {"output": "design pressure", "input": "mop", "input_names": ["mop"], "unit": "kPa",
+            "comparator": ">=", "rows": [{"from": None, "to": 1800, "op": "single"}]}
+    assert rule_eval.required_for(rule, 1000) is None
+    rule["rows"][0]["terms"] = []
+    assert rule_eval.required_for(rule, 1000) is None

@@ -17,7 +17,7 @@ What code may say, and no more:
   * NEVER COMPLIANT from a text match. No model is called (the AI clause
     review is #1477).
 
-SWITCH: `settings.procedure_path_enabled`, OFF by default.
+SWITCH: `settings.procedure_path_enabled`, ON by default (#1626).
 """
 
 from __future__ import annotations
@@ -90,6 +90,10 @@ def document_kind(document_id: str) -> str | None:
         .fetchone()
     )
     if row is None or row["state"] == "needs_engineer":
+        return None
+    from . import document_kind as kinds
+
+    if kinds.contested(document_id):
         return None
     return (row["kind"] or "").lower() or None
 

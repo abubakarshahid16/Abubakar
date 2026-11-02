@@ -99,36 +99,42 @@ TEST_PINS: dict[str, object] = {
     # #882 technique 2, on by default under `match_enabled`; in tests it would
     # be two model calls per requirement left without a value.
     "match_ask_max_per_run": 0,
-    # Lock 3 (#1626): on by default. The suite stays on the off path these tests were written for
-    # (126 of them assumed it); a switch's own tests turn it on, and the bench reads the new defaults.
-    "at_limit_precision_enabled": False,
-    "clause_review_enabled": False,
-    "crs_export_quality_enabled": False,
-    "data_page_not_frontmatter_enabled": False,
-    "datasheet_label_join_enabled": False,
-    "datasheet_one_value_enabled": False,
-    "deferred_value_is_query_enabled": False,
-    "document_kind_enabled": False,
-    "geometry_reader_enabled": False,
-    "kind_chooses_rules_enabled": False,
-    "leading_dot_decimal_enabled": False,
-    "nothing_read_fails_enabled": False,
-    "one_checked_definition_enabled": False,
-    "page_read_by_reading_enabled": False,
-    "percent_kind_check_enabled": False,
-    "playbook_presence_without_standard_enabled": False,
-    "playbook_section_presence_enabled": False,
-    "procedure_crs_fields_enabled": False,
-    "procedure_path_enabled": False,
-    "procedure_playbook_rows_enabled": False,
-    "recommendation_queries_enabled": False,
-    "review_audit_report_enabled": False,
-    "review_progress_bar_enabled": False,
-    "rule_auto_use_enabled": False,
-    "session_expired_notice_enabled": False,
-    "tested_cards_decide_enabled": False,
-    "transmittal_kit_enabled": False,
 }
+
+#: Lock 3 (#1626): on by default. The suite stays on the off path these tests were written for
+#: (126 of them assumed it); a switch's own tests turn it on. The nightly job
+#: `.github/workflows/nightly-default-switches.yml` sets LIFT_ENV to run the code's real defaults.
+LOCK3_PINNED: tuple[str, ...] = (
+    "at_limit_precision_enabled",
+    "clause_review_enabled",
+    "crs_export_quality_enabled",
+    "data_page_not_frontmatter_enabled",
+    "datasheet_label_join_enabled",
+    "datasheet_one_value_enabled",
+    "deferred_value_is_query_enabled",
+    "document_kind_enabled",
+    "geometry_reader_enabled",
+    "kind_chooses_rules_enabled",
+    "leading_dot_decimal_enabled",
+    "nothing_read_fails_enabled",
+    "one_checked_definition_enabled",
+    "page_read_by_reading_enabled",
+    "percent_kind_check_enabled",
+    "playbook_presence_without_standard_enabled",
+    "playbook_section_presence_enabled",
+    "procedure_crs_fields_enabled",
+    "procedure_path_enabled",
+    "procedure_playbook_rows_enabled",
+    "recommendation_queries_enabled",
+    "review_audit_report_enabled",
+    "review_progress_bar_enabled",
+    "rule_auto_use_enabled",
+    "session_expired_notice_enabled",
+    "tested_cards_decide_enabled",
+    "transmittal_kit_enabled",
+)
+TEST_PINS.update(dict.fromkeys(LOCK3_PINNED, False))
+LIFT_ENV = "RAG_TEST_LIFT_LOCK3_PINS"
 
 #: The only values these fields may hold when a test session starts. A test
 #: that needs one of them on sets it itself, with a fake transport - that is
@@ -372,16 +378,31 @@ def isolate(target: Settings, env=None) -> list[str]:
     for name in Settings.model_fields:
         setattr(target, name, getattr(clean, name))
     target.allowed_hosts = TEST_ALLOWED_HOSTS
+    lifted = _lifted(env)
     for name, value in TEST_PINS.items():
-        setattr(target, name, value)
+        if name not in lifted:
+            setattr(target, name, value)
     return removed
+
+
+def _lifted(env=None) -> tuple[str, ...]:
+    """The Lock 3 pins this session does not hold. Egress gates are never in the list."""
+    return LOCK3_PINNED if (os.environ if env is None else env).get(LIFT_ENV) else ()
 
 
 def unsafe_fields(target: Settings) -> list[str]:
     """Fields of `target` not at their safe value. Names only, never values."""
-    return sorted(n for n, safe in EGRESS_SAFE.items()
-                  if (getattr(target, n) not in safe if isinstance(safe, OneOf)
-                      else getattr(target, n) != safe))
+    lifted = _lifted()
+    return sorted(
+        n
+        for n, safe in EGRESS_SAFE.items()
+        if n not in lifted
+        and (
+            getattr(target, n) not in safe
+            if isinstance(safe, OneOf)
+            else getattr(target, n) != safe
+        )
+    )
 
 
 def paths_outside(target: Settings, root: Path) -> list[str]:

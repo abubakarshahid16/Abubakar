@@ -2667,7 +2667,7 @@ def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dic
 
 # ------------------------------------------ B4 (#193 5.5): geometry reader
 #
-# Behind `settings.geometry_reader_enabled`, OFF by default. When ON, the
+# Behind `settings.geometry_reader_enabled`, ON by default (#1626). When ON, the
 # geometry reader's form pairs and table cells are written beside the rule
 # readers' facts. The rule reader WINS: a geometry reading of a page+label the
 # rule readers already wrote is dropped when it agrees and kept as a
@@ -2967,7 +2967,7 @@ def _pairs_from_vision_fallback(stored_path: str, page_no: int) -> list[tuple[st
     request builder and `reader_transport` - and the B4 VISION READER
     (`vision_reader.py`) uses it. That reader is NOT this tier: it runs on
     every page (not only pages nothing else read), behind
-    `settings.geometry_reader_enabled` (OFF by default) and Claude's egress
+    `settings.geometry_reader_enabled` (ON by default, #1626) and Claude's egress
     flags, and it keeps a model's reading only where code proves it against
     the page's text layer or a geometry cell. Its readings reach
     `extract_facts` through the flag-on write loop as

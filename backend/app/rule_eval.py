@@ -15,9 +15,9 @@ WHAT THIS MODULE IS. Pure: no database, no model, no network.
   * `parse_rule(text)` - a small code grammar for the common row shapes.
     Returns None when the text does not parse (the requirement stays with an
     engineer).
-  * `verify_numbers(rule, text)` - the gate for a rule the MODEL parsed: every
-    number in it must appear verbatim in the clause or table text on its page
-    (the rule the deleted CRS-comment gate used). The arithmetic is always Python.
+  * `verify_numbers(rule, text)` - the gate for a parsed rule: every number in
+    it must appear verbatim in the clause or table text on its page. The
+    arithmetic is always Python.
 
 2b, THE RIGHT FIELD. `judge` pairs the rule's OUTPUT field for the verdict and
 records the INPUT used. Output absent -> MISSING_INFORMATION ("design pressure
@@ -55,7 +55,6 @@ MISSING_INFORMATION = "MISSING_INFORMATION"
 
 RULE_REASON = "RULE_EVALUATED"
 SOURCE_CODE = "code"
-SOURCE_MODEL = "model_parsed_verified"
 
 _CMP = {">=": lambda a, b: a >= b - 1e-9, "<=": lambda a, b: a <= b + 1e-9}
 
