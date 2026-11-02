@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from collections import Counter
 
 from . import (
@@ -214,8 +213,8 @@ def _todo(conn, document_id: str) -> tuple[dict | None, list]:
     if run is None:
         return None, []
     rows = compiled_rows(conn, run["id"])
-    if (
-        rows and "field_role_prompt" not in rows[0].keys()
+    if rows and "field_role_prompt" not in dict(
+        rows[0]
     ):  # the step has not run on this copy
         return run, rows
     return run, [r for r in rows if not r["field_role_prompt"]]
@@ -232,6 +231,35 @@ def _estimate(model: str, packets: dict[str, Packet]) -> dict:
     }
 
 
+def _sent(conn, plans: dict, fields, model: str, send, max_usd, **wait) -> dict:
+    """Ask, in one batch as the API allows, and store what came back. `wait`: the Batch run's own options."""
+    provider = ClaudeProvider(model, transport=send)
+    limit = settings.standards_compiler_max_usd_per_day if max_usd is None else max_usd
+    outcomes = claude_batch_run.run_many(
+        conn,
+        provider,
+        {_job(doc, plan[4]): plan[2] for doc, plan in plans.items()},
+        room=_room_gate(float(limit)),
+        usable=lambda answer: _reply(answer) is not None,
+        declared={_job(doc, plan[4]): {doc} for doc, plan in plans.items()},
+        **wait,
+    )
+    reports = {}
+    for doc, (_label, rows, _packets_sent, base, run_id) in plans.items():
+        outcome = outcomes[_job(doc, run_id)]
+        replies = {c: _reply(a) for c, a in outcome.answers.items()}
+        stored = _store(conn, rows, replies, fields, model)
+        reports[doc] = {
+            **base,
+            "status": "waiting" if outcome.waiting else "done",
+            "rules": len(rows),
+            "answered": len(outcome.answers),
+            "not_answered": len(rows) - len(outcome.answers),
+            "stored": dict(sorted(stored.items())),
+        }
+    return reports
+
+
 def name_fields(
     conn,
     documents: dict[str, str],
@@ -241,15 +269,12 @@ def name_fields(
     client=None,
     send=None,
     max_usd: float | None = None,
-    poll_seconds: float = 60.0,
-    max_wait_s: float = 86400.0,
-    sleep=time.sleep,
-    clock=time.time,
-    resend_unconfirmed: bool = False,
+    **wait,
 ) -> list[dict]:
     """One report per standard: counts only. An estimate writes nothing."""
     model = settings.rule_field_naming_model
     fields = fixed_fields(equipment_type)
+    wait["client"] = client
     if not estimate_only:
         if settings.rule_field_naming_engine != ENGINE_CLAUDE:
             raise SwitchedOff("RULE_FIELD_NAMING_ENGINE is off; nothing was sent")
@@ -280,42 +305,5 @@ def name_fields(
             continue
         plans[document_id] = (label, rows, packets, base, run["id"])
     if plans:
-        provider = ClaudeProvider(model, transport=send)
-        outcomes = claude_batch_run.run_many(
-            conn,
-            provider,
-            {_job(doc, plan[4]): plan[2] for doc, plan in plans.items()},
-            client=client,
-            room=_room_gate(
-                float(
-                    settings.standards_compiler_max_usd_per_day
-                    if max_usd is None
-                    else max_usd
-                )
-            ),
-            usable=lambda answer: _reply(answer) is not None,
-            poll_seconds=poll_seconds,
-            max_wait_s=max_wait_s,
-            sleep=sleep,
-            clock=clock,
-            resend_unconfirmed=resend_unconfirmed,
-            declared={_job(doc, plan[4]): {doc} for doc, plan in plans.items()},
-        )
-        for doc, (_label, rows, _packets_sent, base, run_id) in plans.items():
-            outcome = outcomes[_job(doc, run_id)]
-            stored = _store(
-                conn,
-                rows,
-                {c: _reply(a) for c, a in outcome.answers.items()},
-                fields,
-                model,
-            )
-            reports[doc] = {
-                **base,
-                "status": "waiting" if outcome.waiting else "done",
-                "rules": len(rows),
-                "answered": len(outcome.answers),
-                "not_answered": len(rows) - len(outcome.answers),
-                "stored": dict(sorted(stored.items())),
-            }
+        reports |= _sent(conn, plans, fields, model, send, max_usd, **wait)
     return [reports[d] for d in sorted(reports, key=lambda d: documents[d])]

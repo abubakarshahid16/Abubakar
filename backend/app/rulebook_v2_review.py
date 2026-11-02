@@ -36,6 +36,7 @@ from . import (
     subject_scope,
 )
 from .config import settings
+from .rule_field_naming import VERIFIED as ROLE_VERIFIED
 from .rulebook_v2_check import NO_UNIT
 
 ORIGIN = "rulebook_v2"
@@ -167,7 +168,7 @@ def pair(rule: dict, facts: list[dict], equipment_type: str | None) -> Pair:
     named = rule.get("field_role_state")
     if named == NOT_ON_DATASHEET:
         return Pair(None, NOT_ON_DATASHEET, None)
-    if named and named != "verified":
+    if named and named != ROLE_VERIFIED:
         return Pair(None, ROLE_NOT_VERIFIED, None)
     role = rule.get("field_role") if named else None
     role = role or datasheet_checks.role_of(name, rules, wanted)
@@ -242,6 +243,57 @@ def pair_rule_to_document(
 def _value_read(fact: dict) -> str:
     said = f"{fact.get('raw_value') or ''} {fact.get('raw_unit') or ''}".strip()
     return said or str(fact.get("field_value") or "")
+
+
+def rule_of_compiled(row) -> dict:
+    """A stored compile row in the shape of an approved rule, before any approval. For the counts below: no verdict."""
+    row = dict(row)
+    return {
+        **row,
+        "value": row.get("limit_value"),
+        "conditions": [row["condition_text"]] if row.get("condition_text") else [],
+        "exceptions": [row["exception_text"]] if row.get("exception_text") else [],
+    }
+
+
+def could_decide(
+    rule: dict, facts: list[dict], equipment_type: str
+) -> tuple[bool, str | None]:
+    """Would this rule give a verdict on this sheet, if a person approved it? What stops it, by name. Never the verdict."""
+    found = pair(rule, facts, equipment_type)
+    requirement = as_requirement(rule)
+    if (
+        requirement["raw_value"] is None
+        or requirement["operator"] not in _LIMIT_OPERATORS
+    ):
+        return False, NO_FIGURE
+    if found.fact is None:
+        return False, found.reason
+    scope = _scope_reason(rule, facts, found.fact, equipment_type)
+    if scope:
+        return False, scope
+    row = _compared(rule, requirement, found, facts)
+    return row.status in DECIDED, row.reason
+
+
+def counts_for_document(rows, facts: list[dict], equipment_type: str) -> dict:
+    """Per standard, against one document's read values: how many rules pair, how many are not on a datasheet, how many
+    could decide. Counts and fixed reason names only: no value, no verdict, no document text."""
+    rules = [rule_of_compiled(r) for r in rows]
+    found = [pair(rule, facts, equipment_type) for rule in rules]
+    deciding = [could_decide(rule, facts, equipment_type) for rule in rules]
+    stopped: dict[str, int] = {}
+    for yes, reason in deciding:
+        if not yes and reason:
+            stopped[reason] = stopped.get(reason, 0) + 1
+    return {
+        "rules": len(rules),
+        "pair_with_a_value": sum(1 for f in found if f.fact is not None),
+        "not_on_datasheet": sum(1 for f in found if f.reason == NOT_ON_DATASHEET),
+        "hold_a_figure": sum(1 for rule in rules if rule["value"] is not None),
+        "could_decide_if_approved": sum(1 for yes, _r in deciding if yes),
+        "stopped_by": dict(sorted(stopped.items())),
+    }
 
 
 # ------------------------------------------------------------------------------------------- the equipment type

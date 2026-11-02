@@ -342,6 +342,53 @@ def test_a_book_on_a_copy_where_the_step_has_not_run_says_nothing(monkeypatch):
     assert rulebook_v2.field_role_of(conn, version)["field_role_state"] is None
 
 
+def test_the_counts_say_what_pairs_what_is_not_on_a_sheet_and_what_could_decide():
+    facts = [
+        {
+            "id": "f",
+            "field_name": "Set pressure",
+            "raw_value": "9",
+            "raw_unit": "barg",
+            "page": 1,
+        },
+    ]
+    good = {
+        "field": "long invented phrase",
+        "comparator": "<=",
+        "limit_value": 10.0,
+        "unit": "barg",
+        "quote": "The invented set pressure shall not exceed 10 barg.",
+        "strength": "shall",
+        "field_role": "set_pressure",
+        "field_role_state": VERIFIED,
+    }
+    conditional = {
+        **good,
+        "condition_text": "where the invented flux capacitor is fitted",
+    }
+    duty = {**good, "limit_value": None, "comparator": None, "unit": None}
+    away = {
+        "field": "words",
+        "quote": "Invented.",
+        "field_role_state": NOT_ON_DATASHEET,
+        "field_role_reason": "design_method",
+    }
+    said = rulebook_v2_review.counts_for_document(
+        [good, conditional, duty, away], facts, TYPE
+    )
+    assert said == {
+        "rules": 4,
+        "pair_with_a_value": 3,
+        "not_on_datasheet": 1,
+        "hold_a_figure": 2,
+        "could_decide_if_approved": 1,
+        "stopped_by": {
+            rulebook_v2_review.CONDITION_NOT_VERIFIED: 1,
+            rulebook_v2_review.NO_FIGURE: 2,
+        },
+    }
+
+
 def test_the_script_estimates_with_one_line_of_counts(tmp_path, monkeypatch):
     _compiled()
     said = []
