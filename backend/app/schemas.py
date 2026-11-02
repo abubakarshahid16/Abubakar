@@ -2631,8 +2631,7 @@ class CrsPreview(BaseModel):
     download come from `crs_export.build_crs_view` over the rows
     `crs_mapping.build_crs_rows` returns; the export then draws that view into
     the client's template. A preview that could disagree with the file the
-    client receives would be worse than no preview at all, so there is no
-    second path that could decide something different.
+    client receives would be worse than no preview at all: there is no second path.
     """
 
     title: str
@@ -2645,8 +2644,7 @@ class CrsPreview(BaseModel):
     crs_copy: str = "internal"
     #: 2f: the engineer's internal notes; empty in the contractor's copy.
     review_notes: list[CrsReviewNote] = []
-    #: Empty when the run has no recommendation, and rendered as nothing
-    #: rather than as a placeholder code.
+    #: Empty when the run has no recommendation; renders as nothing, never a placeholder.
     recommended_code: str = ""
     recommended_code_reason: str = ""
     recommended_code_status: str = ""
@@ -2666,9 +2664,7 @@ class CrsPreview(BaseModel):
     #: comment text - the issue copy only (0 when none; always 0 on the
     #: internal copy, which prints them with a sentence saying so).
     rows_withheld_no_text: int = 0
-    #: #1503 (CRS_EXPORT_QUALITY_STRICT_ENABLED, internal copy): what the file's Internal
-    #: sheet says, so the screen does not lose Reasoning and Rule trust with their columns.
-    #: {"rows": [{item_no, row_ref, reasoning, rule_trust}], "considered": [standard rows]}.
+    #: #1503 (CRS_EXPORT_QUALITY_STRICT_ENABLED, internal copy): the file's Internal sheet.
     internal_preview: dict = {}
 
 
