@@ -2960,7 +2960,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "run_status_note": export_status_mod.run_header_note(run.get("status"), outcome, unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
-        **run_record_mod.crs_meta(run, outcome, unchecked, missing, copy),  # #1608
+        **run_record_mod.crs_meta(run, outcome, unchecked, missing, copy, allowed),
     }
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += added + export_status_mod.equipment_notes(

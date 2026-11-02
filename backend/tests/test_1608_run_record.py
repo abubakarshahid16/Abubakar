@@ -16,11 +16,12 @@ from pathlib import Path
 import openpyxl
 import pytest
 
-from app import crs_export, db, run_record
+from app import access, crs_export, db, run_record, standards_compiler
 from app import main as main_mod
 from app.config import settings
 from tests.test_633_honest_exports import (  # noqa: F401 - fixtures
     _completed_run,
+    _doc,
     _failed_run,
     temp_storage,
     world,
@@ -61,7 +62,28 @@ def _lines(world, run_id) -> dict[str, list[str]]:
     return out
 
 
-def _tick(rule, tick, *, stamp="s1", sha="f1", std="SECRET-STD", who="An Engineer"):
+def _rule(rule_id, doc):
+    """A compiled rule of `doc`: what a tick's `rule_id` names (`checklib`: `ID` is `compiled_rules.id`)."""
+    with db.connect() as conn:
+        for sql in standards_compiler.SCHEMA:
+            conn.execute(sql)
+        conn.execute(
+            "INSERT OR IGNORE INTO compile_runs (id, standard_document_id, standard, rule_version, prompt_version,"
+            " text_sha256, counts_json, created_at) VALUES (?,?,'s',2,'p',?,'{}','t')",
+            (f"run-{doc}", doc, f"t-{doc}"),
+        )
+        conn.execute(
+            "INSERT INTO compiled_rules (id, run_id, rule_version, standard_document_id, standard, applies_to, field,"
+            " clause, page, quote, model, prompt_version, text_sha256, created_at)"
+            " VALUES (?,?,2,?,'s','a','f','1',1,'q','m','p','t','t')",
+            (rule_id, f"run-{doc}", doc),
+        )
+
+
+def _tick(
+    rule, tick, doc, *, stamp="s1", sha="f1", std="SECRET-STD", who="An Engineer"
+):
+    _rule(rule, doc)
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO checklist_ticks (rule_id, standard, version_stamp, tick, comment, engineer, imported_at,"
@@ -82,6 +104,60 @@ def _tick(rule, tick, *, stamp="s1", sha="f1", std="SECRET-STD", who="An Enginee
 def _make_ticks():
     with db.connect() as conn:
         conn.execute(TICKS_SQL)
+
+
+def _second_standard(run_id=None):
+    """A second standard, applied to `run_id` when one is given."""
+    doc = _doc("std_other", "COMPANY_STANDARD", "Other limit shall not exceed 5 bar.")
+    return doc if run_id is None else _apply(run_id, doc)
+
+
+def _apply(run_id, doc):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, included, created_at)"
+            " VALUES (?,?,?,1,'2026-11-02T00:00:00Z')",
+            (f"ras-{doc}", run_id, doc),
+        )
+    return doc
+
+
+def _narrow(world):
+    """A reader of the submittal and the first standard only."""
+    scope = frozenset({world["sub"], world["std"]})
+    return {
+        **world,
+        "access": access.AccessScope(user_id="adm", allowed_document_ids=scope),
+    }
+
+
+def _wide(world, other):
+    """A reader of the submittal and both standards."""
+    scope = frozenset({world["sub"], world["std"], other})
+    return {
+        **world,
+        "access": access.AccessScope(user_id="adm", allowed_document_ids=scope),
+    }
+
+
+def _make_signed():
+    with db.connect() as conn:
+        conn.execute(
+            "CREATE TABLE rulebook_approval (id TEXT PRIMARY KEY, rule_version_id TEXT, decision TEXT)"
+        )
+        conn.execute(
+            "CREATE TABLE rulebook_provenance (rule_version_id TEXT, standard_document_id TEXT)"
+        )
+
+
+def _sign(approval, version, decision, *docs):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO rulebook_approval VALUES (?,?,?)",
+            (approval, version, decision),
+        )
+        for doc in docs:
+            conn.execute("INSERT INTO rulebook_provenance VALUES (?,?)", (version, doc))
 
 
 # ---------------------------------------------------------------------- switch off
@@ -223,7 +299,7 @@ def test_every_stored_model_of_the_run_is_listed_local_and_claude(world, on):
     _set_models(
         run_id,
         name="cloud-a, cloud-b",
-        ai={"model": "cloud-c"},
+        ai={"model": "cloud-c", "calls_made": 1},
         matcher={"enabled": True, "model": "ollama:local-m", "asked": 2},
     )
     bucket = {
@@ -250,6 +326,16 @@ def test_a_model_only_configured_is_never_named(world, on, monkeypatch):
     assert _lines(world, run_id)["Model"] == [run_record.NO_MODEL]
 
 
+def test_an_ai_check_that_made_no_call_names_no_model(world, on):
+    run_id = _completed_run(world)
+    _set_models(run_id, ai={"model": "never-answered", "calls_made": 0})
+    assert _lines(world, run_id)["Model"] == [run_record.NO_MODEL]
+    _set_models(run_id, ai={"model": "never-answered"})
+    assert _lines(world, run_id)["Model"] == [run_record.NO_MODEL]
+    _set_models(run_id, ai={"model": "answered", "calls_made": 2})
+    assert _lines(world, run_id)["Model"] == ["answered"]
+
+
 def test_an_unreadable_ledger_says_so_as_a_could_not_check_line(world, on):
     from app.claude_models import LEDGER_UNREADABLE
 
@@ -265,7 +351,7 @@ def test_an_unreadable_ledger_says_so_as_a_could_not_check_line(world, on):
 
 def test_no_tick_table_says_none_and_the_read_creates_nothing(world, on):
     run_id = _completed_run(world)
-    assert _stored(run_id)["run_record"]["ticks"] == {"imported": None}
+    assert _stored(run_id)["run_record"]["ticks"] == {"by_standard": {}, "signed": []}
     assert _lines(world, run_id)["Checklist ticks"] == [run_record.NO_TICKS]
     found = (
         db.connect()
@@ -277,24 +363,87 @@ def test_no_tick_table_says_none_and_the_read_creates_nothing(world, on):
 
 def test_ticks_are_counted_by_their_own_words_with_files_and_stamps(world, on):
     _make_ticks()
-    _tick("r1", "Checked OK")
-    _tick("r2", "Checked OK")
-    _tick("r3", "Wrong", stamp="s2", sha="f2")
-    _tick("r4", None, stamp="s2", sha="f2")  # a comment with no tick is no tick
-    run_id = _completed_run(world)
-    ticks = _stored(run_id)["run_record"]["ticks"]
-    assert ticks["imported"] == 3
-    assert ticks["by_tick"] == {"Checked OK": 2, "Wrong": 1}
-    assert (ticks["files"], ticks["version_stamps"]) == (2, 2)
-    text = " ".join(_lines(world, run_id)["Checklist ticks"])
-    assert "3 tick(s) imported from 2 file(s)" in text
+    std = world["std"]
+    _tick("r1", "Checked OK", std)
+    _tick("r2", "Checked OK", std)
+    _tick("r3", "Wrong", std, stamp="s2", sha="f2")
+    _tick("r4", None, std, stamp="s3", sha="f3")  # a comment with no tick is no tick
+    text = " ".join(_lines(world, _completed_run(world))["Checklist ticks"])
+    assert "3 tick(s) imported from 2 file(s), 2 version stamp(s)" in text
     assert "Checked OK: 2" in text and "Wrong: 1" in text
     assert "no verdict reads them" in text
+    assert "standards applied to this run that you may read" in text
+
+
+def test_a_tick_on_a_standard_the_run_did_not_apply_is_not_counted(world, on):
+    _make_ticks()
+    other = _second_standard()
+    _tick("r1", "Checked OK", world["std"])
+    _tick("r2", "Wrong", other)
+    run_id = _completed_run(world)
+    # A reader of both: only the run's applied standards keep it out, not the grants.
+    text = " ".join(_lines(_wide(world, other), run_id)["Checklist ticks"])
+    assert "1 tick(s)" in text and "Wrong" not in text
+
+
+def test_a_tick_naming_no_compiled_rule_is_not_counted(world, on):
+    _make_ticks()
+    _tick("r1", "Checked OK", world["std"])
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO checklist_ticks (rule_id, standard, version_stamp, tick, engineer, imported_at, source_file,"
+            " source_sha256) VALUES ('gone', 's', 's1', 'Wrong', 'e', 't', 'f', 'f1')"
+        )
+    text = " ".join(_lines(world, _completed_run(world))["Checklist ticks"])
+    assert "1 tick(s)" in text and "Wrong" not in text
+
+
+def test_a_narrower_reader_is_not_shown_ticks_of_a_standard_they_cannot_read(world, on):
+    _make_ticks()
+    other = _second_standard()
+    _tick("r1", "Checked OK", world["std"])
+    _tick("r2", "Wrong", other, stamp="s2", sha="f2")
+    run_id = _completed_run(world)
+    _apply(run_id, other)
+    run_record.record_on_run(run_id)
+    full = " ".join(_lines(_wide(world, other), run_id)["Checklist ticks"])
+    assert (
+        "2 tick(s) imported from 2 file(s), 2 version stamp(s)" in full
+    )  # positive control
+    narrow = " ".join(_lines(_narrow(world), run_id)["Checklist ticks"])
+    assert "1 tick(s) imported from 1 file(s), 1 version stamp(s)" in narrow
+    assert "Wrong" not in narrow
+
+
+def test_a_narrower_reader_who_may_read_no_ticked_standard_sees_none(world, on):
+    _make_ticks()
+    other = _second_standard()
+    _tick("r2", "Wrong", other)
+    run_id = _completed_run(world)
+    _apply(run_id, other)
+    run_record.record_on_run(run_id)
+    assert _lines(_narrow(world), run_id)["Checklist ticks"] == [run_record.NO_TICKS]
+
+
+def test_a_narrower_reader_is_not_given_the_rule_count_over_what_they_cannot_read(
+    world, on
+):
+    other = _second_standard()
+    run_id = _completed_run(world)
+    _apply(run_id, other)
+    run_record.record_on_run(run_id)
+    fingerprint = _stored(run_id)["run_record"]["rulebook"]["rules_sha256"]
+    assert fingerprint[:16] in " ".join(
+        _lines(_wide(world, other), run_id)["Rulebook"]
+    )  # positive control
+    narrow = " ".join(_lines(_narrow(world), run_id)["Rulebook"])
+    assert fingerprint[:16] not in narrow and "rule(s)" not in narrow
+    assert run_record.RULES_WITHHELD in narrow and "Version 1" in narrow
 
 
 def test_the_sheet_names_no_standard_file_or_person_from_a_tick(world, on):
     _make_ticks()
-    _tick("r1", "Checked OK")
+    _tick("r1", "Checked OK", world["std"])
     text = str(_lines(world, _completed_run(world)))
     for private in ("SECRET-STD", "secret-file", "An Engineer"):
         assert private not in text
@@ -302,13 +451,13 @@ def test_the_sheet_names_no_standard_file_or_person_from_a_tick(world, on):
 
 def test_an_empty_tick_table_is_not_a_tick(world, on):
     _make_ticks()
+    _rule("r0", world["std"])
     run_id = _completed_run(world)
     assert _lines(world, run_id)["Checklist ticks"] == [run_record.NO_TICKS]
 
 
 def test_a_tick_table_that_cannot_be_read_is_a_could_not_check_line_never_zero(
-    world,
-    on,
+    world, on
 ):
     with db.connect() as conn:
         conn.execute("CREATE TABLE checklist_ticks (other TEXT)")
@@ -319,20 +468,48 @@ def test_a_tick_table_that_cannot_be_read_is_a_could_not_check_line_never_zero(
     assert run_record.TICKS_UNREADABLE in " ".join(lines["Could not check"])
 
 
-def test_decisions_signed_into_the_rulebook_are_counted_apart(world, on):
-    with db.connect() as conn:
-        conn.execute(
-            "CREATE TABLE rulebook_approval (id TEXT PRIMARY KEY, decision TEXT)"
-        )
-        conn.execute(
-            "INSERT INTO rulebook_approval VALUES ('a', 'approve'), ('b', 'approve'), ('c', 'reject')"
-        )
+def test_decisions_are_counted_only_on_the_standards_applied(world, on):
+    _make_signed()
+    other = _second_standard()
+    _sign("a", "v1", "approve", world["std"])
+    _sign("b", "v2", "approve", world["std"])
+    _sign("c", "v3", "reject", world["std"])
+    _sign("d", "v4", "approve", other)  # not applied
     run_id = _completed_run(world)
-    assert _stored(run_id)["run_record"]["ticks"]["signed"] == {
-        "approve": 2,
-        "reject": 1,
-    }
-    assert "approve: 2" in " ".join(_lines(world, run_id)["Checklist ticks"])
+    # A reader of both: only the run's applied standards keep it out, not the grants.
+    text = " ".join(_lines(_wide(world, other), run_id)["Checklist ticks"])
+    assert "approve: 2; reject: 1" in text
+    assert f"Decisions signed into the rulebook, {run_record.TICKS_WHEN}" in text
+
+
+def test_a_narrower_reader_is_not_shown_decisions_on_a_standard_they_cannot_read(
+    world, on
+):
+    _make_signed()
+    other = _second_standard()
+    _sign("a", "v1", "approve", world["std"])
+    _sign("b", "v2", "reject", other)
+    run_id = _completed_run(world)
+    _apply(run_id, other)
+    run_record.record_on_run(run_id)
+    assert "approve: 1; reject: 1" in " ".join(
+        _lines(_wide(world, other), run_id)["Checklist ticks"]
+    )
+    narrow = " ".join(_lines(_narrow(world), run_id)["Checklist ticks"])
+    assert "approve: 1" in narrow and "reject" not in narrow
+
+
+def test_a_decision_on_a_rule_read_in_two_standards_counts_once(world, on):
+    _make_signed()
+    other = _second_standard()
+    _sign("a", "v1", "approve", world["std"], other)
+    run_id = _completed_run(world)
+    _apply(run_id, other)
+    run_record.record_on_run(run_id)
+    assert "approve: 1" in " ".join(
+        _lines(_wide(world, other), run_id)["Checklist ticks"]
+    )
+    assert "approve: 1" in " ".join(_lines(_narrow(world), run_id)["Checklist ticks"])
 
 
 def test_only_this_module_reads_the_tick_table_so_no_verdict_can():

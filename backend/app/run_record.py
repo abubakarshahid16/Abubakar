@@ -11,8 +11,8 @@ says which rules), and the checklist importer's `checklist_ticks` table, which n
     which says so when it is empty. Internal copy only: the issue copy keeps the count and the share (#633).
 
 What is stored is what is printed, so a past run's sheet does not change when the rules do. A run with no record says
-"not recorded" and nothing is guessed. A model only configured is never named. Reads only; it creates no table. Ticks are
-counted, never named: a standard's name could be one the caller may not read. Nothing here reaches a verdict.
+"not recorded" and nothing is guessed. A model only configured is never named. Reads only; it creates no table. Ticks and
+signed decisions are kept per standard applied and counted only for the standards the reader may read, never named. Nothing here reaches a verdict.
 Switch off: nothing is written or printed.
 """
 
@@ -32,12 +32,23 @@ log = logging.getLogger(__name__)
 
 RUN_KEY = "run_record"
 BOUNDARY = "the standards applied to this run"
-TICKS_WHEN = "in this database when the comparison ended"
+TICKS_WHEN = (
+    "of the standards applied to this run that you may read, when the comparison ended"
+)
+#: The standards a run applied. Ticks, decisions and rules are counted over these and no others.
+_APPLIED = (
+    "(SELECT standard_document_id FROM review_applicable_standards"
+    " WHERE review_run_id = ? AND COALESCE(included, 1) = 1)"
+)
 NOT_RECORDED = (
     "Not recorded for this run: the comparison did not finish with the run record on."
 )
 NO_MODEL = "No model is recorded for this run."
-NO_TICKS = "No tick has been imported into this database."
+NO_TICKS = (
+    "No tick has been imported for the standards applied to this run that you may read."
+)
+#: A rule count over standards this reader may not all read is a count from them: rule 5.
+RULES_WITHHELD = "The rule count and fingerprint are shown only to a reader of every standard applied."
 TICKS_UNREADABLE = (
     "The checklist tick table could not be read, so the ticks imported are not known."
 )
@@ -81,15 +92,18 @@ def _rules_of(conn, review_run_id: str) -> tuple[int, str | None]:
     have = {r[1] for r in conn.execute("PRAGMA table_info(standard_requirements)")}
     columns = ", ".join(c for c in _RULE_COLUMNS if c in have)
     rows = conn.execute(
-        f"SELECT {columns} FROM standard_requirements WHERE standard_document_id IN"
-        " (SELECT standard_document_id FROM review_applicable_standards"
-        "  WHERE review_run_id = ? AND COALESCE(included, 1) = 1)",
+        f"SELECT {columns} FROM standard_requirements WHERE standard_document_id IN {_APPLIED}",
         (review_run_id,),
     ).fetchall()
     if not rows:
         return 0, None
     lines = sorted(json.dumps(list(r), default=str) for r in rows)
     return len(lines), hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _applied_ids(conn, review_run_id: str) -> list[str]:
+    rows = conn.execute(f"SELECT * FROM {_APPLIED}", (review_run_id,))
+    return sorted(r[0] for r in rows)
 
 
 def _version_used(conn, review_run_id: str, outcome: dict) -> tuple[int, str | None]:
@@ -118,32 +132,48 @@ def _review_code(conn, review_run_id: str) -> str | None:
     return row[0] if row else None
 
 
-def _ticks(conn) -> dict:
-    """The ticks this database holds. No table: `imported` None. A table this cannot read says so, never 0."""
-    out: dict = {"imported": None}
+def _ticks(conn, review_run_id: str) -> dict:
+    """The ticks and signed decisions on the standards this run applied, kept per standard so an export can count only
+    what its reader may read. A tick reaches its standard through the compiled rule it names; one that names no rule
+    of an applied standard is not counted. A table this cannot read says so, never 0."""
+    by_standard: dict = {}
+    signed: dict = {}
     try:
         if _has_table(conn, "checklist_ticks"):
-            by_tick = conn.execute(
-                "SELECT tick, COUNT(*) FROM checklist_ticks WHERE tick IS NOT NULL GROUP BY tick"
-            ).fetchall()
-            files = conn.execute(
-                "SELECT COUNT(DISTINCT source_sha256), COUNT(DISTINCT version_stamp) FROM checklist_ticks"
-                " WHERE tick IS NOT NULL"
-            ).fetchone()
-            out = {
-                "imported": sum(r[1] for r in by_tick),
-                "by_tick": {r[0]: r[1] for r in by_tick},
-                "files": files[0],
-                "version_stamps": files[1],
-            }
+            for doc, tick, sha, stamp, n in conn.execute(
+                "SELECT c.standard_document_id, t.tick, t.source_sha256, t.version_stamp, COUNT(*)"
+                " FROM checklist_ticks t JOIN compiled_rules c ON c.id = t.rule_id"
+                f" WHERE t.tick IS NOT NULL AND c.standard_document_id IN {_APPLIED}"
+                " GROUP BY 1, 2, 3, 4",
+                (review_run_id,),
+            ):
+                one = by_standard.setdefault(
+                    doc, {"by_tick": {}, "files": [], "stamps": []}
+                )
+                one["by_tick"][tick] = one["by_tick"].get(tick, 0) + n
+                one["files"] = sorted({*one["files"], sha})
+                one["stamps"] = sorted({*one["stamps"], stamp})
         if _has_table(conn, "rulebook_approval"):
-            signed = conn.execute(
-                "SELECT decision, COUNT(*) FROM rulebook_approval GROUP BY decision"
-            ).fetchall()
-            out["signed"] = {r[0]: r[1] for r in signed}
+            decisions: dict = {}
+            for approval, decision, doc in conn.execute(
+                "SELECT a.id, a.decision, p.standard_document_id FROM rulebook_approval a"
+                " JOIN rulebook_provenance p ON p.rule_version_id = a.rule_version_id"
+                f" WHERE p.standard_document_id IN {_APPLIED}",
+                (review_run_id,),
+            ):
+                decisions.setdefault((approval, decision), set()).add(doc)
+            for (_approval, decision), docs in decisions.items():
+                key = (decision, tuple(sorted(docs)))
+                signed[key] = signed.get(key, 0) + 1
     except sqlite3.OperationalError:
         return {"unreadable": True}
-    return out
+    return {
+        "by_standard": by_standard,
+        "signed": [
+            {"decision": k[0], "standards": list(k[1]), "n": n}
+            for k, n in sorted(signed.items())
+        ],
+    }
 
 
 def record_on_run(review_run_id: str) -> None:
@@ -168,8 +198,9 @@ def record_on_run(review_run_id: str) -> None:
                 "snapshot_sha256": snapshot,
                 "review_code": _review_code(conn, review_run_id),
                 "boundary": BOUNDARY,
+                "standards": _applied_ids(conn, review_run_id),
             },
-            "ticks": _ticks(conn),
+            "ticks": _ticks(conn, review_run_id),
         }
         with conn:
             conn.execute(
@@ -191,7 +222,9 @@ def _loads(raw) -> dict:
 def _models(conn, review_run_id: str, run: dict, outcome: dict) -> list[str]:
     """Names the run's own stored rows give for a model that was used. A matcher that asked nothing used nothing."""
     names = {n for n in (run.get("model_name") or "").split(", ") if n}
-    names.add(_loads(run.get("ai_check_status")).get("model"))
+    ai_check = _loads(run.get("ai_check_status"))
+    if ai_check.get("calls_made"):
+        names.add(ai_check.get("model"))
     matcher = outcome.get("ai_matcher") or {}
     if matcher.get("asked"):
         names.add(matcher.get("model"))
@@ -214,7 +247,9 @@ def _models(conn, review_run_id: str, run: dict, outcome: dict) -> list[str]:
     return sorted(n for n in names if n)
 
 
-def _rulebook_line(book: dict) -> str:
+def _rulebook_line(book: dict, allowed: frozenset[str]) -> str:
+    if not set(book.get("standards") or ()) <= allowed:
+        return f"Version {book['used_version']}. {RULES_WITHHELD}"
     line = (
         f"Version {book['used_version']}: {book['rules']} rule(s) of {book['boundary']}"
     )
@@ -231,29 +266,50 @@ def _counts(by: dict) -> str:
     return "; ".join(f"{k}: {v}" for k, v in sorted(by.items()))
 
 
-def _tick_lines(ticks: dict) -> list[str]:
+def _tick_lines(ticks: dict, allowed: frozenset[str]) -> list[str]:
+    """Only the standards this reader may read are counted (rule 5: intersection, never union)."""
     if ticks.get("unreadable"):
         return [TICKS_UNREADABLE]
+    by_tick: dict = {}
+    files: set = set()
+    stamps: set = set()
+    for doc, one in (ticks.get("by_standard") or {}).items():
+        if doc in allowed:
+            for tick, n in one["by_tick"].items():
+                by_tick[tick] = by_tick.get(tick, 0) + n
+            files.update(one["files"])
+            stamps.update(one["stamps"])
     lines = [NO_TICKS]
-    if ticks.get("imported"):
+    if by_tick:
         lines = [
-            f"{ticks['imported']} tick(s) imported from {ticks['files']} file(s), {ticks['version_stamps']} version"
-            f" stamp(s), {TICKS_WHEN}: {_counts(ticks['by_tick'])}. Stored only: no verdict reads them."
+            f"{sum(by_tick.values())} tick(s) imported from {len(files)} file(s), {len(stamps)} version"
+            f" stamp(s), {TICKS_WHEN}: {_counts(by_tick)}. Stored only: no verdict reads them."
         ]
-    if ticks.get("signed"):
+    signed: dict = {}
+    for row in ticks.get("signed") or ():
+        if allowed.intersection(row["standards"]):
+            signed[row["decision"]] = signed.get(row["decision"], 0) + row["n"]
+    if signed:
         lines.append(
-            f"Decisions signed into the rulebook, {TICKS_WHEN}: {_counts(ticks['signed'])}."
+            f"Decisions signed into the rulebook, {TICKS_WHEN}: {_counts(signed)}."
         )
     return lines
 
 
 def crs_meta(
-    run: dict, outcome: dict, unchecked: list[dict], missing: list[str], copy: str
+    run: dict,
+    outcome: dict,
+    unchecked: list[dict],
+    missing: list[str],
+    copy: str,
+    allowed: frozenset[str],
 ) -> dict:
     """What `main._crs_content` adds to the CRS meta: nothing with the switch off or on the issue copy."""
     if not enabled() or copy != "internal":
         return {}
-    return {"run_record": crs_rows(run["id"], run, outcome, unchecked, missing)}
+    return {
+        "run_record": crs_rows(run["id"], run, outcome, unchecked, missing, allowed)
+    }
 
 
 def write_sheet(wb, rows: list[tuple[str, str, str]], write) -> None:
@@ -276,6 +332,7 @@ def crs_rows(
     outcome: dict,
     unchecked: list[dict],
     missing: list[str],
+    allowed: frozenset[str],
 ) -> list[tuple[str, str, str]]:
     """The Run record sheet as (section, item, detail) rows. `unchecked` is `absence.unchecked_parts`, `missing` the
     standards cited and not held, both already under the caller's grants."""
@@ -284,9 +341,11 @@ def crs_rows(
     models = _models(conn, review_run_id, run, outcome)
     rows = [("Model", "Stored on this run", ", ".join(models) or NO_MODEL)]
     book = stored.get("rulebook")
-    rows.append(("Rulebook", "Used", _rulebook_line(book) if book else NOT_RECORDED))
+    rows.append(
+        ("Rulebook", "Used", _rulebook_line(book, allowed) if book else NOT_RECORDED)
+    )
     ticks = stored.get("ticks")
-    lines = _tick_lines(ticks) if ticks else [NOT_RECORDED]
+    lines = _tick_lines(ticks, allowed) if ticks else [NOT_RECORDED]
     rows += [("Checklist ticks", "Imported", line) for line in lines]
     return rows + _could_not_check(unchecked, missing, models, ticks)
 
