@@ -72,6 +72,30 @@ export const ANSWERABLE: DocStatus[] = ["partially_searchable", "ready"];
 /** A doc is only browsable-as-complete when status === "ready". */
 export const isReady = (d: DocumentRecord) => d.status === "ready";
 
+export interface DocumentReading {
+  /** null: not counted, never 0. */
+  pages_total: number | null;
+  pages_read: number | null;
+  /** null: not counted, never 0. */
+  pictures_total: number | null;
+  pictures_read: number | null;
+  /** "picture": per picture. "page": pages holding pictures, for a file read per page. */
+  picture_unit: "picture" | "page";
+  /** "part": reading parts of a Word file with no page marks, never pages. */
+  page_unit: "page" | "part";
+  page_source: "markers" | "partial" | "none" | null;
+  word_saved_pages: number | null;
+  /** Listed gaps in the body; headers and footers are not among them. */
+  body_gaps: number;
+  /** In headers and footers: inside `not_read_listed`, outside the pictures total. */
+  furniture_pictures: number;
+  not_read_listed: number;
+  unaccounted: number;
+  ready: boolean;
+  fully_read: boolean;
+  line: string;
+}
+
 export interface DocumentRecord {
   id: string;
   filename: string;          // sanitised; display only
@@ -105,6 +129,9 @@ export interface DocumentRecord {
    *  units and a citation is the chunk's `locator` ("4.2 > para 3"). Absent or
    *  null for a PDF, which is cited by page. */
   pagination?: "flow" | null;
+  /** What was read, with its denominator; absent with the switch off or before it was
+   *  decided. `ready` with listed gaps is never fully read (`reading_state`). */
+  reading?: DocumentReading;
   /** pages whose mathematics did not survive extraction; see the page image */
   equation_pages: number;
   error: ApiError | null;
