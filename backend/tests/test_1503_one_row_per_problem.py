@@ -13,7 +13,7 @@ import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
-from app import crs_export, crs_issue, crs_numbers, db
+from app import clause_review, crs_export, crs_issue, crs_numbers, db
 from app import crs_export_quality as q
 from app import crs_one_row as one
 from app.config import settings
@@ -211,6 +211,80 @@ def test_a_row_holding_an_unread_value_is_not_no_value_by_nature():
     findings = [*NO_VALUE, no_value("f3", 3, "Three.", fact_id="x")]
     wide = row("f1", finding_ids=["f1", "f3"])
     assert len(merged([wide, row("f2")], findings)[0]) == 2
+
+
+def clause_finding(fid, outcome, sentence="A sentence."):
+    text, page = clause_review._row_text(
+        outcome, None, None, {"requirement_text": sentence, "clause": "4.1"}
+    )
+    return no_value(fid, page, sentence, origin=clause_review.ORIGIN, finding=text)
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("no_evidence", "unverified"),
+        ("no_evidence", "unreadable"),
+        ("unverified", "unreadable"),
+    ],
+)
+def test_a_clause_review_outcome_is_part_of_the_identity(first, second):
+    # A retryable failed check and a true no-evidence row are not one decision.
+    findings = [clause_finding("f1", first), clause_finding("f2", second, "Another.")]
+    assert len(merged([row("f1"), row("f2")], findings)[0]) == 2
+
+
+@pytest.mark.parametrize("outcome", ["no_evidence", "unverified", "unreadable"])
+def test_the_same_clause_review_outcome_merges(outcome):
+    findings = [
+        clause_finding("f1", outcome),
+        clause_finding("f2", outcome, "Another."),
+    ]
+    assert len(merged([row("f1"), row("f2")], findings)[0]) == 1
+
+
+def test_a_clause_review_row_whose_outcome_cannot_be_told_stays_apart():
+    bare = [
+        no_value("f1", 1, "One.", origin=clause_review.ORIGIN, finding="Other words."),
+        no_value("f2", 2, "Two.", origin=clause_review.ORIGIN, finding="Other words."),
+    ]
+    assert len(merged([row("f1"), row("f2")], bare)[0]) == 2
+
+
+def test_the_outcome_is_read_for_every_outcome_the_review_writes():
+    for outcome in ("no_evidence", "unverified", "unreadable"):
+        text, _page = clause_review._row_text(
+            outcome, 3, None, {"requirement_text": "A sentence.", "clause": "4.1"}
+        )
+        assert clause_review.outcome_of(text) == outcome
+    text, _page = clause_review._row_text(
+        "verified", 3, "Quote.", {"requirement_text": "A sentence.", "clause": "4.1"}
+    )
+    assert clause_review.outcome_of(text) == "verified"
+    assert clause_review.outcome_of("Anything else.") == ""
+    assert clause_review.outcome_of(None) == ""
+
+
+def test_rows_each_holding_two_verdicts_never_merge():
+    findings = [
+        finding("f1"),
+        finding("f3", status="MISSING_INFORMATION"),
+        finding("f2"),
+        finding("f4", status="MISSING_INFORMATION"),
+    ]
+    rows = [row("f1", finding_ids=["f1", "f3"]), row("f2", finding_ids=["f2", "f4"])]
+    assert len(merged(rows, findings)[0]) == 2
+
+
+def test_rows_each_holding_two_engineers_wordings_never_merge():
+    findings = [
+        finding("f1", engineer_comment="Words A."),
+        finding("f3", engineer_comment="Words B."),
+        finding("f2", engineer_comment="Words A."),
+        finding("f4", engineer_comment="Words B."),
+    ]
+    rows = [row("f1", finding_ids=["f1", "f3"]), row("f2", finding_ids=["f2", "f4"])]
+    assert len(merged(rows, findings)[0]) == 2
 
 
 def test_no_value_by_nature_with_another_verdict_or_clause_stays_apart():

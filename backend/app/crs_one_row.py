@@ -26,7 +26,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import crs_carry, crs_issue, crs_mapping, crs_numbers, standard_ids
+from . import (
+    clause_review,
+    crs_carry,
+    crs_issue,
+    crs_mapping,
+    crs_numbers,
+    standard_ids,
+)
 from .config import settings
 from .db import connect
 from .submittal_review import list_applicable_standards
@@ -98,6 +105,25 @@ def _value(members: list[dict]) -> str:
     return next(iter(values)) if len(values) == 1 and "" not in values else ""
 
 
+def _outcome(members: list[dict]) -> str | None:
+    """A clause review's outcome is part of the problem: "no evidence", "quote failed" and
+    "answer unreadable" store the same verdict and no value, and a retryable failed check
+    must not share a decision with a true no-evidence row. "" for any other finding; None
+    when a clause review's outcome differs inside the row or cannot be told."""
+    found = {
+        clause_review.outcome_of(f.get("finding"))
+        if f.get("origin") == clause_review.ORIGIN
+        else ""
+        for f in members
+    }
+    if len(found) != 1:
+        return None
+    outcome = next(iter(found))
+    if not outcome and any(f.get("origin") == clause_review.ORIGIN for f in members):
+        return None
+    return outcome
+
+
 def _identity(row: dict, by_id: dict[str, dict]):
     """What must be identical for two rows to be one, or None when this row cannot join."""
     ids = _ids(row)
@@ -120,6 +146,9 @@ def _identity(row: dict, by_id: dict[str, dict]):
         return None
     if len({_field(f) for f in members}) != 1:
         return None
+    outcome = _outcome(members)
+    if outcome is None:
+        return None
     return (
         str(row.get("document_name") or ""),
         row.get("row_kind"),
@@ -127,6 +156,7 @@ def _identity(row: dict, by_id: dict[str, dict]):
         verdict,
         value,
         _field(members[0]),
+        outcome,
         _fold(members[0].get("engineer_comment")),
         row.get("engineer_confirmed") is True,
     )
