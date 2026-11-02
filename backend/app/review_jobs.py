@@ -29,6 +29,7 @@ from pathlib import Path
 from . import (
     access,
     ai_call_ledger,
+    claude_auto_approve,
     job_progress,
     job_queue,
     nothing_read,
@@ -133,8 +134,6 @@ def enqueue(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
              requested_by, review_code_version(), config_version(), run_id, len(STEPS)))
         job_queue.audit(conn, "job.queued", job_id, actor_user_id=requested_by,
                         detail=f"stage={STAGE} run={run_id}")
-    from . import claude_auto_approve
-
     claude_auto_approve.on_review_start(run_id)  # #1584
     return run_id, job_id
 
@@ -456,10 +455,9 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
-            # #620: the Company standards selection left out as held; said on the run below.
             from . import company_standard_confirm
 
-            held = company_standard_confirm.held_readable(scope)
+            held = company_standard_confirm.held_readable(scope)  # #620
             reread_for_standards.for_review(submittal, scope, run_id, timings)
         with _phase(conn, job_id, 2, heartbeat, timings, "compare"):
             comparison.run_comparison(
@@ -467,6 +465,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
                 reference_coverage=selection.get("reference_coverage"),
                 missing_references=[m["identifier"] for m in selection["missing_references"]])
             company_standard_confirm.record_on_run(run_id, held)
+            claude_auto_approve.record_on_run(run_id)  # #1584
         _label(conn, job_id, FINISHING)
         with _phase(conn, job_id, None, heartbeat, timings, "checks"):
             missing = [m["identifier"] for m in selection["missing_references"]]

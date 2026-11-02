@@ -579,9 +579,6 @@ def store_selection(review_run_id: str, accepted: list[dict],
                    VALUES (:id, :review_run_id, :standard_document_id,
                            :selection_reason, :selection_method, :confidence,
                            :included, :exclusion_reason, :created_at)""", row)
-        from . import claude_auto_approve
-
-        claude_auto_approve.on_standard_cited(review_run_id, document_id)  # #1584
         written.append({**row, "code": p.get("code"), "basis": basis})
     return {"written": written, "kept_existing": kept, "skipped": skipped}
 

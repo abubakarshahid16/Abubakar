@@ -16,6 +16,7 @@ import threading
 import pytest
 
 from app import (
+    absence,
     applicability,
     classification,
     claude_approved,
@@ -33,6 +34,7 @@ NOW = "2026-11-02T00:00:00Z"
 SUBMITTAL = "CONTRACTOR_SUBMITTAL"
 STANDARD = "COMPANY_STANDARD"
 SHA_A, SHA_B, SHA_C = "aa" * 32, "bb" * 32, "cc" * 32
+OWNER_HASH = "ee" * 32  # the owner's real register hash stands here
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +48,7 @@ def world(tmp_path, monkeypatch):
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
-    _write_block_file([])
+    _write_block_file([OWNER_HASH])
     yield
     db.reset_connection()
 
@@ -112,12 +114,14 @@ def _start_review(doc_id):
     return run_id
 
 
-def _cite(run_id, standard_id, *, included=True):
+def _cite(
+    run_id, standard_id, *, included=True, method=applicability.METHOD_REFERENCED
+):
     return applicability.record_selection(
         review_run_id=run_id,
         standard_document_id=standard_id,
         reason="invented reason",
-        method=applicability.METHOD_MANUAL,
+        method=method,
         included=included,
         exclusion_reason=None if included else "invented exclusion",
     )
@@ -143,6 +147,23 @@ def _ledger():
     )
 
 
+def _outcome(run_id):
+    row = (
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    return json.loads(row["outcome_json"]) if row["outcome_json"] else None
+
+
+def _store_outcome(run_id, outcome):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+            (json.dumps(outcome), run_id),
+        )
+
+
 def _audit(action):
     return (
         db.connect()
@@ -159,18 +180,25 @@ def test_the_switch_ships_off():
 
 
 def test_switch_off_nothing_is_listed_written_or_recorded(monkeypatch):
+    # The block file stays valid here: without the switch's own guard the hooks
+    # would write, so this fails when the guard is removed.
     monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", False)
-    claude_approved.block_file_path().unlink()  # off: the block file is not asked for
     row = _upload("invented submittal.pdf")
     classification.set_role(row["id"], SUBMITTAL)
     run_id = _start_review(row["id"])
-    assert run_id
+    standard = _doc("doc_std", SHA_B, STANDARD)
+    _cite(run_id, standard)
+    other = _doc("doc_eq", SHA_C, STANDARD)
+    _cite(run_id, other, method=applicability.METHOD_EQUIPMENT)
+    _store_outcome(run_id, {})
+    _upload("Engineering Deliverables.pdf", marker=b"y")
+    claude_auto_approve.record_on_run(run_id)
     assert not claude_approved.list_path().exists()
     assert _audit(claude_auto_approve.AUDIT_ADDED) == []
-    # ... and the gate is today's: an approved row passes though a blocked row
-    # sits beside it, and chat consent waives the list.
-    sha = row["sha256"]
-    _set_list((sha, "approved"), (sha, "blocked"))
+    assert _audit(claude_approved.AUDIT_ACTION) == []
+    assert "claude_unlisted_standards" not in (_outcome(run_id) or {})
+    # A hand-approved row passes as today, with no ledger field; chat consent waives the list.
+    _set_list((row["sha256"], "approved"))
     with claude_approved.carrying([row["id"]]):
         _reserve()
     assert not [e for e in _ledger() if "sent_documents" in e]
@@ -179,11 +207,66 @@ def test_switch_off_nothing_is_listed_written_or_recorded(monkeypatch):
         _reserve()
 
 
-def test_switch_off_a_register_named_file_is_not_touched_by_this_code(monkeypatch):
+def test_switch_off_no_block_file_is_asked_for(monkeypatch):
     monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", False)
-    doc = _doc("doc_r", SHA_A, filename="Engineering Deliverables.pdf")
+    claude_approved.block_file_path().unlink()
+    doc = _doc("doc_h", SHA_A)
     _set_list((SHA_A, "approved"))
     with claude_approved.carrying([doc]):
+        _reserve()
+
+
+def test_switch_off_is_a_rollback_an_auto_row_does_not_count(monkeypatch):
+    doc = _doc("doc_a", SHA_A)
+    cited = _doc("doc_b", SHA_B)
+    classification.set_role(doc, SUBMITTAL)
+    run_id = _start_review(doc)
+    _cite(run_id, cited)
+    assert {r["status"] for r in _rows()} == {"approved"} and len(_rows()) == 2
+    monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", False)
+    assert claude_approved.approved_hashes() == frozenset()
+    assert _refused_code([doc]) == claude_approved.NOT_APPROVED
+    assert _refused_code([cited]) == claude_approved.NOT_APPROVED
+
+
+@pytest.mark.parametrize("on", [True, False])
+def test_blocks_apply_whatever_the_switch_says(monkeypatch, on):
+    monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", on)
+    beside = _doc("doc_x", SHA_A)
+    named = _doc("doc_r", SHA_B, filename="Engineering Deliverables.pdf")
+    filed = _doc("doc_f", SHA_C)
+    _write_block_file([SHA_C])
+    claude_approved.list_path().write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {"sha256": SHA_A, "status": "approved"},
+                    {"sha256": SHA_A, "status": "blocked"},
+                    {"sha256": SHA_B, "status": "approved"},
+                    {"sha256": SHA_C, "status": "approved"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    for doc in (beside, named, filed):
+        assert _refused_code([doc]) == claude_approved.NOT_APPROVED
+        with claude_approved.per_request_consent([doc]):
+            with pytest.raises(claude_spend.DocumentNotApproved):
+                _reserve()
+
+
+@pytest.mark.parametrize("on", [True, False])
+def test_blocks_apply_with_the_list_guard_off(monkeypatch, on):
+    monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", on)
+    monkeypatch.setattr(settings, "claude_approved_list_enforced", False)
+    blocked = _doc("doc_x", SHA_A)
+    named = _doc("doc_r", SHA_B, filename="engineering_deliverables.pdf")
+    free = _doc("doc_f", SHA_C)
+    _set_list((SHA_A, "blocked"))
+    assert _refused_code([blocked]) == claude_approved.NOT_APPROVED
+    assert _refused_code([named]) == claude_approved.NOT_APPROVED
+    with claude_approved.carrying([free]):
         _reserve()
 
 
@@ -253,9 +336,7 @@ def test_a_cited_standard_is_listed_an_uncited_one_is_not():
     doc = _doc("doc_sub", SHA_A, SUBMITTAL)
     cited = _doc("doc_cited", SHA_B, STANDARD)
     excluded = _doc("doc_excluded", SHA_C, STANDARD)
-    _doc(
-        "doc_library", "dd" * 32, STANDARD
-    )  # in the library, never touched by this review
+    _doc("doc_library", "dd" * 32, STANDARD)  # in the library, untouched by this review
     run_id = _start_review(doc)
     _cite(run_id, cited)
     _cite(run_id, excluded, included=False)
@@ -265,7 +346,79 @@ def test_a_cited_standard_is_listed_an_uncited_one_is_not():
     assert {r["sha256"] for r in _rows()} == {SHA_A, SHA_B}
 
 
-def test_a_standard_the_model_selected_is_listed():
+def test_a_governing_standard_is_listed_and_labelled_as_such():
+    doc = _doc("doc_sub", SHA_A, SUBMITTAL)
+    governing = _doc("doc_gov", SHA_B, STANDARD)
+    _cite(_start_review(doc), governing, method=applicability.METHOD_GOVERNING)
+    assert _rows_for(SHA_B)[0]["source"] == f"auto: governing standard for {doc}"
+
+
+def test_the_listed_methods_are_the_ones_the_review_writes():
+    assert set(claude_auto_approve.LISTED_METHODS) == {
+        applicability.METHOD_REFERENCED,
+        applicability.METHOD_GOVERNING,
+    }
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        applicability.METHOD_EQUIPMENT,
+        applicability.METHOD_SERVICE,
+        applicability.METHOD_PROJECT,
+        applicability.METHOD_SCOPE,
+        applicability.METHOD_MANUAL,
+    ],
+)
+def test_a_standard_applied_without_a_citation_is_not_listed_and_the_review_says_so(
+    method,
+):
+    doc = _doc("doc_sub", SHA_A, SUBMITTAL)
+    standard = _doc("doc_std", SHA_B, STANDARD)
+    cited = _doc("doc_cited", SHA_C, STANDARD)
+    run_id = _start_review(doc)
+    _cite(run_id, standard, method=method)
+    _cite(run_id, cited)
+    assert _rows_for(SHA_B) == []
+    claude_auto_approve.on_review_start(run_id)  # nor at the start of a later look
+    assert _rows_for(SHA_B) == []
+    _store_outcome(run_id, {})
+    claude_auto_approve.record_on_run(run_id)
+    outcome = _outcome(run_id)
+    assert outcome["claude_unlisted_standards"] == {"not_listed": 1, "of": 2}
+    parts = absence.unchecked_parts(run_status="completed", outcome=outcome)
+    line = next(p["line"] for p in parts if p["part"] == "claude_unlisted_standards")
+    assert "1 of 2 standard(s)" in line and "doc_std" not in line
+    assert (
+        absence.notice_for(parts) == ""
+    )  # the local check ran: the sheet is not called incomplete
+
+
+def test_a_review_with_every_standard_cited_says_nothing():
+    doc = _doc("doc_sub", SHA_A, SUBMITTAL)
+    cited = _doc("doc_cited", SHA_C, STANDARD)
+    run_id = _start_review(doc)
+    _cite(run_id, cited)
+    _store_outcome(run_id, {})
+    claude_auto_approve.record_on_run(run_id)
+    assert "claude_unlisted_standards" not in _outcome(run_id)
+
+
+def test_a_hand_approved_standard_is_not_counted_as_unlisted():
+    doc = _doc("doc_sub", SHA_A, SUBMITTAL)
+    standard = _doc("doc_std", SHA_B, STANDARD)
+    run_id = _start_review(doc)
+    _cite(run_id, standard, method=applicability.METHOD_EQUIPMENT)
+    rows = [*_rows(), {"sha256": SHA_B, "status": "approved", "approved_by": "owner"}]
+    claude_approved.list_path().write_text(
+        json.dumps({"documents": rows}), encoding="utf-8"
+    )
+    _store_outcome(run_id, {})
+    claude_auto_approve.record_on_run(run_id)
+    assert "claude_unlisted_standards" not in _outcome(run_id)
+
+
+def test_a_standard_the_model_selected_is_not_listed():
     doc = _doc("doc_sub", SHA_A, SUBMITTAL)
     cited = _doc("doc_cited", SHA_B, STANDARD)
     run_id = _start_review(doc)
@@ -281,10 +434,17 @@ def test_a_standard_the_model_selected_is_listed():
         [{"document_id": cited}],
         allowed_document_ids=frozenset({doc, cited}),
     )
-    assert _rows_for(SHA_B)[0]["source"] == f"auto: cited by {doc}"
+    assert _rows_for(SHA_B) == []
 
 
-def test_a_standard_already_on_the_run_is_listed_when_a_review_starts():
+@pytest.mark.parametrize(
+    ("method", "label"),
+    [
+        ("referenced", "auto: cited by"),
+        ("governing_standard", "auto: governing standard for"),
+    ],
+)
+def test_a_standard_already_on_the_run_is_listed_when_a_review_starts(method, label):
     doc = _doc("doc_sub", SHA_A, SUBMITTAL)
     cited = _doc("doc_cited", SHA_B, STANDARD)
     run_id = _start_review(doc)
@@ -292,12 +452,85 @@ def test_a_standard_already_on_the_run_is_listed_when_a_review_starts():
         conn.execute(
             "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id,"
             " selection_reason, selection_method, included, created_at)"
-            " VALUES ('r1', ?, ?, 'x', 'manual', 1, ?)",
-            (run_id, cited, NOW),
+            " VALUES ('r1', ?, ?, 'x', ?, 1, ?)",
+            (run_id, cited, method, NOW),
         )
     assert _rows_for(SHA_B) == []
     claude_auto_approve.on_review_start(run_id)
-    assert _rows_for(SHA_B)[0]["source"] == f"auto: cited by {doc}"
+    assert _rows_for(SHA_B)[0]["source"] == f"{label} {doc}"
+
+
+# ---------------------------------------------------------------- withdrawn
+
+
+@pytest.mark.parametrize("role", [STANDARD, "SUPPORTING_DOCUMENT"])
+def test_a_role_that_stops_qualifying_withdraws_the_auto_row_and_keeps_the_record(role):
+    doc = _doc("doc_a", SHA_A)
+    classification.set_role(doc, SUBMITTAL)
+    assert _rows_for(SHA_A)[0]["status"] == "approved"
+    classification.set_role(doc, role)
+    entry = _rows_for(SHA_A)[0]
+    assert len(_rows_for(SHA_A)) == 1
+    assert entry["status"] == "withdrawn"
+    assert entry["approved_by"] == "auto: owner decision #1584"  # the record stays
+    assert entry["withdrawn_on"]
+    rows = _audit(claude_auto_approve.AUDIT_WITHDRAWN)
+    assert [r["resource_id"] for r in rows] == [SHA_A]
+    assert _refused_code([doc]) == claude_approved.NOT_APPROVED
+
+
+def test_the_details_form_withdraws_too():
+    doc = _doc("doc_a", SHA_A)
+    classification.set_role(doc, SUBMITTAL)
+    classification.confirm(
+        doc,
+        doc_type=None,
+        discipline=None,
+        doc_class=None,
+        subject_ids=(),
+        confirmed_by=None,
+        metadata={"document_role": "SUPPORTING_DOCUMENT"},
+    )
+    assert _rows_for(SHA_A)[0]["status"] == "withdrawn"
+
+
+def test_a_review_of_a_subject_whose_role_stopped_qualifying_withdraws():
+    doc = _doc("doc_a", SHA_A)
+    classification.set_role(doc, SUBMITTAL)
+    with db.connect() as conn:  # a role written with no hook behind it
+        conn.execute(
+            "UPDATE document_classification SET document_role = ? WHERE document_id = ?",
+            (STANDARD, doc),
+        )
+    _start_review(doc)
+    assert _rows_for(SHA_A)[0]["status"] == "withdrawn"
+
+
+def test_a_human_approved_row_is_not_withdrawn():
+    doc = _doc("doc_a", SHA_A)
+    _set_list((SHA_A, "approved"))
+    before = claude_approved.list_path().read_bytes()
+    classification.set_role(doc, SUBMITTAL)
+    classification.set_role(doc, STANDARD)
+    assert claude_approved.list_path().read_bytes() == before
+
+
+def test_a_cited_row_is_not_withdrawn_by_a_role_change():
+    doc = _doc("doc_a", SHA_A, SUBMITTAL)
+    cited = _doc("doc_c", SHA_B, STANDARD)
+    _cite(_start_review(doc), cited)
+    classification.set_role(cited, "SUPPORTING_DOCUMENT")
+    assert _rows_for(SHA_B)[0]["status"] == "approved"
+
+
+def test_qualifying_again_adds_a_new_row_and_keeps_the_withdrawn_one():
+    doc = _doc("doc_a", SHA_A)
+    classification.set_role(doc, SUBMITTAL)
+    classification.set_role(doc, STANDARD)
+    classification.set_role(doc, SUBMITTAL)
+    assert [r["status"] for r in _rows_for(SHA_A)] == ["withdrawn", "approved"]
+    with claude_approved.carrying([doc]):
+        _reserve()
 
 
 def test_adding_twice_is_one_entry_and_an_owners_entry_is_left_as_written():
@@ -453,6 +686,7 @@ def test_a_blocked_row_beside_an_approved_one_wins():
         "[]",
         '{"blocked_sha256": "aa"}',
         '{"blocked_sha256": ["not-a-hash"]}',
+        '{"blocked_sha256": []}',
     ],
 )
 def test_an_unreadable_block_file_adds_nothing_and_sends_nothing(content):
@@ -490,6 +724,23 @@ def test_an_unreadable_list_is_not_overwritten_and_sends_nothing(content):
     with claude_approved.per_request_consent([doc]):
         with pytest.raises(claude_spend.DocumentNotApproved):
             _reserve()
+
+
+@pytest.mark.parametrize("content", [None, "{not json", '{"blocked_sha256": []}'])
+def test_a_register_named_upload_keeps_its_block_when_the_block_file_cannot_be_read(
+    content,
+):
+    if content is None:
+        claude_approved.block_file_path().unlink()
+    else:
+        claude_approved.block_file_path().write_text(content, encoding="utf-8")
+    row = _upload("Engineering Deliverables.pdf")
+    assert [r["status"] for r in _rows_for(row["sha256"])] == ["blocked"]
+    # The owner repairs the file: the same bytes stay blocked under another name.
+    _write_block_file([OWNER_HASH])
+    again = _upload("a quite different name.pdf")
+    classification.set_role(again["id"], SUBMITTAL)
+    assert [r["status"] for r in _rows_for(row["sha256"])] == ["blocked"]
 
 
 def test_a_step_with_a_blocked_document_runs_local_and_says_how_many():

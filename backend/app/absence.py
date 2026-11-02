@@ -22,6 +22,7 @@ import logging
 from pathlib import Path
 
 from . import equipment_scope, kind_rules
+from .claude_auto_approve import run_lines
 
 _log = logging.getLogger(__name__)
 
@@ -374,7 +375,7 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     elif any(not p.get("detail") for p in parts) and not counts:
         add("unchecked_share", "The share of requirements not compared is not known: "
                                "this review did not reach the comparison.")
-    return parts
+    return parts + run_lines(outcome)
 
 
 def notice_for(parts: list[dict]) -> str:

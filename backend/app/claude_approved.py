@@ -28,19 +28,24 @@ nothing approved = no document content leaves. An entry counts only with
 A change to the file is written to the audit table (`sync_audit`): counts and
 hashes only, never a title.
 
-#1584 (owner decision, behind `claude_auto_approve_reviews_enabled`, off by
-default; off, none of this applies). `claude_auto_approve` adds documents to the
-list by itself, and the list stays the record. Here, at the gate:
+#1584 (owner decision). `claude_auto_approve` adds documents to the list by
+itself behind `claude_auto_approve_reviews_enabled`, off by default, and the list
+stays the record. Here, at the gate:
 
-  * BLOCKS WIN, and before the chat consent below: a hash with a `blocked` row on
-    the list, a hash in `<data_dir>/claude_blocked_hashes.json` (outside git;
+  * BLOCKS WIN, WHATEVER THE SWITCH SAYS, whatever `claude_approved_list_enforced`
+    says, and before the chat consent below: a hash with a `blocked` row on the
+    list, a hash in `<data_dir>/claude_blocked_hashes.json` (outside git;
     `{"blocked_sha256": ["..."]}`), or a document named like the register
-    (CLAUDE.md rule 3), in any case or spacing.
-  * FAIL CLOSED: if the list cannot be read, or the block file is missing or
-    cannot be read, nothing carrying a document is sent. The block file must
-    exist before the switch is turned on; an empty list in it is a valid answer.
-  * EVERY SEND IS RECORDED on its spend-ledger line (`sent_documents`: id and
-    hash, with the line's step, model and time; never a title). A later
+    (CLAUDE.md rule 3), in any case or spacing. THE HASH IS THE BLOCK; the name is
+    a backstop, and a re-saved copy of the register needs its own hash.
+  * OFF IS A ROLLBACK: with the switch off a row whose `source` starts `auto` does
+    not count as approved, so what the switch added stops at once. The block file
+    is then not required (a damaged one still refuses).
+  * FAIL CLOSED, SWITCH ON: if the list cannot be read, or the block file is
+    missing, cannot be read or holds NO hash, nothing carrying a document is sent.
+    The owner's real register hash must be in it before the switch is turned on.
+  * EVERY SEND IS RECORDED, switch on, on its spend-ledger line (`sent_documents`:
+    id and hash, with the line's step, model and time; never a title). A later
     `releases` line for that reservation means the call provably did no work.
 
 This module opens no socket and reads no document text.
@@ -60,6 +65,8 @@ from .config import settings
 LIST_NAME = "claude_approved_documents.json"
 APPROVED = "approved"
 BLOCKED = "blocked"
+WITHDRAWN = "withdrawn"
+AUTO_SOURCE = "auto"
 BLOCK_FILE_NAME = "claude_blocked_hashes.json"
 #: The register file of CLAUDE.md rule 3, letters and digits only, lower case.
 REGISTER_NAME_KEY = "engineeringdeliverables"
@@ -170,37 +177,54 @@ def read_list_strict() -> dict:
 
 def blocked_hashes() -> frozenset[str]:
     """Every blocked hash: `blocked` rows on the list and the block file's. Raises
-    `BlockListUnreadable` when either cannot be read, a block file that is absent
-    included, and for a value that is not a hash: a typo must not unblock."""
-    try:
-        data = json.loads(block_file_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise BlockListUnreadable("the block file cannot be read") from exc
-    listed = data.get("blocked_sha256") if isinstance(data, dict) else None
-    if not isinstance(listed, list):
-        raise BlockListUnreadable("the block file has the wrong shape")
+    `BlockListUnreadable` when either cannot be read, and for a value that is not a
+    hash: a typo must not unblock. Switch on, a block file that is absent or holds
+    no hash raises too; switch off, an absent one is simply none."""
+    path = block_file_path()
+    required = auto_approve_on()
+    listed: list = []
+    if required or path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise BlockListUnreadable("the block file cannot be read") from exc
+        listed = data.get("blocked_sha256") if isinstance(data, dict) else None
+        if not isinstance(listed, list):
+            raise BlockListUnreadable("the block file has the wrong shape")
+        if required and not listed:
+            raise BlockListUnreadable("the block file holds no hash")
     found = [str(h).strip().lower() for h in listed]
-    found += [
-        str(r.get("sha256") or "").strip().lower()
-        for r in read_list_strict()["documents"]
-        if str(r.get("status") or "").strip().lower() == BLOCKED
-    ]
+    found += blocked_rows(read_list_strict()["documents"])
     if not all(_SHA256.fullmatch(h) for h in found):
         raise BlockListUnreadable("a blocked entry does not hold a sha256")
     return frozenset(found)
 
 
+def blocked_rows(rows: list[dict]) -> list[str]:
+    """The hash of every `blocked` row among `rows`."""
+    return [
+        str(r.get("sha256") or "").strip().lower()
+        for r in rows
+        if str(r.get("status") or "").strip().lower() == BLOCKED
+    ]
+
+
+def _counts_as_approved(row: dict) -> bool:
+    """An `approved` row. With the #1584 switch off, not one the switch added."""
+    if str(row.get("status") or "").strip().lower() != APPROVED:
+        return False
+    source = str(row.get("source") or "").strip().lower()
+    return auto_approve_on() or not source.startswith(AUTO_SOURCE)
+
+
 def approved_hashes() -> frozenset[str]:
-    """The sha256 of every document the owner approved. With the #1584 switch on,
-    never a blocked one, and none at all when the blocks cannot be read."""
+    """The sha256 of every document approved: never a blocked one, and none at all
+    when the blocks cannot be read."""
     approved = frozenset(
         str(r.get("sha256") or "").strip().lower()
         for r in _entries()
-        if str(r.get("status") or "").strip().lower() == APPROVED
-        and str(r.get("sha256") or "").strip()
+        if _counts_as_approved(r) and str(r.get("sha256") or "").strip()
     )
-    if not auto_approve_on():
-        return approved
     try:
         return approved - blocked_hashes()
     except BlockListUnreadable:
@@ -227,9 +251,7 @@ def _hashes_of(document_ids: frozenset[str]) -> dict[str, str | None]:
 
 def _blocked_ids(hashes: dict[str, str | None]) -> frozenset[str]:
     """The documents among `hashes` (id -> sha256) that are blocked. Raises
-    `BlockListUnreadable`. Off the #1584 switch, none."""
-    if not auto_approve_on():
-        return frozenset()
+    `BlockListUnreadable`."""
     from .db import connect
 
     blocks = blocked_hashes()
@@ -291,12 +313,41 @@ def for_review(fn):
     return declared
 
 
+def _block_stop(ids: frozenset[str]) -> tuple[str, str] | None:
+    """#1584: a blocked document stops the call. The code stays NOT_APPROVED so a
+    review step runs locally instead (#838)."""
+    import sqlite3
+
+    try:
+        blocked = sorted(_blocked_ids(_hashes_of(ids)))
+    except BlockListUnreadable:
+        return (
+            NOT_APPROVED,
+            "the approved list or the block file cannot be read, so nothing is sent (fail closed)",
+        )
+    except sqlite3.OperationalError:
+        # Guard off and no library at all: nothing is there to be blocked.
+        if settings.claude_approved_list_enforced:
+            raise
+        return None
+    if blocked:
+        return NOT_APPROVED, (
+            f"{len(blocked)} of {len(ids)} document(s) in this prompt are blocked "
+            f"for the cloud model (ids: {', '.join(blocked)}), so nothing is sent"
+        )
+    return None
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name."""
+    ids = carried()
+    if ids:  # before the guard and the consent below: a block wins over both
+        stopped = _block_stop(ids)
+        if stopped is not None:
+            return stopped
     if not settings.claude_approved_list_enforced:
         return None
-    ids = carried()
     if ids is None:
         return UNDECLARED, ("the caller did not declare which documents this prompt carries, "
                             "so nothing is sent (fail closed)")
@@ -307,20 +358,6 @@ def refusal() -> tuple[str, str] | None:
     if unknown:
         return UNKNOWN_DOCUMENT, (f"{len(unknown)} declared document(s) are not in the library "
                                   f"(ids: {', '.join(unknown)}), so nothing is sent")
-    # #1584: a block wins over everything below, the chat consent included. The
-    # code stays NOT_APPROVED so a review step runs locally instead (#838).
-    try:
-        blocked = sorted(_blocked_ids(hashes))
-    except BlockListUnreadable:
-        return (
-            NOT_APPROVED,
-            "the approved list or the block file cannot be read, so nothing is sent (fail closed)",
-        )
-    if blocked:
-        return NOT_APPROVED, (
-            f"{len(blocked)} of {len(ids)} document(s) in this prompt are blocked "
-            f"for the cloud model (ids: {', '.join(blocked)}), so nothing is sent"
-        )
     # Chat collection-summary consent is explicit, per request and per selected
     # file. It waives only the static owner list for this narrowly scoped call;
     # egress flags, API-key checks and spend limits remain enforced downstream.
