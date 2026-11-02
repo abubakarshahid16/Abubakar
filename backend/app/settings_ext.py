@@ -191,3 +191,8 @@ class SettingsExt(BaseModel):
     #: marked 'engineer to confirm', with a Review note; no checklist is chosen. OFF: unchanged.
     #: Env: EQUIPMENT_FROM_TITLE_BLOCK_ENABLED.
     equipment_from_title_block_enabled: bool = False
+    #: #1570: a printed line is not a sentence. The procedure path's keyword search and the spec kit join
+    #: wrapped lines into one sentence on the same page (never across a heading, list item or table row, or
+    #: past what can be quoted whole). The quote stays what the page says. No model, no socket.
+    #: OFF: split at every line break, as before. Env: PDF_PASSAGE_JOIN_LINES_ENABLED.
+    pdf_passage_join_lines_enabled: bool = False

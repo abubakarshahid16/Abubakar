@@ -137,8 +137,8 @@ def find_item(item: dict, pages: list[tuple[int, str]]) -> dict | None:
     groups, or None. The quote is cut from the stored page text and checked to be in it."""
     stored = dict(pages)
     for page_no, text in pages:
-        for part in procedure_text._SENTENCE_END.split(text):
-            folded = _fold(part)
+        for part in procedure_text.sentences(text):
+            folded = _fold(procedure_text.reading_text(part))
             if (
                 not folded
                 or _LEADER.search(part)
@@ -297,8 +297,8 @@ def numeric_rows(
             continue
         hit = None
         for page_no, text in pages:
-            for part in procedure_text._SENTENCE_END.split(text):
-                folded = _fold(part)
+            for part in procedure_text.sentences(text):
+                folded = _fold(procedure_text.reading_text(part))
                 if not all(w in folded for w in words):
                     continue
                 # one number of this quantity in the sentence, or none is taken: with two

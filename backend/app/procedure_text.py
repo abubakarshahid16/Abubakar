@@ -63,6 +63,22 @@ _SENTENCE_END = re.compile(r"(?<=[.;:!?])\s+|\n+")
 MIN_SHARE = 0.6
 MIN_HITS = 3
 MAX_QUOTE = 400
+#: #1570 (`settings.pdf_passage_join_lines_enabled`): which printed lines are one sentence.
+_WITHIN_RUN = re.compile(r"(?<=[.;:!?])\s+")
+#: A bullet (a PDF's second-level bullet is often a plain "o"), a number (4.1.2, 2., 3),
+#: a letter or roman numeral in a list, or a reference list's entry ("ABC 123, Title").
+_LIST_ITEM = re.compile(
+    r"[\u2022\u00b7\u25aa\u25e6\u2023\u25cf\u25cb\u25a0\u25a1*\-\u2013\u2014]"
+    r"|\d+(?:\.\d+)*[.)]?(?:\s|$)"
+    r"|\(?[a-z]\)|[a-z]\.\s|\(?[ivxlc]+\)|o(?:\s|$)"
+    r"|[A-Z][A-Z0-9/&\-]+ \d[\w.\-/]*,"
+)
+#: A tab or a wide gap inside a line: columns, not prose.
+_COLUMN_GAP = re.compile(r"\t| {3,}")
+#: A line wrapped when its next word would have run past this share of the page's widest line
+#: (character counts only approximate a proportional font).
+MARGIN_SHARE = 0.95
+_LINE_END_HYPHEN = re.compile(r"(?<=[a-z])-[ \t]*\r?\n\s*(?=[a-z])")
 
 
 def _stem(word: str) -> str:
@@ -111,6 +127,84 @@ def load_pages(document_id: str) -> list[tuple[int, str]]:
     ]
 
 
+def _is_table_row(line: str) -> bool:
+    return "|" in line or bool(_COLUMN_GAP.search(line))
+
+
+def _is_heading(line: str) -> bool:
+    """Capitals only, or no letters at all (a page number, a figure, a bare bullet)."""
+    return line.upper() == line
+
+
+def _wraps(line: str, following: str, width: int) -> bool:
+    """Does `following` carry on the sentence of `line`? Two stripped lines of a page whose
+    widest line is `width`. General shape only, and when in doubt, no: a false passage is
+    worse than none."""
+    if (
+        not line
+        or not following
+        or _LIST_ITEM.match(following)
+        or _is_table_row(line)
+        or _is_table_row(following)
+        or _is_heading(line)
+        or _is_heading(following)
+    ):
+        return False
+    # A capital may be a new line of a list, a reference, a title or a cell: it continues a line
+    # only when its first word did not fit on that line. Had it fitted, the break was meant.
+    next_word = following.split()[0]
+    return following[0].islower() or (
+        len(line) + 1 + len(next_word) >= MARGIN_SHARE * width
+    )
+
+
+def _joined_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) of each run of wrapped lines of one page's text."""
+    lines = [m.span() for m in re.finditer(r"[^\n]+", text)]
+    width = max((len(text[a:b].strip()) for a, b in lines), default=0)
+    spans: list[tuple[int, int]] = []
+    for start, end in lines:
+        if (
+            spans
+            and text[spans[-1][1] : start] == "\n"
+            and _wraps(
+                text[spans[-1][0] : spans[-1][1]].rsplit("\n", 1)[-1].strip(),
+                text[start:end].strip(),
+                width,
+            )
+        ):
+            spans[-1] = (spans[-1][0], end)
+        else:
+            spans.append((start, end))
+    return spans
+
+
+def sentences(text: str) -> list[str]:
+    """The sentences of one page's stored text. Each is a slice of it, line breaks kept, so a
+    quote cut from one is found on the page by the same folding the verifier uses.
+
+    A sentence too long to quote whole stays as its printed lines: a run that long with no
+    full stop is a list or a column, and joined it would gather a requirement's words from
+    lines that have nothing to do with each other."""
+    if not settings.pdf_passage_join_lines_enabled:
+        return _SENTENCE_END.split(text)
+    parts: list[str] = []
+    for start, end in _joined_spans(text):
+        for sentence in _WITHIN_RUN.split(text[start:end]):
+            pieces = sentence.split("\n") if len(sentence) > MAX_QUOTE else [sentence]
+            parts.extend(piece.strip() for piece in pieces)
+    return parts
+
+
+def reading_text(part: str) -> str:
+    """`part` for the word search only, never for a quote. A word broken by a hyphen at a line
+    end reads both as one word (pro-cedure) and as a compound (self-closing), since the page
+    cannot say which it is. A part with no such break comes back unchanged."""
+    if not _LINE_END_HYPHEN.search(part):
+        return part
+    return f"{_LINE_END_HYPHEN.sub('', part)} {_LINE_END_HYPHEN.sub('-', part)}"
+
+
 def find_passage(
     requirement_text: str | None, pages: list[tuple[int, str]]
 ) -> dict | None:
@@ -123,8 +217,8 @@ def find_passage(
     need = max(1, min(MIN_HITS, len(wanted)))
     best: tuple[float, int, int, str] | None = None
     for page_no, text in pages:
-        for part in _SENTENCE_END.split(text):
-            hit = len(wanted & key_words(part))
+        for part in sentences(text):
+            hit = len(wanted & key_words(reading_text(part)))
             share = hit / len(wanted)
             if (
                 hit >= need
