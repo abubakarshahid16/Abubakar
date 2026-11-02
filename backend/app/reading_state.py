@@ -32,7 +32,7 @@ import json
 import zipfile
 from datetime import UTC, datetime
 
-from . import errors, stored_paths
+from . import errors, states, stored_paths
 from .config import settings
 from .db import connect
 
@@ -53,6 +53,10 @@ WHY_SHEET = "in a workbook, which is read as cells"
 #: Stored and shown at most this many of each list; the counts stay whole.
 MAX_LISTED = 40
 NOTE = "What was read of this document"
+STILL_PROCESSING = (
+    "A selected document is still processing or has no searchable content. "
+    "Wait for every document to show Ready, then ask again."
+)
 
 
 def _page_state(row: dict) -> tuple[str, str | None]:
@@ -363,9 +367,10 @@ def _summary(decided: dict) -> dict:
     }
 
 
-def finish_status(document_id: str, ready: str, held: str) -> str:
+def finish_status(document_id: str) -> str:
     """The status a document with complete vectors finishes at. Refreshes the ledger
     first, since a page missing from it decides. Off: `ready`, exactly as before."""
+    ready, held = states.READY, states.PARTIALLY_SEARCHABLE
     if not settings.one_checked_definition_enabled:
         return ready
     from . import page_ledger
@@ -406,10 +411,10 @@ def stored(document_id: str) -> dict | None:
     return json.loads(row["summary"]) if row else None
 
 
-def hooks_may_run(document_id: str, status: str, ready: str) -> bool:
+def hooks_may_run(document_id: str, status: str) -> bool:
     """The READY hooks keep working for a held document: it is searchable, its text is
     complete, and only the word "ready" is withheld. Off: `status == ready`."""
-    if status == ready:
+    if status == states.READY:
         return True
     decided = stored(document_id)
     return decided is not None and not decided["ready"] and decided["unaccounted"] > 0
@@ -435,18 +440,16 @@ def coverage_part(document_id: str) -> dict:
     return {} if decided is None else {"reading": decided}
 
 
-def not_ready_words(documents: list[dict], default: str) -> str:
+def not_ready_words(documents: list[dict]) -> str:
     """Why a full-document answer is refused: a held document is not still processing."""
     lines = [
         s["line"]
         for s in (stored(d["document_id"]) for d in documents)
         if s and s["unaccounted"]
     ]
-    return (
-        f"A selected document is not fully accounted for. {lines[0]}"
-        if lines
-        else default
-    )
+    if lines:
+        return f"A selected document is not fully accounted for. {lines[0]}"
+    return STILL_PROCESSING
 
 
 def review_notes(findings: list[dict]) -> list[dict]:
@@ -479,7 +482,9 @@ def picture_counts(document_id: str) -> tuple[int | None, int | None] | None:
     if decided is not None:
         return decided["pictures_read"], decided["pictures_total"]
     proof = word_pages.read_proof(document_id)
-    return None if proof is None else (proof["pictures_read"], proof["pictures_in_file"])
+    return (
+        None if proof is None else (proof["pictures_read"], proof["pictures_in_file"])
+    )
 
 
 def report(document_id: str) -> dict | None:

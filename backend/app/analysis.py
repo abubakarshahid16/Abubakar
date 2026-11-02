@@ -39,7 +39,8 @@ import time
 # only module in `app/` allowed to (tests/test_socket_containment.py).
 import httpx
 
-from . import access, acronyms, claims, market, model_transport, reading_state, search as search_mod, synthesis
+from . import access, acronyms, claims, market, model_transport, search as search_mod, synthesis
+from . import reading_state
 from .work_budget import WorkBudget
 from .config import settings
 from .db import connect
@@ -877,8 +878,7 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
         })
     unfinished = [d for d in boundary["documents"] if d["status"] != states.READY]
     if unfinished:
-        return refused(reading_state.not_ready_words(unfinished, "A selected document is still processing or has "
-                       "no searchable content. Wait for every document to show Ready, then ask again."))
+        return refused(reading_state.not_ready_words(unfinished))
 
     # The search index can be READY while a nonblank page has no retrievable
     # text. The existing page ledger, not chunk count alone, detects that gap.

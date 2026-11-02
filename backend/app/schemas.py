@@ -141,7 +141,7 @@ class DocumentError(BaseModel):
 
 
 class Document(BaseModel):
-    model_config = ConfigDict(extra="allow")  # `reading`, with its switch on (`reading_state`)
+    model_config = ConfigDict(extra="allow")  # `reading`, with its switch on
     id: str
     filename: str
     sha256: str
@@ -169,7 +169,8 @@ class Document(BaseModel):
     pagination: str | None = Field(
         None,
         description="'flow' for a Word document: it has no fixed pages, its "
-        "'pages' are reading units and a citation is the chunk's locator (heading path and paragraph). null for a PDF, which is cited by page.")
+        "'pages' are reading units and a citation is the chunk's locator "
+        "(heading path and paragraph). null for a PDF, which is cited by page.")
     error: DocumentError | None = None
     pages_excluded: int = Field(
         0, description="pages search cannot see at all - not a quiet count"
@@ -972,7 +973,6 @@ class Passage(BaseModel):
 #
 # WHAT A DOCUMENT IS. Not who may read it - `disciplines` and
 # `document_role_access` decide that, and nothing here touches them.
-#
 # Typed because tests/test_no_internal_leaks.py requires every 2xx to declare
 # a schema: an untyped 200 documents itself as `string`, and every frontend
 # type written against it is then a guess.

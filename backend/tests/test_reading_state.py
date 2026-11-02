@@ -430,10 +430,7 @@ def test_a_held_document_stays_searchable_and_its_hooks_still_run(
     ran = []
     assert _finish(monkeypatch, doc) == states.PARTIALLY_SEARCHABLE
     assert states.PARTIALLY_SEARCHABLE in states.ANSWERABLE_STATES
-    assert (
-        reading_state.hooks_may_run(doc, states.PARTIALLY_SEARCHABLE, states.READY)
-        is True
-    )
+    assert reading_state.hooks_may_run(doc, states.PARTIALLY_SEARCHABLE) is True
     monkeypatch.setattr(
         ingest, "_queue_extraction_if_standard", lambda d: ran.append(d)
     )
@@ -450,10 +447,7 @@ def test_a_held_document_stays_searchable_and_its_hooks_still_run(
 
 def test_a_document_merely_still_embedding_runs_no_hooks(tmp_path, monkeypatch):
     doc = _ingest(_pdf_file(tmp_path), "pdf3")
-    assert (
-        reading_state.hooks_may_run(doc, states.PARTIALLY_SEARCHABLE, states.READY)
-        is False
-    )
+    assert reading_state.hooks_may_run(doc, states.PARTIALLY_SEARCHABLE) is False
 
 
 def test_the_summary_refusal_says_what_is_missing_not_still_processing(
@@ -464,11 +458,11 @@ def test_the_summary_refusal_says_what_is_missing_not_still_processing(
     with db.connect() as conn:
         conn.execute("DELETE FROM word_picture_readings")
     _finish(monkeypatch, doc)
-    words = reading_state.not_ready_words([{"document_id": doc}], "still processing")
+    words = reading_state.not_ready_words([{"document_id": doc}])
     assert "not ready: 1 not accounted for" in words
     assert (
-        reading_state.not_ready_words([{"document_id": "other"}], "still processing")
-        == "still processing"
+        reading_state.not_ready_words([{"document_id": "other"}])
+        == reading_state.STILL_PROCESSING
     )
 
 
@@ -560,8 +554,5 @@ def test_switch_off_nothing_changes(tmp_path, monkeypatch):
     )
     assert "reading" not in page_ledger.coverage(doc)
     assert crs_mapping.build_review_notes([{"document_id": doc}], []) == []
-    assert reading_state.finish_status(doc, "a", "b") == "a"
-    assert (
-        reading_state.hooks_may_run(doc, states.PARTIALLY_SEARCHABLE, states.READY)
-        is False
-    )
+    assert reading_state.finish_status(doc) == states.READY
+    assert reading_state.hooks_may_run(doc, states.PARTIALLY_SEARCHABLE) is False

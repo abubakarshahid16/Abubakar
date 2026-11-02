@@ -570,7 +570,11 @@ def _md_pages(audit: dict) -> list[str]:
         "## 2. Pages",
         f"- pages in the document: {_v(pages['total'])}",
         f"- read (text): {_v(pages['read_text'])}; read (picture): {_v(pages['read_picture'])}"
-        + (f" of {_v(pages['pictures_total'])} pictures" if "pictures_total" in pages else ""),
+        + (
+            f" of {_v(pages['pictures_total'])} pictures"
+            if "pictures_total" in pages
+            else ""
+        ),
     ]
     if pages["not_read"] is None:
         out.append(f"- not read: {NOT_RECORDED}")
