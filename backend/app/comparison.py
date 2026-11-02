@@ -1815,9 +1815,9 @@ def completeness_for_run(
         extraction = round(answered / required, 3) if required else None
         basis = {"basis": BASIS_REQUIRED_FIELDS, "fields_required": required,
                  "fields_answered": answered, "fields_estimated": None}
+        basis.update(kind_rules.unknown_type_words(submittal_document_id))
     else:
-        # No findings yet (the applicability screen, before any comparison):
-        # the old NOMINAL figure, labelled nominal wherever it is printed.
+        # No findings yet (applicability screen): the NOMINAL figure, labelled nominal.
         fields_estimated = pages * FIELDS_PER_PAGE_NOMINAL if pages else None
         extraction = (
             round(min(fields_read / fields_estimated, 1.0), 3)
@@ -1985,6 +1985,7 @@ def plain_reason(code: str, technical: str, completeness: dict | None,
                 f"{'s' if required != 1 else ''} the applicable standards ask for."
                 if required else
                 "No applicable standard asks this datasheet for a value that was checked.")
+        head = completeness.get("unknown_type_plain", head) if not required else head
         if missing:
             return f"{head} " + _standards_sentence(
                 missing, "so a review code can't be suggested yet.")
@@ -2257,7 +2258,9 @@ def _insufficient_reason(completeness: dict) -> str:
         required = completeness.get("fields_required") or 0
         answered = completeness.get("fields_answered") or 0
         cover = completeness.get("reference_coverage")
-        if not required:
+        if not required and completeness.get("unknown_type_technical"):
+            head = completeness["unknown_type_technical"]
+        elif not required:
             head = ("no requirement of an applicable standard asks this datasheet "
                     "for a value, so how much of it the review covered was not "
                     "measured")
@@ -2271,11 +2274,8 @@ def _insufficient_reason(completeness: dict) -> str:
         return f"{head}, and that is not enough to recommend a code"
     if total:
         pages = completeness.get("pages")
-        # THE DENOMINATOR SAYS WHERE IT COMES FROM. "approximately 385 fields"
-        # reads like somebody counted the sheet. Nobody did: it is the page
-        # count times a nominal 35 slots per page, a figure taken from OTHER
-        # datasheets entirely. A reader who thinks 385 was measured here will
-        # also think 42/385 means something about this document's coverage.
+        # THE DENOMINATOR SAYS WHERE IT COMES FROM: nobody counted the sheet. It is
+        # the page count times a nominal 35 slots per page, from OTHER datasheets.
         return (f"the review examined {read} fields; the denominator is a "
                 f"NOMINAL ESTIMATE of {total} ({pages} pages x "
                 f"{FIELDS_PER_PAGE_NOMINAL} fields per page, not a count of "
