@@ -122,9 +122,32 @@ def test_a_trailing_limit_keeps_a_real_value(text, raw):
     assert limit is not None and limit["raw_value"] == raw
 
 
-@pytest.mark.parametrize("value", ["5", "-40"])
-def test_a_tag_shaped_limit_never_gives_a_pass(value):
-    text = "MDMT-29 C or lower"
+@pytest.mark.parametrize(
+    "text",
+    [
+        "A1-29 C or lower",
+        "Zone 2-29 C or lower",
+        "No.2-29 C or lower",
+        "150-29 C or lower",
+        "T1-15 C or lower",
+        "Item 3-15 C or lower",
+        "3-5 mm or less",
+    ],
+)
+def test_a_digit_then_hyphen_then_digit_is_no_trailing_limit(text):
+    assert requirements_3b.parse_limit(text) is None
+
+
+@pytest.mark.parametrize(
+    "text, value, unit, expected",
+    [
+        ("MDMT-29 C or lower", "5", "C", comparison.NEEDS_ENGINEER_REVIEW),
+        ("MDMT-29 C or lower", "-40", "C", comparison.NEEDS_ENGINEER_REVIEW),
+        ("A1-29 C or lower", "5", "C", comparison.NEEDS_ENGINEER_REVIEW),
+        ("3-5 mm or less", "4", "mm", comparison.NEEDS_ENGINEER_REVIEW),
+    ],
+)
+def test_an_unreadable_limit_goes_to_review(text, value, unit, expected):
     limit = requirements_3b.parse_limit(text)
     requirement = {
         "id": "r",
@@ -141,10 +164,10 @@ def test_a_tag_shaped_limit_never_gives_a_pass(value):
         "id": "f",
         "field_name": "design temperature",
         "field_label": "Design temperature",
-        "field_value": f"{value} C",
+        "field_value": f"{value} {unit}",
         "raw_value": value,
-        "raw_unit": "C",
+        "raw_unit": unit,
         "is_blank": 0,
         "blank_marker": None,
     }
-    assert comparison.compare(requirement, fact)["status"] != comparison.COMPLIANT
+    assert comparison.compare(requirement, fact)["status"] == expected
