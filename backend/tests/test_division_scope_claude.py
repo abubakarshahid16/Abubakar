@@ -5,6 +5,7 @@ Fake transport only; no socket, no real call. Invented standard text and values 
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import httpx
@@ -156,12 +157,22 @@ def _ids(rows):
 # ------------------------------------------------------------------- the setting
 
 
-def test_the_engine_is_local_by_default_and_is_in_the_config_version(monkeypatch):
-    from app.config import ANSWER_AFFECTING_SETTINGS
+def test_the_engine_moves_the_config_version_only_when_it_is_not_the_default(
+    monkeypatch,
+):
+    """At its default, the hash is what it was before the setting existed: the recorded
+    bench baselines hold. Moved, a report can be told apart."""
+    from app.config import ANSWER_AFFECTING_SETTINGS, config_version
 
     monkeypatch.delenv("AI_DIVISION_SCOPE_ENGINE", raising=False)
     assert Settings.model_fields["ai_division_scope_engine"].default == "ollama"
-    assert "ai_division_scope_engine" in ANSWER_AFFECTING_SETTINGS
+    assert "ai_division_scope_engine" not in ANSWER_AFFECTING_SETTINGS
+    monkeypatch.setattr(settings, "ai_division_scope_engine", "ollama")
+    subset = {k: getattr(settings, k) for k in sorted(ANSWER_AFFECTING_SETTINGS)}
+    before = json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
+    assert config_version() == hashlib.sha256(before).hexdigest()[:16]
+    monkeypatch.setattr(settings, "ai_division_scope_engine", "claude")
+    assert config_version() != hashlib.sha256(before).hexdigest()[:16]
 
 
 # ------------------------------------------------------------------- setting on

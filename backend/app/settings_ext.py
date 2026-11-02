@@ -7,6 +7,21 @@ environment exactly like every other setting (`Settings` inherits them).
 from pydantic import BaseModel, Field
 
 
+#: Settings that change a review's answer only when moved off their default. They join
+#: `config_version` only then, so adding one leaves every recorded hash and baseline as it was.
+ANSWER_AFFECTING_WHEN_CHANGED = ("ai_division_scope_engine",)
+
+
+def answer_affecting_when_changed(settings) -> dict:
+    """The settings above that are off their default, for `config_version`."""
+    fields = type(settings).model_fields
+    return {
+        k: getattr(settings, k)
+        for k in ANSWER_AFFECTING_WHEN_CHANGED
+        if getattr(settings, k) != fields[k].default
+    }
+
+
 class SettingsExt(BaseModel):
     #: #1584 standards compiler (`standards_compiler.py`, `scripts/compile_standards.py`): Claude turns a held
     #: standard into version 2 rules on a database COPY; code verifies every quote; the rules are held until the

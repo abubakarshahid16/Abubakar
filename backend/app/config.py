@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .settings_ext import SettingsExt
+from .settings_ext import SettingsExt, answer_affecting_when_changed
 
 
 class ModelHostRefused(RuntimeError):
@@ -1535,7 +1535,6 @@ ANSWER_AFFECTING_SETTINGS = (
     "ai_task_model", "datasheet_ai_reader", "match_engine",
     "ai_applicability_enabled", "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
-    "ai_division_scope_engine",
     "ai_answer_reuse_enabled",
 )
 ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
@@ -1552,6 +1551,7 @@ def config_version() -> str:
     import json
 
     subset = {k: getattr(settings, k) for k in sorted(ANSWER_AFFECTING_SETTINGS)}
+    subset.update(answer_affecting_when_changed(settings))
     return hashlib.sha256(
         json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:16]
