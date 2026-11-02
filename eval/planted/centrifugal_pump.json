@@ -1,0 +1,83 @@
+{
+  "format": "planted-base/1",
+  "source": "invented",
+  "note": "#1607: an invented centrifugal pump datasheet and the defects planted in copies of it. Every value is made up. One row per printed line; `role` is the checklist's field name (datasheet_checks.json), `field` the printed label. The clean sheet is meant to meet the draft checklist and the datasheet's own consistency rules. Some plants have no rule today (NPSH required above NPSH available, absorbed power above the driver rating): a defect an engineer would catch stays planted, so the score says what the checklist does not check.",
+  "name": "centrifugal_pump",
+  "equipment_type": "Centrifugal Pump",
+  "title": "CENTRIFUGAL PUMP DATA SHEET",
+  "doc_prefix": "SYN-PMP",
+  "pages": [
+    {
+      "heading": "PERFORMANCE DATA",
+      "rows": [
+        {"role": "rated_flow", "field": "Rated flow", "value": "40", "unit": "m3/h"},
+        {"role": "min_flow", "field": "Minimum continuous stable flow", "value": "12", "unit": "m3/h"},
+        {"role": "max_flow", "field": "Maximum allowable flow", "value": "55", "unit": "m3/h"},
+        {"role": "rated_head", "field": "Differential head", "value": "55", "unit": "m"},
+        {"role": "npsh_required", "field": "NPSH required", "value": "3.2", "unit": "m"},
+        {"role": "npsh_available", "field": "NPSH available", "value": "6", "unit": "m"},
+        {"role": "rated_speed", "field": "Rated speed", "value": "2950", "unit": "rpm"},
+        {"role": "absorbed_power", "field": "Absorbed power", "value": "10.5", "unit": "kW"},
+        {"role": "driver_rating", "field": "Driver rating", "value": "15", "unit": "kW"}
+      ]
+    },
+    {
+      "heading": "DESIGN DATA",
+      "rows": [
+        {"role": "operating_pressure", "field": "Operating pressure", "value": "8", "unit": "barg"},
+        {"role": "design_pressure", "field": "Design pressure", "value": "16", "unit": "barg"},
+        {"role": "test_pressure", "field": "Test pressure", "value": "24", "unit": "barg"},
+        {"role": "operating_temperature", "field": "Pumping temperature", "value": "60", "unit": "degC"},
+        {"role": "design_temperature", "field": "Design temperature", "value": "120", "unit": "degC"}
+      ]
+    },
+    {
+      "heading": "CONSTRUCTION DATA",
+      "rows": [
+        {"role": "casing_material", "field": "Casing material", "value": "A216 WCB"},
+        {"role": "impeller_material", "field": "Impeller material", "value": "316 SS"},
+        {"role": "shaft_material", "field": "Shaft material", "value": "410 SS"},
+        {"role": "seal_type", "field": "Seal type", "value": "Single cartridge"},
+        {"role": "seal_plan", "field": "API seal plan", "value": "Plan 11"},
+        {"role": "bearing_type", "field": "Bearing type", "value": "Ball"}
+      ]
+    }
+  ],
+  "controls": [
+    {"name": "clean", "set": {}},
+    {
+      "name": "clean_other_values",
+      "set": {
+        "rated_flow": "90", "min_flow": "25", "max_flow": "120", "rated_head": "80",
+        "npsh_required": "4", "npsh_available": "7.5", "absorbed_power": "33", "driver_rating": "45",
+        "operating_pressure": "12", "design_pressure": "25", "test_pressure": "37.5"
+      }
+    }
+  ],
+  "plants": [
+    {"defect": "over_limit", "field": "operating_pressure", "value": "18", "wanted": "does_not_meet"},
+    {"defect": "over_limit", "field": "operating_temperature", "value": "150", "wanted": "does_not_meet"},
+    {"defect": "over_limit", "field": "rated_flow", "value": "10", "wanted": "does_not_meet"},
+    {"defect": "over_limit", "field": "rated_flow", "value": "60", "wanted": "does_not_meet"},
+    {"defect": "over_limit", "field": "npsh_required", "value": "7", "wanted": "does_not_meet"},
+    {"defect": "over_limit", "field": "absorbed_power", "value": "18", "wanted": "does_not_meet"},
+    {"defect": "wrong_unit", "field": "design_pressure", "unit": "psig", "wanted": "does_not_meet"},
+    {"defect": "wrong_unit", "field": "design_temperature", "unit": "barg", "wanted": "query"},
+    {"defect": "wrong_unit", "field": "rated_flow", "unit": "barg", "wanted": "query"},
+    {"defect": "wrong_unit", "field": "rated_head", "unit": "degC", "wanted": "query"},
+    {"defect": "blank_required", "field": "rated_flow", "wanted": "query"},
+    {"defect": "blank_required", "field": "npsh_required", "wanted": "query"},
+    {"defect": "blank_required", "field": "seal_plan", "wanted": "query"},
+    {"defect": "contradictory", "field": "rated_flow", "value": "48", "wanted": "query"},
+    {"defect": "contradictory", "field": "design_pressure", "value": "20", "wanted": "query"},
+    {"defect": "contradictory", "field": "seal_type", "value": "Double cartridge", "wanted": "query"},
+    {"defect": "wrong_sign", "field": "rated_flow", "wanted": "query"},
+    {"defect": "wrong_sign", "field": "rated_head", "wanted": "query"},
+    {"defect": "wrong_sign", "field": "npsh_required", "wanted": "query"},
+    {"defect": "wrong_field", "field": "design_pressure", "with": "operating_pressure", "wanted": "does_not_meet"},
+    {"defect": "wrong_field", "field": "rated_flow", "with": "min_flow", "wanted": "does_not_meet"},
+    {"defect": "wrong_field", "field": "casing_material", "with": "rated_speed", "wanted": "query"},
+    {"defect": "missing_page", "page": 1, "wanted": "query"},
+    {"defect": "missing_page", "page": 2, "wanted": "query"}
+  ]
+}
