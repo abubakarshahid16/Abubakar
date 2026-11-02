@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from . import acronyms as acronyms_mod
 from . import claude_auto_approve
 from . import doc_router, errors, intake, job_queue, page_ledger, sheet_chunks, states
+from . import intake_blocks
 from .chunker import chunk_document
 from . import reading_state, telemetry
 from .db import connect
@@ -503,6 +504,7 @@ class IngestionWorker(ReviewDrain):
                 if status == states.CHUNKING:
                     result["chunk"] = chunk_document(doc_id)
                     _route_document_kind(doc_id, result)
+                    intake_blocks.refresh(doc_id)
                     telemetry.record(
                         telemetry.CHUNK,
                         result["chunk"].get("chunks_this_run", 0),
@@ -543,9 +545,8 @@ class IngestionWorker(ReviewDrain):
                     # One ROUND per pass, then back through chunking and the
                     # keyword index, so a scanned document becomes
                     # progressively searchable: page 40 answerable while page
-                    # 900 is still being read. The round doubles each time
-                    # because re-chunking is whole-document - re-indexing after
-                    # every batch would cost more than the recognition does.
+                    # 900 is still being read. The round doubles because re-chunking
+                    # is whole-document: re-indexing each batch would cost more.
                     pending = ocr.pending_pages(doc_id)
                     if pending:
                         already = conn.execute(
@@ -554,6 +555,7 @@ class IngestionWorker(ReviewDrain):
                         ).fetchone()["c"]
                         result["ocr"] = ocr.recognise_document(
                             doc_id, max_pages=ocr.round_size(already))
+                        intake_blocks.refresh(doc_id)
                         telemetry.record(
                             telemetry.OCR,
                             result["ocr"].get("pages_recognised", 0),
@@ -563,10 +565,8 @@ class IngestionWorker(ReviewDrain):
                         result["stages"].append("ocr")
                         if self._stop.is_set():
                             return result
-                        # Recognised text changes the chunk signature, so
-                        # chunking rebuilds on its own rather than being told
-                        # to. Going back through CHUNKING is what makes the new
-                        # pages searchable.
+                        # Recognised text changes the chunk signature, so going
+                        # back through CHUNKING makes the new pages searchable.
                         if result["ocr"].get("pages_with_text"):
                             self._set_state(doc_id, states.CHUNKING)
                             continue

@@ -201,6 +201,8 @@ EGRESS_SAFE: dict[str, object] = {
     "one_intake_enabled": False,
     # --- local only, no model or socket: images and workbooks accepted through intake (off by default)
     "intake_images_xlsx_enabled": False,
+    # --- local only, no model or socket: numbered blocks and hashes for every file (off by default)
+    "intake_blocks_enabled": False,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,

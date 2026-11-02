@@ -58,7 +58,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
-from . import errors, figure_page, pdf_guard, stored_paths
+from . import errors, figure_page, intake_blocks, pdf_guard, stored_paths
 from .config import settings
 from .db import connect
 from .quality import normalise_text
@@ -518,14 +518,11 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
             raw = merged if added else ""
         else:
             raw = "\n".join(texts)
-        # Through normalise_text, exactly as extraction does, so symbol-font
-        # control characters cannot reach chunking.
+        # Through normalise_text, as extraction does: no symbol-font control chars in chunks.
         text = normalise_text(raw)
         viol, sample = alphabet_violations(text, settings.ocr_expected_script)
-        # mean/min collapse a whole page to one number each; a page with one
-        # bad word among 200 and a page with fifty bad words can share the
-        # same min. This counts individual boxes below the threshold, which
-        # neither the mean nor the min can tell apart (settings.ocr_low_conf_threshold).
+        # mean/min collapse a page to one number each, so one bad word and fifty can share a
+        # min; this counts the boxes below settings.ocr_low_conf_threshold.
         low_conf = sum(1 for s in scores if s < settings.ocr_low_conf_threshold)
         out.append((
             pno, text,
@@ -533,6 +530,7 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
             round(min(scores), 4) if scores else None,
             len(texts), low_conf, round(time.perf_counter() - t0, 3), viol, sample, None,
         ))
+        out[-1] += intake_blocks.ocr_row_part(native, texts, boxes, text)
     return out
 
 
@@ -590,6 +588,7 @@ def _commit_batch(doc_id: str, batch_no: int,
     """
     conn = connect()
     now = _now()
+    rows, grids = intake_blocks.ocr_rows_apart(doc_id, rows)
     payload = []
     failed_pages = []
     with_text = failed = 0
@@ -613,9 +612,9 @@ def _commit_batch(doc_id: str, batch_no: int,
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 payload,
             )
-        # THE EXCLUSION LEDGER TOO. A round that only FAILED pages is not
-        # followed by a re-chunk (nothing new to chunk), so the rows the last
-        # chunk pass wrote would keep saying "recognition has not run" about
+        intake_blocks.store_ocr_grids(conn, grids)
+        # THE EXCLUSION LEDGER TOO. A round that only FAILED pages is not re-chunked, so the
+        # rows the last chunk pass wrote would keep saying "recognition has not run" about
         # pages it ran on and failed. Corrected in place, with the reason.
         conn.executemany(
             "UPDATE exclusions SET rule = 'ocr_failed', reason = ?"
