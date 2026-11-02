@@ -141,20 +141,21 @@ DECLARED_BY = {
     "answer.py": "answer.py",
     "answerability.py": "answerability.py",
     "applicability.py": "applicability.py",
-    "applicability_reasoning.py": "applicability.py",      # called per standard from there
+    "applicability_reasoning.py": "applicability.py",  # called per standard from there
     "chat_answers.py": "chat_answers.py",
     "chat_claude_first.py": "chat_claude_first.py",
-    "chat_model.py": "chat.py",                             # the engine call; chat.ask and its callers declare
+    "chat_model.py": "chat.py",  # the engine call; chat.ask and its callers declare
     "claude_api.py": "claude_api.py",
     "claude_datasheet.py": "claude_datasheet.py",
     "claude_recheck.py": "claude_recheck.py",
-    "claude_selection.py": "claude_api.py",                 # the route builds the call
-    "comparison.py": "comparison.py",                       # MATCH_ENGINE=claude, inside run_comparison
+    "claude_selection.py": "claude_api.py",  # the route builds the call
+    "comparison.py": "comparison.py",  # MATCH_ENGINE=claude, inside run_comparison
+    "match_claude.py": "comparison.py",  # its Claude ask
     "crs_wording.py": "crs_wording.py",
-    "datasheet_ai.py": "datasheets.py",                     # read per document from extract_facts
-    "field_naming.py": "comparison.py",                     # inside run_comparison
+    "datasheet_ai.py": "datasheets.py",  # read per document from extract_facts
+    "field_naming.py": "comparison.py",  # inside run_comparison
     "rule_eval.py": "rule_eval.py",
-    "vision_reader.py": "datasheets.py",                    # read per page from extract_facts
+    "vision_reader.py": "datasheets.py",  # read per page from extract_facts
 }
 #: The lane itself and its plumbing: they send what a caller declared.
 THE_LANE = {"reasoning_provider.py", "claude_spend.py", "reader_transport.py", "reader_api.py",

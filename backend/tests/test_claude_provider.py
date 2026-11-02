@@ -15,7 +15,7 @@ KEY = "sk-ant-test-THIS-MUST-NEVER-APPEAR-0123456789"
 @pytest.fixture(autouse=True)
 def _env(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.setattr(settings, "anthropic_api_key", KEY)
     monkeypatch.setattr(settings, "standards_reader_enabled", True)
