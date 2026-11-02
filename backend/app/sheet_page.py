@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse
 
 from . import access, errors
 from . import evidence_boxes
-from . import pageimage
+from . import pageimage, word_pages
 from . import review as review_mod
 from . import schemas
 from .api_utils import reject_unknown_params, require_document
@@ -97,9 +97,16 @@ def review_run_page_image(
             located += 1
     assert document is not None
     if document.get("pagination") == "flow" or not document.get("stored_path"):
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "this document has no printed pages to draw on",
-            document_id=document["id"]))
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(
+                errors.NOT_FOUND,
+                word_pages.no_image_words(
+                    "this document has no printed pages to draw on"
+                ),
+                document_id=document["id"],
+            ),
+        )
     try:
         path = pageimage.render_page_with_marks(document, page, drawn, dpi=dpi)
     except pageimage.PageOutOfRange as e:

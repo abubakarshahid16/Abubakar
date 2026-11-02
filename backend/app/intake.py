@@ -163,7 +163,8 @@ def read_pdf(path: str | os.PathLike) -> IntakeResult:
 def read_word(path: str | os.PathLike) -> IntakeResult:
     from . import datasheet_inputs, docx_reader
 
-    if settings.datasheet_office_input:  # the datasheet reader's own pages, as today
+    # The datasheet reader's own pages, as today, unless the file's own pages decide.
+    if settings.datasheet_office_input and not settings.word_page_markers_enabled:
         reading = datasheet_inputs.read(path)
         pages = []
         for p in reading.pages:
@@ -539,6 +540,14 @@ def refusal_of(exc: BaseException, last_error: dict) -> tuple[str, str]:
 
 
 def coverage_part(document_id: str) -> dict:
+    """What `page_ledger.coverage` adds: `_reasons_part`, and a Word file's read
+    proof (`word_pages`, WORD_PAGE_MARKERS_ENABLED; off, nothing)."""
+    from . import word_pages
+
+    return _reasons_part(document_id) | word_pages.coverage_part(document_id)
+
+
+def _reasons_part(document_id: str) -> dict:
     """What `page_ledger.coverage` adds for a document read through intake:
     `intake_reasons` = {page_no: [reason, ...]}, page "0" = the whole file.
 

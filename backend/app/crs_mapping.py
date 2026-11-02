@@ -41,7 +41,7 @@ from . import (
 from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 
 # isort: split
-from . import page_not_read, paragraph_ids, procedure_text, spec_kit
+from . import page_not_read, paragraph_ids, procedure_text, spec_kit, word_pages
 
 # isort: split
 from .crs_draft_lanes import (  # noqa: F401
@@ -444,7 +444,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     if outcome is not None:
         from .clause_coverage import outcome_notes
         notes.extend(outcome_notes(outcome, findings))
-    return notes
+    return notes + word_pages.review_notes(findings)
 
 
 def _field_not_identified_notes(findings: list[dict]) -> list[dict]:
@@ -553,7 +553,7 @@ def reasoning_text(group: list[dict]) -> str:
         page = f.get("contractor_page")
         if field or value:
             bits.append(f"Read: {field or 'value'}" + (f" = {value}" if value else " (no value read)")
-                        + (f" (p.{page})" if page else ""))
+                        + (f" ({word_pages.at(f)})" if page else ""))
         reference = _standard_reference(f)
         if reference:
             bits.append(f"Clause: {reference}")
@@ -576,7 +576,7 @@ def _page_section(group: list[dict]) -> str:
     )
     return crs_page_words.where(
         pages,
-        f"p.{_page_list(pages)}" if pages else "",
+        word_pages.at_pages(pages, group) if pages else "",
         _field_label(f) + crs_item_series.items_suffix(group),
         _items(group),
         {g.get("document_id") for g in group},
@@ -682,7 +682,7 @@ def engineer_comment_text(group: list[dict]) -> str:
     tags = _items(group)
     pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
     where = " ".join(p for p in (
-        f"p.{_page_list(pages)}," if pages else "",
+        f"{word_pages.at_pages(pages, group)}," if pages else "",
         field or "", f"({', '.join(tags)})" if tags else "") if p)
     lead = f"{ref}: {_requirement_words(f)}"
     if words := procedure_text.crs_words(f, lead):  # #1476
@@ -701,7 +701,7 @@ def engineer_comment_text(group: list[dict]) -> str:
         # AND tag, and a tag's value is said once).
         per_tag = "; ".join(dict.fromkeys(
             f"{crs_item_series.item_name(g)} {_provided(g)}"
-            + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
+            + (f" ({word_pages.at(g)})" if g.get("contractor_page") else "")
             for g in sorted(group, key=crs_item_series.in_series_order)))
         said = f"Datasheet {field or 'value'}: {per_tag}."
     else:
@@ -832,7 +832,7 @@ def safety_tick_text(f: dict) -> str:
     value = str(f.get("contractor_evidence_text") or "").strip()
     page = f.get("contractor_page")
     field = _field_label(f) or str(f.get("contractor_section") or "").strip()
-    where = " ".join(p for p in (f"p.{page}," if page else "", field) if p)
+    where = " ".join(p for p in (f"{word_pages.at(f)}," if page else "", field) if p)
     said = (f"Datasheet {where} states {value}." if where and value
             else f"Datasheet states {value}." if value else "")
     return " ".join(p for p in (
@@ -1610,7 +1610,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 text = f"{UNVERIFIED_LABEL}. {text}"
         # The datasheet's page and field, in the shape every row uses.
         where = " - ".join(p for p in (
-            f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
+            word_pages.at(f) if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
         confirmed = bool(crs_decider.decider(f))
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.

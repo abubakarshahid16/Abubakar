@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-from . import classification, crs_numbers, document_kind, kind_rules
+from . import classification, crs_numbers, document_kind, kind_rules, word_pages
 from .clause_review import page_texts, verify_quote
 from .config import settings
 from .crs_draft_lanes import CLAUSE_ORIGIN
@@ -140,7 +140,12 @@ def fill_pages(rows: list[dict], findings: list[dict], document_id: str) -> None
             {p for q, stated in quotes if (p := verified_page(q, stated, texts))}
         )
         rest = _PAGE_LEAD.sub("", str(row.get("page_section") or ""))
-        lead = _page_words(pages) if pages else ""
+        rest = word_pages.without_lead(rest, document_id)
+        group = [
+            {"document_id": document_id, "contractor_evidence_text": q}
+            for q, _ in quotes
+        ]
+        lead = word_pages.page_cell(_page_words(pages), pages, group) if pages else ""
         row["page_section"] = f"{lead} - {rest}" if lead and rest else lead or rest
 
 
