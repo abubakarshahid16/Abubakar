@@ -373,14 +373,17 @@ TICK_ACTION = "Read the clause and the value on the page and tick, or say what i
 
 
 def ticked_words(row: dict) -> dict:
-    """With CRS_PLAIN_NOTES_ENABLED, a safety row an engineer has ticked says so, not that
-    it waits. On the view only: the words a number keeps (`crs_carry`) are not touched, so
-    the next run's row is compared with what the engineer read."""
-    if (
-        not settings.crs_plain_notes_enabled
-        or row.get("row_kind") != "safety_tick"
-        or not row.get("engineer_confirmed")
-    ):
+    """With CRS_PLAIN_NOTES_ENABLED, a safety row an engineer has really ticked says so,
+    not that it waits (`crs_decider.tick_done`). An edited comment is not a tick: it may be
+    an objection, so the engineer's words print first and the row still waits. On the view
+    only: the words a number keeps (`crs_carry`) are not touched, so the next run's row is
+    compared with what the engineer read."""
+    if not settings.crs_plain_notes_enabled or row.get("row_kind") != "safety_tick":
+        return row
+    words = row.get("engineer_words")
+    if words:
+        return {**row, "comment": f"{words}\n{row.get('comment') or ''}"}
+    if not row.get("tick_done"):
         return row
     said = str(row.get("comment") or "").replace(f" {TICK_ACTION}", "")
     return {**row, "comment": said.replace(TICK_LEAD, "TICKED BY ENGINEER", 1)}

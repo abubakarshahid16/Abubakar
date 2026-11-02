@@ -17,4 +17,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="notice_row_is_tall",
         tags=("pr1601", "crs_plain_notes"),
     ),
+    Mutation(
+        id="M1601-02",
+        phase=1601,
+        description="a safety row carries no tick state, so a ticked row says it waits",
+        path=APP / "crs_mapping.py",
+        anchor="            **crs_decider.tick_state(f),\n",
+        replacement="",
+        target="tests/test_crs_plain_notes.py",
+        keyword="ticked_row_through_the_real_path",
+        tags=("pr1601", "crs_plain_notes"),
+    ),
 )

@@ -450,7 +450,7 @@ def tick_note(rows: list[dict]) -> dict | None:
     n = sum(
         1
         for r in rows
-        if r.get("row_kind") == ROW_KIND_SAFETY_TICK and not r.get("engineer_confirmed")
+        if r.get("row_kind") == ROW_KIND_SAFETY_TICK and not r.get("tick_done")
     )
     if not n:
         return None

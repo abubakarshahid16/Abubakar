@@ -1545,8 +1545,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     # rule_trust (#947 step 8): SAFETY-TIER COMPLIANT, SHOWN FOR A TICK. The
     # rule decided "meets the standard" on its own; because the field is a
     # safety one, an engineer reads the clause and the value and ticks it
-    # (the PF5 decision routes: accept = ticked, reject = something is off).
-    # Internal copy only (`crs_export` drops the kind from the issue copy).
+    # (PF5 routes: accept = ticked, reject = off). Internal copy only (`crs_export`).
     for f in _one_row_findings(items, BUCKET_TICK):
         if not f.get("show_for_engineer_tick") or status(f) != "COMPLIANT":
             continue
@@ -1560,6 +1559,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "row_kind": ROW_KIND_SAFETY_TICK,
             "severity": "",
             "engineer_confirmed": _confirmed(f),
+            **crs_decider.tick_state(f),
             "comment_key": comment_key("safety tick", _subject_key(f)),
             "crs_group": _key_text(_group_key(f)),
             "reasoning": reasoning_text([f]),

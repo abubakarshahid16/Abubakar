@@ -13,6 +13,7 @@ from app import (
     absence,
     access,
     comparison,
+    crs_decider,
     crs_export,
     crs_export_quality,
     crs_mapping,
@@ -104,7 +105,7 @@ def test_switch_off_the_notice_is_as_before():
 def _tick(**more):
     return {
         "row_kind": crs_mapping.ROW_KIND_SAFETY_TICK,
-        "engineer_confirmed": False,
+        "tick_done": False,
         **more,
     }
 
@@ -114,8 +115,8 @@ def test_the_tick_note_counts_the_open_rows_and_says_why(monkeypatch):
     rows = [
         _tick(),
         _tick(),
-        _tick(engineer_confirmed=True),
-        {"row_kind": "datasheet_check", "engineer_confirmed": False},
+        _tick(tick_done=True),
+        {"row_kind": "datasheet_check", "tick_done": False},
     ]
     note = absence.tick_note(rows)
     assert note["note"] == absence.TICK_NOTE and note["count"] == 2
@@ -174,6 +175,7 @@ def test_a_ticked_row_stops_saying_it_waits(monkeypatch):
         "comment": text,
         "comment_by": "Engineer",
         "engineer_confirmed": True,
+        "tick_done": True,
     }
     assert _shown(row) == text, "off: as before"
     monkeypatch.setattr(settings, "crs_plain_notes_enabled", True)
@@ -184,7 +186,7 @@ def test_a_ticked_row_stops_saying_it_waits(monkeypatch):
     assert "Automatic result: meets the standard" in said
     assert row["comment"] == text, "the words a number keeps are not touched"
     # an open row keeps saying it, so the note's count is the rows that say it
-    open_row = {**row, "engineer_confirmed": False}
+    open_row = {**row, "engineer_confirmed": False, "tick_done": False}
     assert _shown(open_row) == text
     views = [row, open_row]
     saying = sum(
@@ -312,3 +314,40 @@ def test_a_ticked_row_through_the_real_path_and_no_note_left(sheet_run, monkeypa
     assert not any("ENGINEER TO TICK" in c for c in cells)
     assert any(c.startswith("TICKED BY ENGINEER") for c in cells)
     assert not any(n["note"] == absence.TICK_NOTE for n in meta["review_notes"])
+
+
+def test_an_edited_comment_is_the_engineers_words_and_not_a_tick(
+    sheet_run, monkeypatch
+):
+    """An edit confirms the finding, and it may be an objection: never TICKED."""
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET confirmed_by = 'eng-1',"
+            " engineer_comment = 'Invented objection to this value.' WHERE id = 'f1'"
+        )
+    monkeypatch.setattr(settings, "crs_plain_notes_enabled", True)
+    rows, meta, _n, _s = _content(sheet_run, "internal")
+    assert rows[0]["engineer_confirmed"] is True and rows[0]["tick_done"] is False
+    book = openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, meta)))
+    cells = [
+        str(c) for row in book["CRS"].iter_rows(values_only=True) for c in row if c
+    ]
+    assert not any("TICKED BY ENGINEER" in c for c in cells)
+    [cell] = [c for c in cells if "Invented objection to this value." in c]
+    assert cell.startswith("Invented objection") and "ENGINEER TO TICK" in cell
+    [note] = [n for n in meta["review_notes"] if n["note"] == absence.TICK_NOTE]
+    assert note["count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("finding", "done"),
+    [
+        ({}, False),
+        ({"confirmed_by": "eng"}, True),
+        ({"approval_status": "accepted"}, True),
+        ({"approval_status": "rejected"}, False),
+        ({"confirmed_by": "eng", "engineer_comment": "Invented"}, False),
+    ],
+)
+def test_what_a_real_tick_is(finding, done):
+    assert crs_decider.tick_done(finding) is done
