@@ -356,6 +356,7 @@ def _library(monkeypatch, known: dict[str, str]):
     monkeypatch.setattr(
         claude_approved, "_hashes_of", lambda ids: {d: known.get(d) for d in ids}
     )
+    monkeypatch.setattr(claude_approved, "_blocked_ids", lambda hashes: frozenset())
 
 
 def test_a_blocked_document_never_gets_a_stored_answer(tmp_path, monkeypatch):
@@ -400,6 +401,26 @@ def test_a_withdrawn_document_stops_serving_even_for_a_caller_that_no_longer_dec
     with claude_approved.carrying(()):
         _metered_call(send)("which?")
     assert len(send.calls) == 2, "a withdrawn document's answer was served"
+
+
+def test_a_blocked_file_stops_serving_even_with_the_guard_off_and_undeclared(
+    monkeypatch,
+):
+    """#1584: a block wins over the guard; the file knows what its prompt carried."""
+    _library(monkeypatch, {"doc1": "aaa"})
+    blocked = {"on": False}
+    monkeypatch.setattr(
+        claude_approved,
+        "_blocked_ids",
+        lambda hashes: frozenset(hashes) if blocked["on"] else frozenset(),
+    )
+    send = _send()
+    with claude_approved.carrying(["doc1"]):
+        _metered_call(send)("which?")
+    blocked["on"] = True
+    with claude_approved.carrying(()):
+        _metered_call(send)("which?")
+    assert len(send.calls) == 2, "a blocked document's answer was served"
 
 
 def test_a_deleted_document_leaves_nothing_served(monkeypatch):

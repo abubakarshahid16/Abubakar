@@ -584,6 +584,7 @@ def available() -> tuple[bool, str]:
     if not settings.review_ai_check_enabled:
         return False, "the AI engineering check is off (REVIEW_AI_CHECK_ENABLED)"
     from . import reasoning_provider as rp
+
     ok, why = rp.claude_available()
     on_cloud = ok or rp.claude_for_task(opinion_engine(), step=STEP) is not None
     if local_engine_bar.active() and (not on_cloud or claude_approved.local_instead()):

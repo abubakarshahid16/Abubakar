@@ -389,7 +389,8 @@ _PRIVATE_PARSER = re.compile(
 #: Other readers, NOT moved by W2 (named in the PR). Each reads a different
 #: shape of text; adding to this list is a decision, not a habit.
 _NOT_YET_MOVED = {
-    "upload.py",           # NFKC on a FILENAME (a security fold), not on document text
+    "claude_approved.py",  # NFKC on a FILENAME (the register name check), not on document text
+    "upload.py",  # NFKC on a FILENAME (a security fold), not on document text
 }
 
 #: The files that still define a pattern NAMED `_NUMBER` or `_THOUSANDS`, and

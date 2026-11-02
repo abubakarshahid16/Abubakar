@@ -55,7 +55,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import get_args
 
-from . import access
+from . import access, claude_auto_approve
 from . import numparse
 from . import schemas
 from . import disciplines as disciplines_mod
@@ -1545,11 +1545,11 @@ def confirm(document_id: str, *, doc_type: str | None,
     # document confirmed here as COMPANY_STANDARD after it finished ingesting
     # sat fully indexed with zero requirements extracted, forever, with
     # nothing on screen to say why. `ingest.on_role_changed` is the same
-    # hook `set_role` already calls; it is READY-gated and idempotent, so
-    # calling it again here for a document already queued costs nothing.
-    # #195: the same shared hook `set_role` calls, which also reads a
-    # submittal's facts. Without the classifiers: this form IS the
+    # hook `set_role` already calls, READY-gated and idempotent; it also reads
+    # a submittal's facts (#195). Without the classifiers: this form IS the
     # classification, and it must not be overwritten a moment later.
+    if metadata is not None:
+        claude_auto_approve.on_upload(document_id)  # #1584: a role can stop qualifying
     if metadata is not None and metadata.get("document_role") in (
             "COMPANY_STANDARD", "CONTRACTOR_SUBMITTAL"):
         from . import ingest

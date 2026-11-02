@@ -48,6 +48,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
+from .claude_auto_approve import lists_cited
 from .db import connect
 from .held_standards import mark_rows
 
@@ -1646,11 +1647,19 @@ def _audit_args(action, actor, resource_id, detail) -> tuple:
             action, resource_id, detail)
 
 
+@lists_cited
 def record_selection(
-    *, review_run_id: str, standard_document_id: str, method: str,
-    reason: str, confidence: float | None = None, included: bool = True,
-    exclusion_reason: str | None = None, evidence_page: int | None = None,
-    evidence_quote: str | None = None, scope_decision: str | None = None,
+    *,
+    review_run_id: str,
+    standard_document_id: str,
+    method: str,
+    reason: str,
+    confidence: float | None = None,
+    included: bool = True,
+    exclusion_reason: str | None = None,
+    evidence_page: int | None = None,
+    evidence_quote: str | None = None,
+    scope_decision: str | None = None,
     audit: tuple | None = None,
 ) -> dict:
     """Write one row of `review_applicable_standards`.
@@ -1678,8 +1687,7 @@ def record_selection(
     ceiling = _CONFIDENCE[method]
     if confidence is None:
         confidence = ceiling
-    # CONFIDENCE IS NEVER "high" (CLAUDE.md rule 4). The per-method ceiling is
-    # the cap, so no caller can talk a selection up past what its evidence is.
+    # CONFIDENCE IS NEVER "high" (rule 4): the per-method ceiling caps any caller.
     confidence = min(float(confidence), ceiling)
 
     row = {
@@ -1707,8 +1715,7 @@ def record_selection(
         if (existing is not None and existing["selection_method"] == METHOD_MANUAL
                 and method != METHOD_MANUAL):
             return {**row, "kept_engineer_override": True}
-        # The phase 1 relation carries UNIQUE(review_run_id,
-        # standard_document_id), so a re-run replaces rather than duplicates.
+        # UNIQUE(review_run_id, standard_document_id): a re-run replaces, never adds.
         conn.execute(
             "DELETE FROM review_applicable_standards"
             " WHERE review_run_id = ? AND standard_document_id = ?",
