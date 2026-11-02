@@ -337,10 +337,10 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         document_refs.record_document_deleted(conn, document_id, removed, actor=actor)
 
     files_removed = 0
-    stored = Path(stored_paths.local(doc["stored_path"]))
-    if stored.exists():
-        stored.unlink()
-        files_removed += 1
+    for stored in upload_mod.stored_files(Path(stored_paths.local(doc["stored_path"]))):
+        if stored.exists():
+            stored.unlink()
+            files_removed += 1
     if (cache := settings.data_dir / "page_images").exists():
         for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
             img.unlink()
