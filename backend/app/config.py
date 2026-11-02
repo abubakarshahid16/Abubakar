@@ -1182,9 +1182,6 @@ class Settings(SettingsExt, BaseSettings):
     #: (`reader_transport.list_models`) before a measured run.
     claude_reasoning_model: str = "claude-sonnet-5"
     claude_labelling_model: str = "claude-haiku-4-5-20251001"
-    #: Models that REJECT `temperature` (400 "deprecated for this model",
-    #: measured on claude-sonnet-5, 2026-09-25). Prefix match on the id.
-    claude_models_without_temperature: tuple[str, ...] = ("claude-sonnet-5",)
     #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the worst case of the next call must fit
     #: under both. Owner: 5 per step; plan change 4 (#805, 28 Oct 2026): 25 per converted standard (the
     #: `standards_convert:` steps) and 500 in total for November (`claude_spend.total_cap`: 20 again from 1 Dec).

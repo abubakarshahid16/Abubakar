@@ -1,9 +1,9 @@
 """One interface for "give this bounded packet to a model and tell me exactly
 what answered".
 
-WHY THIS EXISTS. Today nothing in the system can say WHICH model produced an
-answer. `review_runs.model_name` is NULL on every row and nothing writes it;
-there is no `provider`, no `model_tag` and no digest column anywhere; and on
+WHY THIS EXISTS. Nothing in the system could say WHICH model produced an
+answer. `review_runs.model_name` was always NULL (`claude_models.record_run` now writes it);
+there was no `provider`, no `model_tag` and no digest column anywhere; and on
 the local path the information was available and thrown away, because Ollama
 reports the tag it loaded in every response and `synthesis.Generation` kept
 only the text. That is B54, and it is symmetric - neither engine recorded
@@ -158,10 +158,8 @@ class Packet:
     #: Anthropic tool definitions offered on this call. Empty for every
     #: existing caller.
     tools: tuple[dict, ...] = ()
-    #: Extended-thinking budget in tokens; None keeps thinking off (today's
-    #: behaviour). Anthropic requires `max_tokens` (`num_predict`) to exceed
-    #: this, and rejects `temperature` while thinking is on - both handled in
-    #: `ClaudeProvider._request`.
+    #: Thinking budget in tokens; None sends no `thinking` field. A budget goes only to a model
+    #: that takes one, else adaptive (`claude_models.thinking_for`). Handled in `_request`.
     thinking_budget: int | None = None
     #: Messages API `tool_choice` (e.g. {"type": "none"} once the chat tool cap
     #: is reached: the tools stay defined, because the history holds tool
@@ -454,7 +452,7 @@ class ClaudeProvider:
         one builder for a single call and a batch request alike."""
         from dataclasses import replace
 
-        from . import reader_api
+        from . import claude_models, reader_api
 
         prompt = packet.prompt
         if packet.json_schema is not None:
@@ -486,15 +484,17 @@ class ClaudeProvider:
             if packet.tool_choice:
                 body["tool_choice"] = dict(packet.tool_choice)
         if no_temperature(self.requested_model) or packet.thinking_budget:
-            # MEASURED 2026-09-25: Sonnet 5 answers 400 "`temperature` is
-            # deprecated for this model". Sampling cannot be pinned there, so
-            # repeatability rests on the response cache and the code gates.
+            # MEASURED 2026-09-25: a 400 on Sonnet 5. Sampling cannot be pinned there,
+            # so repeatability rests on the response cache and the code gates.
             # Anthropic also refuses `temperature` while thinking is enabled.
             body.pop("temperature", None)
         else:
             body["temperature"] = packet.temperature
         if packet.thinking_budget:
-            body["thinking"] = {"type": "enabled", "budget_tokens": int(packet.thinking_budget)}
+            body["thinking"] = claude_models.thinking_for(
+                self.requested_model, packet.thinking_budget
+            )
+        claude_models.shape_output(body, self._step or packet.step)
         if packet.effort:
             body["output_config"] = {"effort": packet.effort}
         if packet.system:
@@ -683,12 +683,10 @@ class ClaudeProvider:
 
 
 def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) -> Response:
-    """The Messages API, streamed through `reader_transport.stream` - the
-    same gates, the same worst-case RESERVATION before the call, and that
-    reservation settled AFTER it whether it finished, was stopped (a stopped
-    call still cost what it produced) or failed (a dropped stream, or one cut
-    at the 1 MB cap, may have been billed: charged its reported final usage,
-    else its worst case). Never cached: a stream is a conversation turn."""
+    """The Messages API through `reader_transport.stream`: the same gates and worst-case
+    RESERVATION, settled AFTER whether it finished, was stopped (it cost what it produced)
+    or failed (may have been billed: its reported final usage, else its worst case). A
+    refusal raises `ProviderRefused`, charged. Never cached: a stream is a conversation turn."""
     from . import claude_spend
 
     step = provider._step or packet.step
@@ -714,10 +712,8 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
     final_usage = False
     model = provider.requested_model
     stop = ""
-    #: Tool-loop streaming (2026-09-27): `content_block_start`/`_delta`/`_stop`
-    #: for a `tool_use` or `thinking` block arrive as separate events; a block
-    #: is assembled here by its index and only finished (`input` parsed from
-    #: the accumulated JSON) at `content_block_stop`.
+    #: Tool-loop streaming: a `tool_use` or `thinking` block arrives as separate events,
+    #: assembled here by index and finished (`input` parsed) at `content_block_stop`.
     blocks: dict[int, dict] = {}
     order: list[int] = []
     try:
@@ -794,6 +790,10 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
     finish = "cancelled" if stopped else _STOP.get(stop, stop or "error")
     entry = claude_spend.settle(held, model=model, usage=usage,
                                 wall_time_s=time.time() - started, finish_reason=finish)
+    if finish == "refusal":
+        refused = ProviderRefused(f"{provider.name}: the model declined this request")
+        refused.cost_usd = entry["cost_usd"]
+        raise refused
     content_blocks = tuple(blocks[i] for i in order if i in blocks)
     thinking_text = "".join(
         str(b.get("thinking") or "") for b in content_blocks if b.get("type") == "thinking")
@@ -806,8 +806,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
 
 
 def no_temperature(model: str) -> bool:
-    """True for a model id that rejects the `temperature` parameter
-    (`settings.claude_models_without_temperature`, prefix match)."""
+    """True for an id in `settings.claude_models_without_temperature` (prefix match)."""
     name = (model or "").lower()
     return any(name == p or name.startswith(p + "-") for p in settings.claude_models_without_temperature)
 
