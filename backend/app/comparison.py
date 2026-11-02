@@ -2462,12 +2462,12 @@ def _run_comparison(
         is_materials_standard=applicability_mod.is_materials_standard)
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
-    # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a
-    # relief valve: its relief-device rules only). See `subject_scope.partial_gate` (in `eqs.gate_for_run`
-    # with the rules-by-equipment-scope gate).
+    # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a relief valve: its
+    # relief-device rules only), the rules-by-equipment-scope gate. See `eqs.gate_for_run`.
     requirements, es = eqs.gate_for_run(
         requirements, stored, facts, submittal_id, standard_labels, extra_not_applied
     )
+    held_items.extend(es["held"])
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
     # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
     from . import ai_applicability as ai_div
