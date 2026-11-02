@@ -99,8 +99,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         9,
         "the review drops the fact, so every owner verdict is held",
         _C,
-        "        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact)\n",
-        "        return rule_trust.label_finding(verdict, rule, self.proof(rule))\n",
+        "        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact, always=always)\n",
+        "        return rule_trust.label_finding(verdict, rule, self.proof(rule), always=always)\n",
         "words_reach_the_cell",
     ),
     _m(
