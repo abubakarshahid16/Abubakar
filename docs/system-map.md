@@ -98,7 +98,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_datasheet` | Read a contractor datasheet into facts |
 | `claude_recheck` | Recheck findings: the model gives a SECOND OPINION on an engine verdict, and Python decides what that opinion |
 | `claude_selection` | Choose the standards that apply to a submittal |
-| `claude_spend` | What the Claude API has cost, and the refusal before it costs more |
+| `claude_spend` | What the Claude API has cost, and the refusal before it costs more: per review run USD 5 per step, USD 10 for AI clause review and USD 15 in all; USD 25 per standard, USD 100 a day, the total |
+| `claude_spend_report` | What the Claude lane really cost per step, from settled ledger lines, and the USD 100 a day |
 | `company_standard_confirm` | Hold a non-admin's Company standard for an administrator's confirmation before reviews use it (#620) |
 | `comparison` | Phase 5B: does this submittal meet the requirements that govern it |
 | `comparators` | The one vocabulary of limit-direction words: which way does a sentence say a limit points (#915) |
@@ -158,6 +159,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
 | `degraded_read` | A degraded AI reading of a datasheet (mostly refused, timed out, stopped, unavailable) is recorded in counts and holds every checklist pass for the engineer (order 261.2) |
 | `deferred_value` | A value the sheet defers to the contractor (By Contractor, TBA) is a query, never a verdict (owner decision D2, #1475) |
+| `impossible_sign` | A value that should not be negative, printed negative, never gives a Pass; it becomes a Query (#1607) |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |

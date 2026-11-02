@@ -430,7 +430,7 @@ def _ai_section(
         if step["state"] == "failed"
         else "see the findings; code decides"
     )
-    figures = review_audit_rows.cache_figures(run)
+    figures = review_audit_rows.run_figures(run)
     own = [step, *_stored_steps(status, wording)]
     ledger = review_audit_rows.fold_stored_hits(own, ledger, figures)
     steps = [
@@ -680,7 +680,7 @@ def _md_ai(audit: dict) -> list[str]:
         f"reused answers {_v(totals['reused'])}",
         f"  - {totals['boundary']}",
     ]
-    out += review_audit_rows.cache_lines(audit["ai_use"])
+    out += review_audit_rows.claude_lines(audit["ai_use"])
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "

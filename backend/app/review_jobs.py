@@ -31,6 +31,7 @@ from . import (
     access,
     ai_call_ledger,
     claude_auto_approve,
+    claude_spend_report,
     job_progress,
     job_queue,
     local_engine_bar,
@@ -429,7 +430,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 
 def _review_scope(job):
-    """A Claude-lane run never loads the local engine, and its spend lines name the run."""
+    """A Claude-lane run never loads the local engine, its spend lines name the run, and its spend goes in its record."""
     barred = local_engine_bar.barring_local_engine(job)
 
     @functools.wraps(job)
@@ -438,8 +439,12 @@ def _review_scope(job):
 
         sql = "SELECT review_run_id FROM jobs WHERE id = ?"
         row = connect().execute(sql, (job_id,)).fetchone()
-        with claude_spend.for_run(row["review_run_id"] if row else None):
-            return barred(job_id, *args, **kwargs)
+        run_id = row["review_run_id"] if row else None
+        try:
+            with claude_spend.for_run(run_id):
+                return barred(job_id, *args, **kwargs)
+        finally:
+            claude_spend_report.record_run(run_id)
 
     return wrapper
 
