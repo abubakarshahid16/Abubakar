@@ -1469,17 +1469,16 @@ class PasswordResetResult(BaseModel):
 
 
 class Me(BaseModel):
-    """What a client may know about itself.
-
-    Roles, never grants. The document ids a user may see are deliberately
-    absent: the scope is derived server-side on every request, and handing the
-    client the list gives it something to check its guesses against.
+    """What a client may know about itself. Roles, never grants (plus one display switch).
+    The document ids a user may see are deliberately absent: the scope is derived server-side
+    on every request, and handing the client the list gives it something to check its guesses against.
     """
 
     id: str
     email: str
     display_name: str
     roles: list[str]
+    session_expired_notice: bool = False  # a display switch, not a grant
 
 
 class AuthStatus(BaseModel):
