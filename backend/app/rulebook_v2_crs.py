@@ -27,7 +27,10 @@ def labels_of(finding: dict) -> list[str]:
     return out
 
 
-def _findings(conn: sqlite3.Connection, run_id: str) -> list[dict]:
+def _findings(
+    conn: sqlite3.Connection, run_id: str, allowed: frozenset[str]
+) -> list[dict]:
+    """Only the findings on a standard this reader may read (CLAUDE.md rule 5): a row with no standard named is not one."""
     cursor = conn.cursor()
     cursor.row_factory = sqlite3.Row
     return [
@@ -36,6 +39,7 @@ def _findings(conn: sqlite3.Connection, run_id: str) -> list[dict]:
             "SELECT * FROM review_findings WHERE review_run_id = ? AND origin = ? ORDER BY equipment_tag, id",
             (run_id, ORIGIN),
         )
+        if r["standard_document_id"] in allowed
     ]
 
 
@@ -59,9 +63,11 @@ def _row(finding: dict) -> dict:
     }
 
 
-def part(meta: dict, conn: sqlite3.Connection, run_id: str) -> dict:
+def part(
+    meta: dict, conn: sqlite3.Connection, run_id: str, allowed: frozenset[str]
+) -> dict:
     """The meta with the rows and the note added. A run with no version 2 findings: `meta` as it was."""
-    findings = _findings(conn, run_id)
+    findings = _findings(conn, run_id, allowed)
     pair = coverage_pair.for_run(conn, run_id)
     stated = (pair or {}).get("rulebook_v2")
     if not findings and not stated:

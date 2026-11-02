@@ -259,7 +259,8 @@ def is_not(table: Table, forbidden: list[str], stated: str) -> tuple[str | None,
     if not all(n in FAMILIES for n in named):
         return None, f"the rule's words are not one family of the {where}"
     said = f"the sheet states {stated}, by the {where}, family {'; '.join(str(f) for f in families)}"
-    if any(f in named for f in families):
+    forbidden_words = {tokens(n) for n in named}
+    if any(f in named for f in families) or forbidden_words & set(parts_of(stated)):
         return "NON_COMPLIANT", f"{said}; the rule forbids {'; '.join(named)}"
     if not families or None in families:
         return None, f"the sheet states {stated}; a part of it is not in the {where}"

@@ -19,6 +19,8 @@ from app import (
     datasheets,
     db,
     degraded_read,
+    review,
+    review_audit_rows,
     rule_trust,
     rulebook_v2,
     rulebook_v2_crs,
@@ -961,9 +963,9 @@ def _four_passes(monkeypatch, *rules, level=rule_trust.STANDARD):
     return run
 
 
-def _view(run, copy):
+def _view(run, copy, allowed=frozenset({"std-1", SHEET})):
     meta = {"copy": copy, "review_notes": [], "submittal": "s", "recommended_code": "x"}
-    told = run_parts.crs_part(meta, _conn(), run)
+    told = run_parts.crs_part(meta, _conn(), run, allowed)
     return told, crs_export.build_crs_view([], told)
 
 
@@ -1025,4 +1027,37 @@ def test_switch_off_the_crs_meta_is_what_it_was(monkeypatch):
     run = _four_passes(monkeypatch, _rule())
     monkeypatch.setattr(settings, "rulebook_v2_review_enabled", False)
     meta = {"copy": crs_export.COPY_INTERNAL, "review_notes": []}
-    assert run_parts.crs_part(meta, _conn(), run) is meta
+    assert run_parts.crs_part(meta, _conn(), run, frozenset()) is meta
+
+
+def test_a_reader_with_no_grant_on_the_standard_gets_no_row_and_no_quote(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    told, view = _view(run, crs_export.COPY_INTERNAL, frozenset({SHEET}))
+    assert told["rulebook_v2_rows"] == []
+    assert [r for r in view["rows"] if r["row_kind"] == rulebook_v2_crs.ROW_KIND] == []
+    assert "shall not exceed" not in json.dumps(view, default=str)
+
+
+def test_a_finding_names_its_standard_so_a_narrower_reader_is_not_shown_its_words(
+    monkeypatch,
+):
+    run, scope = _sheet()
+    rule = _rule()
+    _review(monkeypatch, run, scope, rule)
+    wide = review.list_findings(review_run_id=run, allowed_document_ids=scope)
+    wide = [f for f in wide if f.get("origin") == ORIGIN]
+    assert wide[0]["standard_document_id"] == "std-1" and wide[0]["standard_page"] == 3
+    narrow = review.list_findings(
+        review_run_id=run, allowed_document_ids=frozenset({SHEET})
+    )
+    narrow = [f for f in narrow if f.get("origin") == ORIGIN]
+    assert narrow[0]["standard_withheld"] is True
+    assert rule["quote"] not in json.dumps(narrow, default=str)
+
+
+def test_the_internal_copys_audit_adds_up_with_the_rows_it_adds(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    told, _view_of = _view(run, crs_export.COPY_INTERNAL)
+    assert len(told["rulebook_v2_rows"]) == 4
+    said = review_audit_rows.crs_reconciliation([], told)
+    assert said["audit_rows"] == said["exported_rows"] == 4 and said["adds_up"] is True

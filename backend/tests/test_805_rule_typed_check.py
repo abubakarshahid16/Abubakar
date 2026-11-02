@@ -12,6 +12,7 @@ from app import (
     crs_mapping,
     datasheets,
     db,
+    material_reference,
     rule_trust,
     rule_typed_check,
     rulebook_v2_review,
@@ -186,6 +187,58 @@ def test_code_decides_only_what_it_can_prove(op, values, stated, status):
 )
 def test_every_listed_part_must_meet_the_rule(op, values, stated, status):
     assert decide(op, values, stated)[0] == status
+
+
+@pytest.mark.parametrize(
+    "stated",
+    [
+        "carbon steel with cast iron bonnet",
+        "carbon steel or cast iron",
+        "carbon steel + cast iron",
+        "not carbon steel",
+        "carbon steel lined",
+        "mostly carbon steel",
+    ],
+)
+@pytest.mark.parametrize(
+    ("op", "values"),
+    [
+        (IS_ONE_OF, ["carbon steel", "stainless steel"]),
+        (IS_NOT, ["cast iron"]),
+    ],
+)
+def test_any_other_word_beside_an_entry_is_a_query(op, values, stated):
+    assert decide(op, values, stated)[0] is None
+
+
+@pytest.mark.parametrize(
+    "stated",
+    [
+        "not cast iron",
+        "A216 WCB or cast iron",
+        "A216 WCB + A351 CF8M",
+        "A216 WCB with liner",
+    ],
+)
+def test_the_signed_table_takes_no_other_word_either(stated):
+    table = material_reference.Table(
+        "v",
+        (
+            material_reference.Entry("A216", "WCB", "carbon steel", False),
+            material_reference.Entry("A351", "CF8M", "stainless steel", False),
+        ),
+    )
+    assert decide(IS_NOT, ["cast iron"], stated, table)[0] is None
+
+
+def test_a_listed_part_that_is_the_forbidden_word_fails_under_the_table():
+    table = material_reference.Table(
+        "v", (material_reference.Entry("A216", "WCB", "carbon steel", False),)
+    )
+    assert (
+        decide(IS_NOT, ["cast iron"], "A216 WCB / cast iron", table)[0]
+        == "NON_COMPLIANT"
+    )
 
 
 @pytest.mark.parametrize("words", ["unless", "where", "except", "when", "if"])

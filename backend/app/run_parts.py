@@ -31,13 +31,13 @@ def rulebook(
     return reviewed
 
 
-def crs_part(meta: dict, conn, run_id: str) -> dict:
+def crs_part(meta: dict, conn, run_id: str, allowed: frozenset[str]) -> dict:
     """The CRS meta with version 2's rows and note; `meta` as it was with the switch off."""
     if not settings.rulebook_v2_review_enabled:
         return meta
     from . import rulebook_v2_crs
 
-    return rulebook_v2_crs.part(meta, conn, run_id)
+    return rulebook_v2_crs.part(meta, conn, run_id, allowed)
 
 
 def checks(reviewed, results: list[dict]) -> list[dict]:

@@ -44,6 +44,19 @@ def _tier_columns(row: Row) -> dict:
     }
 
 
+def _created(conn, rule: dict, payload: dict) -> dict:
+    """The finding, with the standard it rests on: a reader with no grant on that standard is not shown its words
+    (`review.withhold_unreadable_standards`, CLAUDE.md rule 5)."""
+    from . import review as review_mod
+
+    made = review_mod.create(payload, created_by=None, conn=conn)
+    conn.execute(
+        "UPDATE review_findings SET standard_document_id = ?, standard_page = ? WHERE id = ?",
+        (rule.get("document_id"), rule.get("page"), made["id"]),
+    )
+    return review_mod.get(made["id"])
+
+
 def store(conn, review: Review) -> list[dict]:
     """The rows, as findings of the run, in one transaction, each citing its rule. A row an engineer rejected in this
     run is kept by the re-run's delete and not written again beside it."""
@@ -66,7 +79,9 @@ def store(conn, review: Review) -> list[dict]:
             why = f"{row.reason}: " if row.reason else ""
             words = f"{why}{row.words}".strip().rstrip(":")
             written.append(
-                review_mod.create(
+                _created(
+                    conn,
+                    rule,
                     {
                         "document_id": review.document_id,
                         "category": "requirement_deviation",
@@ -94,8 +109,6 @@ def store(conn, review: Review) -> list[dict]:
                         ),
                         **_tier_columns(row),
                     },
-                    created_by=None,
-                    conn=conn,
                 )
             )
     return written

@@ -47,7 +47,9 @@ def crs_reconciliation(rows: list[dict], meta: dict) -> dict:
             ),
             "withheld_no_text": view["rows_withheld_no_text"],
         }
-    composed, exported, total = len(rows), len(view["rows"]), sum(removed.values())
+    # the rows the copy itself adds to what was composed (`crs_export._copy_and_rows`)
+    composed = len(ce._copy_and_rows(rows, meta)[1])
+    exported, total = len(view["rows"]), sum(removed.values())
     adds_up = composed == exported + total
     words = ", ".join(f"{_REMOVED_WORDS[k]} {v}" for k, v in removed.items())
     return {

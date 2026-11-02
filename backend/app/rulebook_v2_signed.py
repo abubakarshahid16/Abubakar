@@ -41,5 +41,6 @@ def content_to_sign(conn, version_id: str) -> str:
         "check_op",
         "check_values",
         "check_state",
+        "sentence_strength",
     )
     return json.dumps({n: now[n] for n in names}, sort_keys=True)

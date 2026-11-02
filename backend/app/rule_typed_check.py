@@ -137,9 +137,21 @@ def _material(values: list[str], stated: str) -> bool | None:
     )
 
 
+def _is_only_a_material(part: str) -> bool:
+    """The whole part is one material the reader knows, with no other word: "cast iron", never "not cast iron" or
+    "carbon steel with cast iron bonnet"."""
+    found = [c for c in condition_choice.extract(_fold(part)) if c.kind == "material"]
+    return len(found) == 1 and _fold(found[0].value) == _fold(part)
+
+
 def _one_part(op: str, values: list[str], stated: str) -> tuple[str | None, str]:
+    """An allow-list: the whole part equals a named value, or a known material, or a class. Any other word is a Query."""
     named = field_links.is_named_value(stated, tuple(values))
-    among = True if named else _material(values, stated)
+    among = None
+    if named:
+        among = True
+    elif _is_only_a_material(stated):
+        among = _material(values, stated)
     listed = "; ".join(values)
     if op == AT_LEAST_CLASS:
         got, need = _class_of(stated), _class_of(values[0])

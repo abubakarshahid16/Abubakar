@@ -203,6 +203,7 @@ def test_the_import_records_what_the_tick_signed_and_a_later_change_shows(tmp_pa
     assert rule["signed_matches"] is True
     row = conn.execute("SELECT signed_content FROM rulebook_approval").fetchone()[0]
     assert json.loads(row)["check_op"] is None
+    assert "sentence_strength" in json.loads(row)
     from app import rule_typed_check
 
     rule_typed_check.ensure_columns(conn)
@@ -210,6 +211,17 @@ def test_the_import_records_what_the_tick_signed_and_a_later_change_shows(tmp_pa
         conn.execute(
             "UPDATE compiled_rules SET check_op = 'is_not', check_state = 'verified'"
         )
+    assert rulebook_v2.approved_rules(conn, PSV)[0]["signed_matches"] is False
+
+
+def test_a_changed_sentence_strength_is_not_what_was_signed(tmp_path):
+    _person()
+    _compile()
+    assert _run(_ticked(tmp_path))[0] == 0
+    conn = _conn()
+    assert rulebook_v2.approved_rules(conn, PSV)[0]["signed_matches"] is True
+    with conn:
+        conn.execute("UPDATE compiled_rules SET sentence_strength = 'should'")
     assert rulebook_v2.approved_rules(conn, PSV)[0]["signed_matches"] is False
 
 
