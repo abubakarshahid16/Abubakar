@@ -33,8 +33,7 @@ from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import ingest as ingest_mod, dashboard_pool
 from . import job_queue as job_queue_mod
-from . import review_jobs as review_jobs_mod
-from . import run_record as run_record_mod
+from . import review_jobs as review_jobs_mod, run_record as run_record_mod
 from . import orphan_guard
 from . import page_ledger as page_ledger_mod
 from . import fts_index as keyword_mod
@@ -2802,9 +2801,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread, standards_check=check)
     rows, added = ppr_mod.merge(rows, submittal_id, submittal_name, allowed, findings)
-    # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
-    # make a comment an engineer's (`_mint_crs_numbers`); this composition
-    # serves the export and the preview, which write nothing.
+    # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes (`_mint_crs_numbers`);
+    # this composition serves the export and the preview, which write nothing.
     crs_scope, _crs_label = _crs_scope_of(submittal_id)
     crs_keys = crs_numbers_mod.row_keys(rows)
     numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
@@ -2962,11 +2960,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "run_status_note": export_status_mod.run_header_note(run.get("status"), outcome, unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
+        **run_record_mod.crs_meta(run, outcome, unchecked, missing, copy),  # #1608
     }
-    if run_record_mod.enabled() and copy == "internal":  # #1608
-        meta["run_record"] = run_record_mod.crs_rows(
-            review_run_id, run, outcome, unchecked, missing
-        )
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed

@@ -23,6 +23,8 @@ import json
 import logging
 import sqlite3
 
+from openpyxl.styles import Alignment, Font
+
 from .config import settings
 from .db import connect
 
@@ -39,6 +41,8 @@ NO_TICKS = "No tick has been imported into this database."
 TICKS_UNREADABLE = (
     "The checklist tick table could not be read, so the ticks imported are not known."
 )
+SHEET = "Run record"
+COLUMNS = ("Section", "Item", "Detail")
 NOTHING_LISTED = "Nothing is known to be unchecked on this run. That does not mean the review is correct."
 
 #: What a rule says and where it was read: not its row id or times, so a re-read with the same words is the same rulebook.
@@ -241,6 +245,29 @@ def _tick_lines(ticks: dict) -> list[str]:
             f"Decisions signed into the rulebook, {TICKS_WHEN}: {_counts(ticks['signed'])}."
         )
     return lines
+
+
+def crs_meta(
+    run: dict, outcome: dict, unchecked: list[dict], missing: list[str], copy: str
+) -> dict:
+    """What `main._crs_content` adds to the CRS meta: nothing with the switch off or on the issue copy."""
+    if not enabled() or copy != "internal":
+        return {}
+    return {"run_record": crs_rows(run["id"], run, outcome, unchecked, missing)}
+
+
+def write_sheet(wb, rows: list[tuple[str, str, str]], write) -> None:
+    """Draw the sheet. `write` is `crs_export._write`, which stores every string as text."""
+    sheet = wb.create_sheet(SHEET)
+    for col, header in enumerate(COLUMNS, start=1):
+        write(sheet, 1, col, header).font = Font(bold=True)
+    for r, row in enumerate(rows, start=2):
+        for col, value in enumerate(row, start=1):
+            write(sheet, r, col, value).alignment = Alignment(
+                wrap_text=True, vertical="top"
+            )
+    for col, width in (("A", 18), ("B", 22), ("C", 110)):
+        sheet.column_dimensions[col].width = width
 
 
 def crs_rows(

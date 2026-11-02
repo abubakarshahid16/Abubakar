@@ -1,3 +1,4 @@
+# ruff: noqa: F811 - pytest fixtures imported by name
 """#1608 (plan change 6 G): every review run records its models, its rulebook and the ticks imported, and the internal
 CRS carries them with the could-not-check list on a sheet of its own. Switch off: nothing changes.
 
@@ -46,15 +47,15 @@ def _stored(run_id: str) -> dict:
     return json.loads(row["outcome_json"] or "{}")
 
 
-def _book(world, run_id, copy="internal"):  # noqa: F811
+def _book(world, run_id, copy="internal"):
     rows, meta, _name, _stamp = main_mod._crs_content(run_id, world["access"], copy)
     return openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, meta)))
 
 
-def _lines(world, run_id) -> dict[str, list[str]]:  # noqa: F811
+def _lines(world, run_id) -> dict[str, list[str]]:
     """The Run record sheet as {section: [detail, ...]}."""
     out: dict[str, list[str]] = {}
-    sheet = _book(world, run_id)[crs_export.RUN_RECORD_SHEET]
+    sheet = _book(world, run_id)[run_record.SHEET]
     for section, _item, detail in list(sheet.iter_rows(values_only=True))[1:]:
         out.setdefault(section, []).append(detail)
     return out
@@ -86,20 +87,20 @@ def _make_ticks():
 # ---------------------------------------------------------------------- switch off
 
 
-def test_off_the_run_stores_nothing_and_the_workbook_has_no_new_sheet(world):  # noqa: F811
+def test_off_the_run_stores_nothing_and_the_workbook_has_no_new_sheet(world):
     run_id = _completed_run(world)
     assert "run_record" not in _stored(run_id)
     _rows, meta, _name, _stamp = main_mod._crs_content(
         run_id, world["access"], "internal"
     )
     assert "run_record" not in meta
-    assert crs_export.RUN_RECORD_SHEET not in _book(world, run_id).sheetnames
+    assert run_record.SHEET not in _book(world, run_id).sheetnames
 
 
 # ---------------------------------------------------------------------- the rulebook
 
 
-def test_the_run_records_how_many_rules_it_applied_and_their_fingerprint(world, on):  # noqa: F811
+def test_the_run_records_how_many_rules_it_applied_and_their_fingerprint(world, on):
     run_id = _completed_run(world)
     book = _stored(run_id)["run_record"]["rulebook"]
     count = (
@@ -120,7 +121,7 @@ def test_the_run_records_how_many_rules_it_applied_and_their_fingerprint(world, 
     assert book["review_code"].startswith("review@")
 
 
-def test_the_fingerprint_is_the_rules_words_not_their_ids_or_times(world, on):  # noqa: F811
+def test_the_fingerprint_is_the_rules_words_not_their_ids_or_times(world, on):
     run_id = _completed_run(world)
     first = run_record._rules_of(db.connect(), run_id)
     with db.connect() as conn:
@@ -135,7 +136,7 @@ def test_the_fingerprint_is_the_rules_words_not_their_ids_or_times(world, on):  
     assert run_record._rules_of(db.connect(), run_id)[1] != first[1]
 
 
-def test_a_rule_of_a_standard_the_run_did_not_apply_is_not_in_its_record(world, on):  # noqa: F811
+def test_a_rule_of_a_standard_the_run_did_not_apply_is_not_in_its_record(world, on):
     run_id = _completed_run(world)
     first = run_record._rules_of(db.connect(), run_id)
     with db.connect() as conn:
@@ -147,7 +148,7 @@ def test_a_rule_of_a_standard_the_run_did_not_apply_is_not_in_its_record(world, 
     assert run_record._rules_of(db.connect(), run_id)[0] == 0
 
 
-def test_the_crs_prints_what_the_run_stored_not_todays_rules(world, on):  # noqa: F811
+def test_the_crs_prints_what_the_run_stored_not_todays_rules(world, on):
     run_id = _completed_run(world)
     fingerprint = _stored(run_id)["run_record"]["rulebook"]["rules_sha256"]
     with db.connect() as conn:
@@ -160,7 +161,7 @@ def test_the_crs_prints_what_the_run_stored_not_todays_rules(world, on):  # noqa
     assert "the standards applied to this run" in text
 
 
-def test_a_version_2_record_names_its_version_and_snapshot(world, on):  # noqa: F811
+def test_a_version_2_record_names_its_version_and_snapshot(world, on):
     with db.connect() as conn:
         conn.execute(
             "CREATE TABLE rulebook_snapshot (id TEXT PRIMARY KEY, snapshot_hash TEXT)"
@@ -182,7 +183,7 @@ def test_a_version_2_record_names_its_version_and_snapshot(world, on):  # noqa: 
 
 def test_a_run_stored_before_the_switch_says_not_recorded_and_guesses_nothing(
     world,
-    monkeypatch,  # noqa: F811
+    monkeypatch,
 ):
     run_id = _completed_run(world)  # switch off: no record
     monkeypatch.setattr(settings, "run_record_enabled", True)
@@ -191,7 +192,7 @@ def test_a_run_stored_before_the_switch_says_not_recorded_and_guesses_nothing(
     assert lines["Checklist ticks"] == [run_record.NOT_RECORDED]
 
 
-def test_a_failure_writing_the_record_never_fails_the_review(world, on, monkeypatch):  # noqa: F811
+def test_a_failure_writing_the_record_never_fails_the_review(world, on, monkeypatch):
     def boom(*_a, **_k):
         raise sqlite3.OperationalError("nope")
 
@@ -215,7 +216,7 @@ def _set_models(run_id, *, name=None, ai=None, matcher=None):
         )
 
 
-def test_every_stored_model_of_the_run_is_listed_local_and_claude(world, on):  # noqa: F811
+def test_every_stored_model_of_the_run_is_listed_local_and_claude(world, on):
     from app import model_metrics
 
     run_id = _completed_run(world)
@@ -240,7 +241,7 @@ def test_every_stored_model_of_the_run_is_listed_local_and_claude(world, on):  #
         assert name in text
 
 
-def test_a_model_only_configured_is_never_named(world, on, monkeypatch):  # noqa: F811
+def test_a_model_only_configured_is_never_named(world, on, monkeypatch):
     monkeypatch.setattr(settings, "answer_model", "only-configured")
     run_id = _completed_run(world)
     _set_models(
@@ -249,7 +250,7 @@ def test_a_model_only_configured_is_never_named(world, on, monkeypatch):  # noqa
     assert _lines(world, run_id)["Model"] == [run_record.NO_MODEL]
 
 
-def test_an_unreadable_ledger_says_so_as_a_could_not_check_line(world, on):  # noqa: F811
+def test_an_unreadable_ledger_says_so_as_a_could_not_check_line(world, on):
     from app.claude_models import LEDGER_UNREADABLE
 
     run_id = _completed_run(world)
@@ -262,7 +263,7 @@ def test_an_unreadable_ledger_says_so_as_a_could_not_check_line(world, on):  # n
 # ---------------------------------------------------------------------- the ticks
 
 
-def test_no_tick_table_says_none_and_the_read_creates_nothing(world, on):  # noqa: F811
+def test_no_tick_table_says_none_and_the_read_creates_nothing(world, on):
     run_id = _completed_run(world)
     assert _stored(run_id)["run_record"]["ticks"] == {"imported": None}
     assert _lines(world, run_id)["Checklist ticks"] == [run_record.NO_TICKS]
@@ -274,7 +275,7 @@ def test_no_tick_table_says_none_and_the_read_creates_nothing(world, on):  # noq
     assert found is None
 
 
-def test_ticks_are_counted_by_their_own_words_with_files_and_stamps(world, on):  # noqa: F811
+def test_ticks_are_counted_by_their_own_words_with_files_and_stamps(world, on):
     _make_ticks()
     _tick("r1", "Checked OK")
     _tick("r2", "Checked OK")
@@ -291,7 +292,7 @@ def test_ticks_are_counted_by_their_own_words_with_files_and_stamps(world, on): 
     assert "no verdict reads them" in text
 
 
-def test_the_sheet_names_no_standard_file_or_person_from_a_tick(world, on):  # noqa: F811
+def test_the_sheet_names_no_standard_file_or_person_from_a_tick(world, on):
     _make_ticks()
     _tick("r1", "Checked OK")
     text = str(_lines(world, _completed_run(world)))
@@ -299,7 +300,7 @@ def test_the_sheet_names_no_standard_file_or_person_from_a_tick(world, on):  # n
         assert private not in text
 
 
-def test_an_empty_tick_table_is_not_a_tick(world, on):  # noqa: F811
+def test_an_empty_tick_table_is_not_a_tick(world, on):
     _make_ticks()
     run_id = _completed_run(world)
     assert _lines(world, run_id)["Checklist ticks"] == [run_record.NO_TICKS]
@@ -307,7 +308,7 @@ def test_an_empty_tick_table_is_not_a_tick(world, on):  # noqa: F811
 
 def test_a_tick_table_that_cannot_be_read_is_a_could_not_check_line_never_zero(
     world,
-    on,  # noqa: F811
+    on,
 ):
     with db.connect() as conn:
         conn.execute("CREATE TABLE checklist_ticks (other TEXT)")
@@ -318,7 +319,7 @@ def test_a_tick_table_that_cannot_be_read_is_a_could_not_check_line_never_zero(
     assert run_record.TICKS_UNREADABLE in " ".join(lines["Could not check"])
 
 
-def test_decisions_signed_into_the_rulebook_are_counted_apart(world, on):  # noqa: F811
+def test_decisions_signed_into_the_rulebook_are_counted_apart(world, on):
     with db.connect() as conn:
         conn.execute(
             "CREATE TABLE rulebook_approval (id TEXT PRIMARY KEY, decision TEXT)"
@@ -350,7 +351,7 @@ def test_only_this_module_reads_the_tick_table_so_no_verdict_can():
 def test_a_completed_run_with_nothing_listed_says_that_and_what_it_does_not_mean(
     world,
     on,
-    monkeypatch,  # noqa: F811
+    monkeypatch,
 ):
     monkeypatch.setattr(main_mod.absence_mod, "unchecked_parts", lambda **_k: [])
     monkeypatch.setattr(main_mod, "_missing_references", lambda *_a: [])
@@ -358,7 +359,7 @@ def test_a_completed_run_with_nothing_listed_says_that_and_what_it_does_not_mean
     assert _lines(world, run_id)["Could not check"] == [run_record.NOTHING_LISTED]
 
 
-def test_every_part_is_listed_with_the_count_the_notice_gives(world, on, monkeypatch):  # noqa: F811
+def test_every_part_is_listed_with_the_count_the_notice_gives(world, on, monkeypatch):
     parts = [
         {"part": "a", "line": "Part a line.", "note": "Not checked"},
         {"part": "b", "line": "Part b line.", "note": "Not checked"},
@@ -380,14 +381,14 @@ def test_every_part_is_listed_with_the_count_the_notice_gives(world, on, monkeyp
         assert line in listed
 
 
-def test_a_failed_run_lists_why_and_says_its_record_was_not_made(world, on):  # noqa: F811
+def test_a_failed_run_lists_why_and_says_its_record_was_not_made(world, on):
     run_id = _failed_run(world)
     lines = _lines(world, run_id)
     assert "the model host went away" in " ".join(lines["Could not check"])
     assert lines["Rulebook"] == [run_record.NOT_RECORDED]
 
 
-def test_a_cited_standard_not_held_is_on_the_list_by_name(world, on):  # noqa: F811
+def test_a_cited_standard_not_held_is_on_the_list_by_name(world, on):
     run_id = _completed_run(world)
     listed = " ".join(_lines(world, run_id)["Could not check"])
     assert "API 682" in listed and "not in the library" in listed
@@ -396,32 +397,31 @@ def test_a_cited_standard_not_held_is_on_the_list_by_name(world, on):  # noqa: F
 # ---------------------------------------------------------------------- the copies
 
 
-def test_the_issue_copy_has_no_run_record_even_when_meta_carries_one(world, on):  # noqa: F811
+def test_the_issue_copy_has_no_run_record_even_when_meta_carries_one(world, on):
     run_id = _completed_run(world)
-    assert crs_export.RUN_RECORD_SHEET not in _book(world, run_id, "issue").sheetnames
+    assert run_record.SHEET not in _book(world, run_id, "issue").sheetnames
     rows, meta, _name, _stamp = main_mod._crs_content(
         run_id, world["access"], "internal"
     )
     assert meta["run_record"]
     issue = {**meta, "copy": "issue"}
-    assert crs_export.build_crs_view(rows, issue)["run_record"] is None
     workbook = openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, issue)))
-    assert crs_export.RUN_RECORD_SHEET not in workbook.sheetnames
+    assert run_record.SHEET not in workbook.sheetnames
 
 
-def test_the_internal_copy_has_the_sheet_with_every_section(world, on):  # noqa: F811
+def test_the_internal_copy_has_the_sheet_with_every_section(world, on):
     lines = _lines(world, _completed_run(world))
     assert set(lines) == {"Model", "Rulebook", "Checklist ticks", "Could not check"}
 
 
-def test_the_issue_copy_never_builds_the_record(world, on):  # noqa: F811
+def test_the_issue_copy_never_builds_the_record(world, on):
     _rows, meta, _name, _stamp = main_mod._crs_content(
         _completed_run(world), world["access"], "issue"
     )
     assert "run_record" not in meta
 
 
-def test_a_model_whose_every_call_failed_is_not_named(world, on):  # noqa: F811
+def test_a_model_whose_every_call_failed_is_not_named(world, on):
     from app import model_metrics
 
     run_id = _completed_run(world)
@@ -438,7 +438,7 @@ def test_a_model_whose_every_call_failed_is_not_named(world, on):  # noqa: F811
     assert _lines(world, run_id)["Model"] == [run_record.NO_MODEL]
 
 
-def test_the_wording_model_is_named_only_when_it_tried(world, on):  # noqa: F811
+def test_the_wording_model_is_named_only_when_it_tried(world, on):
     from app import crs_wording
 
     run_id = _completed_run(world)
@@ -457,6 +457,6 @@ def test_the_wording_model_is_named_only_when_it_tried(world, on):  # noqa: F811
     assert _lines(world, run_id)["Model"] == ["wording-m"]
 
 
-def test_the_sheet_survives_the_export_quality_path(world, on, monkeypatch):  # noqa: F811
+def test_the_sheet_survives_the_export_quality_path(world, on, monkeypatch):
     monkeypatch.setattr(settings, "crs_export_quality_enabled", True)
     assert "Could not check" in _lines(world, _completed_run(world))
