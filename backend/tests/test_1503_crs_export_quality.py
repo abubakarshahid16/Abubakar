@@ -299,12 +299,6 @@ def test_switch_off_leaves_the_sheet_as_it_was():
     assert "Internal" not in sheet(rows, OFF).sheetnames
 
 
-def test_the_setting_is_off_by_default():
-    from app.config import Settings
-
-    assert Settings.model_fields["crs_export_quality_enabled"].default is False
-
-
 def test_the_ai_column_name_has_one_meaning():
     assert q.AI_COLUMN == crs_export.AI_COLUMN
 

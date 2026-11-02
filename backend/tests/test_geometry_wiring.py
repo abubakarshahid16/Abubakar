@@ -102,11 +102,6 @@ def _explode(*_a, **_k):
 
 # ------------------------------------------------------------------ flag OFF
 
-def test_the_flag_is_off_by_default():
-    from app.config import Settings
-    assert Settings.model_fields["geometry_reader_enabled"].default is False
-
-
 def test_off_never_calls_the_geometry_reader_and_the_facts_are_identical(tmp_path, monkeypatch):
     """THE MUTATION TARGET (M586): OFF = the pre-B4 extraction, byte for byte.
 

@@ -17,7 +17,7 @@ What code may say, and no more:
   * NEVER COMPLIANT from a text match. No model is called (the AI clause
     review is #1477).
 
-SWITCH: `settings.procedure_path_enabled`, OFF by default.
+SWITCH: `settings.procedure_path_enabled`, ON by default (#1626).
 """
 
 from __future__ import annotations
@@ -78,11 +78,11 @@ def key_words(text: str | None) -> frozenset[str]:
     )
 
 
-def document_kind(document_id: str) -> str | None:
+def document_kind(document_id: str, conn=None) -> str | None:
     """The router's kind (`document_kinds`, #1474/#1488): a confirmed kind, or a
     suggestion. `needs_engineer`, no row or no kind = None: no procedure path."""
     row = (
-        connect()
+        (conn or connect())
         .execute(
             "SELECT kind, state FROM document_kinds WHERE document_id = ?",
             (document_id,),

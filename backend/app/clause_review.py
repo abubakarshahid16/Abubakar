@@ -607,8 +607,7 @@ def without_rows(findings: list[dict]) -> list[dict]:
 
 
 def eligible(submittal_id: str) -> tuple[str | None, str | None]:
-    """(kind, state) when the submittal's kind qualifies, else (None, why-not).
-    The kind is the router's (`document_kinds`): confirmed or suggested."""
+    """(kind, state) of a qualifying router kind, else (None, why-not)."""
     from . import document_kind
 
     stored = document_kind.stored_kind(submittal_id)

@@ -71,12 +71,6 @@ def test_login_carries_the_switch(monkeypatch, on):
     assert r.json()["user"]["session_expired_notice"] is on
 
 
-def test_the_switch_is_off_by_default():
-    assert (
-        type(settings).model_fields["session_expired_notice_enabled"].default is False
-    )
-
-
 def test_an_expired_sign_in_gets_an_empty_200_on_the_library_but_a_401_from_me():
     client = TestClient(app)
     expired = {"Authorization": "Bearer not-a-live-token"}

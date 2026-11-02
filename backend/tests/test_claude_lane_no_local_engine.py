@@ -13,7 +13,6 @@ import httpx
 import pytest
 
 from app import (
-    ai_applicability,
     ai_engineering_check,
     ai_task_runner,
     clause_review,
@@ -270,7 +269,13 @@ def test_rule_equipment_scope_is_skipped(engine_calls):
 
 
 def test_a_task_is_skipped_with_the_note_as_its_reason(engine_calls):
-    spec = ai_applicability.TASK
+    spec = ai_task_runner.TaskSpec(
+        name="clause_applicability",
+        version="v1",
+        instruction="i",
+        schema={"type": "object"},
+        num_predict=300,
+    )
     with local_engine_bar.bar():
         result = ai_task_runner.run_task(spec, "some text")
         assert (
