@@ -888,6 +888,16 @@
   ],
   "removed": [
     {
+      "name": "a safety tick ticked and then rejected is in no tier",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "show_for_engineer_tick": true,
+        "confirmed_by": "eng",
+        "approval_status": "rejected"
+      },
+      "removed": true
+    },
+    {
       "name": "a finding an engineer rejected is in no tier",
       "finding": {
         "approval_status": "rejected"

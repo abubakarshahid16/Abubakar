@@ -190,7 +190,8 @@ export function ruleUnproven(finding: ReviewFinding): boolean {
 }
 
 /** A real tick (`crs_decider.tick_done`): an edit confirms a finding but may be an
- *  objection, and a rejection keeps the earlier `confirmed_by`. */
+ *  objection, and a rejection keeps the earlier `confirmed_by`. A rejected row never
+ *  reaches the tally: `splitRejected` takes it out first, as `tier_of` does on the server. */
 export function tickDone(finding: ReviewFinding): boolean {
   if (finding.engineer_comment || finding.approval_status === TIER_RULES.removed.approval_status) return false;
   return Boolean(finding.confirmed_by) || finding.approval_status === "accepted";
