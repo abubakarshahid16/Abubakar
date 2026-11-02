@@ -27,7 +27,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import deferred_pass
+from . import ai_call_ledger, deferred_pass, review_audit_rows
 from .config import settings
 
 NOT_RECORDED = "not recorded"
@@ -47,6 +47,18 @@ VERDICT = {
 }
 _FAILED_NO_WORSE = (
     "none: a failed step adds no finding and no verdict is more confident because of it"
+)
+#: What the AI totals are over, printed with them (CLAUDE.md rule 4).
+AI_BOUNDARY = (
+    "Answers asked for or reused during this attempt of this review job, over the steps "
+    "listed with a record. A reused answer is a stored answer: no model was asked, and it "
+    "is never counted as a fresh call. A refused or failed call is not fresh: on a step "
+    "counted during the job it is counted as failed (a timeout, a refusal, any error). "
+    "clause_review's and ai_engineering_check's stored counts are calls attempted, failed "
+    "ones included, so their failed count is not recorded. "
+    "Field naming counts one answer per named item. Not counted: reading done when the "
+    "document was added, and steps that keep no count of their own: rule_eval, "
+    "statement_roles, field_vocabulary, vision_reader and the matcher's Claude path."
 )
 
 
@@ -98,7 +110,7 @@ def _loads(raw) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _run_section(run: dict, sub: str, filename, steps: dict) -> dict:
+def _run_section(run: dict, sub: str, filename, steps: dict, ai_use: dict) -> dict:
     from . import document_kind, review_jobs
     from .db import connect
 
@@ -123,9 +135,20 @@ def _run_section(run: dict, sub: str, filename, steps: dict) -> dict:
             "cue": evidence.get("cue") or evidence.get("rule"),
         }
     ai = _loads(run.get("ai_check_status"))
-    # `model_name`: every Claude model that answered in this run, comma-joined.
-    names = (run.get("model_name") or "").split(", ")
-    models = sorted({m for m in (*names, ai.get("model")) if m})
+    # `model_name`: the Claude models that answered up to the end of the comparison,
+    # comma-joined (`claude_models.record_run`). NULL: none answered by then. The AI check
+    # runs AFTER it, so its model is not in `model_name` and is taken from `ai` here.
+    models = sorted(
+        {
+            m
+            for m in (
+                *(run.get("model_name") or "").split(", "),
+                ai.get("model"),
+                *(s.get("model") for s in ai_use["steps"]),
+            )
+            if m
+        }
+    )
     switches = sorted(
         name
         for name in type(settings).model_fields
@@ -148,8 +171,9 @@ def _run_section(run: dict, sub: str, filename, steps: dict) -> dict:
         "code_version": review_jobs.review_code_version(),
         "switches_on": switches,
         "models_used": models or None,
-        "ai_calls_made": ai.get("calls_made"),
-        "ai_calls_refused": None,
+        "ai_calls_made": ai_use["totals"]["fresh"],
+        "ai_calls_failed": ai_use["totals"]["failed"],
+        "ai_answers_reused": ai_use["totals"]["reused"],
         "started_by": run.get("started_by"),
         "status": run.get("status"),
     }
@@ -281,7 +305,86 @@ def _rules_section(findings: list[dict]) -> dict:
     }
 
 
-def _ai_section(run: dict, timings: dict) -> dict:
+def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
+    """The steps `ai_call_ledger` counted. None: this report was not written by
+    the job itself, so what those steps did is not recorded (never 0)."""
+    if ledger is None:
+        return [
+            {
+                "name": "steps counted only during the job",
+                "state": NOT_RECORDED,
+                "model": None,
+                "calls": None,
+                "fresh": None,
+                "failed": None,
+                "reused": None,
+            }
+        ]
+    return [
+        {
+            "name": row["step"],
+            "state": "completed",
+            "model": row["model"],
+            "calls": row["fresh"],
+            "fresh": row["fresh"],
+            "failed": row["failed"],
+            "reused": row["reused"],
+        }
+        for row in ledger
+    ]
+
+
+def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
+    """The steps whose own stored status counts their calls: the clause review
+    (with its stored answers) and the CRS wording (it keeps no answers to reuse)."""
+    from .clause_review import STATUS_KEY
+
+    out = []
+    clause = status.get(STATUS_KEY)
+    if isinstance(clause, dict):
+        out.append(
+            {
+                "name": "clause_review",
+                "state": "completed" if clause.get("ran") else NOT_RECORDED,
+                "model": clause.get("model"),
+                "calls": clause.get("calls"),
+                "fresh": clause.get("calls"),
+                "reused": clause.get("cache_hits"),
+            }
+        )
+    if wording and wording.get("enabled"):
+        tried = wording.get("tried")
+        out.append(
+            {
+                "name": "crs_wording",
+                "state": "stopped" if wording.get("stopped") else "completed",
+                "model": wording.get("model"),
+                "calls": tried,
+                "fresh": tried,
+                "reused": None if tried is None else 0,
+            }
+        )
+    return out
+
+
+def _totals(steps: list[dict]) -> dict:
+    return {
+        field: (
+            sum(known)
+            if (known := [s[field] for s in steps if s.get(field) is not None])
+            else None
+        )
+        for field in ("fresh", "reused", "failed")
+    } | {"boundary": AI_BOUNDARY}
+
+
+def _ai_section(
+    run: dict,
+    timings: dict,
+    *,
+    ledger: list[dict] | None = None,
+    wording: dict | None = None,
+) -> dict:
     raw = run.get("ai_check_status")
     status = _loads(raw)
     if not raw:
@@ -304,6 +407,9 @@ def _ai_section(run: dict, timings: dict) -> dict:
             "rejected": status.get("rejected"),
         }
     step["name"] = "ai_engineering_check"
+    # This step's answers are never stored, so none can be reused: a true 0.
+    step["fresh"] = step["calls"]
+    step["reused"] = None if step["calls"] is None else 0
     step["clauses_read_of_total"] = NOT_RECORDED
     step["quotes_verified_of_total"] = NOT_RECORDED
     step["unverified_quotes_dropped"] = status.get("rejected") if raw else None
@@ -313,7 +419,8 @@ def _ai_section(run: dict, timings: dict) -> dict:
         if step["state"] == "failed"
         else "see the findings; code decides"
     )
-    return {"steps": [step]}
+    steps = [step, *_stored_steps(status, wording), *_ledger_steps(ledger)]
+    return {"steps": steps, "totals": _totals(steps)}
 
 
 def _gates_section(outcome: dict, steps: dict) -> dict:
@@ -334,16 +441,23 @@ def _gates_section(outcome: dict, steps: dict) -> dict:
     }
 
 
-def _crs_section(steps: dict) -> dict:
+def _crs_section(review_run_id: str, scope, steps: dict) -> dict:
     crs = steps["CRS"]
-    counts = crs.get("counts") or {}
+    parts = {
+        copy: review_audit_rows.for_copy(review_run_id, scope, copy)
+        for copy in ("internal", "issue")
+    }
+    internal = parts["internal"] or {}
     return {
-        "rows_exported": counts.get("rows"),
-        "missed_standard_rows": counts.get("missed_standard"),
-        "rows_dropped": NOT_RECORDED,
+        "rows_composed": internal.get("audit_rows"),
+        "rows_exported": internal.get("exported_rows"),
+        "missed_standard_rows": internal.get("missed_standard_rows"),
+        "rows_dropped": internal.get("removed"),
+        "rows_boundary": review_audit_rows.ROWS_BOUNDARY,
+        "reconciliation": parts,
         "client_copy_path": NOT_RECORDED,
         "internal_copy_path": NOT_RECORDED,
-        "failed": bool(crs.get("failed")),
+        "failed": crs.get("status") == "failed" or parts["internal"] is None,
     }
 
 
@@ -384,15 +498,23 @@ def build(review_run_id: str, scope, timings: dict | None = None) -> dict:
         review_run_id, allowed_document_ids=allowed
     )
     sub = run["submittal_document_id"]
+    from . import crs_wording
+
+    ai_use = _ai_section(
+        run,
+        timings or {},
+        ledger=ai_call_ledger.snapshot(),
+        wording=crs_wording.summary_of(review_run_id),
+    )
     return {
         "boundary": BOUNDARY,
-        "run": _run_section(run, sub, trace.get("document"), steps),
+        "run": _run_section(run, sub, trace.get("document"), steps, ai_use),
         "pages": _pages_section(sub),
         "standards": _standards_section(review_run_id, steps, allowed),
         "rules": _rules_section(findings),
-        "ai_use": _ai_section(run, timings or {}),
+        "ai_use": ai_use,
         "gates": _gates_section(outcome, steps),
-        "crs": _crs_section(steps),
+        "crs": _crs_section(review_run_id, scope, steps),
         "retractions_and_gaps": _known_gaps(),
     }
 
@@ -424,7 +546,9 @@ def _md_run(audit: dict) -> list[str]:
         f"- code: {run['code_version']}",
         f"- switches on: {', '.join(run['switches_on']) or 'none'}",
         f"- models used: {', '.join(run['models_used']) if run['models_used'] else NOT_RECORDED}",
-        f"- AI calls made: {_v(run['ai_calls_made'])}; refused: {_v(run['ai_calls_refused'])}",
+        f"- AI calls made (fresh): {_v(run['ai_calls_made'])}; failed calls: "
+        f"{_v(run['ai_calls_failed'])}; stored answers reused: {_v(run['ai_answers_reused'])}",
+        f"  - {AI_BOUNDARY}",
         f"- started by: {_v(run['started_by'])}",
         "",
     ]
@@ -503,15 +627,27 @@ def _md_rules(audit: dict) -> list[str]:
 
 
 def _md_ai(audit: dict) -> list[str]:
-    out = ["## 5. AI use"]
+    totals = audit["ai_use"]["totals"]
+    out = [
+        "## 5. AI use",
+        f"- fresh calls {_v(totals['fresh'])}; failed calls {_v(totals['failed'])}; "
+        f"reused answers {_v(totals['reused'])}",
+        f"  - {totals['boundary']}",
+    ]
     for s in audit["ai_use"]["steps"]:
-        out += [
-            f"- {s['name']}: {s['state']}; model {_v(s['model'])}; calls {_v(s['calls'])}; "
-            f"clauses read of total {s['clauses_read_of_total']}; quotes verified of total "
+        out.append(
+            f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
+            f"{_v(s['fresh'])}; failed calls {_v(s.get('failed'))}; reused answers "
+            f"{_v(s['reused'])}"
+        )
+        if "clauses_read_of_total" not in s:
+            continue
+        out[-1] += (
+            f"; clauses read of total {s['clauses_read_of_total']}; quotes verified of total "
             f"{s['quotes_verified_of_total']}; unverified quotes dropped "
-            f"{_v(s['unverified_quotes_dropped'])}; seconds {_v(s['seconds'])}",
-            f"  - effect on verdicts: {s['effect_on_verdicts']}",
-        ]
+            f"{_v(s['unverified_quotes_dropped'])}; seconds {_v(s['seconds'])}"
+        )
+        out.append(f"  - effect on verdicts: {s['effect_on_verdicts']}")
         if s.get("reason"):
             out.append(f"  - reason: {s['reason']}")
     return [*out, ""]
@@ -526,9 +662,13 @@ def _md_gates_crs(audit: dict) -> list[str]:
         *out,
         "",
         "## 7. CRS",
-        f"- rows exported: {_v(crs['rows_exported'])}",
-        f"- missed-standard rows: {_v(crs['missed_standard_rows'])}",
-        f"- rows dropped (empty, duplicate): {crs['rows_dropped']}",
+        f"- rows exported (internal copy): {_v(crs['rows_exported'])}",
+        f"- missed-standard rows (internal copy): {_v(crs['missed_standard_rows'])}",
+        *(
+            f"- {copy} copy: {part['line'] if part else NOT_RECORDED}"
+            for copy, part in crs["reconciliation"].items()
+        ),
+        f"  - {crs['rows_boundary']}",
         f"- client copy: {crs['client_copy_path']}; internal copy: {crs['internal_copy_path']}",
         "",
     ]

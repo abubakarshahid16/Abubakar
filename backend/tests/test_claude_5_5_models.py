@@ -10,12 +10,20 @@ from __future__ import annotations
 
 import contextlib
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app import (
+    ai_engineering_check,
+    answerability,
+    applicability,
     chat_model,
+    claude_models,
+    crs_wording,
+    field_naming,
+    rule_eval,
     claude_spend,
     comparison,
     datasheet_ai,
@@ -595,17 +603,17 @@ def test_the_sentence_reader_has_room_to_think_at_low_effort(model):
 
 
 @pytest.mark.parametrize("model", MODELS)
-def test_the_matcher_has_room_to_think_at_low_effort(model, monkeypatch):
+def test_the_matcher_has_room_to_think_at_the_default_effort(model, monkeypatch):
     seen, _outcome = _matcher_body(model, monkeypatch)
     assert seen[0]["max_tokens"] == FLOOR
-    assert seen[0]["output_config"] == {"effort": "low"}
+    assert "output_config" not in seen[0]
 
 
 @pytest.mark.parametrize("model", MODELS)
 def test_a_labelling_packet_has_room_to_think_at_low_effort(model):
     seen = []
     rp.ClaudeProvider(
-        model, transport=_send(seen, _reply(model)), step="labels"
+        model, transport=_send(seen, _reply(model)), step=field_naming.NAMING_STEP
     ).reason(_packet(num_predict=300))
     assert seen[0]["max_tokens"] == FLOOR
     assert seen[0]["output_config"] == {"effort": "low"}
@@ -670,6 +678,121 @@ def test_the_budget_gate_is_unchanged_for_an_older_model():
 def test_a_cap_above_the_floor_is_never_lowered():
     assert claude_spend.output_cap(SONNET, 8192) == 8192
     assert claude_spend.output_cap(SONNET, 200) == FLOOR
+
+
+# ----------------- effort comes from the route's name, never from the size of its cap
+
+JUDGEMENT_STEPS = (
+    comparison.MATCH_STEP,
+    answerability.JUDGE_STEP,
+    ai_engineering_check.STEP,
+    applicability.SCOPE_REASONING_STEP,
+    crs_wording.STEP,
+    "standards_convert:SAES-X-1",
+    "chat",
+)
+JUDGEMENT_ROUTES = (
+    output_limits.ROUTE_MATCH,
+    output_limits.ROUTE_RECHECK,
+    output_limits.ROUTE_APPLICABILITY,
+    output_limits.ROUTE_CLAUSE_APPLICABILITY,
+    output_limits.ROUTE_ENGINEERING_CHECK,
+    output_limits.ROUTE_SELECT_STANDARDS,
+    output_limits.ROUTE_CRS_WORDING,
+)
+
+
+@pytest.mark.parametrize("cap", [300, 4000, 4200, 12000])
+@pytest.mark.parametrize("step", JUDGEMENT_STEPS)
+@pytest.mark.parametrize("model", MODELS)
+def test_a_judgement_step_never_gets_low_effort_from_its_cap(model, step, cap):
+    seen = []
+    rp.ClaudeProvider(model, transport=_send(seen, _reply(model)), step=step).reason(
+        _packet(num_predict=cap)
+    )
+    assert "output_config" not in seen[0]
+    assert seen[0]["max_tokens"] == max(cap, FLOOR)
+
+
+@pytest.mark.parametrize("route", JUDGEMENT_ROUTES)
+@pytest.mark.parametrize("model", MODELS)
+def test_a_judgement_route_never_gets_low_effort_from_its_cap(model, route):
+    seen = []
+    call = output_limits.model_call_for(
+        _send(seen, _reply(model)), route, cfg=_cfg(model), env={"ANTHROPIC_API_KEY": KEY}
+    )
+    call("a question")
+    assert "output_config" not in seen[0]
+
+
+@pytest.mark.parametrize("cap", [300, 4000, 4200, 12000])
+@pytest.mark.parametrize("step", [field_naming.NAMING_STEP, rule_eval.MODEL_STEP])
+def test_a_label_or_verified_reading_is_low_effort_at_any_cap(step, cap):
+    seen = []
+    rp.ClaudeProvider(SONNET, transport=_send(seen, _reply(SONNET)), step=step).reason(
+        _packet(num_predict=cap)
+    )
+    assert seen[0]["output_config"] == {"effort": "low"}
+
+
+def test_the_two_route_lists_do_not_overlap_and_name_what_is_tested():
+    low, default = claude_models.LOW_EFFORT_ROUTES, claude_models.MODEL_DEFAULT_ROUTES
+    assert not low & default
+    assert {field_naming.NAMING_STEP, rule_eval.MODEL_STEP} <= low
+    assert output_limits.ROUTE_DATASHEET_READ in low
+    assert set(JUDGEMENT_ROUTES) <= default
+    assert {s for s in JUDGEMENT_STEPS if ":" not in s} <= default
+
+
+# ---------------------------------------------- the model a request names by default
+
+def _lane_on_with_no_env(monkeypatch):
+    monkeypatch.setattr(settings, "claude_reasoning_model", SONNET)
+    monkeypatch.setattr(settings, "standards_reader_model", "")
+
+
+def test_an_unset_reader_model_follows_the_reasoning_model(monkeypatch):
+    _lane_on_with_no_env(monkeypatch)
+    assert reader_api.ReaderSettings.from_env().model == SONNET
+
+
+def test_the_recheck_route_sends_the_reasoning_model_with_no_cfg(monkeypatch):
+    _lane_on_with_no_env(monkeypatch)
+    seen = []
+    output_limits.model_call_for(
+        _send(seen, _reply(SONNET)), output_limits.ROUTE_RECHECK
+    )("a question")
+    assert seen[0]["model"] == SONNET
+
+
+def test_the_reader_model_setting_and_environment_win_in_that_order(monkeypatch):
+    _lane_on_with_no_env(monkeypatch)
+    monkeypatch.setattr(settings, "standards_reader_model", OPUS)
+    assert reader_api.ReaderSettings.from_env().model == OPUS
+    monkeypatch.setenv("STANDARDS_READER_MODEL", HAIKU)
+    assert reader_api.ReaderSettings.from_env().model == HAIKU
+
+
+def test_an_injected_environment_is_still_obeyed_exactly(monkeypatch):
+    _lane_on_with_no_env(monkeypatch)
+    assert reader_api.ReaderSettings.from_env({}).model == reader_api.ReaderSettings.model
+
+
+def test_the_example_env_names_the_reader_model():
+    example = Path(__file__).parents[1] / ".env.example"
+    assert "STANDARDS_READER_MODEL" in example.read_text(encoding="utf-8")
+
+
+def test_a_cache_hit_counts_as_a_model_used():
+    claude_spend.record(
+        step="review-step",
+        model="answered-before",
+        usage={},
+        prompt_sha256="x",
+        wall_time_s=0.0,
+        finish_reason="cache_hit",
+    )
+    assert claude_spend.models_used(since=LONG_AGO) == ["answered-before"]
 
 
 # ------------------------------------- a cut-off answer: could-not-read, once

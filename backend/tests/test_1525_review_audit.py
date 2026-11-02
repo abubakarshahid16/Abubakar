@@ -200,6 +200,48 @@ def test_the_matcher_section_names_the_model_not_the_word_claude(
     assert json.loads(row["outcome_json"])["ai_matcher"]["model"] == "claude-sonnet-5-5"
 
 
+def test_an_unreadable_ledger_never_reads_as_a_local_only_run(
+    world, audit_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    run_id = _review(world)
+
+    def unreadable(**_kw):
+        raise OSError("no")
+
+    monkeypatch.setattr(claude_spend, "models_used", unreadable)
+    claude_models.record_run(run_id, match_step="matcher")
+    row = (
+        connect()
+        .execute("SELECT model_name FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    assert row["model_name"] == claude_models.LEDGER_UNREADABLE
+    used = review_audit.build(run_id, _scope(world))["run"]["models_used"]
+    assert claude_models.LEDGER_UNREADABLE in used
+
+
+def test_a_cache_hit_names_the_model_on_the_run(world, audit_dir, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    run_id, job_id = _enqueue(world)
+    review_jobs.claim_next(W)
+    claude_spend.record(
+        step="a-review-step",
+        model="claude-sonnet-5-5",
+        usage={},
+        prompt_sha256="x",
+        wall_time_s=0.0,
+        finish_reason="cache_hit",
+    )
+    assert review_jobs.run(job_id, W) == "done"
+    row = (
+        connect()
+        .execute("SELECT model_name FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    assert row["model_name"] == "claude-sonnet-5-5"
+
+
 def test_a_figure_that_was_not_recorded_reads_not_recorded_never_zero(world, audit_dir):
     run_id = _review(world)
     with connect() as conn:
