@@ -7,14 +7,49 @@ never given a kind that excuses it."""
 
 from __future__ import annotations
 
+from .config import settings
 from .crs_blank_fields import page_list
 
 BLANK_PAGE = "blank page"
 IMAGE_NO_READING = "image with no reading"
 NOTE_PAGE_NOT_READ = "Page not read - no reading came back"
+#: #1568: nothing was looked at on this page, so it is neither an empty reading nor a
+#: picture that could not be read. Never a path or file name: this reaches the CRS.
+FILE_NOT_READ = "not read: recognition could not open the stored file"
+#: What a page failure stored starts with (`ocr.recognise_batch`: the exception's type)
+#: when the file itself was the cause. The FileDataError and EmptyFileError are PyMuPDF's.
+#: Never a bare OSError: `recognise_batch` also wraps the page-image cache write, so a full
+#: disk on a healthy document would say its file could not be opened.
+_FILE_ERRORS = frozenset(
+    {
+        "FileNotFoundError",
+        "PermissionError",
+        "IsADirectoryError",
+        "NotADirectoryError",
+        "FileDataError",
+        "EmptyFileError",
+    }
+)
+_LEDGER_PREFIX = "recognition failed: "
 
 
 DROPPED_WITH_CONTENT = "set aside by a rule although it holds clause text - not excused"
+
+
+def is_file_error(error: str | None) -> bool:
+    """Did a recognition failure come from the file? Takes a stored `page_ocr.error` or
+    the ledger's reason built from it. Not a missing model, a dead worker or a low score."""
+    kind = str(error or "").removeprefix(_LEDGER_PREFIX).split(":", 1)[0]
+    return kind in _FILE_ERRORS
+
+
+def file_error_row(row: dict) -> bool:
+    """This ledger row failed for a file reason. Always False with the switch off."""
+    return (
+        settings.ocr_file_error_hold_enabled
+        and row["ocr_status"] == "failed"
+        and is_file_error(row["ocr_reason"])
+    )
 
 
 def unread_page_words(row: dict, *, dropped_content: bool = False) -> str:
@@ -25,6 +60,8 @@ def unread_page_words(row: dict, *, dropped_content: bool = False) -> str:
         if dropped_content:
             return f"{DROPPED_WITH_CONTENT} (rule {reason.split(',')[0]})"
         return f"excluded from the index on purpose (rule {reason.split(',')[0]})"
+    if file_error_row(row):
+        return FILE_NOT_READ
     # A failed or pending reading first: a scan whose OCR failed has an empty
     # text layer too, and is not a blank page (review of #1519).
     if row["native_status"] == "needs_ocr" or row["ocr_status"] in (

@@ -622,6 +622,8 @@ export interface CrsPreview {
   /** #633: set when part of the review could not be checked; the sheet must
    *  never look complete. "" / absent when nothing is known to be unchecked. */
   incomplete_notice?: string;
+  /** One short line on a decided version 2 rule, on both copies; empty when none decided. */
+  rulebook_v2_note?: string;
   unchecked_parts?: string[];
   recommended_code_label: string;
   /** "internal" (with "AI Review Comments") or "issue" (to the contractor). */

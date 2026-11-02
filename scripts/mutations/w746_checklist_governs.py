@@ -48,8 +48,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="        ok = left[0] >= right[0]\n",
              target=_T2, keyword="greater_of_a_percent", tags=("checklist",)),
     Mutation(id="M6509", phase=6509, description="a governed standard's unmatched table cells are not covered",
-             path=APP / "comparison.py",
-             anchor='            governed_cells = [i for i in gated["not_compared_items"]\n',
-             replacement='            governed_cells = [] and [i for i in gated["not_compared_items"]\n',
+             path=APP / "checklist_scope.py",
+             anchor='        + [i["requirement"] for i in cells if covered(i["requirement"])]\n',
+             replacement="",
              target=_T, keyword="table_cell", tags=("checklist", "honesty")),
 )
