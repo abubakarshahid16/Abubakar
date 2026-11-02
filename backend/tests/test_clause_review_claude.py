@@ -18,6 +18,7 @@ from app import (
     access,
     claude_batch_run,
     claude_spend,
+    claude_spend_report,
     clause_review,
     clause_review_claude,
     clause_review_status,
@@ -475,7 +476,7 @@ def test_the_lane_shut_past_the_limit_says_sent_not_read_and_reads_when_it_opens
 def test_an_ask_never_sent_is_counted_never_sent_and_is_not_sent_past_the_limit(
     fake, monkeypatch
 ):
-    monkeypatch.setattr(settings, "claude_budget_usd_per_step", _worst_one() * 1.5)
+    monkeypatch.setattr(settings, "claude_budget_usd_clause_review", _worst_one() * 1.5)
     fake.ended = False
     _sub, run, scope = _world(_reqs(3))
     _start(run, scope)  # one fits at worst case, two wait for the room
@@ -691,7 +692,7 @@ def test_what_a_cap_leaves_is_sent_in_tranches_and_the_cap_is_never_crossed(
     fake, monkeypatch
 ):
     """Reservations are at worst case; settled at real cost, the room grows and the next tranche goes."""
-    monkeypatch.setattr(settings, "claude_budget_usd_per_step", _worst_one() * 2.5)
+    monkeypatch.setattr(settings, "claude_budget_usd_clause_review", _worst_one() * 2.5)
     _sub, run, scope = _world(_reqs(5))
     status = clause_review.for_review(run, scope) or clause_review.status_of(run)
     for _ in range(6):
@@ -700,14 +701,16 @@ def test_what_a_cap_leaves_is_sent_in_tranches_and_the_cap_is_never_crossed(
         status = clause_review_claude.tick(run)
     assert [len(b) for b in fake.created][:1] == [2] and len(fake.created) >= 2
     assert status["results"]["reviewed"] == 5 and len(_rows(run)) == 5
-    assert claude_spend.spent("clause_review") <= settings.claude_budget_usd_per_step
+    assert (
+        claude_spend.spent("clause_review") <= settings.claude_budget_usd_clause_review
+    )
 
 
 def test_when_the_real_spend_reaches_the_cap_it_stops_partial_with_the_count(
     fake, monkeypatch
 ):
     cap = _worst_one() * 2.5
-    monkeypatch.setattr(settings, "claude_budget_usd_per_step", cap)
+    monkeypatch.setattr(settings, "claude_budget_usd_clause_review", cap)
     fake.output = 1000  # a real answer close to the worst case: nothing is freed
     _sub, run, scope = _world(_reqs(5))
     clause_review.for_review(run, scope)
@@ -717,7 +720,7 @@ def test_when_the_real_spend_reaches_the_cap_it_stops_partial_with_the_count(
             break
         status = clause_review_claude.tick(run)
     assert status["pending"] is False
-    assert settings.claude_budget_usd_per_step == cap  # never raised
+    assert settings.claude_budget_usd_clause_review == cap  # never raised
     assert claude_spend.spent("clause_review") <= cap
     assert 0 < status["results"]["reviewed"] < 5
     assert status["results"]["not_reviewed"] == 5 - status["results"]["reviewed"]
@@ -732,7 +735,7 @@ def test_when_the_real_spend_reaches_the_cap_it_stops_partial_with_the_count(
 def test_with_no_room_at_all_nothing_is_sent_and_every_one_is_counted(
     fake, monkeypatch
 ):
-    monkeypatch.setattr(settings, "claude_budget_usd_per_step", _worst_one() / 2)
+    monkeypatch.setattr(settings, "claude_budget_usd_clause_review", _worst_one() / 2)
     _sub, run, scope = _world(_reqs(3))
     status = _start(run, scope)
     assert fake.created == [] and status["pending"] is False
@@ -752,25 +755,61 @@ def test_the_usd_is_this_runs_and_matches_the_ledger(fake):
     assert claude_spend.spent("clause_review") > status["usd"]["charged"]
 
 
-def test_351_asks_whose_worst_case_is_over_the_cap_all_get_done_under_it(
-    fake, monkeypatch
-):
-    """The order's real count, on a model that thinks by default: reserved at worst case the first
-    batch cannot hold them all, and no batch ever holds more than the USD 5."""
+def test_351_asks_fit_the_usd_10_of_one_run_in_one_batch(fake, monkeypatch):
+    """The order's real count, on a model that thinks by default: USD 8.41 at worst case, under the step's USD 10."""
     monkeypatch.setattr(settings, "claude_reasoning_model", "claude-sonnet-5-5")
-    assert settings.claude_budget_usd_per_step == 5.0
+    assert settings.claude_budget_usd_clause_review == 10.0
     _sub, run, scope = _world(_reqs(351))
     clause_review.for_review(run, scope)
     status = clause_review.status_of(run)
-    assert status["usd"]["worst_case_all"] > 5.0
-    for _ in range(6):
-        if not status["pending"]:
-            break
-        status = clause_review_claude.tick(run)
-    sizes = [len(batch) for batch in fake.created]
-    assert sizes[0] < 351 and sum(sizes) == 351
+    assert 5.0 < status["usd"]["worst_case_all"] < 10.0
+    assert [len(batch) for batch in fake.created] == [351]
     assert status["results"]["reviewed"] == 351 and len(_rows(run)) == 351
-    assert claude_spend.spent("clause_review") <= 5.0
+
+
+def _spend_on(run, step, usd):
+    with claude_spend.for_run(run):
+        claude_spend.record(
+            step=step, model="claude-sonnet-5", usage={}, prompt_sha256="", wall_time_s=0.0,
+            finish_reason="stop", estimated_usd=usd,
+        )  # fmt: skip
+
+
+def test_another_runs_spend_does_not_use_this_runs_step_cap(fake):
+    _spend_on("another-run", "clause_review", 9.9999)
+    _sub, run, scope = _world(_reqs(3))
+    status = _start(run, scope)
+    assert status["results"]["reviewed"] == 3 and len(fake.created) == 1
+
+
+def test_this_runs_other_steps_trim_the_batch_at_the_run_cap_not_refuse_it(
+    fake, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_budget_usd_per_run", 10.0)
+    _sub, run, scope = _world(_reqs(5))
+    _spend_on(run, "requirement-matcher", 10.0 - _worst_one() * 2.5)
+    clause_review.for_review(run, scope)
+    assert [len(b) for b in fake.created][0] == 2
+    assert clause_review.status_of(run)["results"]["reviewed"] >= 2
+
+
+def test_the_day_cap_trims_the_batch_not_refuses_it(fake, monkeypatch):
+    monkeypatch.setattr(claude_spend_report, "day_cap", lambda: _worst_one() * 2.5)
+    fake.ended = False
+    _sub, run, scope = _world(_reqs(5))
+    clause_review.for_review(run, scope)
+    assert [len(b) for b in fake.created] == [2]
+
+
+def test_the_stop_names_this_runs_caps(fake, monkeypatch):
+    monkeypatch.setattr(settings, "claude_budget_usd_clause_review", _worst_one() / 2)
+    _sub, run, scope = _world(_reqs(2))
+    status = _start(run, scope)
+    assert (
+        f"USD {settings.claude_budget_usd_clause_review:g} cap of step clause_review in this review run"
+        in status["plain"]
+    )
+    assert "USD 15 cap per review run" in status["plain"]
 
 
 def test_the_close_numbers_the_late_rows_and_writes_the_audit_again(fake, monkeypatch):

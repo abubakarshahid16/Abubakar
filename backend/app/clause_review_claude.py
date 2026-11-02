@@ -15,9 +15,8 @@ through `reader_transport`, `claude_spend.reserve_all` and `claude_answer_cache`
 THE USD CAP IS NEVER RAISED. Every request is reserved at its worst case and `room()` says what the caps leave,
 so a batch cannot cross them. What does not fit waits for the next tick: once the batch settles at its real cost
 the room grows, and the next tranche goes. When the room no longer fits one more ask, the run closes partial and
-counts what was not reviewed. The cap's keying is `claude_spend`'s: `_room` reads the step's spend from it, and takes
-the per-run caps of #1595 from there when that lands (owner on #1584, 2 Nov 2026: USD 10 for this step, USD 15 for one
-run); nothing here keys a cap itself. May run on Claude when its switch is on; the live default stays local until the
+counts what was not reviewed. The caps are `claude_spend`'s, read by `_room` (owner on #1584, 2 Nov 2026: USD 10 for this
+step and USD 15 for one review run). May run on Claude when its switch is on; the live default stays local until the
 A/B proof is posted.
 
 WAITING DOES NOT BLOCK THE APP. `for_review` submits and returns, never sleeping (`max_wait_s=0`); the review job
@@ -55,6 +54,7 @@ from . import (
     claude_approved,
     claude_batch_run,
     claude_spend,
+    claude_spend_report,
     clause_review,
     clause_review_status,
 )
@@ -172,19 +172,25 @@ def _build_packets(submittal: str, kind: str, requirements: dict[str, dict]) -> 
 
 
 def _room(step: str = STEP) -> tuple[float, float]:
-    """(USD free on this step, USD free in total), the runner's `room`. A hair under, for the ledger's rounding."""
+    """(USD free on this step in this run, USD free across this run, the total and today), the runner's `room`, read as
+    `claude_spend` counts its caps, so a batch is trimmed here and not refused whole there. Inside `for_run` only. A hair
+    under, for the ledger's rounding."""
     caps = claude_spend.Caps.from_settings().for_step(step)
-    return (
-        caps.per_step - claude_spend.spent(step) - 0.00001,
-        caps.total - claude_spend.spent() - 0.00001,
+    shared = min(
+        caps.total - claude_spend.spent(),
+        claude_spend_report.run_cap() - claude_spend.run_spent(),
+        claude_spend_report.day_cap()
+        - claude_spend_report.charged_today(claude_spend.entries()),
     )
+    return caps.per_step - claude_spend.step_spent(step) - 0.00001, shared - 0.00001
 
 
 def _why_cap() -> str:
     caps = claude_spend.Caps.from_settings().for_step(STEP)
     return (
-        f"the USD {caps.per_step:g} cap of step {STEP} or the USD {caps.total:g} total cap would be "
-        "crossed (a cap is the owner's decision)"
+        f"the USD {caps.per_step:g} cap of step {STEP} in this review run, the USD "
+        f"{claude_spend_report.run_cap():g} cap per review run, the USD {claude_spend_report.day_cap():g} a day "
+        f"or the USD {caps.total:g} total cap would be crossed (a cap is the owner's decision)"
     )
 
 
@@ -522,7 +528,13 @@ def _past_wait(row, at: float, unanswered, sent, reasons) -> str | None:
 
 
 def tick(review_run_id: str, *, provider=None, now=time.time) -> dict | None:
-    """One non-blocking step: read a batch if it ended, send what fits, write rows, store the honest status."""
+    """One non-blocking step, inside its run: the caps and the ledger lines are this run's."""
+    with claude_spend.for_run(review_run_id):
+        return _tick(review_run_id, provider, now)
+
+
+def _tick(review_run_id: str, provider, now) -> dict | None:
+    """Read a batch if it ended, send what fits, write rows, store the honest status."""
     conn = connect()
     ensure_schema(conn)
     row = conn.execute(
