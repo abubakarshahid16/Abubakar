@@ -4,7 +4,7 @@ THE LOCAL PATH IS UNCHANGED, on purpose: no local proof is planned, so its instr
 schema, version, stored answers and two attempts stay exactly as they were. Only with
 `AI_DIVISION_SCOPE_ENGINE=claude` does `for_provider` hand out these tasks:
 
-  * THE SCOPE QUESTION HAS NO ROOM FOR A DOUBT ABOUT NOTHING. A paid proof (I-06) showed
+  * THE SCOPE QUESTION HAS NO ROOM FOR A DOUBT ABOUT NOTHING. A paid proof showed
     Claude answering "unsure" on parts with no limit to read, where the local model said
     "no", holding 150 rules. Here no scope sentence means "no", and "unsure" is only for a
     sentence that leaves the limit open. The reply names the sentence, so code can check
