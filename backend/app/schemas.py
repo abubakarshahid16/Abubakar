@@ -2656,7 +2656,7 @@ class CrsPreview(BaseModel):
     #: of a sheet whose run did not complete: "REVIEW INCOMPLETE: run <status> - <reason>.
     #: Unread pages: N (...). Missing standards: M (...)."; "" when it did.
     incomplete_notice: str = ""
-    rulebook_v2_note: str = ""  # one short line on a decided version 2 rule, on both copies
+    rulebook_v2_note: str = ""
     unchecked_parts: list[str] = []
     run_status_note: str = ""
     #: B5: the standards the review applied and why, the ones considered and not applied,
