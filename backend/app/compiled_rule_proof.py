@@ -429,8 +429,6 @@ def _limit_problem(limit, unit, comparator, body, sentence, field) -> str | None
         return "limit_not_in_quote"
     if unit and not unit_in_quote(unit, body):
         return "unit_not_in_quote"
-    if unit and not claims.unit_with_value(limit, unit, body):
-        return "unit_not_with_value"  # #1653: "10 bar and 5 MPa" is no 10 MPa
     if not unit and _unit_left_out(number, body):
         return "unit_left_out"
     if comparator not in sc.COMPARATORS or not _comparator_said(

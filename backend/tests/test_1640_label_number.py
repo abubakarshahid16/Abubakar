@@ -517,15 +517,12 @@ def test_reader_api_refuses_a_unit_of_another_number():
     )
 
 
-def test_compiled_rule_proof_refuses_a_unit_of_another_number():
+def test_compiled_rule_proof_already_ties_a_number_to_its_unit():
     body = "the design pressure shall not exceed 10 bar and 5 mpa"
     problem = compiled_rule_proof._limit_problem(
         "10", "MPa", "<=", body, body, "design pressure"
     )
-    assert problem == "unit_not_with_value"
-    assert compiled_rule_proof._limit_problem(
-        "10", "bar", "<=", body, body, "design pressure"
-    ) != ("unit_not_with_value")
+    assert problem == "number_and_unit_apart"
 
 
 def test_datasheet_ai_does_not_prove_a_unit_of_another_number():
