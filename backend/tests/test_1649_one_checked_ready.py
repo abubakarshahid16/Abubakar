@@ -18,7 +18,6 @@ from app import (
     comparison,
     conditions,
     crs_export,
-    crs_mapping,
     datasheet_checks,
     db,
     fts_index,
@@ -195,7 +194,7 @@ def test_switch_off_nothing_changes(tmp_path, monkeypatch):
     finding = {"document_id": doc, "finding": said, "contractor_page": 1}
     assert word_pages.finding_for_reader(finding) is finding
     rows = [{"comment": said}]
-    assert crs_mapping.for_reader(rows, {"submittal_document_id": doc})[0] == [
+    assert word_pages.crs_for_reader(rows, {"review_run_id": "none"})[0] == [
         {"comment": said}
     ]
 
@@ -292,7 +291,7 @@ def test_the_crs_as_drawn_has_no_false_page_in_cells_or_comments(tmp_path):
     )
     meta["unchecked_parts"] = ["page 2 was not read"]
     meta["run_status_note"] = "page 2 was not read"
-    rows, meta = crs_mapping.for_reader(rows, meta)
+    rows, meta = word_pages.crs_for_reader(rows, meta)
     for row in rows:
         for key in ("comment", "ai_review_comment", "reasoning", "page_section"):
             assert not PAGE_WORDS.search(str(row.get(key) or "")), (key, row[key])
@@ -482,7 +481,7 @@ def test_a_held_word_file_goes_ahead_on_its_text_and_says_so(tmp_path, monkeypat
 def test_switch_off_a_held_status_is_refused_as_on_main(tmp_path, monkeypatch):
     held, other = _two_documents(tmp_path, monkeypatch)
     monkeypatch.setattr(settings, "one_checked_definition_enabled", False)
-    assert reading_state.text_only_answer(held, states.PARTIALLY_SEARCHABLE) is None
+    assert word_pages.text_only_answer(held, states.PARTIALLY_SEARCHABLE) is None
     got = _answer([held, other], [])
     assert got["answer_type"] == "insufficient_evidence"
 
@@ -498,7 +497,7 @@ def test_a_held_file_with_an_unread_page_is_still_refused_with_its_reason(
             "UPDATE document_reading SET summary = ? WHERE document_id = ?",
             (json.dumps(saved), held),
         )
-    assert reading_state.text_only_answer(held, states.PARTIALLY_SEARCHABLE) is None
+    assert word_pages.text_only_answer(held, states.PARTIALLY_SEARCHABLE) is None
     other = rs._ingest(rs._word_file(tmp_path, pictures=0, name="o.docx"), "other")
     assert rs._finish(monkeypatch, other) == states.READY
     got = _answer([held, other], [])
@@ -513,4 +512,4 @@ def test_a_held_pdf_is_not_given_a_text_only_answer(tmp_path, monkeypatch):
             "UPDATE documents SET stored_path = ? WHERE id = ?",
             (str(tmp_path / "a.pdf"), held),
         )
-    assert reading_state.text_only_answer(held, states.PARTIALLY_SEARCHABLE) is None
+    assert word_pages.text_only_answer(held, states.PARTIALLY_SEARCHABLE) is None

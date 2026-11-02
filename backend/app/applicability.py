@@ -47,15 +47,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (
-    datasheets,
-    errors,
-    fts_index,
-    standard_ids,
-    standards,
-    submittal_review,
-    word_pages,
-)
+from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
+from .word_pages import other_document_page
 from .claude_auto_approve import lists_cited
 from .db import connect
 from .held_standards import mark_rows
@@ -1339,16 +1332,11 @@ def select(
         evidence = {"evidence_page": decision.get("page"),
                     "evidence_quote": decision.get("quote"),
                     "scope_decision": verdict}
-        # HONEST RENDERING (2026-09-28): an empty quote once printed `""` as a
-        # citation. `decide_by_reasoning` backs every APPLICABLE(_CANDIDATE)
-        # with the record's verified quote; a NULL that survives (a generic
-        # scope naming no item) says so in plain words.
-        page = word_pages.other_document_page(decision.get("page"))
-        cited = (
-            f'"{decision.get("quote")}" ({page})'
-            if decision.get("quote")
-            else "no specific quoted clause"
-        )
+        # HONEST RENDERING (2026-09-28): an empty quote once printed `""`. `decide_by_reasoning`
+        # backs every APPLICABLE(_CANDIDATE) with the record's verified quote; a NULL that
+        # survives (a generic scope naming no item) says so in plain words.
+        cited = (f"\"{decision.get('quote')}\" ({other_document_page(decision.get('page'))})"
+                 if decision.get("quote") else "no specific quoted clause")
         row = selected.get(standard_id)
         if verdict == v2.APPLICABLE and (row is None or row["method"] not in INCLUDING_METHODS):
             selected[standard_id] = {

@@ -373,6 +373,98 @@ def notes_for_reader(notes: list[dict], document_id: str | None) -> list[dict]:
     ]
 
 
+#: The sheet's sentences beside its rows, each built from machine text.
+_META_TEXT = ("run_status_note", "incomplete_notice", "recommended_code_reason")
+
+
+def crs_for_reader(rows: list[dict], meta: dict) -> tuple[list[dict], dict]:
+    """The CRS as it is drawn: every comment, cell and note of a Word file whose numbers
+    are not pages says no number as a page, whichever module or model wrote the words.
+    The LAST step, after numbering and carry-over, which compare the stored words. Off
+    or a document with real pages: as they came."""
+    if not settings.word_page_markers_enabled:
+        return rows, meta
+    run = (
+        connect()
+        .execute(
+            "SELECT submittal_document_id FROM review_runs WHERE id = ?",
+            (meta.get("review_run_id"),),
+        )
+        .fetchone()
+    )
+    document_id = run["submittal_document_id"] if run else None
+    if not numbers_are_not_pages(document_id):
+        return rows, meta
+    shown = {
+        **meta,
+        "review_notes": notes_for_reader(meta.get("review_notes") or [], document_id),
+        "unchecked_parts": [
+            no_false_pages(line, document_id)
+            for line in meta.get("unchecked_parts") or []
+        ],
+    }
+    for key in _META_TEXT:
+        if key in shown:
+            shown[key] = no_false_pages(shown[key], document_id)
+    return crs_rows_for_reader(rows, document_id), shown
+
+
+def for_screen(findings: list[dict]) -> list[dict]:
+    """The stored findings as the findings screen shows them."""
+    return [finding_for_reader(f) for f in findings]
+
+
+def text_only_answer(document_id: str, status: str) -> str | None:
+    """What a full-document answer must say about a held Word file whose text is all
+    searchable and whose only gap is pictures with no answer: the answer goes ahead on
+    its text, and says so. None for anything else, and with the switches off."""
+    from . import reading_state, states
+
+    if status != states.PARTIALLY_SEARCHABLE or not reading_state._any_switch():
+        return None
+    saved = reading_state.stored(document_id)
+    if not saved or not saved["unaccounted"] or not saved["unaccounted_list"]:
+        return None
+    if any(i.get("kind") != "picture" for i in saved["unaccounted_list"]):
+        return None
+    row = (
+        connect()
+        .execute("SELECT stored_path FROM documents WHERE id = ?", (document_id,))
+        .fetchone()
+    )
+    path = row["stored_path"] if row else None
+    if not path or office_kind(path) != KIND_DOCX:
+        return None
+    return saved["line"]
+
+
+def not_answerable(documents: list[dict]) -> list[dict]:
+    """The documents a full-document answer must stop for. A held Word file that can
+    be answered on its text is marked, and goes ahead."""
+    from . import states
+
+    out = []
+    for doc in documents:
+        if doc["status"] == states.READY:
+            continue
+        line = text_only_answer(doc["document_id"], doc["status"])
+        if line:
+            doc["read_in_part"] = line
+        else:
+            out.append(doc)
+    return out
+
+
+def text_only_notice(documents: list[dict]) -> str:
+    """What an answer says about each document it could use only the text of."""
+    return "".join(
+        f" {d['filename']} is not fully accounted for, so this covers its text only. "
+        f"{d['read_in_part']}."
+        for d in documents
+        if d.get("read_in_part")
+    )
+
+
 def no_image_words(default: str) -> str:
     """Why a Word page has no picture to show. It may well have a page number now,
     so "no printed pages" would be false with the switch on."""

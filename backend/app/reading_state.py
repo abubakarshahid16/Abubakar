@@ -714,30 +714,6 @@ def coverage_part(document_id: str) -> dict:
     return {} if decided is None else {"reading": decided}
 
 
-def text_only_answer(document_id: str, status: str) -> str | None:
-    """What a full-document answer must say about a held Word file whose text is all
-    searchable and whose only gap is pictures with no answer: the answer goes ahead on
-    its text, and says so. None for anything else, and with the switches off."""
-    from . import datasheet_inputs, states
-
-    if status != states.PARTIALLY_SEARCHABLE or not _any_switch():
-        return None
-    saved = stored(document_id)
-    if not saved or not saved["unaccounted"] or not saved["unaccounted_list"]:
-        return None
-    if any(i.get("kind") != "picture" for i in saved["unaccounted_list"]):
-        return None
-    row = (
-        connect()
-        .execute("SELECT stored_path FROM documents WHERE id = ?", (document_id,))
-        .fetchone()
-    )
-    path = row["stored_path"] if row else None
-    if not path or datasheet_inputs.office_kind(path) != datasheet_inputs.KIND_DOCX:
-        return None
-    return saved["line"]
-
-
 def not_ready_words(documents: list[dict]) -> str:
     """Why a full-document answer is refused: a held document is not still processing."""
     lines = [
