@@ -326,7 +326,9 @@ def test_a_batch_out_returns_at_once_and_says_pending_on_the_crs_and_the_audit(
     audit = review_audit.build(run, access.unrestricted_scope(), None)
     [step] = [s for s in audit["ai_use"]["steps"] if s["name"] == "clause_review"]
     assert step["state"] == "pending" and step["results"]["not_reviewed"] == 2
-    assert status["plain"] in review_audit.render_markdown(audit)
+    markdown = review_audit.render_markdown(audit)
+    assert status["plain"] in markdown and "- clause_review: pending;" in markdown
+    assert "Claude batch, this run only: USD" in markdown
 
 
 def test_a_restart_polls_the_same_batch_and_pays_once(fake):
