@@ -444,7 +444,12 @@ def _ai_section(
         *_ledger_steps(ledger),
         *review_audit_rows.skipped_steps(_loads(run.get("outcome_json"))),
     ]
-    return {"steps": steps, "totals": _totals(steps), **figures}
+    return {
+        "steps": steps,
+        "totals": _totals(steps),
+        **figures,
+        **review_audit_rows.spend_figures(run),
+    }
 
 
 def _gates_section(outcome: dict, steps: dict) -> dict:
@@ -682,6 +687,7 @@ def _md_ai(audit: dict) -> list[str]:
         f"  - {totals['boundary']}",
     ]
     out += review_audit_rows.cache_lines(audit["ai_use"])
+    out += review_audit_rows.spend_lines(audit["ai_use"])
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
