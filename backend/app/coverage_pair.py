@@ -32,7 +32,14 @@ import re
 import sqlite3
 from pathlib import Path
 
-from . import deferred_pass, deferred_value, requirement_split, scope_ledger, spec_kit
+from . import (
+    deferred_pass,
+    deferred_value,
+    presence_check,
+    requirement_split,
+    scope_ledger,
+    spec_kit,
+)
 from .config import settings
 from .db import connect
 
@@ -347,6 +354,9 @@ def _tally(
             continue
         if lane == "checklist":
             checklist["rows"] += 1
+            if presence_check.is_stated_only(f):  # #1638: never decided
+                checklist["stated"] = checklist.get("stated", 0) + 1
+                continue
         status = f.get("compliance_status")
         if status not in DECIDED:
             continue
@@ -392,6 +402,7 @@ def _wrong_verdicts(
         f
         for f in rows
         if _lane(f, rules) is None
+        or presence_check.is_stated_only(f)
         or (f.get("compliance_status") == PASS and value_is_deferred(conn, f))
     ]
     return {"all": len(rows), "outside": len(outside)}
@@ -489,7 +500,13 @@ def compute(
     pair["line"] = _line(pair)
     pair["checklist_line"] = (
         f"Checklist, stated apart, not added to the rules: {checklist['decided']} of"
-        f" {checklist['rows']} items decided.{_checklist_wrong(pair)}"
+        f" {checklist['rows']} items decided."
+        + (
+            f" {checklist['stated']} {presence_check.WORDS.lower()}."
+            if checklist.get("stated")
+            else ""
+        )
+        + _checklist_wrong(pair)
     )
     return pair
 

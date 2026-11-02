@@ -30,7 +30,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import coverage_pair, crs_decider, deferred_pass
+from app import coverage_pair, crs_decider, deferred_pass, presence_check
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
@@ -157,9 +157,12 @@ def score(
         # D2 (owner): a value marked 'By Contractor'/TBA is a Query, so a Pass
         # on one is not a decision the bench credits; it is shown on its own row.
         "checklist_decided": sum(
-            f.get("compliance_status") in DECIDED and not _deferred_pass(f)
+            f.get("compliance_status") in DECIDED
+            and not _deferred_pass(f)
+            and not presence_check.is_stated_only(f)
             for f in checklist
         ),
+        "checklist_stated": sum(presence_check.is_stated_only(f) for f in checklist),
         "checklist_total": len(checklist),
         "fails": sum(f.get("compliance_status") == "NON_COMPLIANT" for f in findings),
         "rules_decided": len(decided_req),
@@ -204,6 +207,7 @@ SRC_PLAYBOOK = (
     "playbook rows - present / missing / unclear (engineer rows, not decisions)"
 )
 SRC_TICK = "safety tick rows - engineer to tick"
+SRC_STATED = "stated, not checked - checklist rows that only ask a field is stated"
 _NO_FINDING = "CRS rows with no finding - "
 #: DECISION: a source whose rows may decide. ENGINEER: rows that are engineer
 #: rows by construction (kit_core.held, spec_kit._store, transmittal_kit), so a
@@ -233,6 +237,7 @@ SOURCE_RULE = [
     " check, the web standards check, the clause review and chat comments;"
     " 'draft rows with a code verdict' counts those carrying COMPLIANT or"
     " NON_COMPLIANT that no engineer confirmed (shown, not gated).",
+    f"'{SRC_STATED}': with the switch on (#1638), not decisions: no value was compared.",
     f"'{SRC_TICK}': COMPLIANT findings shown for an engineer's tick (a"
     " safety_tick CRS row). Not credited as decided anywhere below the headline.",
     "'kit rows - <kit> (engineer rows)': rows a kit made (pump, vessel, exchanger"
@@ -280,6 +285,8 @@ def finding_source(f: dict, rule_ids: set[str], kits) -> tuple[str, str]:
     ):
         # crs_mapping makes it a safety_tick row the engineer must tick: not decided
         return SRC_TICK, TICK
+    if presence_check.is_stated_only(f):
+        return SRC_STATED, TICK
     if origin == "datasheet_check":
         return SRC_CHECKLIST, DECISION
     if origin == spec_kit.ORIGIN:
@@ -351,7 +358,7 @@ def _source_order(label: str) -> tuple:
         rank = 1
     elif label.startswith("decided -"):
         rank = 2
-    elif label.startswith("engineer rows") or label == SRC_TICK:
+    elif label.startswith("engineer rows") or label in (SRC_TICK, SRC_STATED):
         rank = 3
     elif label.startswith("kit rows"):
         rank = 4
@@ -764,6 +771,11 @@ PAIR_ROWS = [
         PAIR_CHECKLIST,
         lambda p: (
             _frac(p["checklist"]["decided"], p["checklist"]["rows"])
+            + (
+                f" ({p['checklist']['stated']} stated, not checked)"
+                if p["checklist"].get("stated")
+                else ""
+            )
             + (f" ({p['checklist']['wrong']} wrong)" if p["checklist"]["wrong"] else "")
         ),
     ),

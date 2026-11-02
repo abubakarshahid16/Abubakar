@@ -42,7 +42,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import ai_check_drafts, errors, local_engine_bar
+from . import ai_check_drafts, errors, local_engine_bar, presence_check
 from .config import settings
 
 LOGGER_NAME = "review.debug"
@@ -177,8 +177,7 @@ def build(review_run_id: str, scope) -> dict:
     from .datasheet_checks import is_draft_checklist
     checklist = [f for f in findings if f.get("origin") == "datasheet_check"]
     c_status = Counter(f.get("compliance_status") for f in checklist)
-    # #805 Stage A: results of a checklist nobody has signed off are counted
-    # and marked, so a "meets" from a DRAFT checklist reads as unconfirmed.
+    # #805 Stage A: a "meets" from a checklist nobody signed off reads as unconfirmed.
     draft = sum(1 for f in checklist if is_draft_checklist(f.get("requirement")))
     steps.append(_step(
         "CHECKLIST",
@@ -192,6 +191,7 @@ def build(review_run_id: str, scope) -> dict:
                f"value {_short(f.get('contractor_evidence_text'), 25)} | p{f.get('contractor_page') or '-'}"
                f" | {f.get('compliance_status')} | {_short(f.get('ai_rationale') or f.get('finding'), 60)}"
                for f in checklist]))
+    presence_check.mark_trace_step(steps[-1], checklist)  # #1638
     # 6 RULES
     rules = [f for f in findings if not f.get("origin")]
     paired = sum(1 for f in rules if f.get("fact_id"))

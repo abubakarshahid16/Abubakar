@@ -57,6 +57,7 @@ from . import (absence, claims, closing_noun, conditions, datasheets, errors, fi
 from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
 from .claude_auto_approve import notes_after
 from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
+from . import presence_check
 from .config import settings
 from .deferred_value import framing as _framing, reason as _deferred_reason
 from .impossible_sign import hold_pass as _hold_impossible_pass
@@ -2017,6 +2018,7 @@ def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
                         missing), reason
 
 
+@presence_check.not_a_pass  # #1638
 def _recommend_code(findings: list[dict], completeness: dict, *,
                     codes: tuple[str, ...] = DEFAULT_CODES,
                     missing_references: list[str] | tuple[str, ...] = (),
