@@ -2645,8 +2645,7 @@ class CrsPreview(BaseModel):
     crs_copy: str = "internal"
     #: 2f: the engineer's internal notes; empty in the contractor's copy.
     review_notes: list[CrsReviewNote] = []
-    #: Empty when the run has no recommendation, and rendered as nothing
-    #: rather than as a placeholder code.
+    #: Empty when the run has no recommendation: rendered as nothing, not a placeholder code.
     recommended_code: str = ""
     recommended_code_reason: str = ""
     recommended_code_status: str = ""
@@ -2657,8 +2656,7 @@ class CrsPreview(BaseModel):
     #: of a sheet whose run did not complete: "REVIEW INCOMPLETE: run <status> - <reason>.
     #: Unread pages: N (...). Missing standards: M (...)."; "" when it did.
     incomplete_notice: str = ""
-    #: #805 plan change 6: the one short line on a decided version 2 rule, on both copies; "" when none decided.
-    rulebook_v2_note: str = ""
+    rulebook_v2_note: str = ""  # one short line on a decided version 2 rule, on both copies
     unchecked_parts: list[str] = []
     run_status_note: str = ""
     #: B5: the standards the review applied and why, the ones considered and not applied,

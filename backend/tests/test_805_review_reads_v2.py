@@ -1144,7 +1144,7 @@ def test_not_yet_confirmed_prints_only_while_it_is_true(monkeypatch):
         conn.execute(
             "UPDATE review_findings SET confirmed_by = 'x' WHERE origin = ?", (ORIGIN,)
         )
-    done, view = _view(run, crs_export.COPY_INTERNAL)
+    _done, view = _view(run, crs_export.COPY_INTERNAL)
     assert (
         view["rulebook_v2_note"]
         and "confirmed" not in view["rulebook_v2_note"].split(".")[-2]
