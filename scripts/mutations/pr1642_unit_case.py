@@ -181,4 +181,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         "is not one this calculation converts",
         "says_why_a_capital_unit",
     ),
+    _entry(
+        "20",
+        "the letters of a unit inside a label count as the unit in the quote",
+        _CASE,
+        'rf"(?<![A-Za-z]){re.escape(str(unit))}(?![A-Za-z])", printed, re.IGNORECASE',
+        "re.escape(str(unit)), printed, re.IGNORECASE",
+        "label_holding_the_letters",
+    ),
 )

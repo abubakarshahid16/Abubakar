@@ -21,6 +21,7 @@ from app import (
     compiled_rule_proof,
     condition_choice,
     conditions,
+    converter_gates,
     datasheet_ai,
     datasheet_checks,
     datasheets,
@@ -860,7 +861,7 @@ def test_the_private_mark_reaches_no_stored_or_shown_field(temp_db, word):
         "shall",
         sentence,
     )
-    assert kept["condition_text"] == condition.lower()
+    assert kept["condition_text"] == condition
     assert mark not in json.dumps(kept, ensure_ascii=False)
 
     said = f"The {PRESSURE} at {word} level shall not exceed 10 bar."
@@ -935,3 +936,171 @@ def test_the_converter_refuses_a_quote_retyped_in_the_other_case():
         {PRESSURE: ("pressure",)},
     )
     assert status == "unproven" and check is None
+
+
+# ---------------------------------------------- a stored condition is read again
+
+
+FACT_7_MPA = {
+    "field_name": "design pressure",
+    "field_value": "7 MPa",
+    "raw_value": "7",
+    "raw_unit": "MPa",
+    "normalized_value": 7.0,
+    "extraction_method": "geometry",
+    "page": 1,
+}
+
+
+def _evaluated(condition):
+    requirement = {"requirement_type": conditions.GATED_TYPE, "condition": condition}
+    return conditions.evaluate(requirement, [FACT_7_MPA])["state"]
+
+
+def test_a_stored_converter_condition_in_megapascal_still_decides():
+    answer_case = standards_converter.verify(
+        {
+            "condition": "design pressure greater than 5 MPa",
+            "field": 0,
+            "comparator": "<=",
+            "limit": "10",
+            "unit": "bar",
+            "quote": f"{PRESSURE} shall not exceed 10 bar",
+        },
+        {
+            "requirement_text": f"When design pressure greater than 5 MPa, the {PRESSURE} shall not exceed 10 bar.",
+            "clause": "6.1",
+            "requirement_type": "statement",
+        },
+        [PRESSURE],
+        {PRESSURE: "design_pressure"},
+        {PRESSURE: ("pressure",)},
+    )
+    assert answer_case[0] == "verified", answer_case[1]
+    assert answer_case[2].condition == "design pressure greater than 5 MPa"
+    assert _evaluated(answer_case[2].condition) == conditions.SATISFIED
+
+
+def test_a_converter_condition_in_millipascal_is_stored_as_printed():
+    condition = "design pressure greater than 5 mPa"
+    status, why, check = standards_converter.verify(
+        {
+            "condition": condition,
+            "field": 0,
+            "comparator": "<=",
+            "limit": "10",
+            "unit": "bar",
+            "quote": f"{PRESSURE} shall not exceed 10 bar",
+        },
+        {
+            "requirement_text": f"When {condition}, the {PRESSURE} shall not exceed 10 bar.",
+            "clause": "6.1",
+            "requirement_type": "statement",
+        },
+        [PRESSURE],
+        {PRESSURE: "design_pressure"},
+        {PRESSURE: ("pressure",)},
+    )
+    assert status == "verified", why
+    assert check.condition == condition
+    assert _evaluated(check.condition) == conditions.UNKNOWN
+
+
+def _compiled(condition, exception, text):
+    return compiled_rule_proof._kept_rule(
+        {"clause": "6.1", "page": 1},
+        {
+            "quote": "the level shall not exceed 10 bar",
+            "limit": "10",
+            "unit": "bar",
+            "applies_to": "pump",
+            "condition": condition,
+            "exception": exception,
+            "name": "level",
+            "comparator": "<=",
+        },
+        [],
+        "shall",
+        text,
+    )
+
+
+def test_a_stored_compiled_condition_keeps_the_printed_case():
+    text = "When design pressure greater than 5 mPa, except above 9 mPa, the level shall not exceed 10 bar."
+    kept = _compiled("design pressure greater than 5 mPa", "except above 9 mPa", text)
+    assert kept["condition_text"] == "design pressure greater than 5 mPa"
+    assert kept["exception_text"] == "except above 9 mPa"
+    assert _evaluated(kept["condition_text"]) == conditions.UNKNOWN
+
+
+def test_a_compiled_condition_is_stored_as_the_page_prints_it():
+    text = "When design pressure greater than 5 mPa, the level shall not exceed 10 bar."
+    kept = _compiled("design  pressure greater than 5 mpa", "", text)
+    assert kept["condition_text"] == "design pressure greater than 5 mPa"
+    assert kept["exception_text"] is None
+
+
+def test_a_condition_retyped_in_the_other_case_is_not_on_the_page():
+    text = "When pressure is greater than 5 mPa, the level shall not exceed 10 bar."
+    assert compiled_rule_proof._condition_on_page(
+        "pressure is greater than 5 mPa", text
+    )
+    assert not compiled_rule_proof._condition_on_page(
+        "pressure is greater than 5 MPa", text
+    )
+
+
+# ------------------------------------------------- a unit is a whole word
+
+
+@pytest.mark.parametrize("label", ["NORMAL SIGNAL", "MAX SIGNAL", "THERMAL SIGNAL"])
+def test_a_label_holding_the_letters_of_a_unit_is_not_the_unit(label):
+    page = f"Item | MA\n{label} | 20\n"
+    proposal = {
+        "field": label.lower(),
+        "value": "20",
+        "unit": "mA",
+        "kind": "offered",
+        "quote": f"{label} | 20",
+    }
+    done = claude_datasheet.accept([proposal], page)
+    assert done["rejected"] == []
+    assert done["accepted"][0]["unit"] == "MA"
+
+
+def test_a_converter_condition_retyped_in_the_other_case_is_not_in_the_clause():
+    verdict = standards_converter.verify(
+        {
+            "condition": "design pressure greater than 5 MPa",
+            "field": 0,
+            "comparator": "<=",
+            "limit": "10",
+            "unit": "bar",
+            "quote": f"{PRESSURE} shall not exceed 10 bar",
+        },
+        {
+            "requirement_text": f"When design pressure greater than 5 mPa, the {PRESSURE} shall not exceed 10 bar.",
+            "clause": "6.1",
+            "requirement_type": "statement",
+        },
+        [PRESSURE],
+        {PRESSURE: "design_pressure"},
+        {PRESSURE: ("pressure",)},
+    )
+    assert verdict[:2] == ("unproven", "condition_not_in_clause")
+
+
+@pytest.mark.parametrize(
+    "part,expected",
+    [
+        ("ABOVE 5 MPa", "above 5 MPa"),
+        ("above 5 mPa", "above 5 mPa"),
+        ("above 7 bar", "above 7 bar"),
+        (None, ""),
+        ("", ""),
+    ],
+)
+def test_as_printed_on_takes_the_copy_in_its_own_case(part, expected):
+    assert (
+        converter_gates.as_printed_on(part, "at above 5 mPa or above 5 MPa") == expected
+    )

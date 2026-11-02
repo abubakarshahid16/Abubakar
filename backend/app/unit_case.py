@@ -91,7 +91,9 @@ def reading_as_printed(reading: dict, page_text: str) -> dict:
         printed = on_page[0].group(0)
     unit = reading.get("unit")
     # A unit that is not in the quote is in a column header: the page says.
-    in_quote = unit and str(unit).lower() in printed.lower()
+    in_quote = unit and re.search(
+        rf"(?<![A-Za-z]){re.escape(str(unit))}(?![A-Za-z])", printed, re.IGNORECASE
+    )
     return {
         **reading,
         "quote": printed,

@@ -60,8 +60,8 @@ from . import (
     rule_roles,
 )
 from .ai.json_reply import unfenced
+from .converter_gates import as_printed_on, fold_for_gate, in_example, quote_unreadable
 from .converter_gates import fold as _fold
-from .converter_gates import fold_for_gate, in_example, quote_unreadable
 from .reasoning_provider import ProviderRefused
 
 #: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. API and ASME: HOLD.
@@ -435,7 +435,7 @@ def verify(
     for the sentence: nothing to look at, and never "not applicable" - applicability is not decided here)."""
     text = _fold(_text(row))
     condition = (answer.get("condition") or "").strip()
-    if condition and _fold(condition) not in text:
+    if condition and fold_for_gate(condition) not in fold_for_gate(_text(row)):
         return "unproven", "condition_not_in_clause", None
     idx = answer.get("field")
     if idx is None:
@@ -492,7 +492,14 @@ def verify(
     return (
         "verified",
         None,
-        Check(roles[name], comparator, limit, unit, quote, _fold(condition) or None),
+        Check(
+            roles[name],
+            comparator,
+            limit,
+            unit,
+            quote,
+            as_printed_on(condition, _text(row)) or None,
+        ),
     )
 
 
