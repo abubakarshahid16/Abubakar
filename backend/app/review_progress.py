@@ -23,6 +23,16 @@ _PAGE_LABEL = re.compile(r", (page|part) (\d+) of (\d+)$")
 #: The label `review_jobs._clause` writes: "checking clause 12 of 60".
 _CLAUSE_LABEL = re.compile(r"^checking clause (\d+) of (\d+)$")
 
+#: The other labels of a running review (`review_jobs.STEPS`, `.FINISHING`): named
+#: as they are, with no claim that a model is being waited on at this moment.
+_STEP_LABEL = re.compile(
+    r"^(reading the |selecting the |comparing requirements |finishing: )"
+)
+
+#: `reasoning_provider.OllamaProvider`'s limit on one call: the slack a step
+#: with no finer report gets before its silence is slow.
+MODEL_CALL_LIMIT_S = 900
+
 #: Job states in which the block is shown.
 ACTIVE_STATES = ("queued", "running", "retrying")
 
@@ -37,7 +47,7 @@ class ReviewProgressDetail(BaseModel):
     #: "page", or "part" for a Word file; null outside the reading step.
     pages_unit: str | None = None
     #: The sub-step the job is on, e.g. "reading page 3 of 5: waiting for the
-    #: model"; null outside a page or clause.
+    #: model" or "comparing requirements with the document"; null when none.
     waiting_on: str | None = None
     clauses_done: int | None = None
     clauses_total: int | None = None
@@ -65,10 +75,19 @@ def _model_reads_pages() -> bool:
     return datasheet_ai.engine_setting() != datasheet_ai.OFF
 
 
-def _waiting(on_page, total, unit, c_on, c_total) -> tuple[str | None, int]:
+def _beat_age(claimed_by: str | None) -> int | None:
+    """Seconds since the last beat of the worker in this process holding the
+    claim; None when none does (dead, silent too long, or another process)."""
+    from . import ingest
+
+    return ingest.get_worker().beat_age_of_claim(claimed_by)
+
+
+def _waiting(label, on_page, total, unit, c_on, c_total) -> tuple[str | None, int]:
     """(the sub-step named, its amber threshold). A model sub-step may take the
     model's own time limit before it is slow (the live review: one 35B page set the
-    stall light): a page up to two reader calls, a clause one call."""
+    stall light): a page up to two reader calls, a clause one call, any other
+    step of a running review one call of the local provider."""
     base = int(settings.review_progress_stall_amber_s)
     if on_page is not None:
         if not _model_reads_pages():
@@ -84,6 +103,8 @@ def _waiting(on_page, total, unit, c_on, c_total) -> tuple[str | None, int]:
             f"checking clause {c_on} of {c_total}: waiting for the model",
             base + allowance,
         )
+    if _STEP_LABEL.match(label):
+        return label, base + MODEL_CALL_LIMIT_S
     return None, base
 
 
@@ -93,8 +114,10 @@ def detail(row: dict) -> dict:
     `pages_done` counts FINISHED pages: the reader reports a page when it
     STARTS it ("page 7 of 69"), so 6 are done. Pages are null outside the
     reading step. `idle_seconds` is the time since the job last moved (its
-    progress line or its worker claim); `stale` is job_queue's claim rule AND
-    no movement for as long: a job whose line is moving is never "stuck"."""
+    progress line, its worker claim, or a beat of the worker holding it);
+    `stale` is job_queue's claim rule AND no movement for as long AND no live
+    worker vouching: model calls beat the worker, never this row, so a frozen
+    row alone is not "stuck". A dead or long-silent worker vouches for nothing."""
     match = _PAGE_LABEL.search(row.get("progress_label") or "")
     unit = match.group(1) if match else None
     on_page = int(match.group(2)) if match else None
@@ -114,10 +137,12 @@ def detail(row: dict) -> dict:
         seconds_since(row.get("updated_at")),
         seconds_since(row.get("claimed_at")),
     ]
-    ages = [a for a in ages if a is not None]
+    beat_age = _beat_age(row.get("claimed_by"))
+    ages = [a for a in [*ages, beat_age] if a is not None]
     claim_age = seconds_since(row.get("claimed_at"))
     idle = min(ages) if ages else None
     waiting_on, amber = _waiting(
+        row.get("progress_label") or "",
         on_page if done is not None else None,
         total,
         unit,
@@ -140,6 +165,7 @@ def detail(row: dict) -> dict:
             and claim_age >= job_queue.CLAIM_STALE_SECONDS
             and idle is not None
             and idle >= job_queue.CLAIM_STALE_SECONDS
+            and beat_age is None
         ),
     }
 
@@ -154,7 +180,8 @@ def for_job(job: dict) -> dict | None:
     row = (
         connect()
         .execute(
-            "SELECT started_at, updated_at, claimed_at FROM jobs WHERE id = ?",
+            "SELECT started_at, updated_at, claimed_at, claimed_by FROM jobs"
+            " WHERE id = ?",
             (job["id"],),
         )
         .fetchone()
