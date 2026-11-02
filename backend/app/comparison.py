@@ -2917,11 +2917,14 @@ def _run_comparison(
                              "citation_resolves": not unresolved})
 
     # ORDER 210 FIX 3: a held requirement is also an engineer-review row.
-    from . import held_findings
+    from . import held_findings, run_parts
 
     run = (review_run_id, submittal_id, replace, standard_labels)
     held_findings.add(held_items, pending, prepared_rows, findings, run)
 
+    rulebook = run_parts.rulebook(
+        run, stored, facts, prepared_rows, findings, allowed_document_ids
+    )
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
     # datasheet self-checks below, which add their own rows to this run and
     # must not be deleted by it.
@@ -2966,12 +2969,14 @@ def _run_comparison(
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
     check_results = kind_rules.gate(kn, checklist_scope, facts, stored, page_texts)
+    check_results = run_parts.checks(rulebook, check_results)
     # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
     # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
         label=rule_trust_mod.label_check if trust is not None else None))
+    findings.extend(run_parts.written(rulebook))
 
     # rule_trust (#947) steps 7 and 10, switch ON only: the datasheet fields
     # read with a value that no applicable rule targets (the CRS lists them
@@ -3003,12 +3008,7 @@ def _run_comparison(
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
     split = {**split, **kind_rules.split_part(kn, checklist_note), **eqs.split_part(es)}
-    if cited_scope["summary"]:  # #139: standards cited only for named clauses
-        split = {**split, "cited_clauses": cited_scope["summary"]}
-    if checklist_coverage:
-        split = {**split, "checklist_coverage": checklist_coverage}
-    if divided["summary"]:  # #141: divisions limited by their own scope
-        split = {**split, "division_scope": divided["summary"]}
+    split = run_parts.stated(split, cited_scope, checklist_coverage, divided, rulebook)
     # Owner order 2026-10-11: the run says which reader read the sheet (engine,
     # model or "code readers only") and the pages the AI did not read, with the reason.
     from . import degraded_read
