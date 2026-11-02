@@ -325,3 +325,14 @@ class SettingsExt(BaseModel):
     #: rules reach the matcher, inside its existing per-run caps. OFF: as before.
     #: Env: DRAFT_CHECKLIST_KEEPS_STANDARDS_ENABLED.
     draft_checklist_keeps_standards_enabled: bool = False
+    #: #805 plan change 6 E (`claude_spend_report`): each review run's spend per step in its record and audit. OFF:
+    #: nothing is written. The USD 100 a day does not read this: it always binds (owner, #1584).
+    #: Env: CLAUDE_COST_CONTROLS_ENABLED.
+    claude_cost_controls_enabled: bool = False
+    #: Owner, #1584 (2 Nov 2026, 15:05 PKT): inside one review run the AI clause review step has USD 10 (other steps
+    #: `claude_budget_usd_per_step`), and the whole run at most USD 15, its steps together.
+    #: Env: CLAUDE_BUDGET_USD_CLAUSE_REVIEW, CLAUDE_BUDGET_USD_PER_RUN.
+    claude_budget_usd_clause_review: float = Field(10.0, gt=0)
+    claude_budget_usd_per_run: float = Field(15.0, gt=0)
+    #: The day cap; it can only narrow the owner's USD 100 (`claude_spend_report.day_cap`). Env: CLAUDE_BUDGET_USD_PER_DAY.
+    claude_budget_usd_per_day: float = Field(100.0, gt=0)

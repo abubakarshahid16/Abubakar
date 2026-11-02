@@ -282,6 +282,7 @@ EGRESS_SAFE: dict[str, object] = {
     "claude_auto_approve_reviews_enabled": False,
     # --- local only, no socket of its own: a draft checklist leaves its standards in scope (Lock 2, off by default)
     "draft_checklist_keeps_standards_enabled": False,
+    "claude_cost_controls_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: presence check of a playbook whose standard is not held (#1522, off by default)

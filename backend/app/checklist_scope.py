@@ -26,6 +26,16 @@ def standards(checklist: dict) -> list[str]:
     return sorted({item["source"]["standard"] for item in checklist["items"]})
 
 
+def sources(checklist: dict) -> dict:
+    """`datasheet_checks.checklist_sources`: what `comparison` needs to know of a checklist."""
+    return {
+        "key": checklist["key"],
+        "items": len(checklist["items"]),
+        "standards": standards(checklist),
+        "draft": checklist["draft"],
+    }
+
+
 def keeps_standards(checklist: dict) -> bool:
     """Lock 2: a checklist not yet signed cannot decide, so while it is a draft the standards it cites stay in
     scope, rule by rule, each under its own trust label. A signed checklist governs as before."""

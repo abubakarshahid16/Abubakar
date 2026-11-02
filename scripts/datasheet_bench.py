@@ -23,7 +23,7 @@ with the two switches set for the run and restored afterwards:
                   only on a quote proved on the page).
   hybrid:claude   the same with "claude": production's engine
                   (`datasheet_ai.model_call_for`), every call through
-                  `claude_spend` (USD 5 per step / USD 500 total in November, checked before
+                  `claude_spend` (USD 5 per step, all time, outside a review run / USD 100 a day / USD 500 total in November, checked before
                   a call leaves), charged to production's step. USD reported.
   ai-only:ollama  DIAGNOSIS ONLY: the AI page reader alone over
   ai-only:claude  `datasheet_inputs.page_texts` of every file type, no rules;
@@ -597,6 +597,13 @@ def build_model_call(reader: str):
         return call, lambda: dict(usage)
     if engine == "claude":
         from app import claude_budget, claude_spend, reader_api, reader_transport
+        from app.reasoning_provider import claude_unavailable
+
+        # RULE 1: the app's own gate, first. The egress flags alone are not it:
+        # REASONING_PROVIDER=ollama keeps every document on the machine.
+        refused, why = claude_unavailable()
+        if refused is not None:
+            raise ReaderUnavailable(f"the Claude reader is off ({refused}: {why})")
         transport = reader_transport.transport()
         if transport is None:
             raise ReaderUnavailable(
