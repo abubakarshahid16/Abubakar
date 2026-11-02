@@ -208,5 +208,3 @@ class _NoteReader:
             finish_reason="stop",
             prompt_sha256=packet.sha256,
         )
-
-
