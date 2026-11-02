@@ -30,7 +30,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import deferred_pass, deferred_value
+from app import crs_decider, deferred_pass, deferred_value
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
@@ -239,7 +239,227 @@ def score(
         "kind": kind,
         "kind_ok": kind == case.get("kind"),
         "pass_on_deferred": sum(_deferred_pass(f) for f in findings),
+        # Informational, below the headline: one count per place a decision or
+        # an engineer row is made, never added together (`finding_sources`).
+        "sources": finding_sources(conn, findings),
     }
+
+
+# ----------------------------------------------------------------- sources
+#
+# The headline counts decisions from review_findings only, and "standard rules
+# decided" only those with a requirement_id. Decisions and engineer rows are
+# made in more places than that; each is counted here ON ITS OWN ROW, labelled
+# by where it is made, and no two sources are ever added into one number.
+# An engineer row is not a decision; a Pass on a deferred value (D2) is not
+# credited (`_deferred_pass`).
+
+SRC_RULE = "decided - review findings (rule, code)"
+SRC_CHECKLIST = (
+    "decided - datasheet checklist (clause as text, not linked to a stored rule)"
+)
+SRC_PLAYBOOK = (
+    "playbook rows - present / missing / unclear (engineer rows, not decisions)"
+)
+SRC_TICK = "safety tick rows - engineer to tick"
+_NO_FINDING = "CRS rows with no finding - "
+#: DECISION: a source whose rows may decide. ENGINEER: rows that are engineer
+#: rows by construction (kit_core.held, spec_kit._store, transmittal_kit), so a
+#: verdict on one is wrong whatever the truth file says.
+DECISION, ENGINEER = "decision", "engineer"
+#: The draft lanes (`crs_mapping._DRAFT_LANES`) and the engineer's chat comments:
+#: engineer rows, shown with any verdict they carry, not gated (an engineer's
+#: own action on one is not the code's verdict).
+DRAFT = "draft"
+DRAFT_ORIGINS = ("ai_engineering_check", "web_standard_check", "clause_review", "chat")
+#: A COMPLIANT finding shown for an engineer's tick (`show_for_engineer_tick`):
+#: crs_mapping prints it as a `safety_tick` row the engineer must tick, so it is
+#: an engineer row, not a decision the bench credits.
+TICK = "tick"
+
+SOURCE_RULE = [
+    "Rows below the headline (informational; one source per row, never added"
+    " together; each count is of THIS run's rows from that source only):",
+    f"'{SRC_RULE}': findings linked to a stored rule (requirement_id in"
+    " standard_requirements) decided COMPLIANT or NON_COMPLIANT, of those"
+    " findings; a Pass on a deferred value (D2) is not credited.",
+    f"'{SRC_CHECKLIST}': datasheet_check findings that are not kit cards, decided,"
+    " of those findings; D2 not credited.",
+    "'decided - findings from <origin> (no stored rule linked)': every other"
+    " finding source, decided of its rows; D2 not credited.",
+    "'engineer rows - <origin> (drafts, not decisions)': the AI engineering"
+    " check, the web standards check, the clause review and chat comments;"
+    " 'draft rows with a code verdict' counts those carrying COMPLIANT or"
+    " NON_COMPLIANT that no engineer confirmed (shown, not gated).",
+    f"'{SRC_TICK}': COMPLIANT findings shown for an engineer's tick (a"
+    " safety_tick CRS row). Not credited as decided anywhere below the headline.",
+    "'kit rows - <kit> (engineer rows)': rows a kit made (pump, vessel, exchanger"
+    " draft cards on the checklist; the specification, parked-kind and"
+    " transmittal kits). Never decisions: a kit row carrying a verdict is shown"
+    " and turns the gate red.",
+    f"'{SRC_PLAYBOOK}': rows the review playbooks add at CRS build, by state"
+    " (other states: could not be checked, standard not held). Never decisions.",
+    f"'{_NO_FINDING}<row kind> (engineer rows, not decisions)': other rows the"
+    " CRS builder adds with no finding behind them (missing reference, standard"
+    " not cited, pages not readable, carried forward, ...).",
+    "A CRS-build count is blank when the CRS could not be built, and every new"
+    " row is blank for a result saved before it existed (never 0).",
+]
+
+
+def _stored_rule_ids(conn: sqlite3.Connection) -> set[str]:
+    try:
+        return {r[0] for r in conn.execute("SELECT id FROM standard_requirements")}
+    except sqlite3.OperationalError:  # a copy without the table: nothing links
+        return set()
+
+
+def _kits() -> list[tuple[str, str]]:
+    from app import kit_core
+
+    return [(k.name, k.words) for k in kit_core._kits()]
+
+
+def finding_source(f: dict, rule_ids: set[str], kits) -> tuple[str, str]:
+    """(row label, its type) for one stored finding: where it was made."""
+    from app import spec_kit
+
+    origin = f.get("origin")
+    if origin == "datasheet_check":
+        text = f"{f.get('requirement') or ''} {f.get('requirement_source_text') or ''}"
+        for name, words in kits:
+            if words and words in text:
+                return f"kit rows - {name} (engineer rows)", ENGINEER
+    if (
+        origin not in DRAFT_ORIGINS
+        and origin != spec_kit.ORIGIN
+        and f.get("show_for_engineer_tick")
+        and f.get("compliance_status") == "COMPLIANT"
+    ):
+        # crs_mapping makes it a safety_tick row the engineer must tick: not decided
+        return SRC_TICK, TICK
+    if origin == "datasheet_check":
+        return SRC_CHECKLIST, DECISION
+    if origin == spec_kit.ORIGIN:
+        code = str(f.get("reason_code") or f.get("ai_rationale") or "")
+        parts = str(f.get("requirement_id") or "").split(":")
+        if code.startswith(spec_kit.TRANSMITTAL):
+            name = "transmittal"
+        elif len(parts) >= 3 and parts[1]:
+            name = parts[1]
+        else:
+            name = "specification"
+        return f"kit rows - {name} (engineer rows)", ENGINEER
+    if origin in DRAFT_ORIGINS:
+        return f"engineer rows - {origin} (drafts, not decisions)", DRAFT
+    if f.get("requirement_id") and f["requirement_id"] in rule_ids:
+        return SRC_RULE, DECISION
+    where = origin or "the comparison"
+    return f"decided - findings from {where} (no stored rule linked)", DECISION
+
+
+def finding_sources(conn: sqlite3.Connection, findings: list[dict]) -> dict:
+    """label -> {"type", "rows", "decided", "verdicts"} for the run's findings."""
+    rule_ids, kits = _stored_rule_ids(conn), _kits()
+    out: dict[str, dict] = {}
+    for f in findings:
+        label, kind = finding_source(f, rule_ids, kits)
+        slot = out.setdefault(
+            label, {"type": kind, "rows": 0, "decided": 0, "verdicts": 0}
+        )
+        slot["rows"] += 1
+        if f.get("compliance_status") in DECIDED:
+            # a draft an engineer confirmed may rightly carry a status: not the code's
+            if kind != DRAFT or not crs_decider.decider(f):
+                slot["verdicts"] += 1
+            if not _deferred_pass(f):
+                slot["decided"] += 1
+    return out
+
+
+def crs_sources(rows: list[dict] | None) -> dict | None:
+    """label -> counts for the CRS rows the builder adds with NO finding behind
+    them (a finding's row is counted under its finding's source). None when the
+    CRS could not be built."""
+    if rows is None:
+        return None
+    out: dict[str, dict] = {}
+    for row in rows:
+        if row.get("finding_id") or row.get("finding_ids"):
+            continue
+        kind = row.get("row_kind") or "unlabelled"
+        if kind == "playbook_check":
+            slot = out.setdefault(
+                SRC_PLAYBOOK,
+                {"type": "playbook", "present": 0, "missing": 0, "unclear": 0},
+            )
+            slot.setdefault("other", 0)
+            state = row.get("playbook_state")
+            slot[state if state in ("present", "missing", "unclear") else "other"] += 1
+            continue
+        label = f"{_NO_FINDING}{kind} (engineer rows, not decisions)"
+        out.setdefault(label, {"type": "crs", "rows": 0})["rows"] += 1
+    return out
+
+
+def _source_order(label: str) -> tuple:
+    if label == SRC_RULE:
+        rank = 0
+    elif label == SRC_CHECKLIST:
+        rank = 1
+    elif label.startswith("decided -"):
+        rank = 2
+    elif label.startswith("engineer rows") or label == SRC_TICK:
+        rank = 3
+    elif label.startswith("kit rows"):
+        rank = 4
+    elif label == SRC_PLAYBOOK:
+        rank = 5
+    else:
+        rank = 6
+    return rank, label
+
+
+def _source_cell(m: dict, label: str) -> str:
+    if "sources" not in m:  # a result saved before these rows: not measured
+        return ""
+    at_crs = label == SRC_PLAYBOOK or label.startswith(_NO_FINDING)
+    table = m.get("crs_sources") if at_crs else m["sources"]
+    if table is None:  # the CRS could not be built: blank, never 0
+        return ""
+    slot = table.get(label)
+    if slot is None:  # measured, and this source made no row in this run
+        if label == SRC_PLAYBOOK:
+            return "0 / 0 / 0"
+        return "0/0" if label.startswith("decided -") else "0"
+    if slot["type"] == DECISION:
+        return _frac(slot["decided"], slot["rows"])
+    if slot["type"] == ENGINEER:
+        bad = slot["verdicts"]
+        return str(slot["rows"]) + (
+            f" ({bad} with a verdict - must be 0)" if bad else ""
+        )
+    if slot["type"] == DRAFT:
+        bad = slot["verdicts"]
+        return str(slot["rows"]) + (
+            f" ({bad} draft rows with a code verdict)" if bad else ""
+        )
+    if slot["type"] == "playbook":
+        text = f"{slot['present']} / {slot['missing']} / {slot['unclear']}"
+        return text + (f"; other states {slot['other']}" if slot["other"] else "")
+    return str(slot["rows"])
+
+
+def source_rows(cols: list[tuple[str, dict]]) -> list[tuple[str, list[str]]]:
+    """The rows below the headline: every source any column saw, one row each."""
+    labels = {SRC_RULE, SRC_CHECKLIST}
+    for _, m in cols:
+        labels |= set(m.get("sources") or {})
+        labels |= set(m.get("crs_sources") or {})
+    return [
+        (label, [_source_cell(m, label) for _, m in cols])
+        for label in sorted(labels, key=_source_order)
+    ]
 
 
 def system_kind(conn: sqlite3.Connection, doc: str) -> str:
@@ -382,11 +602,11 @@ def replay(db_path: Path, case: dict) -> dict:
             )
         except Exception as exc:  # noqa: BLE001 - reported on the table, not hidden
             errors.append(f"decide: {type(exc).__name__}: {exc}"[:200])
-        crs_lines = None
+        crs_lines = crs_rows = None
         try:
             main.number_crs_rows(case["run"], scope)
-            rows, *_ = main._crs_content(case["run"], scope)
-            crs_lines = len(rows)
+            crs_rows, *_ = main._crs_content(case["run"], scope)
+            crs_lines = len(crs_rows)
         except Exception as exc:  # noqa: BLE001
             errors.append(f"crs: {type(exc).__name__}: {exc}"[:200])
         raw = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
@@ -396,7 +616,12 @@ def replay(db_path: Path, case: dict) -> dict:
             )
         finally:
             raw.close()
-    result.update(crs_lines=crs_lines, model_calls_refused=refused[0], errors=errors)
+    result.update(
+        crs_lines=crs_lines,
+        crs_sources=crs_sources(crs_rows),
+        model_calls_refused=refused[0],
+        errors=errors,
+    )
     return result
 
 
@@ -426,6 +651,13 @@ def _replay_kind(doc: str, errors: list[str]) -> str:
 
 def stored_crs_lines(db_path: Path, run_id: str) -> int | None:
     """CRS lines as the CRS builder makes them from the run's stored findings."""
+    rows = stored_crs_rows(db_path, run_id)
+    return None if rows is None else len(rows)
+
+
+def stored_crs_rows(db_path: Path, run_id: str) -> list[dict] | None:
+    """The CRS rows the builder makes from the run's stored findings, composed
+    as the export composes them (`main._crs_content`), on a copy, no model call."""
     from app import access, db, main
 
     try:
@@ -437,7 +669,7 @@ def stored_crs_lines(db_path: Path, run_id: str) -> int | None:
                 run_id,
                 access.AccessScope(user_id="crs-bench", allowed_document_ids=ids),
             )
-            return len(rows)
+            return rows
     except Exception:  # noqa: BLE001 - shown as blank, never as 0
         return None
 
@@ -492,7 +724,9 @@ def run_bench(db_path: Path, truth: dict, *, do_replay: bool = True) -> list[dic
                 "config": fingerprint(),
                 "stored": score(raw, case["run"], case),
             }
-            entry["stored"]["crs_lines"] = stored_crs_lines(db_path, case["run"])
+            crs_rows = stored_crs_rows(db_path, case["run"])
+            entry["stored"]["crs_lines"] = None if crs_rows is None else len(crs_rows)
+            entry["stored"]["crs_sources"] = crs_sources(crs_rows)
             if do_replay:
                 entry["replay"] = replay(db_path, case)
             out.append(entry)
@@ -539,6 +773,12 @@ def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
                 reasons.append(
                     f"{name}: {r[column]['wrong']} wrong verdict(s) ({column})"
                 )
+            # An engineer-row source (a kit) never decides; a verdict on one is red.
+            for label, slot in ((r.get(column) or {}).get("sources") or {}).items():
+                if slot.get("type") == ENGINEER and slot.get("verdicts"):
+                    reasons.append(
+                        f"{name}: {slot['verdicts']} verdict(s) on {label} ({column})"
+                    )
         b = base.get(r["case"]["run"])
         if not b:
             continue
@@ -598,6 +838,8 @@ def render_markdown(
     lines.append("|---|" + "---|" * len(cols))
     for label, fn in ROWS:
         lines.append(f"| {label} | " + " | ".join(fn(m) for _, m in cols) + " |")
+    for label, cells in source_rows(cols):
+        lines.append(f"| {label} | " + " | ".join(cells) + " |")
     configs = sorted({r["config"] for r in results if r.get("config")})
     lines += [
         "",
@@ -630,4 +872,5 @@ def render_markdown(
         "",
     ]
     lines += [f"- {c}" for c in truth.get("counting_rule", [])]
+    lines += [f"- {c}" for c in SOURCE_RULE]
     return "\n".join(lines) + "\n"
