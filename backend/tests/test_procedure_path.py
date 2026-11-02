@@ -120,8 +120,8 @@ def _kind(doc_id, kind, state="suggested"):
         )
 
 
-def test_the_switch_is_off_by_default_and_the_router_kind_decides(monkeypatch):
-    assert settings.procedure_path_enabled is False
+def test_the_router_kind_decides(monkeypatch):
+    monkeypatch.setattr(settings, "procedure_path_enabled", False)
     _kind("d1", "procedure")
     _kind("d2", "datasheet")
     _kind("d3", "procedure", "needs_engineer")

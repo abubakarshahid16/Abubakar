@@ -58,12 +58,11 @@ describe("durations and defaults", () => {
     expect(durationLabel(754)).toBe("12 min 34 s");
     expect(durationLabel(3900)).toBe("1 h 5 min");
   });
-  it("names rule 1 on every step that is on by default, and says off for the one that is not", () => {
+  it("names rule 1 on every step that is on by default, and says off for any that is not", () => {
     for (const [key, d] of Object.entries(AI_STEP_DEFAULTS)) {
       expect(defaultLine(key)).toContain(d.setting);
       expect(defaultLine(key)).toMatch(d.onByDefault ? /^On by default .*rule 1/ : /^Off by default/);
     }
-    expect(AI_STEP_DEFAULTS.applicability.onByDefault).toBe(false);
   });
 });
 

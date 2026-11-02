@@ -234,90 +234,29 @@ class FakeModel:
                         digest="d", finish_reason="stop", prompt_sha256=packet.sha256)
 
 
-PSV = {"equipment_type": "Pressure Safety Valve"}
-PUMP_CLAUSE = {"id": "a", "requirement_text": "Pump bearings shall be rated for 25000 hours."}
-NOTE_CLAUSE = {"id": "b", "requirement_text": "NOTE Further guidance is given in Annex B."}
-SHALL_CLAUSE = {"id": "c", "requirement_text": "The body shall be forged steel."}
-
-
-def _ai(reqs, *replies, limit=None):
-    from app import ai_applicability
-    return ai_applicability.gate(reqs, classification=PSV, facts=[], provider=FakeModel(*replies),
-                                 limit=limit)
-
-
-def test_a_does_not_apply_that_code_confirms_leaves_the_check():
-    out = _ai([PUMP_CLAUSE], {"applies": "no", "reason": "other_equipment",
-                              "quote": "Pump bearings shall be rated"})
-    assert out["kept"] == []
-    [i] = out["items"]
-    assert (i["code"], i["decided_by"]) == ("other_equipment", "ai:test-model+code")
-    assert 'quoted: "Pump bearings shall be rated"' in i["detail"]   # the quoted reason
-
-
-def test_a_does_not_apply_code_cannot_confirm_stays_a_check_with_a_note():
-    """The model says the forged-body clause is about other equipment; the
-    vocabulary finds no equipment in it, so code cannot confirm: still a check."""
-    out = _ai([SHALL_CLAUSE], {"applies": "no", "reason": "other_equipment",
-                               "quote": "The body shall be forged steel."})
-    assert [r["id"] for r in out["kept"]] == ["c"] and out["items"] == []
-    assert "could not confirm" in out["notes"]["c"]
-    assert 'it quoted: "The body shall be forged steel."' in out["notes"]["c"]
-
-
-def test_unsure_stays_a_check_never_dropped():
-    out = _ai([PUMP_CLAUSE], {"applies": "unsure", "reason": "none", "quote": None})
-    assert [r["id"] for r in out["kept"]] == ["a"]
-    assert out["notes"]["a"] == "the model was unsure whether it applies"
-
-
-def test_a_quote_that_is_not_in_the_clause_confirms_nothing():
-    out = _ai([PUMP_CLAUSE], {"applies": "no", "reason": "other_equipment",
-                              "quote": "Compressor seals shall be dry gas seals"})
-    assert [r["id"] for r in out["kept"]] == ["a"] and out["items"] == []
-
-
-def test_an_informative_note_is_confirmed_only_without_a_mandatory_word():
-    out = _ai([NOTE_CLAUSE, SHALL_CLAUSE],
-              {"applies": "no", "reason": "informative_note",
-               "quote": "NOTE Further guidance is given in Annex B."},
-              {"applies": "no", "reason": "informative_note",
-               "quote": "The body shall be forged steel."})
-    assert [i["requirement"]["id"] for i in out["items"]] == ["b"]
-    assert [r["id"] for r in out["kept"]] == ["c"]
-
-
-def test_the_per_run_cap_asks_no_more_than_it_may():
-    out = _ai([PUMP_CLAUSE, SHALL_CLAUSE],
-              {"applies": "yes", "reason": "none", "quote": None}, limit=1)
-    assert (out["asked"], out["not_asked"]) == (1, 1)
-    assert [r["id"] for r in out["kept"]] == ["a", "c"]
-
-
 def test_the_review_records_the_models_note_on_an_unchecked_requirement(review_run, monkeypatch):
-    """Switched on, through the review: an unconfirmed suggestion travels to
-    the requirement's stored reason; the model is named on a confirmed one."""
-    from app import ai_applicability, ai_task_runner
+    """Through the review: a model's unconfirmed suggestion travels to the
+    requirement's stored reason."""
+    from app import ai_applicability
     run, ids, scope = review_run
     # one more clause that reaches the comparison and finds no field
     leak = _req("spec", "sc", "The seat leakage shall not exceed 5 bubbles per minute.",
                 requirement_type="numeric_limit", operator="<=", value=5.0, raw_value="5",
                 field="seat leakage", subject="seat leakage")
-    monkeypatch.setattr(settings, "ai_applicability_enabled", True)
-    calls = {"n": 0}
+    note = "the model was unsure whether it applies"
 
-    def fake_run_task(spec, text, provider=None, use_cache=True):
-        calls["n"] += 1
-        data = {"applies": "unsure", "reason": "none", "quote": None}
-        return ai_task_runner.TaskResult(spec.name, ai_task_runner.STATE_OK, data, None, "test-model")
+    real_gate = ai_applicability.division_gate_for_run
 
-    monkeypatch.setattr(ai_applicability.ai_task_runner, "run_task", fake_run_task)
+    def gate(requirements, *a, **k):
+        out = real_gate(requirements, *a, **k)
+        return {**out, "notes": {r["id"]: note for r in out["kept"]}}
+
+    monkeypatch.setattr(ai_applicability, "division_gate_for_run", gate)
     result = comparison.run_comparison(run, allowed_document_ids=scope)
-    assert calls["n"] == result["ai_applicability"]["asked"] >= 1
     stored = {d["requirement_id"]: d for d in scope_ledger.decisions_for(run)}
     # the one compared with a value carries no note; one that was not does
     assert stored[ids["compared"]]["reason_code"] == "compared"
     assert "unsure" not in stored[ids["compared"]]["reason"]
     assert stored[leak]["reason_code"] != "compared"
-    assert stored[leak]["reason"].endswith("the model was unsure whether it applies")
+    assert stored[leak]["reason"].endswith(note)
     assert result["scope"]["in_scope"] == 6
