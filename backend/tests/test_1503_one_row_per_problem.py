@@ -175,6 +175,12 @@ def test_two_issued_numbers_never_merge():
     assert len(merged([row("f1"), row("f2")], TWO, records)[0]) == 2
 
 
+def test_two_issued_numbers_never_merge_even_when_both_hold_the_merged_words():
+    words = merged([row("f1"), row("f2")], TWO)[0][0]["comment"]
+    records = {**issued("key-f1", words), **issued("key-f2", words, ref="CRS-X-002")}
+    assert len(merged([row("f1"), row("f2")], TWO, records)[0]) == 2
+
+
 def test_an_issued_number_for_other_words_never_merges():
     assert len(merged([row("f1"), row("f2")], TWO, issued("key-f2"))[0]) == 2
 
