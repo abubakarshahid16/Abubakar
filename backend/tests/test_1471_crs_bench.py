@@ -376,6 +376,17 @@ def test_a_pass_on_a_deferred_value_is_not_credited_as_decided(run_id):
     assert m["pass_on_deferred"] == base["pass_on_deferred"] + 1
 
 
+def test_passes_count_the_pass_rows_and_a_stated_row_is_not_one(run_id, monkeypatch):
+    from app import presence_check
+
+    base = _score(run_id, {"kind": "datasheet"})["passes"]
+    _add(run_id, "COMPLIANT", section="Set pressure")
+    _add(run_id, "NON_COMPLIANT", section="Set pressure")
+    assert _score(run_id, {"kind": "datasheet"})["passes"] == base + 1
+    monkeypatch.setattr(presence_check, "is_stated_only", lambda _f: True)
+    assert _score(run_id, {"kind": "datasheet"})["passes"] == 0
+
+
 def test_fewer_verified_quotes_because_rows_were_removed_is_not_red():
     case = {"name": "t", "run": "r"}
     before = [{"case": case, "stored": _m(quotes_verified=6, quotes_unverified=0)}]

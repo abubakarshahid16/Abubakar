@@ -96,6 +96,8 @@ def score(
         "model": run["model_name"] or (outcome.get("ai_matcher") or {}).get("model"),
         "findings": len(findings),
         **measures,
+        # A stated row is not a Pass, where statuses are counted (`presence_check`).
+        "passes": sum(presence_check.status_of(f) == presence_check.PASS for f in findings),
         "kind": kind,
         "kind_ok": kind == case.get("kind"),
         # Informational, below the headline: one count per place a decision or
@@ -775,8 +777,9 @@ def pair_tables(cols: list[tuple[str, dict]]) -> list[str]:
 
 def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
     """Why the bench is red, or [] when green: any wrong verdict (stored or
-    replay), or any measure worse than the saved baseline for the same run. A
-    measure that had a value and is now blank is worse (null is never 0)."""
+    replay), any measure worse than the saved baseline for the same run, or a big
+    jump either way (`jump_check`). A measure that had a value and is now blank
+    is red (null is never 0)."""
     reasons = []
     base = {b["case"]["run"]: b for b in (baseline or [])}
     for r in results:
@@ -801,17 +804,14 @@ def gate(results: list[dict], baseline: list[dict] | None = None) -> list[str]:
                 f" ({b['config']} vs {r['config']}); not comparable"
             )
             continue
-        column = "replay" if r.get("replay") and b.get("replay") else "stored"
-        now, then = r[column], b[column]
+        now, then = _compared_columns(r, b)
+        jumps, _ = jump_check(now, then)
+        reasons += [f"{name}: {text}" for text in jumps.values()]
         for key in HIGHER_IS_WORSE:
-            if then.get(key) is not None and now.get(key) is None:
-                reasons.append(f"{name}: {key} {then[key]} -> blank")
-            elif then.get(key) is not None and now[key] > then[key]:
+            if key not in jumps and then.get(key) is not None and now[key] > then[key]:
                 reasons.append(f"{name}: {key} {then[key]} -> {now[key]}")
         for key in LOWER_IS_WORSE:
-            if then.get(key) is not None and now.get(key) is None:
-                reasons.append(f"{name}: {key} {then[key]} -> blank")
-            elif then.get(key) is not None and now[key] < then[key]:
+            if key not in jumps and then.get(key) is not None and now[key] < then[key]:
                 reasons.append(f"{name}: {key} {then[key]} -> {now[key]}")
         # A reader that breaks can make every quote vanish: fewer unfound quotes,
         # nothing red. Quoted findings halving while the findings do not is red.
@@ -836,6 +836,103 @@ HIGHER_IS_WORSE = (
     "quotes_unverified",
 )
 LOWER_IS_WORSE = ("checklist_decided", "rules_decided", "pages_read")
+
+# The big-jump check, one place (owner's order): a change this big against the baseline
+# stops the gate in either direction, an improvement too, until a person re-saves the
+# baseline, because a big unexplained change is what the owner wants stopped.
+BIG_JUMP_PERCENT = 25  # more than this ...
+BIG_JUMP_MIN_ROWS = 10  # ... and at least this many rows
+# Small numbers matter here: any change stops, except that a decrease in `wrong` only prints.
+ANY_CHANGE_STOPS = ("wrong", "untrue", "fails", "passes", "pass_on_deferred", "crs_lines")
+BETTER_WHEN_LOWER = ("wrong", *HIGHER_IS_WORSE)
+BETTER_WHEN_HIGHER = LOWER_IS_WORSE
+NEITHER_BETTER = (
+    "fails",
+    "passes",
+    "crs_lines",
+    "findings",
+    "quotes_total",
+    "checklist_total",
+    "rules_in_scope",
+    "pages_total",
+)
+JUMP_MEASURES = BETTER_WHEN_LOWER + BETTER_WHEN_HIGHER + NEITHER_BETTER
+
+
+def _compared_columns(result: dict, base: dict) -> tuple[dict, dict]:
+    column = "replay" if result.get("replay") and base.get("replay") else "stored"
+    return result[column], base[column]
+
+
+def _is_big_jump(key: str, old: int, new: int) -> bool:
+    change = abs(new - old)
+    if key in ANY_CHANGE_STOPS:
+        return change > 0
+    return change >= BIG_JUMP_MIN_ROWS and change * 100 > BIG_JUMP_PERCENT * old
+
+
+def _percent(old: int, new: int) -> str:
+    """No percent without a denominator: a change from 0 says so."""
+    return f"{(new - old) * 100 / old:+.1f}%" if old else "from 0, no percent"
+
+
+def _still_stops(key: str, old: int, new: int) -> str:
+    """The words on a jump that is an improvement: it stops all the same."""
+    if key in BETTER_WHEN_LOWER and new < old:
+        said = "better when lower"
+    elif key in BETTER_WHEN_HIGHER and new > old:
+        said = "better when higher"
+    else:
+        return ""
+    return f", {said}: still stops until a person re-saves the baseline"
+
+
+def jump_check(now: dict, then: dict) -> tuple[dict[str, str], list[str]]:
+    """One document, one column, against its baseline: what stops the gate, per measure,
+    and what only prints. Null is never 0: a measure with no baseline value cannot jump."""
+    stops: dict[str, str] = {}
+    notes: list[str] = []
+    for key in JUMP_MEASURES:
+        old, new = then.get(key), now.get(key)
+        if old is None:
+            notes.append(f"{key} was null, now {'null' if new is None else new}")
+        elif new is None:
+            stops[key] = f"big jump: {key} {old} -> blank (null, not 0)"
+        elif key == "wrong" and new < old:
+            notes.append(f"{key} {old} -> {new} ({_percent(old, new)}): not a failure")
+        elif _is_big_jump(key, old, new):
+            stops[key] = (
+                f"big jump: {key} {old} -> {new} ({_percent(old, new)})"
+                + _still_stops(key, old, new)
+            )
+    return stops, notes
+
+
+def big_jump_lines(results: list[dict], baseline: list[dict] | None) -> list[str]:
+    """The rule the gate applied and, per document, what it found."""
+    lines = [
+        "Big-jump check (per document, per measure, against the baseline, both ways):",
+        "",
+        f"- Stops on a change of more than {BIG_JUMP_PERCENT}% and at least"
+        f" {BIG_JUMP_MIN_ROWS} rows, or any change at all on"
+        f" {', '.join(ANY_CHANGE_STOPS)}. A decrease in wrong prints, not a failure.",
+        f"- Better when lower: {', '.join(BETTER_WHEN_LOWER)}."
+        f" Better when higher: {', '.join(BETTER_WHEN_HIGHER)}."
+        f" Neither: {', '.join(NEITHER_BETTER)}."
+        " A big improvement stops too.",
+        "- The way past it is re-saving the baseline, which needs a table on the PR."
+        " An update that only moves rows from hidden to 'needs engineer' or 'needs other"
+        " document' is the lead's; one that adds a Pass or Fail is the owner's.",
+    ]
+    base = {b["case"]["run"]: b for b in (baseline or [])}
+    for r in results:
+        b = base.get(r["case"]["run"])
+        if not b or (b.get("config") and r.get("config") and b["config"] != r["config"]):
+            continue  # no baseline, or the gate already says the settings differ
+        stops, notes = jump_check(*_compared_columns(r, b))
+        for text in [*stops.values(), *notes]:
+            lines.append(f"- {r['case']['name']}: {text}")
+    return lines
 
 
 def render_markdown(
@@ -884,6 +981,8 @@ def render_markdown(
     lines += [
         "",
         "Gate: " + ("GREEN" if not reasons else "RED - " + "; ".join(reasons)),
+        "",
+        *big_jump_lines(results, baseline),
         "",
         "Counting rule:",
         "",

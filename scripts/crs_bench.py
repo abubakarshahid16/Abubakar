@@ -8,10 +8,15 @@ it, with every model and Claude call refused. Refuses the live database - take
 a copy first (`live_guard.diagnostic_copy()`). The table holds counts, ids and
 checklist field names only; the copy itself stays on this machine.
 
-Exit codes: 0 green, 1 red (a wrong verdict, or a measure worse than
---baseline), 2 refused, 3 the bench itself failed (an error, NOT a result: no
+Exit codes: 0 green, 1 red (a wrong verdict, a measure worse than --baseline, or
+a big jump either way against it, an improvement too: the table prints the
+thresholds), 2 refused, 3 the bench itself failed (an error, NOT a result: no
 table is written; #1539 - a bench importing a file someone was editing once
 looked 'red'). Run the bench only in a checkout nobody is editing.
+
+Past a big jump: re-save the baseline with a table on the PR. Rows only moving from
+hidden to 'needs engineer' or 'needs other document' are the lead's; a change that
+adds a Pass or Fail is the owner's.
 
 PLANTED_DEFECTS_BENCH_ENABLED=true (#1607, default off) also prints the planted-defect
 table after the bench table. It never moves the exit code until its baseline is stable.
