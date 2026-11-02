@@ -29,7 +29,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import sqlite3
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -52,6 +51,7 @@ from .rulebook_v2_schema import (
     V2,
     trigger_sql,
 )
+from .rulebook_v2_signed import content_to_sign, field_role_of
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +319,7 @@ def _standing(conn, version_id: str) -> dict[str, dict]:
     columns = {r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)")}
     signed = "signed_content" if "signed_content" in columns else "NULL"
     for row in conn.execute(
-        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier, note,"
+        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier, note, provenance_viewed,"
         f" {signed} FROM rulebook_approval WHERE rule_version_id = ? ORDER BY rowid",
         (version_id,),
     ):
@@ -332,6 +332,7 @@ def _standing(conn, version_id: str) -> dict[str, dict]:
             "at",
             "tier",
             "note",
+            "viewed",
             "signed",
         )
         one = dict(zip(names, row, strict=True))
@@ -447,42 +448,6 @@ def checklist_stamp(equipment_type: str, rows) -> str:
     return "rb2-" + hashlib.sha256(blob).hexdigest()[:24]
 
 
-def field_role_of(conn, version_id: str) -> dict:
-    """The role the field-naming step gave the compiled row this version came from: its role, state and reason, all
-    None when the step has not run or a copy has no such column. Never a reason to decide: `rule_field_naming`."""
-    out = {}
-    for names in (
-        ("field_role", "field_role_state", "field_role_reason"),
-        ("check_op", "check_values", "check_state", "check_reason"),
-        ("sentence_strength",),
-    ):
-        try:
-            row = conn.execute(
-                f"SELECT {', '.join('c.' + n for n in names)} FROM rulebook_compiled_row l"
-                " JOIN compiled_rules c ON c.id = l.compiled_row_id"
-                " WHERE l.rule_version_id = ? ORDER BY l.rowid DESC LIMIT 1",
-                (version_id,),
-            ).fetchone()
-        except sqlite3.OperationalError:
-            row = None
-        out.update(zip(names, row or (None,) * len(names), strict=True))
-    return out
-
-
-def content_to_sign(conn, version_id: str) -> str:
-    """The field role and typed check a tick signs with a rule. They are not in the file's stamp, so the tick records
-    them and a read compares: a role or check added or changed after the tick is not what was signed."""
-    now = field_role_of(conn, version_id)
-    names = (
-        "field_role",
-        "field_role_state",
-        "check_op",
-        "check_values",
-        "check_state",
-    )
-    return json.dumps({n: now[n] for n in names}, sort_keys=True)
-
-
 def signed_content_of(conn, version_id: str, equipment_type: str) -> str | None:
     """What the approval standing for this type recorded, or None."""
     return (_standing(conn, version_id).get(_fold_type(equipment_type)) or {}).get(
@@ -495,7 +460,7 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
     for this type is a person's approval. An unapproved or superseded rule never appears: a rule whose newest reading
     waits for a decision is absent, not served from its older reading. Off, or no tables: nothing.
 
-    Nor does an approved rule whose document is gone, or that the newest compile of its standard no longer holds: those
+    Each rule cites a source its signer was shown. Nor does an approved rule come out whose shown document is gone, or that the newest compile of its standard no longer holds: those
     are in `withheld_rules`, with why, and logged here (ids and reasons only). Read-only, on any connection.
 
     `document_id` is the source the quote comes from: a caller keeps a rule only if the reader may read that document
@@ -550,11 +515,13 @@ def _read_book(conn, equipment_type: str) -> tuple[list[dict], list[dict]]:
         approval = _standing(conn, row[0]).get(wanted)
         if approval is None:
             continue
+        # The source the signer was shown, never a newer one: a later edition of the same reading was not signed for.
         source = conn.execute(
             "SELECT p.clause, p.page, p.quote, p.quote_sha256, p.edition, p.standard_document_id"
             " FROM rulebook_provenance p JOIN documents d ON d.id = p.standard_document_id"
-            " WHERE p.rule_version_id = ? ORDER BY p.rowid DESC LIMIT 1",
-            (row[0],),
+            " WHERE p.rule_version_id = ? AND p.id IN (SELECT value FROM json_each(?))"
+            " ORDER BY p.rowid DESC LIMIT 1",
+            (row[0], approval["viewed"]),
         ).fetchone()
         reason = None
         if source is None:

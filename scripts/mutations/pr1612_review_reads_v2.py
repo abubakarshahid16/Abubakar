@@ -14,7 +14,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1612,
         description="the review never reads the approved rules",
         path=_M,
-        anchor="    rulebook = run_parts.rulebook(run, stored, facts, prepared_rows, findings, allowed_document_ids)\n",
+        anchor="    rulebook = run_parts.rulebook(\n        run, stored, facts, prepared_rows, findings, allowed_document_ids\n    )\n",
         replacement="    rulebook = None\n",
         target=_T,
         keyword="one_that_meets_and_one_that_breaks",

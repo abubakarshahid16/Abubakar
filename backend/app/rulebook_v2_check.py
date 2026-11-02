@@ -5,7 +5,9 @@ compliant. So is a rule with no single figure (a sentence, a set of alternatives
 document): code has nothing to compare, and an engineer reads it.
 
 Numbers through `numparse`, a second unit of one quantity through `claims.compare_across_units`: no second reader.
-That code folds case, so it reads mPa as MPa. A spelling whose case IS its SI prefix is compared only with itself.
+That code folds case, so it reads mPa as MPa and S as s. Two spellings that differ only by case are never compared
+(even BAR and bar: code does not know which letters carry meaning), and a spelling whose case IS its SI prefix is compared
+only with itself.
 """
 
 from __future__ import annotations
@@ -62,6 +64,9 @@ def _holds(
     if unit == limit_unit:
         return _TEST[comparator](number, limit)
     if _CASE_IS_THE_PREFIX.match(unit) or _CASE_IS_THE_PREFIX.match(limit_unit):
+        return None
+    written, limit_written = "".join(unit.split()), "".join(limit_unit.split())
+    if written != limit_written and written.casefold() == limit_written.casefold():
         return None
     if claims.same_unit(
         claims.normalise(repr(number), unit),

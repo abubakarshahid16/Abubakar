@@ -698,6 +698,12 @@ def test_a_rule_whose_source_this_reader_may_not_read_is_dropped_and_counted(
     assert "2 this reader may not read" in part["line"]
 
 
+def test_the_stated_part_and_the_review_name_one_origin():
+    from app import rulebook_v2_stated
+
+    assert rulebook_v2_stated.ORIGIN == ORIGIN
+
+
 def test_a_rule_the_book_withholds_is_stated_as_a_count(monkeypatch):
     run, scope = _sheet()
     monkeypatch.setattr(
