@@ -156,7 +156,6 @@ DECLARED_BY = {
     "crs_wording.py": "crs_wording.py",
     "datasheet_ai.py": "datasheets.py",  # read per document from extract_facts
     "field_naming.py": "comparison.py",  # inside run_comparison
-    "rule_eval.py": "rule_eval.py",
     "vision_reader.py": "datasheets.py",  # read per page from extract_facts
 }
 #: The lane itself and its plumbing: they send what a caller declared.
