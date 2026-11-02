@@ -68,6 +68,7 @@ class TierCounts(BaseModel):
     engineer (in no tier); `total` includes the removed ones."""
 
     met: int
+    stated: int = 0
     not_applicable: int
     another_document: int
     comment: int
@@ -88,6 +89,7 @@ class SheetCounts(BaseModel):
     comments: int
     needs_you: int
     met: int
+    stated: int = 0
     not_applicable: int
     another_document: int
     findings_in_comments: int
@@ -104,7 +106,14 @@ class TierRow(BaseModel):
     finding_id: str
     #: A met / not applicable, B comment, C needs you (tiers.ts `Tier`)
     tier: Literal["A", "B", "C"]
-    label: Literal["Met", "Not applicable", "Another document", "Comment", "Needs you"]
+    label: Literal[
+        "Met",
+        "Stated, not checked",
+        "Not applicable",
+        "Another document",
+        "Comment",
+        "Needs you",
+    ]
     #: only a Tier C row carries a reason (tiers.ts `TierReason`)
     reason: (
         Literal[

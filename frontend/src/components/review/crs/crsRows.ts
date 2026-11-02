@@ -312,6 +312,7 @@ export function sheetCountsOf(
         met: sheet.met, notApplicable: sheet.not_applicable, anotherDocument: sheet.another_document,
         // the server sends the comment rows and the needs-you rows together
         comment: sheet.comments - sheet.needs_you, needsYou: sheet.needs_you,
+        ...(sheet.stated ? { stated: sheet.stated } : {}),
       },
       findingsInComments: sheet.findings_in_comments,
     };
@@ -453,6 +454,7 @@ export function crsHeadline(
   const notApplicable = fields.doesNotApply;
   const quiet = [
     counts.met > 0 ? plural(counts.met, "value met", "values met") : "",
+    counts.stated ? plural(counts.stated, "value stated, not checked", "values stated, not checked") : "",
     typeof notApplicable === "number" ? `${plural(notApplicable, "clause", "clauses")} not applicable` : "",
   ].filter(Boolean);
   const second = quiet.length ? ` ${quiet.join(", ")} (hidden).` : "";
