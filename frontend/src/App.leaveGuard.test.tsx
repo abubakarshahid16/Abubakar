@@ -76,7 +76,7 @@ function json(body: unknown): Response {
 
 const SIGNED_IN = { id: "user-a", email: "a@example.test", display_name: "Engineer A", roles: ["reviewer"] };
 
-function mockApi(signedIn: typeof SIGNED_IN | null = null) {
+function mockApi(signedIn: (typeof SIGNED_IN & { session_expired_notice?: boolean }) | null = null) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/auth/me")) return Promise.resolve(json(signedIn ? { required: true, user: signedIn } : { required: false, user: null }));
@@ -247,6 +247,18 @@ describe("sign-out and a sign-in that ran out (v2.1 N1)", () => {
     sessionStorage.setItem(draftKey, JSON.stringify({ decisions: { "row-1": { kind: "keep" } }, opened: [] }));
     act(() => { signOutOn401(401); });
     expect(await screen.findByRole("button", { name: /sign in/i })).toBeInTheDocument();
+    expect(sessionStorage.getItem(draftKey)).not.toBeNull();
+  });
+
+  it("switch on: the expired-sign-in notice says the unsaved decisions are kept, and they are", async () => {
+    const user = userEvent.setup();
+    mockApi({ ...SIGNED_IN, session_expired_notice: true });
+    await openWorkspaceWithUnsaved(user);
+    const draftKey = draftStorageKey("run-1", "user-a");
+    sessionStorage.setItem(draftKey, JSON.stringify({ decisions: { "row-1": { kind: "keep" } }, opened: [] }));
+    act(() => { signOutOn401(401); });
+    expect(await screen.findByText(/sign-in expired, sign in again/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 decisions not saved yet are kept in this browser tab/i)).toBeInTheDocument();
     expect(sessionStorage.getItem(draftKey)).not.toBeNull();
   });
 });
