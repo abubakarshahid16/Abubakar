@@ -483,9 +483,14 @@ def render(result: dict) -> str:
         f"reader: {result['reader']}; base: {result['base']}. Invented sheets on a database copy;"
         " a catch is a Fail or Query row on the planted field that the clean sheet does not have.",
         "",
-        f"**Planted defects read as a Pass: {passed} of {planted} planted defects"
-        + (f"; {not_run} not run, so this count is not a result" if not_run else "")
-        + ".**",
+        (
+            f"**Planted defects read as a Pass: {passed} of {planted} planted defects"
+            + (f"; {not_run} not run, so this count is not a result" if not_run else "")
+            + ".**"
+            if planted
+            else "**Planted defects read as a Pass: not measured (no planted sheet was"
+            " selected).**"
+        ),
         "",
         *_type_table(sheets, controls),
     ]

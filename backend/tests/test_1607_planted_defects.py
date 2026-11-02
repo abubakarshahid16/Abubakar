@@ -348,6 +348,13 @@ def test_the_table_counts_per_kind_and_puts_the_passes_first():
     assert "false alarms" in text and "reader: rules" in text
 
 
+def test_no_planted_sheet_is_not_measured_never_0_of_0():
+    """Rule 4: `--base` naming an unknown base selects nothing; 0 of 0 reads as a result."""
+    text = pd.render({"reader": "rules", "base": "", "sheets": [], "controls": []})
+    assert "read as a Pass: not measured" in text
+    assert "0 of 0" not in text
+
+
 def test_a_sheet_that_did_not_run_is_never_counted_as_read():
     """A failed review is 'not run', never 'missed' and never a clean result."""
     kinds = pd.per_kind(
