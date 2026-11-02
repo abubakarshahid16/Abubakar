@@ -82,6 +82,8 @@ export function CrsPreviewSheet(
     readOnly?: boolean;
   },
 ) {
+  const internalRows = preview.internal_preview?.rows ?? [];
+  const internalConsidered = preview.internal_preview?.considered ?? [];
   return (
     <section
       aria-label="Comment Resolution Sheet preview"
@@ -239,6 +241,52 @@ export function CrsPreviewSheet(
                   <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.standard}</td>
                   <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.count ?? ""}</td>
                   <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+
+      {/* #1503: the file's Internal sheet, so the screen keeps Reasoning and
+          Rule trust once their columns have moved there. */}
+      {internalRows.length + internalConsidered.length > 0 && (
+        <details className="text-xs" data-testid="crs-internal-sheet">
+          <summary className="cursor-pointer text-slateish-200">
+            Internal sheet ({internalRows.length} rows, {internalConsidered.length} standards considered, not applied)
+          </summary>
+          <table className="mt-2 w-full border-collapse">
+            <thead>
+              <tr>
+                {["Item No", "Reasoning", "Rule trust"].map((h) => (
+                  <th key={h} scope="col" className="border border-ink-600 bg-ink-800 px-2 py-1 text-left font-semibold text-slateish-200">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {internalRows.map((r) => (
+                <tr key={r.row_ref}>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{r.item_no}</td>
+                  <td className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-slateish-300">{r.reasoning}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{r.rule_trust}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <table className="mt-2 w-full border-collapse">
+            <thead>
+              <tr>
+                {["Standard considered, not applied", "Method", "Reason"].map((h) => (
+                  <th key={h} scope="col" className="border border-ink-600 bg-ink-800 px-2 py-1 text-left font-semibold text-slateish-200">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {internalConsidered.map((s, i) => (
+                <tr key={i}>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{s.standard}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{s.method}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{s.reason}</td>
                 </tr>
               ))}
             </tbody>
