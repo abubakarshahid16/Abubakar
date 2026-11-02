@@ -12,7 +12,7 @@
  */
 import type { CrsIssueDecision, ReviewFinding } from "../../../types/api";
 import { fieldOf } from "../sheet/sheetCards";
-import { orNothing, statusLabel, whenLabel } from "../reviewFormat";
+import { orNothing, STATED_NOT_CHECKED_LABEL, statusLabel, whenLabel } from "../reviewFormat";
 import type { CrsRow } from "./crsRows";
 
 /** The row before or after `key` in the list the engineer is looking at;
@@ -69,7 +69,7 @@ export function comparisonLine(f: ReviewFinding): string {
     said ? `${field ? `${field}: ` : ""}the datasheet says "${said}"` : field ? `${field}: no value read from the datasheet` : "",
     asks ? `the rule asks: ${asks}` : "",
   ].filter(Boolean);
-  const result = statusLabel(f.compliance_status);
+  const result = f.stated_only ? STATED_NOT_CHECKED_LABEL : statusLabel(f.compliance_status);
   return [parts.join("; "), result].filter(Boolean).join(" - ");
 }
 

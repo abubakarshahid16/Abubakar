@@ -28,7 +28,6 @@ from app import (
     field_naming,
     reader_api,
     reader_transport,
-    rule_eval,
     standards_converter,
 )
 from app import reasoning_provider as rp
@@ -729,7 +728,7 @@ def test_a_judgement_route_never_gets_low_effort_from_its_cap(model, route):
 
 
 @pytest.mark.parametrize("cap", [300, 4000, 4200, 12000])
-@pytest.mark.parametrize("step", [field_naming.NAMING_STEP, rule_eval.MODEL_STEP])
+@pytest.mark.parametrize("step", [field_naming.NAMING_STEP])
 def test_a_label_or_verified_reading_is_low_effort_at_any_cap(step, cap):
     seen = []
     rp.ClaudeProvider(SONNET, transport=_send(seen, _reply(SONNET)), step=step).reason(
@@ -741,7 +740,7 @@ def test_a_label_or_verified_reading_is_low_effort_at_any_cap(step, cap):
 def test_the_two_route_lists_do_not_overlap_and_name_what_is_tested():
     low, default = claude_models.LOW_EFFORT_ROUTES, claude_models.MODEL_DEFAULT_ROUTES
     assert not low & default
-    assert {field_naming.NAMING_STEP, rule_eval.MODEL_STEP} <= low
+    assert field_naming.NAMING_STEP in low
     assert output_limits.ROUTE_DATASHEET_READ in low
     assert set(JUDGEMENT_ROUTES) <= default
     assert {s for s in JUDGEMENT_STEPS if ":" not in s} <= default

@@ -738,10 +738,7 @@ class IngestionWorker(ReviewDrain):
                     f"all {pages} pages are scanned images with no extractable "
                     "text; recognition has not run on them yet"
                 )
-            return (
-                f"all {pages} pages are scanned images; recognition ran on "
-                f"{unread} of them and found no usable text"
-            )
+            return reading_state.recognised_nothing_words(doc_id, pages, unread)
         if doc["chunk_count_total"]:
             top = conn.execute(
                 """SELECT rule, COUNT(*) n FROM exclusions

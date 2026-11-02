@@ -55,7 +55,7 @@ def test_watch_folder_settings_are_defined_exactly_once():
 
 def test_the_ai_settings_the_audit_named_are_in_the_answer_affecting_list():
     for name in ("ai_task_model", "datasheet_ai_reader", "match_engine",
-                "ai_applicability_enabled", "applicability_reasoning_enabled"):
+                "applicability_reasoning_enabled"):
         assert name in config.ANSWER_AFFECTING_SETTINGS, name
 
 

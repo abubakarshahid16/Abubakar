@@ -26,8 +26,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1617,
         description="a Unicode hyphen glued to a letter reads as a negative number",
         path=_NUM,
-        anchor=r'_HYPHEN_AS_DASH = str.maketrans("\u2010\u2011", "\u2013\u2013")',
-        replacement=r'_HYPHEN_AS_DASH = str.maketrans("\u2010\u2011", "--")',
+        # #1619 made the old mutant (the hyphens folded to ASCII) behave the same as the real
+        # code, since a minus after a letter is None either way; this is the guard left.
+        anchor=r"""                return None      # "T\u201329": glued to a letter
+""",
+        replacement="                pass\n",
         target=_T,
         keyword="the_text_cannot_say",
         tags=_TAG,

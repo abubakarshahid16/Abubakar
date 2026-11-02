@@ -22,6 +22,11 @@ pictures denominator: one header picture repeats on every page, so a count per p
 not a number of pictures seen. They are still in the listed count, because nobody read
 them and a stamp can sit there.
 
+A FILE ERROR (OCR_FILE_ERROR_HOLD_ENABLED, #1568). A page recognition failed on because
+the stored file could not be opened is unaccounted, not listed: the failure says nothing of
+the page, and the cause can be fixed. With that switch alone, only a document with such a
+page gets a decision; every other document is as with both off.
+
 This module never widens what anyone may read (rule 5): it says what was read of a
 document a caller already reads. Counts and places only, never page text.
 """
@@ -38,6 +43,7 @@ from pydantic import BaseModel
 from . import errors, states, stored_paths
 from .config import settings
 from .db import connect
+from .page_not_read import FILE_NOT_READ, file_error_row, is_file_error
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +106,8 @@ def _page_state(row: dict) -> tuple[str, str | None]:
         return STATE_UNACCOUNTED, WHY_NOT_EXTRACTED
     if row["ocr_status"] == "pending":
         return STATE_UNACCOUNTED, WHY_RECOGNITION_PENDING
+    if file_error_row(row):
+        return STATE_UNACCOUNTED, FILE_NOT_READ
     if row["index_status"] == "not_chunked":
         return STATE_UNACCOUNTED, WHY_NOT_CHUNKED
     # A recognition that came back with no box read nothing.
@@ -282,6 +290,8 @@ def _on_page(row: dict | None, page: int) -> dict:
     item = {"page": page, "no": None, "count": 1, "reason": None}
     if row is None or row["ocr_status"] == "pending":
         return {**item, "state": STATE_UNACCOUNTED, "reason": WHY_RECOGNITION_PENDING}
+    if file_error_row(row):
+        return {**item, "state": STATE_UNACCOUNTED, "reason": FILE_NOT_READ}
     if row["ocr_status"] == "done" and row["ocr_mean_conf"] is not None:
         return {**item, "state": STATE_READ}
     reason = (
@@ -401,9 +411,50 @@ def _pictures(document_id: str, stored_path: str | None, rows: list[dict]) -> di
         )
 
 
+def _any_switch() -> bool:
+    return (
+        settings.one_checked_definition_enabled or settings.ocr_file_error_hold_enabled
+    )
+
+
+def file_error_pages(document_id: str) -> list[int]:
+    """Pages recognition failed on because of the file. Empty with the switch off."""
+    if not settings.ocr_file_error_hold_enabled:
+        return []
+    rows = (
+        connect()
+        .execute(
+            "SELECT page_no, error FROM page_ocr WHERE document_id = ? AND error IS NOT NULL",
+            (document_id,),
+        )
+        .fetchall()
+    )
+    return [r["page_no"] for r in rows if is_file_error(r["error"])]
+
+
+def recognised_nothing_words(document_id: str, pages: int, tried: int) -> str:
+    """Why a document of only scans has nothing searchable, after recognition ran."""
+    unopened = file_error_pages(document_id)
+    if unopened:
+        return (
+            f"all {pages} pages are scanned images; recognition could not "
+            f"open the stored file for {len(unopened)} of them"
+        )
+    return (
+        f"all {pages} pages are scanned images; recognition ran on "
+        f"{tried} of them and found no usable text"
+    )
+
+
+def _decides(document_id: str) -> bool:
+    return settings.one_checked_definition_enabled or bool(
+        file_error_pages(document_id)
+    )
+
+
 def decide(document_id: str) -> dict | None:
     """The decision for a document, from its ledger as it stands now. None when off."""
-    if not settings.one_checked_definition_enabled:
+    if not _decides(document_id):
         return None
     from . import page_ledger
 
@@ -468,11 +519,25 @@ def _summary(decided: dict) -> dict:
     }
 
 
+def _forget(document_id: str) -> None:
+    conn = connect()
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_reading'"
+    ).fetchone():
+        with conn:
+            conn.execute(
+                "DELETE FROM document_reading WHERE document_id = ?", (document_id,)
+            )
+
+
 def finish_status(document_id: str) -> str:
     """The status a document with complete vectors finishes at. Refreshes the ledger
     first, since a page missing from it decides. Off: `ready`, exactly as before."""
     ready, held = states.READY, states.PARTIALLY_SEARCHABLE
-    if not settings.one_checked_definition_enabled:
+    if not _any_switch():
+        return ready
+    if not _decides(document_id):  # read again after its file error was put right
+        _forget(document_id)
         return ready
     from . import page_ledger
 
@@ -499,7 +564,7 @@ def finish_status(document_id: str) -> str:
 
 def stored(document_id: str) -> dict | None:
     """What was last decided, or None: switch off, or never decided (an older document)."""
-    if not settings.one_checked_definition_enabled:
+    if not _any_switch():
         return None
     conn = connect()
     if not conn.execute(
@@ -524,7 +589,7 @@ def hooks_may_run(document_id: str, status: str) -> bool:
 def readable(scope) -> dict[str, dict]:
     """What was decided, for the documents this caller may already read: an intersection
     (rule 5), and it never adds one. Empty when off or never decided."""
-    if not settings.one_checked_definition_enabled:
+    if not _any_switch():
         return {}
     conn = connect()
     if not conn.execute(
@@ -539,6 +604,34 @@ def readable(scope) -> dict[str, dict]:
     return {r["document_id"]: json.loads(r["summary"]) for r in rows}
 
 
+def _documents_with_file_errors(conn) -> list[str]:
+    rows = conn.execute(
+        "SELECT document_id, error FROM page_ocr WHERE error IS NOT NULL"
+    ).fetchall()
+    return sorted({r["document_id"] for r in rows if is_file_error(r["error"])})
+
+
+def _redecide_file_holds(conn) -> int:
+    """The hold switch went off with the one-meaning switch on: what it held now reads as
+    listed, so decide those documents again. One held for another reason stays held."""
+    done = 0
+    for document_id in _documents_with_file_errors(conn):
+        held = conn.execute(
+            "SELECT 1 FROM documents d JOIN document_reading r ON r.document_id = d.id"
+            " WHERE d.id = ? AND d.status = ? AND d.chunk_count > 0"
+            " AND d.embedded_count >= d.chunk_count AND d.indexed_at IS NOT NULL"
+            " AND json_extract(r.summary, '$.unaccounted') > 0",
+            (document_id, states.PARTIALLY_SEARCHABLE),
+        ).fetchone()
+        if held and finish_status(document_id) == states.READY:
+            with conn:
+                done += conn.execute(
+                    "UPDATE documents SET status = ? WHERE id = ? AND status = ?",
+                    (states.READY, document_id, states.PARTIALLY_SEARCHABLE),
+                ).rowcount
+    return done
+
+
 def release_held() -> int:
     """ROLLBACK. Only this module holds a document back from READY, so with the switch off
     (seen at server start: a switch only changes on a restart) a document it HELD goes where
@@ -546,8 +639,13 @@ def release_held() -> int:
     something is unaccounted and it has chunks, all with vectors: an older document with no
     decision, or one whose decision says ready, stays as it is. Nothing is re-read, and the
     hooks ran when it was held. Off with nothing ever held: one read, nothing written. A
-    failure here never stops the worker starting; it is logged, with the count only."""
-    if settings.one_checked_definition_enabled:
+    failure here never stops the worker starting; it is logged, with the count only.
+
+    OCR_FILE_ERROR_HOLD_ENABLED has its own rollback. Staying on, it keeps its holds while
+    the rest go. Off with the one-meaning switch on, a document it held is decided again."""
+    checked = settings.one_checked_definition_enabled
+    hold = settings.ocr_file_error_hold_enabled
+    if checked and hold:
         return 0
     try:
         conn = connect()
@@ -555,15 +653,25 @@ def release_held() -> int:
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_reading'"
         ).fetchone():
             return 0
+        if checked:
+            done = _redecide_file_holds(conn)
+            log.info("reading_state: %d held document(s) released", done)
+            return done
+        keep = json.dumps(_documents_with_file_errors(conn) if hold else [])
         with conn:
             done = conn.execute(
                 "UPDATE documents SET status = ? WHERE status = ? AND chunk_count > 0"
                 " AND embedded_count >= chunk_count AND indexed_at IS NOT NULL AND id IN ("
                 "SELECT document_id FROM document_reading"
-                " WHERE json_extract(summary, '$.unaccounted') > 0)",
-                (states.READY, states.PARTIALLY_SEARCHABLE),
+                " WHERE json_extract(summary, '$.unaccounted') > 0)"
+                " AND id NOT IN (SELECT value FROM json_each(?))",
+                (states.READY, states.PARTIALLY_SEARCHABLE, keep),
             ).rowcount
-            conn.execute("DELETE FROM document_reading")
+            conn.execute(
+                "DELETE FROM document_reading"
+                " WHERE document_id NOT IN (SELECT value FROM json_each(?))",
+                (keep,),
+            )
     except Exception as exc:  # noqa: BLE001 - logged; the release is tried at the next start
         return errors.fell_back("reading_state: held documents not released", exc, 0)
     log.info("reading_state: %d held document(s) released", done)
@@ -573,10 +681,10 @@ def release_held() -> int:
 def not_found_words(document_id: str, reason: str) -> str:
     """ "Not found" with body gaps listed may be wrong: the section can sit in an unread
     picture. So it is said as a guess, with the count (rule 4). Off: the words as they were."""
-    if not settings.one_checked_definition_enabled:
+    if not _any_switch():
         return reason
     decided = stored(document_id) or decide(document_id)
-    gaps = (decided or {}).get("body_gaps") or 0
+    gaps = ((decided or {}).get("body_gaps") or 0) + len(file_error_pages(document_id))
     if not gaps:
         return reason
     return (
@@ -605,7 +713,7 @@ def not_ready_words(documents: list[dict]) -> str:
 
 def review_notes(findings: list[dict]) -> list[dict]:
     """One line per document behind the findings: what was read, with its denominator."""
-    if not settings.one_checked_definition_enabled:
+    if not _any_switch():
         return []
     notes = []
     for document_id in sorted(

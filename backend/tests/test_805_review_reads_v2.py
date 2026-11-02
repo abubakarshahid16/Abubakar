@@ -85,6 +85,20 @@ def switched_on(lane, monkeypatch):  # noqa: F811
     return seen
 
 
+def _plain_standard():
+    """The rules' invented standard, as stored text with no Part or Appendix: its own scope holds (`rule_part_scope`)."""
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO documents (id,filename,sha256,size_bytes,stored_path,status,uploaded_at)"
+            " VALUES ('std-1','std-1.pdf','sha-std-1',1,'x','ready','2026-11-02')"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO pages (document_id,page_no,text,char_count,batch_no)"
+            " VALUES ('std-1',3,'4.1 An invented clause of an invented standard.',47,1)"
+        )
+
+
 def _conn():
     return db.connect()
 
@@ -204,6 +218,7 @@ def _sheet(label=RUN_FACT_LABEL, value="9 barg", equipment_type=TYPE):
 
 
 def _review(monkeypatch, run, scope, *rules):
+    _plain_standard()
     monkeypatch.setattr(
         rulebook_v2, "approved_rules", lambda _c, _t: list(rules), raising=False
     )
@@ -531,6 +546,7 @@ def test_a_rule_outside_the_runs_snapshot_decides_nothing(monkeypatch):
 def test_the_books_own_approved_rules_decide_end_to_end(monkeypatch):
     """No fake of `approved_rules`: a person's approval for this type, then a review."""
     run, scope = _sheet(value="9 barg")
+    _plain_standard()
     _rule(value=8.0)
     row = _one(comparison.run_comparison(run, allowed_document_ids=scope))
     assert row["compliance_status"] == "NON_COMPLIANT"
@@ -821,13 +837,19 @@ def test_a_run_with_the_tables_gone_reads_nothing_and_says_so(monkeypatch):
 
 
 def _read_only():
+    _plain_standard()
     conn = sqlite3.connect(f"file:{settings.db_path}?mode=ro", uri=True)
     return conn
 
 
 def test_pair_rule_to_document_says_what_the_review_would_pair_and_writes_nothing():
     _sheet(value="9 barg")
-    rule = {"field": "Set pressure", "quote": SENTENCE, "unit": "barg"}
+    rule = {
+        "field": "Set pressure",
+        "quote": SENTENCE,
+        "unit": "barg",
+        "document_id": "std-1",
+    }
     conn = _read_only()
     said = rulebook_v2_review.pair_rule_to_document(conn, SHEET, rule)
     assert said["role"] == "set_pressure" and said["tags"] == 1
@@ -847,7 +869,9 @@ def test_pair_rule_to_document_names_the_reason_and_needs_no_approval_and_gives_
         ("Invented gadget thickness", NO_SUCH_FIELD),
     ):
         said = rulebook_v2_review.pair_rule_to_document(
-            conn, SHEET, {"field": field, "quote": "Invented sentence."}
+            conn,
+            SHEET,
+            {"field": field, "quote": "Invented sentence.", "document_id": "std-1"},
         )
         assert {k: said[k] for k in ("paired", "reason", "value_read", "page")} == {
             "paired": False,

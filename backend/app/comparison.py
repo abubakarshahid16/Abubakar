@@ -57,6 +57,7 @@ from . import (absence, claims, closing_noun, conditions, datasheets, errors, fi
 from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
 from .claude_auto_approve import notes_after
 from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
+from . import presence_check
 from .config import settings
 from .deferred_value import framing as _framing, reason as _deferred_reason
 from .impossible_sign import hold_pass as _hold_impossible_pass
@@ -1843,6 +1844,7 @@ def _unchecked_causes(counts: dict) -> str:
     return requirement_split.causes(counts)
 
 
+@presence_check.says_how_many  # #1638
 def recommend_code(findings: list[dict], completeness: dict, *,
                    codes: tuple[str, ...] | None = None,
                    missing_references: list[str] | tuple[str, ...] = (),
@@ -2020,6 +2022,7 @@ def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
                         missing), reason
 
 
+@presence_check.not_a_pass  # #1638
 def _recommend_code(findings: list[dict], completeness: dict, *,
                     codes: tuple[str, ...] = DEFAULT_CODES,
                     missing_references: list[str] | tuple[str, ...] = (),
@@ -2469,22 +2472,7 @@ def _run_comparison(
     requirements = divided["kept"]
     extra_not_applied.extend(divided["items"])
     held_items.extend(divided["held"])
-    # #647 AI APPLICABILITY, when switched on: the model proposes "does not
-    # apply" with a quoted reason; only what code confirms leaves the check.
-    # What it suggested and code did not confirm is kept on the requirement's
-    # decision, for the engineer. See `ai_applicability`.
     ai_notes: dict = dict(divided.get("notes") or {})
-    ai_applicability_summary = None
-    if settings.ai_applicability_enabled:
-        from . import ai_applicability
-        ai = ai_applicability.gate(requirements, classification=stored, facts=facts,
-                                   limit=settings.ai_applicability_max_per_run)
-        requirements = ai["kept"]
-        extra_not_applied.extend(ai["items"])
-        ai_notes.update(ai["notes"])
-        ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
-                                    "confirmed_does_not_apply": len(ai["items"]),
-                                    "unconfirmed": len(ai["notes"])}
     # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746). When this submittal's
     # equipment type has a review checklist, the library requirements of a standard the checklist CITES
     # are not checked one by one: the checklist items are. They stay quotable. GUARD: only standards
@@ -3050,7 +3038,6 @@ def _run_comparison(
         # PF4 (#884): the same decisions as PF4's four states, with the line
         "clause_coverage": clause_cov,
         "service_declarations": service_declarations,
-        "ai_applicability": ai_applicability_summary,
         "clause_checks": clause_checks,
         "requirements_held_back": held_back,
         "standards_not_checked": unchecked_standards,
@@ -3077,7 +3064,7 @@ def _run_comparison(
         "rule_refusals": rule_refusals,
         "findings": findings,
         "by_status": {
-            status: sum(1 for f in findings if f["compliance_status"] == status)
+            status: sum(1 for f in findings if presence_check.status_of(f) == status)
             for status in (COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION,
                            CONDITIONAL, NOT_APPLICABLE, NEEDS_ENGINEER_REVIEW,
                            NOT_IN_DOCUMENT_SCOPE)

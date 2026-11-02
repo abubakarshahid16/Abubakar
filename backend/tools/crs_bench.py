@@ -23,16 +23,15 @@ document text. The counting rule is printed with every table.
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import sqlite3
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import coverage_pair, crs_decider, deferred_pass
+from app import coverage_pair, crs_decider, deferred_pass, presence_check, run_measures
 
-DECIDED = ("COMPLIANT", "NON_COMPLIANT")
+DECIDED = run_measures.DECIDED
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
 
 
@@ -56,8 +55,7 @@ _deferred_pass = deferred_pass.is_deferred_pass
 _value_is_deferred = coverage_pair.value_is_deferred
 
 
-def _fold(text: str | None) -> str:
-    return re.sub(r"\s+", " ", (text or "")).strip().casefold()
+_fold = run_measures.fold
 
 
 # ----------------------------------------------------------------- scoring
@@ -86,95 +84,20 @@ def score(
         )
     ]
 
-    checklist = [f for f in findings if f.get("origin") == "datasheet_check"]
-    with_req = [f for f in findings if f.get("requirement_id")]
-    in_scope = {
-        f["requirement_id"]
-        for f in with_req
-        if f.get("compliance_status") != "NOT_IN_DOCUMENT_SCOPE"
-    }
-    decided_req = {
-        f["requirement_id"] for f in with_req if f.get("compliance_status") in DECIDED
-    }
-
-    page_text = {
-        r["page_no"]: _fold(r["text"])
-        for r in conn.execute(
-            "SELECT page_no, text FROM pages WHERE document_id = ?", (doc,)
-        )
-    }
-    quoted = [
-        f
-        for f in findings
-        if (f.get("contractor_evidence_text") or "").strip()
-        and f.get("contractor_page")
-    ]
-    verified = [
-        f
-        for f in quoted
-        if _fold(f["contractor_evidence_text"])
-        in page_text.get(f["contractor_page"], "")
-    ]
-
     outcome = json.loads(run["outcome_json"] or "{}")
-    if coverage is None:
-        coverage = outcome.get("page_coverage") or {}
-    split = outcome.get("requirement_split") or {}
-    if isinstance(split.get("applies_not_checked"), int):
-        # the headline's own boundary: the rules that apply to this submittal
-        applies = (split.get("checked") or 0) + split["applies_not_checked"]
-    else:
-        applies = len(in_scope)
-    total = coverage.get("pages_total")
-    # #1473: with PAGE_READ_BY_READING_ENABLED the ledger names the pages no
-    # reading came back for; without it, the pages no field was read from.
-    unread = (
-        coverage.get("pages_not_read", coverage.get("pages_not_read_into_fields")) or []
-    )
-
     if kind is None:
         kind = system_kind(conn, doc)
-
-    matchers = case.get("wrong", []) + (
-        case.get("wrong_replay", []) if replayed else []
+    measures = run_measures.headline(
+        conn, doc, outcome, findings, case, coverage=coverage, replayed=replayed
     )
-    if any(m.get("deferred") for m in matchers):
-        for f in findings:
-            f["deferred"] = f.get(
-                "compliance_status"
-            ) == "COMPLIANT" and _value_is_deferred(conn, f)
-    wrong = [
-        f for f in _hits(findings, matchers) if f.get("compliance_status") in DECIDED
-    ]
     return {
         "run": run_id,
         "document": doc,
         "model": run["model_name"] or (outcome.get("ai_matcher") or {}).get("model"),
         "findings": len(findings),
-        "wrong": len(wrong),
-        "untrue": len(_hits(findings, case.get("untrue", []))),
-        "irrelevant": len(_hits(findings, case.get("irrelevant", []))),
-        # D2 (owner): a value marked 'By Contractor'/TBA is a Query, so a Pass
-        # on one is not a decision the bench credits; it is shown on its own row.
-        "checklist_decided": sum(
-            f.get("compliance_status") in DECIDED and not _deferred_pass(f)
-            for f in checklist
-        ),
-        "checklist_total": len(checklist),
-        "fails": sum(f.get("compliance_status") == "NON_COMPLIANT" for f in findings),
-        "rules_decided": len(decided_req),
-        "rules_in_scope": applies,
-        "sent_away": sum(
-            f.get("compliance_status") == "NOT_IN_DOCUMENT_SCOPE" for f in findings
-        ),
-        "quotes_verified": len(verified),
-        "quotes_unverified": len(quoted) - len(verified),
-        "quotes_total": len(quoted),
-        "pages_read": None if total is None else total - len(unread),
-        "pages_total": total,
-        "kind": kind,
-        "kind_ok": kind == case.get("kind"),
-        "pass_on_deferred": sum(_deferred_pass(f) for f in findings),
+        **measures,
+        "kind": effective_kind(conn, doc, kind),
+        "kind_ok": effective_kind(conn, doc, kind) == case.get("kind"),
         # Informational, below the headline: one count per place a decision or
         # an engineer row is made, never added together (`finding_sources`).
         "sources": finding_sources(conn, findings),
@@ -204,6 +127,7 @@ SRC_PLAYBOOK = (
     "playbook rows - present / missing / unclear (engineer rows, not decisions)"
 )
 SRC_TICK = "safety tick rows - engineer to tick"
+SRC_STATED = "stated, not checked - checklist rows that only ask a field is stated"
 _NO_FINDING = "CRS rows with no finding - "
 #: DECISION: a source whose rows may decide. ENGINEER: rows that are engineer
 #: rows by construction (kit_core.held, spec_kit._store, transmittal_kit), so a
@@ -233,6 +157,7 @@ SOURCE_RULE = [
     " check, the web standards check, the clause review and chat comments;"
     " 'draft rows with a code verdict' counts those carrying COMPLIANT or"
     " NON_COMPLIANT that no engineer confirmed (shown, not gated).",
+    f"'{SRC_STATED}': with the switch on (#1638), not decisions: no value was compared.",
     f"'{SRC_TICK}': COMPLIANT findings shown for an engineer's tick (a"
     " safety_tick CRS row). Not credited as decided anywhere below the headline.",
     "'kit rows - <kit> (engineer rows)': rows a kit made (pump, vessel, exchanger"
@@ -272,6 +197,10 @@ def finding_source(f: dict, rule_ids: set[str], kits) -> tuple[str, str]:
         for name, words in kits:
             if words and words in text:
                 return f"kit rows - {name} (engineer rows)", ENGINEER
+    if presence_check.is_stated_only(
+        f
+    ):  # before the tick row: one count with `coverage_pair`
+        return SRC_STATED, TICK
     if (
         origin not in DRAFT_ORIGINS
         and origin != spec_kit.ORIGIN
@@ -351,7 +280,7 @@ def _source_order(label: str) -> tuple:
         rank = 1
     elif label.startswith("decided -"):
         rank = 2
-    elif label.startswith("engineer rows") or label == SRC_TICK:
+    elif label.startswith("engineer rows") or label in (SRC_TICK, SRC_STATED):
         rank = 3
     elif label.startswith("kit rows"):
         rank = 4
@@ -423,6 +352,23 @@ def system_kind(conn: sqlite3.Connection, doc: str) -> str:
     if row is None:
         return "unclassified"
     return "datasheet" if row["equipment_type"] else "unclassified"
+
+
+def effective_kind(conn: sqlite3.Connection, doc: str, kind: str) -> str:
+    """The kind the review acts on, not only the one stored. A stored procedure or
+    specification that does not take the procedure path is reviewed on the equipment
+    rules, so it counts as a datasheet here."""
+    from app import procedure_text
+    from app.config import settings
+
+    if kind not in procedure_text.PROCEDURE_KINDS:
+        return kind
+    try:
+        routed = procedure_text.document_kind(doc, conn=conn)
+    except sqlite3.OperationalError:  # a copy from before the router
+        routed = None
+    taken = settings.procedure_path_enabled and routed in procedure_text.PROCEDURE_KINDS
+    return kind if taken else "datasheet"
 
 
 # ----------------------------------------------------------------- replay
@@ -641,6 +587,9 @@ def fingerprint() -> str:
     from app import config
 
     switches = " ".join(f"{n}={getattr(config.settings, n)}" for n in BENCH_SWITCHES)
+    # #1638: named only when on, so a baseline saved before the switch stays comparable
+    if config.settings.presence_not_pass_enabled:
+        switches += " presence_not_pass_enabled=True"
     return f"{config.config_version()} {switches}"
 
 
@@ -764,6 +713,12 @@ PAIR_ROWS = [
         PAIR_CHECKLIST,
         lambda p: (
             _frac(p["checklist"]["decided"], p["checklist"]["rows"])
+            + (
+                f" ({p['checklist']['stated']} stated, not checked,"
+                f" {p['checklist'].get('stated_deferred', 0)} of them on a deferred value)"
+                if p["checklist"].get("stated")
+                else ""
+            )
             + (f" ({p['checklist']['wrong']} wrong)" if p["checklist"]["wrong"] else "")
         ),
     ),

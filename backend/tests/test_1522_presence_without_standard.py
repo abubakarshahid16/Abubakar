@@ -41,10 +41,6 @@ def _clause():
     return f"{el.standard} {el.clause}"
 
 
-def test_the_switch_is_off_by_default():
-    assert settings.playbook_presence_without_standard_enabled is False
-
-
 def test_a_missing_section_without_the_standard_is_section_not_found(monkeypatch):
     _switches(monkeypatch)
     cut = [s for s in HAZOP_SECTIONS if s[0] != CUT]

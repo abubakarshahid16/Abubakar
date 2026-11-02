@@ -1277,8 +1277,7 @@ def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
 
 
 def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
-    """`_run_summary`'s finding numbers for one run: the total (findings with no status
-    included), the count per status, the distinct tags and the AI drafts (their own bucket)."""
+    """`_run_summary`'s numbers: total (no-status included), per status, tags, AI drafts."""
     by_status: dict[str, int] = {}
     total = drafts = 0
     for row in connect().execute(
@@ -1295,6 +1294,7 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
             " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
             " ORDER BY equipment_tag", (run_id,))
     ]
+    by_status = submittal_review_mod.presence_check.with_stated_apart(run_id, by_status)
     return total, by_status, tags, drafts
 
 
@@ -1319,7 +1319,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     job = review_jobs_mod.job_for_run(run["id"])
     outcome = comparison_mod.run_outcome(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run) or {}
-    plain_reason, plain_details = clause_coverage_mod.plain_outcome(outcome)
+    plain_reason, plain_details = clause_coverage_mod.plain_outcome(outcome, run["id"])
     ai_check = ai_engineering_check_mod.ai_check_status(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run)
     document = connect().execute(
@@ -2717,8 +2717,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
       submittal_number        the submittal's own number: one an engineer
                               recorded in the metadata editor, else its
                               document number and revision read from its page
-                              (`_crs_submittal_label`),
-                              and BLANK when it carried none
+                              (`_crs_submittal_label`), and BLANK when it carried none
       date_issued             today - the date this file was exported, which
                               is the only date this system actually knows
       company_transmittal     as an engineer ENTERED it on the run (#725 F7,
@@ -2961,6 +2960,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
         **run_record_mod.crs_meta(run, outcome, unchecked, missing, copy, allowed),
     }
+    meta = absence_mod.with_plain_notes(meta, rows, unchecked)
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed

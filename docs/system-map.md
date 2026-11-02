@@ -44,6 +44,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `scan_quality` | #505: how well a scanned page was read (the recogniser's own confidence grouped clear / mixed / poor, or a named state), shown beside the citation on `/evidence` |
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
 | `review_audit_rows` | #1525: reconciles, per CRS copy, the rows composed for a run with the rows the file prints and what was removed, for the audit report |
+| `review_audit_detail` | #1525: the audit report's gates, rule-row limits and approval, standards' split and editions, clause review figures and CRS copy paths |
+| `run_measures` | #1525: the headline counts of one review run, in one home: the CRS bench and the audit report both read it |
 | `ai_call_ledger` | #1525: counts, per step and model, the AI answers a review job asked for fresh and the stored answers it reused, for the audit report; open only with REVIEW_AUDIT_REPORT_ENABLED on |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
@@ -111,7 +113,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `context_budget` | Keep the evidence inside the model's context window, and say when it does not |
 | `corpus` | Questions about the corpus itself, and counts that pretend to be about it |
 | `coverage` | Which documents the question was about, and which of them the answer used |
+| `presence_check` | #1638: a checklist `required` row only asks that a field is stated: with the switch on it counts for no approval and is no decided rule, and is named "stated, not checked" |
 | `coverage_pair` | Plan change 6 B: one meaning of "checked": risk (wrong among decided) and coverage (decided of the rules the run states apply), checklist apart, for the bench, the board call and, behind ONE_CHECKED_DEFINITION_ENABLED, the CRS and the screen |
+| `coverage_values` | #1592: the CRS footer's one count of values read: checklist fields read, and standard rules tied to a field, each rule once, beside `coverage_pair`; words only, behind ONE_CHECKED_DEFINITION_ENABLED |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
@@ -207,6 +211,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_check` | #805 plan change 6, part A: one rule's requirement against one submitted value: meets, does not meet or cannot tell; pure; not mentioned is never compliant |
 | `rulebook_v2_review` | #805 plan change 6: a review reads approved version 2 rules beside version 1: pairs each to a read value by field, decides through `comparison.compare`, a Query with a named reason when unsure; `pair_rule_to_document` is the pairing alone, read only; off by default |
 | `rule_field_naming` | #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list, code verifies it; a rule no field answers is kept, marked not on a datasheet; off by default |
+| `rule_part_scope` | Which equipment a rule is for, from the scope clause of its Part or Appendix: reads the division gate's stored reading, verifies the sentence on its page, says in scope, outside (not paired) or not established (a Query); sends nothing; only with the review switch on |
 | `rule_typed_check` | #805 plan change 6: a rule with a verified field role and no figure gets a typed check proposed from its quote; code verifies it and decides with the readers the project has; off by default |
 | `material_reference` | #1584: specification grade to material family, proposed from general knowledge with no document text, signed by the owner's tick, read only with its switch on; a grade not in the signed table is a Query |
 | `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |
