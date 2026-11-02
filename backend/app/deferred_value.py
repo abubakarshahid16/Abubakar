@@ -12,6 +12,9 @@ NEEDS_ENGINEER_REVIEW, whether the numbers read pass or breach, in both deciders
   * `hold_results(results, facts, rules, wanted)`: the datasheet checks (`datasheet_checks.evaluate`), for the
     value a result is about and for the value it is checked against (the right-hand role of its rule).
 
+An owner-approved rule (#1584) holds its own verdict on a deferred value whatever this switch says
+(`hold_owner_rule`); no other rule's verdict changes.
+
 Only COMPLIANT and NON_COMPLIANT are held; every other status passes unchanged. The arithmetic stays in the
 words so the engineer sees what the numbers said.
 """
@@ -60,10 +63,18 @@ def framing(reason: str) -> tuple[str, str]:
 
 def hold_input(verdict: dict, fact: dict | None) -> dict:
     """A rule-evaluated verdict (`rule_eval`) whose INPUT value is deferred: a query, either way (switch ON)."""
-    if verdict.get("status") not in _DECIDED:
-        return verdict
-    why = reason(fact)
-    if why is None:
+    return _held(verdict, reason(fact))
+
+
+def hold_owner_rule(verdict: dict, fact: dict | None) -> dict:
+    """An owner-approved rule's verdict on a deferred value, or on a table rule's deferred input (`rule_eval` names
+    it `input_deferred`): a query, either way, whatever D2's own switch says. Owner's words on #1584."""
+    note = note_of(fact) or verdict.get("input_deferred")
+    return _held(verdict, _words(note) if note else None)
+
+
+def _held(verdict: dict, why: str | None) -> dict:
+    if verdict.get("status") not in _DECIDED or why is None:
         return verdict
     return {
         **verdict,

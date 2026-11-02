@@ -507,6 +507,10 @@ def _judge_one(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
                "limit": result["required_value"], "observed": result["output_checked"],
                "exception_applied": None, "input_used": result["input_used"],
                "rows_used": result["rows_used"]}
+    note = deferred_value.note_of(inp)
+    # only an owner-approved rule reads this key (`deferred_value.hold_owner_rule`)
+    if note:
+        verdict["input_deferred"] = note
     return deferred_value.hold_input(verdict, inp), output
 
 
@@ -541,9 +545,19 @@ def judge(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
     status = next(s for s in _TAG_PRECEDENCE if any(v["status"] == s for _t, v, _f in per_tag))
     tag, verdict, fact = next(x for x in per_tag if x[1]["status"] == status)
     words = "; ".join(f"{t}: {v['status']} - {v['rationale']}" for t, v, _f in per_tag)
-    return ({**verdict, "status": status,
-             "rationale": f"{RULE_REASON}: judged per equipment tag ({len(per_tag)} tags); "
-                          f"{tag} decides. {words}"}, fact)
+    deferred = next(
+        (v["input_deferred"] for _t, v, _f in per_tag if v.get("input_deferred")), None
+    )
+    return (
+        {
+            **verdict,
+            "status": status,
+            **({"input_deferred": deferred} if deferred else {}),
+            "rationale": f"{RULE_REASON}: judged per equipment tag ({len(per_tag)} tags); "
+            f"{tag} decides. {words}",
+        },
+        fact,
+    )
 
 
 def known_rule_for(requirement: dict) -> dict | None:

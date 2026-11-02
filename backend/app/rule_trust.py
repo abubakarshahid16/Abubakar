@@ -30,6 +30,11 @@ controls, each a function here:
      AUTO_PROVEN (an AI-compiled rule, family proven, second check passed)
      or UNPROVEN (every other rule). An UNPROVEN rule never decides COMPLIANT or NON_COMPLIANT on
      its own: the verdict becomes NEEDS_ENGINEER_REVIEW with the reason.
+     OWNER_APPROVED (`tier_for_approved`, #1584, switch
+     `owner_approved_rules_decide_enabled`, OFF by default): a rule whose
+     approval tier is `owner` and which passes `second_check`. Its own label,
+     so nothing that means "an engineer" or "a proven family" (the words, the
+     audit draw, the counts) ever treats it as either.
   5. UNCOVERED FIELDS (`uncovered_fields`). Datasheet fields read with a value
      that no applicable rule targets, so the CRS can list "not checked by any
      rule" instead of missing them silently.
@@ -62,12 +67,14 @@ import json
 import logging
 import math
 import re
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
 from . import (
     ai_requirements,
     card_trust,
+    deferred_value,
     field_links,
     field_naming,
     requirements_3b,
@@ -85,11 +92,17 @@ ENGINEER_CONFIRMED, AUTO_PROVEN, UNPROVEN = "ENGINEER_CONFIRMED", "AUTO_PROVEN",
 #: Order 306.1: a card tested by the real code decides while its engineer approval is pending. Its own label, so
 #: nothing that means "a proven family" (the audit draw, the CRS words) ever treats a tested card as proven.
 TESTED_CARD = "TESTED_CARD"
+#: #1584: the owner approved this rule. Never an engineer's approval, never a proven family.
+OWNER_APPROVED = "OWNER_APPROVED"
+OWNER_TIER = "owner"
+OWNER_APPROVED_WORDS = "AI-built, quote-verified, owner-approved"
+NOTE_OWNER_APPROVED = "Decided by owner-approved rules"
 #: What the CRS prints for each label.
 TRUST_WORDS = {
     ENGINEER_CONFIRMED: "engineer-approved rule",
     AUTO_PROVEN: "automatic (proven rule)",
     TESTED_CARD: "automatic (tested rule, engineer approval pending)",
+    OWNER_APPROVED: OWNER_APPROVED_WORDS,
     UNPROVEN: "automatic rule not yet proven",
 }
 PROVEN, NOT_PROVEN, INVALID = "PROVEN", "NOT_PROVEN", "INVALID"
@@ -303,13 +316,47 @@ def ai_compiled(rule: dict) -> bool:
     return rule.get("extraction_method") == AI_COMPILED_METHOD
 
 
+def _owner_tier(rule: dict) -> bool:
+    approval = rule.get("approval")
+    return isinstance(approval, dict) and approval.get("tier") == OWNER_TIER
+
+
+def _signed(approval: dict) -> bool:
+    """A named signer and a time that reads as one: the approval has to say who and when."""
+    by, at = approval.get("by"), approval.get("at")
+    if not isinstance(by, str) or not by.strip() or not isinstance(at, str):
+        return False
+    try:
+        datetime.fromisoformat(at.strip())
+    except ValueError:
+        return False
+    return True
+
+
+def tier_for_approved(approval: dict | None, rule: dict) -> str:
+    """The label of a rule from an approved rulebook (#1584). OWNER_APPROVED only with the switch on, a whole owner
+    approval (`tier`, `by`, `at`) and a rule that passes `second_check` (the label says quote-verified, so code must
+    have verified it); UNPROVEN otherwise, an unknown tier included. It says what the rule may decide, never who may
+    read a document (CLAUDE.md rule 5)."""
+    if not settings.owner_approved_rules_decide_enabled or not isinstance(
+        approval, dict
+    ):
+        return UNPROVEN
+    if approval.get("tier") != OWNER_TIER or not _signed(approval):
+        return UNPROVEN
+    return OWNER_APPROVED if second_check(rule)[0] else UNPROVEN
+
+
 def trust_label(rule: dict, proof: dict | None) -> str:
     """EVERY RULE IS LABELLED, ONE VOCABULARY (planner answer on #985).
     ENGINEER_CONFIRMED when a person confirmed the row; AUTO_PROVEN only for
     an AI-COMPILED rule whose family proof is PROVEN (already checked current
     by `load_proof`) and which passes `second_check`; UNPROVEN for every other
     rule - a code-extracted row an engineer has not confirmed included, proof
-    or not."""
+    or not. A rule the owner approved is `tier_for_approved`'s alone, whatever
+    else its dict says: it never reads as an engineer's or a proven rule."""
+    if _owner_tier(rule):
+        return tier_for_approved(rule.get("approval"), rule)
     if rule.get("confirmed_by"):
         return ENGINEER_CONFIRMED
     if ai_compiled(rule) and proof and proof.get("status") == PROVEN and second_check(rule)[0]:
@@ -341,13 +388,43 @@ def apply_trust(verdict: dict, label: str) -> dict:
     return out
 
 
-def label_finding(finding: dict, rule: dict, proof: dict | None) -> dict:
+def _has_read_value(fact: dict | None) -> bool:
+    """Did the sheet give a value? A stored fact carries `field_value`, a case `raw_value`."""
+    if not fact or fact.get("is_blank"):
+        return False
+    return any(fact.get(key) not in (None, "") for key in ("raw_value", "field_value"))
+
+
+def _hold_without_a_value(verdict: dict, fact: dict | None) -> dict:
+    """An owner-approved verdict rests on code comparing a read value, or it is a question. No `rule_said`: the
+    screen reads that as "held until the rule is proven", which is not why."""
+    status = verdict.get("status")
+    if status not in (COMPLIANT, NON_COMPLIANT) or _has_read_value(fact):
+        return verdict
+    return {
+        **verdict,
+        "status": NEEDS_ENGINEER_REVIEW,
+        "rationale": (
+            f"{verdict.get('rationale') or ''} The rule read {status}, held for an engineer: "
+            "no value was read from the sheet for it."
+        ).strip(),
+    }
+
+
+def label_finding(
+    finding: dict, rule: dict, proof: dict | None, *, fact: dict | None = None
+) -> dict:
     """THE OPT-IN HOOK. Off (`settings.rule_auto_use_enabled` False): the
     finding unchanged. On: labelled, downgraded when UNPROVEN, and a
-    COMPLIANT verdict from a SAFETY-tier rule flagged for an engineer's tick."""
-    if not settings.rule_auto_use_enabled:
+    COMPLIANT verdict from a SAFETY-tier rule flagged for an engineer's tick.
+    `settings.owner_approved_rules_decide_enabled` turns it on for a rule the
+    owner approved and for no other."""
+    owner_rule = settings.owner_approved_rules_decide_enabled and _owner_tier(rule)
+    if not settings.rule_auto_use_enabled and not owner_rule:
         return finding
     out = apply_trust(finding, trust_label(rule, proof))
+    if out["trust_label"] == OWNER_APPROVED:
+        out = deferred_value.hold_owner_rule(_hold_without_a_value(out, fact), fact)
     level, why = tier(rule)
     out.update(tier=level, tier_reason=why,
                show_for_engineer_tick=level == SAFETY and out.get("status") == COMPLIANT)
@@ -372,6 +449,113 @@ def label_check(result: dict) -> dict:
             show_for_engineer_tick=is_safety and out.get("status") == COMPLIANT,
         )
     return out
+
+
+def run_has_a_record(rows: list[dict]) -> bool:
+    """Whether a run that made a `_RuleTrust` stores `rule_trust`. Yes, except for the one run this exists for: the new
+    switch alone with no owner-approved row, which changes no output of the run."""
+    return (
+        not settings.owner_approved_rules_decide_enabled
+        or settings.rule_auto_use_enabled
+        or any(r.get("trust_label") == OWNER_APPROVED for r in rows)
+    )
+
+
+def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) -> dict:
+    """An owner-approved rule's safety Pass an engineer has not ticked is not an approval (owner's words on #1584):
+    a sheet that would be approved, with or without comments, is a manual review until it is ticked. A breach stays a
+    breach. Findings carrying the owner's label only: every other run's code stays as it was."""
+    still_open = [
+        f
+        for f in findings
+        if f.get("trust_label") == OWNER_APPROVED
+        and f.get("show_for_engineer_tick")
+        and f.get("compliance_status") == COMPLIANT
+        and not f.get("confirmed_by")
+    ]
+    if not still_open or result["code"] not in (codes[0], codes[1]):
+        return result
+    n = len(still_open)
+    return {
+        **result,
+        "code": codes[3],
+        "reason": (
+            # dated: the reason is stored, and a tick after this time does not rewrite it
+            f"Manual review: at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this review ran, {n} safety "
+            f"value{'s' if n != 1 else ''} met an owner-approved rule and "
+            f"{'were' if n != 1 else 'was'} waiting for an engineer's tick, so the sheet was not called approved"
+        ),
+        "open_safety_ticks": n,
+    }
+
+
+def run_summary(
+    review_run_id: str, facts: list[dict], requirements: list[dict], rows: list[dict]
+) -> dict | None:
+    """Steps 7 and 10 of the owner decision, for the run's record. Field NAMES of
+    this machine's own datasheet; never values.
+
+    `rows` are EVERY finding written for this run - the rule rows and the
+    datasheet checks - so `held_unproven` is every verdict rule_trust held,
+    not the main loop's share of them (s2's real-group run of 17 Oct found
+    51 reported against 1,555 held). `findings_counted` states the boundary.
+    """
+    if not run_has_a_record(rows):
+        return None
+    # A stored fact carries its value as `field_value`; the pure function
+    # reads `raw_value`. One translation, here, never a second reader.
+    shaped = [
+        {
+            "field_name": f.get("field_label") or f.get("field_name"),
+            "raw_value": f.get("field_value"),
+            "is_blank": f.get("is_blank"),
+        }
+        for f in facts
+    ]
+    read = [f for f in shaped if not f["is_blank"] and f["raw_value"] not in (None, "")]
+    uncovered = uncovered_fields(shaped, requirements)
+    auto_ids = [r["id"] for r in rows if r.get("trust_label") == AUTO_PROVEN]
+    labels: dict[str, int] = {}
+    for r in rows:
+        if r.get("trust_label"):
+            labels[r["trust_label"]] = labels.get(r["trust_label"], 0) + 1
+    return {
+        "fields_read": len(read),
+        "uncovered_fields": [f.get("field_name") or f.get("name") for f in uncovered],
+        "labels": labels,
+        "findings_counted": len(rows),
+        "held_unproven": sum(1 for r in rows if r.get("rule_said")),
+        "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
+        "auto_proven": len(auto_ids),
+        "audit_sample": audit_sample(auto_ids, seed=review_run_id),
+        **decided_by_tier(rows),
+    }
+
+
+def decided_by_tier(rows: list[dict]) -> dict:
+    """For the run's record: findings owner-approved rules decided, stated apart from engineer-approved ones. A safety
+    Pass waiting for its tick is counted apart: an engineer has not ticked it. {} when no row carries the owner's
+    label, so every other run's record stays as it was."""
+
+    def rows_of(label: str) -> list[dict]:
+        return [r for r in rows if r.get("trust_label") == label]
+
+    def decided(found: list[dict]) -> list[dict]:
+        return [
+            r for r in found if r.get("compliance_status") in (COMPLIANT, NON_COMPLIANT)
+        ]
+
+    owner = rows_of(OWNER_APPROVED)
+    if not owner:
+        return {}
+    ticks = [r for r in decided(owner) if r.get("show_for_engineer_tick")]
+    return {
+        "decided_by_tier": {
+            "owner_approved": len(decided(owner)) - len(ticks),
+            "owner_approved_awaiting_tick": len(ticks),
+            "engineer_approved": len(decided(rows_of(ENGINEER_CONFIRMED))),
+        }
+    }
 
 
 # ------------------------------------------------------------ 5. uncovered
@@ -526,6 +710,21 @@ def review_notes(outcome: dict, findings: list[dict]) -> list[dict]:
             "detail": (f"{len(sample)} of {trust.get('auto_proven')} findings decided by a "
                        f"proven rule, drawn at random for an engineer's check: "
                        f"{'; '.join(where)}. One wrong one drops the family's proof.")})
+    tiers = trust.get("decided_by_tier")
+    if tiers:
+        notes.append(
+            {
+                "note": NOTE_OWNER_APPROVED,
+                "standard": "",
+                "count": tiers["owner_approved"],
+                "detail": (
+                    f"Of this run's {trust.get('findings_counted')} findings: {tiers['owner_approved']} decided "
+                    f"by rules labelled {OWNER_APPROVED_WORDS}; {tiers['owner_approved_awaiting_tick']} more wait "
+                    f"for an engineer's tick; {tiers['engineer_approved']} by engineer-approved rules, "
+                    "counted apart."
+                ),
+            }
+        )
     return notes
 
 
