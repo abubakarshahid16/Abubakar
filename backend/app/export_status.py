@@ -182,6 +182,21 @@ def standards_check(submittal_id: str, allowed: frozenset[str]) -> dict:
     return procedure_crs.standards_check(submittal_id, allowed)
 
 
+def one_row(
+    rows: list[dict],
+    notes: list[dict],
+    findings: list[dict],
+    check: dict,
+    run_id: str,
+    crs_scope: str,
+    allowed: frozenset[str],
+) -> tuple[list[dict], list[dict]]:
+    """One row per problem (#1503): as they came with the switch off."""
+    from . import crs_one_row
+
+    return crs_one_row.apply(rows, notes, findings, check, run_id, crs_scope, allowed)
+
+
 def standards_sheet(rows: list[dict], submittal_id: str) -> list[dict]:
     """The "Applicable standards" rows as the CRS prints them (order 4c)."""
     from . import procedure_crs

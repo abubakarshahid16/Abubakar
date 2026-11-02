@@ -1096,3 +1096,35 @@ def test_as_printed_on_takes_the_copy_in_its_own_case(part, expected):
     assert (
         converter_gates.as_printed_on(part, "at above 5 mPa or above 5 MPa") == expected
     )
+
+
+# ------------------------------------------- a limit written after its number
+
+
+@pytest.mark.parametrize(
+    "said",
+    ["The tag shall be A1-29 mPa or lower.", "The tag shall be A1-29 MPa or lower."],
+)
+def test_a_refused_first_value_gives_no_limit_in_either_case(said):
+    assert requirements_3b.parse_limit(said) is None
+    assert requirements_3b.parse_limit_or_range(said) is None
+
+
+def test_a_trailing_limit_in_millipascal_is_not_read_as_megapascal():
+    read = requirements_3b.parse_limit("The pressure shall be 5 mPa or less.")
+    assert read["operator"] == "<=" and read["raw_unit"] == "mPa"
+    assert read["value"] is None and read["unit"] is None
+
+
+def test_a_trailing_limit_in_megapascal_still_reads():
+    read = requirements_3b.parse_limit("The pressure shall be 5 MPa or less.")
+    assert read["operator"] == "<=" and read["raw_unit"] == "MPa"
+    assert read["value"] == pytest.approx(5.0) and read["unit"] == "MPa"
+
+
+@pytest.mark.parametrize(
+    "said", ["5 MPa s or less", "5 MPa.s or less", "5 Pa s or less", "5 mPa s or less"]
+)
+def test_a_trailing_limit_in_a_viscosity_is_not_a_pressure(said):
+    read = requirements_3b.parse_limit(f"The viscosity shall be {said}.")
+    assert read is None or (read["value"] is None and read["unit"] != "MPa")

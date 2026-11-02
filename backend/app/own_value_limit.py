@@ -19,7 +19,10 @@ Left alone on purpose (the clause stays with an engineer, never a wrong Meets):
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from functools import cache
+
+from . import numparse
 
 
 @cache
@@ -85,6 +88,63 @@ def parse(sentence: str) -> dict | None:
     return {
         "operator": operator,
         "raw_value": match.group("value"),
+        "raw_unit": raw_unit,
+        "value": measurement.normalized_value,
+        "unit": measurement.normalized_unit,
+    }
+
+
+@cache
+def _trailing_pattern() -> re.Pattern:
+    from . import requirements_3b as r3b
+
+    return re.compile(
+        r"(?P<value>[-+]?" + r3b._VALUE + r")\s*(?P<unit>" + r3b._UNIT + r")"
+        r"\s+(?P<cmp>or\s+[A-Za-z]+)\b",
+        re.IGNORECASE,
+    )
+
+
+def _trailing_candidates(sentence: str) -> Iterator[tuple[re.Match, str, str]]:
+    """Every "<number> <unit> or <comparator>" in the sentence, with its direction and
+    unit. The direction is the shared vocabulary's (`comparators`)."""
+    from . import comparators
+    from . import requirements_3b as r3b
+
+    for match in _trailing_pattern().finditer(sentence or ""):
+        direction = comparators.direction_of(match.group(0))
+        raw_unit = r3b.unit_token(match.group("unit"))
+        if direction is not None and raw_unit:
+            yield match, direction, raw_unit
+
+
+def trailing_refused(sentence: str) -> bool:
+    """A trailing limit in the sentence starts where no value may ("A-5 mm or less", "3-5 C
+    or lower"). The text cannot say what it is, so NO limit of this sentence can be trusted:
+    not a later value, and not a general limit whose exception it is. It goes to an engineer
+    (#1619).
+
+    "10-12 mm or larger" is refused too. The hyphen is no minus, so main's -12 was wrong, but it
+    could be a size range or a tag, and no general rule tells it from "Item 3-15 C or lower". As
+    a range no single bound is stated: 11 mm passes from 10 and fails from 12."""
+    starts = [found[0].start() for found in _trailing_candidates(sentence)]
+    return any(not numparse.value_may_start(sentence, start) for start in starts)
+
+
+def trailing(sentence: str) -> dict | None:
+    """A comparator that FOLLOWS the value: "3 m or less", "5 mm or more". `_LIMIT`
+    reads only one in front of the number."""
+    from . import requirements_3b as r3b
+
+    found = next(_trailing_candidates(sentence), None)
+    if found is None or trailing_refused(sentence):
+        return None
+    match, direction, raw_unit = found
+    raw_value = match.group("value")
+    measurement = r3b.measure(raw_value, raw_unit)
+    return {
+        "operator": direction,
+        "raw_value": raw_value,
         "raw_unit": raw_unit,
         "value": measurement.normalized_value,
         "unit": measurement.normalized_unit,
