@@ -49,4 +49,71 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="",
         target=_LIVE_GUARD_TEST, keyword="needs_a_reason",
     ),
+    # ---- #1557: a different-case path or a hard link to the live file -----
+    Mutation(
+        id="M1561-01",
+        phase=1561,
+        description="the live-path shape is compared case-sensitively again, so "
+        "Backend/Data/RAG_Intelligence.sqlite on macOS opens the live "
+        "file without a backup (live guard)",
+        path=APP / "live_guard.py",
+        anchor='        p.name.casefold() == "rag_intelligence.sqlite"\n'
+        '        and p.parent.name.casefold() == "data"\n'
+        '        and p.parent.parent.name.casefold() == "backend"\n',
+        replacement='        p.name == "rag_intelligence.sqlite"\n'
+        '        and p.parent.name == "data"\n'
+        '        and p.parent.parent.name == "backend"\n',
+        target=_LIVE_GUARD_TEST,
+        keyword="different_case_path",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M1561-02",
+        phase=1561,
+        description="a hard link to the live file under another name is not "
+        "live, so db.connect() opens it freely (live guard)",
+        path=APP / "live_guard.py",
+        anchor="    return _same_file_as_a_live_one(p)\n",
+        replacement="    return False\n",
+        target=_LIVE_GUARD_TEST,
+        keyword="hard_link_to_the_live",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M1561-03",
+        phase=1561,
+        description="any existing file counts as the live one, so a real "
+        "diagnostic copy is refused (live guard)",
+        path=APP / "live_guard.py",
+        anchor="            if p.samefile(live):\n",
+        replacement="            if True:\n",
+        target=_LIVE_GUARD_TEST,
+        keyword="real_copy",
+    ),
+    Mutation(
+        id="M1561-04",
+        phase=1561,
+        description="from a git worktree the main checkout's live file is not "
+        "known, so a hard link to it opens freely (live guard)",
+        path=APP / "live_guard.py",
+        anchor="    backends = (backend, shared_backend_dir(backend))\n",
+        replacement="    backends = (backend,)\n",
+        target=_LIVE_GUARD_TEST,
+        keyword="main_checkouts_live_file_is_known",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M1561-05",
+        phase=1561,
+        description="a known live file that cannot be checked is taken as not "
+        "live (fails open) (live guard)",
+        path=APP / "live_guard.py",
+        anchor="        except OSError:  # cannot tell: refuse rather than guess "
+        '"not live"\n'
+        "            return True\n",
+        replacement="        except OSError:\n            continue\n",
+        target=_LIVE_GUARD_TEST,
+        keyword="cannot_be_checked",
+        tags=("critical",),
+    ),
 )

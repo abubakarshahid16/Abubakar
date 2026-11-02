@@ -8,7 +8,10 @@ only, e.g. a pump standard), or (b) it carries a `document_kind` naming the
 kinds it is for. A rule's own stored equipment type never drops it (a component
 is built to its parent's code). A rule with no known scope
 stays in, and so does every rule when the submittal's own equipment type or kind
-is unknown, unsure or a guess (rule 4: a guess stays a guess). This only NARROWS
+is unknown or a guess (rule 4: a guess stays a guess). On a sheet whose type is
+UNSURE (`subject_scope.equipment_doubt`) nothing is left out by equipment: a rule
+about none of its possible types is HELD for the engineer, counted on its own line
+(`hold_unsure`), until a type is confirmed. This only NARROWS
 the set the review already holds (rule 5); it adds nothing and reads no other
 document. It recognises no layout (rule 13): types come from the equipment
 vocabulary, kinds from the router.
@@ -24,6 +27,7 @@ from .db import connect
 
 TABLE_PATH = Path(__file__).parent / "reference" / "governing_standards.json"
 CODE = "other_equipment_scope"
+HELD_CODE = "equipment_unconfirmed"
 
 
 def enabled() -> bool:
@@ -97,7 +101,8 @@ def gate(
 ) -> dict:
     """{"kept", "items", "summary"}. `equipment` is the submittal's equipment
     types as `subject_scope.read_equipment` reads them (empty = unknown or
-    unsure); `kind` is `submittal_kind`. Every item carries code CODE and a
+    unsure, so none is left out here; `hold_unsure` holds an unsure sheet's);
+    `kind` is `submittal_kind`. Every item carries code CODE and a
     reason; the summary counts with their boundary."""
     if not enabled():
         return {"kept": list(requirements), "items": [], "summary": None}
@@ -154,6 +159,54 @@ def gate(
     return {"kept": kept, "items": items, "summary": summary}
 
 
+def hold_unsure(requirements, doubt, standard_labels, vocab) -> dict:
+    """An unsure sheet rules nothing out (order 142). {"kept", "held", "summary"}: a rule about
+    none of the sheet's POSSIBLE types (the type it is named as, the types its stated codes govern)
+    is held for the engineer, on its own count. A guess is never the submittal's type (rule 4), and
+    the sheet may really be any type, so the rule still applies until a type is confirmed."""
+    if not doubt or not enabled():
+        return {"kept": list(requirements), "held": [], "summary": None}
+    possible = set(doubt["named"]) | {
+        t for code in doubt["declared"] for t in code["governs"]
+    }
+    table = scope_only_table()
+    headings = subject_scope.heading_sections(
+        sorted({r.get("standard_document_id") or "" for r in requirements})
+    )
+    kept: list[dict] = []
+    held: list[dict] = []
+    by_type: dict[str, int] = {}
+    for r in requirements:
+        sid = r.get("standard_document_id") or ""
+        about = subject_scope.requirement_subject(r, headings.get(sid, {}), vocab)[0]
+        about = about | _own_types(standard_labels.get(sid, ""), table)[0]
+        if not about or about & possible:
+            kept.append(r)
+            continue
+        name = " / ".join(sorted(about))
+        by_type[name] = by_type.get(name, 0) + 1
+        detail = f"applies only if this is a {name}: engineer to confirm"
+        held.append({"requirement": r, "code": HELD_CODE, "detail": detail})
+    if not held:
+        return {"kept": kept, "held": [], "summary": None}
+    guess = " / ".join(sorted(possible))
+    groups = "; ".join(
+        f"{n} apply only if this is a {k}" for k, n in sorted(by_type.items())
+    )
+    note = (
+        f"{len(held)} rules held for the engineer: {groups}. The equipment type is unsure "
+        f"(a guess: {guess}), engineer to confirm; not compared, not left out; counted of the "
+        f"{len(requirements)} rules of the standards in scope of this review"
+    )
+    summary = {
+        "count": len(held),
+        "by_type": by_type,
+        "possible_types": sorted(possible),
+        "note": note,
+    }
+    return {"kept": kept, "held": held, "summary": summary}
+
+
 def split_part(result: dict | None) -> dict:
     """What the run stores in `requirement_split`; nothing when off."""
     summary = (result or {}).get("summary")
@@ -161,12 +214,13 @@ def split_part(result: dict | None) -> dict:
 
 
 def lines(outcome: dict | None) -> list[dict]:
-    """The count with its boundary, for the run summary and the CRS notes."""
-    note = (
-        ((outcome or {}).get("requirement_split") or {}).get("equipment_scope") or {}
-    ).get("note")
-    if not note:
-        return []
+    """The counts with their boundary, for the run summary and the CRS notes: the
+    rules left out, and on its own line the rules held on an unsure equipment type."""
+    part = ((outcome or {}).get("requirement_split") or {}).get("equipment_scope") or {}
+    notes = [
+        part.get("note"),
+        (part.get("held_equipment_unconfirmed") or {}).get("note"),
+    ]
     return [
         {
             "part": "equipment_scope",
@@ -174,20 +228,21 @@ def lines(outcome: dict | None) -> list[dict]:
             "detail": True,
             "note": "Rules by equipment",
         }
+        for note in notes
+        if note
     ]
 
 
 def gate_for_run(
     requirements, stored, facts, submittal_id, standard_labels, not_applied
 ):
-    """The review's one call: `subject_scope.partial_gate`, then the scope gate.
-    Adds both gates' left-out items to `not_applied`. Returns (kept, result);
-    result is what `split_part` stores."""
+    """The review's one call: `subject_scope.partial_gate`, the scope gate, then
+    `hold_unsure`. Adds both gates' left-out items to `not_applied`. Returns (kept,
+    result); `split_part` stores its summary, `result["held"]` is the held rules."""
     from . import applicability
 
-    equipment = subject_scope.submittal_equipment(
-        stored, facts, subject_scope.vocabulary()
-    )[0]
+    vocab = subject_scope.vocabulary()
+    equipment, _source, doubt = subject_scope.read_equipment(stored, facts, vocab)
     partial = subject_scope.partial_gate(
         requirements,
         equipment=equipment,
@@ -202,4 +257,10 @@ def gate_for_run(
         standard_labels=standard_labels,
     )
     not_applied.extend(result["items"])
-    return result["kept"], result
+    hold = hold_unsure(result["kept"], doubt, standard_labels, vocab)
+    if hold["summary"]:
+        result["summary"] = {
+            **result["summary"],
+            "held_equipment_unconfirmed": hold["summary"],
+        }
+    return hold["kept"], {**result, "held": hold["held"]}

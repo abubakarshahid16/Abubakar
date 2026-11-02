@@ -847,7 +847,7 @@ def _cached_scope_decision(standard_document_id: str, equipment_type: str,
         except ValueError:
             cached = None  # corrupt row - fall through and recompute rather than crash
         if cached is not None:
-            return applicability_reasoning.with_covered_evidence(cached, record)
+            return applicability_reasoning.reused_decision(cached, record, step)
     decision = applicability_reasoning.decide_with_confirmation_by_reasoning(
         record, equipment_type, provider, step=step)
     with conn:
@@ -1257,6 +1257,7 @@ def select(
     would be lying.
     """
     from . import equipment_subtype, kind_rules, standard_judgment
+    from .equipment_title_block import keep_without_type as keep_no_type
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
     profile, kind_part = kind_rules.profile(submittal_document_id, allowed_document_ids)
@@ -1265,8 +1266,7 @@ def select(
 
     governing, governing_missing = governing_standards(
         submittal_document_id, library, allowed_document_ids)
-    # #754 F5b: required vs cited FIRST. A standard a declared service
-    # condition requires, held but not cited, is reviewed anyway.
+    # #754 F5b: required vs cited FIRST; what a declared condition requires is reviewed anyway.
     check = standards_check(submittal_document_id, allowed_document_ids=allowed_document_ids,
                             library=library)
     for r in check["required_not_cited"]:
@@ -1281,8 +1281,7 @@ def select(
         _match_referenced(library, referenced),
         library_citations(library, submittal_text),
         equipment_subtype.by_type(library, profile, submittal_document_id, allowed_document_ids),
-        # After the classification match: a tie keeps the standard's own
-        # equipment classification as the reason (both are included).
+        # After the classification match: a tie keeps its equipment classification as the reason.
         governing,
         _match_attribute(library, profile, "service", METHOD_SERVICE),
         _match_attribute(library, profile, "project", METHOD_PROJECT),
@@ -1310,12 +1309,10 @@ def select(
             if page is not None:
                 row["reason"] = f"{row['reason']} (page {page})"
 
-    # B5: THE SCOPE DECISION on every standard with a verified scope record: by AI reasoning
-    # (owner 2026-09-28, on since #736), or when off the taxonomy path (`applicability_v2`).
+    # B5: THE SCOPE DECISION, by AI reasoning (#736) or when off the taxonomy path.
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
-        # #946: cap the pool asked about (`_scope_reasoning_candidates`); the
-        # cheap non-AI taxonomy path below still scans the whole library.
+        # #946: cap the pool asked about; the non-AI taxonomy path below scans the whole library.
         scope_candidates = _scope_reasoning_candidates(
             library, selected, submittal_document_id, allowed_document_ids,
             cap=_settings.applicability_scope_reasoning_candidate_cap)
@@ -1324,6 +1321,9 @@ def select(
     else:
         scope_candidates = library
         decisions, scope_not_run = scope_decisions(library, profile)
+    scope_not_run = keep_no_type(
+        submittal_document_id, selected, scope_not_run, library, allowed_document_ids
+    )
     from . import applicability_v2 as v2
     for standard_id, decision in decisions.items():
         verdict = decision.get("decision")
@@ -1728,12 +1728,12 @@ def record_selection(
 
 
 def is_included(row: dict) -> bool:
-    """B5: applied to the review only on EVIDENCE - a citation, an equipment,
-    service or project classification, a scope clause, or an engineer - and
-    never when a confirmed scope reading excludes it, nor while it is held
-    for the engineer (order 142)."""
+    """B5: applied only on EVIDENCE (citation, equipment, service, project, scope clause,
+    engineer), never when scope excludes it or held (order 142); or kept with no type."""
     if row.get("held_for_engineer"):
         return False
+    if row.get("kept_without_type"):
+        return True
     return row["method"] in INCLUDING_METHODS and not row.get("excluded_by_scope")
 
 
