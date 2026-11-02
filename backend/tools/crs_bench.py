@@ -29,7 +29,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import coverage_pair, crs_decider, deferred_pass, run_measures
+from app import coverage_pair, crs_decider, deferred_pass, presence_check, run_measures
 
 DECIDED = run_measures.DECIDED
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
@@ -127,6 +127,7 @@ SRC_PLAYBOOK = (
     "playbook rows - present / missing / unclear (engineer rows, not decisions)"
 )
 SRC_TICK = "safety tick rows - engineer to tick"
+SRC_STATED = "stated, not checked - checklist rows that only ask a field is stated"
 _NO_FINDING = "CRS rows with no finding - "
 #: DECISION: a source whose rows may decide. ENGINEER: rows that are engineer
 #: rows by construction (kit_core.held, spec_kit._store, transmittal_kit), so a
@@ -156,6 +157,7 @@ SOURCE_RULE = [
     " check, the web standards check, the clause review and chat comments;"
     " 'draft rows with a code verdict' counts those carrying COMPLIANT or"
     " NON_COMPLIANT that no engineer confirmed (shown, not gated).",
+    f"'{SRC_STATED}': with the switch on (#1638), not decisions: no value was compared.",
     f"'{SRC_TICK}': COMPLIANT findings shown for an engineer's tick (a"
     " safety_tick CRS row). Not credited as decided anywhere below the headline.",
     "'kit rows - <kit> (engineer rows)': rows a kit made (pump, vessel, exchanger"
@@ -195,6 +197,10 @@ def finding_source(f: dict, rule_ids: set[str], kits) -> tuple[str, str]:
         for name, words in kits:
             if words and words in text:
                 return f"kit rows - {name} (engineer rows)", ENGINEER
+    if presence_check.is_stated_only(
+        f
+    ):  # before the tick row: one count with `coverage_pair`
+        return SRC_STATED, TICK
     if (
         origin not in DRAFT_ORIGINS
         and origin != spec_kit.ORIGIN
@@ -274,7 +280,7 @@ def _source_order(label: str) -> tuple:
         rank = 1
     elif label.startswith("decided -"):
         rank = 2
-    elif label.startswith("engineer rows") or label == SRC_TICK:
+    elif label.startswith("engineer rows") or label in (SRC_TICK, SRC_STATED):
         rank = 3
     elif label.startswith("kit rows"):
         rank = 4
@@ -564,6 +570,9 @@ def fingerprint() -> str:
     from app import config
 
     switches = " ".join(f"{n}={getattr(config.settings, n)}" for n in BENCH_SWITCHES)
+    # #1638: named only when on, so a baseline saved before the switch stays comparable
+    if config.settings.presence_not_pass_enabled:
+        switches += " presence_not_pass_enabled=True"
     return f"{config.config_version()} {switches}"
 
 
@@ -687,6 +696,12 @@ PAIR_ROWS = [
         PAIR_CHECKLIST,
         lambda p: (
             _frac(p["checklist"]["decided"], p["checklist"]["rows"])
+            + (
+                f" ({p['checklist']['stated']} stated, not checked,"
+                f" {p['checklist'].get('stated_deferred', 0)} of them on a deferred value)"
+                if p["checklist"].get("stated")
+                else ""
+            )
             + (f" ({p['checklist']['wrong']} wrong)" if p["checklist"]["wrong"] else "")
         ),
     ),

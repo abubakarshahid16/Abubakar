@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from . import coverage_pair, deferred_pass
+from . import coverage_pair, deferred_pass, presence_check
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 NOT_IN_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
@@ -120,7 +120,7 @@ def headline(
         # D2 (owner): a value marked 'By Contractor'/TBA is a Query, so a Pass
         # on one is not a decision the bench credits; it is shown on its own row.
         "checklist_decided": sum(
-            f.get("compliance_status") in DECIDED and not is_deferred(f)
+            presence_check.status_of(f) in DECIDED and not is_deferred(f)
             for f in checklist
         ),
         "checklist_total": len(checklist),

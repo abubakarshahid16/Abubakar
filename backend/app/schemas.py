@@ -2196,6 +2196,7 @@ class ReviewScopeDecision(BaseModel):
 
 
 class ReviewFinding(BaseModel):
+    stated_only: bool = False  # #1638, `presence_check`
     id: str
     document_id: str
     baseline_document_id: str | None
@@ -2223,7 +2224,6 @@ class ReviewFinding(BaseModel):
     created_at: str
     updated_at: str
     # ------------------------------------- AI submittal review, phases 5A/5B
-    #
     # THE COMPLIANCE SHAPE, ADDED AND NOTHING REMOVED. This model was the
     # phase-1 approval-workflow view of a finding, and the columns phase 5B
     # writes were invisible through it: a run produced 1,580 findings, the API

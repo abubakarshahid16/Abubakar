@@ -61,6 +61,8 @@ FAIL = "NON_COMPLIANT"
 PASS = "COMPLIANT"
 #: `review_audit.VERDICT`: what the CRS and the owner call a Query.
 QUERY = ("MISSING_INFORMATION", "NEEDS_ENGINEER_REVIEW", "CONDITIONAL")
+#: `presence_check.STATUS`, a test holds them together.
+STATED = "STATED_NOT_CHECKED"
 
 A4 = (595, 842)
 FONT = 9
@@ -633,6 +635,7 @@ def rows_of_run(conn, run_id: str, rules: dict, labels: dict[str, str]) -> list[
     """The run's findings as `judge` reads them. A row is on a field when its rule reads
     that field, its value is that field, or (checklist calculations) its words name it."""
     from app import datasheet_checks as dc
+    from app import presence_check
 
     items = _item_roles(rules)
     facts = {
@@ -668,7 +671,12 @@ def rows_of_run(conn, run_id: str, rules: dict, labels: dict[str, str]) -> list[
                     check or f["requirement_id"] or f["requirement_source_text"],
                     f["equipment_tag"],
                 ),
-                "status": f["compliance_status"],
+                # #1638, switch on: "is stated" read no value, so it is no Pass on the field
+                "status": (
+                    STATED
+                    if presence_check.is_stated_only(dict(f))
+                    else f["compliance_status"]
+                ),
                 "roles": roles,
                 "tier": "checklist" if checklist else "library",
             }

@@ -144,10 +144,15 @@ export const WEB_STANDARD_CHECK = "web_standard_check";
 export const AI_ENGINEERING_CHECK_LABEL =
   "AI engineering check - not from the standard text - engineer to confirm";
 
+//: #1638: a checklist row that only asks a field is stated; no value was compared.
+export const STATED_NOT_CHECKED_LABEL = "Stated, not checked";
+
 export function findingLabel(finding: {
   compliance_status?: string | null; ai_rationale?: string | null; origin?: string | null;
+  stated_only?: boolean | null;
 }): string {
   if (finding.origin === AI_ENGINEERING_CHECK) return AI_ENGINEERING_CHECK_LABEL;
+  if (finding.stated_only) return STATED_NOT_CHECKED_LABEL;
   if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
       && (finding.ai_rationale ?? "").startsWith(UNREAD_PAGES)) {
     return PAGES_NOT_READABLE_LABEL;
@@ -343,10 +348,12 @@ export interface SummaryTotals {
   couldNotCheck: number;
   notApplicable: number;
   counted: number;
+  /** #1638: stated, not checked; apart from `meets`. Absent when there are none. */
+  stated?: number;
 }
 
 export function summaryTotals(
-  findings: { compliance_status?: string | null; origin?: string | null; approval_status?: string | null }[],
+  findings: { stated_only?: boolean | null; compliance_status?: string | null; origin?: string | null; approval_status?: string | null }[],
 ): SummaryTotals {
   const totals: SummaryTotals = {
     meets: 0, doesNotMeet: 0, needsDecision: 0, couldNotCheck: 0, notApplicable: 0, counted: 0,
@@ -358,7 +365,8 @@ export function summaryTotals(
     const status = f.compliance_status;
     if (!status) continue;
     totals.counted += 1;
-    if (status === "COMPLIANT") totals.meets += 1;
+    if (f.stated_only) totals.stated = (totals.stated ?? 0) + 1;
+    else if (status === "COMPLIANT") totals.meets += 1;
     else if (status === "NON_COMPLIANT") totals.doesNotMeet += 1;
     else if (status === "NEEDS_ENGINEER_REVIEW" || status === "CONDITIONAL") totals.needsDecision += 1;
     else if (status === "NOT_APPLICABLE") totals.notApplicable += 1;

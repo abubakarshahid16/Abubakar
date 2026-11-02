@@ -22,6 +22,7 @@ from . import (
     crs_export_quality,
     crs_issue,
     datasheet_checks,
+    presence_check,
     run_measures,
 )
 from .config import settings
@@ -242,7 +243,7 @@ def rule_rows(findings: list[dict], allowed, equipment_type: str | None) -> list
             if item is not None:
                 limit, comparator = checklist_limit(item.get("rule") or {})
             approval = _checklist_approval(f)
-        status = f.get("compliance_status")
+        status = presence_check.status_of(f)  # #1638: not a "Pass"
         rows.append(
             {
                 "finding_id": f["id"],
@@ -427,8 +428,8 @@ def gates_section(
     run: dict, outcome: dict, findings: list[dict], counts: dict, steps: dict
 ) -> dict:
     clause = outcome.get("clause_coverage") or {}
-    decided = sum(f.get("compliance_status") in run_measures.DECIDED for f in findings)
-    passes = sum(f.get("compliance_status") == "COMPLIANT" for f in findings)
+    decided = sum(presence_check.status_of(f) in run_measures.DECIDED for f in findings)
+    passes = sum(presence_check.status_of(f) == "COMPLIANT" for f in findings)
     truth = "the bench's truth file, eval/bench/truth.json (#1471)"
     gates = [
         {"gate": "wrong", "count": counts["wrong"], "of": decided, "rule_id": truth},
