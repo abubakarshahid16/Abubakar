@@ -352,15 +352,18 @@ def _tally(
     checklist = {"decided": 0, "rows": 0, "pass": 0, "fail": 0, "wrong": 0}
     for f in findings:
         lane = _lane(f, rules)
+        # #1638: the one count, a safety-tick row included (the bench's `finding_source` agrees)
+        stated = presence_check.is_stated_only(f) and not _is_kit_card(f)
+        if stated:
+            checklist["stated"] = checklist.get("stated", 0) + 1
+            checklist["stated_deferred"] = checklist.get("stated_deferred", 0) + int(
+                value_is_deferred(conn, f)
+            )
         if lane is None:
             continue
         if lane == "checklist":
             checklist["rows"] += 1
-            if presence_check.is_stated_only(f):  # #1638: never decided
-                checklist["stated"] = checklist.get("stated", 0) + 1
-                checklist["stated_deferred"] = checklist.get(
-                    "stated_deferred", 0
-                ) + int(value_is_deferred(conn, f))
+            if stated:  # never decided
                 continue
         status = f.get("compliance_status")
         if status not in DECIDED:

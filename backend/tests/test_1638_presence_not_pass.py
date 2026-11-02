@@ -301,13 +301,16 @@ def test_stated_rows_on_a_deferred_value_are_said(on, tmp_path, monkeypatch):
     assert checklist["stated"] == 2 and checklist["stated_deferred"] == 1
 
 
-def test_the_one_count_a_tick_row_is_in_neither(on, tmp_path):
-    """`_tally` and `finding_source` give one count: an engineer's tick row is that, in both."""
+def test_the_one_count_a_tick_row_is_in_it_on_both(on, tmp_path):
+    """`_tally` and `finding_source` give one count, the one the reason gives: a presence row
+    shown for an engineer's tick is still only stated. It was 14 and 0 on one saved run."""
     tick = {**_row(A_REQUIRED), "show_for_engineer_tick": 1}
     rows = [tick, _row(A_REQUIRED), _row(A_REQUIRED)]
     pair = _pair(tmp_path, rows)
     sources = [crs_bench.finding_source(r, set(), [])[0] for r in rows]
-    assert pair["checklist"]["stated"] == sources.count(crs_bench.SRC_STATED) == 2
+    assert pair["checklist"]["stated"] == sources.count(crs_bench.SRC_STATED) == 3
+    assert pair["checklist"]["rows"] == 2, "a tick row is still no checklist-lane row"
+    assert "3 checklist item(s)" in _code(rows)["reason"]
 
 
 def test_the_trace_and_the_audit_do_not_call_it_meets(on):

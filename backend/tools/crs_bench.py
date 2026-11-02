@@ -276,6 +276,10 @@ def finding_source(f: dict, rule_ids: set[str], kits) -> tuple[str, str]:
         for name, words in kits:
             if words and words in text:
                 return f"kit rows - {name} (engineer rows)", ENGINEER
+    if presence_check.is_stated_only(
+        f
+    ):  # before the tick row: one count with `coverage_pair`
+        return SRC_STATED, TICK
     if (
         origin not in DRAFT_ORIGINS
         and origin != spec_kit.ORIGIN
@@ -284,8 +288,6 @@ def finding_source(f: dict, rule_ids: set[str], kits) -> tuple[str, str]:
     ):
         # crs_mapping makes it a safety_tick row the engineer must tick: not decided
         return SRC_TICK, TICK
-    if presence_check.is_stated_only(f):
-        return SRC_STATED, TICK
     if origin == "datasheet_check":
         return SRC_CHECKLIST, DECISION
     if origin == spec_kit.ORIGIN:
