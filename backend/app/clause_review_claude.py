@@ -33,6 +33,11 @@ case and marked estimated, because the bill is unknown. A failed poll or a shut 
 A DECISION IS NOT WRITTEN UNDER. A run with an engineer's final code gets no late rows (`comparison.run_comparison`
 refuses a re-run for the same reason). The answers stay in the answer cache, so a new review reads them at no cost.
 
+A RETRIED JOB RE-RUNS THE COMPARISON, WHICH DELETES UNDECIDED ROWS, and this run's rows go with them. So `written` is
+checked against the stored rows on every entry. A missing row comes back from the batch tables while pending, and after
+the close from the answer cache (a USD 0 cache line, no send, no charge). An answer the cache no longer holds is counted
+not reviewed and is not bought again.
+
 A SEAM OF `claude_batch_run.run`: it re-queues given-up requests each time it is called, because it was written
 for one call per run. A polling caller must not resend them, so they are read before each call, kept here and
 left out of the packets it is given. Expired or cancelled twice is not reviewed; errored or lost is failed.
@@ -76,6 +81,10 @@ NOT_DONE_WORDS = ("expired", "canceled")
 
 WHY_WAITING = "the Claude batch has not returned yet"
 WHY_NOT_YET = "it has not been sent to Claude yet"
+WHY_LOST = (
+    "its row was removed when the review re-ran and its stored answer can no longer be read; "
+    "it is not sent again"
+)
 WHY_DECIDED = (
     "the run has an engineer's final code, so its late answer gets no row; a new review reads it "
     "from the stored answers at no cost"
@@ -95,7 +104,7 @@ _TABLE = """CREATE TABLE IF NOT EXISTS clause_review_batches (
     documents     TEXT NOT NULL,
     gave_up       TEXT NOT NULL DEFAULT '{}',
     reasons       TEXT NOT NULL DEFAULT '{}',
-    written       TEXT NOT NULL DEFAULT '[]',
+    written       TEXT NOT NULL DEFAULT '{}',
     worst_all     REAL NOT NULL DEFAULT 0,
     started_at    REAL NOT NULL,
     next_poll_at  REAL NOT NULL,
@@ -241,7 +250,7 @@ def _loads(row, column: str):
     return json.loads(row[column])
 
 
-def _status(row, answers, gave_up, reasons, requirements, pending, now) -> dict:
+def _status(row, written, gave_up, reasons, requirements, pending, now) -> dict:
     """Every ask lands in exactly one count. Pure but for the page read and the ledger."""
     asks = _loads(row, "asks")
     pages = clause_review.page_texts(row["document_id"])
@@ -254,13 +263,10 @@ def _status(row, answers, gave_up, reasons, requirements, pending, now) -> dict:
     for custom_id, requirement_id in asks.items():
         req = requirements.get(custom_id)
         label = clause_review._label(req) if req else requirement_id
-        if custom_id in answers:
-            outcome, _page, _quote = clause_review._classify(
-                _reading(answers[custom_id]), pages
-            )
+        if custom_id in written:
+            outcome, cached = written[custom_id]
             status[outcome] += 1
-            if answers[custom_id].get("batch_id") == claude_batch_run.FROM_CACHE:
-                status["cache_hits"] += 1
+            status["cache_hits"] += 1 if cached else 0
             continue
         word = gave_up.get(custom_id)
         if word is not None and word not in NOT_DONE_WORDS:
@@ -282,25 +288,110 @@ def _status(row, answers, gave_up, reasons, requirements, pending, now) -> dict:
     return status
 
 
-def _write_rows(row, answers, requirements, written: set[str]) -> None:
+def _written(row) -> dict[str, list]:
+    """custom_id -> [outcome, from stored answers], for each ask that got a row. Counts and words only."""
+    found = _loads(row, "written")
+    return found if isinstance(found, dict) else {}
+
+
+def _store(row, req, answer, pages, model, cached, written, custom_id) -> None:
+    outcome, page, quote = clause_review._classify(answer, pages)
+    clause_review._store_row(
+        row["review_run_id"], row["document_id"], req, outcome, page, quote,
+        f"{rp.CLAUDE}:{model or row['model']}", cached,
+    )  # fmt: skip
+    written[custom_id] = [outcome, cached]
+
+
+def _write_rows(row, answers, requirements, written: dict) -> None:
     """Rows for the answers not yet written; code classifies, the row stays a suggestion."""
     pages = clause_review.page_texts(row["document_id"])
     for custom_id, answered in answers.items():
         req = requirements.get(custom_id)
         if custom_id in written or req is None:
             continue
-        outcome, page, quote = clause_review._classify(_reading(answered), pages)
-        clause_review._store_row(
-            row["review_run_id"],
-            row["document_id"],
-            req,
-            outcome,
-            page,
-            quote,
-            f"{rp.CLAUDE}:{answered.get('model') or row['model']}",
-            answered.get("batch_id") == claude_batch_run.FROM_CACHE,
+        cached = answered.get("batch_id") == claude_batch_run.FROM_CACHE
+        _store(
+            row, req, _reading(answered), pages, answered.get("model"), cached,
+            written, custom_id,
+        )  # fmt: skip
+
+
+def _missing_rows(conn, row, written: dict) -> list[str]:
+    """Asks that got a row which is gone: a re-run comparison deleted it. A decided row is not deleted."""
+    asks = _loads(row, "asks")
+    held = {
+        r["requirement_id"]
+        for r in conn.execute(
+            "SELECT requirement_id FROM review_findings WHERE review_run_id = ? AND origin = ?",
+            (row["review_run_id"], clause_review.ORIGIN),
         )
-        written.add(custom_id)
+    }
+    return [c for c in written if asks[c] not in held]
+
+
+def _cached_answer(reader, row, req, pages) -> tuple[dict | None, str | None]:
+    """(the answer, its model) from the answer cache, by the same request. Opens no socket and reserves nothing."""
+    passages = clause_review.retrieve(
+        row["document_id"], req["requirement_text"], pages
+    )
+    packet = packet_for(row["kind"], req, passages)
+    try:
+        _request, body, _prompt = reader._request(packet)
+        stored, _key = rp._stored_answer(STEP, body, packet)
+    except (rp.ProviderRefused, claude_spend.StopRun):
+        return None, None
+    if stored is None:
+        return None, None
+    told = reader._response(stored, packet, 0.0, 0.0)
+    answered = {"text": told.text, "finish_reason": told.finish_reason}
+    return _reading(answered), told.model_tag
+
+
+def _restore_closed(row, provider, written, missing, reasons) -> None:
+    """After the close the raw answers are gone: rows come back from the answer cache, at no cost. An unreadable
+    answer's row needs no text. What cannot be restored is counted, and never bought again."""
+    asks = _loads(row, "asks")
+    requirements = _requirements({c: asks[c] for c in missing})
+    pages = clause_review.page_texts(row["document_id"])
+    with claude_approved.carrying(_loads(row, "documents")):
+        open_lane = provider or rp.claude_for_task(_engine(), step=STEP)
+        reader = rp.ClaudeProvider(row["model"], step=STEP) if open_lane else None
+        for custom_id in missing:
+            req = requirements.get(custom_id)
+            outcome, cached = written.pop(custom_id)
+            if req is None:
+                continue
+            if outcome == "unreadable":
+                _store(row, req, None, pages, None, cached, written, custom_id)
+                continue
+            answer, model = (
+                _cached_answer(reader, row, req, pages) if reader else (None, None)
+            )
+            if answer is None:
+                reasons[custom_id] = WHY_LOST
+                continue
+            _store(row, req, answer, pages, model, cached, written, custom_id)
+
+
+def _reenter_closed(conn, row, provider, now) -> dict | None:
+    """A closed run entered again, by a retried job: nothing is sent; only a row or a status that was lost comes back."""
+    review_run_id = row["review_run_id"]
+    written, reasons = _written(row), _loads(row, "reasons")
+    decided = _decided(conn, review_run_id)
+    missing = [] if decided else _missing_rows(conn, row, written)
+    known = clause_review.status_of(review_run_id)
+    if known and not missing:
+        return known
+    if missing:
+        _restore_closed(row, provider, written, missing, reasons)
+    gave_up = _loads(row, "gave_up")
+    requirements = _requirements(_loads(row, "asks"))
+    status = _status(row, written, gave_up, reasons, requirements, False, now())
+    _save(conn, row, CLOSED, gave_up, reasons, written, now())
+    clause_review._store_status(review_run_id, status)
+    _after_close(review_run_id, rows_added=not decided)
+    return status
 
 
 def _decided(conn, review_run_id: str) -> bool:
@@ -320,7 +411,7 @@ def _save(conn, row, state, gave_up, reasons, written, next_poll) -> None:
                 state,
                 json.dumps(gave_up),
                 json.dumps(reasons),
-                json.dumps(sorted(written)),
+                json.dumps(written),
                 next_poll,
                 row["review_run_id"],
             ),
@@ -540,15 +631,17 @@ def _tick(review_run_id: str, provider, now) -> dict | None:
     row = conn.execute(
         "SELECT * FROM clause_review_batches WHERE review_run_id = ?", (review_run_id,)
     ).fetchone()
-    if row is None or row["state"] == CLOSED:
+    if row is None:
         return clause_review.status_of(review_run_id)
     if _run_is_gone(conn, review_run_id):
         return None
+    if row["state"] == CLOSED:
+        return _reenter_closed(conn, row, provider, now)
     job = _job(review_run_id)
     asks = _loads(row, "asks")
     requirements = _requirements(asks)
     gave_up = _settled(conn, job, set(asks), _loads(row, "gave_up"))
-    reasons, written = _loads(row, "reasons"), set(_loads(row, "written"))
+    reasons, written = _loads(row, "reasons"), _written(row)
     at = now()
     past = at >= float(row["deadline_at"])
     pause = (
@@ -562,6 +655,10 @@ def _tick(review_run_id: str, provider, now) -> dict | None:
     gave_up = {**gave_up, **stored.gave_up}
     decided, before = _decided(conn, review_run_id), len(written)
     if not decided:
+        for custom_id in _missing_rows(conn, row, written):
+            written.pop(
+                custom_id
+            )  # a re-run comparison took it; its answer is still here
         _write_rows(row, stored.answers, requirements, written)
     unanswered = [
         c
@@ -571,7 +668,7 @@ def _tick(review_run_id: str, provider, now) -> dict | None:
     sent = _sent_out(conn, job)
     for custom_id in unanswered:
         reasons[custom_id] = WHY_WAITING if custom_id in sent else WHY_NOT_YET
-    for custom_id in set(stored.answers) - written:
+    for custom_id in set(stored.answers) - set(written):
         reasons[custom_id] = WHY_DECIDED
     if past and stop is None:
         stop = _past_wait(row, at, unanswered, sent, reasons)
@@ -586,8 +683,7 @@ def _tick(review_run_id: str, provider, now) -> dict | None:
             reasons[custom_id] = stop
     for custom_id in stored.unconfirmed:
         reasons[custom_id] = WHY_UNCONFIRMED
-    shown = {c: a for c, a in stored.answers.items() if c in written}
-    status = _status(row, shown, gave_up, reasons, requirements, not closing, now())
+    status = _status(row, written, gave_up, reasons, requirements, not closing, now())
     state = CLOSED if closing else PENDING
     _save(conn, row, state, gave_up, reasons, written, at + pause)
     clause_review._store_status(review_run_id, status)

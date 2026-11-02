@@ -16,12 +16,14 @@ import pytest
 from app import (
     absence,
     access,
+    claude_approved,
     claude_batch_run,
     claude_spend,
     claude_spend_report,
     clause_review,
     clause_review_claude,
     clause_review_status,
+    comparison,
     db,
     document_refs,
     review_audit,
@@ -598,6 +600,168 @@ def test_the_close_of_a_decided_run_numbers_nothing_and_still_writes_the_audit(
     fake.ended = True
     clause_review_claude.tick(run)
     assert numbered == [] and audited == [run]
+
+
+def _charged_lines():
+    """Ledger lines that cost or hold money; a stored answer's USD 0 line is not one."""
+    return [
+        e for e in claude_spend.entries()
+        if e.get("reserved") or float(e.get("cost_usd") or 0) > 0
+    ]  # fmt: skip
+
+
+def _retried_comparison(run, scope):
+    """What `review_jobs.run` does first when a job is retried: the real comparison, which deletes undecided rows."""
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    assert _rows(run) == []
+
+
+def test_a_job_retried_after_the_close_gets_its_rows_back_at_no_cost(fake):
+    fake.answer = lambda text: QUOTED
+    _sub, run, scope = _world()
+    first = _start(run, scope)
+    assert len(_rows(run)) == 1 and first["results"]["reviewed"] == 1
+    charged = _charged_lines()
+    _retried_comparison(run, scope)
+    status = _start(run, scope)
+    [row] = _rows(run)
+    assert row["contractor_evidence_text"] == GOOD_CHAIR and row["contractor_page"] == 1
+    assert row["compliance_status"] == clause_review.NEEDS_ENGINEER_REVIEW
+    assert (
+        status["results"]["reviewed"] == 1 and status["results"]["verified_quote"] == 1
+    )
+    assert len(fake.created) == 1 and _charged_lines() == charged
+    assert clause_review.status_of(run)["results"]["adds_up"]
+
+
+def test_a_retried_job_also_restores_an_unreadable_answers_row(fake):
+    fake.answer = lambda text: "not json at all"
+    _sub, run, scope = _world()
+    _start(run, scope)
+    _retried_comparison(run, scope)
+    status = _start(run, scope)
+    assert len(_rows(run)) == 1 and status["results"]["unreadable"] == 1
+    assert len(fake.created) == 1
+
+
+def test_a_restart_while_pending_gets_its_rows_back_at_no_cost(fake, monkeypatch):
+    """One ask answered and written, the next tranche not back yet; the job is retried."""
+    monkeypatch.setattr(settings, "claude_budget_usd_clause_review", _worst_one() * 1.5)
+    _sub, run, scope = _world(_reqs(2))
+    first = _start(run, scope)
+    assert first["pending"] is True and len(_rows(run)) == 1 and len(fake.sent()) == 1
+    clause_review_claude._PACKETS.clear()
+    _retried_comparison(run, scope)
+    fake.ended = False
+    status = _start(run, scope)
+    assert len(_rows(run)) == 1 and status["results"]["reviewed"] == 1
+    assert status["results"]["adds_up"] and status["pending"] is True
+    fake.ended = True
+    status = clause_review_claude.tick(run)
+    assert len(_rows(run)) == 2 and status["results"]["reviewed"] == 2
+    # each ask was sent once and charged once; the restored row cost nothing
+    assert len(fake.sent()) == 2 and len(_charged_lines()) == 2
+
+
+def test_a_retried_job_whose_answer_the_cache_lost_says_so_and_does_not_buy_it_again(
+    fake, tmp_path
+):
+    import shutil
+
+    fake.answer = lambda text: QUOTED
+    _sub, run, scope = _world()
+    _start(run, scope)
+    charged = _charged_lines()
+    shutil.rmtree(settings.claude_cache_dir)
+    _retried_comparison(run, scope)
+    status = _start(run, scope)
+    assert _rows(run) == [] and len(fake.created) == 1 and _charged_lines() == charged
+    assert status["results"]["reviewed"] == 0 and status["results"]["not_reviewed"] == 1
+    assert status["results"]["adds_up"]
+    assert clause_review_claude.WHY_LOST in status["plain"]
+
+
+def test_a_retried_job_on_a_decided_run_writes_nothing(fake):
+    fake.answer = lambda text: QUOTED
+    _sub, run, scope = _world()
+    _start(run, scope)
+    with db.connect() as conn:
+        conn.execute("DELETE FROM review_findings WHERE review_run_id = ?", (run,))
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code = '1' WHERE id = ?", (run,)
+        )
+    _start(run, scope)
+    assert _rows(run) == []
+
+
+def test_a_late_row_for_a_request_left_out_does_not_stop_the_open_batch_being_read(
+    lane,
+):
+    """`_read_late` used to raise KeyError before open batches were collected, so a tranche stayed unread."""
+    conn = db.connect()
+    claude_batch_run.ensure_schema(conn)
+    provider = rp.ClaudeProvider(settings.claude_reasoning_model, step="clause_review")
+    packets = {
+        c: rp.Packet(
+            prompt=f"Ask {c}", num_ctx=0, num_predict=64, step="clause_review",
+            prompt_version="t", json_schema=clause_review.SCHEMA,
+        )
+        for c in ("a", "b")
+    }  # fmt: skip
+
+    class ByBatch:
+        def __init__(self):
+            self.created, self.ended, self.rows = [], set(), {}
+
+        def batch_create(self, url, *, headers, requests):
+            self.created.append(requests)
+            return {"id": f"b{len(self.created)}", "processing_status": "in_progress"}
+
+        def batch_retrieve(self, url, batch_id, *, headers):
+            state = "ended" if batch_id in self.ended else "in_progress"
+            return {"id": batch_id, "processing_status": state, "results_url": batch_id}
+
+        def batch_results(self, url, *, headers):
+            return self.rows.get(url, [])
+
+    good = {
+        "type": "succeeded",
+        "message": {
+            "model": "m", "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+            "content": [{"type": "text", "text": json.dumps(NO_EVIDENCE)}],
+        },
+    }  # fmt: skip
+    client = ByBatch()
+    client.ended |= {"b1", "b2"}  # request a: no result row, twice, so given up
+    run = "job-late"
+    with claude_approved.carrying(()):
+        one = claude_batch_run.run(
+            conn, provider, run, {"a": packets["a"]}, client=client, max_wait_s=0.0,
+            poll_seconds=0.0, sleep=lambda s: None,
+        )  # fmt: skip
+        assert one.gave_up == {"a": "no_result"}
+        two = claude_batch_run.run(
+            conn, provider, run, {"b": packets["b"]}, client=client, max_wait_s=0.0,
+            poll_seconds=0.0, sleep=lambda s: None,
+        )  # fmt: skip
+        assert two.waiting and len(client.created) == 3
+        # `run` re-queued a; a polling caller holds it as given up, with b's tranche still out
+        with conn:
+            conn.execute(
+                "UPDATE claude_batch_requests SET state = 'gave_up', failure = 'no_result'"
+                " WHERE job = ? AND custom_id = 'a'",
+                (run,),
+            )
+        # a's row turns up late
+        client.rows["b2"] = [{"custom_id": "a", "result": good}]
+        client.rows["b3"] = [{"custom_id": "b", "result": good}]
+        client.ended.add("b3")
+        three = claude_batch_run.run(
+            conn, provider, run, {"b": packets["b"]}, client=client, max_wait_s=0.0,
+            poll_seconds=0.0, sleep=lambda s: None,
+        )  # fmt: skip
+    assert set(three.answers) == {"b"} and not three.waiting
 
 
 def test_expired_or_cancelled_twice_is_not_reviewed_and_never_sent_again(fake):

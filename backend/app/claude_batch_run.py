@@ -586,6 +586,7 @@ def _read_late(run: _Run) -> None:
                 held is None
                 or held["failure"] != NO_RESULT
                 or result.get("type") != "succeeded"
+                or held["custom_id"] not in run.work[held["job"]]  # a caller left it out
             ):
                 continue
             job, custom_id = held["job"], held["custom_id"]
