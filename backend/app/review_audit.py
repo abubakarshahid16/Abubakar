@@ -212,11 +212,15 @@ def _pages_section(sub: str) -> dict:
             entry["not_read_reason"] = why
             not_read.append({"page": r["page_no"], "reason": why})
         per_page.append(entry)
-    from . import word_pages
+    from . import reading_state, word_pages
 
     extra = {}
     if (word_read := word_pages.read_proof(sub)) is not None:
         extra["word_read"] = word_read
+    # A picture reader's text goes on its page, so "pages read only by OCR" says 0 while
+    # pictures came back: count pictures, from the one function "ready" reads.
+    if (counts := reading_state.picture_counts(sub)) is not None:
+        picture, extra["pictures_total"] = counts
     return {
         "total": len(rows),
         "read_text": text,
@@ -565,7 +569,8 @@ def _md_pages(audit: dict) -> list[str]:
     out = [
         "## 2. Pages",
         f"- pages in the document: {_v(pages['total'])}",
-        f"- read (text): {_v(pages['read_text'])}; read (picture): {_v(pages['read_picture'])}",
+        f"- read (text): {_v(pages['read_text'])}; read (picture): {_v(pages['read_picture'])}"
+        + (f" of {_v(pages['pictures_total'])} pictures" if "pictures_total" in pages else ""),
     ]
     if pages["not_read"] is None:
         out.append(f"- not read: {NOT_RECORDED}")

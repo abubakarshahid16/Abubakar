@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from . import access, classification, job_queue, states, stored_paths
+from . import access, classification, job_queue, reading_state, states, stored_paths
 from .config import settings
 from .db import connect
 from .errors import redact
@@ -730,6 +730,7 @@ def to_api(row: sqlite3.Row) -> dict:
         "needs_ocr_pages": row["needs_ocr_pages"],
         "recognised_pages": row["recognised_pages"] if "recognised_pages" in row.keys() else 0,
         "pagination": row["pagination"] if "pagination" in row.keys() else None,
+        **reading_state.api_part(row["id"]),
         "equation_pages": row["equation_pages"],
         "error": (
             {

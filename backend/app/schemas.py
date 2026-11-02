@@ -141,6 +141,7 @@ class DocumentError(BaseModel):
 
 
 class Document(BaseModel):
+    model_config = ConfigDict(extra="allow")  # `reading`, with its switch on (`reading_state`)
     id: str
     filename: str
     sha256: str
@@ -168,8 +169,7 @@ class Document(BaseModel):
     pagination: str | None = Field(
         None,
         description="'flow' for a Word document: it has no fixed pages, its "
-        "'pages' are reading units and a citation is the chunk's locator "
-        "(heading path and paragraph). null for a PDF, which is cited by page.")
+        "'pages' are reading units and a citation is the chunk's locator (heading path and paragraph). null for a PDF, which is cited by page.")
     error: DocumentError | None = None
     pages_excluded: int = Field(
         0, description="pages search cannot see at all - not a quiet count"

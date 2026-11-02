@@ -157,3 +157,44 @@ describe("a partially-processed document never reads as ready", () => {
     expect(s.label).toBe("ready");
   });
 });
+
+describe("presentStatus with what was read (one_checked_definition_enabled)", () => {
+  const base = { needs_ocr_pages: 0, recognised_pages: 0 } as unknown as DocumentRecord;
+  const reading = (line: string, unaccounted: number, fully_read: boolean) => ({
+    line,
+    unaccounted,
+    fully_read,
+    ready: unaccounted === 0,
+    not_read_listed: 0,
+    pages_read: 1,
+    pages_total: 1,
+    pictures_read: null,
+    pictures_total: null,
+    furniture_pictures: 0,
+  });
+
+  it("does not call a document with listed gaps fully read", () => {
+    const got = presentStatus({ ...base, status: "ready", reading: reading("Read 1 of 2 pages", 0, false) });
+    expect(got.label).toBe("ready: Read 1 of 2 pages");
+    expect(got.tone).toBe("neutral");
+  });
+
+  it("is a success only when everything was read", () => {
+    const got = presentStatus({ ...base, status: "ready", reading: reading("Read 2 of 2 pages", 0, true) });
+    expect(got.tone).toBe("success");
+  });
+
+  it("says what is unaccounted, and it can still answer", () => {
+    const got = presentStatus({
+      ...base,
+      status: "partially_searchable",
+      reading: reading("not ready: 1 not accounted for", 1, false),
+    });
+    expect(got).toEqual({ label: "not ready: 1 not accounted for", tone: "warning", answerable: true });
+  });
+
+  it("stays as it was with no reading", () => {
+    expect(presentStatus({ ...base, status: "ready" }).label).toBe("ready");
+    expect(presentStatus({ ...base, status: "partially_searchable" }).tone).toBe("progress");
+  });
+});

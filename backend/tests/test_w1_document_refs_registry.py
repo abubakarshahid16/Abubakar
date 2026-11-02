@@ -23,6 +23,7 @@ from app import (
     clause_review,
     document_refs,
     field_naming,
+    reading_state,
     standards_acquisition,
     word_pictures,
 )
@@ -38,6 +39,7 @@ def _full_schema() -> None:
     with connect() as conn:
         conn.execute(field_naming._TABLE)
     word_pictures._ensure_table(connect())
+    reading_state._ensure_table(connect())
 
 
 def _tables(conn) -> list[str]:
