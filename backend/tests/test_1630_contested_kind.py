@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from tools import crs_bench
 
 from app import clause_review, db, document_kind, procedure_text
-from tools import crs_bench
 from app.config import settings
 
 DATASHEET_COVER = {
