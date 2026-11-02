@@ -31,17 +31,17 @@ def rule_documents(conn, documents: list[str]) -> dict[str, str]:
 
 
 def run_book(conn, review_run_id: str) -> tuple[int, str | None] | None:
-    """The rulebook's own record of a run (`rulebook_v2.run_used`)."""
-    from . import rulebook_v2
+    """The rulebook's own record of a run (`rulebook_v2_schema.run_used`)."""
+    from . import rulebook_v2_schema
 
-    return rulebook_v2.run_used(conn, review_run_id)
+    return rulebook_v2_schema.run_used(conn, review_run_id)
 
 
 def decisions_on(conn, documents: list[str]) -> list[tuple[str, str, str]]:
-    """The rulebook's decisions on rules read in `documents` (`rulebook_v2.decisions_on`)."""
-    from . import rulebook_v2
+    """The rulebook's decisions on rules read in `documents` (`rulebook_v2_schema.decisions_on`)."""
+    from . import rulebook_v2_schema
 
-    return rulebook_v2.decisions_on(conn, documents)
+    return rulebook_v2_schema.decisions_on(conn, documents)
 
 
 def _page_rows(conn, document_id: str) -> list:
