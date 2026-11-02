@@ -3441,9 +3441,12 @@ def review_run_coverage(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
     return coverage_pair_mod.screen_coverage(
-        clause_coverage_mod.for_run(review_run_id,
-                                    allowed_document_ids=scope.allowed_document_ids),
-        connect(), review_run_id)
+        clause_coverage_mod.for_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids
+        ),
+        connect(),
+        review_run_id,
+    )
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs/preview",
