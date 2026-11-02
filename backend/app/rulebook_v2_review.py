@@ -412,6 +412,7 @@ class Row:
     role: str | None = None
     fact_ids: set = field(default_factory=set)
     rule_said: str | None = None
+    trust_label: str = rule_trust.OWNER_APPROVED
 
 
 def _query(rule: dict, reason: str, found: Pair | None = None, words: str = "") -> Row:
@@ -498,8 +499,9 @@ def _judge(
     if held["status"] != row.status:
         return _query(rule, VALUE_NOT_TRUSTED, found, held["rationale"])
     if row.status in DECIDED and _context_dependent(rule):
+        row.trust_label = rule_trust.OWNER_NOTE_CONTEXT
         note = rule["approval"]["note"]
-        row.words = f"{row.words}. Its scope sits outside its sentence; decided on the owner's note: {note}"
+        row.words = f"{row.words}. {rule_trust.OWNER_NOTE_CONTEXT_WORDS}: {note}"
     return row
 
 
@@ -743,7 +745,7 @@ def store(conn, review: Review) -> list[dict]:
                         "standard_clause": f"{rule.get('standard') or ''} {rule.get('clause') or ''}".strip(),
                         "rule_said": row.rule_said,
                         "trust_label": (
-                            rule_trust.OWNER_APPROVED if row.status in DECIDED else None
+                            row.trust_label if row.status in DECIDED else None
                         ),
                     },
                     created_by=None,

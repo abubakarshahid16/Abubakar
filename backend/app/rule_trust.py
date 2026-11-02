@@ -96,6 +96,9 @@ TESTED_CARD = "TESTED_CARD"
 OWNER_APPROVED = "OWNER_APPROVED"
 OWNER_TIER = "owner"
 OWNER_APPROVED_WORDS = "AI-built, quote-verified, owner-approved"
+#: A context-dependent rule that decided on the owner's written note (#1584): the owner's exact words for the CRS.
+OWNER_NOTE_CONTEXT = "OWNER_NOTE_CONTEXT"
+OWNER_NOTE_CONTEXT_WORDS = "owner note: context confirmed"
 NOTE_OWNER_APPROVED = "Decided by owner-approved rules"
 #: What the CRS prints for each label.
 TRUST_WORDS = {
@@ -103,6 +106,7 @@ TRUST_WORDS = {
     AUTO_PROVEN: "automatic (proven rule)",
     TESTED_CARD: "automatic (tested rule, engineer approval pending)",
     OWNER_APPROVED: OWNER_APPROVED_WORDS,
+    OWNER_NOTE_CONTEXT: OWNER_NOTE_CONTEXT_WORDS,
     UNPROVEN: "automatic rule not yet proven",
 }
 PROVEN, NOT_PROVEN, INVALID = "PROVEN", "NOT_PROVEN", "INVALID"

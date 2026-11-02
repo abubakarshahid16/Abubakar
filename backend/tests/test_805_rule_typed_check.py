@@ -9,6 +9,8 @@ import pytest
 from app import (
     comparison,
     coverage_pair,
+    crs_mapping,
+    datasheets,
     db,
     rule_trust,
     rule_typed_check,
@@ -278,7 +280,10 @@ def test_with_the_switch_on_a_note_lets_it_decide_and_the_finding_says_so(monkey
     run, scope = _sheet(value="9 barg")
     row = _one(_review(monkeypatch, run, scope, _flagged()))
     assert row["compliance_status"] == "NON_COMPLIANT", row["finding"]
-    assert "decided on the owner's note: Applies to every valve" in row["finding"]
+    assert "owner note: context confirmed: Applies to every valve" in row["finding"]
+    assert row["trust_label"] == rule_trust.OWNER_NOTE_CONTEXT
+    rows = crs_mapping.build_crs_rows([row], [], "sheet.pdf")
+    assert rows and {r["rule_trust"] for r in rows} == {"owner note: context confirmed"}
 
 
 @pytest.mark.parametrize("note", [None, "", "   "])
@@ -316,7 +321,6 @@ def test_a_note_does_not_lift_a_low_reading_confidence(monkeypatch):
 
 def _tagged(values):
     run, scope = _sheet(label="Set pressure", value=values[0])
-    from app import datasheets
 
     with db.connect() as conn:
         conn.execute("UPDATE submittal_facts SET equipment_tag = 'TAG-1'")
@@ -360,7 +364,6 @@ def test_one_tag_unclear_keeps_the_rule_from_passing(monkeypatch):
 
 def test_two_values_inside_one_tag_stay_a_query(monkeypatch):
     run, scope = _tagged(["9 barg", "8 barg"])
-    from app import datasheets
 
     datasheets.create_fact(
         submittal_document_id=SHEET,
@@ -374,6 +377,58 @@ def test_two_values_inside_one_tag_stay_a_query(monkeypatch):
     assert {_reason(f) for f in rows if f["compliance_status"] == QUERY} == {
         "several_values"
     }
+
+
+def _four_valves(words):
+    run, scope = _sheet(label="Body material", value=words[0])
+    with db.connect() as conn:
+        conn.execute("UPDATE submittal_facts SET equipment_tag = 'TAG-1'")
+    for n, value in enumerate(words[1:], 2):
+        datasheets.create_fact(
+            submittal_document_id=SHEET,
+            chunk_id="fc",
+            field_label="Body material",
+            raw_value=value,
+            page=1,
+            equipment_tag=f"TAG-{n}",
+        )
+    return run, scope
+
+
+def _body_rule():
+    rule = _typed(NOT_COPPER, IS_NOT, ["cast iron"])
+    return {
+        **rule,
+        "strength": "context_dependent",
+        "sentence_strength": "shall",
+        "context_flag": "scope_elsewhere",
+        "approval": {**rule["approval"], "note": "Applies to these valves."},
+    }
+
+
+def test_the_first_rule_gets_its_own_row_on_each_of_four_valves(monkeypatch):
+    monkeypatch.setattr(settings, "owner_note_lifts_context_flag_enabled", True)
+    run, scope = _four_valves(
+        ["stainless steel", "stainless steel", "cast iron", "stainless steel"]
+    )
+    rows = _ours(_review(monkeypatch, run, scope, _body_rule()))
+    by_tag = {f["equipment_tag"]: f["compliance_status"] for f in rows}
+    assert by_tag == {
+        "TAG-1": "COMPLIANT",
+        "TAG-2": "COMPLIANT",
+        "TAG-3": "NON_COMPLIANT",
+        "TAG-4": "COMPLIANT",
+    }
+    assert {f["trust_label"] for f in rows} == {rule_trust.OWNER_NOTE_CONTEXT}
+    part = coverage_pair.for_run(db.connect(), run)["rulebook_v2"]
+    assert (part["rules"], part["fail"], part["pass"]) == (1, 1, 0)
+
+
+def test_the_first_rule_with_the_switch_off_is_a_query_on_every_valve(monkeypatch):
+    run, scope = _four_valves(["cast iron", "cast iron", "cast iron", "cast iron"])
+    rows = _ours(_review(monkeypatch, run, scope, _body_rule()))
+    assert len(rows) == 4 and {f["compliance_status"] for f in rows} == {QUERY}
+    assert {_reason(f) for f in rows} == {"scope_outside_sentence"}
 
 
 def test_the_checklist_is_told_each_tags_value():
