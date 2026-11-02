@@ -14,8 +14,9 @@ UTC day, the same clock as the ledger and the November window in `claude_spend.t
 `claude_spend.reserve_all` asks here inside its locked step, and every Claude call reserves there, so the cap is one
 check on every route. A stored answer (`answer_on_file`) is asked before it and costs nothing, so it still answers.
 
-SWITCH: `claude_cost_controls_enabled`, off. Off, no cap is checked and nothing is written. The ledger holds counts
-and digests, so nothing here can carry document text. Step names and USD only.
+THE DAY CAP HAS NO SWITCH (owner, #1584: a day cannot exceed USD 100). `claude_cost_controls_enabled`, off, governs
+only the report: off, nothing is written. The ledger holds counts and digests, so nothing here can carry document
+text. Step names and USD only.
 """
 
 from __future__ import annotations
@@ -91,9 +92,7 @@ def charged_today(lines: Iterable[dict]) -> float:
 
 
 def over_day_cap(worst: float, charged: float) -> str | None:
-    """Why this call may not be made, or None. Switch off: None."""
-    if not enabled():
-        return None
+    """Why this call may not be made, or None."""
     cap = day_cap()
     if charged + worst <= cap:
         return None
@@ -245,10 +244,8 @@ def record_run(review_run_id: str | None) -> None:
 
 @contextlib.contextmanager
 def for_route(review_run_id: str) -> Iterator[None]:
-    """A reviewer's Claude route on a finished run: its calls name the run, and its record is brought up to date."""
-    if not enabled():
-        yield
-        return
+    """A reviewer's Claude route on a finished run: its calls name the run, so the run's USD 5 per step is what they
+    are held to, switch or no switch. With the report's switch on, the run's record is brought up to date."""
     from . import claude_spend
 
     try:

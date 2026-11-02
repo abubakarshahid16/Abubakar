@@ -36,7 +36,7 @@ screen as what it said.
 TWO LIMITS ON EVERY CALL, BOTH INSIDE `_model_call_or_409(step)` so no route
 can reach the transport without them:
 
-  1. The USD caps (owner rule 2026-09-25: USD 5 per step; USD 500 in total for November, 20 before).
+  1. The USD caps (USD 5 per step of one review run, #1584; USD 100 a day; USD 500 in total for November, 20 before).
      The transport is wrapped in `claude_spend.metered(transport, step)`:
      each call's worst case is checked BEFORE it leaves, and each call is
      written to the one `claude_spend` ledger AFTER it returns, so the total
@@ -251,18 +251,23 @@ def _settle(transport, result: dict, exhausted: bool | str | None, model_call) -
         "call_cap": getattr(model_call, "max_calls", None),
         "usage": usage,
         "spend_total": claude_budget.record(usage),
-        "usd_spent": _usd_spent(getattr(model_call, "step", None)),
+        "usd_spent": _usd_spent(getattr(model_call, "step", None), result.get("review_run_id")),
     }
 
 
-def _usd_spent(step: str | None) -> dict:
+def _usd_spent(step: str | None, review_run_id: str | None = None) -> dict:
     """What the `claude_spend` ledger - the one the USD caps read - says has
     been spent on this route's step and in total, beside the caps."""
     caps = claude_spend.Caps.from_settings()
+    with claude_spend.for_run(review_run_id):
+        step_usd = claude_spend.step_spent(step) if step else None
     return {"step": step,
-            "step_usd": claude_spend.spent(step) if step else None,
+            "step_usd": step_usd,
+            "step_boundary": "this review run" if review_run_id else "every call on this step",
             "total_usd": claude_spend.spent(),
-            "cap_per_step_usd": caps.per_step, "cap_total_usd": caps.total}
+            "today_usd": claude_spend_report.charged_today(claude_spend.entries()),
+            "cap_per_step_usd": caps.per_step, "cap_total_usd": caps.total,
+            "cap_per_day_usd": claude_spend_report.day_cap()}
 
 
 def _by_finding(findings) -> dict:

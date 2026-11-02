@@ -659,24 +659,24 @@ def _local_status(now: float) -> dict | None:
     if code is not None:
         return _status(code, now=now)
     caps = claude_spend.Caps.from_settings()
-    step, total = claude_spend.spent(VISION_STEP), claude_spend.spent()
+    step, total = claude_spend.step_spent(VISION_STEP), claude_spend.spent()
+    whose = " in this review run" if claude_spend.current_run() else ", outside a review run, all time"
     if step >= caps.per_step:
         return _status("BUDGET_REACHED", now=now,
-                       detail=f"vision step: ${step:.2f} of ${caps.per_step:.2f}")
+                       detail=f"vision step{whose}: ${step:.2f} of ${caps.per_step:.2f}")
     if total >= caps.total:
         return _status("BUDGET_REACHED", now=now,
                        detail=f"total: ${total:.2f} of ${caps.total:.2f}")
-    if claude_spend_report.enabled():
-        day = claude_spend_report.charged_today(claude_spend.entries())
-        if day >= claude_spend_report.day_cap():
-            return {
-                **_status(
-                    "BUDGET_REACHED",
-                    now=now,
-                    detail=f"today (UTC): ${day:.2f} of ${claude_spend_report.day_cap():.2f}",
-                ),
-                **DAY_CAP_TEXT,
-            }
+    day = claude_spend_report.charged_today(claude_spend.entries())
+    if day >= claude_spend_report.day_cap():
+        return {
+            **_status(
+                "BUDGET_REACHED",
+                now=now,
+                detail=f"today (UTC): ${day:.2f} of ${claude_spend_report.day_cap():.2f}",
+            ),
+            **DAY_CAP_TEXT,
+        }
     return None
 
 

@@ -114,7 +114,7 @@ ms-marco-MiniLM-L-6-v2 int8 ONNX; OCR PP-OCRv6 tiny ONNX.
 409 `model_disabled` unless both standards-reader egress flags are on. `reasoning_provider.get_provider()` picks
 `ClaudeProvider` only when `REASONING_PROVIDER=claude` AND both flags AND a key; otherwise `OllamaProvider`, with
 the reason logged. Every Claude call leaves through `reader_transport` (the one socket) and is priced and capped by
-`claude_spend` (USD per step and total, ledger without text). Since 2026-09-30 the check is a RESERVATION:
+`claude_spend` (USD per step of one review run, all time for a call with no run, #1584; USD 100 a day; total; ledger without text). Since 2026-09-30 the check is a RESERVATION:
 `claude_spend.reserve` checks the call's worst case and writes it to the ledger in one step under a lock (a
 process-local mutex plus an OS lock on `<ledger>.lock`), so threads and processes sharing one ledger cannot all
 pass on the same last dollars; `settle` replaces it with the reported cost, and `settle_failure` charges a call that

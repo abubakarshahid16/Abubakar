@@ -283,8 +283,8 @@ class SettingsExt(BaseModel):
     #: lane's own gates stay. OFF: no hook writes and an automatic row does not count; blocks still apply.
     #: Env: CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED.
     claude_auto_approve_reviews_enabled: bool = False
-    #: #805 plan change 6 E (`claude_spend_report`): the USD 100 a day checked on every Claude call before it leaves,
-    #: and each review run's spend per step in its record and audit. OFF: nothing changes.
+    #: #805 plan change 6 E (`claude_spend_report`): each review run's spend per step in its record and audit. OFF:
+    #: nothing is written. The USD 100 a day does not read this: it always binds (owner, #1584).
     #: Env: CLAUDE_COST_CONTROLS_ENABLED.
     claude_cost_controls_enabled: bool = False
     #: The day cap; it can only narrow the owner's USD 100 (`claude_spend_report.day_cap`). Env: CLAUDE_BUDGET_USD_PER_DAY.

@@ -5,11 +5,13 @@ from settled ledger lines. Fake transports only: no socket, no real call, no loc
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib.util
 import json
 import re
 import runpy
 import sys
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -225,11 +227,15 @@ def test_the_day_cap_refuses_every_route_before_anything_is_sent(
 
 
 @pytest.mark.parametrize("lane", LANES)
-def test_with_the_switch_off_no_route_changes(lane, monkeypatch, sent):
+def test_the_day_cap_binds_every_route_with_the_report_switch_off(
+    lane, monkeypatch, sent
+):
+    """Owner, #1584: a day cannot exceed USD 100. The switch governs the report, not the cap."""
     monkeypatch.setattr(settings, "claude_cost_controls_enabled", False)
     _write(_settled(99.9999))
-    LANES[lane](monkeypatch)
-    assert len(sent) == 1
+    with contextlib.suppress(claude_spend.BudgetExceeded, rp.ProviderRefused):
+        LANES[lane](monkeypatch)
+    assert sent == [], f"{lane} sent past the day cap"
 
 
 def test_under_the_cap_the_call_goes_out(sent):
@@ -646,7 +652,9 @@ def test_a_reviewers_route_charges_the_run_and_updates_its_record(monkeypatch, s
     assert _outcome()["claude_spend"]["steps"][0]["step"] == claude_api.STEP_RECHECK
 
 
-def test_with_the_switch_off_a_route_tags_nothing(monkeypatch, sent):
+def test_with_the_report_off_a_route_still_names_its_run_but_writes_no_record(
+    monkeypatch, sent
+):
     monkeypatch.setattr(settings, "claude_cost_controls_enabled", False)
     _send.usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
     _route_stubs(monkeypatch)
@@ -655,7 +663,7 @@ def test_with_the_switch_off_a_route_tags_nothing(monkeypatch, sent):
         TestClient(app).post("/api/reviews/runs/run-1/claude/recheck").status_code
         == 200
     )
-    assert all("run" not in e for e in claude_spend.entries())
+    assert [e["run"] for e in claude_spend.entries()] == ["run-1"]
     assert "claude_spend" not in _outcome()
 
 
@@ -726,7 +734,7 @@ def test_the_vision_status_says_the_day_cap_is_reached(monkeypatch):
     assert "clears by itself" not in state["fix"], "an open hold can outlast midnight"
     assert "CLAUDE_BUDGET" not in state["fix"] and "Raise" not in state["fix"]
     monkeypatch.setattr(settings, "claude_cost_controls_enabled", False)
-    assert _vision_block() is None
+    assert _vision_block()["state"] == "BUDGET_REACHED", "the day cap has no switch"
 
 
 # ---------------------------------------------- rule 1: no script opens the lane without the app's gate
@@ -855,3 +863,135 @@ def test_the_vision_status_at_the_step_cap_keeps_its_own_words(monkeypatch):
     _write(_settled(5.0, step=vision_reader.VISION_STEP))
     state = _vision_block()
     assert state["state"] == "BUDGET_REACHED" and "CLAUDE_BUDGET" in state["fix"]
+    assert "outside a review run, all time" in state["detail"]
+    with claude_spend.for_run("run-1"):
+        assert _vision_block() is None, "that spend is not this run's"
+
+
+# ---------------------------------------------- the step cap is per review run (owner, #1584)
+
+
+def _hold_in(run, step="a-step", usd=4.0):
+    with claude_spend.for_run(run):
+        return claude_spend.reserve(step, usd, model=MODEL)
+
+
+def test_a_step_of_one_run_cannot_exceed_5_and_another_run_has_its_own():
+    _settle(_hold_in("run-1"), {"input_tokens": 1_500_000, "output_tokens": 0})
+    with pytest.raises(
+        claude_spend.BudgetExceeded, match="per step of this review run"
+    ):
+        _hold_in("run-1", usd=2.5)
+    assert _hold_in("run-2", usd=4.9), "a new run id gets a new USD 5"
+
+
+def test_a_re_run_of_the_same_document_is_held_by_the_day_cap():
+    """The same step under ever-new run ids: each has USD 5, so the day cap is what stops them."""
+    for n in range(20):
+        _hold_in(f"run-{n}", usd=5.0)
+    with pytest.raises(claude_spend.BudgetExceeded, match="a day"):
+        _hold_in("run-20", usd=0.01)
+    assert claude_spend.spent("a-step") == pytest.approx(100.0)
+
+
+def test_an_open_hold_counts_on_its_run_at_its_worst_case():
+    _hold_in("run-1", usd=4.0)
+    with pytest.raises(claude_spend.BudgetExceeded, match="per step"):
+        _hold_in("run-1", usd=1.5)
+
+
+def test_a_settlement_outside_the_run_still_counts_on_the_run():
+    """A batch settled later, on another thread, must not slip off its run's cap."""
+    held = _hold_in("run-1", usd=4.9)
+    _settle(held, {"input_tokens": 2_000_000, "output_tokens": 0})
+    assert claude_spend.entries()[-1]["run"] == "run-1"
+    with pytest.raises(claude_spend.BudgetExceeded, match="per step"):
+        _hold_in("run-1", usd=1.5)
+
+
+@pytest.mark.parametrize("step", ["chat", "b4-vision", "a-script"])
+def test_a_send_with_no_run_reads_every_line_of_its_step_as_before(step):
+    """Chat, a read at upload, a script, an offline job: at least as tight as today, runs' lines included."""
+    _settle(
+        _hold_in("run-1", step=step, usd=4.0),
+        {"input_tokens": 1_500_000, "output_tokens": 0},
+    )
+    with pytest.raises(claude_spend.BudgetExceeded, match="per step"):
+        claude_spend.reserve(step, 2.5, model=MODEL)
+
+
+def test_the_no_run_words_do_not_claim_a_run():
+    _write(_settled(4.9999, step="chat"))
+    with pytest.raises(claude_spend.BudgetExceeded) as refused:
+        claude_spend.reserve("chat", 1.0, model=MODEL)
+    assert "review run" not in str(refused.value)
+
+
+def test_a_standard_stays_25_whatever_the_run():
+    step = claude_spend.STANDARD_STEP_PREFIX + "X"
+    _write(_settled(24.9999, step=step))
+    with pytest.raises(claude_spend.BudgetExceeded, match=r"cap \$25\.00"):
+        _hold_in("run-1", step=step, usd=0.01)
+    assert claude_spend.Caps.from_settings().for_step(step).per_step == 25.0
+
+
+def test_a_batch_in_a_run_cannot_cross_its_step_cap_together():
+    with claude_spend.for_run("run-1"), pytest.raises(claude_spend.BudgetExceeded):
+        claude_spend.reserve_all([("a-step", 3.0), ("a-step", 3.0)], model=MODEL)
+    assert claude_spend.entries() == []
+
+
+def _race(worker, count):
+    """`count` threads at once; each returns True when its reservation was accepted."""
+    won = []
+    start = threading.Barrier(count)
+
+    def run(n):
+        start.wait()
+        try:
+            worker(n)
+        except claude_spend.BudgetExceeded:
+            return
+        won.append(n)
+
+    threads = [threading.Thread(target=run, args=(n,)) for n in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return won
+
+
+def test_concurrent_reservations_on_one_run_cannot_pass_5():
+    won = _race(lambda n: _hold_in("run-1", usd=0.6), 20)
+    assert len(won) == 8
+    assert claude_spend.spent("a-step") == pytest.approx(4.8)
+
+
+def test_concurrent_reservations_on_many_runs_cannot_pass_100(monkeypatch):
+    monkeypatch.setattr(settings, "claude_cost_controls_enabled", False)
+    won = _race(lambda n: _hold_in(f"run-{n}", usd=4.0), 40)
+    assert len(won) == 25
+    assert claude_spend.spent() == pytest.approx(100.0)
+
+
+def test_open_holds_fill_the_day_with_the_report_switch_off(monkeypatch):
+    monkeypatch.setattr(settings, "claude_cost_controls_enabled", False)
+    _write(_hold(99.5, reservation="open"))
+    with pytest.raises(claude_spend.BudgetExceeded, match="a day"):
+        _hold_in("run-1", usd=1.0)
+
+
+def test_the_route_reports_this_runs_step_and_the_day(monkeypatch, sent):
+    _send.usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+    _route_stubs(monkeypatch)
+    _run()
+    _write(_settled(4.5, step=claude_api.STEP_RECHECK))
+    body = (
+        TestClient(app)
+        .post("/api/reviews/runs/run-1/claude/recheck")
+        .json()["usd_spent"]
+    )
+    assert 0 < body["step_usd"] < 1, "another run's spend is not this run's"
+    assert body["step_boundary"] == "this review run"
+    assert body["cap_per_day_usd"] == 100.0 and body["today_usd"] > 4.5
