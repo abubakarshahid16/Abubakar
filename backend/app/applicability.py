@@ -47,7 +47,15 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review, word_pages
+from . import (
+    datasheets,
+    errors,
+    fts_index,
+    standard_ids,
+    standards,
+    submittal_review,
+    word_pages,
+)
 from .claude_auto_approve import lists_cited
 from .db import connect
 from .held_standards import mark_rows
@@ -1337,7 +1345,7 @@ def select(
         # scope naming no item) says so in plain words.
         page = word_pages.other_document_page(decision.get("page"))
         cited = (
-            f"\"{decision.get('quote')}\" ({page})"
+            f'"{decision.get("quote")}" ({page})'
             if decision.get("quote")
             else "no specific quoted clause"
         )

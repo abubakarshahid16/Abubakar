@@ -147,7 +147,8 @@ def _read_as_parts(document_id: str) -> bool:
             (document_id,),
         ).fetchall()
         _PARTS[key] = len(stored) != len(heads) or any(
-            head not in _squash(r["text"]) for r, head in zip(stored, heads)
+            head not in _squash(r["text"])
+            for r, head in zip(stored, heads, strict=True)
         )
     return _PARTS[key]
 
