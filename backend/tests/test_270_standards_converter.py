@@ -357,7 +357,7 @@ def test_a_leading_condition_found_in_the_clause_is_kept_as_the_rows_condition()
         "requirement_text": "For gas service the casing design pressure shall not exceed 25 bar.",
     }
     status, _reason, check = _verdict({**GOOD, "condition": "For gas service"}, row)
-    assert status == "verified" and check.condition == "for gas service"
+    assert status == "verified" and check.condition == "For gas service"
 
 
 def test_the_file_row_carries_the_condition_cut_from_the_clause(tmp_path):

@@ -851,9 +851,8 @@ def ai_unit(fact: dict) -> str | None:
 
 
 def unit_in_quote(unit: str, quote: str | None) -> bool:
-    """Does the AI's QUOTE - the words `claude_datasheet.accept` proved are on
-    the page - print this unit? Whole, case-folded; a number may touch it
-    ("75kW") but a letter may not ("m3/h" is not in "Nm3/h")."""
+    """Does the AI's proved QUOTE print this unit? Whole, case-folded; a number may
+    touch it ("75kW"), a letter may not ("Nm3/h" is not "m3/h"), nor "mPa" be "MPa"."""
     folded = claude_datasheet._fold(unit)
     return bool(folded) and re.search(
         r"(?<![^\W\d_])" + re.escape(folded) + r"(?![^\W_])",

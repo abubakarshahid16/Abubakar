@@ -13,9 +13,30 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from .numparse import case_kept_words, mark_case_kept
+
 
 def fold(text: str | None) -> str:
     return " ".join((text or "").lower().split())
+
+
+def as_printed_on(part: str | None, text: str | None) -> str:
+    """`part` of a rule (a condition, an exception) as `text` prints it, one spaced.
+    What is stored is read again later, so it must not lose the case of its units:
+    "5 mpa" would read as 5 MPa where the clause says 5 mPa (#1618). When `text` does
+    not hold it (a hyphen at a line end) it stays as given, with its case."""
+    words = (part or "").split()
+    pattern = r"\s+".join(map(re.escape, words))
+    found = list(re.finditer(pattern, text or "", re.IGNORECASE)) if words else []
+    same = [m for m in found if case_kept_words(m.group(0)) == case_kept_words(part)]
+    chosen = (same or found or [None])[0]
+    return " ".join(chosen.group(0).split()) if chosen else " ".join(words)
+
+
+def fold_for_gate(text: str | None) -> str:
+    """`fold` for a comparison that must tell mPa from MPa. Holds a private mark:
+    compare with it, and never store or show it (#1618)."""
+    return fold(mark_case_kept(text or ""))
 
 
 _fold = fold
