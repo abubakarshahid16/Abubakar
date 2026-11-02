@@ -13,7 +13,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Job | Modules |
 |---|---|
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
-| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_text` |
+| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
 
 ## Modules
@@ -27,6 +27,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `admin_explorer` | Read-only database explorer for the Administration page. Phase 8 |
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `clause_scope` | Choose the standards that apply to a submittal |
+| `division_claude` | Choose the standards that apply to a submittal |
 | `division_text` | Choose the standards that apply to a submittal |
 | `same_value` | When two readings of a field are one value: the same number and unit with a plain note; a note that changes the meaning stays a second value |
 | `label_match` | A split abbreviation ("tube o d") is joined before the roles table is read; a reading with no unit beside the same number with one is one value (switch `datasheet_label_join_enabled`) |

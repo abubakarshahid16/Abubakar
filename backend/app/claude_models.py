@@ -53,6 +53,7 @@ MODEL_DEFAULT_ROUTES = frozenset(
         "select_standards",
         "applicability",
         "clause_applicability",
+        "division_scope",
         "scope-reasoning-decide",
         "b8-answer-judge",
         "engineering_check",

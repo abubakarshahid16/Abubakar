@@ -155,6 +155,7 @@ DECLARED_BY = {
     "claude_selection.py": "claude_api.py",  # the route builds the call
     "comparison.py": "comparison.py",  # MATCH_ENGINE=claude, inside run_comparison
     "match_claude.py": "comparison.py",  # its Claude ask
+    "division_text.py": "comparison.py",  # the division gate, inside run_comparison
     "crs_wording.py": "crs_wording.py",
     "datasheet_ai.py": "datasheets.py",  # read per document from extract_facts
     "field_naming.py": "comparison.py",  # inside run_comparison
