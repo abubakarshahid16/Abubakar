@@ -99,6 +99,12 @@ TEST_PINS: dict[str, object] = {
     # #882 technique 2, on by default under `match_enabled`; in tests it would
     # be two model calls per requirement left without a value.
     "match_ask_max_per_run": 0,
+    # On by default since Lock 3 (#1626); in tests it would be a local model call per requirement of a procedure or specification.
+    "clause_review_enabled": False,
+    # On by default since Lock 3 (#1626); in tests it would be a reader model call per page; it also gates the Claude vision reader.
+    "geometry_reader_enabled": False,
+    # On by default since Lock 3 (#1626); in tests it would be writes files under the home folder for each finished review.
+    "review_audit_report_enabled": False,
 }
 
 #: The only values these fields may hold when a test session starts. A test
@@ -205,15 +211,15 @@ EGRESS_SAFE: dict[str, object] = {
     "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,
     # --- local only, no model or socket: a recommendation is raised as a query (order 288.2, off by default)
-    "recommendation_queries_enabled": False,
+    "recommendation_queries_enabled": True,
     # --- local only, no model or socket: a value marked By Contractor / TBA is a query, never a verdict (#1475, D2, off by default)
-    "deferred_value_is_query_enabled": False,
+    "deferred_value_is_query_enabled": True,
     # --- local only, no model or socket: document kind from the title block (#1474, off by default)
-    "document_kind_enabled": False,
+    "document_kind_enabled": True,
     # --- local only, no model or socket: a page is read when a reading came back (#1473, off by default)
-    "page_read_by_reading_enabled": False,
+    "page_read_by_reading_enabled": True,
     # --- local only, no model or socket: a procedure is checked against its own text (#1476, off by default)
-    "procedure_path_enabled": False,
+    "procedure_path_enabled": True,
     # --- Claude through reader_transport only, on a database copy, a script's switch (#1584, off by default)
     "standards_compiler_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
@@ -221,27 +227,27 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local model only, no socket but model_transport: whole-document clause review (off by default)
     "clause_review_whole_document_enabled": False,
     # --- read-only display of the jobs row, no model or socket (#1494, off by default)
-    "review_progress_bar_enabled": False,
+    "review_progress_bar_enabled": True,
     # --- local files only, no model or socket: a per-review audit report (#1525, off by default)
     "review_audit_report_enabled": False,
     "review_audit_dir": "",  # empty = the default audit folder outside the repo (#1525)
     # --- local only, no model or socket: a review that read nothing fails (#1495, off by default)
-    "nothing_read_fails_enabled": False,
+    "nothing_read_fails_enabled": True,
     # --- local only, no model or socket: a specification is checked against a must-contain list (#1479, off by default)
     "spec_kit_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
-    "datasheet_one_value_enabled": False,
+    "datasheet_one_value_enabled": True,
     # --- local only, no socket: the bench also prints the planted-defect table (#1607, off by default)
     "planted_defects_bench_enabled": False,
     # --- local only, no model or socket: a split abbreviation is joined; a unit left off one copy is one value (off by default)
-    "datasheet_label_join_enabled": False,
+    "datasheet_label_join_enabled": True,
     # --- local only, no model or socket: a drawing is checked against a DRAFT must-contain list (#1484, off by default)
     "parked_kits_draft_enabled": False,
     # --- local only, no model or socket: a transmittal is checked against the held documents and a named list (#1482, off by default)
-    "transmittal_kit_enabled": False,
+    "transmittal_kit_enabled": True,
     "transmittal_required_list_document_ids": "",
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
-    "kind_chooses_rules_enabled": False,
+    "kind_chooses_rules_enabled": True,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
     "rules_by_equipment_scope_enabled": False,
     # --- local only, no model or socket: extraction stores each rule's equipment scope (off by default)
@@ -251,15 +257,15 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: draft pump kit cards join the pump checklist (#1478, off by default)
     "pump_kit_draft_enabled": False,
     # --- local only, no model or socket: a value at a percent limit is at it in every unit (#1475, off by default)
-    "at_limit_precision_enabled": False,
-    "percent_kind_check_enabled": False,
+    "at_limit_precision_enabled": True,
+    "percent_kind_check_enabled": True,
     # --- local only, no model or socket: CRS export quality, export only (#1503, off by default)
-    "crs_export_quality_enabled": False,
+    "crs_export_quality_enabled": True,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
     "vessel_kit_draft_enabled": False,
     # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
-    "leading_dot_decimal_enabled": False,
-    "data_page_not_frontmatter_enabled": False,
+    "leading_dot_decimal_enabled": True,
+    "data_page_not_frontmatter_enabled": True,
     # --- local only, no model or socket: a repeated rights footer is not front-matter evidence (#1478, off by default)
     "running_footer_not_frontmatter_enabled": False,
     # --- local only, no model or socket: a drawing page with a header only is routed to recognition (off by default)
@@ -269,24 +275,24 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: only the title block sets the equipment type (1 Nov, off by default)
     "equipment_from_title_block_enabled": False,
     # --- local only, no model or socket: PDF headings from font size and weight (#1522, off by default)
-    "pdf_heading_detection_enabled": False,
+    "pdf_heading_detection_enabled": True,
     "word_page_markers_enabled": False,
     # --- read by the page only, one local /api/auth/me a minute, no model or socket (order 4b, off by default)
-    "session_expired_notice_enabled": False,
+    "session_expired_notice_enabled": True,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
-    "one_checked_definition_enabled": False,
+    "one_checked_definition_enabled": True,
     "owner_approved_rules_decide_enabled": False,
     # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
-    "procedure_crs_fields_enabled": False,
+    "procedure_crs_fields_enabled": True,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own
     "claude_auto_approve_reviews_enabled": False,
     "claude_cost_controls_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
-    "playbook_section_presence_enabled": False,
+    "playbook_section_presence_enabled": True,
     # --- local only, no model or socket: presence check of a playbook whose standard is not held (#1522, off by default)
-    "playbook_presence_without_standard_enabled": False,
+    "playbook_presence_without_standard_enabled": True,
     # --- local only, no model or socket: a procedure's CRS gets its playbook rows as engineer rows (#1522 b, off by default)
-    "procedure_playbook_rows_enabled": False,
+    "procedure_playbook_rows_enabled": True,
     # --- local only, no model or socket: draft exchanger kit cards join the heat exchanger checklist (#1481, off by default)
     "exchanger_kit_draft_enabled": False,
 }

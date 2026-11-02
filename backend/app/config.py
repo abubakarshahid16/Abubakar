@@ -454,11 +454,11 @@ class Settings(SettingsExt, BaseSettings):
     #: spot-check; one audit error drops the family to unproven. Safety fields and condition words: reference data.
     rule_auto_use_enabled: bool = False
     #: Order 288.2: a recommendation of a standard the datasheet names is raised as a query (OFF: ignored).
-    recommendation_queries_enabled: bool = False
+    recommendation_queries_enabled: bool = True
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     tested_cards_decide_enabled: bool = False  # order 306.1
-    deferred_value_is_query_enabled: bool = False  # D2, #1475
+    deferred_value_is_query_enabled: bool = True  # D2, #1475
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md
@@ -546,7 +546,7 @@ class Settings(SettingsExt, BaseSettings):
     #: against the text layer (`extraction_method='vision'`); a code-only noise
     #: filter (`row_noise.py`) drops page furniture from every reader. Env:
     #: GEOMETRY_READER_ENABLED. The owner flips it.
-    geometry_reader_enabled: bool = False
+    geometry_reader_enabled: bool = True
     #: Order 259.5: field naming (`field_naming.py`) on its OWN switch. Env: FIELD_NAMING_ENABLED.
     field_naming_enabled: bool = False
     #: #830 / #501: WHICH ENGINE the page-image (vision) reader uses under
@@ -745,7 +745,7 @@ class Settings(SettingsExt, BaseSettings):
     #: still at the OCR fallback's low confidence and engineer-review state.
     #: Trade-off: a CRS template workbook is then indexed too. OFF. Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
-    procedure_path_enabled: bool = False  # #1476, see procedure_text
+    procedure_path_enabled: bool = True  # #1476, see procedure_text
     #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
     #: is accepted and indexed through the SAME pipeline as a PDF, read by
     #: `docx_reader` with its structure kept and cited by heading path and
@@ -755,7 +755,7 @@ class Settings(SettingsExt, BaseSettings):
     #: back for it, apart from "fields found" (`page_ledger.coverage` adds
     #: `pages_read` / `pages_not_read`), and a Word file reaches the fact reader
     #: through `word_flow`. OFF: nothing changes. Env: PAGE_READ_BY_READING_ENABLED.
-    page_read_by_reading_enabled: bool = False
+    page_read_by_reading_enabled: bool = True
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow
@@ -1092,8 +1092,8 @@ class Settings(SettingsExt, BaseSettings):
     # #1474: decide a document's KIND (datasheet, procedure, specification,
     # contract, ...) from its title block and cover, and stop the body-text
     # equipment fallback for documents that are not datasheets. No model call.
-    # OFF by default; off, nothing is stored and nothing changes.
-    document_kind_enabled: bool = False
+    # ON by default since Lock 3 (#1626); off, nothing is stored and nothing changes.
+    document_kind_enabled: bool = True
 
     # Content-quality gate. A chunk failing these does not read like natural
     # language and is stored but not retrievable. Tuned against known-good
@@ -1248,7 +1248,7 @@ class Settings(SettingsExt, BaseSettings):
     review_ai_check_enabled: bool = True
     #: #1494: progress block of a running review (reads the jobs row only); off: no
     #: `progress_detail`. Env: REVIEW_PROGRESS_BAR_ENABLED.
-    review_progress_bar_enabled: bool = False
+    review_progress_bar_enabled: bool = True
     review_progress_stall_amber_s: int = 120  # env REVIEW_PROGRESS_STALL_AMBER_S
     #: Seconds one LOCAL-model call of the AI engineering check may take before
     #: the check stops for the run (recorded). The Claude lane keeps its own.

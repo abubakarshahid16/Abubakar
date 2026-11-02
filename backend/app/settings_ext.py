@@ -25,7 +25,7 @@ class SettingsExt(BaseModel):
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every
     #: quote verified by code on the stored page text, never a verdict. OFF: nothing
     #: changes. Env: CLAUSE_REVIEW_ENABLED.
-    clause_review_enabled: bool = False
+    clause_review_enabled: bool = True
     #: The time allowed per page of the document; the run stops cleanly when
     #: pages x this is spent and names the requirements not reviewed. Measured
     #: minutes per page is recorded on the run. Env: CLAUSE_REVIEW_SECONDS_PER_PAGE.
@@ -54,7 +54,7 @@ class SettingsExt(BaseModel):
     #: no current fact AND no page text or reading ends failed "nothing read", never
     #: completed. Pages read with no datasheet field are NOT failed. OFF: nothing
     #: changes. Env: NOTHING_READ_FAILS_ENABLED.
-    nothing_read_fails_enabled: bool = False
+    nothing_read_fails_enabled: bool = True
     #: #1479 specification kit (preparation, `spec_kit.py`): a DRAFT must-contain list per
     #: discipline looked up in a specification's own pages, no model; numeric limits
     #: cross-checked with a datasheet of the same number or tag. Engineer rows only.
@@ -64,7 +64,7 @@ class SettingsExt(BaseModel):
     #: a sheet prints a range twice (a plain note on one reading), and a combined "a / b / c"
     #: label answers each text attribute it names. OFF: nothing changes.
     #: Env: DATASHEET_ONE_VALUE_ENABLED.
-    datasheet_one_value_enabled: bool = False
+    datasheet_one_value_enabled: bool = True
     #: #1607: `scripts/crs_bench.py` also runs the planted-defect sheets on its own copy and
     #: prints the table. Printed only: the gate does not read it until the baseline is
     #: stable. OFF: the bench runs no scorer. Env: PLANTED_DEFECTS_BENCH_ENABLED.
@@ -73,7 +73,7 @@ class SettingsExt(BaseModel):
     #: abbreviation ("tube o d" for O.D.) is joined before the role table is read, and a reading with no unit
     #: beside a reading of the same number with one is one value. Never decides (see `label_match`). OFF: nothing
     #: changes. Env: DATASHEET_LABEL_JOIN_ENABLED.
-    datasheet_label_join_enabled: bool = False
+    datasheet_label_join_enabled: bool = True
     #: #1484 (parked kits, preparation): the same look-up routed by document KIND for a kind a held
     #: standard covers (drawing, from SAES-A-202): a DRAFT must-contain list, no model, engineer
     #: rows only. Transmittal (#1482) and contract (#1483) have no held standard and no kit.
@@ -84,7 +84,7 @@ class SettingsExt(BaseModel):
     #: held document, and a required-submissions list named at run time (CLIENT DATA, read from the
     #: local DB only). No model; engineer rows only, never a verdict. OFF: nothing changes.
     #: Env: TRANSMITTAL_KIT_ENABLED.
-    transmittal_kit_enabled: bool = False
+    transmittal_kit_enabled: bool = True
     #: #1482: comma-separated ids of the held documents that are the required-submissions list;
     #: empty skips that step with one note. Env: TRANSMITTAL_REQUIRED_LIST_DOCUMENT_IDS.
     transmittal_required_list_document_ids: str = ""
@@ -94,7 +94,7 @@ class SettingsExt(BaseModel):
     #: no equipment-type standards, and its equipment type drives no review step (`kind_rules.py`).
     #: unknown / undecided keeps today's behaviour, marked. OFF: nothing changes.
     #: Env: KIND_CHOOSES_RULES_ENABLED.
-    kind_chooses_rules_enabled: bool = False
+    kind_chooses_rules_enabled: bool = True
     #: Rules by equipment scope (`equipment_scope.py`): a rule whose own scope (its single-equipment
     #: standard, or its document kind) names a DIFFERENT equipment type or
     #: kind than the submittal's is left out and counted in a note; unknown scope stays in. Narrowing
@@ -118,19 +118,19 @@ class SettingsExt(BaseModel):
     #: fail wrongly. ON: the limit comparison ignores float noise (1e-9 relative), never wider.
     #: The owner should switch this on promptly: it removes a possible wrong Fail. OFF: nothing
     #: changes. Env: AT_LIMIT_PRECISION_ENABLED.
-    at_limit_precision_enabled: bool = False
+    at_limit_precision_enabled: bool = True
     #: #1512: a value printed under a % label with a fraction-sized number ("0.30 %": 0.30 % or the
     #: fraction 0.30 = 30 %?) is never decided on the percent cards (PSV-27, PSV-28, PSV-29); it goes
     #: to the engineer with the reason. The owner should switch this on promptly: it removes a possible
     #: wrong approval. OFF: nothing changes. Env: PERCENT_KIND_CHECK_ENABLED.
-    percent_kind_check_enabled: bool = False
+    percent_kind_check_enabled: bool = True
     #: #1503 CRS EXPORT QUALITY (`crs_export_quality.py`): one row per section + clause, no
     #: empty rows, a page or "page not found (reason)" on every row, comments at most 350
     #: characters, Reasoning and Rule trust on an Internal sheet the contractor copy lacks,
     #: the standards sheet without "Considered, not applied", "not in your library" by kind,
     #: Priority from the fixed list. EXPORT ONLY: no verdict, status or finding changes.
     #: OFF: nothing changes. Env: CRS_EXPORT_QUALITY_ENABLED.
-    crs_export_quality_enabled: bool = False
+    crs_export_quality_enabled: bool = True
     #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
     #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every
@@ -140,12 +140,12 @@ class SettingsExt(BaseModel):
     #: `numparse.parse_value` and in `claims.extract_measurements` (".5 mm" was dropped); a stranded
     #: or glued dot (".5.3", "x.5") is no value. OFF: ".30" reads as 30 and ".5 mm" is dropped,
     #: as before. Env: LEADING_DOT_DECIMAL_ENABLED.
-    leading_dot_decimal_enabled: bool = False
+    leading_dot_decimal_enabled: bool = True
     #: Kit proof 1 Nov: a page whose lines are mostly measured values (a datasheet page) is never set
     #: aside as book front matter because of a copyright footer, so the fact reader sees it. OFF: the
     #: footer decides as before. Takes effect when a document is (re)chunked.
     #: Env: DATA_PAGE_NOT_FRONTMATTER_ENABLED.
-    data_page_not_frontmatter_enabled: bool = False
+    data_page_not_frontmatter_enabled: bool = True
     #: #1478 kit proof 1 Nov: a line carrying a front-matter marker ("Copyright ... All rights
     #: reserved.") that repeats on three or more pages is the document's running footer, so it is
     #: not counted as front-matter evidence on any page; a vendor sheet's drawing pages under it were
@@ -174,7 +174,7 @@ class SettingsExt(BaseModel):
     #: unclear (recall lost on purpose). A loose heading holding a generic cue ('Participants',
     #: 'Safety report summary') still counts as present; not fixed here.
     #: Env: PLAYBOOK_SECTION_PRESENCE_ENABLED.
-    playbook_section_presence_enabled: bool = False
+    playbook_section_presence_enabled: bool = True
     #: Owner decision 1 Nov (#1522): with PLAYBOOK_SECTION_PRESENCE also on, a playbook element whose
     #: standard is NOT held still gets the section-presence check. Missing: "Section not found: <element>.
     #: Required by <standard clause> per the draft HAZOP checklist (not yet engineer-approved); standard not
@@ -188,13 +188,13 @@ class SettingsExt(BaseModel):
     #: stated in full elsewhere is "unclear", not "not found".
     #: OFF (or presence off): "<standard> is not in the library" as before.
     #: Env: PLAYBOOK_PRESENCE_WITHOUT_STANDARD_ENABLED.
-    playbook_presence_without_standard_enabled: bool = False
+    playbook_presence_without_standard_enabled: bool = True
     #: #1522 (b) a review run of a document whose stored kind is `procedure` looks up the playbooks of
     #: that kind whose title cue is in the procedure's cover lines and adds one CRS row per element as an
     #: ENGINEER row (`procedure_playbook_rows`): never compliant, "found, engineer to confirm" with the page
     #: quote, 'unclear'/'missing' say so, a standard not held is never met. None matched: no rows and one
     #: review note. No model. OFF: the CRS is byte-identical. Env: PROCEDURE_PLAYBOOK_ROWS_ENABLED.
-    procedure_playbook_rows_enabled: bool = False
+    procedure_playbook_rows_enabled: bool = True
     #: #1481 heat exchanger kit PREPARATION (parked, milestone 58): append the DRAFT exchanger cards of
     #: `reference/exchanger_kit_draft.json` (the held standard SAES-E-004 requires the value, not already in the
     #: checklist) to the Heat Exchanger checklist. Draft only, never decides, local only, every row held for the
@@ -204,7 +204,7 @@ class SettingsExt(BaseModel):
     #: rules compared, AI use, gates, CRS) for each finished review, from what the run stored. Local files only,
     #: export only, no verdict changes, no model, no socket, no document text beyond page and clause numbers
     #: and stored quote snippets. OFF: nothing is written. Env: REVIEW_AUDIT_REPORT_ENABLED.
-    review_audit_report_enabled: bool = False
+    review_audit_report_enabled: bool = True
     #: Folder the audit files go under (`<date>-<run id>/`). Empty = `~/project/mirror/proof`.
     #: Env: REVIEW_AUDIT_DIR.
     review_audit_dir: str = ""
@@ -252,19 +252,19 @@ class SettingsExt(BaseModel):
     #: line standing alone with body text after it; or, in body type, a short line opening with a dotted
     #: section number (1.2, A.1). A lone '1.' never. Part of the chunk signature: ON marks every stored PDF stale until re-chunked.
     #: OFF: nothing is read, chunks and signature byte-identical. Env: PDF_HEADING_DETECTION_ENABLED.
-    pdf_heading_detection_enabled: bool = False
+    pdf_heading_detection_enabled: bool = True
     #: Order 4b: an expired sign-in (a 401) tells the reader so, once, on the sign-in form, and says
     #: unsaved decisions are kept; while signed in the page also asks `/api/auth/me` once a minute,
     #: because reads outside the gated routes answer an empty 200 instead of a 401. Sent to the page on
     #: the signed-in user (`Me.session_expired_notice`). OFF: the form with no reason and no extra
     #: request, as before. Env: SESSION_EXPIRED_NOTICE_ENABLED.
-    session_expired_notice_enabled: bool = False
+    session_expired_notice_enabled: bool = True
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print
     #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
     #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
-    one_checked_definition_enabled: bool = False
+    one_checked_definition_enabled: bool = True
     #: Owner's text on #1584: a rule the owner approved (`approval.tier == "owner"`) may decide a verdict, labelled
     #: "AI-built, quote-verified, owner-approved" (`rule_trust.tier_for_approved`), never "engineer-approved". Code
     #: still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick and, until ticked, no Approved
@@ -276,7 +276,7 @@ class SettingsExt(BaseModel):
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion
     #: marked as a guess, else NO-NUMBER. OFF: byte-identical, except that rows numbered while it was on
     #: keep printing NO-NUMBER and the reply guard stays for them. Env: PROCEDURE_CRS_FIELDS_ENABLED.
-    procedure_crs_fields_enabled: bool = False
+    procedure_crs_fields_enabled: bool = True
     #: Models that REJECT `temperature` (400 "deprecated for this model", measured on
     #: claude-sonnet-5, 2026-09-25). Prefix match on the id, so "claude-opus-5" also covers
     #: claude-opus-5-5. Sonnet 5.5 and Haiku 5.5 refuse any non-default value, and the value
