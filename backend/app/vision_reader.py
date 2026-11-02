@@ -632,8 +632,8 @@ STATUS_TEXT: dict[str, tuple[str, str]] = {
 #: Same state, other words: raising the step or total cap does nothing for a day cap, and nothing needs raising.
 DAY_CAP_TEXT = {
     "reason": "The Claude spending cap for today is reached.",
-    "fix": "It clears by itself the next day, at 00:00 UTC (05:00 in Pakistan). A call still in flight counts "
-    "until it settles. Nothing needs changing.",
+    "fix": "Settled spend resets at 00:00 UTC (05:00 in Pakistan). An open hold counts until it settles, or for up "
+    "to 24 hours from when it was placed. Nothing needs changing.",
 }
 
 _status_cache: dict[str, Any] = {}

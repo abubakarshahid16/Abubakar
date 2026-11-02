@@ -717,7 +717,13 @@ def test_the_vision_status_says_the_day_cap_is_reached(monkeypatch):
     _write(_settled(100.0))
     state = _vision_block()
     assert state["state"] == "BUDGET_REACHED" and "today (UTC)" in state["detail"]
-    assert "for today" in state["reason"] and "the next day" in state["fix"]
+    assert "for today" in state["reason"]
+    assert "Settled spend resets at 00:00 UTC" in state["fix"]
+    assert (
+        "until it settles, or for up to 24 hours from when it was placed"
+        in state["fix"]
+    )
+    assert "clears by itself" not in state["fix"], "an open hold can outlast midnight"
     assert "CLAUDE_BUDGET" not in state["fix"] and "Raise" not in state["fix"]
     monkeypatch.setattr(settings, "claude_cost_controls_enabled", False)
     assert _vision_block() is None
