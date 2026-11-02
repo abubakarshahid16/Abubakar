@@ -33,8 +33,15 @@ export function RunIncompleteNotes({ run }: { run: ReviewRunSummary }) {
     // PF4 step 2 (#884): the run's own clause coverage, with its denominator,
     // as the run stored it; a run made before the record shows no line, and
     // a count that does not add up is the warning the line itself carries.
-    run.clause_coverage
-      ? { id: "clause-coverage", text: `Clause coverage: ${run.clause_coverage.line}.`, warn: !run.clause_coverage.adds_up }
+    // Plan change 6 B: with the switch on, the pair from the one function instead.
+    run.coverage_pair
+      ? { id: "coverage-pair", text: run.coverage_pair.line, warn: false }
+      : run.clause_coverage
+        ? { id: "clause-coverage", text: `Clause coverage: ${run.clause_coverage.line}.`, warn: !run.clause_coverage.adds_up }
+        : null,
+    // The pair replaces the old line, not its warning: the stored ledger still failed to add up.
+    run.coverage_pair && run.clause_coverage && !run.clause_coverage.adds_up
+      ? { id: "clause-coverage-adds-up", text: "The stored clause counts do not add up; the engine flagged this itself.", warn: true }
       : null,
   ].filter((line): line is { id: string; text: string; warn: boolean } => line !== null);
   if (lines.length === 0) return null;
