@@ -1096,15 +1096,13 @@ def parse_limit_or_range(sentence: str) -> dict | None:
 #: stated a limit and the engine read none. The direction is the shared
 #: vocabulary's (`comparators`), never a second list here.
 _TRAILING_LIMIT = re.compile(
-    r"(?P<value>[-+]?" + _VALUE + r")\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
+    r"(?<![^\W\d_]-)(?P<value>(?:\+|(?<![^\W\d_])-)?" + _VALUE + r")\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
 
 
 def _parse_trailing_limit(sentence: str) -> dict | None:
     from . import comparators
 
     for match in _TRAILING_LIMIT.finditer(sentence or ""):
-        if match.group("value").startswith("-") and sentence[: match.start()][-1:].isalpha():
-            continue  # "A-5 mm or less": a joining hyphen, not a sign (#1619)
         direction = comparators.direction_of(match.group(0))
         raw_unit = unit_token(match.group("unit"))
         if direction is None or not raw_unit:

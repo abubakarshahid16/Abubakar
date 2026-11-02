@@ -450,8 +450,7 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
       only when it begins the value or follows whitespace or a comparator; a
       dash separated from its digits ("- 29"), glued to a letter, or inside a
       range ("29-343") is ambiguous: None. U+2010 and U+2011 follow the same rule.
-    * A minus directly after a letter ("A-5", "A\u22125") joins a tag or grade; it is
-      not a sign: None (#1619). After a space or a comparator ("T -5", "T=-5") it is one.
+    * A minus directly after a letter ("A-5") joins a tag or grade: None (#1619).
     """
     s = (value_str or "").strip().translate(_HYPHEN_AS_DASH)
     for c in MINUS_SIGNS:
@@ -470,7 +469,7 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
             return None
     prefix = s[:m.start("num")]
     if m.group("num").startswith("-") and prefix[-1:].isalpha():
-        return None              # "A-5": a joining hyphen, not a sign (#1619)
+        return None  # "A-5": a joining hyphen, not a sign (#1619)
     stripped = prefix.rstrip()
     negative_dash = False
     if stripped and stripped[-1] in "-" + DASHES:
