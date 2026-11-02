@@ -58,7 +58,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from . import comparators, numparse
+from . import claude_models, comparators, numparse
 from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
@@ -630,11 +630,8 @@ class ReaderSettings:
     #: the other one.
     allowed_hosts: tuple = ("api.anthropic.com",)
     model: str = "claude-sonnet-4-5"
-    #: One sentence in, one small JSON object out. A large budget here buys
-    #: nothing and pays for a model that decided to explain itself.
+    #: One sentence in, one small JSON object out (`claude_models.shape_output`).
     max_tokens: int = 512
-    #: Determinism is rule 5's precondition, so temperature is fixed at the
-    #: request and is not a setting anyone can raise.
     timeout_seconds: float = 30.0
     extra_headers: dict = field(default_factory=dict)
 
@@ -732,6 +729,7 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
     # datasheet and matcher call (unbilled, nothing read). Sent where accepted.
     if not _rejects_temperature(cfg.model):
         body["temperature"] = 0
+    claude_models.shape_output(body)
     return {"url": cfg.base_url.rstrip("/") + MESSAGES_PATH,
             "headers": headers, "body": body, "timeout": cfg.timeout_seconds}
 
@@ -778,6 +776,8 @@ def call_claude(prompt: str, *, transport, cfg: ReaderSettings | None = None, en
     request = build_request(prompt, cfg=cfg, env=env)
     payload = transport(request["url"], headers=request["headers"],
                         body=request["body"], timeout=request["timeout"])
+    if isinstance(payload, dict) and payload.get("stop_reason") == "max_tokens":
+        return ""  # cut off: `model_malformed`, could not read; never parsed as partial
     return response_text(payload)
 
 

@@ -366,10 +366,10 @@ def test_cached_tokens_count_towards_the_haiku_prompt_length():
 
 
 def test_the_haiku_worst_case_uses_the_rate_card_its_prompt_falls_on():
-    short = claude_spend.worst_case_usd(HAIKU, 3_000, 1_000)
-    assert short == pytest.approx((1_001 * 0.125 + 1_000 * 0.50) / 1e6)
-    long = claude_spend.worst_case_usd(HAIKU, 300_003, 1_000)
-    assert long == pytest.approx((100_002 * 0.625 + 1_000 * 2.50) / 1e6)
+    short = claude_spend.worst_case_usd(HAIKU, 3_000, 5_000)
+    assert short == pytest.approx((1_001 * 0.125 + 5_000 * 0.50) / 1e6)
+    long = claude_spend.worst_case_usd(HAIKU, 300_003, 5_000)
+    assert long == pytest.approx((100_002 * 0.625 + 5_000 * 2.50) / 1e6)
 
 
 def test_the_long_prompt_rate_is_haiku_only():
@@ -561,6 +561,156 @@ def test_the_datasheet_reader_names_the_model_that_answered(monkeypatch):
     )
     datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
     assert output_limits.model_used(call) == "answered-by"
+
+
+# ---------------------------- thinking counts inside max_tokens: the short routes
+
+FLOOR = 4096
+
+
+def _matcher_body(model, monkeypatch, reply=None):
+    seen = []
+    monkeypatch.setattr(settings, "claude_reasoning_model", model)
+    monkeypatch.setattr(settings, "match_engine", "claude")
+    monkeypatch.setattr(
+        reader_transport,
+        "transport",
+        lambda: _send(seen, reply or _reply(model, '{"n": 1}')),
+    )
+    outcome = comparison._ask_claude_for_a_pair("which pair?")
+    return seen, outcome
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_sentence_reader_has_room_to_think_at_low_effort(model):
+    seen = []
+    reader_api.call_claude(
+        "a sentence",
+        transport=_send(seen, _reply(model)),
+        cfg=_cfg(model),
+        env={"ANTHROPIC_API_KEY": KEY},
+    )
+    assert seen[0]["max_tokens"] == FLOOR
+    assert seen[0]["output_config"] == {"effort": "low"}
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_matcher_has_room_to_think_at_low_effort(model, monkeypatch):
+    seen, _outcome = _matcher_body(model, monkeypatch)
+    assert seen[0]["max_tokens"] == FLOOR
+    assert seen[0]["output_config"] == {"effort": "low"}
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_a_labelling_packet_has_room_to_think_at_low_effort(model):
+    seen = []
+    rp.ClaudeProvider(
+        model, transport=_send(seen, _reply(model)), step="labels"
+    ).reason(_packet(num_predict=300))
+    assert seen[0]["max_tokens"] == FLOOR
+    assert seen[0]["output_config"] == {"effort": "low"}
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_datasheet_reader_keeps_its_cap_and_reads_at_low_effort(model, monkeypatch):
+    seen = []
+    monkeypatch.setattr(settings, "claude_reasoning_model", model)
+    monkeypatch.setattr(settings, "datasheet_ai_claude_max_tokens", 8192)
+    monkeypatch.setattr(
+        reader_transport,
+        "transport",
+        lambda: _send(seen, _reply(model, '{"facts": []}')),
+    )
+    call, _why = datasheet_ai.model_call_for("claude")
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    assert seen[0]["max_tokens"] == 8192
+    assert seen[0]["output_config"] == {"effort": "low"}
+
+
+def test_an_effort_the_caller_chose_wins_and_chat_keeps_the_model_default():
+    seen = []
+    provider = rp.ClaudeProvider(
+        SONNET, transport=_send(seen, _reply(SONNET)), step="s"
+    )
+    provider.reason(_packet(effort="high"))
+    provider.reason(_packet(prompt="other", step="chat"))
+    assert seen[0]["output_config"] == {"effort": "high"}
+    assert "output_config" not in seen[1]
+    assert seen[1]["max_tokens"] == FLOOR
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5", "claude-haiku-4-5-20251001"])
+def test_an_older_model_keeps_its_cap_and_gets_no_effort(model):
+    seen = []
+    reader_api.call_claude(
+        "a sentence",
+        transport=_send(seen, _reply(model)),
+        cfg=_cfg(model),
+        env={"ANTHROPIC_API_KEY": KEY},
+    )
+    assert seen[0]["max_tokens"] == 512
+    assert "output_config" not in seen[0]
+
+
+@pytest.mark.parametrize(
+    "model,per_million", [(SONNET, 10.0), (OPUS, 20.0), (HAIKU, 0.50)]
+)
+def test_the_budget_gate_sees_the_raised_limit(model, per_million):
+    assert claude_spend.worst_case_usd(model, 0, 200) == pytest.approx(
+        claude_spend.worst_case_usd(model, 0, FLOOR)
+    )
+    assert claude_spend.worst_case_usd(model, 0, 200) >= FLOOR * per_million / 1e6
+
+
+def test_the_budget_gate_is_unchanged_for_an_older_model():
+    low = claude_spend.worst_case_usd("claude-sonnet-5", 0, 200)
+    assert low < claude_spend.worst_case_usd("claude-sonnet-5", 0, FLOOR)
+
+
+def test_a_cap_above_the_floor_is_never_lowered():
+    assert claude_spend.output_cap(SONNET, 8192) == 8192
+    assert claude_spend.output_cap(SONNET, 200) == FLOOR
+
+
+# ------------------------------------- a cut-off answer: could-not-read, once
+
+
+def _cut(model=SONNET, text='{"n": 1'):
+    return _reply(model, text, "max_tokens")
+
+
+def test_a_cut_off_matcher_answer_is_named_and_asked_once(monkeypatch):
+    seen, outcome = _matcher_body(SONNET, monkeypatch, reply=_cut())
+    assert outcome == (None, comparison.MODEL_TRUNCATED)
+    assert len(seen) == 1
+
+
+def test_a_cut_off_sentence_is_could_not_read_even_when_the_text_parses():
+    seen = []
+    call = reader_api.model_call_via(
+        _send(seen, _cut(text='{"proposals": []}')),
+        cfg=_cfg(),
+        env={"ANTHROPIC_API_KEY": KEY},
+    )
+    out = reader_api.read_sentence("The noise shall not exceed 90 dB(A).", call)
+    assert out["error"] == reader_api.Reason.MODEL_MALFORMED.value
+    assert len(seen) == 1, "no second read of an answer already cut off"
+
+
+def test_a_cut_off_labelling_answer_is_truncated_uncached_and_not_resent():
+    seen = []
+    provider = rp.ClaudeProvider(
+        SONNET, transport=_send(seen, _cut(text='{"a": 1}')), step="labels"
+    )
+    packet = _packet(num_predict=300)
+    response = provider.reason(packet)
+    assert response.truncated
+    assert output_limits.state_of_response(response) == output_limits.TRUNCATED
+    assert len(seen) == 1
+    with pytest.raises(output_limits.Truncated):
+        output_limits.complete_text(response, "labels")
+    provider.reason(packet)
+    assert len(seen) == 2, "the caller asked again: never served from the cache"
 
 
 # --------------------------------------------------- the switch stays where it is

@@ -484,9 +484,8 @@ class ClaudeProvider:
             if packet.tool_choice:
                 body["tool_choice"] = dict(packet.tool_choice)
         if no_temperature(self.requested_model) or packet.thinking_budget:
-            # MEASURED 2026-09-25: Sonnet 5 answers 400 "`temperature` is
-            # deprecated for this model". Sampling cannot be pinned there, so
-            # repeatability rests on the response cache and the code gates.
+            # MEASURED 2026-09-25: a 400 on Sonnet 5. Sampling cannot be pinned there,
+            # so repeatability rests on the response cache and the code gates.
             # Anthropic also refuses `temperature` while thinking is enabled.
             body.pop("temperature", None)
         else:
@@ -497,6 +496,8 @@ class ClaudeProvider:
             )
         if packet.effort:
             body["output_config"] = {"effort": packet.effort}
+        elif packet.step == "chat":  # a person's question: the model's default effort
+            body.pop("output_config", None)
         if packet.system:
             body["system"] = [{"type": "text", "text": packet.system,
                                "cache_control": {"type": "ephemeral"}}]
@@ -806,8 +807,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
 
 
 def no_temperature(model: str) -> bool:
-    """True for a model id that rejects the `temperature` parameter
-    (`settings.claude_models_without_temperature`, prefix match)."""
+    """True for an id in `settings.claude_models_without_temperature` (prefix match)."""
     name = (model or "").lower()
     return any(name == p or name.startswith(p + "-") for p in settings.claude_models_without_temperature)
 

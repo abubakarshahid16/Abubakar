@@ -84,4 +84,20 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_1525_review_audit.py",
         tags=("honesty", "claude_5_5"),
     ),
+    _m(
+        "08",
+        "the budget gate prices the short cap asked for, not the raised cap the request carries",
+        _S,
+        "    max_tokens = output_cap(model, max_tokens)  # what the request will actually carry\n",
+        "",
+        "budget_gate_sees_the_raised_limit",
+    ),
+    _m(
+        "09",
+        "a large cap is lowered to the floor on a model that thinks by default",
+        _S,
+        "        return max(int(max_tokens), int(settings.claude_min_output_tokens))\n",
+        "        return int(settings.claude_min_output_tokens)\n",
+        "cap_above_the_floor",
+    ),
 )

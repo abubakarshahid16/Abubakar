@@ -157,6 +157,23 @@ def cost_usd(model: str | None, usage: dict | None, *, batch: bool = False) -> f
     return full * BATCH_DISCOUNT if batch else full
 
 
+def thinks_by_default(model: str | None) -> bool:
+    """True for an id in `settings.claude_models_thinking_by_default` (prefix match)."""
+    name = (model or "").lower()
+    return any(
+        name == p or name.startswith(p + "-")
+        for p in settings.claude_models_thinking_by_default
+    )
+
+
+def output_cap(model: str | None, max_tokens: int) -> int:
+    """The `max_tokens` a request carries: a short cap is raised for a model that
+    thinks by default (`settings.claude_min_output_tokens`), never lowered."""
+    if thinks_by_default(model):
+        return max(int(max_tokens), int(settings.claude_min_output_tokens))
+    return int(max_tokens)
+
+
 def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int,
                    image_tokens: int = 0, *, batch: bool = False) -> float:
     """The most one call can cost: prompt at ~3 chars per token (generous -
@@ -165,6 +182,7 @@ def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int,
     allowed output token. Half for a batch request."""
     tokens_in = prompt_chars // 3 + 1 + max(0, int(image_tokens))
     p_in, p_out, p_write, _ = price_for(model, tokens_in)
+    max_tokens = output_cap(model, max_tokens)  # what the request will actually carry
     full = (tokens_in * max(p_in, p_write) + max_tokens * p_out) / 1_000_000
     return full * BATCH_DISCOUNT if batch else full
 

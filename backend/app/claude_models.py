@@ -7,6 +7,14 @@ lists the older ids that still take a budget; every other id gets
 current models accept. `{type: disabled}` is never sent (a 400 on Sonnet 5.5 and
 Opus 5.5): a caller that wants no budget leaves the field out.
 
+THE OUTPUT ROOM. A model that thinks by default spends `max_tokens` on thinking too,
+so `shape_output` raises a short cap (`claude_spend.output_cap`) and asks for LOW effort
+on those short answers: one sentence read, one index chosen, one label named. That is
+transcription and lookup, every value is verified by code afterwards, and low effort is
+the owner's cost lever (`vision_reader` measured ~4x the answer in thinking at the
+default). Not `thinking: between_tools`: only Sonnet 5.5 takes it, and these routes must
+behave the same on all three. A caller's own effort wins; older ids get neither.
+
 THE RUN RECORD. `record_run` writes the models the API REPORTED, read from the
 spend ledger, never the name configuration asked for. A local-only run has no
 ledger line and keeps NULL; its local model is named by the step that ran it.
@@ -36,6 +44,19 @@ def thinking_for(model: str | None, budget: int) -> dict:
     ):
         return {"type": "enabled", "budget_tokens": int(budget)}
     return {"type": "adaptive"}
+
+
+def shape_output(body: dict, effort: str | None = None) -> None:
+    """Set `max_tokens` and `output_config.effort` on a request `body` in place.
+    Without `effort`, a short answer on a model that thinks by default is low effort."""
+    model, asked = body.get("model"), int(body.get("max_tokens") or 0)
+    if not claude_spend.thinks_by_default(model):
+        return
+    cap = claude_spend.output_cap(model, asked)
+    body["max_tokens"] = cap
+    chosen = effort or ("low" if cap > asked else None)
+    if chosen:
+        body["output_config"] = {"effort": chosen}
 
 
 def record_run(review_run_id: str, *, match_step: str) -> None:

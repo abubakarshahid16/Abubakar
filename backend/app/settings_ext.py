@@ -250,3 +250,13 @@ class SettingsExt(BaseModel):
         "claude-opus-4-0",
         "claude-sonnet-4-0",
     )
+    #: These models think by default and that output counts inside `max_tokens`, so a short
+    #: cap (the reader's 512, the matcher's 200) could be spent before any answer. Theirs is
+    #: raised to `claude_min_output_tokens` (`claude_spend.output_cap`; billed by use, and the
+    #: budget gate's worst case sees it). Env: CLAUDE_MIN_OUTPUT_TOKENS.
+    claude_models_thinking_by_default: tuple[str, ...] = (
+        "claude-sonnet-5-5",
+        "claude-opus-5-5",
+        "claude-haiku-5-5",
+    )
+    claude_min_output_tokens: int = Field(4096, gt=0)
