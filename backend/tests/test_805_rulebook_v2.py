@@ -19,6 +19,7 @@ from app import (
     rulebook_v2,
     rulebook_v2_check,
     rulebook_v2_ingest,
+    rulebook_v2_schema,
     standards,
     standards_compiler,
 )
@@ -394,7 +395,7 @@ def test_the_event_log_is_written_by_the_database_not_by_the_caller():
         "rulebook_snapshot",
         "rulebook_run",
     }
-    source = Path(rulebook_v2.__file__).read_text(encoding="utf-8")
+    source = Path(rulebook_v2_schema.__file__).read_text(encoding="utf-8")
     # the only inserts into the log sit inside a trigger
     assert source.count("INSERT INTO rulebook_event") == 1 and "AFTER INSERT" in source
     assert version["id"] in {
@@ -904,7 +905,7 @@ def test_a_rule_reads_who_it_is_for_then_unless_then_what_it_demands():
 _RULEBOOK_NAME = re.compile(
     r"\brulebook_(?:rule|version|provenance|applicability|exception|approval|snapshot|run|event)\b"
 )
-_OURS = {"rulebook_v2.py", "rulebook_v2_ingest.py"}
+_OURS = {"rulebook_v2.py", "rulebook_v2_ingest.py", "rulebook_v2_schema.py"}
 _V1_WRITE = re.compile(
     r"(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+standard_requirements\b"
 )

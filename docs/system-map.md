@@ -194,6 +194,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2` | #805 plan change 6, part A: the rulebook's version 2 tables on a database copy: stable rules, append-only versions, applicability and exceptions apart, provenance, a person's decisions, trigger-written events, a snapshot per compile, the snapshot a run used; off by default; no verdict reads them |
 | `rulebook_v2_check` | #805 plan change 6, part A: one rule's requirement against one submitted value: meets, does not meet or cannot tell; pure; not mentioned is never compliant |
 | `rulebook_v2_ingest` | #805 plan change 6, part A: a compile's verified rows become rows of the version 2 tables, each quote checked again and what fails counted by reason; counts for the version-1-beside-version-2 table |
+| `rulebook_v2_schema` | #805 plan change 6, part A: the statements of the version 2 tables and their guards, and the words they allow |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
