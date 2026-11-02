@@ -5,6 +5,7 @@ directory as the parent. INVENTED files only; the OCR engine is a stub, no model
 from __future__ import annotations
 
 import concurrent.futures as cf
+import errno
 import hashlib
 import io
 import multiprocessing
@@ -25,6 +26,7 @@ from app import (
     ocr,
     page_ledger,
     page_not_read,
+    pageimage,
     reading_state,
     states,
     stored_paths,
@@ -101,7 +103,8 @@ class _InlinePool:
 
 def _ingest(path, monkeypatch, doc_id="doc1", failure="file") -> str:
     """The production stages up to recognition. `failure`: "file", the real error from a
-    stored file the worker cannot find; "engine", a page that raises for another reason."""
+    stored file the worker cannot find; "engine", a page that raises for another reason; "disk", recognition on
+    the real file, with whatever the test made fail."""
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     with db.connect() as conn:
         conn.execute(
@@ -127,6 +130,8 @@ def _ingest(path, monkeypatch, doc_id="doc1", failure="file") -> str:
     def worker(_stored, _sha, pages):
         if failure == "file":
             return real("uploads/nowhere.pdf", "0" * 64, pages)
+        if failure == "disk":
+            return real(_stored, _sha, pages)
         return ocr.failed_rows(pages, "RuntimeError: the engine raised")
 
     monkeypatch.setattr(ocr, "_build_engine", lambda: lambda _image: None)
@@ -257,6 +262,7 @@ def test_the_real_error_of_a_file_that_cannot_be_opened_is_a_file_error(
         None,
         "",
         "RuntimeError: the engine raised",
+        "OSError: [Errno 28] No space left on device",
         "engine_unavailable: FileNotFoundError: a model file",
         "worker_failed: BrokenProcessPool: a child died",
         "ValueError: FileNotFoundError: named inside a message",
@@ -331,6 +337,26 @@ def test_another_recognition_failure_does_not_hold(tmp_path, monkeypatch):
         .execute("SELECT 1 FROM sqlite_master WHERE name = 'document_reading'")
         .fetchone()
     )
+
+
+def test_a_bare_os_error_on_a_healthy_document_does_not_hold_it(tmp_path, monkeypatch):
+    """A full disk while writing the page-image cache: the file is fine, so the words
+    "could not open the stored file" would be false. The real error, from the real path."""
+
+    def disk_full(*_args):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(pageimage, "_save_png", disk_full)
+    doc = _ingest(_pdf(tmp_path), monkeypatch, failure="disk")
+    stored = (
+        db.connect()
+        .execute("SELECT error FROM page_ocr WHERE document_id = ?", (doc,))
+        .fetchone()[0]
+    )
+    assert stored.startswith("OSError:")
+    assert reading_state.file_error_pages(doc) == []
+    assert _finish(monkeypatch, doc) == states.READY
+    assert reading_state.stored(doc) is None
 
 
 def test_switches_off_nothing_changes(tmp_path, monkeypatch):

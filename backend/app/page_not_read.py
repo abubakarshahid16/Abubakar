@@ -18,13 +18,14 @@ NOTE_PAGE_NOT_READ = "Page not read - no reading came back"
 FILE_NOT_READ = "not read: recognition could not open the stored file"
 #: What a page failure stored starts with (`ocr.recognise_batch`: the exception's type)
 #: when the file itself was the cause. The FileDataError and EmptyFileError are PyMuPDF's.
+#: Never a bare OSError: `recognise_batch` also wraps the page-image cache write, so a full
+#: disk on a healthy document would say its file could not be opened.
 _FILE_ERRORS = frozenset(
     {
         "FileNotFoundError",
         "PermissionError",
         "IsADirectoryError",
         "NotADirectoryError",
-        "OSError",
         "FileDataError",
         "EmptyFileError",
     }
