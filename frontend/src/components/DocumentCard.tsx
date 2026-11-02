@@ -8,6 +8,7 @@
  *    viewer, because a quality gate over-rejecting an unfamiliar layout is
  *    otherwise completely silent
  */
+import { useDocumentReading } from "./useDocumentReading";
 import { useState } from "react";
 
 import type { ClassificationSource, DocumentClassification, DocumentKindOption, DocumentRecord } from "../types/api";
@@ -96,7 +97,8 @@ export function DocumentCard({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showStages, setShowStages] = useState(false);
   const [changingType, setChangingType] = useState(false);
-  const status = presentStatus(doc);
+  const reading = useDocumentReading()[doc.id];
+  const status = presentStatus(reading ? { ...doc, reading } : doc);
   const ratio = retrievableRatio(doc);
   const excluded = excludedCount(doc);
   const progress = embedProgress(doc);
