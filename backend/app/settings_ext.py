@@ -130,6 +130,12 @@ class SettingsExt(BaseModel):
     #: footer decides as before. Takes effect when a document is (re)chunked.
     #: Env: DATA_PAGE_NOT_FRONTMATTER_ENABLED.
     data_page_not_frontmatter_enabled: bool = False
+    #: #1478 kit proof 1 Nov: a line carrying a front-matter marker ("Copyright ... All rights
+    #: reserved.") that repeats on three or more pages is the document's running footer, so it is
+    #: not counted as front-matter evidence on any page; a vendor sheet's drawing pages under it were
+    #: set aside and never read. OFF: the footer counts as before. Takes effect when a document is
+    #: (re)chunked. Env: RUNNING_FOOTER_NOT_FRONTMATTER_ENABLED.
+    running_footer_not_frontmatter_enabled: bool = False
     #: 1 Nov proof of IOGP S-619 (public vessel spec): 25 of 85 pages are a drawing (one picture over
     #: 47 % of the page) under a 100-150 character running header; the router needs 50 % coverage, so
     #: they were never recognised and the chunker dropped them. ON: a page where one picture covers a

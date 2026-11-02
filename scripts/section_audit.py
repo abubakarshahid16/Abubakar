@@ -790,7 +790,7 @@ def classify_chunk(
 def audit_document(
     conn: sqlite3.Connection, row: sqlite3.Row, args: argparse.Namespace
 ) -> DocResult:
-    from app.chunker import classify_page  # imported lazily; see resolve_backend
+    from app.chunker import classify_document_pages  # lazily; see resolve_backend
 
     did, filename = row["id"], row["filename"]
     pages = {
@@ -812,7 +812,7 @@ def audit_document(
         return res
 
     total = len(pages)
-    kinds = {p: classify_page(t, p, total) for p, t in pages.items()}
+    kinds = classify_document_pages(sorted(pages.items()), total)
     toc_pages = {p for p, k in kinds.items() if k == "toc"}
     res.toc_pages = sorted(toc_pages)
     if not toc_pages:
