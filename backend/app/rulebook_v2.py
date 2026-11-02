@@ -11,8 +11,10 @@ NOTHING IS EVER REWRITTEN. Triggers refuse UPDATE and DELETE on all of it, and I
 a delete trigger. A version's rows are sealed by the counts it was written with. A change appends a version, and an
 approval belongs to one version: the next one is not in force until a person decides on it.
 
-ONLY A PERSON APPROVES. No route, job or script calls `record_decision`, and the database refuses an approval whose
-approver is not an active row of `users`. No rule is in force without one.
+ONLY A PERSON APPROVES. One script calls `record_decision`, `scripts/import_rule_approvals.py`, for a tick a named signer
+made in a returned checklist. No route or job does. The database refuses an approval whose approver is not an active
+row of `users`, or that names no tier (owner or engineer) or no equipment type. No rule is in force without one.
+`approved_rules` is the only way out of the book for a review, and holds only what such an approval covers.
 
 NOTHING READS THIS FOR A VERDICT unless RULEBOOK_V2_REVIEW_ENABLED is on (`rulebook_v2_review`). `rulebook_run` says
 which: version 1 and no snapshot, or version 2 and the snapshot the run froze.
@@ -33,242 +35,21 @@ from datetime import UTC, datetime
 
 from . import live_guard
 from .config import settings
-from .rulebook_v2_check import (
-    ALTERNATIVES,
-    CANNOT_TELL,
-    COMPARATORS,
-    DEFERS_TO,
-    KINDS,
-    LIMIT,
-    NO_FIGURE,
-    RANGE,
-    Outcome,
-    check_requirement,
+from .rulebook_v2_check import CANNOT_TELL, Outcome, check_requirement
+from .rulebook_v2_schema import (
+    APPROVE,
+    CONTEXT_DEPENDENT,  # noqa: F401 - the word callers read here
+    ENGINEER,  # noqa: F401
+    OWNER,  # noqa: F401
+    REJECT,  # noqa: F401
+    RETIRE,  # noqa: F401
+    SCHEMA,
+    TABLES,  # noqa: F401
+    TIERS,  # noqa: F401
+    V1,
+    V2,
+    trigger_sql,
 )
-
-APPROVE, REJECT, RETIRE = "approve", "reject", "retire"
-DECISIONS = (APPROVE, REJECT, RETIRE)
-KEY_TYPES = (
-    "subject",
-    "condition",
-    "equipment_type",
-    "service",
-    "material_group",
-    "pressure_class",
-    "size_range",
-)
-CONTEXT_DEPENDENT = "context_dependent"
-V1, V2 = 1, 2
-TABLES = (
-    "rulebook_rule",
-    "rulebook_version",
-    "rulebook_provenance",
-    "rulebook_applicability",
-    "rulebook_exception",
-    "rulebook_approval",
-    "rulebook_snapshot",
-    "rulebook_snapshot_rule",
-    "rulebook_run",
-    "rulebook_event",
-)
-
-
-def _in(values: tuple[str, ...]) -> str:
-    return "(" + ",".join(f"'{v}'" for v in values) + ")"
-
-
-_NO_FIGURE_KINDS = _in((ALTERNATIVES, NO_FIGURE, DEFERS_TO))
-_TABLE_SQL = (
-    """CREATE TABLE rulebook_rule (
-        id TEXT PRIMARY KEY, rule_key TEXT NOT NULL UNIQUE, standard TEXT NOT NULL,
-        created_by TEXT NOT NULL, created_at TEXT NOT NULL)""",
-    f"""CREATE TABLE rulebook_version (
-        id TEXT PRIMARY KEY, rule_id TEXT NOT NULL REFERENCES rulebook_rule(id),
-        version_no INTEGER NOT NULL CHECK (version_no >= 1), supersedes_id TEXT REFERENCES rulebook_version(id),
-        content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
-        quote_sha256 TEXT NOT NULL CHECK (length(quote_sha256) = 64),
-        kind TEXT NOT NULL CHECK (kind IN {_in(KINDS)}), field TEXT NOT NULL CHECK (length(trim(field)) > 0),
-        comparator TEXT CHECK (comparator IN {_in(COMPARATORS)}), value REAL, value_low REAL, value_high REAL,
-        value_text TEXT, unit TEXT, unit_dimension TEXT,
-        strength TEXT, sentence_strength TEXT, context_flag TEXT,
-        applicability_count INTEGER NOT NULL, exception_count INTEGER NOT NULL,
-        recorded_by TEXT NOT NULL, recorded_at TEXT NOT NULL,
-        UNIQUE (rule_id, version_no),
-        CHECK ((version_no = 1) = (supersedes_id IS NULL)),
-        CHECK (kind <> '{LIMIT}' OR (value IS NOT NULL AND comparator IS NOT NULL AND unit IS NOT NULL
-            AND value_low IS NULL AND value_high IS NULL)),
-        CHECK (kind <> '{RANGE}' OR (value IS NULL AND comparator IS NULL AND unit IS NOT NULL
-            AND value_low IS NOT NULL AND value_high IS NOT NULL AND value_low <= value_high)),
-        CHECK (kind NOT IN {_NO_FIGURE_KINDS} OR (value IS NULL AND comparator IS NULL
-            AND value_low IS NULL AND value_high IS NULL)),
-        CHECK (kind <> '{ALTERNATIVES}' OR value_text IS NOT NULL))""",
-    """CREATE TABLE rulebook_provenance (
-        id TEXT PRIMARY KEY, rule_version_id TEXT NOT NULL REFERENCES rulebook_version(id),
-        standard_document_id TEXT NOT NULL, edition TEXT, clause TEXT NOT NULL,
-        page INTEGER NOT NULL CHECK (page >= 1), quote TEXT NOT NULL,
-        quote_sha256 TEXT NOT NULL CHECK (length(quote_sha256) = 64), quote_start INTEGER, quote_end INTEGER,
-        page_source TEXT, page_min_conf REAL, text_sha256 TEXT NOT NULL,
-        model TEXT NOT NULL CHECK (length(model) > 0), prompt_version TEXT NOT NULL CHECK (length(prompt_version) > 0),
-        batch_id TEXT, compile_run_id TEXT NOT NULL, verified_at TEXT NOT NULL,
-        UNIQUE (rule_version_id, standard_document_id, page, text_sha256, prompt_version))""",
-    f"""CREATE TABLE rulebook_applicability (
-        id TEXT PRIMARY KEY, rule_version_id TEXT NOT NULL REFERENCES rulebook_version(id),
-        key_type TEXT NOT NULL CHECK (key_type IN {_in(KEY_TYPES)}), value TEXT NOT NULL CHECK (length(trim(value)) > 0),
-        on_page INTEGER, provenance_id TEXT NOT NULL REFERENCES rulebook_provenance(id))""",
-    """CREATE TABLE rulebook_exception (
-        id TEXT PRIMARY KEY, rule_version_id TEXT NOT NULL REFERENCES rulebook_version(id),
-        condition_text TEXT NOT NULL CHECK (length(trim(condition_text)) > 0), structured_json TEXT,
-        provenance_id TEXT NOT NULL REFERENCES rulebook_provenance(id))""",
-    f"""CREATE TABLE rulebook_approval (
-        id TEXT PRIMARY KEY, rule_version_id TEXT NOT NULL REFERENCES rulebook_version(id),
-        decision TEXT NOT NULL CHECK (decision IN {_in(DECISIONS)}), approver_id TEXT NOT NULL,
-        decided_at TEXT NOT NULL, note TEXT, provenance_viewed TEXT NOT NULL)""",
-    """CREATE TABLE rulebook_snapshot (
-        id TEXT PRIMARY KEY, compile_run_id TEXT NOT NULL UNIQUE, standard_document_id TEXT NOT NULL,
-        snapshot_hash TEXT NOT NULL CHECK (length(snapshot_hash) = 64),
-        rules_total INTEGER NOT NULL, rules_in_force INTEGER NOT NULL, counts_json TEXT NOT NULL,
-        created_by TEXT NOT NULL, created_at TEXT NOT NULL)""",
-    """CREATE TABLE rulebook_snapshot_rule (
-        snapshot_id TEXT NOT NULL REFERENCES rulebook_snapshot(id),
-        rule_version_id TEXT NOT NULL REFERENCES rulebook_version(id),
-        approval_id TEXT REFERENCES rulebook_approval(id),
-        PRIMARY KEY (snapshot_id, rule_version_id))""",
-    f"""CREATE TABLE rulebook_run (
-        review_run_id TEXT PRIMARY KEY, used_version INTEGER NOT NULL,
-        snapshot_id TEXT REFERENCES rulebook_snapshot(id), latest_snapshot_id TEXT REFERENCES rulebook_snapshot(id),
-        recorded_at TEXT NOT NULL,
-        CHECK ((used_version = {V1} AND snapshot_id IS NULL) OR (used_version = {V2} AND snapshot_id IS NOT NULL)))""",
-    """CREATE TABLE rulebook_event (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT NOT NULL, entity_id TEXT NOT NULL, event_type TEXT NOT NULL,
-        actor TEXT NOT NULL, at TEXT NOT NULL, detail_json TEXT NOT NULL)""",
-    "CREATE INDEX idx_rulebook_version_rule ON rulebook_version(rule_id, version_no)",
-    "CREATE INDEX idx_rulebook_provenance_doc ON rulebook_provenance(standard_document_id)",
-    "CREATE INDEX idx_rulebook_provenance_version ON rulebook_provenance(rule_version_id)",
-    "CREATE INDEX idx_rulebook_applicability_version ON rulebook_applicability(rule_version_id)",
-    "CREATE INDEX idx_rulebook_exception_version ON rulebook_exception(rule_version_id)",
-    "CREATE INDEX idx_rulebook_approval_version ON rulebook_approval(rule_version_id)",
-)
-#: What each table's rows are unique by: INSERT OR REPLACE on any of these would erase a row without a delete trigger.
-_UNIQUE_BY = {
-    "rulebook_rule": ("id", "rule_key"),
-    "rulebook_version": ("id", "rule_id, version_no"),
-    "rulebook_provenance": (
-        "id",
-        "rule_version_id, standard_document_id, page, text_sha256, prompt_version",
-    ),
-    "rulebook_applicability": ("id",),
-    "rulebook_exception": ("id",),
-    "rulebook_approval": ("id",),
-    "rulebook_snapshot": ("id", "compile_run_id"),
-    "rulebook_snapshot_rule": ("snapshot_id, rule_version_id",),
-    "rulebook_run": ("review_run_id",),
-    "rulebook_event": ("id",),
-}
-_NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%SZ','now')"
-_VERSION_ACTOR = (
-    "(SELECT recorded_by FROM rulebook_version WHERE id = NEW.rule_version_id)"
-)
-#: table -> (id column, who, what the diary keeps). A snapshot's member rows are held by the snapshot's hash.
-_EVENTS = {
-    "rulebook_rule": ("id", "NEW.created_by", "'rule_key', NEW.rule_key"),
-    "rulebook_version": (
-        "id",
-        "NEW.recorded_by",
-        "'rule_id', NEW.rule_id, 'version_no', NEW.version_no, 'content_hash', NEW.content_hash,"
-        " 'supersedes_id', NEW.supersedes_id",
-    ),
-    "rulebook_provenance": (
-        "id",
-        "NEW.model",
-        "'rule_version_id', NEW.rule_version_id, 'quote_sha256', NEW.quote_sha256, 'page', NEW.page,"
-        " 'prompt_version', NEW.prompt_version",
-    ),
-    "rulebook_applicability": (
-        "id",
-        _VERSION_ACTOR,
-        "'rule_version_id', NEW.rule_version_id, 'key_type', NEW.key_type",
-    ),
-    "rulebook_exception": (
-        "id",
-        _VERSION_ACTOR,
-        "'rule_version_id', NEW.rule_version_id",
-    ),
-    "rulebook_approval": (
-        "id",
-        "NEW.approver_id",
-        "'rule_version_id', NEW.rule_version_id, 'decision', NEW.decision",
-    ),
-    "rulebook_snapshot": (
-        "id",
-        "NEW.created_by",
-        "'snapshot_hash', NEW.snapshot_hash, 'rules_total', NEW.rules_total, 'rules_in_force', NEW.rules_in_force",
-    ),
-    "rulebook_run": (
-        "review_run_id",
-        "'review_run'",
-        "'used_version', NEW.used_version, 'snapshot_id', NEW.snapshot_id",
-    ),
-}
-_GUARDS = (
-    # A version's rows are sealed by the counts it was written with.
-    """CREATE TRIGGER rulebook_applicability_sealed BEFORE INSERT ON rulebook_applicability
-       WHEN (SELECT COUNT(*) FROM rulebook_applicability WHERE rule_version_id = NEW.rule_version_id)
-            >= (SELECT applicability_count FROM rulebook_version WHERE id = NEW.rule_version_id)
-       BEGIN SELECT RAISE(ABORT, 'rulebook: this version is sealed; append a version'); END""",
-    """CREATE TRIGGER rulebook_exception_sealed BEFORE INSERT ON rulebook_exception
-       WHEN (SELECT COUNT(*) FROM rulebook_exception WHERE rule_version_id = NEW.rule_version_id)
-            >= (SELECT exception_count FROM rulebook_version WHERE id = NEW.rule_version_id)
-       BEGIN SELECT RAISE(ABORT, 'rulebook: this version is sealed; append a version'); END""",
-    # Another sentence is another reading. An edition may only link the same sentence.
-    """CREATE TRIGGER rulebook_provenance_same_quote BEFORE INSERT ON rulebook_provenance
-       WHEN NEW.quote_sha256 <> (SELECT quote_sha256 FROM rulebook_version WHERE id = NEW.rule_version_id)
-       BEGIN SELECT RAISE(ABORT, 'rulebook: another quote needs a new version'); END""",
-    # A decision is a person's, on the current reading.
-    """CREATE TRIGGER rulebook_approval_a_person BEFORE INSERT ON rulebook_approval
-       WHEN NOT EXISTS (SELECT 1 FROM users WHERE id = NEW.approver_id AND is_active = 1)
-       BEGIN SELECT RAISE(ABORT, 'rulebook: only an active person decides on a rule'); END""",
-    """CREATE TRIGGER rulebook_approval_current BEFORE INSERT ON rulebook_approval
-       WHEN EXISTS (SELECT 1 FROM rulebook_version old JOIN rulebook_version later
-                    ON later.rule_id = old.rule_id AND later.version_no > old.version_no
-                    WHERE old.id = NEW.rule_version_id)
-       BEGIN SELECT RAISE(ABORT, 'rulebook: a superseded version cannot be decided on'); END""",
-    f"""CREATE TRIGGER rulebook_approval_proof BEFORE INSERT ON rulebook_approval
-       WHEN NEW.decision = '{APPROVE}' AND (
-            json_array_length(NEW.provenance_viewed) < 1
-            OR NOT EXISTS (SELECT 1 FROM rulebook_provenance WHERE rule_version_id = NEW.rule_version_id))
-       BEGIN SELECT RAISE(ABORT, 'rulebook: an approval needs a quote that was read'); END""",
-    f"""CREATE TRIGGER rulebook_approval_context BEFORE INSERT ON rulebook_approval
-       WHEN NEW.decision = '{APPROVE}' AND length(trim(COALESCE(NEW.note, ''))) = 0
-            AND (SELECT strength FROM rulebook_version WHERE id = NEW.rule_version_id) = '{CONTEXT_DEPENDENT}'
-       BEGIN SELECT RAISE(ABORT, 'rulebook: a rule whose scope sits outside its sentence needs a note'); END""",
-)
-
-
-def _trigger_sql() -> list[str]:
-    out = list(_GUARDS)
-    for table in TABLES:
-        for verb in ("UPDATE", "DELETE"):
-            out.append(
-                f"CREATE TRIGGER {table}_no_{verb.lower()} BEFORE {verb} ON {table}"
-                f" BEGIN SELECT RAISE(ABORT, 'rulebook: {table} is append-only'); END"
-            )
-        for n, columns in enumerate(_UNIQUE_BY[table]):
-            same = " AND ".join(f"t.{c} = NEW.{c}" for c in columns.split(", "))
-            out.append(
-                f"CREATE TRIGGER {table}_no_replace_{n} BEFORE INSERT ON {table}"
-                f" WHEN EXISTS (SELECT 1 FROM {table} t WHERE {same})"
-                f" BEGIN SELECT RAISE(ABORT, 'rulebook: {table} is never replaced'); END"
-            )
-    for table, (key, actor, detail) in _EVENTS.items():
-        out.append(
-            f"CREATE TRIGGER {table}_event AFTER INSERT ON {table} BEGIN"
-            f" INSERT INTO rulebook_event (entity, entity_id, event_type, actor, at, detail_json)"
-            f" VALUES ('{table}', NEW.{key}, 'insert', {actor}, {_NOW_SQL}, json_object({detail})); END"
-        )
-    return out
-
-
-SCHEMA = (*_TABLE_SQL, *_trigger_sql())
 
 
 class SwitchedOff(RuntimeError):
@@ -299,19 +80,29 @@ def has_schema(conn) -> bool:
     return row[0] == 1
 
 
+def _is_missing(statement: str, held: set[str], columns: set[str]) -> bool:
+    words = statement.split()
+    return words[5] not in columns if words[0] == "ALTER" else words[2] not in held
+
+
 def ensure_schema(conn) -> None:
-    """Create the tables, once, all or none, on a copy. Run twice it does nothing; no other table is touched."""
+    """Create what is missing, all or none, on a copy. Run twice it does nothing; no other table is touched."""
     require_on()
     path = next(
         (r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"), ""
     )
     if path and live_guard.is_live_shaped(path):
         raise RefusedLive("this is a live-shaped database; run on a copy")
-    if has_schema(conn):
+    held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+    columns = {
+        r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)")
+    }  # empty before the table exists, and then every ALTER runs after its CREATE
+    missing = [s for s in SCHEMA if _is_missing(s, held, columns)]
+    if not missing:
         return
     conn.execute("BEGIN IMMEDIATE")
     try:
-        for statement in SCHEMA:
+        for statement in missing:
             conn.execute(statement)
     except BaseException:
         conn.rollback()
@@ -459,9 +250,9 @@ def _insert_version(conn, reading: Reading, rule_id, number, previous, actor) ->
     return version_id
 
 
-def append_reading(conn, reading: Reading, actor: str) -> str:
-    """Write one reading inside the caller's transaction. Returns what happened: new_rule, new_version (the change
-    waits for a person), new_source (the same reading on another text or edition) or unchanged."""
+def append_reading(conn, reading: Reading, actor: str) -> tuple[str, str]:
+    """Write one reading inside the caller's transaction. Returns what happened, new_rule, new_version (the change
+    waits for a person), new_source (the same reading on another text or edition) or unchanged, and the version."""
     rule = conn.execute(
         "SELECT id FROM rulebook_rule WHERE rule_key = ?", (reading.rule_key,)
     ).fetchone()
@@ -471,16 +262,16 @@ def append_reading(conn, reading: Reading, actor: str) -> str:
             "INSERT INTO rulebook_rule (id, rule_key, standard, created_by, created_at) VALUES (?,?,?,?,?)",
             (rule_id, reading.rule_key, reading.standard, actor, _now()),
         )
-        _insert_version(conn, reading, rule_id, 1, None, actor)
-        return "new_rule"
+        return "new_rule", _insert_version(conn, reading, rule_id, 1, None, actor)
     latest = conn.execute(
         "SELECT id, version_no, content_hash FROM rulebook_version WHERE rule_id = ?"
         " ORDER BY version_no DESC LIMIT 1",
         (rule[0],),
     ).fetchone()
     if latest[2] != _content_hash(reading):
-        _insert_version(conn, reading, rule[0], latest[1] + 1, latest[0], actor)
-        return "new_version"
+        return "new_version", _insert_version(
+            conn, reading, rule[0], latest[1] + 1, latest[0], actor
+        )
     source = reading.provenance
     known = conn.execute(
         "SELECT 1 FROM rulebook_provenance WHERE rule_version_id = ? AND standard_document_id = ? AND page = ?"
@@ -494,34 +285,70 @@ def append_reading(conn, reading: Reading, actor: str) -> str:
         ),
     ).fetchone()
     if known:
-        return "unchanged"
+        return "unchanged", latest[0]
     _insert_provenance(conn, latest[0], source)
-    return "new_source"
+    return "new_source", latest[0]
+
+
+def link_compiled_row(conn, compile_run_id: str, row_id: str, version_id: str) -> None:
+    """Which version this compile's row became, once, inside the caller's transaction."""
+    known = conn.execute(
+        "SELECT 1 FROM rulebook_compiled_row WHERE compile_run_id = ? AND compiled_row_id = ?",
+        (compile_run_id, row_id),
+    ).fetchone()
+    if not known:
+        conn.execute(
+            "INSERT INTO rulebook_compiled_row (compile_run_id, compiled_row_id, rule_version_id) VALUES (?,?,?)",
+            (compile_run_id, row_id, version_id),
+        )
 
 
 # --------------------------------------------------------------------------------------- a person's decision
 
 
-def approval_in_force(conn, version_id: str) -> str | None:
-    """The approval this version stands on: its LAST decision, and only if that is an approval."""
-    row = conn.execute(
-        "SELECT id, decision FROM rulebook_approval WHERE rule_version_id = ? ORDER BY rowid DESC LIMIT 1",
+def _standing(conn, version_id: str) -> dict[str, dict]:
+    """{equipment type: the approval that stands for it}. For each type the LAST decision counts, and it must be an
+    approval. A decision that names no type (a retirement) ends every approval before it."""
+    standing: dict[str, dict] = {}
+    for row in conn.execute(
+        "SELECT id, decision, equipment_type, approver_id, approver_name, decided_at, tier FROM rulebook_approval"
+        " WHERE rule_version_id = ? ORDER BY rowid",
         (version_id,),
-    ).fetchone()
-    return row[0] if row is not None and row[1] == APPROVE else None
+    ):
+        names = ("id", "decision", "type", "by_id", "by", "at", "tier")
+        one = dict(zip(names, row, strict=True))
+        kind = _fold_type(one["type"])
+        if not kind:
+            standing.clear()
+        elif one["decision"] == APPROVE:
+            standing[kind] = one
+        else:
+            standing.pop(kind, None)
+    return standing
 
 
-def record_decision(
+def _fold_type(equipment_type: str | None) -> str:
+    return " ".join((equipment_type or "").casefold().split())
+
+
+def approval_in_force(conn, version_id: str) -> str | None:
+    """The newest approval this version stands on for any equipment type, or None."""
+    standing = _standing(conn, version_id)
+    return max(standing.values(), key=lambda a: a["at"])["id"] if standing else None
+
+
+def _insert_decision(
     conn,
     version_id: str,
     *,
     decision: str,
     engineer_id: str,
+    tier: str,
+    equipment_type: str | None = None,
     provenance_viewed: tuple[str, ...] = (),
     note: str | None = None,
+    source_sha256: str | None = None,
 ) -> str:
-    """One person's decision on one version. Nothing in the app calls this yet; a test holds that."""
-    require_on()
     if decision == APPROVE:
         held = {
             r[0]
@@ -534,22 +361,128 @@ def record_decision(
             raise RuleRefused(
                 "an approval names the quotes of this version that were read"
             )
+    person = conn.execute(
+        "SELECT display_name FROM users WHERE id = ?", (engineer_id,)
+    ).fetchone()
     approval_id = uuid.uuid4().hex
-    with conn:
-        conn.execute(
-            "INSERT INTO rulebook_approval (id, rule_version_id, decision, approver_id, decided_at, note,"
-            " provenance_viewed) VALUES (?,?,?,?,?,?,?)",
-            (
-                approval_id,
-                version_id,
-                decision,
-                engineer_id,
-                _now(),
-                note,
-                json.dumps(sorted(provenance_viewed)),
-            ),
-        )
+    conn.execute(
+        "INSERT INTO rulebook_approval (id, rule_version_id, decision, approver_id, decided_at, note,"
+        " provenance_viewed, tier, equipment_type, approver_name, source_sha256)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            approval_id,
+            version_id,
+            decision,
+            engineer_id,
+            _now(),
+            note,
+            json.dumps(sorted(provenance_viewed)),
+            tier,
+            equipment_type,
+            person[0] if person else None,
+            source_sha256,
+        ),
+    )
     return approval_id
+
+
+def record_decision(conn, version_id: str, **decision) -> str:
+    """One person's decision on one version."""
+    return record_decisions(conn, [{"version_id": version_id, **decision}])[0]
+
+
+def record_decisions(conn, decisions: list[dict]) -> list[str]:
+    """A person's decisions, all or none. Its only caller is the import of a signer's ticks."""
+    require_on()
+    with conn:
+        return [_insert_decision(conn, **one) for one in decisions]
+
+
+def last_decision(conn, version_id: str, equipment_type: str) -> tuple | None:
+    """(decision, approver id) of the last decision on this version for this type, or None."""
+    wanted = _fold_type(equipment_type)
+    last = None
+    for row in conn.execute(
+        "SELECT decision, approver_id, equipment_type FROM rulebook_approval"
+        " WHERE rule_version_id = ? ORDER BY rowid",
+        (version_id,),
+    ):
+        if _fold_type(row[2]) in ("", wanted):
+            last = (row[0], row[1])
+    return last
+
+
+def checklist_stamp(equipment_type: str, rows) -> str:
+    """The stamp of a checklist file: its equipment type and each row's (rule id, version, snapshot). The generator
+    writes the same hash (`checklib.rulebook_stamp`), and a returned file whose stamp differs is refused."""
+    body = [
+        _fold_type(equipment_type),
+        sorted([str(a), int(b), str(c)] for a, b, c in rows),
+    ]
+    blob = json.dumps(body, separators=(",", ":")).encode("utf-8")
+    return "rb2-" + hashlib.sha256(blob).hexdigest()[:24]
+
+
+def approved_rules(conn, equipment_type: str) -> list[dict]:
+    """The rules a review of this equipment type may use: the current version of a rule, when the last decision on it
+    for this type is a person's approval. An unapproved or superseded rule never appears: a rule whose newest reading
+    waits for a decision is absent, not served from its older reading. Off, or no tables: nothing.
+
+    `unit` is as stored, `rulebook_v2_check.NO_UNIT` for a sentence that prints none; `value` is None for a rule with no
+    single figure, so a caller that compares has nothing to compare and says "cannot tell"."""
+    wanted = _fold_type(equipment_type)
+    if not settings.rulebook_v2_enabled or not wanted or not has_schema(conn):
+        return []
+    out = []
+    for row in conn.execute(
+        "SELECT v.id, v.rule_id, v.version_no, v.field, v.comparator, v.value, v.unit, v.context_flag, v.strength,"
+        " r.standard FROM rulebook_version v JOIN rulebook_rule r ON r.id = v.rule_id"
+        " WHERE v.version_no = (SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = v.rule_id)"
+        " ORDER BY r.standard, v.rule_id"
+    ).fetchall():
+        approval = _standing(conn, row[0]).get(wanted)
+        if approval is None:
+            continue
+        source = conn.execute(
+            "SELECT clause, page, quote, quote_sha256, edition FROM rulebook_provenance"
+            " WHERE rule_version_id = ? ORDER BY rowid DESC LIMIT 1",
+            (row[0],),
+        ).fetchone()
+        keys = conn.execute(
+            "SELECT key_type, value FROM rulebook_applicability WHERE rule_version_id = ? ORDER BY rowid",
+            (row[0],),
+        ).fetchall()
+        exceptions = conn.execute(
+            "SELECT condition_text FROM rulebook_exception WHERE rule_version_id = ? ORDER BY rowid",
+            (row[0],),
+        ).fetchall()
+        out.append(
+            {
+                "rule_id": row[1],
+                "version": row[2],
+                "field": row[3],
+                "comparator": row[4],
+                "value": row[5],
+                "unit": row[6],
+                "applies_to": next((k[1] for k in keys if k[0] == "subject"), None),
+                "conditions": [k[1] for k in keys if k[0] != "subject"],
+                "exceptions": [e[0] for e in exceptions],
+                "clause": source[0],
+                "page": source[1],
+                "quote": source[2],
+                "quote_sha256": source[3],
+                "standard": row[9],
+                "edition": source[4],
+                "context_flag": row[7],
+                "strength": row[8],
+                "approval": {
+                    "by": approval["by"] or approval["by_id"],
+                    "at": approval["at"],
+                    "tier": approval["tier"],
+                },
+            }
+        )
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ snapshots
@@ -714,6 +647,8 @@ _ZERO_ROWS = {
     " (SELECT COUNT(*) FROM rulebook_applicability a WHERE a.rule_version_id = v.id)",
     "version_short_of_exceptions": "SELECT v.id FROM rulebook_version v WHERE v.exception_count <>"
     " (SELECT COUNT(*) FROM rulebook_exception e WHERE e.rule_version_id = v.id)",
+    "approval_unsigned": f"SELECT id FROM rulebook_approval WHERE tier IS NULL"
+    f" OR (decision = '{APPROVE}' AND equipment_type IS NULL)",
     "snapshot_member_unapproved": "SELECT s.rule_version_id FROM rulebook_snapshot_rule s JOIN rulebook_approval a"
     f" ON a.id = s.approval_id WHERE a.decision <> '{APPROVE}' OR a.rule_version_id <> s.rule_version_id",
     "version_without_event": "SELECT v.id FROM rulebook_version v WHERE NOT EXISTS (SELECT 1 FROM rulebook_event e"
@@ -732,7 +667,7 @@ def integrity_problems(conn) -> dict[str, int]:
         r[0]
         for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")
     }
-    wanted = {statement.split()[2] for statement in _trigger_sql()}
+    wanted = {statement.split()[2] for statement in trigger_sql()}
     if wanted - held:
         out["trigger_missing"] = len(wanted - held)
     return out

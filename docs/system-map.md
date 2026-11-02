@@ -167,6 +167,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `intake` | One intake layer (#525, ONE_INTAKE_ENABLED): PDF, Word, Excel and image files read into one page shape; every unread page or refused file states its reason |
+| `docx_pages` | A Word file's own page numbers from its saved markers, and its tables and pictures counted against what was read (WORD_PAGE_MARKERS_ENABLED) |
 | `sheet_chunks` | Chunks for an Excel workbook (#525 slice 2, INTAKE_IMAGES_XLSX_ENABLED): each chunk cited by sheet and cell range |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
@@ -187,7 +188,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `converter_review` | Orders 270.3 and 274.1: the READING side of the standards converter - the verified "yes" rows of its drafts as field mappings (`rule_roles`) and, for a clause sentence it proved, a rule in the sentence's place (`ai_requirements.auto_use_rules`' road, `rule_trust` decides the verdict); empty unless `standards_converter_dir` is set; code re-checks every row against the stored sentence |
 | `converter_gates` | Orders 295.7 b and c: the standards converter's proof gates that read the SENTENCE's surroundings - `in_example` (a worked example illustrates, it is not a requirement) and `quote_unreadable` (a quote, or the sentence it was cut from, that is OCR noise); pure functions, called by `standards_converter.verify`; `fold` is the one way converter text is compared |
 | `standards_compiler` | #1584: Claude turns a held standard's pages into version 2 rules on a database copy; code verifies every quote, limit and unit on the cited page; stored apart and held until the owner approves, changing no verdict; the version 1 beside version 2 report; each run records the rule version it used |
-| `claude_batch_run` | #1584: a Message Batches run whose batch id and reservations are stored, so a crash resumes the poll without paying again; failed requests re-queued once, then counted |
+| `claude_batch_run` | #1584: Message Batches for several standards in one batch: batch ids and reservations stored, so a crash resumes the poll without paying again; failed requests re-queued once, then counted; an optional fallback cancels an overdue batch and, once it has ended, sends the rest at the normal price |
+| `claude_batch_store` | #1584: the state a Message Batches run keeps in the database it writes: request rows, batches, every raw answer |
+| `compile_budget` | #1584: what the standards compiler may still spend, read from the ledger; a hold nothing owns is released after the longest a batch can run |
 | `compiled_rule_proof` | #1584: the proof of one compiled rule: its quote on the cited page, its limit and unit inside the quote, its comparator in the quote's words, a scope after the limit kept as its condition; pure functions |
 | `compiled_rule_pages` | #1584: a standard's pages read into sentences, clause headings and chunks sized to the output room of the request; pure functions |
 | `compiled_rule_report` | #1584: a standard's page text as the app cites it, where each page's text came from, its table rows, and version 1 beside version 2 with how the version 2 run ended; reads only, counts only |
@@ -195,6 +198,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_check` | #805 plan change 6, part A: one rule's requirement against one submitted value: meets, does not meet or cannot tell; pure; not mentioned is never compliant |
 | `rulebook_v2_review` | #805 plan change 6: a review reads approved version 2 rules beside version 1: pairs each to a read value by field, decides through `comparison.compare`, a Query with a named reason when unsure; `pair_rule_to_document` is the pairing alone, read only; off by default |
 | `rulebook_v2_ingest` | #805 plan change 6, part A: a compile's verified rows become rows of the version 2 tables, each quote checked again and what fails counted by reason; counts for the version-1-beside-version-2 table |
+| `rulebook_v2_schema` | #805 plan change 6, part A: the statements of the version 2 tables and their guards, and the words they allow |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
@@ -334,6 +338,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `work_budget` | A hard work budget for a request that can grow with the library (#606) |
 | `workbook` | Read an xlsx into sheets for a read-only preview. Standard library only |
 | `word_flow` | #1473: a Word file read as `docx_reader` pages for the datasheet fact reader (PAGE_READ_BY_READING_ENABLED) |
+| `word_pages` | What a reviewer is told about a Word file's pages, tables and pictures: real page, partial, or the section heading (WORD_PAGE_MARKERS_ENABLED) |
+| `word_pictures` | A Word file's pictures read by the local OCR engine, stored per file; no Claude lane, no reader model (WORD_PAGE_MARKERS_ENABLED) |
 
 ## Target structure (planner order 71c on #692; the design for #736)
 

@@ -49,6 +49,7 @@ import json
 import time
 import uuid
 from collections import Counter
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from . import (
@@ -59,11 +60,17 @@ from . import (
     standards_converter,
 )
 from .ai.json_reply import unfenced
+from .compile_budget import (
+    STALE_HOLD_S,
+    _room_gate,
+    _spent_on,
+    release_left_over_holds,
+)
 from .compiled_rule_pages import (
-    CHUNK_CHARS,  # noqa: F401
+    CHUNK_CHARS,
     HEAD_CHARS,
-    MAX_RULES_PER_CHUNK,  # noqa: F401
-    TOKENS_PER_RULE,  # noqa: F401
+    MAX_RULES_PER_CHUNK,
+    TOKENS_PER_RULE,
     Chunk,
     chunks_of,
     core_of,
@@ -72,18 +79,28 @@ from .compiled_rule_pages import (
 )
 from .compiled_rule_proof import ANSWER_SCHEMA, is_table_row, verify
 from .compiled_rule_report import (
-    NOT_RECORDED,  # noqa: F401
+    NOT_RECORDED,
     _has_table,
     page_coverage,
     page_origin,
     page_table_texts,
     pages_of,
-    side_by_side,  # noqa: F401
+    side_by_side,
 )
 from .config import settings
 from .converter_gates import fold as _fold
-from .db import add_column_if_missing
+from .db import add_column_if_missing, connect
 from .reasoning_provider import ClaudeProvider, Packet, schema_errors
+
+#: Names other modules read from here.
+__all__ = [
+    "CHUNK_CHARS",
+    "MAX_RULES_PER_CHUNK",
+    "NOT_RECORDED",
+    "STALE_HOLD_S",
+    "TOKENS_PER_RULE",
+    "side_by_side",
+]
 
 V1, V2 = 1, 2
 #: v1 sampled: on the first real compile it proposed 22 of 170 requirement sentences and stopped by itself. A new version
@@ -131,7 +148,8 @@ class TooDear(claude_spend.BudgetExceeded):
     """The worst case is over a limit this job sets on top of `claude_spend`'s caps."""
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn=None) -> None:
+    conn = conn or connect()
     with conn:
         for statement in SCHEMA:
             conn.execute(statement)
@@ -252,45 +270,19 @@ def require_allowed(conn, document_id: str, label: str) -> None:
         )
 
 
-def _spent_today() -> float:
-    """USD on every standard's step today (UTC), open reservations at their worst case: the ledger's own figures."""
-    today = datetime.now(UTC).date().isoformat()
-    return sum(
-        float(e.get("cost_usd") or 0)
-        for e in claude_spend.entries()
-        if str(e.get("step") or "").startswith(STEP_PREFIX)
-        and str(e.get("at") or "").startswith(today)
-    )
-
-
-def _room_gate(label: str, max_usd: float):
-    """The USD still free for this standard: the USD 25 per standard (#1584: it governs here, not the USD 5 per step,
-    because the step is `standards_convert:<standard>`), the total, and today's limit. A hair under, for the
-    ledger's rounding, so the reservation behind it never refuses what this let through."""
-    step = standards_converter.step_for(label)
-
-    def room() -> float:
-        caps = claude_spend.Caps.from_settings().for_step(step)
-        return (
-            min(
-                caps.per_step - claude_spend.spent(step),
-                caps.total - claude_spend.spent(),
-                max_usd - _spent_today(),
-            )
-            - 0.00001
-        )
-
-    return room
-
-
 def estimate(model: str, packets: dict[str, Packet]) -> dict:
-    """The worst case of one standard: every prompt token a cache write, every allowed output token spent, at the
-    batch price. A re-queue is not in it: a re-queue reserves again, and the caps see it then."""
+    """The worst case of one standard: every prompt token a cache write, every allowed output token spent, at the batch
+    price and at the normal price the fallback would pay. A re-queue is not in it: it reserves again, and the caps see it."""
     worsts = [claude_batch_run.worst_usd(model, p) for p in packets.values()]
+    normal = [
+        claude_batch_run.worst_usd(model, p, batch=False) for p in packets.values()
+    ]
     return {
         "requests": len(worsts),
         "worst_usd": round(sum(worsts), 4),
+        "worst_usd_normal_price": round(sum(normal), 4),
         "dearest_request_usd": round(max(worsts, default=0.0), 4),
+        "request_chars": sum(len(p.system) + len(p.prompt) for p in packets.values()),
         "model": model,
     }
 
@@ -474,23 +466,6 @@ def _store(
     return run_id
 
 
-def _spent_on(label: str) -> dict:
-    step = standards_converter.step_for(label)
-    lines = [e for e in claude_spend.entries() if e.get("step") == step]
-    return {
-        "usd_on_this_standards_step": claude_spend.spent(step),
-        "usd_boundary": "every call in the spend ledger charged to this standard's step, list-price estimate",
-        "cache_read_tokens": sum(
-            int(e.get("cache_read_input_tokens") or 0) for e in lines
-        ),
-        "cache_write_tokens": sum(
-            int(e.get("cache_creation_input_tokens") or 0) for e in lines
-        ),
-        "input_tokens": sum(int(e.get("input_tokens") or 0) for e in lines),
-        "output_tokens": sum(int(e.get("output_tokens") or 0) for e in lines),
-    }
-
-
 def _sent_counts(outcome, chunks: int, worst: dict, label: str) -> dict:
     return {
         "chunks": chunks,
@@ -502,6 +477,9 @@ def _sent_counts(outcome, chunks: int, worst: dict, label: str) -> dict:
         "failures_by_kind": dict(Counter(outcome.failures.values())),
         "gave_up": sorted(outcome.gave_up),
         "chunks_not_sent": len(outcome.over_budget),
+        "sent_at_normal_price": outcome.sent_normal,
+        "batches_cancelled": outcome.batches_cancelled,
+        "late_results": outcome.late_results,
         "resumed_batches": outcome.resumed_batches,
         "unknown_results": outcome.unknown_results,
         **_spent_on(label),
@@ -575,11 +553,17 @@ def _already_compiled(conn, document_id: str, digest: str):
 
 
 def _with_cap(worst: dict) -> dict:
+    """What the caps do to this worst case. Reservations stop a batch before its worst case crosses the cap; the fallback
+    checks each send, so it stops with the next request's worst case no longer fitting, and names the rest."""
     cap = float(settings.claude_budget_usd_per_standard)
     return {
         **worst,
         "per_standard_cap_usd": cap,
         "over_per_standard_cap": worst["worst_usd"] > cap,
+        "normal_price_over_per_standard_cap": worst["worst_usd_normal_price"] > cap,
+        "normal_price_stops_at_usd": round(
+            min(worst["worst_usd_normal_price"], cap), 4
+        ),
     }
 
 
@@ -593,30 +577,27 @@ def _base_report(conn, document_id: str, label: str) -> dict:
     }
 
 
-def compile_standard(
-    conn,
-    document_id: str,
-    label: str,
-    *,
-    client=None,
-    max_usd: float | None = None,
-    estimate_only: bool = False,
-    on_estimate=None,
-    poll_seconds: float = 60.0,
-    max_wait_s: float = 86400.0,
-    sleep=time.sleep,
-    resend_unconfirmed: bool = False,
-) -> dict:
-    """Compile one standard, or say why not. A refusal raises; only a refusal with nothing ever sent for this text
-    says so. Returns the report: counts only."""
-    require_allowed(conn, document_id, label)
-    ensure_schema(conn)
+@dataclass
+class _Plan:
+    document_id: str
+    label: str
+    digest: str
+    readable: dict
+    chunks: list
+    packets: dict
+    worst: dict
+    report: dict
+    job: str
+
+
+def _plan(conn, document_id: str, label: str, model: str, estimate_only, on_estimate):
+    """(report, None) when nothing is to be sent for this standard, else (None, its plan)."""
     pages = pages_of(conn, document_id)
     readable = {n: t for n, t in pages.items() if t.strip()}
     digest = text_hash(readable)
     report = _base_report(conn, document_id, label)
     if not readable:  # no text was read: this is not a standard with no rules
-        return {**report, "status": "not_compiled", "why": NOTHING_TO_READ}
+        return {**report, "status": "not_compiled", "why": NOTHING_TO_READ}, None
     done = _already_compiled(conn, document_id, digest)
     if done is not None:
         return {
@@ -625,49 +606,127 @@ def compile_standard(
             "status": "skipped",
             "skipped": 1,
             "run_id": done["id"],
-        }
+        }, None
     chunks = chunks_of(readable)
     packets = packets_of(label, readable, chunks)
-    provider = ClaudeProvider(settings.standards_compiler_model)
-    worst = estimate(provider.requested_model, packets)
+    worst = estimate(model, packets)
     if on_estimate is not None:
         on_estimate({"standard": label, **worst})
     if estimate_only:
-        return {**report, "status": "estimate", "estimate": _with_cap(worst)}
-    limit = float(
-        settings.standards_compiler_max_usd_per_day if max_usd is None else max_usd
+        return {**report, "status": "estimate", "estimate": _with_cap(worst)}, None
+    job = f"{document_id}:{PROMPT_VERSION}:{digest}"
+    plan = _Plan(
+        document_id, label, digest, readable, chunks, packets, worst, report, job
     )
-    with claude_approved.carrying({document_id}):  # this standard only
-        outcome = claude_batch_run.run(
-            conn,
-            provider,
-            f"{document_id}:{PROMPT_VERSION}:{digest}",
-            packets,
-            client=client,
-            room=_room_gate(label, limit),
-            usable=lambda answer: _proposals(answer)[1] is None,
-            poll_seconds=poll_seconds,
-            max_wait_s=max_wait_s,
-            sleep=sleep,
-            resend_unconfirmed=resend_unconfirmed,
-            cache_system=cache_pays(next(iter(packets.values())).system, chunks),
-        )
-    sent = outcome.answers or outcome.batch_ids or outcome.unconfirmed
-    if outcome.over_budget and not sent:
-        raise TooDear(
-            f"{label}: not one request's worst case fits the USD still free (per standard, in total, "
-            f"or --max-usd ${limit:.2f} today); nothing was sent"
-        )
-    report |= _sent_counts(outcome, len(chunks), worst, label)
+    return None, plan
+
+
+def _reported(conn, plan: _Plan, outcome) -> dict:
+    report = {
+        **plan.report,
+        **_sent_counts(outcome, len(plan.chunks), plan.worst, plan.label),
+    }
     if outcome.waiting:
         return {**report, "status": "waiting"}
     if outcome.unconfirmed:
         unsure = sorted(outcome.unconfirmed)
         return {**report, "status": "unconfirmed", "unconfirmed": unsure}
-    return {
-        **report,
-        **_finish(conn, document_id, label, digest, outcome, chunks, readable),
-    }
+    done = _finish(
+        conn,
+        plan.document_id,
+        plan.label,
+        plan.digest,
+        outcome,
+        plan.chunks,
+        plan.readable,
+    )
+    return {**report, **done}
+
+
+def compile_many(
+    conn,
+    documents: dict[str, str],
+    *,
+    client=None,
+    send=None,
+    max_usd: float | None = None,
+    estimate_only: bool = False,
+    on_estimate=None,
+    poll_seconds: float = 60.0,
+    max_wait_s: float = 86400.0,
+    sleep=time.sleep,
+    clock=time.time,
+    resend_unconfirmed: bool = False,
+    fallback_after_s: float | None = None,
+    release_holds: bool = False,
+) -> list[dict]:
+    """Compile these standards TOGETHER: one Batch API batch, as the API's limits allow, each request reserved on its own
+    standard's step. Every gate runs for every standard before anything is sent, so one refusal sends nothing. A refusal
+    raises; only one with nothing ever sent says so. Returns one report per standard, in order: counts only."""
+    ordered = sorted(documents.items(), key=lambda kv: kv[1])
+    for document_id, label in ordered:
+        require_allowed(conn, document_id, label)
+    ensure_schema(conn)
+    provider = ClaudeProvider(settings.standards_compiler_model, transport=send)
+    reports, plans = {}, []
+    for document_id, label in ordered:
+        report, plan = _plan(
+            conn,
+            document_id,
+            label,
+            provider.requested_model,
+            estimate_only,
+            on_estimate,
+        )
+        if plan is None:
+            reports[document_id] = report
+        else:
+            plans.append(plan)
+    if plans:
+        freed = release_left_over_holds(
+            conn,
+            {standards_converter.step_for(p.label) for p in plans},
+            clock=clock,
+            force=release_holds,
+        )
+        for plan in plans:
+            plan.report |= freed
+        limit = float(
+            settings.standards_compiler_max_usd_per_day if max_usd is None else max_usd
+        )
+        outcomes = claude_batch_run.run_many(
+            conn,
+            provider,
+            {p.job: p.packets for p in plans},
+            client=client,
+            room=_room_gate(limit),
+            usable=lambda answer: _proposals(answer)[1] is None,
+            poll_seconds=poll_seconds,
+            max_wait_s=max_wait_s,
+            sleep=sleep,
+            clock=clock,
+            resend_unconfirmed=resend_unconfirmed,
+            cache_system={
+                p.job: cache_pays(next(iter(p.packets.values())).system, p.chunks)
+                for p in plans
+            },
+            declared={p.job: {p.document_id} for p in plans},
+            fallback_after_s=fallback_after_s,
+        )
+        sent = any(o.answers or o.batch_ids or o.unconfirmed for o in outcomes.values())
+        if not sent and any(o.over_budget for o in outcomes.values()):
+            raise TooDear(
+                "not one request's worst case fits the USD still free (per standard, in total, "
+                f"or --max-usd ${limit:.2f} today); nothing was sent"
+            )
+        for plan in plans:
+            reports[plan.document_id] = _reported(conn, plan, outcomes[plan.job])
+    return [reports[document_id] for document_id, _label in ordered]
+
+
+def compile_standard(conn, document_id: str, label: str, **kw) -> dict:
+    """One standard's `compile_many`."""
+    return compile_many(conn, {document_id: label}, **kw)[0]
 
 
 def reverify_stored(
@@ -714,8 +773,6 @@ def record_rule_version(review_run_id: str) -> None:
     so a held compiled rule cannot have been used, and this counts the ones it did not use. Switch off: nothing."""
     if not settings.standards_compiler_enabled:
         return
-    from .db import connect
-
     conn = connect()
     row = conn.execute(
         "SELECT outcome_json FROM review_runs WHERE id = ?", (review_run_id,)

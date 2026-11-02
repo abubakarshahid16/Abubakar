@@ -19,6 +19,7 @@ from app import (
     rulebook_v2,
     rulebook_v2_check,
     rulebook_v2_ingest,
+    rulebook_v2_schema,
     standards,
     standards_compiler,
 )
@@ -53,6 +54,7 @@ REPO = Path(__file__).resolve().parents[2]
 APP = REPO / "backend" / "app"
 PAGE_2 = "4.2 Bolts\nThe invented bolt torque shall be at least 40 Nm."
 ENGINEER = "user-eng"
+PSV = "Invented Relief Device"
 
 
 @pytest.fixture(autouse=True)
@@ -143,6 +145,8 @@ def _approve(version_id, engineer=ENGINEER, note=None):
         version_id,
         decision=rulebook_v2.APPROVE,
         engineer_id=engineer,
+        tier=rulebook_v2.ENGINEER,
+        equipment_type=PSV,
         provenance_viewed=_sources(version_id),
         note=note,
     )
@@ -297,7 +301,7 @@ def test_insert_or_replace_cannot_erase_a_row_past_the_delete_trigger():
     with pytest.raises(sqlite3.IntegrityError, match="never replaced"):
         conn.execute(
             "INSERT OR REPLACE INTO rulebook_approval (id, rule_version_id, decision, approver_id, decided_at,"
-            " provenance_viewed) SELECT id, rule_version_id, 'reject', approver_id, decided_at, '[]'"
+            " provenance_viewed, tier) SELECT id, rule_version_id, 'reject', approver_id, decided_at, '[]', 'owner'"
             " FROM rulebook_approval"
         )
     conn.rollback()
@@ -350,7 +354,7 @@ def test_the_same_quote_read_another_way_is_a_new_version():
     )
     conn = _conn()
     with conn:
-        assert rulebook_v2.append_reading(conn, reading, "test") == "new_version"
+        assert rulebook_v2.append_reading(conn, reading, "test")[0] == "new_version"
     assert _version(2)["comparator"] == ">=" and _version(1) == old
 
 
@@ -391,7 +395,7 @@ def test_the_event_log_is_written_by_the_database_not_by_the_caller():
         "rulebook_snapshot",
         "rulebook_run",
     }
-    source = Path(rulebook_v2.__file__).read_text(encoding="utf-8")
+    source = Path(rulebook_v2_schema.__file__).read_text(encoding="utf-8")
     # the only inserts into the log sit inside a trigger
     assert source.count("INSERT INTO rulebook_event") == 1 and "AFTER INSERT" in source
     assert version["id"] in {
@@ -680,14 +684,15 @@ def test_a_person_no_longer_active_cannot_approve():
         _approve(_version()["id"], engineer="left")
 
 
-def test_nothing_in_the_app_or_the_scripts_decides_on_a_rule():
+def test_only_the_import_of_a_signers_ticks_decides_on_a_rule():
     callers = []
     for root in (APP, REPO / "scripts"):
         for path in root.rglob("*.py"):
             text = path.read_text(encoding="utf-8")
             if "record_decision" in text or "INTO rulebook_approval" in text:
                 callers.append(path.name)
-    assert callers == ["rulebook_v2.py"]
+    assert set(callers) <= {"rulebook_v2.py", "import_rule_approvals.py"}
+    assert "rulebook_v2.py" in callers
 
 
 def test_an_approval_must_name_a_quote_of_this_version():
@@ -701,13 +706,15 @@ def test_an_approval_must_name_a_quote_of_this_version():
                 version["id"],
                 decision=rulebook_v2.APPROVE,
                 engineer_id=ENGINEER,
+                tier=rulebook_v2.ENGINEER,
+                equipment_type=PSV,
                 provenance_viewed=viewed,
             )
     conn = _conn()
     with pytest.raises(sqlite3.IntegrityError, match="quote that was read"):
         conn.execute(
-            "INSERT INTO rulebook_approval (id, rule_version_id, decision, approver_id, decided_at, provenance_viewed)"
-            " VALUES ('a', ?, 'approve', ?, 'now', '[]')",
+            "INSERT INTO rulebook_approval (id, rule_version_id, decision, approver_id, decided_at, provenance_viewed,"
+            " tier, equipment_type) VALUES ('a', ?, 'approve', ?, 'now', '[]', 'owner', 'x')",
             (version["id"], ENGINEER),
         )
     conn.rollback()
@@ -754,7 +761,11 @@ def test_the_last_decision_stands_and_a_retired_rule_is_not_in_force():
     _approve(version_id)
     assert rulebook_v2.approval_in_force(_conn(), version_id)
     rulebook_v2.record_decision(
-        _conn(), version_id, decision=rulebook_v2.RETIRE, engineer_id=ENGINEER
+        _conn(),
+        version_id,
+        decision=rulebook_v2.RETIRE,
+        engineer_id=ENGINEER,
+        tier=rulebook_v2.OWNER,
     )
     assert rulebook_v2.approval_in_force(_conn(), version_id) is None
 
@@ -894,7 +905,7 @@ def test_a_rule_reads_who_it_is_for_then_unless_then_what_it_demands():
 _RULEBOOK_NAME = re.compile(
     r"\brulebook_(?:rule|version|provenance|applicability|exception|approval|snapshot|run|event)\b"
 )
-_OURS = {"rulebook_v2.py", "rulebook_v2_ingest.py"}
+_OURS = {"rulebook_v2.py", "rulebook_v2_ingest.py", "rulebook_v2_schema.py"}
 _V1_WRITE = re.compile(
     r"(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+standard_requirements\b"
 )
@@ -1118,3 +1129,191 @@ def test_the_compilers_seam_fills_the_book_on_and_does_nothing_off(monkeypatch):
     monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
     rulebook_v2_ingest.after_compile(_conn(), DOC)
     assert len(_rows("SELECT id FROM rulebook_rule")) == 1
+
+
+# ------------------------------------------------------------------------- the contract for a review (piece 3)
+
+
+CONTRACT_KEYS = {
+    "rule_id",
+    "version",
+    "field",
+    "comparator",
+    "value",
+    "unit",
+    "applies_to",
+    "conditions",
+    "exceptions",
+    "clause",
+    "page",
+    "quote",
+    "quote_sha256",
+    "standard",
+    "edition",
+    "context_flag",
+    "strength",
+    "approval",
+}
+
+
+def _decide(version_id, decision, equipment_type=PSV, tier=rulebook_v2.ENGINEER):
+    return rulebook_v2.record_decision(
+        _conn(),
+        version_id,
+        decision=decision,
+        engineer_id=ENGINEER,
+        tier=tier,
+        equipment_type=equipment_type,
+        provenance_viewed=_sources(version_id),
+    )
+
+
+def test_an_approved_rule_comes_out_with_every_field_of_the_contract():
+    _person()
+    _compile_with_exception()
+    version = _version()
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE users SET display_name = 'An Invented Signer' WHERE id = ?",
+            (ENGINEER,),
+        )
+    _decide(version["id"], rulebook_v2.APPROVE, tier=rulebook_v2.OWNER)
+    (rule,) = rulebook_v2.approved_rules(_conn(), PSV)
+    assert set(rule) == CONTRACT_KEYS
+    assert rule["rule_id"] == version["rule_id"] and rule["version"] == 1
+    assert (rule["comparator"], rule["value"], rule["unit"]) == ("<=", 25.0, "bar")
+    assert rule["applies_to"] == "relief flanges"
+    assert rule["conditions"] == ["for gas service"]
+    assert rule["exceptions"] == ["unless the flange is blind"]
+    assert (rule["clause"], rule["page"], rule["quote"]) == ("4.1", 1, QUOTE)
+    assert len(rule["quote_sha256"]) == 64 and rule["standard"] == LABEL
+    assert rule["strength"] == version["strength"]
+    assert "context_flag" in rule and "edition" in rule
+    assert set(rule["approval"]) == {"by", "at", "tier"}
+    assert rule["approval"]["by"] == "An Invented Signer"
+    assert rule["approval"]["tier"] == rulebook_v2.OWNER and rule["approval"]["at"]
+
+
+def test_an_unapproved_rule_never_comes_out():
+    _person()
+    _compile()
+    assert rulebook_v2.approved_rules(_conn(), PSV) == []
+
+
+def test_an_approval_covers_only_its_equipment_type_whatever_the_spelling():
+    _person()
+    _compile()
+    _decide(_version()["id"], rulebook_v2.APPROVE)
+    assert rulebook_v2.approved_rules(_conn(), "An Invented Pump") == []
+    assert rulebook_v2.approved_rules(_conn(), "") == []
+    assert len(rulebook_v2.approved_rules(_conn(), f"  {PSV.upper()} ")) == 1
+
+
+def test_a_superseded_rule_never_comes_out_and_its_new_reading_waits_for_a_person():
+    _person()
+    _compile(doc="ed-1", pages=_edition_page(), edition="2020")
+    old = _version()
+    _decide(old["id"], rulebook_v2.APPROVE)
+    assert [r["version"] for r in rulebook_v2.approved_rules(_conn(), PSV)] == [1]
+    _compile(
+        doc="ed-2",
+        pages=_edition_page("30"),
+        edition="2026",
+        rules=[
+            _rule(
+                limit="30",
+                quote="The relief flange pressure shall not exceed 30 bar for gas service.",
+            )
+        ],
+    )
+    assert rulebook_v2.approved_rules(_conn(), PSV) == []
+    new = _version(2)
+    _decide(new["id"], rulebook_v2.APPROVE)
+    (rule,) = rulebook_v2.approved_rules(_conn(), PSV)
+    assert (rule["version"], rule["value"]) == (2, 30.0)
+
+
+def test_the_last_decision_for_a_type_stands_and_another_types_decision_does_not_touch_it():
+    _person()
+    _compile()
+    version_id = _version()["id"]
+    _decide(version_id, rulebook_v2.APPROVE)
+    _decide(version_id, rulebook_v2.REJECT, equipment_type="An Invented Pump")
+    assert len(rulebook_v2.approved_rules(_conn(), PSV)) == 1
+    _decide(version_id, rulebook_v2.REJECT)
+    assert rulebook_v2.approved_rules(_conn(), PSV) == []
+    _decide(version_id, rulebook_v2.APPROVE)
+    assert len(rulebook_v2.approved_rules(_conn(), PSV)) == 1
+    _decide(version_id, rulebook_v2.RETIRE, equipment_type=None)
+    assert rulebook_v2.approved_rules(_conn(), PSV) == []
+
+
+def test_switch_off_or_no_tables_no_rule_comes_out(monkeypatch):
+    assert rulebook_v2.approved_rules(_conn(), PSV) == []
+    assert not rulebook_v2.has_schema(_conn())
+    _person()
+    _compile()
+    _decide(_version()["id"], rulebook_v2.APPROVE)
+    monkeypatch.setattr(settings, "rulebook_v2_enabled", False)
+    assert rulebook_v2.approved_rules(_conn(), PSV) == []
+
+
+@pytest.mark.parametrize(
+    ("tier", "equipment_type", "decision"),
+    [
+        (None, PSV, "approve"),
+        ("system", PSV, "approve"),
+        ("owner", None, "approve"),
+        ("owner", "  ", "approve"),
+        (None, None, "retire"),
+    ],
+)
+def test_the_database_refuses_a_decision_with_no_tier_or_an_approval_with_no_type(
+    tier, equipment_type, decision
+):
+    _person()
+    _compile()
+    version_id = _version()["id"]
+    with pytest.raises(sqlite3.IntegrityError):
+        rulebook_v2.record_decision(
+            _conn(),
+            version_id,
+            decision=decision,
+            engineer_id=ENGINEER,
+            tier=tier,
+            equipment_type=equipment_type,
+            provenance_viewed=_sources(version_id),
+        )
+    assert _rows("SELECT id FROM rulebook_approval") == []
+
+
+def test_a_copy_made_before_the_tier_columns_is_brought_up_to_date():
+    conn = _conn()
+    rulebook_v2.ensure_schema(conn)
+    fresh = sorted(r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)"))
+    # the shape the first copies have: no tier column, none of the guards that read it
+    for name in ("rulebook_approval_signed", "rulebook_approval_event"):
+        conn.execute(f"DROP TRIGGER {name}")
+    for column in ("tier", "equipment_type", "approver_name", "source_sha256"):
+        conn.execute(f"ALTER TABLE rulebook_approval DROP COLUMN {column}")
+    conn.commit()
+    conn.execute("DROP TRIGGER rulebook_compiled_row_no_update")
+    conn.commit()
+    rulebook_v2.ensure_schema(conn)
+    assert (
+        sorted(r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)"))
+        == fresh
+    )
+    assert rulebook_v2.integrity_problems(conn) == {}
+
+
+def test_each_compiled_row_names_the_version_it_became():
+    done = _compile()
+    (row,) = _rows("SELECT * FROM rulebook_compiled_row")
+    assert row["rule_version_id"] == _version()["id"]
+    assert row["compiled_row_id"] == _rows("SELECT id FROM compiled_rules")[0]["id"]
+    assert (
+        rulebook_v2_ingest.ingest_latest(_conn(), DOC)["snapshot_id"]
+        == done["snapshot_id"]
+    )
+    assert len(_rows("SELECT * FROM rulebook_compiled_row")) == 1
