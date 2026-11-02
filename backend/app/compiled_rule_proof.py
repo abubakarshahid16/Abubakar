@@ -58,6 +58,32 @@ _STRENGTHS = (
 )
 
 
+ANSWER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "rules": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "applies_to": {"type": ["string", "null"]},
+                    "condition": {"type": ["string", "null"]},
+                    "exceptions": {"type": ["string", "null"]},
+                    "field": {"type": ["string", "null"]},
+                    "comparator": {"type": ["string", "null"]},
+                    "limit": {"type": ["string", "number", "null"]},
+                    "unit": {"type": ["string", "null"]},
+                    "clause": {"type": ["string", "null"]},
+                    "page": {"type": ["integer", "null"]},
+                    "quote": {"type": ["string", "null"]},
+                },
+            },
+        }
+    },
+    "required": ["rules"],
+}
+
+
 @dataclass
 class Chunk:
     custom_id: str

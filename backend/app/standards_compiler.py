@@ -55,7 +55,7 @@ from . import (
     standards_converter,
 )
 from .ai.json_reply import unfenced
-from .compiled_rule_proof import Chunk, quote_verified, verify
+from .compiled_rule_proof import ANSWER_SCHEMA, Chunk, quote_verified, verify
 from .config import settings
 from .converter_gates import _CLAUSE_HEADING
 from .converter_gates import fold as _fold
@@ -92,30 +92,6 @@ SCHEMA = (
         model TEXT NOT NULL, prompt_version TEXT NOT NULL, batch_id TEXT, text_sha256 TEXT NOT NULL,
         created_at TEXT NOT NULL)""",
 )
-ANSWER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "rules": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "applies_to": {"type": ["string", "null"]},
-                    "condition": {"type": ["string", "null"]},
-                    "exceptions": {"type": ["string", "null"]},
-                    "field": {"type": ["string", "null"]},
-                    "comparator": {"type": ["string", "null"]},
-                    "limit": {"type": ["string", "number", "null"]},
-                    "unit": {"type": ["string", "null"]},
-                    "clause": {"type": ["string", "null"]},
-                    "page": {"type": ["integer", "null"]},
-                    "quote": {"type": ["string", "null"]},
-                },
-            },
-        }
-    },
-    "required": ["rules"],
-}
 
 
 class SwitchedOff(RuntimeError):
