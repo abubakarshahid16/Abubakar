@@ -2951,7 +2951,6 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
-        # 2f: the engineer's internal notes, on their own sheet.
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
             {"note": part["note"], "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
