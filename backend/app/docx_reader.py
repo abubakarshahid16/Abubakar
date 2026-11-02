@@ -27,6 +27,8 @@ document text): pictures and text boxes, footnote and endnote bodies, embedded
 objects, and number formats it does not know. A limit that leaves content out
 is reported; it never makes the document look complete.
 
+REAL PAGE NUMBERS: `docx_pages` (WORD_PAGE_MARKERS_ENABLED; off, nothing changes).
+
 GENERIC. Nothing here knows any one document or discipline. HOSTILE FILES: the
 same limits as `datasheet_inputs` (declared unpacked size and entry count are
 checked before anything is decompressed, a macro project is refused, a DOCTYPE
@@ -48,6 +50,7 @@ from .datasheet_inputs import (
     check_zip_bounds,
     refuse_doctype,
 )
+from .docx_pages import PageWalk, Pagination, Picture, PictureReading, ReadProof
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -93,6 +96,8 @@ class DocBlock:
     page: int = 1
     #: This paragraph carries an inserted run (a tracked insertion).
     tracked: bool = False
+    #: A table's page per row in `rows` (WORD_PAGE_MARKERS_ENABLED); None: all on `page`.
+    row_pages: list[int] | None = None
 
 
 @dataclass
@@ -113,6 +118,10 @@ class Structure:
     #: One rendered text per reading page, in order.
     pages: list[str]
     notes: list[str]
+    #: WORD_PAGE_MARKERS_ENABLED only; all three stay empty when it is off.
+    pagination: Pagination | None = None
+    proof: ReadProof | None = None
+    pictures: list[Picture] = field(default_factory=list)
 
 
 # ------------------------------------------------------------------ styles
@@ -402,15 +411,18 @@ def _cell_text(tc: ET.Element) -> tuple[str, bool]:
     return " ".join(texts), changed
 
 
-def _table(tbl: ET.Element, notes: list[str]) -> tuple[list[list[str]], bool, list[str]]:
+def _table(
+    tbl: ET.Element, notes: list[str], kept: list[int] | None = None
+) -> tuple[list[list[str]], bool, list[str]]:
     """(rows, any inserted/changed cell, deleted-row texts). A deleted row (a
     tracked row deletion) is not part of the table; its text is returned so it
-    can be recorded as a tracked change."""
+    can be recorded as a tracked change. `kept` collects each kept row's index
+    among the table's `w:tr`, so a row can be matched to its page."""
     rows: list[list[str]] = []
     deleted_rows: list[str] = []
     changed = False
     above: dict[int, str] = {}
-    for tr in tbl.findall(_W + "tr"):
+    for index, tr in enumerate(tbl.findall(_W + "tr")):
         trpr = tr.find(_W + "trPr")
         cells: list[str] = []
         col = 0
@@ -439,6 +451,8 @@ def _table(tbl: ET.Element, notes: list[str]) -> tuple[list[list[str]], bool, li
             while cells and not cells[-1]:
                 cells.pop()
             rows.append(cells)
+            if kept is not None:
+                kept.append(index)
     return rows, changed, deleted_rows
 
 
@@ -528,12 +542,49 @@ def _comments(zf: zipfile.ZipFile) -> dict[str, tuple[str, str]]:
     return found
 
 
-def read_structure(path: str | os.PathLike) -> Structure:
+def _para_furniture(
+    para: _Para, comments: dict, where: str, in_para: str, page: int
+) -> list[Furniture]:
+    """A paragraph's tracked changes and comments, kept beside the body."""
+    out: list[Furniture] = []
+    anchor = " > ".join(filter(None, [where, in_para])) or "document start"
+    if para.deleted:
+        out.append(
+            Furniture(FURNITURE_TRACKED, f"deleted: {para.deleted}", anchor, page)
+        )
+    if para.inserted_text:
+        out.append(
+            Furniture(
+                FURNITURE_TRACKED, f"inserted: {para.inserted_text}", anchor, page
+            )
+        )
+    for cid in para.comment_ids:
+        if cid in comments:
+            author, ctext = comments[cid]
+            said = (f"comment by {author}: " if author else "comment: ") + ctext
+            out.append(Furniture(FURNITURE_COMMENT, said, anchor, page))
+    return out
+
+
+def _picture_blocks(
+    walk: PageWalk, node: ET.Element, page: int, stack: list, where
+) -> list[DocBlock]:
+    """A block's pictures with a reading, as text on their own pages."""
+    heading = stack[-1][2] if stack else ""
+    return [
+        DocBlock(KIND_PARAGRAPH, text, path=where[0], chain=where[1], page=shown)
+        for text, shown in walk.picture_texts(node, page, heading)
+    ]
+
+
+def read_structure(
+    path: str | os.PathLike, picture_readings: dict[int, PictureReading] | None = None
+) -> Structure:
     """Read a .docx into blocks, furniture, reading pages and notes.
 
     Raises `datasheet_inputs.InputError` for a file it refuses (not a Word
     document, a DOCTYPE, a macro, a zip bomb); the ingest records it as failed
-    with that reason."""
+    with that reason. `picture_readings`: `PageWalk.open`."""
     check_zip_bounds(path)
     notes: list[str] = []
     with zipfile.ZipFile(path) as zf:
@@ -549,6 +600,7 @@ def read_structure(path: str | os.PathLike) -> Structure:
         comments = _comments(zf)
         furniture = _furniture_parts(zf, notes)
         has_notes = any(n in zf.namelist() for n in ("word/footnotes.xml", "word/endnotes.xml"))
+        walk = PageWalk.open(zf, root, path, picture_readings)
     body = root.find(_W + "body")
 
     blocks: list[DocBlock] = []
@@ -570,7 +622,7 @@ def read_structure(path: str | os.PathLike) -> Structure:
 
     def new_page() -> None:
         nonlocal page, page_chars
-        if page_chars:
+        if page_chars and not walk.real:
             page += 1
             page_chars = 0
 
@@ -578,8 +630,9 @@ def read_structure(path: str | os.PathLike) -> Structure:
         count += 1
         if count > MAX_DOCX_BLOCKS:
             raise InputError("too_many_blocks", f"more than {MAX_DOCX_BLOCKS} paragraphs/rows")
+        page = walk.start(node, page)
         if node.tag == _W + "tbl":
-            rows, changed, deleted_rows = _table(node, notes)
+            rows, changed, deleted_rows = _table(node, notes, kept := [])
             if deleted_rows:
                 furniture.append(Furniture(FURNITURE_TRACKED,
                                            "deleted table row(s): " + " / ".join(deleted_rows),
@@ -588,8 +641,11 @@ def read_structure(path: str | os.PathLike) -> Structure:
                 table_no += 1
                 chain_path, chain_full = path_now()
                 blocks.append(DocBlock(KIND_TABLE, rows=rows, path=chain_path, chain=chain_full,
-                                       table_no=table_no, page=page, tracked=changed))
+                                       table_no=table_no, page=walk.first_row(node, kept, page), tracked=changed,
+                                       row_pages=walk.rows_of(node, kept)))
                 page_chars += sum(len(" ".join(r)) for r in rows)
+            walk.table_read(node, rows, page, heading_stack[-1][2] if heading_stack else "")
+            blocks.extend(_picture_blocks(walk, node, page, heading_stack, path_now()))
             continue
 
         para = _read_para(node)
@@ -638,26 +694,16 @@ def read_structure(path: str | os.PathLike) -> Structure:
                 blocks.append(DocBlock(KIND_PARAGRAPH, para.text, 0, "", chain_path, chain_full,
                                        para_no=para_no, page=page, tracked=para.inserted))
             page_chars += len(para.text) + len(label) + 1
-            anchor = " > ".join(filter(None, [locator_now(),
-                                              f"para {para_no}" if para_no and blocks[-1].kind != KIND_HEADING else ""]))
-            anchor = anchor or "document start"
-            if para.deleted:
-                furniture.append(Furniture(FURNITURE_TRACKED, f"deleted: {para.deleted}", anchor, page))
-            if para.inserted_text:
-                furniture.append(Furniture(FURNITURE_TRACKED, f"inserted: {para.inserted_text}",
-                                           anchor, page))
-            for cid in para.comment_ids:
-                if cid in comments:
-                    author, ctext = comments[cid]
-                    furniture.append(Furniture(
-                        FURNITURE_COMMENT,
-                        (f"comment by {author}: " if author else "comment: ") + ctext, anchor, page))
+            furniture.extend(_para_furniture(
+                para, comments, locator_now(),
+                f"para {para_no}" if para_no and blocks[-1].kind != KIND_HEADING else "", page))
         else:
             if para.deleted:
                 furniture.append(Furniture(FURNITURE_TRACKED, f"deleted: {para.deleted}",
                                            locator_now() or "document start", page))
             if _heading_level(styles, style_id, outline) is not None:
                 skipped_empty_headings += 1
+        blocks.extend(_picture_blocks(walk, node, page, heading_stack, path_now()))
 
         if para.page_break_inside or section_break:
             new_page()
@@ -665,7 +711,8 @@ def read_structure(path: str | os.PathLike) -> Structure:
     numbering.finish()
     if toc_lines:
         furniture.append(Furniture(FURNITURE_TOC, "\n".join(toc_lines), "table of contents", 1))
-    if figures:
+    notes.extend(walk.finish(root))
+    if figures and not walk.on:
         notes.append(f"{figures} picture(s) or drawing(s) not read")
     if text_boxes:
         notes.append(f"{text_boxes} text box(es) not read")
@@ -674,13 +721,14 @@ def read_structure(path: str | os.PathLike) -> Structure:
     if skipped_empty_headings:
         notes.append(f"{skipped_empty_headings} empty heading(s) skipped")
     # Reading pages are dense (1..n): a stretch with only furniture has none.
-    dense = {old: new for new, old in enumerate(sorted({b.page for b in blocks}), start=1)}
+    dense = walk.page_numbers() or {old: new for new, old in enumerate(sorted({b.page for b in blocks}), start=1)}
     for b in blocks:
         b.page = dense[b.page]
     for f in furniture:
         f.page = dense.get(f.page, 1)
-    return Structure(blocks=blocks, furniture=furniture,
-                     pages=_render_pages(blocks, len(dense)), notes=notes)
+    return Structure(blocks=blocks, furniture=furniture, pages=_render_pages(blocks, len(dense), walk.real),
+                     notes=notes, pagination=walk.plan.pagination if walk.plan else None,
+                     proof=walk.proof, pictures=walk.pictures)
 
 
 # ---------------------------------------------------------------- rendering
@@ -699,7 +747,25 @@ def block_lines(b: DocBlock) -> list[str]:
     return [b.text]
 
 
-def _render_pages(blocks: list[DocBlock], last_page: int) -> list[str]:
+def _render_pages(
+    blocks: list[DocBlock], last_page: int, real: bool = False
+) -> list[str]:
+    if (
+        real
+    ):  # one text per real page, a page nothing started on empty, a row on its own page
+        lines = [
+            (n, line)
+            for b in blocks
+            for n, line in zip(
+                b.row_pages or [b.page] * len(block_lines(b)),
+                block_lines(b),
+                strict=True,
+            )
+        ]
+        return [
+            "\n".join(line for n, line in lines if n == page)
+            for page in range(1, last_page + 1)
+        ]
     by_page: dict[int, list[str]] = {}
     for b in blocks:
         by_page.setdefault(b.page, []).extend(block_lines(b))

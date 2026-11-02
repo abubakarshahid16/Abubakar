@@ -35,6 +35,7 @@ from . import (
     reread_for_standards,
     review_progress,
     submittal_fill,
+    word_pages,
 )
 from .config import config_version, settings
 from .db import connect
@@ -202,7 +203,9 @@ def _page(conn, job_id: str, done: int, total: int, heartbeat=None) -> None:
     label = f"{STEPS[0]}, page {done} of {total}"
     with conn:
         sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
-        conn.execute(sql, (label, _now(), job_id))
+        conn.execute(
+            sql, (word_pages.progress_label(conn, job_id, label), _now(), job_id)
+        )
 
 
 def _clause(conn, job_id: str, number: int, total: int, heartbeat=None) -> None:

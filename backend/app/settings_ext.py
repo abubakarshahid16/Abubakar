@@ -177,6 +177,12 @@ class SettingsExt(BaseModel):
     #: cannot read is refused with a reason. Local only, no model, no socket. OFF: nothing changes.
     #: Env: ONE_INTAKE_ENABLED.
     one_intake_enabled: bool = False
+    #: A Word file's real pages (`docx_reader`): its saved page markers number its blocks, its tables
+    #: and pictures are counted against what reached the reader, and an embedded picture goes to the
+    #: local OCR engine (`word_pictures`; no Claude lane, no reader model). No markers: the section
+    #: heading is shown, never an invented page. OFF: reading parts as before, nothing recognised,
+    #: nothing stored. Env: WORD_PAGE_MARKERS_ENABLED.
+    word_page_markers_enabled: bool = False
     #: #645 slice 3 (`ai_requirement_chunks.py`): the LOCAL model reads a held standard chunks
     #: and proposes single limits; code verifies every field; drafts only.
     #: OFF: nothing is read or stored. Env: AI_REQUIREMENT_EXTRACTION_ENABLED.
