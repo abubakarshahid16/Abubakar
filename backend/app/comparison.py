@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import equipment_scope as eqs, intake, kind_rules, procedure_text
+from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -1743,10 +1743,10 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
         return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
             f"{UNREAD_PAGES}: no value for this requirement was found in the "
             f"fields read from {where} of {total}; "
-            f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
-            "were not read into fields, so the value may be there. An engineer "
-            "must check those pages before this becomes a comment to the "
-            "contractor")}
+            f"{page_not_read.unread_clause(pages, unread)}"  # 1550
+            ", so the value may be there. "
+            "An engineer must check those pages before this becomes a comment to "
+            "the contractor")}
     page_reader_only = pages.get("pages_read_only_by_page_reader") or []
     if page_reader_only:
         # Owner decision 2026-09-26 (honesty audit entry 68): these pages are
@@ -1815,9 +1815,9 @@ def completeness_for_run(
         extraction = round(answered / required, 3) if required else None
         basis = {"basis": BASIS_REQUIRED_FIELDS, "fields_required": required,
                  "fields_answered": answered, "fields_estimated": None}
+        basis.update(kind_rules.unknown_type_words(submittal_document_id))
     else:
-        # No findings yet (the applicability screen, before any comparison):
-        # the old NOMINAL figure, labelled nominal wherever it is printed.
+        # No findings yet (applicability screen): the NOMINAL figure, labelled nominal.
         fields_estimated = pages * FIELDS_PER_PAGE_NOMINAL if pages else None
         extraction = (
             round(min(fields_read / fields_estimated, 1.0), 3)
@@ -1899,10 +1899,10 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     # comments) would be a claim about it. A proven breach stays a breach.
     reading = (page_coverage or {}).get("reading") or {}
     if reading.get("status") == page_ledger.READING_INCOMPLETE and result["code"] in (codes[0], codes[1]):
-        pages = page_ledger.page_list(reading.get("incomplete_pages") or [])
+        pages = page_not_read.incomplete_words(page_coverage, reading)
         result = {**result, "code": codes[3],
-                  "reason": (f"Manual review: the reading is incomplete (page{'s' if len(reading.get('incomplete_pages') or []) != 1 else ''} "
-                             f"{pages} not read in full, see the run's page coverage), so the rest cannot be called met"),
+                  "reason": (f"Manual review: the reading is incomplete ({pages}, "  # 1550
+                             "see the run's page coverage), so the rest cannot be called met"),
                   "reading_incomplete": True}
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
@@ -1985,6 +1985,7 @@ def plain_reason(code: str, technical: str, completeness: dict | None,
                 f"{'s' if required != 1 else ''} the applicable standards ask for."
                 if required else
                 "No applicable standard asks this datasheet for a value that was checked.")
+        head = completeness.get("unknown_type_plain", head) if not required else head
         if missing:
             return f"{head} " + _standards_sentence(
                 missing, "so a review code can't be suggested yet.")
@@ -2257,7 +2258,9 @@ def _insufficient_reason(completeness: dict) -> str:
         required = completeness.get("fields_required") or 0
         answered = completeness.get("fields_answered") or 0
         cover = completeness.get("reference_coverage")
-        if not required:
+        if not required and completeness.get("unknown_type_technical"):
+            head = completeness["unknown_type_technical"]
+        elif not required:
             head = ("no requirement of an applicable standard asks this datasheet "
                     "for a value, so how much of it the review covered was not "
                     "measured")
@@ -2271,11 +2274,8 @@ def _insufficient_reason(completeness: dict) -> str:
         return f"{head}, and that is not enough to recommend a code"
     if total:
         pages = completeness.get("pages")
-        # THE DENOMINATOR SAYS WHERE IT COMES FROM. "approximately 385 fields"
-        # reads like somebody counted the sheet. Nobody did: it is the page
-        # count times a nominal 35 slots per page, a figure taken from OTHER
-        # datasheets entirely. A reader who thinks 385 was measured here will
-        # also think 42/385 means something about this document's coverage.
+        # THE DENOMINATOR SAYS WHERE IT COMES FROM: nobody counted the sheet. It is
+        # the page count times a nominal 35 slots per page, from OTHER datasheets.
         return (f"the review examined {read} fields; the denominator is a "
                 f"NOMINAL ESTIMATE of {total} ({pages} pages x "
                 f"{FIELDS_PER_PAGE_NOMINAL} fields per page, not a count of "

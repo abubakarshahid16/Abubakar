@@ -27,7 +27,9 @@ export function ReviewProgressBlock({ job }: { job: ReviewRunSummary["job"] }) {
       {s.percent !== null && (
         <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.percent}
           aria-label={s.pagesLine ?? s.clausesLine ?? "progress"} className="h-2 w-full rounded bg-slateish-500">
-          <div className="h-2 rounded bg-accent-500" style={{ width: `${s.percent}%` }} />
+          {/* signal-500: the theme's accent, redefined for light and dark (an
+              undefined colour class draws nothing: the live review "frozen" bar). */}
+          <div className="h-2 rounded bg-signal-500" style={{ width: `${s.percent}%` }} />
         </div>
       )}
       <p className="text-xs text-slateish-300" data-testid="review-progress-detail">
@@ -36,7 +38,7 @@ export function ReviewProgressBlock({ job }: { job: ReviewRunSummary["job"] }) {
       </p>
       {s.stall && (
         <p role="status" data-testid="review-stall" data-level={s.stall.level}
-          className={`text-xs ${s.stall.level === "red" ? "text-danger-500" : "text-amber-400"}`}>
+          className={`text-xs ${s.stall.level === "red" ? "text-danger-500" : "text-warn-500"}`}>
           {s.stall.text}
         </p>
       )}
