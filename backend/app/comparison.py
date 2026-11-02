@@ -1443,6 +1443,8 @@ def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
     if trust is None:
         return None
     from . import rule_trust
+    if not rule_trust.run_has_a_record(rows):
+        return None
     # A stored fact carries its value as `field_value`; the pure function
     # reads `raw_value`. One translation, here, never a second reader.
     shaped = [{"field_name": f.get("field_label") or f.get("field_name"),
@@ -1913,6 +1915,8 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                   "reason": (f"Manual review: the reading is incomplete ({pages}, "  # 1550
                              "see the run's page coverage), so the rest cannot be called met"),
                   "reading_incomplete": True}
+    from . import rule_trust
+    result = rule_trust.hold_open_ticks(result, findings, codes)
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
         # A PROVEN BREACH, IN AN ENGINEER'S WORDS, with what else is open.

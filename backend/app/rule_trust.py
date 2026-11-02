@@ -67,12 +67,14 @@ import json
 import logging
 import math
 import re
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
 from . import (
     ai_requirements,
     card_trust,
+    deferred_value,
     field_links,
     field_naming,
     requirements_3b,
@@ -319,6 +321,18 @@ def _owner_tier(rule: dict) -> bool:
     return isinstance(approval, dict) and approval.get("tier") == OWNER_TIER
 
 
+def _signed(approval: dict) -> bool:
+    """A named signer and a time that reads as one: the approval has to say who and when."""
+    by, at = approval.get("by"), approval.get("at")
+    if not isinstance(by, str) or not by.strip() or not isinstance(at, str):
+        return False
+    try:
+        datetime.fromisoformat(at.strip())
+    except ValueError:
+        return False
+    return True
+
+
 def tier_for_approved(approval: dict | None, rule: dict) -> str:
     """The label of a rule from an approved rulebook (#1584). OWNER_APPROVED only with the switch on, a whole owner
     approval (`tier`, `by`, `at`) and a rule that passes `second_check` (the label says quote-verified, so code must
@@ -328,11 +342,7 @@ def tier_for_approved(approval: dict | None, rule: dict) -> str:
         approval, dict
     ):
         return UNPROVEN
-    if (
-        approval.get("tier") != OWNER_TIER
-        or not approval.get("by")
-        or not approval.get("at")
-    ):
+    if approval.get("tier") != OWNER_TIER or not _signed(approval):
         return UNPROVEN
     return OWNER_APPROVED if second_check(rule)[0] else UNPROVEN
 
@@ -414,7 +424,7 @@ def label_finding(
         return finding
     out = apply_trust(finding, trust_label(rule, proof))
     if out["trust_label"] == OWNER_APPROVED:
-        out = _hold_without_a_value(out, fact)
+        out = deferred_value.hold_owner_rule(_hold_without_a_value(out, fact), fact)
     level, why = tier(rule)
     out.update(tier=level, tier_reason=why,
                show_for_engineer_tick=level == SAFETY and out.get("status") == COMPLIANT)
@@ -439,6 +449,40 @@ def label_check(result: dict) -> dict:
             show_for_engineer_tick=is_safety and out.get("status") == COMPLIANT,
         )
     return out
+
+
+def run_has_a_record(rows: list[dict]) -> bool:
+    """A run stores `rule_trust` under the old switch, or when an owner-approved rule labelled a row. The new switch
+    with no such rule changes no output of the run."""
+    return settings.rule_auto_use_enabled or any(
+        r.get("trust_label") == OWNER_APPROVED for r in rows
+    )
+
+
+def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) -> dict:
+    """An owner-approved rule's safety Pass an engineer has not ticked is not an approval (owner's words on #1584):
+    a sheet that would be approved, with or without comments, is a manual review until it is ticked. A breach stays a
+    breach. Findings carrying the owner's label only: every other run's code stays as it was."""
+    still_open = [
+        f
+        for f in findings
+        if f.get("trust_label") == OWNER_APPROVED
+        and f.get("show_for_engineer_tick")
+        and f.get("compliance_status") == COMPLIANT
+        and not f.get("confirmed_by")
+    ]
+    if not still_open or result["code"] not in (codes[0], codes[1]):
+        return result
+    n = len(still_open)
+    return {
+        **result,
+        "code": codes[3],
+        "reason": (
+            f"Manual review: {n} safety value{'s' if n != 1 else ''} met an owner-approved rule and "
+            f"{'wait' if n != 1 else 'waits'} for an engineer's tick, so the sheet cannot be called approved"
+        ),
+        "open_safety_ticks": n,
+    }
 
 
 def decided_by_tier(rows: list[dict]) -> dict:

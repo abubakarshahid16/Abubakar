@@ -250,8 +250,8 @@ class SettingsExt(BaseModel):
     one_checked_definition_enabled: bool = False
     #: Owner's text on #1584: a rule the owner approved (`approval.tier == "owner"`) may decide a verdict, labelled
     #: "AI-built, quote-verified, owner-approved" (`rule_trust.tier_for_approved`), never "engineer-approved". Code
-    #: still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick. On, a deferred value is a query
-    #: for every rule, as with DEFERRED_VALUE_IS_QUERY_ENABLED; no other rule's verdict changes. OFF: byte-identical.
+    #: still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick and, until ticked, no Approved
+    #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
     #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
     owner_approved_rules_decide_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an

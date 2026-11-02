@@ -16,9 +16,19 @@ import re
 import openpyxl
 import pytest
 
-from app import comparison, coverage_pair, datasheets, rule_trust
+from app import (
+    comparison,
+    coverage_pair,
+    datasheets,
+    deferred_value,
+    rule_eval,
+    rule_trust,
+)
 from app.config import settings
 from app.db import connect
+from tests.test_1475_planted_defects import _rule_facts as table_facts
+from tests.test_rule_eval import _rule as table_rule
+from tools import crs_bench
 from tests.test_947_rule_trust_wiring import (  # noqa: F401 - fixtures
     SPEC,
     SUB,
@@ -91,10 +101,22 @@ def test_the_function_with_the_switch_off_gives_no_tier():
         {**APPROVAL, "tier": "OWNER"},
         {**APPROVAL, "by": ""},
         {**APPROVAL, "at": None},
+        {**APPROVAL, "by": " "},
+        {**APPROVAL, "by": 7},
+        {**APPROVAL, "by": True},
+        {**APPROVAL, "at": "not a date"},
+        {**APPROVAL, "at": " "},
+        {**APPROVAL, "at": 20261102},
     ],
 )
 def test_anything_but_a_whole_owner_approval_gets_no_tier(on, approval):
     assert rule_trust.tier_for_approved(approval, _rule()) == rule_trust.UNPROVEN
+
+
+@pytest.mark.parametrize("at", ["2026-11-02T10:00:00Z", "2026-11-02 10:00:00"])
+def test_a_real_timestamp_is_read_either_way_it_is_stored(on, at):
+    approval = {**APPROVAL, "at": at}
+    assert rule_trust.tier_for_approved(approval, _rule()) == rule_trust.OWNER_APPROVED
 
 
 def test_a_quote_code_cannot_verify_gets_no_tier(on):
@@ -237,6 +259,44 @@ def test_a_deferred_value_is_a_query_with_this_switch_alone(on, raw):
         comparison.compare(rule, fact), rule, None, fact=fact
     )
     assert out["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert out["show_for_engineer_tick"] is False
+
+
+def test_a_deferred_input_of_a_table_rule_is_a_query(on):
+    """The real table rule: D2's switch is off, so it decides; the owner's rule may not rest on that input."""
+    rule = table_rule()
+    verdict, fact = rule_eval.judge(rule, table_facts("1700", note="By Contractor"))
+    assert verdict["status"] in ("COMPLIANT", "NON_COMPLIANT")
+    assert verdict["input_deferred"] == "By Contractor"
+    held = deferred_value.hold_owner_rule(verdict, fact)
+    assert held["status"] == "NEEDS_ENGINEER_REVIEW"
+    clean, fact = rule_eval.judge(rule, table_facts("1700"))
+    assert "input_deferred" not in clean
+    assert deferred_value.hold_owner_rule(clean, fact)["status"] == clean["status"]
+
+
+def test_a_deferred_input_on_any_tag_holds_a_sheet_of_several_tags(on):
+    """Tag B's input is deferred and both tags read Pass: tag A decides the row, and must not hide B."""
+    tag_a, tag_b = table_facts("1700"), table_facts("1700", note="By Contractor")
+    for row in tag_a:
+        row["equipment_tag"] = "A"
+    for row in tag_b:
+        row["equipment_tag"] = "B"
+    verdict, fact = rule_eval.judge(table_rule(), tag_a + tag_b)
+    assert verdict["status"] == "COMPLIANT"
+    assert (
+        deferred_value.hold_owner_rule(verdict, fact)["status"]
+        == "NEEDS_ENGINEER_REVIEW"
+    )
+
+
+def test_this_switch_does_not_widen_the_hold_to_another_rule(on):
+    """A rule the owner has not approved judges a deferred value as it did: the tier changes only its own rules."""
+    plain = {k: v for k, v in _rule().items() if k != "approval"}
+    assert (
+        comparison.compare(plain, _fact(value_note="By Contractor"))["status"]
+        == "COMPLIANT"
+    )
 
 
 def test_an_unclear_value_is_a_query(on):
@@ -281,13 +341,6 @@ def test_the_old_switch_alone_gives_an_owner_rule_no_tier(monkeypatch):
     out = rule_trust.label_finding({"status": "COMPLIANT"}, _rule(), None, fact=_fact())
     assert out["trust_label"] == rule_trust.UNPROVEN
     assert out["status"] == "NEEDS_ENGINEER_REVIEW"
-
-
-def test_the_deferred_hold_is_not_widened_with_the_switch_off():
-    assert (
-        comparison.compare(_rule(), _fact(value_note="By Contractor"))["status"]
-        == "COMPLIANT"
-    )
 
 
 # ------------------------------------------------------------------ from where it is set to the cell
@@ -516,6 +569,117 @@ def test_an_engineer_approved_rule_beside_it_is_counted_apart(owner_world, monke
     }
     assert by_row["p.1 - Bonnet thickness"] == WORDS
     assert by_row["p.1 - Gland length"] == "engineer-approved rule"
+
+
+def test_with_the_switch_on_a_run_with_no_owner_rule_is_byte_identical(
+    owner_world, monkeypatch
+):
+    """No stored record, no "Not checked by any rule" note, no other change: on or off, the same output."""
+    owner_world["approved"] = set()
+    _rerun(owner_world)
+    off = _picture(owner_world)
+    off_notes = _crs(owner_world)["review_notes"]
+    monkeypatch.setattr(settings, SWITCH, True)
+    _rerun(owner_world)
+    assert _picture(owner_world) == off
+    assert _crs(owner_world)["review_notes"] == off_notes
+    assert "rule_trust" not in json.loads(off[2])
+
+
+CODES = comparison.DEFAULT_CODES
+ENOUGH = {"sufficient": True, "extraction_coverage": 1.0}
+
+
+def _code(*findings, **kw):
+    rows = [{"compliance_status": "COMPLIANT"}, *findings]
+    return comparison.recommend_code(rows, ENOUGH, codes=CODES, **kw)
+
+
+def _tick(**extra):
+    return {
+        "compliance_status": "COMPLIANT",
+        "trust_label": rule_trust.OWNER_APPROVED,
+        "show_for_engineer_tick": 1,
+        **extra,
+    }
+
+
+def test_an_unticked_safety_pass_is_never_an_approved_code():
+    assert _code()["code"] == CODES[0]  # the same sheet with no open tick is approved
+    out = _code(_tick())
+    assert out["code"] == CODES[3]
+    assert out["open_safety_ticks"] == 1
+    assert "1 safety value" in out["reason"] and "tick" in out["reason"]
+
+
+def test_an_unticked_safety_pass_is_never_approved_with_comments():
+    gap = {"compliance_status": comparison.MISSING_INFORMATION}
+    assert _code(gap)["code"] == CODES[1]
+    assert _code(gap, _tick())["code"] == CODES[3]
+
+
+def test_a_ticked_safety_pass_no_longer_holds_the_code():
+    assert _code(_tick(confirmed_by="eng"))["code"] == CODES[0]
+
+
+def test_a_breach_stays_rejected_beside_an_open_tick():
+    breach = {"compliance_status": "NON_COMPLIANT"}
+    assert _code(breach, _tick())["code"] == CODES[2]
+
+
+def test_another_labels_tick_is_as_it_was():
+    """Only the owner's tier is held here: with this switch off nothing about a code may change."""
+    assert _code(_tick(trust_label=rule_trust.AUTO_PROVEN))["code"] == CODES[0]
+
+
+def test_the_issue_gate_blocks_until_the_owner_rules_safety_pass_is_ticked(
+    owner_world, monkeypatch
+):
+    monkeypatch.setattr(settings, SWITCH, True)
+    owner_world["approved"] = {owner_world["limit"]}
+    _rerun(owner_world)
+    run, client = owner_world["run"], _client(owner_world["scope"])
+    fid = _findings(run)[owner_world["limit"]]["id"]
+    gate = client.get(f"/api/reviews/runs/{run}/crs/issue-gate").json()
+    assert fid in {o["finding_id"] for o in gate["open_findings"]}
+    assert gate["issuable"] is False
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, password_hash, created_at)"
+            " VALUES ('eng', 'eng@example.invalid', 'Eng', 'x', ?)",
+            (NOW,),
+        )
+    tick = client.post(
+        f"/api/reviews/runs/{run}/crs/open-items/findings/{fid}/decision",
+        json={
+            "decision": "accept",
+            "reason": "read the clause and the value on the page",
+        },
+    )
+    assert tick.status_code == 200
+    gate = client.get(f"/api/reviews/runs/{run}/crs/issue-gate").json()
+    assert fid not in {o["finding_id"] for o in gate["open_findings"]}
+    rows = connect().execute(
+        "SELECT confirmed_by, show_for_engineer_tick FROM review_findings"
+        " WHERE review_run_id = ? AND requirement_id = ?",
+        (run, owner_world["limit"]),
+    )
+    assert [tuple(r) for r in rows] == [("eng", 1)]
+    # a re-run keeps the ticked row and writes a new one to tick: its Pass is a new reading of the sheet
+    _rerun(owner_world)
+    rows = connect().execute(
+        "SELECT confirmed_by FROM review_findings"
+        " WHERE review_run_id = ? AND requirement_id = ? AND show_for_engineer_tick = 1",
+        (run, owner_world["limit"]),
+    )
+    assert sorted(str(r[0]) for r in rows) == ["None", "eng"]
+
+
+def test_the_bench_fingerprint_names_the_switch(monkeypatch):
+    assert SWITCH in crs_bench.BENCH_SWITCHES
+    off = crs_bench.fingerprint()
+    monkeypatch.setattr(settings, SWITCH, True)
+    assert crs_bench.fingerprint() != off
 
 
 def test_a_pair_with_no_owner_rule_is_as_it_was(owner_world):
