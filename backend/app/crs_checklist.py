@@ -23,6 +23,25 @@ def is_row(status: str | None, finding: dict) -> bool:
     )
 
 
+def result_status(finding: dict) -> str | None:
+    """#1638: the result the reasoning line words. A stated row never reads "meets": its words
+    are not a stored status, so `crs_mapping._RESULT_WORDS` prints them as they are."""
+    from . import presence_check
+
+    if presence_check.is_stated_only(finding):
+        return presence_check.WORDS.lower()
+    return finding.get("compliance_status")
+
+
+def tick_words(finding: dict, trust: str) -> str:
+    """#1638: what a safety-tick row says the automatic result was."""
+    from . import presence_check
+
+    if presence_check.is_stated_only(finding):
+        return f"{presence_check.WORDS.lower()}, no value was compared ({trust})"
+    return f"meets the standard ({trust})"
+
+
 def draft_bits(finding: dict) -> list[str]:
     """The reasoning line's note that the checklist item is a draft, or nothing."""
     from .datasheet_checks import is_draft_checklist

@@ -104,8 +104,8 @@ export function WorkspaceSheet({
   // the clause count goes to the table's own clause line.
   const counts = useMemo<TierCounts>(() => ({
     met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
-    comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
-  }), [numbers.met, numbers.notApplicableRows, numbers.anotherDocument, numbers.comments, numbers.needsYou]);
+    comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou, stated: numbers.stated,
+  }), [numbers.stated, numbers.met, numbers.notApplicableRows, numbers.anotherDocument, numbers.comments, numbers.needsYou]);
   const shown = useMemo(() => visibleRows(plain, depth, showMet, spot), [plain, depth, showMet, spot]);
   const pagesWithComments = useMemo(() => commentPages(shown), [shown]);
   const drawerRow = openRowKey === null ? null : plain.find((r) => r.key === openRowKey) ?? null;
