@@ -39,6 +39,10 @@ export function RunIncompleteNotes({ run }: { run: ReviewRunSummary }) {
       : run.clause_coverage
         ? { id: "clause-coverage", text: `Clause coverage: ${run.clause_coverage.line}.`, warn: !run.clause_coverage.adds_up }
         : null,
+    // The pair replaces the old line, not its warning: the stored ledger still failed to add up.
+    run.coverage_pair && run.clause_coverage && !run.clause_coverage.adds_up
+      ? { id: "clause-coverage-adds-up", text: "The stored clause counts do not add up; the engine flagged this itself.", warn: true }
+      : null,
   ].filter((line): line is { id: string; text: string; warn: boolean } => line !== null);
   if (lines.length === 0) return null;
   return (

@@ -15,7 +15,15 @@ import pytest
 from fastapi.testclient import TestClient
 from tools import crs_bench
 
-from app import access, clause_coverage, coverage_pair, db, main, submittal_review
+from app import (
+    access,
+    clause_coverage,
+    coverage_pair,
+    db,
+    main,
+    review_trace,
+    submittal_review,
+)
 from app.config import settings
 
 NOW = "2026-11-02T00:00:00Z"
@@ -208,11 +216,45 @@ def test_risk_with_a_truth_set_counts_wrong_among_decided_with_the_denominator(r
     p = _pair(run, case=case)
     assert p["risk"] == {"measured": True, "wrong": 1, "decided": 2}
     assert "1 wrong of 2 decided" in p["line"]
-    assert _pair(run, case={"wrong": []})["risk"] == {
+    named_but_clean = {"wrong": [{"requirement_id": "no-such-rule"}]}
+    assert _pair(run, case=named_but_clean)["risk"] == {
         "measured": True,
         "wrong": 0,
         "decided": 2,
     }
+
+
+def test_a_truth_case_naming_no_wrong_row_is_not_measured_not_zero_wrong(run):
+    """All five truth cases hold `wrong: []` today: nothing is known wrong to look for."""
+    for case in ({"wrong": []}, {"wrong": [], "untrue": []}, {"kind": "datasheet"}):
+        p = _pair(run, case=case)
+        assert p["risk"] == {"measured": False, "wrong": None, "decided": 2}
+        assert "0 wrong" not in p["line"]
+        assert p["checklist"]["wrong"] is None
+
+
+def test_replayed_counts_wrong_replay_and_a_saved_run_does_not(run):
+    case = {"wrong": [], "wrong_replay": [{"status": "NON_COMPLIANT"}]}
+    assert _pair(run, case=case, replayed=True)["risk"]["wrong"] == 1
+    assert _pair(run, case=case, replayed=False)["risk"]["measured"] is False
+    both = {
+        "wrong": [{"requirement_id": "no-such-rule"}],
+        "wrong_replay": [{"status": "NON_COMPLIANT"}],
+    }
+    assert _pair(run, case=both, replayed=True)["risk"]["wrong"] == 1
+    assert _pair(run, case=both, replayed=False)["risk"]["wrong"] == 0
+
+
+def test_a_wrong_checklist_verdict_is_printed_beside_zero_wrong_rules(run):
+    case = {"wrong": [{"origin": "datasheet_check", "status": "COMPLIANT"}]}
+    p = _pair(run, case=case)
+    assert p["risk"]["wrong"] == 0 and p["checklist"]["wrong"] == 1
+    assert "Wrong checklist verdicts: 1 of 1 decided" in p["line"]
+    assert "Wrong checklist verdicts: 1 of 1 decided" in p["checklist_line"]
+    m = crs_bench.score(_conn(), run, {"kind": "datasheet", **case})
+    result = [{"case": {"name": "x", "run": run}, "config": "c", "stored": m}]
+    text = crs_bench.render_markdown(result, {"counting_rule": []}, title="t")
+    assert f"| {crs_bench.PAIR_CHECKLIST} | 1/2 (1 wrong) |" in text
 
 
 def test_a_truth_hit_on_a_deferred_pass_is_not_a_wrong_decision(run):
@@ -243,6 +285,23 @@ def test_decided_above_the_stated_boundary_prints_no_coverage(run):
     assert p["decided"] == 1 and p["unknown"] is None
     assert coverage_pair.coverage_text(p) == ""
     assert "more than" in p["line"]
+
+
+def test_the_gate_reason_table_prints_no_decided_above_applicable(run):
+    r = _run(split={**SPLIT, "checked": 0, "applies_not_checked": 0})
+    _finding(r, "COMPLIANT", rid="r-pass")
+    rows = _pair(r)["by_gate_reason"]
+    assert rows[0] == {
+        "reason": coverage_pair.REACHED,
+        "applicable": 0,
+        "decided": None,
+        "wrong": None,
+    }
+    m = crs_bench.score(_conn(), r, {"kind": "datasheet"})
+    result = [{"case": {"name": "x", "run": r}, "config": "c", "stored": m}]
+    text = crs_bench.render_markdown(result, {"counting_rule": []}, title="t")
+    assert f"{coverage_pair.REACHED}: 0" in text
+    assert f"{coverage_pair.REACHED}: 1/0" not in text
 
 
 def test_stored_checked_is_never_taken_as_decided(run):
@@ -326,7 +385,7 @@ def test_a_reason_the_run_did_not_record_is_said_not_lost(run):
 
 
 def test_per_equipment_type_never_blends_a_truth_set_with_none(run):
-    measured = _pair(run, case={"wrong": []})
+    measured = _pair(run, case={"wrong": [{"requirement_id": "no-such-rule"}]})
     plain = _pair(run)
     other = {**plain, "equipment_type": None, "applicable": None, "decided": 0}
     rows = coverage_pair.by_equipment_type([measured, plain, other])
@@ -401,7 +460,8 @@ def test_bench_table_prints_the_pair_below_the_headline_always(run):
 
 
 def test_bench_with_a_truth_case_measures_risk_and_the_gate_ignores_the_pair(run):
-    m = crs_bench.score(_conn(), run, {"kind": "datasheet", "wrong": []})
+    case = {"kind": "datasheet", "wrong": [{"requirement_id": "no-such-rule"}]}
+    m = crs_bench.score(_conn(), run, case)
     assert m["pair"]["risk"] == {"measured": True, "wrong": 0, "decided": 2}
     result = {"case": {"name": "x", "run": run, "kind": "datasheet"}, "stored": m}
     worse = json.loads(json.dumps(result))
@@ -438,6 +498,129 @@ def test_the_bench_prints_no_free_text_gate_reason(run):
     assert crs_bench.OTHER_REASONS in text
 
 
+def test_a_saved_bench_result_holds_no_free_text_reason_and_no_document_id(run):
+    """`scripts/crs_bench.py --save` writes run_bench's results as they are, and git
+    tracks a saved baseline in a public repo. The pair's numbers survive."""
+    secret = "the sentence applies only to words from the standard"
+    r = _run(
+        split={**SPLIT, "applies_not_checked_reasons": [{"reason": secret, "count": 5}]}
+    )
+    truth = {"cases": [{"name": "x", "run": r, "kind": "datasheet", "wrong": []}]}
+    results = crs_bench.run_bench(settings.db_path, truth, do_replay=False)
+    saved = json.loads(json.dumps(results, default=str))
+    pair = saved[0]["stored"]["pair"]
+    assert "words from the standard" not in json.dumps(pair)
+    assert "document" not in pair
+    assert (
+        sum(x["applicable"] for x in pair["by_gate_reason"]) == pair["applicable"] == 8
+    )
+    raw = coverage_pair.for_run(_conn(), r)
+    assert any(
+        x["reason"] == secret for x in raw["by_gate_reason"]
+    )  # a local screen keeps it
+
+
+def test_the_board_call_holds_no_free_text_reason(run):
+    r = _run(
+        split={
+            **SPLIT,
+            "applies_not_checked_reasons": [
+                {"reason": "words from the standard", "count": 5}
+            ],
+        }
+    )
+    pair = _board(settings.db_path, r)[0]
+    assert "words from the standard" not in json.dumps(pair)
+    assert "document" not in pair
+
+
+STORED_CLAUSE = {
+    "applicable": 9,
+    "line": "0 of 9 stored line",
+    "counts": {"checked": 0},
+    "adds_up": True,
+}
+
+
+def _trace_body(run_id):
+    client = _client()
+    try:
+        response = client.get(f"/api/reviews/runs/{run_id}/trace")
+    finally:
+        main.app.dependency_overrides.clear()
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _coverage_step(body):
+    return next(s for s in body["steps"] if s["step"] == "COVERAGE")
+
+
+def _stored_run():
+    """The real path: the trace is stored when the review ends, whatever the switch
+    says later, with the old clause coverage line inside it."""
+    r = _run(clause_coverage=STORED_CLAUSE)
+    scope = access.AccessScope(
+        user_id="t", allowed_document_ids=frozenset({"std", "sub"})
+    )
+    assert review_trace.store(r, scope) is not None
+    return r
+
+
+def test_switch_on_the_steps_route_says_the_pair_not_the_stored_line(run, monkeypatch):
+    """The Steps page shows this route beside the pair."""
+    r = _stored_run()
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    body = _trace_body(r)
+    assert body["source"].startswith("stored")
+    step = _coverage_step(body)
+    assert step["summary"].startswith(coverage_pair.for_run(_conn(), r)["line"])
+    assert "no checklist coverage recorded" in step["summary"]
+    assert "0 of 9" not in json.dumps(body)
+    assert not any(k.startswith("clause_") for k in step["counts"])
+    assert step["counts"]["applicable"] == 8
+
+
+def test_switch_on_a_trace_built_now_says_the_pair(run, monkeypatch):
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    r = _run(clause_coverage=STORED_CLAUSE)
+    body = _trace_body(r)
+    assert body["source"].startswith("built now")
+    assert "0 of 9" not in json.dumps(body["steps"])
+
+
+def test_switch_off_the_steps_route_keeps_the_stored_line(run):
+    r = _stored_run()
+    step = _coverage_step(_trace_body(r))
+    assert step["summary"].startswith("0 of 9")
+    assert step["counts"]["clause_applicable"] == 9
+
+
+def _meta(run_id):
+    scope = access.AccessScope(
+        user_id="t", allowed_document_ids=frozenset({"std", "sub"})
+    )
+    return main._crs_content(run_id, scope, "internal")[1]
+
+
+def test_the_crs_notice_has_one_meaning_of_checked_with_the_switch_on(run, monkeypatch):
+    counts = {"not_compared": 5, "not_applied": 40, "checked": 3}
+    r = _run(unchecked_counts=counts)
+    _finding(r, "NOT_IN_DOCUMENT_SCOPE", rid="r-sent")
+    assert "3 checked" in _meta(r)["incomplete_notice"]
+    monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
+    meta = _meta(r)
+    assert "3 checked" not in meta["incomplete_notice"]
+    assert "0 decided, 8 apply but were not decided" in meta["incomplete_notice"]
+    assert not any("3 checked" in p for p in meta["unchecked_parts"])
+    assert not any("3 checked" in (n.get("detail") or "") for n in meta["review_notes"])
+    assert not any("Apply but not checked" in p for p in meta["unchecked_parts"])
+    assert not any(
+        "Apply but not checked" in (n.get("detail") or "") for n in meta["review_notes"]
+    )
+    assert any("Stopped before a decision (5)" in p for p in meta["unchecked_parts"])
+
+
 def test_the_board_call_refuses_the_live_database(tmp_path):
     (tmp_path / "backend" / "data").mkdir(parents=True)
     live = tmp_path / "backend" / "data" / "rag_intelligence.sqlite"
@@ -464,6 +647,10 @@ def test_the_board_call_refuses_the_live_database(tmp_path):
 
 
 def test_switch_defaults_off():
+    """Read from the source, and from the class with no environment or .env under it:
+    the test suite pins this switch, so the running settings could not show a flip."""
+    source = (REPO / "backend" / "app" / "settings_ext.py").read_text(encoding="utf-8")
+    assert "    one_checked_definition_enabled: bool = False\n" in source
     assert (
         type(settings).model_fields["one_checked_definition_enabled"].default is False
     )

@@ -34,7 +34,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     try:
-        pairs = [coverage_pair.for_run(conn, run) for run in args.run]
+        pairs = [
+            coverage_pair.public_view(coverage_pair.for_run(conn, run))
+            for run in args.run
+        ]
     finally:
         conn.close()
     if any(p is None for p in pairs):

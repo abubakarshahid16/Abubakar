@@ -1,12 +1,12 @@
 /** #678 / #453 / #598: the three groups of requirements, the requirements
  *  about another kind of equipment, and the table values not compared. Moved
  *  verbatim from `ReviewRunsView.tsx` (#967 PR 3). */
-import type { RequirementSplit, RequirementSplitReason, RequirementsNotApplied, TableValuesNotCompared } from "../../../types/api";
+import type { RequirementSplit, RequirementSplitReason, RequirementsNotApplied, RunCoveragePair, TableValuesNotCompared } from "../../../types/api";
 
 /** #678: the three honest groups. "Not checked" and "does not apply" are
  *  different things and never one blended number; only "apply but not checked"
  *  counts against the run. */
-export function RequirementSplitPanel({ split }: { split: RequirementSplit }) {
+export function RequirementSplitPanel({ split, pair }: { split: RequirementSplit; pair?: RunCoveragePair | null }) {
   const group = (label: string, count: number, reasons: RequirementSplitReason[], testId: string) => (
     <li data-testid={testId}>
       <span className="text-slateish-300">{`${count} ${label}`}</span>
@@ -20,6 +20,20 @@ export function RequirementSplitPanel({ split }: { split: RequirementSplit }) {
     </li>
   );
   const applies = split.checked + split.applies_not_checked;
+  if (pair) {
+    // Plan change 6 B: one meaning. Reaching the comparison is not a decision.
+    return (
+      <section aria-label="Requirements in scope" data-testid="requirement-split" className="text-sm">
+        <p className="text-slateish-300" data-testid="split-pair">{`${split.total} requirements in scope. ${pair.line}`}</p>
+        <ul className="mt-1 space-y-1">
+          {group("decided by code (pass or fail)", pair.decided, [], "split-decided")}
+          {group("reached the comparison, not decided", Math.max(split.checked - pair.decided, 0), [], "split-reached")}
+          {group("stopped before the comparison or left to the engineer", split.applies_not_checked, split.applies_not_checked_reasons, "split-not-checked")}
+          {group("do not apply", split.does_not_apply, split.does_not_apply_reasons, "split-not-apply")}
+        </ul>
+      </section>
+    );
+  }
   return (
     <section aria-label="Requirements in scope" data-testid="requirement-split" className="text-sm">
       <p className="text-slateish-300">

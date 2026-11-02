@@ -555,6 +555,13 @@ def stored(review_run_id: str, scope) -> dict | None:
 
 
 def for_caller(review_run_id: str, scope) -> dict | None:
+    """The steps a reader sees; with ONE_CHECKED_DEFINITION_ENABLED COVERAGE says the pair."""
+    from . import coverage_pair
+
+    return coverage_pair.trace_view(_for_caller(review_run_id, scope), review_run_id)
+
+
+def _for_caller(review_run_id: str, scope) -> dict | None:
     """What a reader of the run sees: the stored trace when they may read
     everything it names; else the records built now under their own grants,
     marked as such. None when they may not read the run."""
@@ -588,7 +595,10 @@ def emit(review_run_id: str, scope) -> list[str] | None:
     if not settings.review_debug:
         return None
     try:
-        lines = render(build(review_run_id, scope), detail=settings.review_debug_detail)
+        from . import coverage_pair
+
+        trace = coverage_pair.trace_view(build(review_run_id, scope), review_run_id)
+        lines = render(trace, detail=settings.review_debug_detail)
         _console()
         for line in lines:
             log.info(line)

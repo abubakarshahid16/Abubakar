@@ -87,6 +87,27 @@ describe("PF4 step 2 (#884): the clause coverage line", () => {
     expect(screen.getByTestId("clause-coverage")).toHaveClass("text-warn-500");
   });
 
+  describe("plan change 6 B: the pair", () => {
+    const pair = { line: "Standard rules decided: 1 of 40 that apply. Risk: not measured.", checklist_line: "c", boundary: "b", decided: 1, applicable: 40, unknown: 39 };
+    const clause = { applicable: 44, counts: {}, checked_share: 2.3, line: "1 of 44 applicable requirement(s) checked" };
+
+    it("prints the pair in place of the stored line", () => {
+      render(<RunIncompleteNotes run={run({ coverage_pair: pair, clause_coverage: { ...clause, adds_up: true } } as never)} />);
+      expect(screen.getByTestId("coverage-pair")).toHaveTextContent("1 of 40");
+      expect(screen.queryByTestId("clause-coverage")).toBeNull();
+      expect(screen.queryByTestId("clause-coverage-adds-up")).toBeNull();
+      expect(document.body.textContent).not.toContain("1 of 44");
+    });
+
+    it("keeps the warning when the stored counts do not add up, without the old number", () => {
+      render(<RunIncompleteNotes run={run({ coverage_pair: pair, clause_coverage: { ...clause, adds_up: false } } as never)} />);
+      const warning = screen.getByTestId("clause-coverage-adds-up");
+      expect(warning).toHaveTextContent("do not add up");
+      expect(warning.className).toContain("text-warn-500");
+      expect(document.body.textContent).not.toContain("1 of 44");
+    });
+  });
+
   it("shows no coverage line, never a zero, for a run made before the record", () => {
     render(<RunIncompleteNotes run={run({ recommended_reason: "Checked 4 datasheet fields.", clause_coverage: null })} />);
     expect(screen.queryByTestId("clause-coverage")).toBeNull();

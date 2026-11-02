@@ -30,13 +30,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import (
-    coverage_pair,
-    crs_decider,
-    deferred_pass,
-    requirement_split,
-    scope_ledger,
-)
+from app import coverage_pair, crs_decider, deferred_pass
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
@@ -185,8 +179,11 @@ def score(
         # an engineer row is made, never added together (`finding_sources`).
         "sources": finding_sources(conn, findings),
         # The pair, one definition with the board and the CRS (`coverage_pair`).
-        # Printed below the headline; the gate does not read it.
-        "pair": coverage_pair.for_run(conn, run_id, case=case, replayed=replayed),
+        # Printed below the headline; the gate does not read it. `--save` writes
+        # this dict and git tracks saved baselines: the public view only.
+        "pair": coverage_pair.public_view(
+            coverage_pair.for_run(conn, run_id, case=case, replayed=replayed)
+        ),
     }
 
 
@@ -711,16 +708,18 @@ PAIR_OUTCOMES = "standard rules pass / fail / unknown (one definition)"
 PAIR_CHECKLIST = "checklist decided, stated apart, not added to the rules"
 PAIR_BY_TYPE = "Risk and coverage per equipment type"
 PAIR_BY_REASON = "Risk and coverage per gate reason"
-OTHER_REASONS = "other stated reasons (their words stay off this table)"
+OTHER_REASONS = coverage_pair.OTHER_REASONS
 PAIR_RULE = [
     "Risk and coverage, one definition (`app/coverage_pair.py`, the same function the"
     " board call and the CRS use). Applicable: the rules the run states apply to its"
     " document (requirement_split: reached the comparison + applies but not checked),"
     " each rule once; does-not-apply and checklist-covered rules are out. Decided: code"
     " said pass or fail; a Pass on a deferred value (D2) is unknown. Risk: wrong among"
-    " decided rules, 'not measured' where no truth set names the run, never 0; a truth"
-    " hit on a D2 Pass stays on the headline's hard stop, not here. The checklist is"
-    " stated apart and never added. The gate does not read these rows.",
+    " decided rules, 'not measured' where the truth set names no known-wrong row for the"
+    " run, never 0; a truth hit on a D2 Pass stays on the headline's hard stop, not here."
+    " The checklist is stated apart and never added; a wrong checklist verdict is printed"
+    " on its row. The gate does not read these rows. A saved result holds no document id"
+    " and no free-text gate reason here.",
     "The clause coverage line a run stores counts stored rows, not rules, and adds the"
     " rules a checklist covers, so its 'applicable' is larger on the same run.",
 ]
@@ -757,20 +756,24 @@ PAIR_ROWS = [
     ),
     (
         PAIR_CHECKLIST,
-        lambda p: _frac(p["checklist"]["decided"], p["checklist"]["rows"]),
+        lambda p: (
+            _frac(p["checklist"]["decided"], p["checklist"]["rows"])
+            + (f" ({p['checklist']['wrong']} wrong)" if p["checklist"]["wrong"] else "")
+        ),
     ),
 ]
 
 
-def safe_reason(reason: str) -> str:
-    """A gate reason the bench may print: the fixed words the code writes. A reason
-    written per requirement can carry a standard's words, so it is only counted."""
-    known = set(requirement_split.REASON_TEXT.values()) | {
-        coverage_pair.REACHED,
-        requirement_split.NO_REASON,
-    }
-    known |= {words for _state, words in scope_ledger.REASONS.values()}
-    return reason if reason in known else OTHER_REASONS
+def _reason_cell(row: dict) -> str:
+    """One gate reason's cell. Decisions that do not fit the count the run states are
+    not printed against it (`coverage_pair._gate_rows`): only that count is."""
+    count = (
+        row["applicable"]
+        if row["decided"] is None
+        else f"{row['decided']}/{row['applicable']}"
+    )
+    wrong = f" ({row['wrong']} wrong)" if row["wrong"] is not None else ""
+    return f"{row['reason']}: {count}{wrong}"
 
 
 def pair_tables(cols: list[tuple[str, dict]]) -> list[str]:
@@ -805,22 +808,7 @@ def pair_tables(cols: list[tuple[str, dict]]) -> list[str]:
             "",
         ]
         for name, pair in rows:
-            merged: dict[str, list[int]] = {}
-            wrong = None
-            for r in pair["by_gate_reason"]:
-                slot = merged.setdefault(safe_reason(r["reason"]), [0, 0])
-                slot[0] += r["decided"]
-                slot[1] += r["applicable"]
-                wrong = r["wrong"] if r["wrong"] is not None else wrong
-            cells = "; ".join(
-                f"{reason}: {d}/{a}"
-                + (
-                    f" ({wrong} wrong)"
-                    if reason == coverage_pair.REACHED and wrong is not None
-                    else ""
-                )
-                for reason, (d, a) in merged.items()
-            )
+            cells = "; ".join(_reason_cell(r) for r in pair["by_gate_reason"])
             lines.append(f"- {name}: {cells or 'the run states no rules that apply'}")
     return lines
 

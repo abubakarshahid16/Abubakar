@@ -143,8 +143,7 @@ def crs_meta(meta: dict, review_run_id: str) -> dict:
     """The CRS meta: with the switch on the pair replaces this module's review note."""
     from . import coverage_pair
 
-    notes = coverage_pair.crs_notes(meta["review_notes"], connect(), review_run_id)
-    return {**meta, "review_notes": notes}
+    return coverage_pair.crs_meta(meta, connect(), review_run_id)
 
 
 def line(counts: dict, applicable: int, adds_up: bool) -> str:

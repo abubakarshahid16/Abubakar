@@ -22,7 +22,7 @@ Checklist decisions are stated apart and never added: a checklist clause is text
 not linked to a stored rule (the same lane as the bench's source row, PR #1566).
 
 Read only. Counts only: no document text leaves this module except the gate
-reasons a run stored, which the bench does not print (`crs_bench.safe_reason`).
+reasons a run stored, which the bench and the board never get (`public_view`).
 """
 
 from __future__ import annotations
@@ -32,8 +32,9 @@ import re
 import sqlite3
 from pathlib import Path
 
-from . import deferred_pass, deferred_value, requirement_split, spec_kit
+from . import deferred_pass, deferred_value, requirement_split, scope_ledger, spec_kit
 from .config import settings
+from .db import connect
 
 PASS, FAIL = "COMPLIANT", "NON_COMPLIANT"
 DECIDED = (PASS, FAIL)
@@ -41,6 +42,7 @@ DECIDED = (PASS, FAIL)
 DRAFT_ORIGINS = ("ai_engineering_check", "web_standard_check", "clause_review", "chat")
 NOT_MEASURED = "not measured"
 NO_TYPE = "no equipment type"
+OTHER_REASONS = "other stated reasons (their words stay out of this output)"
 #: The gate-reason row of the rules that passed every gate and reached the comparison.
 REACHED = "reached the code comparison"
 NOTE = "Risk and coverage"
@@ -223,9 +225,9 @@ def _gate_rows(split: dict | None, decided: int, wrong: int | None) -> list[dict
         return []
     reached = int(split.get("checked") or 0)
     held = int(split.get("applies_not_checked") or 0)
-    rows = [
-        {"reason": REACHED, "applicable": reached, "decided": decided, "wrong": wrong}
-    ]
+    # decisions that do not fit the count the run states are not printed against it
+    fits = decided if decided <= reached else None
+    rows = [{"reason": REACHED, "applicable": reached, "decided": fits, "wrong": wrong}]
     told = 0
     for item in split.get("applies_not_checked_reasons") or []:
         told += int(item.get("count") or 0)
@@ -282,7 +284,16 @@ def _line(pair: dict) -> str:
             f"Standard rules decided: {pair['decided']}, more than the {pair['applicable']}"
             " this run states apply, so no coverage is given"
         )
-    return f"{head}. Risk: {risk_text(pair)}."
+    return f"{head}. Risk: {risk_text(pair)}.{_checklist_wrong(pair)}"
+
+
+def _checklist_wrong(pair: dict) -> str:
+    """A wrong checklist verdict is said wherever the risk is: "0 wrong" on the rules
+    must not sit alone beside it. The two lanes stay apart, never added."""
+    checklist = pair["checklist"]
+    if not checklist["wrong"]:
+        return ""
+    return f" Wrong checklist verdicts: {checklist['wrong']} of {checklist['decided']} decided."
 
 
 def _tally(
@@ -336,7 +347,9 @@ def compute(
     equipment_type: str | None,
 ) -> dict:
     """The pair for one run, from its row and its findings. `matchers`: the truth
-    set's wrong rows, None when there is no truth set."""
+    set's known-wrong rows; None or empty: nothing is known to be wrong here to look
+    for, so risk is not measured."""
+    matchers = matchers or None
     outcome = json.loads(run.get("outcome_json") or "{}")
     split = _stated_split(outcome)
     rules = _rule_texts(
@@ -384,9 +397,44 @@ def compute(
     pair["line"] = _line(pair)
     pair["checklist_line"] = (
         f"Checklist, stated apart, not added to the rules: {checklist['decided']} of"
-        f" {checklist['rows']} items decided."
+        f" {checklist['rows']} items decided.{_checklist_wrong(pair)}"
     )
     return pair
+
+
+def safe_reason(reason: str) -> str:
+    """A gate reason that may leave this machine: the fixed words the code writes. A
+    reason written per requirement can carry a standard's words, so it is only counted."""
+    known = set(requirement_split.REASON_TEXT.values()) | {
+        REACHED,
+        requirement_split.NO_REASON,
+    }
+    known |= {words for _state, words in scope_ledger.REASONS.values()}
+    return reason if reason in known else OTHER_REASONS
+
+
+def public_view(pair: dict | None) -> dict | None:
+    """The pair as the bench saves it and the board reads it: no document id, and no
+    free-text gate reason (`scripts/crs_bench.py --save` writes files that git tracks
+    and this repo is public). The numbers are the same."""
+    if pair is None:
+        return None
+    rows: dict[str, dict] = {}
+    for row in pair["by_gate_reason"]:
+        name = safe_reason(row["reason"])
+        slot = rows.setdefault(
+            name, {"reason": name, "applicable": 0, "decided": 0, "wrong": None}
+        )
+        slot["applicable"] += row["applicable"]
+        slot["decided"] = (
+            None
+            if slot["decided"] is None or row["decided"] is None
+            else slot["decided"] + row["decided"]
+        )
+        if row["wrong"] is not None:
+            slot["wrong"] = row["wrong"]
+    out = {k: v for k, v in pair.items() if k != "document"}
+    return {**out, "by_gate_reason": list(rows.values())}
 
 
 def for_run(
@@ -398,16 +446,17 @@ def for_run(
 ) -> dict | None:
     """THE function: the pair for a stored run, None when there is no such run. `case`:
     the truth case; left out, the truth file is asked by run, so every home gets the
-    same answer. A case with no "wrong" key is no truth set. `replayed`: the bench's
-    replay column also counts `wrong_replay` (a saved run keeps the rows it wrote)."""
+    same answer. A case naming no known-wrong row measures nothing: "not measured", not
+    "0 wrong". `replayed`: the bench's replay column also counts `wrong_replay` (a saved
+    run keeps the rows it wrote)."""
     runs = _rows(conn, "SELECT * FROM review_runs WHERE id = ?", (run_id,))
     if not runs:
         return None
     if case is _LOOK_UP:
         case = truth_case(run_id)
     matchers = None
-    if isinstance(case, dict) and "wrong" in case:
-        matchers = list(case["wrong"]) + (
+    if isinstance(case, dict):
+        matchers = list(case.get("wrong") or []) + (
             list(case.get("wrong_replay") or []) if replayed else []
         )
     findings = _rows(
@@ -467,6 +516,78 @@ def screen_coverage(coverage: dict, conn: sqlite3.Connection, run_id: str) -> di
     """The run's coverage route: with the switch on its one line is the pair's."""
     pair = for_screen(conn, run_id)
     return coverage if pair is None else {**coverage, "line": pair["line"]}
+
+
+def trace_view(trace: dict | None, run_id: str) -> dict | None:
+    """The run's steps as a reader sees them. A stored trace keeps the clause coverage
+    line it was written with; with the switch on the COVERAGE step says the pair."""
+    pair = None if trace is None else for_screen(connect(), run_id)
+    if pair is None:
+        return trace
+    steps = []
+    for step in trace.get("steps") or []:
+        if step.get("step") == "COVERAGE":
+            rest = (step.get("summary") or "").split(" | ")[1:]
+            counts = {
+                k: v
+                for k, v in (step.get("counts") or {}).items()
+                if not k.startswith("clause_")
+            }
+            step = {
+                **step,
+                "summary": " | ".join([pair["line"], *rest]),
+                "counts": {**counts, **pair["coverage"]},
+            }
+        steps.append(step)
+    return {**trace, "steps": steps}
+
+
+def _crs_sentence(pair: dict) -> str | None:
+    """The CRS notice's sentence on the one definition; None when no boundary is stated."""
+    if pair["unknown"] is None:
+        return None
+    na = pair["left_out"]["does_not_apply"] or 0
+    return (
+        f"Of {pair['applicable'] + na} requirements in scope: {pair['decided']} decided,"
+        f" {pair['unknown']} apply but were not decided, {na} do not apply."
+        f" {pair['unknown']} of {pair['applicable']} of the requirements that apply were"
+        " not decided."
+    )
+
+
+def crs_meta(meta: dict, conn: sqlite3.Connection, run_id: str) -> dict:
+    """The CRS meta with the switch on: the pair's notes, and the notice's share sentence
+    on the one meaning of "checked". Switch off: `meta` as it was."""
+    pair = for_screen(conn, run_id)
+    if pair is None:
+        return meta
+    from . import absence
+
+    runs = _rows(conn, "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+    outcome = json.loads((runs[0]["outcome_json"] if runs else None) or "{}")
+    counts = outcome.get("unchecked_counts") or {}
+    old = absence.share_sentence(
+        counts.get("not_compared", 0),
+        counts.get("not_applied", 0),
+        counts.get("checked", 0),
+    )
+    new = _crs_sentence(pair)
+
+    def swap(text: str) -> str:
+        said = text.replace(old, new) if old and new else text
+        # `absence.split_lines`: "not checked" there implies the rest were decided
+        return said.replace("Apply but not checked (", "Stopped before a decision (")
+
+    notes = [
+        {**n, "detail": swap(n.get("detail") or "")}
+        for n in crs_notes(meta["review_notes"], conn, run_id)
+    ]
+    return {
+        **meta,
+        "review_notes": notes,
+        "unchecked_parts": [swap(p) for p in meta.get("unchecked_parts") or []],
+        "incomplete_notice": swap(meta.get("incomplete_notice") or ""),
+    }
 
 
 def crs_notes(notes: list[dict], conn: sqlite3.Connection, run_id: str) -> list[dict]:
