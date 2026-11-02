@@ -42,7 +42,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import ai_check_drafts, errors
+from . import ai_check_drafts, errors, local_engine_bar
 from .config import settings
 
 LOGGER_NAME = "review.debug"
@@ -513,6 +513,7 @@ def store(review_run_id: str, scope, timings: dict | None = None) -> dict | None
     changes a review. Returns the stored trace (None when it failed)."""
     from .db import connect
     try:
+        local_engine_bar.record_on_run(review_run_id)  # what a Claude-lane run skipped
         trace = build(review_run_id, scope)
         for step in trace["steps"]:
             step["timing"] = (timings or {}).get(PHASE_OF.get(step["step"], ""))
@@ -555,6 +556,13 @@ def stored(review_run_id: str, scope) -> dict | None:
 
 
 def for_caller(review_run_id: str, scope) -> dict | None:
+    """The steps a reader sees; with ONE_CHECKED_DEFINITION_ENABLED COVERAGE says the pair."""
+    from . import coverage_pair
+
+    return coverage_pair.trace_view(_for_caller(review_run_id, scope), review_run_id)
+
+
+def _for_caller(review_run_id: str, scope) -> dict | None:
     """What a reader of the run sees: the stored trace when they may read
     everything it names; else the records built now under their own grants,
     marked as such. None when they may not read the run."""
@@ -588,7 +596,10 @@ def emit(review_run_id: str, scope) -> list[str] | None:
     if not settings.review_debug:
         return None
     try:
-        lines = render(build(review_run_id, scope), detail=settings.review_debug_detail)
+        from . import coverage_pair
+
+        trace = coverage_pair.trace_view(build(review_run_id, scope), review_run_id)
+        lines = render(trace, detail=settings.review_debug_detail)
         _console()
         for line in lines:
             log.info(line)

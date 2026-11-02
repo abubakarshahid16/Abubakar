@@ -390,7 +390,7 @@ _PRIVATE_PARSER = re.compile(
 #: shape of text; adding to this list is a decision, not a habit.
 _NOT_YET_MOVED = {
     "claude_approved.py",  # NFKC on a FILENAME (the register name check), not on document text
-    "upload.py",           # NFKC on a FILENAME (a security fold), not on document text
+    "upload.py",  # NFKC on a FILENAME (a security fold), not on document text
 }
 
 #: The files that still define a pattern NAMED `_NUMBER` or `_THOUSANDS`, and

@@ -118,12 +118,12 @@ EGRESS_SAFE: dict[str, object] = {
     "claude_approved_list_enforced": False,
     "review_ai_check_enabled": False,
     "rule_parse_model_enabled": False,
-    "geometry_reader_enabled": False,      # also gates the Claude vision reader
+    "geometry_reader_enabled": False,  # also gates the Claude vision reader
     "field_naming_enabled": False,  # order 259.5: model-named fields in a review
-    "vision_reader_engine": "ollama",      # #830: "claude" sends page images out under per_task
-    "answer_judge_enabled": False,          # a model call per answer
+    "vision_reader_engine": "ollama",  # #830: "claude" sends page images out under per_task
+    "answer_judge_enabled": False,  # a model call per answer
     "applicability_reasoning_enabled": False,  # a model call per standard per review
-    "crs_ai_wording_enabled": False,       # a model call per CRS row per review
+    "crs_ai_wording_enabled": False,  # a model call per CRS row per review
     # --- the market lane (market_transport)
     "market_live_enabled": False,
     "market_allow_public_egress": False,
@@ -139,13 +139,13 @@ EGRESS_SAFE: dict[str, object] = {
     "answer_model_allow_remote_host": False,
     "answer_model_allowed_hosts": (),
     "match_enabled": False,
-    "match_ask_max_per_run": 0,            # #882: two local-model calls per question
+    "match_ask_max_per_run": 0,  # #882: two local-model calls per question
     # the datasheet AI reader (`datasheet_ai`): local Ollama by default, or
     # Claude through reader_transport - two model calls per page
     "datasheet_ai_reader": "off",
-    "match_engine": "ollama",              # "claude" sends clause text out
-    "review_ai_check_engine": "ollama",    # #501: "claude" sends datasheet pages out
-    "crs_ai_wording_engine": "ollama",     # #819: "claude" sends CRS rows (standard references) out
+    "match_engine": "ollama",  # "claude" sends clause text out
+    "review_ai_check_engine": "ollama",  # #501: "claude" sends datasheet pages out
+    "crs_ai_wording_engine": "ollama",  # #819: "claude" sends CRS rows (standard references) out
     # #647: the review's AI applicability tier calls the local model once per
     # requirement - off, like the model matcher above.
     "ai_applicability_enabled": False,
@@ -170,7 +170,7 @@ EGRESS_SAFE: dict[str, object] = {
     "smtp_password": "",
     "smtp_from": "",
     "smtp_recipient": "",
-    "smtp_port": 587,                       # inert while smtp_enabled is off
+    "smtp_port": 587,  # inert while smtp_enabled is off
     "smtp_starttls": True,
     "smtp_ssl": False,
     "smtp_timeout_seconds": 10.0,
@@ -267,6 +267,8 @@ EGRESS_SAFE: dict[str, object] = {
     "word_page_markers_enabled": False,
     # --- read by the page only, one local /api/auth/me a minute, no model or socket (order 4b, off by default)
     "session_expired_notice_enabled": False,
+    # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
+    "one_checked_definition_enabled": False,
     # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
     "procedure_crs_fields_enabled": False,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own

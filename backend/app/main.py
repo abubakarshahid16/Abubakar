@@ -1319,7 +1319,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     job = review_jobs_mod.job_for_run(run["id"])
     outcome = comparison_mod.run_outcome(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run) or {}
-    plain_reason, plain_details = comparison_mod.plain_outcome(outcome)
+    plain_reason, plain_details = clause_coverage_mod.plain_outcome(outcome)
     ai_check = ai_engineering_check_mod.ai_check_status(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run)
     document = connect().execute(
@@ -2966,7 +2966,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed
     )
-    return rows, meta, submittal_name, stamp
+    return rows, clause_coverage_mod.crs_meta(meta, run["id"]), submittal_name, stamp
 
 
 def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:
@@ -3433,8 +3433,7 @@ def review_run_coverage(
             review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
-    return clause_coverage_mod.for_run(review_run_id,
-                                       allowed_document_ids=scope.allowed_document_ids)
+    return clause_coverage_mod.for_screen(review_run_id, scope.allowed_document_ids)
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs/preview",

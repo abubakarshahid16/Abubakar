@@ -1,7 +1,7 @@
 // GENERATED from backend/app/schemas.py and backend/app/api/run_summary.py by scripts/gen_contract_types.py.
 // Do not edit: change the backend model and run the script (order 119.1).
 
-import type { AiCheckStatus, PageCoverage, RequirementSplit, RequirementsNotApplied, ReviewRunCompleteness, RunApplicability, RunCheckStatus, RunClauseCoverageSummary, StandardsChange, StatusCounts, TableValuesNotCompared } from "../types";
+import type { AiCheckStatus, PageCoverage, RequirementSplit, RequirementsNotApplied, ReviewRunCompleteness, RunApplicability, RunCheckStatus, RunClauseCoverageSummary, RunCoveragePair, StandardsChange, StatusCounts, TableValuesNotCompared } from "../types";
 
 /** What the progress block shows. A figure the row does not hold is null, never 0. Ages are seconds on the SERVER's clock, so the browser's clock never decides a stall. */
 export interface ReviewProgressDetail {
@@ -94,9 +94,10 @@ export interface ReviewRunSummary {
   table_values_not_compared: TableValuesNotCompared[];
   /** #453: requirements about a different kind of equipment than this submittal, one grouped line per subject ("N requirements not applied: they are about X, this submittal is Y") with the standards and clauses behind it. Empty for a run that predates it. */
   requirements_not_applied: RequirementsNotApplied[];
-  /** #678: every requirement in the run's scope in ONE of three groups (checked / applies but not checked / does not apply), each repeat counted once, with the reasons behind the last two. For a run that predates it only the counts are known and every reason is "no reason recorded". */
+  /** #678: every requirement in the run's scope in ONE of three groups (checked / applies but not checked / does not apply), each repeat counted once, with the reasons behind the last two. A run that predates it: only the counts, every reason "no reason recorded". */
   requirement_split?: RequirementSplit | null;
   clause_coverage?: RunClauseCoverageSummary | null;
+  coverage_pair?: RunCoveragePair | null;
   /** #453: how the requirements that stayed were decided (general, matching, kept because the equipment is unknown). Null for a run that predates it. */
   applicability?: RunApplicability | null;
   /** P3: the job running this review: its state, named progress (step N of 3) and whether cancellation was requested. Null for a run made before reviews were queued. */

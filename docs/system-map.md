@@ -89,6 +89,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
+| `claude_answer_cache` | The stored answer of every Claude call: the same request is never bought twice |
 | `claude_approved` | Which documents the owner approved for the cloud model, and the refusal for any other (#806 S3) |
 | `claude_models` | What a Claude model id accepts, and the models a run record names |
 | `claude_auto_approve` | #1584: a document uploaded for review, and a standard its review cites, join the approved list by themselves unless blocked; behind `claude_auto_approve_reviews_enabled` |
@@ -107,6 +108,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `context_budget` | Keep the evidence inside the model's context window, and say when it does not |
 | `corpus` | Questions about the corpus itself, and counts that pretend to be about it |
 | `coverage` | Which documents the question was about, and which of them the answer used |
+| `coverage_pair` | Plan change 6 B: one meaning of "checked": risk (wrong among decided) and coverage (decided of the rules the run states apply), checklist apart, for the bench, the board call and, behind ONE_CHECKED_DEFINITION_ENABLED, the CRS and the screen |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
@@ -210,6 +212,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `market_phrase` | The only text that may leave this machine, built by whitelist |
 | `market_providers` | Three tiers of public information, one row shape, and no socket in sight |
 | `market_transport` | The one place in this codebase that may open a socket to the public internet |
+| `local_engine_bar` | A review on the Claude lane never loads the local engine, and says what it skipped |
+| `match_claude` | The matcher's question through the one Claude lane |
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
 | `closing_noun` | Reads the quantity a sentence names LAST ("... of its travel") so a label that runs from it into the subject can be paired (#913) |
 | `method_notes` | Order 159: marks the notes on HOW a pairing was made, so the engineer's copy keeps them and the contractor's copy leaves them off |
