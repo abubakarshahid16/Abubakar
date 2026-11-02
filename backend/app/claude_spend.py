@@ -1,11 +1,16 @@
 """What the Claude API has cost, and the refusal before it costs more.
 
-OWNER RULE 2026-09-25: USD 5 per step, USD 20 in total; stop BEFORE exceeding
-either. Plan change 4 (#805, 28 Oct 2026): USD 25 per converted standard, and USD 500
-in total for November 2026 only (`total_cap`: from 1 Dec it is 20 again). So the check is made before a call leaves, on the WORST CASE of that
-call (every prompt token uncached, every allowed output token spent), against
-what the ledger says was already spent. A call that could cross a cap is
-refused - it never goes out and then gets reported as over budget.
+OWNER RULE 2026-09-25: USD 5 per step, USD 20 in total; stop BEFORE exceeding either. Plan change 4 (#805,
+28 Oct 2026): USD 25 per converted standard, USD 500 in total for November 2026 only (`total_cap`). Plan change 6:
+USD 100 a day (`claude_spend_report`). The check is made before a call leaves, on the WORST CASE of that call (every
+prompt token uncached, every allowed output token spent), against what the ledger says was already spent. A call
+that could cross a cap is refused, never sent and then reported as over budget.
+
+PER REVIEW RUN (owner, #1584, 2 Nov 2026, 15:05 PKT): USD 5 per step, USD 10 for the AI clause review step, at most
+USD 15 for the whole run, all checked in the same reservation (`for_run`, `claude_spend_report.cap_key`). A re-run
+under a new run id starts again, so the day cap limits re-runs. A call with NO run (chat, a read at upload, a script,
+an offline job) has USD 5 on every line of its step, run or not: as tight as before. A `standards_convert:` step stays
+USD 25 per standard, whatever the run, apart from the run's USD 15.
 
 THE LEDGER is a local JSONL file (`settings.claude_spend_log`), one line per
 call: time, step, model, token counts, cost, and a digest of the prompt. It is
@@ -13,41 +18,28 @@ not in the database on purpose - measured runs use disposable database copies,
 and a total kept in a copy would forget every run made against another copy.
 It never holds prompt text, document text or the key.
 
-THE CHECK IS A RESERVATION, NOT A READ (audit 2026-09-30). Checking the
-ledger, sending, and only then writing the ledger let ten threads at $4.90
-each see "$4.90 spent" and all send: the step reached $5.80. So a call now
-`reserve`s its worst case - check AND ledger line in one step, under the
-ledger lock - before it leaves, and `settle`s that reservation afterwards to
-what it actually cost. Until it is settled, the reservation counts at its
-worst case; a process that dies mid-call leaves it counted that way for
-good, which errs toward spent, never toward unspent. `reasoning_provider`
-(single call, stream and batch) and `metered` (the three `claude_api` review
-routes) all go through `reserve`/`settle`/`settle_failure`. There is one
-ledger; the per-run call cap in `claude_budget` is a second, separate limit,
-not a second record of dollars. `ensure_affordable` remains as a read-only
-check; it reserves nothing and is not a guard on its own.
+THE CHECK IS A RESERVATION, NOT A READ (audit 2026-09-30). Checking the ledger, sending, and only then writing the
+ledger let ten threads at $4.90 each see "$4.90 spent" and all send: the step reached $5.80. So a call now `reserve`s
+its worst case - check AND ledger line in one step, under the ledger lock - before it leaves, and `settle`s that
+reservation afterwards to what it actually cost. Until it is settled, the reservation counts at its worst case; a
+process that dies mid-call leaves it counted that way for good, which errs toward spent. `reasoning_provider` (single
+call, stream and batch) and `metered` (the three `claude_api` review routes) all go through
+`reserve`/`settle`/`settle_failure`. There is one ledger; the per-run call cap in `claude_budget` is a second, separate
+limit, not a second record of dollars. `ensure_affordable` is a read-only check, not a guard on its own.
 
-A CALL THAT FAILS MAY STILL HAVE BEEN BILLED - a read timeout after the API
-did the work, a stream dropped mid-answer, an answer refused locally for its
-size. `settle_failure` charges such a call its actual usage when the API
-reported it, otherwise the reserved worst case (marked `"estimated": true`),
-and releases the reservation only when `unbilled(exc)` proves the API did no
-billable work.
+A CALL THAT FAILS MAY STILL HAVE BEEN BILLED - a read timeout after the API did the work, a stream dropped mid-answer,
+an answer refused locally for its size. `settle_failure` charges its actual usage when the API reported it, otherwise
+the reserved worst case (marked `"estimated": true`), and releases it only when `unbilled(exc)` proves no billable work.
 
-WHAT THE LOCK GUARANTEES. `_ledger_lock` is a process-local mutex plus an
-exclusive OS lock on `<ledger>.lock` (`fcntl.flock` on POSIX, `msvcrt.locking`
-on Windows). So the check-and-reserve is atomic between threads of one
-process AND between processes on the same machine that use the SAME ledger
-path through this module. It is NOT guaranteed: for processes pointed at
-different ledger files (each is its own budget, by construction); on a
-network filesystem whose locks are advisory or unsupported; or against
-anything that writes the JSONL without this module. Settled figures are the
-list-price ESTIMATE below, not the invoice.
+WHAT THE LOCK GUARANTEES. `_ledger_lock` is a process-local mutex plus an exclusive OS lock on `<ledger>.lock`
+(`fcntl.flock` on POSIX, `msvcrt.locking` on Windows). So the check-and-reserve is atomic between threads of one process
+AND between processes on the same machine that use the SAME ledger path through this module. It is NOT guaranteed: for
+processes pointed at different ledger files (each is its own budget, by construction); on a network filesystem whose
+locks are advisory or unsupported; or against anything that writes the JSONL without this module. Settled figures are
+the list-price ESTIMATE below, not the invoice.
 
-PRICES are list prices per million tokens from Anthropic's pricing page
-(platform.claude.com/docs/en/about-claude/pricing, read 2026-09-25). They are
-an ESTIMATE; the invoice is the truth. An unknown model is priced at the most
-expensive family listed, so an estimate errs toward refusing.
+PRICES are list prices per million tokens from Anthropic's pricing page (platform.claude.com/docs/en/about-claude/
+pricing, read 2026-09-25): an ESTIMATE; the invoice is the truth. An unknown model is priced at the dearest family.
 """
 from __future__ import annotations
 
@@ -59,10 +51,11 @@ import time
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timezone
 from pathlib import Path
 
+from . import claude_spend_report as report_mod
 from .config import settings
 
 #: (input, output, 5-minute cache write, cache read) USD per million tokens.
@@ -86,7 +79,9 @@ LONG_PROMPT_PRICES: dict[str, tuple[float, float, float, float]] = {
 }
 #: Order 271.3 (owner, #805 plan change 4): a call whose step starts with this is charged to ONE
 #: standard's step and capped at `claude_budget_usd_per_standard` (the converter, `standards_converter`).
-STANDARD_STEP_PREFIX = "standards_convert:"
+STANDARD_STEP_PREFIX = report_mod.STANDARD_STEP_PREFIX
+#: `clause_review.STEP` (a test pins them equal): inside a review run its step cap is the owner's USD 10.
+CLAUSE_REVIEW_STEP = "clause_review"
 #: Order 271.3: the raised total is for NOVEMBER 2026 only (UTC dates). After this day the total is
 #: `BASELINE_TOTAL_USD` whatever the setting says, so a lapsed approval fails closed; renewing it is a
 #: reviewed change here, not a line in `.env`.
@@ -288,13 +283,10 @@ def entries() -> list[dict]:
 def models_used(
     *, since: str, steps=None, exclude_prefixes: tuple[str, ...] = ()
 ) -> list[str]:
-    """The models that ANSWERED since `since` (ISO time), sorted: the ledger's
-    settled lines and cache hits, which name the model the API reported. An open reservation
-    only names what was asked for, and a call charged at an estimate never
-    showed an answer, so neither counts. `steps` narrows to those steps;
-    `exclude_prefixes` leaves out steps starting with these. Whole seconds, like
-    the ledger's `at`. The boundary is this time window on this ledger, so another
-    run in the same window is counted too."""
+    """The models that ANSWERED since `since` (ISO time), sorted: settled lines and cache hits, which name the model the
+    API reported. An open reservation only names what was asked for, and a call charged at an estimate never showed an
+    answer, so neither counts. `steps` narrows to those steps; `exclude_prefixes` leaves out steps starting with these.
+    Whole seconds, like the ledger's `at`. The boundary is this time window on this ledger: another run in it counts."""
     start = datetime.fromisoformat(since).replace(microsecond=0)
     start = start if start.tzinfo else start.replace(tzinfo=UTC)
     found = set()
@@ -337,6 +329,19 @@ def spent(step: str | None = None) -> float:
                      if step is None or e.get("step") == step), 6)
 
 
+def step_spent(step: str) -> float:
+    """What the step cap reads for a call made here and now, holds included. `spent(step)` is the step, every run."""
+    run = current_run()
+    held = report_mod.by_cap(entries(), run)
+    return round(held.get(report_mod.cap_key(step, run), 0.0), 6)
+
+
+def run_spent() -> float:
+    """What this review run has charged across its steps, holds included; 0 with no run."""
+    run = current_run()
+    return round(report_mod.by_cap(entries(), run).get((run,), 0.0), 6)
+
+
 def _today() -> date:
     return datetime.now(UTC).date()
 
@@ -362,6 +367,8 @@ class Caps:
         the caps read from settings are resolved per step: a caller that passed its own `Caps` meant them."""
         if str(step).startswith(STANDARD_STEP_PREFIX):
             return Caps(float(settings.claude_budget_usd_per_standard), self.total)
+        if str(step) == CLAUSE_REVIEW_STEP and _RUN.get():
+            return Caps(float(settings.claude_budget_usd_clause_review), self.total)
         return self
 
 
@@ -374,16 +381,18 @@ def ensure_affordable(step: str, worst_case: float, caps: Caps | None = None) ->
         step,
         worst_case,
         caps or Caps.from_settings().for_step(step),
-        spent(step),
+        step_spent(step),
         spent(),
     )
+    if over := report_mod.over_caps(step, current_run(), worst_case, entries()):
+        raise BudgetExceeded(over)
 
 
 def _check(step: str, worst_case: float, caps: Caps, step_spent: float, total_spent: float) -> None:
     if step_spent + worst_case > caps.per_step:
         raise BudgetExceeded(
             f"step {step!r}: spent ${step_spent:.4f}, next call up to ${worst_case:.4f}, "
-            f"cap ${caps.per_step:.2f} per step")
+            f"cap ${caps.per_step:.2f} per step{' of this review run' if report_mod.is_runs(step, current_run()) else ''}")
     if total_spent + worst_case > caps.total:
         raise BudgetExceeded(
             f"total: spent ${total_spent:.4f}, next call up to ${worst_case:.4f}, "
@@ -463,6 +472,8 @@ class Reservation:
     prompt_sha256: str
     started: float
     batch: bool = False
+    #: The run it was held for: its settlement counts on that run's step cap, wherever it is settled.
+    run: str | None = field(default_factory=lambda: _RUN.get())
 
 
 #: What the reader is told when #806 S3 stopped a Claude answer. One wording,
@@ -533,19 +544,24 @@ def reserve_all(
     with _ledger_lock():
         current = entries()
         total = sum(float(e.get("cost_usd") or 0) for e in current)
-        per_step: dict[str, float] = {}
-        for e in current:
-            per_step[e.get("step")] = per_step.get(e.get("step"), 0.0) + float(e.get("cost_usd") or 0)
+        run = current_run()
+        per_step = report_mod.by_cap(current, run)
+        day = report_mod.charged_today(current)
         for step, worst in items:
             _check(
                 step,
                 worst,
                 explicit or caps.for_step(step),
-                round(per_step.get(step, 0.0), 6),
+                round(per_step.get(report_mod.cap_key(step, run), 0.0), 6),
                 round(total, 6),
             )
-            per_step[step] = per_step.get(step, 0.0) + worst
+            if over := report_mod.over_run_cap(step, run, worst, per_step):
+                raise BudgetExceeded(over)
+            if over := report_mod.over_day_cap(worst, round(day, 6)):
+                raise BudgetExceeded(over)
+            report_mod.charge(per_step, step, run, worst)
             total += worst
+            day += worst
             out.append(Reservation(uuid.uuid4().hex, step, model, float(worst), prompt_sha256, now, batch))
         for r in out:
             line = _entry(step=r.step, model=model, usage=None, prompt_sha256=prompt_sha256,
@@ -576,13 +592,9 @@ def settle(reservation: Reservation, *, usage: dict | None, finish_reason: str,
     """Replace `reservation` with what the call cost: `usage` as the API
     reported it, or `estimated_usd` when that is unknown. Returns the entry.
 
-    #459 (audit B07): A REPLY WITH NO USAGE IS NOT A FREE REPLY. An answer
-    that arrived but carries no `usage` block (a proxy that strips it, a
-    shape the API has not used before) used to settle at USD 0 - the call
-    was billed, the ledger said nothing was spent, and the caps believed it.
-    With neither token count reported and no estimate given, the call settles
-    at the worst case it was reserved at, marked `"estimated": true`: the cap
-    errs toward counting too much, never too little - `settle_failure`'s rule."""
+    #459 (audit B07): A REPLY WITH NO USAGE IS NOT A FREE REPLY. An answer with no `usage` block (a proxy that strips
+    it, a new shape) used to settle at USD 0: billed, and the caps believed nothing was spent. With neither token count
+    reported and no estimate given, it settles at its reserved worst case, marked `"estimated": true`."""
     if estimated_usd is None and not _usage_reported(usage):
         estimated_usd = reservation.worst_usd
     entry = _entry(step=reservation.step, model=model or reservation.model, usage=usage,
@@ -590,6 +602,8 @@ def settle(reservation: Reservation, *, usage: dict | None, finish_reason: str,
                    wall_time_s=(time.time() - reservation.started) if wall_time_s is None else wall_time_s,
                    finish_reason=finish_reason, batch=reservation.batch, estimated_usd=estimated_usd)
     entry["settles"] = reservation.id
+    if reservation.run:
+        entry["run"] = reservation.run
     with _ledger_lock():
         _append(entry)
     return entry
@@ -621,16 +635,12 @@ def failure_word(exc: BaseException) -> str:
     the exception's type, and for an API rejection its HTTP status and the
     API's error type - `HTTPStatusError:http_400:invalid_request_error`.
 
-    #872, live run of 12 Oct 2026: every call failed with HTTP 400 and the
-    ledger said only "unbilled:HTTPStatusError"; the cause (no credit left)
-    had to be read from the provider's console.
+    #872, live run of 12 Oct 2026: every call failed with HTTP 400 and the ledger said only "unbilled:HTTPStatusError";
+    the cause (no credit left) had to be read from the provider's console.
 
-    NEVER THE MESSAGE. The API's message is free text the provider writes
-    and could echo a request field, so it is only TESTED for the one case
-    with a closed answer (`no_credit`) and is not stored, logged or returned.
-    The error type is copied only when it has the shape of the API's own
-    enum (lower-case letters and underscores, at most 40); anything else is
-    dropped. Nothing here can raise."""
+    NEVER THE MESSAGE. The API's message is free text and could echo a request field, so it is only TESTED for the one
+    case with a closed answer (`no_credit`), never stored, logged or returned. The error type is copied only when it
+    has the shape of the API's own enum (lower-case letters and underscores, at most 40). Nothing here can raise."""
     name = type(exc).__name__
     response = getattr(exc, "response", None)
     status = getattr(response, "status_code", None)
@@ -727,28 +737,20 @@ def metered(send, step: str, *, unbilled=None, version: str = "", keep_if=None):
     so that every call through it RESERVES its worst case against the caps
     BEFORE it leaves (`reserve`) and is settled to its cost AFTER it returns.
 
-    The worst case is `worst_case_usd` - the one estimator - on the request
-    body itself: the model it names, every character of `messages` and
-    `system` as serialised (image data included, which errs toward refusing),
-    and its `max_tokens`. A refusal raises `BudgetExceeded` and `send` is never
-    called. The ledger line carries counts and a digest of the body, never its
-    text. `.usage` of the wrapped transport is carried over so a caller can
-    still read the per-run token counts off the result.
+    The worst case is `worst_case_usd` - the one estimator - on the request body itself: the model it names, every
+    character of `messages` and `system` as serialised (image data included, which errs toward refusing), and its
+    `max_tokens`. A refusal raises `BudgetExceeded` and `send` is never called. The ledger line carries counts and a
+    digest of the body, never its text. `.usage` of the wrapped transport is carried over.
 
-    A CALL THAT RAISES MAY STILL HAVE BEEN BILLED - a read timeout after the
-    API did the work, an answer refused locally for its size. So a failure is
-    charged at that same worst case, marked `"estimated": true`, unless
-    `unbilled(exc)` says the API provably did no billable work (refused before
-    sending, never connected, a 4xx rejection). With no `unbilled` given,
-    every failure is charged: the cap errs toward counting too much, never too
-    little. The exception is re-raised either way.
+    A CALL THAT RAISES MAY STILL HAVE BEEN BILLED - a read timeout after the API did the work, an answer refused
+    locally for its size. So a failure is charged at that same worst case, marked `"estimated": true`, unless
+    `unbilled(exc)` says the API provably did no billable work (refused before sending, never connected, a 4xx
+    rejection). With no `unbilled` given, every failure is charged. The exception is re-raised either way.
 
-    THE ANSWER CACHE (`answer_on_file`) IS ASKED FIRST, under `version`. Every prompt
-    on this lane asks for JSON, so `keep_if` defaults to `claude_answer_cache.is_json`;
-    a caller with a stricter check hands it in. The N-th ask of the same body through
-    one wrapper has its own stored answer (a stability check that asks twice must
-    compare two answers the model really gave, `ai_task_runner.reuse_or_ask`'s rule);
-    only an answer worth keeping uses up its slot."""
+    THE ANSWER CACHE (`answer_on_file`) IS ASKED FIRST, under `version`. Every prompt on this lane asks for JSON, so
+    `keep_if` defaults to `claude_answer_cache.is_json`; a caller with a stricter check hands it in. The N-th ask of the
+    same body through one wrapper has its own stored answer (a stability check that asks twice must compare two answers
+    the model really gave, `ai_task_runner.reuse_or_ask`'s rule); only an answer worth keeping uses up its slot."""
     from . import claude_answer_cache
 
     valid = keep_if or claude_answer_cache.is_json

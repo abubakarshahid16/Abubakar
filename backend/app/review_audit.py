@@ -27,7 +27,13 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import ai_call_ledger, deferred_pass, review_audit_rows
+from . import (
+    ai_call_ledger,
+    deferred_pass,
+    presence_check,
+    review_audit_detail,
+    review_audit_rows,
+)
 from .config import settings
 
 NOT_RECORDED = "not recorded"
@@ -38,6 +44,7 @@ BOUNDARY = (
 )
 #: The plain verdict names (the bench's words) for the stored compliance codes.
 VERDICT = {
+    presence_check.STATUS: presence_check.WORDS,
     "COMPLIANT": "Pass",
     "NON_COMPLIANT": "Fail",
     "MISSING_INFORMATION": "Query",
@@ -45,9 +52,6 @@ VERDICT = {
     "NOT_APPLICABLE": "not in scope",
     "NOT_IN_DOCUMENT_SCOPE": "needs other document",
 }
-_FAILED_NO_WORSE = (
-    "none: a failed step adds no finding and no verdict is more confident because of it"
-)
 #: What the AI totals are over, printed with them (CLAUDE.md rule 4).
 AI_BOUNDARY = (
     "Answers asked for or reused during this attempt of this review job, over the steps "
@@ -173,6 +177,7 @@ def _run_section(run: dict, sub: str, filename, steps: dict, ai_use: dict) -> di
         "models_used": models or None,
         "ai_calls_made": ai_use["totals"]["fresh"],
         "ai_calls_failed": ai_use["totals"]["failed"],
+        "ai_calls_refused": review_audit_detail.calls_refused(ai_use),
         "ai_answers_reused": ai_use["totals"]["reused"],
         "started_by": run.get("started_by"),
         "status": run.get("status"),
@@ -231,40 +236,6 @@ def _pages_section(sub: str) -> dict:
     }
 
 
-def _standards_section(run_id: str, steps: dict, allowed) -> dict:
-    from .db import connect
-
-    conn = connect()
-    applied = [
-        {"filename": r["filename"], "method": r["selection_method"]}
-        for r in conn.execute(
-            "SELECT d.filename, a.selection_method, a.standard_document_id"
-            " FROM review_applicable_standards a JOIN documents d ON d.id = a.standard_document_id"
-            " WHERE a.review_run_id = ? AND a.included = 1 ORDER BY d.filename",
-            (run_id,),
-        )
-        if r["standard_document_id"] in allowed
-    ]
-    considered = [
-        r["n"]
-        for r in conn.execute(
-            "SELECT COUNT(*) AS n FROM review_applicable_standards"
-            " WHERE review_run_id = ? AND included = 0",
-            (run_id,),
-        )
-    ]
-    return {
-        "applied_count": len(applied),
-        "applied_boundary": "of standards you may read",
-        "applied": applied,
-        "applied_by_method": dict(Counter(a["method"] for a in applied)),
-        "considered_not_applied_count": considered[0] if considered else None,
-        "cited_not_in_library_count": steps["STANDARDS"]["counts"]["cited_not_held"],
-        "cited_not_in_library_split": NOT_RECORDED,
-        "editions": NOT_RECORDED,
-    }
-
-
 def _deferred_part(findings: list[dict], passes: int) -> dict:
     """D2: Passes on a contractor-deferred value are Query - counted as the bench does."""
     n = sum(map(deferred_pass.is_deferred_pass, findings))
@@ -275,43 +246,17 @@ def _deferred_part(findings: list[dict], passes: int) -> dict:
     }
 
 
-def _rules_section(findings: list[dict]) -> dict:
-    rows, counts = [], Counter()
-    for f in findings:
-        verdict = VERDICT.get(
-            f.get("compliance_status"), f.get("compliance_status") or None
-        )
-        counts[f.get("compliance_status")] += 1
-        rows.append(
-            {
-                "finding_id": f["id"],
-                "standard_clause": f.get("standard_clause"),
-                "field": f.get("matched_phrase"),
-                "value_read": f.get("contractor_evidence_text"),
-                "page": f.get("contractor_page"),
-                "limit": None,
-                "comparator": None,
-                "verdict": verdict,
-                "evidence_quote_id": f.get("citation_ids") or None,
-                "basis": (
-                    "AI-suggested"
-                    if f.get("origin") == "ai_engineering_check"
-                    or str(f.get("match_method") or "").startswith("ai")
-                    else "code"
-                ),
-                "kit_card_id": f.get("requirement_id"),
-                "kit_card_approval": None,
-            }
-        )
-    by_standard = Counter(
-        str(f.get("standard_document_id") or NOT_RECORDED) for f in findings
-    )
+def _rules_section(
+    findings: list[dict], allowed=frozenset(), equipment: str | None = None
+) -> dict:
+    counts = Counter(presence_check.status_of(f) for f in findings)  # #1638
+    rows = review_audit_detail.rule_rows(findings, allowed, equipment)
     return {
         "rows_total": len(rows),
         "rows": rows,
         "verdict_counts": {VERDICT.get(k, k): v for k, v in counts.items() if k},
-        **_deferred_part(findings, counts.get("COMPLIANT", 0)),
-        "by_standard_document": dict(by_standard),
+        **_deferred_part(presence_check.split(findings)[0], counts.get("COMPLIANT", 0)),
+        "in_scope_by_standard": review_audit_detail.in_scope_by_standard(findings),
     }
 
 
@@ -361,6 +306,7 @@ def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
                 "calls": clause.get("calls"),
                 "fresh": clause.get("calls"),
                 "reused": clause.get("cache_hits"),
+                **review_audit_detail.clause_figures(clause),
             }
         )
     if wording and wording.get("enabled"):
@@ -426,11 +372,11 @@ def _ai_section(
     step["unverified_quotes_dropped"] = status.get("rejected") if raw else None
     step["seconds"] = (timings.get("checks") or {}).get("seconds") if timings else None
     step["effect_on_verdicts"] = (
-        _FAILED_NO_WORSE
+        review_audit_detail.FAILED_NO_WORSE
         if step["state"] == "failed"
         else "see the findings; code decides"
     )
-    figures = review_audit_rows.cache_figures(run)
+    figures = review_audit_rows.run_figures(run)
     own = [step, *_stored_steps(status, wording)]
     ledger = review_audit_rows.fold_stored_hits(own, ledger, figures)
     steps = [
@@ -438,24 +384,13 @@ def _ai_section(
         *_ledger_steps(ledger),
         *review_audit_rows.skipped_steps(_loads(run.get("outcome_json"))),
     ]
-    return {"steps": steps, "totals": _totals(steps), **figures}
-
-
-def _gates_section(outcome: dict, steps: dict) -> dict:
-    clause = outcome.get("clause_coverage") or {}
-    draft = steps["CHECKLIST"]["counts"].get("draft_checklist")
+    outcome = _loads(run.get("outcome_json"))
     return {
-        "recorded": {
-            "clause_coverage_adds_up": clause.get("adds_up") if clause else None,
-            "draft_checklist_results": draft,
-        },
-        "not_recorded_on_the_run": [
-            "wrong",
-            "untrue",
-            "nothing-read guard",
-            "certificate guard",
-        ],
-        "note": "A gate the run did not store a count for is listed, not given a count.",
+        "steps": steps,
+        "totals": _totals(steps),
+        **figures,
+        "matcher": review_audit_detail.matcher_figures(outcome),
+        "phase_seconds": review_audit_detail.phase_seconds(run["id"], timings),
     }
 
 
@@ -473,8 +408,7 @@ def _crs_section(review_run_id: str, scope, steps: dict) -> dict:
         "rows_dropped": internal.get("removed"),
         "rows_boundary": review_audit_rows.ROWS_BOUNDARY,
         "reconciliation": parts,
-        "client_copy_path": NOT_RECORDED,
-        "internal_copy_path": NOT_RECORDED,
+        **review_audit_detail.crs_paths(review_run_id),
         "failed": crs.get("status") == "failed" or parts["internal"] is None,
     }
 
@@ -524,14 +458,21 @@ def build(review_run_id: str, scope, timings: dict | None = None) -> dict:
         ledger=ai_call_ledger.snapshot(),
         wording=crs_wording.summary_of(review_run_id),
     )
+    run_part = _run_section(run, sub, trace.get("document"), steps, ai_use)
+    counts = review_audit_detail.bench_counts(run, findings, outcome)
+    rules = _rules_section(findings, allowed, run_part["equipment_type"])
     return {
         "boundary": BOUNDARY,
-        "run": _run_section(run, sub, trace.get("document"), steps, ai_use),
+        "run": run_part,
         "pages": _pages_section(sub),
-        "standards": _standards_section(review_run_id, steps, allowed),
-        "rules": _rules_section(findings),
+        "standards": review_audit_detail.standards_section(
+            review_run_id, outcome, allowed
+        ),
+        "rules": {**rules, "bench_counts": counts},
         "ai_use": ai_use,
-        "gates": _gates_section(outcome, steps),
+        "gates": review_audit_detail.gates_section(
+            run, outcome, findings, counts, steps
+        ),
         "crs": _crs_section(review_run_id, scope, steps),
         "retractions_and_gaps": _known_gaps(),
     }
@@ -565,9 +506,11 @@ def _md_run(audit: dict) -> list[str]:
         f"- switches on: {', '.join(run['switches_on']) or 'none'}",
         f"- models used: {', '.join(run['models_used']) if run['models_used'] else NOT_RECORDED}",
         f"- AI calls made (fresh): {_v(run['ai_calls_made'])}; failed calls: "
-        f"{_v(run['ai_calls_failed'])}; stored answers reused: {_v(run['ai_answers_reused'])}",
+        f"{_v(run['ai_calls_failed'])}; refused calls: {_v(run['ai_calls_refused'])}; "
+        f"stored answers reused: {_v(run['ai_answers_reused'])}",
         f"  - {AI_BOUNDARY}",
         f"- started by: {_v(run['started_by'])}",
+        f"- status: {_v(run['status'])}",
         "",
     ]
 
@@ -620,20 +563,6 @@ def _md_word_read(word: dict) -> list[str]:
     return out
 
 
-def _md_standards(audit: dict) -> list[str]:
-    std = audit["standards"]
-    return [
-        "## 3. Standards",
-        f"- applied: {std['applied_count']} {std['applied_boundary']} ({', '.join(f'{k} {v}' for k, v in std['applied_by_method'].items()) or 'no method recorded'})",
-        *[f"  - {a['filename']} ({a['method']})" for a in std["applied"]],
-        f"- considered, not applied: {_v(std['considered_not_applied_count'])}",
-        f"- cited, not in library: {std['cited_not_in_library_count']} "
-        f"(design / material / purchasing split: {std['cited_not_in_library_split']})",
-        f"- editions: {std['editions']}",
-        "",
-    ]
-
-
 def _md_rules(audit: dict) -> list[str]:
     rules = audit["rules"]
     out = [
@@ -648,9 +577,11 @@ def _md_rules(audit: dict) -> list[str]:
             or NOT_RECORDED
         ),
         f"- {rules['pass_on_deferred_note']}",
+        *review_audit_detail.md_bench_counts(rules["bench_counts"]),
         "",
-        "| clause | field | value read | page | verdict | basis | card |",
-        "|---|---|---|---|---|---|---|",
+        "| clause | field | value read | page | limit | comparator | verdict | basis "
+        "| quote | card | approval |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rules["rows"]:
         out.append(
@@ -662,9 +593,13 @@ def _md_rules(audit: dict) -> list[str]:
                     r["field"],
                     r["value_read"],
                     r["page"],
+                    r["limit"],
+                    r["comparator"],
                     r["verdict"],
                     r["basis"],
+                    r["evidence_quote_id"],
                     r["kit_card_id"],
+                    r["kit_card_approval"],
                 )
             )
             + " |"
@@ -680,7 +615,8 @@ def _md_ai(audit: dict) -> list[str]:
         f"reused answers {_v(totals['reused'])}",
         f"  - {totals['boundary']}",
     ]
-    out += review_audit_rows.cache_lines(audit["ai_use"])
+    out += review_audit_rows.claude_lines(audit["ai_use"])
+    out += review_audit_detail.md_ai_extra(audit["ai_use"])
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
@@ -702,12 +638,9 @@ def _md_ai(audit: dict) -> list[str]:
 
 
 def _md_gates_crs(audit: dict) -> list[str]:
-    gates, crs = audit["gates"], audit["crs"]
-    out = ["## 6. Safety gates"]
-    out += [f"- {k}: {_v(v)}" for k, v in gates["recorded"].items()]
-    out += [f"- {n}: {NOT_RECORDED}" for n in gates["not_recorded_on_the_run"]]
+    crs = audit["crs"]
     return [
-        *out,
+        *review_audit_detail.md_gates(audit["gates"]),
         "",
         "## 7. CRS",
         f"- rows exported (internal copy): {_v(crs['rows_exported'])}",
@@ -731,7 +664,7 @@ def render_markdown(audit: dict) -> str:
         "",
         *_md_run(audit),
         *_md_pages(audit),
-        *_md_standards(audit),
+        *review_audit_detail.md_standards(audit["standards"]),
         *_md_rules(audit),
         *_md_ai(audit),
         *_md_gates_crs(audit),
@@ -754,14 +687,26 @@ def _cell(value) -> str:
 
 
 def _record_path(review_run_id: str, folder: Path) -> None:
-    """Keep the audit folder in the run's stored trace (`audit_path`), if it has one."""
+    """Keep the audit folder in the run's stored trace (`audit_path`); a run that ended
+    before it stored a trace keeps it in its outcome."""
+    from . import review_trace
     from .db import connect
 
+    review_trace.ensure_schema()
     conn = connect()
     row = conn.execute(
         "SELECT trace FROM review_run_traces WHERE review_run_id = ?", (review_run_id,)
     ).fetchone()
     if row is None:
+        stored = conn.execute(
+            "SELECT outcome_json FROM review_runs WHERE id = ?", (review_run_id,)
+        ).fetchone()
+        outcome = {**_loads(stored["outcome_json"]), "audit_path": str(folder)}
+        with conn:
+            conn.execute(
+                "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+                (json.dumps(outcome), review_run_id),
+            )
         return
     trace = _loads(row["trace"])
     trace["audit_path"] = str(folder)

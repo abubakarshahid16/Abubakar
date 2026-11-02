@@ -20,6 +20,8 @@ the screen print.
 
 Checklist decisions are stated apart and never added: a checklist clause is text,
 not linked to a stored rule (the same lane as the bench's source row, PR #1566).
+Version 2 rulebook rows (`rulebook_v2_review`) are on neither lane: stated apart, with
+their own denominator, and never added. Only a run that read the rulebook has them.
 
 Read only. Counts only: no document text leaves this module except the gate
 reasons a run stored, which the bench and the board never get (`public_view`).
@@ -32,7 +34,14 @@ import re
 import sqlite3
 from pathlib import Path
 
-from . import deferred_pass, deferred_value, requirement_split, scope_ledger, spec_kit
+from . import (
+    deferred_pass,
+    deferred_value,
+    presence_check,
+    requirement_split,
+    scope_ledger,
+    spec_kit,
+)
 from .config import settings
 from .db import connect
 
@@ -343,10 +352,19 @@ def _tally(
     checklist = {"decided": 0, "rows": 0, "pass": 0, "fail": 0, "wrong": 0}
     for f in findings:
         lane = _lane(f, rules)
+        # #1638: the one count, a safety-tick row included (the bench's `finding_source` agrees)
+        stated = presence_check.is_stated_only(f) and not _is_kit_card(f)
+        if stated:
+            checklist["stated"] = checklist.get("stated", 0) + 1
+            checklist["stated_deferred"] = checklist.get("stated_deferred", 0) + int(
+                value_is_deferred(conn, f)
+            )
         if lane is None:
             continue
         if lane == "checklist":
             checklist["rows"] += 1
+            if stated:  # never decided
+                continue
         status = f.get("compliance_status")
         if status not in DECIDED:
             continue
@@ -392,6 +410,7 @@ def _wrong_verdicts(
         f
         for f in rows
         if _lane(f, rules) is None
+        or presence_check.is_stated_only(f)
         or (f.get("compliance_status") == PASS and value_is_deferred(conn, f))
     ]
     return {"all": len(rows), "outside": len(outside)}
@@ -489,8 +508,21 @@ def compute(
     pair["line"] = _line(pair)
     pair["checklist_line"] = (
         f"Checklist, stated apart, not added to the rules: {checklist['decided']} of"
-        f" {checklist['rows']} items decided.{_checklist_wrong(pair)}"
+        f" {checklist['rows']} items decided."
+        + (
+            f" {checklist['stated']} {presence_check.WORDS.lower()}."
+            if checklist.get("stated")
+            else ""
+        )
+        + _checklist_wrong(pair)
     )
+    part = (split or {}).get("rulebook_v2")
+    if part:
+        from .rulebook_v2_stated import rulebook_part
+
+        pair["rulebook_v2"] = rulebook_part(part, findings, wrong_ids)
+        # the headline is never "0 of N" alone beside a rule that did decide
+        pair["line"] = f"{pair['line']} {pair['rulebook_v2']['line']}"
     return pair
 
 

@@ -117,6 +117,22 @@ def division_of(
 _OPENING = 4
 
 
+#: The ledger step of every Claude call of the division gate: one USD 5 cap, one route.
+CLAUDE_STEP = "division_scope"
+
+
+def claude_reader():
+    """The Claude provider for this run's division gate, or None: the local path stands.
+    Only when `AI_DIVISION_SCOPE_ENGINE=claude` and `claude_for_task` allows it (the
+    provider switch, both egress flags, a key, every document of the review approved
+    and none blocked). What it sends is `scope_passage`, a heading list or the stated
+    lines, never a whole standard; the per-call gates stay at `claude_spend`."""
+    from . import reasoning_provider as rp
+    from .config import settings
+
+    return rp.claude_for_task(settings.ai_division_scope_engine, step=CLAUDE_STEP)
+
+
 def scope_passage(text: subject_scope.StandardText, div: dict, end: int | None) -> str:
     """What the model reads of a division: its heading and the lines right
     after it, then its OWN scope clause - the first line naming "scope" in the

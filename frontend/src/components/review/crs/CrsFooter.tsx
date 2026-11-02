@@ -76,7 +76,7 @@ export function CrsFooter({ run, counts, standards, missing, standardsError, rej
       {standardsLine && <p>{standardsLine}</p>}
       {heldNote && <p data-testid="crs-footer-held">{heldNote}</p>}
       <p>
-        On this sheet: {count(counts.comment, "comment", "comments")}, {counts.needsYou} {counts.needsYou === 1 ? "needs" : "need"} your judgement, {counts.met} met the standard, {counts.notApplicable} not applicable, {counts.anotherDocument} for another document
+        On this sheet: {count(counts.comment, "comment", "comments")}, {counts.needsYou} {counts.needsYou === 1 ? "needs" : "need"} your judgement, {counts.met} met the standard, {counts.stated ? `${counts.stated} stated, not checked, ` : ""}{counts.notApplicable} not applicable, {counts.anotherDocument} for another document
         {!run.coverage_pair && run.requirement_split ? ` · requirements: ${run.requirement_split.checked} checked, ${run.requirement_split.applies_not_checked} apply but not checked, ${run.requirement_split.does_not_apply} not applicable` : ""}.
       </p>
       {run.coverage_pair && (

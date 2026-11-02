@@ -1277,8 +1277,7 @@ def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
 
 
 def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
-    """`_run_summary`'s finding numbers for one run: the total (findings with no status
-    included), the count per status, the distinct tags and the AI drafts (their own bucket)."""
+    """`_run_summary`'s numbers: total (no-status included), per status, tags, AI drafts."""
     by_status: dict[str, int] = {}
     total = drafts = 0
     for row in connect().execute(
@@ -1295,6 +1294,7 @@ def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str], int]:
             " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
             " ORDER BY equipment_tag", (run_id,))
     ]
+    by_status = submittal_review_mod.presence_check.with_stated_apart(run_id, by_status)
     return total, by_status, tags, drafts
 
 
@@ -2950,7 +2950,6 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
-        # 2f: the engineer's internal notes, on their own sheet.
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
             {"note": part["note"], "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
@@ -2966,7 +2965,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed
     )
-    return rows, clause_coverage_mod.crs_meta(meta, run["id"]), submittal_name, stamp
+    meta = clause_coverage_mod.crs_meta(meta, run["id"], allowed)
+    return rows, meta, submittal_name, stamp
 
 
 def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:
