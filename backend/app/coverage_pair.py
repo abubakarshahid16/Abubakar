@@ -304,7 +304,20 @@ def _line(pair: dict) -> str:
             f"Standard rules decided: {pair['decided']}, more than the {pair['applicable']}"
             " this run states apply, so no coverage is given"
         )
-    return f"{head}. Risk: {risk_text(pair)}.{_checklist_wrong(pair)}{_outside_words(pair)}"
+    return f"{head}. Risk: {risk_text(pair)}.{_checklist_wrong(pair)}{_outside_words(pair)}{_tier_words(pair)}"
+
+
+def _tier_words(pair: dict) -> str:
+    """Who stands behind the decided rules, when the owner's did (#1584): apart, never one count."""
+    tiers = pair.get("decided_by_tier")
+    if not tiers:
+        return ""
+    from .rule_trust import OWNER_APPROVED_WORDS
+
+    return (
+        f" Of these decided: {tiers['owner_approved']} by rules labelled {OWNER_APPROVED_WORDS};"
+        f" {tiers['engineer_approved']} by engineer-approved rules, counted apart."
+    )
 
 
 def _checklist_wrong(pair: dict) -> str:
@@ -384,6 +397,37 @@ def _wrong_verdicts(
     return {"all": len(rows), "outside": len(outside)}
 
 
+def _decided_by_tier(
+    conn: sqlite3.Connection,
+    findings: list[dict],
+    rules: dict[str, dict],
+    decided: set[str],
+) -> dict:
+    """Of the decided rules, which the owner's label stands behind and which an engineer's; a rule with both counts
+    as the owner's (the weaker claim). {} when none is the owner's: every other pair stays as it was."""
+    from .rule_trust import ENGINEER_CONFIRMED, OWNER_APPROVED
+
+    keys: dict[str, set[str]] = {OWNER_APPROVED: set(), ENGINEER_CONFIRMED: set()}
+    for f in findings:
+        label = f.get("trust_label")
+        status = f.get("compliance_status")
+        if label not in keys or status not in DECIDED or _lane(f, rules) != "rule":
+            continue
+        if status == PASS and value_is_deferred(conn, f):
+            continue
+        key = requirement_split.requirement_key(rules[f["requirement_id"]])
+        if key in decided:
+            keys[label].add(key)
+    if not keys[OWNER_APPROVED]:
+        return {}
+    return {
+        "decided_by_tier": {
+            "owner_approved": len(keys[OWNER_APPROVED]),
+            "engineer_approved": len(keys[ENGINEER_CONFIRMED] - keys[OWNER_APPROVED]),
+        }
+    }
+
+
 def compute(
     conn: sqlite3.Connection,
     run: dict,
@@ -440,6 +484,7 @@ def compute(
         "left_out": left,
         "boundary": _boundary(left),
         "by_gate_reason": _gate_rows(split, decided, wrong),
+        **_decided_by_tier(conn, findings, rules, passed | failed),
     }
     pair["line"] = _line(pair)
     pair["checklist_line"] = (

@@ -64,7 +64,7 @@ export interface ReviewFinding {
   standard_withheld?: boolean;
   /** R21: the requirement's scope decision (None when the run recorded none, or when the standard is withheld from this caller). */
   scope_decision?: ReviewScopeDecision | null;
-  /** rule_trust (#947, switch `rule_auto_use_enabled`): who stands behind the rule this finding was decided with - ENGINEER_CONFIRMED, AUTO_PROVEN or UNPROVEN - its tier (SAFETY / STANDARD), whether a COMPLIANT safety-tier result is shown for an engineer's tick, and what the rule said before an UNPROVEN verdict was held for the engineer. None on every finding decided with the switch off: nothing was labelled. */
+  /** rule_trust (#947, switch `rule_auto_use_enabled`): who stands behind the rule this finding was decided with - ENGINEER_CONFIRMED, OWNER_APPROVED (#1584), AUTO_PROVEN or UNPROVEN - its tier (SAFETY / STANDARD), whether a COMPLIANT safety-tier result is shown for an engineer's tick, and what the rule said before an UNPROVEN verdict was held for the engineer. None on every finding decided with the switch off: nothing was labelled. */
   trust_label?: string | null;
   tier?: string | null;
   show_for_engineer_tick?: boolean | null;
