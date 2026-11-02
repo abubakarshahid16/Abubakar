@@ -39,7 +39,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import pdf_headings, word_pages
+from . import pdf_headings, reading_state, word_pages
 from .config import settings
 from .db import connect
 
@@ -221,6 +221,10 @@ def _own_text(chunk: dict) -> str:
     return text
 
 
+def _not_found(document_id: str, reason="not found in the pages read") -> str:
+    return reading_state.not_found_words(document_id, reason)
+
+
 def _where(chunk: dict) -> str:
     if chunk.get("locator"):
         return chunk["locator"]
@@ -324,7 +328,7 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             elif not read_in_full:
                 entry.update(state=COULD_NOT_BE_CHECKED, reason=f"could not be checked: {why_not}")
             else:
-                entry.update(state=MISSING, reason="not found in the pages read")
+                entry.update(state=MISSING, reason=_not_found(document_id))
         results.append(entry)
 
     counts = {s: sum(1 for r in results if r["state"] == s) for s in STATES}
@@ -547,9 +551,10 @@ def _section_without_standard(
         if _structure_is_a_guess(body):
             out["heading_guess"] = True
             guess = "; the document's headings are known only from how lines are printed (a guess), so it is not proven absent"
-        out["reason"] = (
+        out["reason"] = reading_state.not_found_words(
+            document_id,
             f"Section not found: {element.title}. Required by {std} {element.clause} "
-            f"{checklist}; standard not held, its text is not quoted{guess}; engineer to confirm"
+            f"{checklist}; standard not held, its text is not quoted{guess}; engineer to confirm",
         )
     return out
 

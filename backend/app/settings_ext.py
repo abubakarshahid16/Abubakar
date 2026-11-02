@@ -252,7 +252,8 @@ class SettingsExt(BaseModel):
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print
-    #: the pair always. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
+    #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
+    #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
     one_checked_definition_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
