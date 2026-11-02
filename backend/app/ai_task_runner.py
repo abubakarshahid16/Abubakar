@@ -246,10 +246,9 @@ def store_answer(key: str, task: str, version: str, identity: str, text: str) ->
 
 
 def _asked(task: str, model: str, ask: Callable[[], str]) -> str:
-    """`ask()`, counted fresh only once it answered: a refusal is no call made (#1525)."""
-    text = ask()
-    ai_call_ledger.fresh(task, model)
-    return text
+    """`ask()`, counted fresh once it answered, else failed (#1525)."""
+    with ai_call_ledger.asking(task, model):
+        return ask()
 
 
 def reuse_or_ask(
@@ -453,14 +452,14 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
                         json_schema=spec.schema, step=f"ai_task:{spec.name}",
                         prompt_version=spec.version)
         try:
-            response = provider.reason(packet)
+            with ai_call_ledger.asking(packet.step, model):  # #1525
+                response = provider.reason(packet)
         except ProviderRefused as exc:
             # A refusal, a timeout, an unreachable host: not an invalid reply,
             # so no retry here. The name of the failure is the reason.
             late = "timeout" in str(exc).lower()
             return _failed(spec, model, "the model did not answer in time" if late
                            else f"the model could not be reached ({_kind(exc)})", attempt)
-        ai_call_ledger.fresh(packet.step, model)  # #1525: it answered
         problems = _reply_problems(spec, response, text)
         if not problems:
             data = json.loads(response.text)

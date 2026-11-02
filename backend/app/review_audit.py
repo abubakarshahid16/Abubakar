@@ -52,8 +52,10 @@ _FAILED_NO_WORSE = (
 AI_BOUNDARY = (
     "Answers asked for or reused during this attempt of this review job, over the steps "
     "listed with a record. A reused answer is a stored answer: no model was asked, and it "
-    "is never counted as a fresh call. A refused call is not fresh on a step counted during "
-    "the job; clause_review's and ai_engineering_check's stored counts are calls attempted. "
+    "is never counted as a fresh call. A refused or failed call is not fresh: on a step "
+    "counted during the job it is counted as failed (a timeout, a refusal, any error). "
+    "clause_review's and ai_engineering_check's stored counts are calls attempted, failed "
+    "ones included, so their failed count is not recorded. "
     "Field naming counts one answer per named item. Not counted: reading done when the "
     "document was added, and steps that keep no count of their own: rule_eval, "
     "statement_roles, field_vocabulary, vision_reader and the matcher's Claude path."
@@ -167,8 +169,8 @@ def _run_section(run: dict, sub: str, filename, steps: dict, ai_use: dict) -> di
         "switches_on": switches,
         "models_used": models or None,
         "ai_calls_made": ai_use["totals"]["fresh"],
+        "ai_calls_failed": ai_use["totals"]["failed"],
         "ai_answers_reused": ai_use["totals"]["reused"],
-        "ai_calls_refused": None,
         "started_by": run.get("started_by"),
         "status": run.get("status"),
     }
@@ -311,6 +313,7 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
                 "model": None,
                 "calls": None,
                 "fresh": None,
+                "failed": None,
                 "reused": None,
             }
         ]
@@ -321,6 +324,7 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
             "model": row["model"],
             "calls": row["fresh"],
             "fresh": row["fresh"],
+            "failed": row["failed"],
             "reused": row["reused"],
         }
         for row in ledger
@@ -367,7 +371,7 @@ def _totals(steps: list[dict]) -> dict:
             if (known := [s[field] for s in steps if s.get(field) is not None])
             else None
         )
-        for field in ("fresh", "reused")
+        for field in ("fresh", "reused", "failed")
     } | {"boundary": AI_BOUNDARY}
 
 
@@ -539,8 +543,8 @@ def _md_run(audit: dict) -> list[str]:
         f"- code: {run['code_version']}",
         f"- switches on: {', '.join(run['switches_on']) or 'none'}",
         f"- models used: {', '.join(run['models_used']) if run['models_used'] else NOT_RECORDED}",
-        f"- AI calls made (fresh): {_v(run['ai_calls_made'])}; stored answers reused: "
-        f"{_v(run['ai_answers_reused'])}; refused: {_v(run['ai_calls_refused'])}",
+        f"- AI calls made (fresh): {_v(run['ai_calls_made'])}; failed calls: "
+        f"{_v(run['ai_calls_failed'])}; stored answers reused: {_v(run['ai_answers_reused'])}",
         f"  - {AI_BOUNDARY}",
         f"- started by: {_v(run['started_by'])}",
         "",
@@ -623,13 +627,15 @@ def _md_ai(audit: dict) -> list[str]:
     totals = audit["ai_use"]["totals"]
     out = [
         "## 5. AI use",
-        f"- fresh calls {_v(totals['fresh'])}; reused answers {_v(totals['reused'])}",
+        f"- fresh calls {_v(totals['fresh'])}; failed calls {_v(totals['failed'])}; "
+        f"reused answers {_v(totals['reused'])}",
         f"  - {totals['boundary']}",
     ]
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
-            f"{_v(s['fresh'])}; reused answers {_v(s['reused'])}"
+            f"{_v(s['fresh'])}; failed calls {_v(s.get('failed'))}; reused answers "
+            f"{_v(s['reused'])}"
         )
         if "clauses_read_of_total" not in s:
             continue

@@ -307,9 +307,9 @@ def name_items(kind: str, items: list[tuple[str, str]], dictionary: list[str], p
         packet = Packet(prompt=prompt, num_ctx=16384, num_predict=60 * len(batch) + 200,
                         json_schema=_SCHEMA, system=system, step=NAMING_STEP,
                         prompt_version=PROMPT_VERSION)
-        response = provider.reason(packet)
         model = ai_call_ledger.model_of(provider)
-        ai_call_ledger.fresh(NAMING_STEP, model, len(batch))
+        with ai_call_ledger.asking(NAMING_STEP, model, len(batch)):
+            response = provider.reason(packet)
         answers: dict[str, dict] = {}
         if not response.schema_errors and not response.truncated:
             for raw in _parse(response.text):

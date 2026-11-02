@@ -51,8 +51,20 @@ def _note(step: str, model: str | None, field: str, count: int) -> None:
     ledger = _LEDGER.get()
     if ledger is None or not count:
         return
-    row = ledger.setdefault((step, model), {"fresh": 0, "reused": 0})
+    row = ledger.setdefault((step, model), {"fresh": 0, "reused": 0, "failed": 0})
     row[field] += count
+
+
+@contextmanager
+def asking(step: str, model: str | None, count: int = 1) -> Iterator[None]:
+    """A model is asked inside this block: an answer is fresh; a refusal, a timeout or
+    any other failure is counted as failed, and still raises."""
+    try:
+        yield
+    except Exception:
+        _note(step, model, "failed", count)
+        raise
+    _note(step, model, "fresh", count)
 
 
 def fresh(step: str, model: str | None, count: int = 1) -> None:

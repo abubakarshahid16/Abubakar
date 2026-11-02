@@ -207,7 +207,53 @@ def test_a_refused_call_is_not_counted_fresh_on_any_counted_step(
             field_naming.name_items(
                 field_naming.REQUIREMENT, [("r1", "A sentence")], ["Flow"], Refuses()
             )
-        assert ai_call_ledger.snapshot() == []
+        rows = ai_call_ledger.snapshot()
+    assert {r["step"]: (r["fresh"], r["failed"]) for r in rows} == {
+        "reader": (0, 3),
+        "ai_task:t_refused": (0, 1),
+        "scope-step": (0, 1),
+        field_naming.NAMING_STEP: (0, 1),
+    }
+
+
+def test_a_timeout_is_counted_as_failed_not_lost_and_not_fresh(
+    temp_storage, monkeypatch
+):
+    monkeypatch.setattr(ai_task_runner, "model_identity", lambda m: f"{m}@d|ollama/1")
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", True)
+
+    def late():
+        raise TimeoutError("invented")
+
+    with ai_call_ledger.open_ledger():
+        with pytest.raises(TimeoutError):
+            ai_task_runner.reuse_or_ask("reader", "v1", "m", None, "p", late)
+        rows = ai_call_ledger.snapshot()
+    assert rows == [
+        {"step": "reader", "model": "m", "fresh": 0, "reused": 0, "failed": 1}
+    ]
+
+
+def test_the_report_prints_failed_calls_on_their_own(world, audit_dir, monkeypatch):
+    monkeypatch.setattr(settings, "review_audit_report_enabled", True)
+
+    def invented_step(run_id, scope):
+        ai_call_ledger.fresh("invented-step", "invented-model")
+        with pytest.raises(TimeoutError):
+            with ai_call_ledger.asking("invented-step", "invented-model"):
+                raise TimeoutError("invented")
+
+    monkeypatch.setattr(clause_review, "for_review", invented_step)
+    _review(world)
+    audit = _json(audit_dir)
+    row = next(s for s in audit["ai_use"]["steps"] if s["name"] == "invented-step")
+    assert (row["fresh"], row["failed"]) == (1, 1)
+    assert audit["ai_use"]["totals"]["failed"] == 1
+    assert audit["run"]["ai_calls_failed"] == 1
+    md = next(f for f in _files(audit_dir) if f.suffix == ".md").read_text()
+    assert "fresh calls 1; failed calls 1; reused answers 0" in md
+    assert "failed calls: 1" in md.split("## 2. Pages")[0]
+    assert "refused or failed call is not fresh" in review_audit.AI_BOUNDARY
 
 
 def test_the_run_line_prints_the_boundary_and_names_the_steps_left_out(
@@ -328,7 +374,10 @@ def test_a_review_job_opens_the_ledger_and_the_report_carries_it(
     assert audit["run"]["ai_answers_reused"] == audit["ai_use"]["totals"]["reused"] == 2
     assert "invented-model" in audit["run"]["models_used"]
     md = next(f for f in _files(audit_dir) if f.suffix == ".md").read_text()
-    assert "invented-step" in md and "fresh calls 1; reused answers 2" in md
+    assert (
+        "invented-step" in md
+        and "fresh calls 1; failed calls 0; reused answers 2" in md
+    )
     assert ai_call_ledger.snapshot() is None  # closed with the job
 
 
