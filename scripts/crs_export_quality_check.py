@@ -111,7 +111,9 @@ def measure(workbook_path: Path) -> dict:
     }
 
 
-def export_all(db_path: Path, runs: dict[str, str], out: Path) -> list[dict]:
+def export_all(
+    db_path: Path, runs: dict[str, str], out: Path, strict: bool = False
+) -> list[dict]:
     from tools import crs_bench
 
     from app import access, crs_export, db, live_guard, main
@@ -127,11 +129,13 @@ def export_all(db_path: Path, runs: dict[str, str], out: Path) -> list[dict]:
         )
         scope = access.AccessScope(user_id="crs-quality", allowed_document_ids=ids)
         saved = settings.crs_export_quality_enabled
+        saved_strict = settings.crs_export_quality_strict_enabled
         try:
             for label, run in runs.items():
                 for copy in ("internal", "client", "client-simulated"):
                     for on in (False, True):
                         settings.crs_export_quality_enabled = on
+                        settings.crs_export_quality_strict_enabled = on and strict
                         which = "internal" if copy == "internal" else "issue"
                         rows, meta, _name, _stamp = main._crs_content(run, scope, which)
                         if copy == "client-simulated":
@@ -149,6 +153,7 @@ def export_all(db_path: Path, runs: dict[str, str], out: Path) -> list[dict]:
                         )
         finally:
             settings.crs_export_quality_enabled = saved
+            settings.crs_export_quality_strict_enabled = saved_strict
     return results
 
 
@@ -183,6 +188,11 @@ def main() -> int:
     parser.add_argument("--db", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="switch on also means CRS_EXPORT_QUALITY_STRICT_ENABLED",
+    )
     parser.add_argument("runs", nargs="+", help="RUN_ID or RUN_ID=label")
     args = parser.parse_args()
     out = Path(args.out).resolve()
@@ -196,7 +206,7 @@ def main() -> int:
         run, _, label = item.partition("=")
         runs[label or run[:8]] = run
     try:
-        results = export_all(Path(args.db), runs, out)
+        results = export_all(Path(args.db), runs, out, args.strict)
     except PermissionError as exc:
         print(f"refused: {exc}")
         return 2

@@ -2666,6 +2666,10 @@ class CrsPreview(BaseModel):
     #: comment text - the issue copy only (0 when none; always 0 on the
     #: internal copy, which prints them with a sentence saying so).
     rows_withheld_no_text: int = 0
+    #: #1503 (CRS_EXPORT_QUALITY_STRICT_ENABLED, internal copy): what the file's Internal
+    #: sheet says, so the screen does not lose Reasoning and Rule trust with their columns.
+    #: {"rows": [{item_no, row_ref, reasoning, rule_trust}], "considered": [standard rows]}.
+    internal_preview: dict = {}
 
 
 class ReviewRunStandard(BaseModel):

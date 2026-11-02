@@ -25,6 +25,13 @@ Seven rules, each in one home (CLAUDE.md rule 8), all general for any document
 No text is invented or reworded: merged, moved and cut text is the text the
 row already had (numbers, units and clause references are kept whole - a cut
 falls between words, never inside one).
+
+#1503 remainder, CRS_EXPORT_QUALITY_STRICT_ENABLED (needs the switch above, off by
+default): safety ticks merge with ticks, rows with no page merge on one clause when
+their printed reason is the same (`_strict_key`), a comment that was only the "not
+yet proven" flag counts as no comment (`_clear_flag_only`), the prefix table reads
+the other spellings `standard_ids` accepts (`_MATERIAL_WIDE`), and the screen gets
+the Internal sheet (`internal_preview`).
 """
 
 from __future__ import annotations
@@ -110,6 +117,23 @@ _PURCHASING = re.compile(r"\bSAMSS\b", re.I)
 _MATERIAL = re.compile(
     r"^\s*(?:ASTM\b|ASME\s*S[AB][\s-]?\d|ASME\s*B\s*(?:16|1|18|36)\.\d)", re.I
 )
+#: The same families in every spelling `standard_ids` reads ("ASME-B16-47",
+#: "ANSI B16.5", "ANSI/ASME SA-105"), and an ASTM number cited bare ("A193", not
+#: "B31.3": a bare number with a decimal is not an ASTM designation).
+_MATERIAL_WIDE = re.compile(
+    r"^\s*(?:ASTM\b"
+    r"|(?:ANSI\s*/\s*)?(?:ASME|ANSI)(?:\s*/\s*ANSI)?[-\s]*"
+    r"(?:S[AB][-\s]?\d|B[-\s]*(?:16|1|18|36)[-._ ]\d)"
+    r"|[AB][-\s]?\d{2,4}(?![\d.]))",
+    re.I,
+)
+
+
+def strict_enabled() -> bool:
+    """CRS_EXPORT_QUALITY_STRICT_ENABLED (default off). It acts only where
+    `CRS_EXPORT_QUALITY_ENABLED` already holds: every reader here is reached
+    from `prepare` or `finish`, which that switch guards."""
+    return bool(settings.crs_export_quality_strict_enabled)
 
 
 def standard_kind(reference: str) -> str:
@@ -119,7 +143,7 @@ def standard_kind(reference: str) -> str:
     text = str(reference or "")
     if _PURCHASING.search(text):
         return KIND_PURCHASING
-    if _MATERIAL.search(text):
+    if _MATERIAL.search(text) or (strict_enabled() and _MATERIAL_WIDE.search(text)):
         return KIND_MATERIAL
     return KIND_DESIGN
 
@@ -299,6 +323,26 @@ def _key(row: dict):
     )
 
 
+def _strict_key(row: dict):
+    """The key with the strict switch on. A tick joins only ticks (a "meets" row
+    must not take a failing row's place or colour) and a row with no page takes
+    the reason it prints as its anchor, so the sheet cannot show two rows with
+    one document, page cell and clause. Carried-forward and issued rows stay
+    their own, as in `_key`: each is answered under its own number."""
+    clause = str(row.get("standard_reference") or "").strip()
+    kind = row.get("row_kind") or ""
+    if not clause or kind == "carried_forward" or _issued(row):
+        return None
+    section = str(row.get("page_section") or "").strip()
+    return (
+        str(row.get("document_name") or ""),
+        section or page_cell("", kind),
+        clause,
+        row.get("engineer_confirmed") is True,
+        kind == "safety_tick",
+    )
+
+
 def _join(first: str, later: str) -> str:
     first, later = str(first or ""), str(later or "")
     if not later or later in first:
@@ -306,7 +350,7 @@ def _join(first: str, later: str) -> str:
     return f"{first}\n\n{later}" if first else later
 
 
-def merge_duplicates(rows: list[dict]) -> tuple[list[dict], int]:
+def merge_duplicates(rows: list[dict], key_of=_key) -> tuple[list[dict], int]:
     """Rule 1. Returns (rows, number of rows merged away). The first row of a
     key keeps its place, number, kind and fill; a later one adds its comment
     (and its reasoning and AI wording) after it. Only the RANK is lent: the
@@ -317,7 +361,7 @@ def merge_duplicates(rows: list[dict]) -> tuple[list[dict], int]:
     first_of: dict = {}
     merged = 0
     for row in rows:
-        key = _key(row)
+        key = key_of(row)
         if key is None or key not in first_of:
             copy = dict(row)
             out.append(copy)
@@ -349,6 +393,24 @@ def drop_no_comment(rows: list[dict], has_no_text) -> tuple[list[dict], int]:
     return kept, len(rows) - len(kept)
 
 
+def _clear_flag_only(rows: list[dict], copy: str) -> tuple[list[dict], int]:
+    """A comment that was only the "not yet proven" flag is no comment: without
+    it the cell would print blank. Internal copy: the row goes on as an empty one
+    (`drop_no_comment` then drops it, or it prints the engineer sentence). Client
+    copy: there is nothing to send, so it is left out and counted."""
+    out: list[dict] = []
+    dropped = 0
+    for row in rows:
+        text, gone = strip_unproven_flag(str(row.get("comment") or ""))
+        if gone and not text:
+            if copy != "internal":
+                dropped += 1
+                continue
+            row = {**row, "comment": ""}
+        out.append(row)
+    return out, dropped
+
+
 def split_standards(
     standards: list[dict], considered_status: str
 ) -> tuple[list[dict], list[dict]]:
@@ -374,10 +436,14 @@ def prepare(
     the rows untouched when the switch is off."""
     if not on:
         return findings, 0, 0
+    strict = strict_enabled()
     dropped = 0
+    if strict:
+        findings, dropped = _clear_flag_only(findings, copy)
     if copy == "internal":
-        findings, dropped = drop_no_comment(findings, has_no_text)
-    findings, merged = merge_duplicates(findings)
+        findings, gone = drop_no_comment(findings, has_no_text)
+        dropped += gone
+    findings, merged = merge_duplicates(findings, _strict_key if strict else _key)
     return findings, dropped, merged
 
 
@@ -433,11 +499,20 @@ def _internal_extras(
             )
         )
     if merged:
+        ticks_here = strict_enabled() and any(
+            e.get("row_kind") == "safety_tick" for e in view["rows"]
+        )
         notes.append(
             _note(
                 "Rows merged into an earlier row",
                 merged,
-                "same document, section and standard clause",
+                "same document, section and standard clause"
+                + (
+                    "; a safety tick merged here is still ticked one by one on "
+                    "the review screen"
+                    if ticks_here
+                    else ""
+                ),
             )
         )
     if considered:
@@ -484,6 +559,7 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
         review_notes=notes,
         export_quality=True,
         internal_sheet=inner,
+        internal_preview=inner if strict_enabled() else {},
         rows_dropped_no_comment=dropped,
         rows_merged=merged,
     )

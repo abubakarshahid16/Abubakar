@@ -631,6 +631,12 @@ export interface CrsPreview {
   /** Order 139 part 2: rows left off this copy because they had no comment
    *  text (issue copy only; 0 when none). */
   rows_withheld_no_text?: number;
+  /** #1503 (CRS_EXPORT_QUALITY_STRICT_ENABLED, internal copy): what the file's
+   *  Internal sheet says. Empty otherwise. */
+  internal_preview?: {
+    rows?: { item_no: number | string; row_ref: string; reasoning: string; rule_trust: string }[];
+    considered?: { standard: string; status: string; method: string; reason: string }[];
+  };
 }
 
 /** Order 133: a run's standards list (`GET /api/reviews/runs/{id}/standards`). GENERATED from `backend/app/schemas.py` (order 133): edit the backend
