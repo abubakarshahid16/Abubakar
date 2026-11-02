@@ -136,6 +136,31 @@ def _latest_run(conn, document_id: str) -> tuple[str, dict, str | None]:
     )
 
 
+def latest_compile(conn, document_id: str) -> dict | None:
+    """The newest compile of this standard: its id, name, prompt version, how it ended and its counts. None if none."""
+    status, counts, run_id = _latest_run(conn, document_id)
+    if run_id is None:
+        return None
+    row = conn.execute(
+        "SELECT standard, prompt_version FROM compile_runs WHERE id = ?", (run_id,)
+    ).fetchone()
+    return {
+        "id": run_id,
+        "status": status,
+        "counts": counts,
+        "standard": row["standard"],
+        "prompt_version": row["prompt_version"],
+    }
+
+
+def compiled_rows(conn, run_id: str) -> list:
+    """One compile's rows, in reading order. Rulebook version 2 reads them through here (`rulebook_v2_ingest`)."""
+    return conn.execute(
+        "SELECT * FROM compiled_rules WHERE run_id = ? ORDER BY page, quote_start, id",
+        (run_id,),
+    ).fetchall()
+
+
 def _v2_row(conn, document_id: str, pages: dict[int, str]) -> dict:
     """The latest compile only: an older prompt version's rules stay stored and are not added to it."""
     status, counts, run_id = _latest_run(conn, document_id)
@@ -190,6 +215,8 @@ def _add(total: dict, part: dict) -> None:
 def side_by_side(conn, documents: dict[str, str]) -> dict:
     """Version 1 beside version 2, per standard and in total, counts only. Both versions go through the SAME quote
     check. Version 1 has no model column: "not recorded", never a guess. Version 2 rows are held, not in use."""
+    from . import rulebook_v2_ingest
+
     out = {"boundary": BOUNDARY, "per_standard": [], "total": {"v1": {}, "v2": {}}}
     for document_id, label in sorted(documents.items(), key=lambda kv: kv[1]):
         pages = pages_of(conn, document_id)
@@ -200,6 +227,9 @@ def side_by_side(conn, documents: dict[str, str]) -> dict:
             "v1": _v1_row(conn, document_id, pages),
             "v2": _v2_row(conn, document_id, pages),
         }
+        rulebook = rulebook_v2_ingest.report_row(conn, document_id)
+        if rulebook:  # switch off: this table is what it was
+            row["rulebook_v2"] = rulebook
         out["per_standard"].append(row)
         _add(out["total"]["v1"], row["v1"])
         _add(out["total"]["v2"], row["v2"])
