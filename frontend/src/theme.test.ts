@@ -12,6 +12,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { colourClasses, definedColours } from "./test/themeColours";
+
 const SRC = join(__dirname);
 const CSS = join(__dirname, "index.css");
 
@@ -67,5 +69,25 @@ describe("theme tokens", () => {
 
   it("does not mistake shrink-0 for an ink token", () => {
     expect(usedTokens().has("ink-0")).toBe(false);
+  });
+
+  // #1494: `bg-accent-500` named a palette outside PALETTES, so the scan above
+  // never saw it and the progress fill shipped invisible. This one reads ANY
+  // palette name and requires it to be the app's token or Tailwind's own.
+  it("resolves every colour class of every palette, not only the app's six", () => {
+    const defined = definedColours();
+    const missing = sourceFiles(SRC).flatMap((file) =>
+      colourClasses(readFileSync(file, "utf8"))
+        .filter((token) => !defined.has(token))
+        .map((token) => `${token} in ${file.slice(SRC.length + 1)}`));
+    expect(missing).toEqual([]);
+  });
+
+  it("reads palettes outside the six and skips side widths, so it is not vacuous", () => {
+    expect(colourClasses(`className="h-2 bg-accent-500 border-l-4 dark:text-red-500/40 border-l-warn-500"`))
+      .toEqual(["accent-500", "red-500", "warn-500"]);
+    expect(definedColours().has("signal-500")).toBe(true);
+    expect(definedColours().has("amber-400")).toBe(true);
+    expect(definedColours().has("accent-500")).toBe(false);
   });
 });
