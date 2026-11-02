@@ -13,7 +13,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Job | Modules |
 |---|---|
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
-| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_text` |
+| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
 
 ## Modules
@@ -27,6 +27,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `admin_explorer` | Read-only database explorer for the Administration page. Phase 8 |
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `clause_scope` | Choose the standards that apply to a submittal |
+| `division_claude` | Choose the standards that apply to a submittal |
 | `division_text` | Choose the standards that apply to a submittal |
 | `same_value` | When two readings of a field are one value: the same number and unit with a plain note; a note that changes the meaning stays a second value |
 | `label_match` | A split abbreviation ("tube o d") is joined before the roles table is read; a reading with no unit beside the same number with one is one value (switch `datasheet_label_join_enabled`) |
@@ -43,6 +44,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `scan_quality` | #505: how well a scanned page was read (the recogniser's own confidence grouped clear / mixed / poor, or a named state), shown beside the citation on `/evidence` |
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
 | `review_audit_rows` | #1525: reconciles, per CRS copy, the rows composed for a run with the rows the file prints and what was removed, for the audit report |
+| `review_audit_detail` | #1525: the audit report's gates, rule-row limits and approval, standards' split and editions, clause review figures and CRS copy paths |
+| `run_measures` | #1525: the headline counts of one review run, in one home: the CRS bench and the audit report both read it |
 | `ai_call_ledger` | #1525: counts, per step and model, the AI answers a review job asked for fresh and the stored answers it reused, for the audit report; open only with REVIEW_AUDIT_REPORT_ENABLED on |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
@@ -98,7 +101,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_datasheet` | Read a contractor datasheet into facts |
 | `claude_recheck` | Recheck findings: the model gives a SECOND OPINION on an engine verdict, and Python decides what that opinion |
 | `claude_selection` | Choose the standards that apply to a submittal |
-| `claude_spend` | What the Claude API has cost, and the refusal before it costs more |
+| `claude_spend` | What the Claude API has cost, and the refusal before it costs more: per review run USD 5 per step, USD 10 for AI clause review and USD 15 in all; USD 25 per standard, USD 100 a day, the total |
+| `claude_spend_report` | What the Claude lane really cost per step, from settled ledger lines, and the USD 100 a day |
 | `company_standard_confirm` | Hold a non-admin's Company standard for an administrator's confirmation before reviews use it (#620) |
 | `comparison` | Phase 5B: does this submittal meet the requirements that govern it |
 | `comparators` | The one vocabulary of limit-direction words: which way does a sentence say a limit points (#915) |
@@ -109,6 +113,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `context_budget` | Keep the evidence inside the model's context window, and say when it does not |
 | `corpus` | Questions about the corpus itself, and counts that pretend to be about it |
 | `coverage` | Which documents the question was about, and which of them the answer used |
+| `presence_check` | #1638: a checklist `required` row only asks that a field is stated: with the switch on it counts for no approval and is no decided rule, and is named "stated, not checked" |
 | `coverage_pair` | Plan change 6 B: one meaning of "checked": risk (wrong among decided) and coverage (decided of the rules the run states apply), checklist apart, for the bench, the board call and, behind ONE_CHECKED_DEFINITION_ENABLED, the CRS and the screen |
 | `coverage_values` | #1592: the CRS footer's one count of values read: checklist fields read, and standard rules tied to a field, each rule once, beside `coverage_pair`; words only, behind ONE_CHECKED_DEFINITION_ENABLED |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
@@ -159,6 +164,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
 | `degraded_read` | A degraded AI reading of a datasheet (mostly refused, timed out, stopped, unavailable) is recorded in counts and holds every checklist pass for the engineer (order 261.2) |
 | `deferred_value` | A value the sheet defers to the contractor (By Contractor, TBA) is a query, never a verdict (owner decision D2, #1475) |
+| `impossible_sign` | A value that should not be negative, printed negative, never gives a Pass; it becomes a Query (#1607) |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
@@ -189,6 +195,30 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `standards_converter` | Order 270.3: the sentences of ONE standard (SAES, ISO only) turned into checks offline (`scripts/convert_standards.py`) - Claude Sonnet through `ClaudeProvider` answers applicability, one field of the type's own form, comparator, limit, unit and the exact clause words; code proves every answer against the stored clause, the rest is "unproven: engineer, please look"; drafts (JSON + CSV, clause quotes) are written outside the repo and a review reads only the verified "yes" rows, only when `standards_converter_dir` is set |
 | `converter_review` | Orders 270.3 and 274.1: the READING side of the standards converter - the verified "yes" rows of its drafts as field mappings (`rule_roles`) and, for a clause sentence it proved, a rule in the sentence's place (`ai_requirements.auto_use_rules`' road, `rule_trust` decides the verdict); empty unless `standards_converter_dir` is set; code re-checks every row against the stored sentence |
 | `converter_gates` | Orders 295.7 b and c: the standards converter's proof gates that read the SENTENCE's surroundings - `in_example` (a worked example illustrates, it is not a requirement) and `quote_unreadable` (a quote, or the sentence it was cut from, that is OCR noise); pure functions, called by `standards_converter.verify`; `fold` is the one way converter text is compared |
+| `standards_compiler` | #1584: Claude turns a held standard's pages into version 2 rules on a database copy; code verifies every quote, limit and unit on the cited page; stored apart and held until the owner approves, changing no verdict; the version 1 beside version 2 report; each run records the rule version it used |
+| `claude_batch_run` | #1584: Message Batches for several standards in one batch: batch ids and reservations stored, so a crash resumes the poll without paying again; failed requests re-queued once, then counted; an optional fallback cancels an overdue batch and, once it has ended, sends the rest at the normal price |
+| `claude_batch_store` | #1584: the state a Message Batches run keeps in the database it writes: request rows, batches, every raw answer |
+| `compile_budget` | #1584: what the standards compiler may still spend, read from the ledger; a hold nothing owns is released after the longest a batch can run |
+| `compiled_rule_proof` | #1584: the proof of one compiled rule: its quote on the cited page, its limit and unit inside the quote, its comparator in the quote's words, a scope after the limit kept as its condition; pure functions |
+| `compiled_rule_pages` | #1584: a standard's pages read into sentences, clause headings and chunks sized to the output room of the request; pure functions |
+| `compiled_rule_context` | #1584: why a proven compiled rule may still not stand alone: a table row, scope in a heading, caption or next sentence; a flag an approval path can refuse on |
+| `compiled_rule_field` | #1584: whether a compiled rule's field name belongs to its quote: strict with a figure, one word without |
+| `compiled_rule_shape` | #1584: whether a compiled rule may store its figure: an allow-list of plain sentence shapes; anything else keeps the sentence and no limit |
+| `compiled_rule_rescue` | #1584: the rules still readable in a paid answer that does not parse as a whole; says whether anything was lost |
+| `compiled_rule_report` | #1584: a standard's page text as the app cites it, where each page's text came from, its table rows, and version 1 beside version 2 with how the version 2 run ended; reads only, counts only |
+| `rulebook_v2` | #805 plan change 6, part A: the rulebook's version 2 tables on a database copy: stable rules, append-only versions, applicability and exceptions apart, provenance, a person's decisions, trigger-written events, a snapshot per compile, the snapshot a run used; off by default; no verdict reads them |
+| `rulebook_v2_check` | #805 plan change 6, part A: one rule's requirement against one submitted value: meets, does not meet or cannot tell; pure; not mentioned is never compliant |
+| `rulebook_v2_review` | #805 plan change 6: a review reads approved version 2 rules beside version 1: pairs each to a read value by field, decides through `comparison.compare`, a Query with a named reason when unsure; `pair_rule_to_document` is the pairing alone, read only; off by default |
+| `rule_field_naming` | #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list, code verifies it; a rule no field answers is kept, marked not on a datasheet; off by default |
+| `rule_typed_check` | #805 plan change 6: a rule with a verified field role and no figure gets a typed check proposed from its quote; code verifies it and decides with the readers the project has; off by default |
+| `material_reference` | #1584: specification grade to material family, proposed from general knowledge with no document text, signed by the owner's tick, read only with its switch on; a grade not in the signed table is a Query |
+| `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |
+| `rulebook_v2_findings` | #805 plan change 6: a review's version 2 rows as findings of the run, each citing its rule, with the safety tier and open tick |
+| `rulebook_v2_signed` | #805 plan change 6: a compiled rule's field role and typed check, and what a tick records of them |
+| `rulebook_v2_stated` | #805 plan change 6: a run's version 2 rows as `coverage_pair` states them, apart, with their denominator |
+| `run_parts` | what a review run states beside its three groups, and its door to the version 2 rulebook, shut with the switch off |
+| `rulebook_v2_ingest` | #805 plan change 6, part A: a compile's verified rows become rows of the version 2 tables, each quote checked again and what fails counted by reason; counts for the version-1-beside-version-2 table |
+| `rulebook_v2_schema` | #805 plan change 6, part A: the statements of the version 2 tables and their guards, and the words they allow |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |

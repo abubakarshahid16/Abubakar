@@ -29,6 +29,17 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "backend"))
 from app.config import settings  # noqa: E402
 
+# RULE 1: THE APP'S OWN GATE, FIRST. The egress flags alone are not it: with REASONING_PROVIDER=ollama and the flags
+# on, this script used to send standard sentences. It has no engine setting, so `per_task` keeps it local too.
+from app.reasoning_provider import claude_unavailable  # noqa: E402
+
+_refused, _why = claude_unavailable()
+if _refused is not None:
+    print(
+        f"REFUSED: the Claude lane is shut for this script ({_refused}); nothing was read or sent."
+    )
+    sys.exit(2)
+
 LIVE = Path(settings.db_path)
 GOLD = REPO / "gold" / "SAES-A-105.csv"
 DOC = "doc_a835c3a15e04"
@@ -64,7 +75,15 @@ print(f"\ncopy: {copy.name}")
 from app.config import settings  # noqa: E402
 
 settings.db_path = copy
-from app import claims, db, reader_api, reader_transport, standards  # noqa: E402
+from app import (  # noqa: E402
+    claims,
+    claude_approved,
+    claude_spend,
+    db,
+    reader_api,
+    reader_transport,
+    standards,
+)
 from app.standards import (  # noqa: E402
     _INLINE_CLAUSE,
     clause_number,
@@ -116,6 +135,10 @@ except reader_api.ReaderRefused as exc:
     print(f"\nREFUSED before any call: {exc}")
     sys.exit(2)
 print(f"model            : {cfg.model}   host: api.anthropic.com   timeout {cfg.timeout_seconds}s")
+# THE SAME CAPS AND LEDGER AS EVERY OTHER CLAUDE CALL: this script used to hold the raw transport.
+send = claude_spend.metered(
+    send, "reader-score-standard", unbilled=reader_transport.unbilled
+)
 
 # EVERY RAW ANSWER IS CACHED, so re-scoring never costs a second paid run.
 # The cache is keyed by model and prompt; `--replay` reads it and makes no
@@ -156,7 +179,8 @@ def model_call(prompt: str) -> str:
 
 t0 = time.perf_counter()
 by_sentence = {s: (cid, cl, pg) for s, cid, cl, pg in work}
-result = reader_api.read_sentences([w[0] for w in work], model_call)
+with claude_approved.carrying({DOC}):
+    result = reader_api.read_sentences([w[0] for w in work], model_call)
 elapsed = time.perf_counter() - t0
 CACHE.write_text(_json.dumps(cache), encoding="utf-8")
 print(f"cache: {len(cache)} answers held, {misses[0]} paid for on this run")

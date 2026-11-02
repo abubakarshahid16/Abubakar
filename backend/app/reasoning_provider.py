@@ -154,16 +154,15 @@ class Packet:
     #: two different conversations never share a stored answer, and a turn that
     #: stopped for a tool is not an answer and is not kept.
     messages: tuple[dict, ...] | None = None
-    #: Anthropic tool definitions offered on this call. Empty for every
-    #: existing caller.
+    #: Anthropic tool definitions offered on this call. Empty for every other caller.
     tools: tuple[dict, ...] = ()
-    #: Thinking budget in tokens; None sends no `thinking` field. A budget goes only to a model
-    #: that takes one, else adaptive (`claude_models.thinking_for`). Handled in `_request`.
+    #: Thinking budget in tokens; None sends no `thinking` field (`_request`, `claude_models.thinking_for`).
     thinking_budget: int | None = None
     #: Messages API `tool_choice` (e.g. {"type": "none"} once the chat tool cap
     #: is reached: the tools stay defined, because the history holds tool
     #: blocks, but none may be called). None leaves the API default.
     tool_choice: dict | None = None
+    keep_if: object = None  # the caller's code check of a reply, for the Claude cache
 
     @property
     def sha256(self) -> str:
@@ -822,7 +821,8 @@ def _cache_version(packet: Packet) -> str:
 
 def _valid_for(packet: Packet):
     """The packet's own check on an answer, for keeping it and for serving it again."""
-    return lambda text: not schema_errors(text, packet.json_schema)
+    keep = packet.keep_if or (lambda _text: True)
+    return lambda text: not schema_errors(text, packet.json_schema) and keep(text)
 
 
 def _stored_answer(step: str, body: dict, packet: Packet) -> tuple[dict | None, str]:

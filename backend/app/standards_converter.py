@@ -261,8 +261,8 @@ def require_known_type(equipment_type: str) -> None:
         )
 
 
-def requirements_of(conn, document_id: str) -> list[dict]:
-    """The stored requirements of ONE company standard: the only text the converter ever sends."""
+def require_role(conn, document_id: str) -> None:
+    """Only a document classified as a company standard may be sent as one."""
     role = conn.execute(
         "SELECT document_role FROM document_classification WHERE document_id = ?",
         (document_id,),
@@ -271,6 +271,11 @@ def requirements_of(conn, document_id: str) -> list[dict]:
         raise NotStandardsText(
             f"document {document_id} is not classified COMPANY_STANDARD"
         )
+
+
+def requirements_of(conn, document_id: str) -> list[dict]:
+    """The stored requirements of ONE company standard: the only text the converter ever sends."""
+    require_role(conn, document_id)
     return [
         dict(r)
         for r in conn.execute(

@@ -20,6 +20,7 @@
  *           an unconfirmed safety tick, a value conflict, an unknown unit),
  *           whatever the status: a "met" nobody can stand behind is shown
  *           to the engineer. The first fact in `unsettled_order` names it.
+ *   Else    a row only stated (`stated_only`, #1638): Tier A "Stated, not checked".
  *   Else    `status_tiers[status]` (Tier A "Met" / "Not applicable" /
  *           "Another document", Tier B "Comment").
  *   Else    `missing_information`: Tier B when the blank has a standard
@@ -241,6 +242,7 @@ export function tierOf(finding: ReviewFinding, facts: RunFacts = EMPTY_FACTS): T
   if (TIER_C_STATUSES.has(status) || unsettledReason(finding, facts) !== null) {
     return needsYou(needsYouReason(finding, facts));
   }
+  if (finding.stated_only) return { ...TIER_RULES.stated_only, reason: null };
   const placed = STATUS_TIERS.get(status);
   if (placed) return { tier: placed.tier, label: placed.label, reason: null };
   if (status === MISSING_INFORMATION.status) {
@@ -281,6 +283,8 @@ export function runFactsOf(
 
 export interface TierCounts {
   met: number;
+  /** #1638: rows that only say a field is stated. Absent when there are none. */
+  stated?: number;
   notApplicable: number;
   /** NOT_IN_DOCUMENT_SCOPE: the clause names another document. */
   anotherDocument: number;
@@ -296,7 +300,7 @@ function countKey(label: string): keyof TierCounts | undefined {
 
 /** Every label each tier can carry, from the rule data. */
 const LABELS_OF_TIER: ReadonlyMap<Tier, ReadonlySet<string>> = (() => {
-  const placed: Placed[] = [...STATUS_TIERS.values(), MISSING_INFORMATION.in_library, NEEDS_YOU];
+  const placed: Placed[] = [...STATUS_TIERS.values(), TIER_RULES.stated_only, MISSING_INFORMATION.in_library, NEEDS_YOU];
   const byTier = new Map<Tier, Set<string>>();
   for (const p of placed) byTier.set(p.tier, (byTier.get(p.tier) ?? new Set()).add(p.label));
   return byTier;
@@ -314,7 +318,10 @@ function countKeyOf(r: TierResult): keyof TierCounts {
 
 export function countTiers(results: TierResult[]): TierCounts {
   const counts: TierCounts = { met: 0, notApplicable: 0, anotherDocument: 0, comment: 0, needsYou: 0 };
-  for (const r of results) counts[countKeyOf(r)] += 1;
+  for (const r of results) {
+    const key = countKeyOf(r);
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
   return counts;
 }
 
@@ -344,7 +351,7 @@ export function tierFor(finding: ReviewFinding, facts: RunFacts, server: ServerT
 export function countsOfServer(counts: RunSummaryTierCounts): TierCounts {
   return {
     met: counts.met, notApplicable: counts.not_applicable, anotherDocument: counts.another_document,
-    comment: counts.comment, needsYou: counts.needs_you,
+    comment: counts.comment, needsYou: counts.needs_you, ...(counts.stated ? { stated: counts.stated } : {}),
   };
 }
 
@@ -354,6 +361,7 @@ export function tierOfGroup(findings: ReviewFinding[], facts: RunFacts, server: 
   const results = findings.map((f) => tierFor(f, facts, server));
   return results.find((r) => r.tier === NEEDS_YOU.tier)
     ?? results.find((r) => r.tier === MISSING_INFORMATION.in_library.tier)
+    ?? results.find((r) => r.label === TIER_RULES.stated_only.label)
     ?? results[0]
     ?? needsYou(FALLBACK_REASON);
 }
