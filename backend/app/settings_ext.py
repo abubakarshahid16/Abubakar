@@ -8,6 +8,18 @@ from pydantic import BaseModel, Field
 
 
 class SettingsExt(BaseModel):
+    #: #1584 standards compiler (`standards_compiler.py`, `scripts/compile_standards.py`): Claude turns a held
+    #: standard into version 2 rules on a database COPY; code verifies every quote; the rules are held until the
+    #: owner approves them and change no verdict. OFF: nothing changes. Env: STANDARDS_COMPILER_ENABLED.
+    standards_compiler_enabled: bool = False
+    #: The model it asks. Env: STANDARDS_COMPILER_MODEL.
+    standards_compiler_model: str = "claude-sonnet-5-5"
+    #: Standard families it may send. #1584 does not lift the licence hold on API and ASME (rule 1); widening this
+    #: is the owner's line in `.env`. Env: STANDARDS_COMPILER_FAMILIES.
+    standards_compiler_families: str = "SAES,ISO"
+    #: The default of `--max-usd`: the owner's USD 100 a day, across every standard, read from the spend ledger.
+    #: Env: STANDARDS_COMPILER_MAX_USD_PER_DAY.
+    standards_compiler_max_usd_per_day: float = Field(100.0, gt=0)
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every

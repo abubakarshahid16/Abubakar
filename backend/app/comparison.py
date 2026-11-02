@@ -4380,9 +4380,10 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
             }), _now(), _now(), review_run_id))
-    from . import claude_models
+    from . import claude_models, standards_compiler
 
     claude_models.record_run(review_run_id, match_step=MATCH_STEP)
+    standards_compiler.record_rule_version(review_run_id)
 
 
 def record_engineer_code(
