@@ -70,17 +70,22 @@ def compared_ids() -> frozenset[str]:
     return _compared(_stamp())
 
 
-def is_stated_only(finding: dict) -> bool:
-    """A checklist Pass nothing shows was compared: a `required` item, or a row whose item
-    cannot be told (no id, or one no checklist lists). False with the switch off."""
-    if not settings.presence_not_pass_enabled:
-        return False
-    if finding.get("origin") != ORIGIN or finding.get("compliance_status") != PASS:
+def _only_asks_stated(finding: dict) -> bool:
+    """A checklist row nothing shows was compared: a `required` item, or a row whose item cannot
+    be told (no id, or one no checklist lists)."""
+    if finding.get("origin") != ORIGIN:
         return False
     from .coverage_pair import _check_id
 
     check = _check_id(finding)
     return check not in OWN_CHECKS and check not in compared_ids()
+
+
+def is_stated_only(finding: dict) -> bool:
+    """A checklist Pass that only says a field is stated. False with the switch off."""
+    if not settings.presence_not_pass_enabled:
+        return False
+    return finding.get("compliance_status") == PASS and _only_asks_stated(finding)
 
 
 def status_of(finding: dict) -> str | None:
@@ -165,7 +170,15 @@ def says_how_many(recommend: Callable[..., dict]) -> Callable[..., dict]:
 
 def marked(item: dict) -> dict:
     """A finding row as the API hands it on, saying whether it is only stated."""
-    return {**item, "stated_only": is_stated_only(item)}
+    out = {**item, "stated_only": is_stated_only(item)}
+    # A question held from such a rule: "the rule said it meets" would claim what it never looked at.
+    if (
+        settings.presence_not_pass_enabled
+        and item.get("rule_said") == PASS
+        and _only_asks_stated(item)
+    ):
+        out["rule_said"] = STATUS
+    return out
 
 
 def mark_trace_steps(steps: list[dict], findings: list[dict]) -> None:

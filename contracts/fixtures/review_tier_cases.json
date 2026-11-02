@@ -80,6 +80,19 @@
       }
     },
     {
+      "name": "a row only stated is not Met",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "stated_only": true
+      },
+      "facts": "none",
+      "expected": {
+        "tier": "A",
+        "label": "Stated, not checked",
+        "reason": null
+      }
+    },
+    {
       "name": "NON_COMPLIANT is a Comment",
       "finding": {},
       "facts": "full",

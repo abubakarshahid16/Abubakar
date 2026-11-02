@@ -13,6 +13,7 @@ export const TIER_RULES = {
   ],
   "labels": [
     "Met",
+    "Stated, not checked",
     "Not applicable",
     "Another document",
     "Comment",
@@ -56,6 +57,10 @@ export const TIER_RULES = {
       "tier": "B",
       "label": "Comment"
     }
+  },
+  "stated_only": {
+    "tier": "A",
+    "label": "Stated, not checked"
   },
   "missing_information": {
     "status": "MISSING_INFORMATION",
@@ -117,6 +122,7 @@ export const TIER_RULES = {
   ],
   "count_keys": {
     "Met": "met",
+    "Stated, not checked": "stated",
     "Not applicable": "not_applicable",
     "Another document": "another_document",
     "Comment": "comment",
