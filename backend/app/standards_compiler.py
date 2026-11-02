@@ -2,21 +2,17 @@
 
 THE JOB. For one standard on the owner's approved list, Claude Sonnet 5.5 reads that standard's pages, clause by
 clause, and proposes rules: applies_to, condition, field, comparator, limit, unit, clause, page, exact quote.
-
 CODE VERIFIES EVERY PROPOSAL (`compiled_rule_proof.verify`). The quote must stand on the cited page's stored text and the limit and
 unit inside the quote, or the rule is dropped and counted by reason. The `standard` is written by code.
-
 VERSIONS. Version 1 is `standard_requirements`: never written here, never deleted. Version 2 is `compiled_rules`, only
 in the database this runs on, `status='held'`, read by no verdict code. Each version 2 rule names its model, prompt
 version and batch id; version 1 says "not recorded". With the switch on, a review run records the version it used: 1.
-
 ONCE. A standard compiled at this prompt version and text hash is skipped, with a count. One cached system block per
 standard, marked when it pays.
 THE GATES, before anything is built: the switch; the family (`standards_compiler_families`, owner on #1584, can be
 narrowed); COMPANY_STANDARD; the approved list even with its enforcement off. The batch reserves through `claude_spend`:
 USD 25 per standard (#1584: it governs here), USD 500 in total, and a daily limit here. What does not fit is not sent:
 the run stops, keeps what it verified, and says "partial". A later run of the same text pays only for the rest.
-
 THE TEXT is what the app cites, recognised text included. Each report counts pages read natively, from OCR and not at
 all; each rule says which its page was. A standard with no usable page is "not_compiled", never one with no rules.
 ANSWERS that do not parse as a whole (`compiled_rule_rescue`): each readable rule still gets the usual proof, but a chunk
@@ -42,6 +38,8 @@ from . import (
     claude_batch_run,
     claude_spend,
     numparse,
+    rulebook_v2,
+    rulebook_v2_ingest,
     standards_converter,
 )
 from .ai.json_reply import unfenced
@@ -463,6 +461,7 @@ def _store(
                     int(rule["field_printed"]),
                 ),
             )
+    rulebook_v2_ingest.after_compile(conn, document_id)
     return run_id
 
 
@@ -779,6 +778,7 @@ def record_rule_version(review_run_id: str) -> None:
     ).fetchone()
     if row is None:
         return
+    rulebook_v2.record_run(conn, review_run_id)
     documents = claude_approved.review_documents(review_run_id)
     held = 0
     if documents and _has_table(conn, "compiled_rules"):
