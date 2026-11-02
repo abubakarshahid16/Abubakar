@@ -71,6 +71,11 @@ class SettingsExt(BaseModel):
     #: quote verified by code on the stored page text, never a verdict. OFF: nothing
     #: changes. Env: CLAUSE_REVIEW_ENABLED.
     clause_review_enabled: bool = False
+    #: A confirmed procedure's requirement the AI says is about equipment or hardware, with its words found in the
+    #: requirement and no passage found, is one summary line and not one row each (`clause_review_kind.py`). Unsure
+    #: stays a row. OFF, and for any other kind or state: the ask and the rows as they were.
+    #: Env: CLAUSE_REVIEW_CONTENT_ONLY_ENABLED.
+    clause_review_content_only_enabled: bool = False
     #: The clause review's OWN engine (owner order, 2 Nov 2026). `claude`: every applicable requirement by
     #: Message Batch (`clause_review_claude.py`), under the provider switch, both egress flags, the approved
     #: and block lists, the answer cache and the USD caps. Anything else: the local model, with its limit.

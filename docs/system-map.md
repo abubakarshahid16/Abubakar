@@ -134,6 +134,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `cover_page` | Order 235 item 3: the text check that marks a page with no fields as a cover/notes page (read, not unread) when the picture reader cannot be asked |
 | `clause_review_claude` | The clause review on the Claude lane: every applicable requirement by Message Batch, behind `AI_CLAUSE_REVIEW_ENGINE`, off by default; submits and returns, the idle worker polls; never a verdict |
 | `clause_review` | #1477: AI clause review of a procedure or specification: one requirement at a time against 4 small passages, this path the local model (Claude: `clause_review_claude`), every quote verified on the stored page text, never a verdict (engineer to confirm), cached, time-budgeted; off by default |
+| `clause_review_kind` | Which requirements are not for a confirmed procedure: the AI proposes in the same ask, code checks its words are the requirement's; one summary line, no row each; unsure stays a row; off by default; pure |
 | `clause_review_status` | #1477: the words of the clause review's outcome (counts with denominators; whole-document note "N of M reviewed, K not reviewed, first not reviewed"); pure, no model, no storage |
 | `settings_ext` | #1477, #1495: settings kept out of `config.py` (a base of `config.Settings`, so the big file does not grow) |
 | `clause_check_rank` | Order 235 item 1: which clause sentences get the per-run clause-check budget (fields the sheet states, then a safety clause, then standards it cites, then figures) and each standard's share |

@@ -52,7 +52,13 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from . import clause_review_status, job_progress, local_engine_bar, scope_quote
+from . import (
+    clause_review_kind,
+    clause_review_status,
+    job_progress,
+    local_engine_bar,
+    scope_quote,
+)
 from .config import settings
 from .crs_draft_lanes import CLAUSE_ORIGIN
 from .db import connect
@@ -653,12 +659,12 @@ def _answer(
         return _SKIPPED, False, None
     packet = rp.Packet(
         prompt=build_prompt(kind, req, passages),
-        system=SYSTEM,
+        system=clause_review_kind.system(SYSTEM, kind, status["kind_state"]),
         num_ctx=int(settings.local_num_ctx),
         num_predict=int(settings.clause_review_num_predict),
-        json_schema=SCHEMA,
+        json_schema=clause_review_kind.schema(SCHEMA, kind, status["kind_state"]),
         step=STEP,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=clause_review_kind.version(PROMPT_VERSION, kind, status["kind_state"]),
         think=True,
         timeout_s=float(settings.clause_review_call_timeout_s),
     )
@@ -702,6 +708,18 @@ def _finish_status(review_run_id: str, status: dict, elapsed: float) -> dict:
 
 def _label(req: dict) -> str:
     return req.get("clause") or req["id"]
+
+
+def _row_or_line(review_run_id, submittal, req, answer, pages, status, engine, cached) -> None:
+    """Code classifies; a requirement not for this document kind is counted for the one line, with no row."""
+    outcome, page, quote = _classify(answer, pages)
+    if clause_review_kind.not_for_kind(
+        answer, outcome, req, status["kind"], status["kind_state"]
+    ):
+        status.setdefault("not_for_kind", []).append(_label(req))
+        return
+    status[outcome] += 1
+    _store_row(review_run_id, submittal, req, outcome, page, quote, engine, cached)
 
 
 def _note_run(status: dict, whole: bool, cap: int, wanted: int, claude_note) -> None:
@@ -763,7 +781,7 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
         passages = retrieve(submittal, req["requirement_text"], pages)
         answer, cached, called_engine = _answer(
             provider,
-            cache_key(passages, req, model),
+            cache_key(passages, req, clause_review_kind.cache_model(model, kind, state)),
             kind,
             req,
             passages,
@@ -779,9 +797,7 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
             status["failed"].append(_label(req))
             continue
         engine = called_engine or engine
-        outcome, page, quote = _classify(answer, pages)
-        status[outcome] += 1
-        _store_row(review_run_id, submittal, req, outcome, page, quote, engine, cached)
+        _row_or_line(review_run_id, submittal, req, answer, pages, status, engine, cached)
     if len(wanted) > cap:
         status["not_reviewed"] += [_label(r) for r in wanted[cap:]]
         status["stopped"] = (

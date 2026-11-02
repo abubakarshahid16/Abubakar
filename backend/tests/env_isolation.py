@@ -219,6 +219,8 @@ EGRESS_SAFE: dict[str, object] = {
     "standards_compiler_enabled": False,
     # --- local model only, no socket but model_transport (#1477, off by default)
     "clause_review_enabled": False,
+    # --- no model or socket of its own: fields in the clause review's existing ask (off by default)
+    "clause_review_content_only_enabled": False,
     # --- local model only, no socket but model_transport: whole-document clause review (off by default)
     "clause_review_whole_document_enabled": False,
     # --- read-only display of the jobs row, no model or socket (#1494, off by default)

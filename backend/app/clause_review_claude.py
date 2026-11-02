@@ -61,6 +61,7 @@ from . import (
     claude_spend,
     claude_spend_report,
     clause_review,
+    clause_review_kind,
     clause_review_status,
 )
 from . import reasoning_provider as rp
@@ -138,20 +139,23 @@ def _client():
     return
 
 
-def _system(kind: str) -> str:
+def _system(kind: str, state: str | None) -> str:
     """The stable part, sent as the cached system block, so asks after the first read it at the cache price."""
-    return clause_review.SYSTEM + "\n\n" + clause_review.examples_prefix(kind)
+    base = clause_review_kind.system(clause_review.SYSTEM, kind, state)
+    return base + "\n\n" + clause_review.examples_prefix(kind)
 
 
-def packet_for(kind: str, requirement: dict, passages: list[dict]) -> rp.Packet:
+def packet_for(
+    kind: str, requirement: dict, passages: list[dict], state: str | None = None
+) -> rp.Packet:
     return rp.Packet(
         prompt=clause_review.question(requirement, passages),
-        system=_system(kind),
+        system=_system(kind, state),
         num_ctx=0,
         num_predict=MAX_OUTPUT_TOKENS,
-        json_schema=clause_review.SCHEMA,
+        json_schema=clause_review_kind.schema(clause_review.SCHEMA, kind, state),
         step=STEP,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=clause_review_kind.version(PROMPT_VERSION, kind, state),
     )
 
 
@@ -170,11 +174,11 @@ def _requirements(asks: dict[str, str]) -> dict[str, dict]:
     return out
 
 
-def _build_packets(submittal: str, kind: str, requirements: dict[str, dict]) -> dict:
+def _build_packets(submittal: str, kind: str, state, requirements: dict[str, dict]) -> dict:
     pages = clause_review.page_texts(submittal)
     return {
         custom_id: packet_for(
-            kind, req, clause_review.retrieve(submittal, req["requirement_text"], pages)
+            kind, req, clause_review.retrieve(submittal, req["requirement_text"], pages), state
         )
         for custom_id, req in requirements.items()
     }
@@ -265,7 +269,10 @@ def _status(row, written, gave_up, reasons, requirements, pending, now) -> dict:
         label = clause_review._label(req) if req else requirement_id
         if custom_id in written:
             outcome, cached = written[custom_id]
-            status[outcome] += 1
+            if outcome == clause_review_kind.NOT_FOR_KIND:
+                status.setdefault(outcome, []).append(label)
+            else:
+                status[outcome] += 1
             status["cache_hits"] += 1 if cached else 0
             continue
         word = gave_up.get(custom_id)
@@ -296,6 +303,11 @@ def _written(row) -> dict[str, list]:
 
 def _store(row, req, answer, pages, model, cached, written, custom_id) -> None:
     outcome, page, quote = clause_review._classify(answer, pages)
+    if clause_review_kind.not_for_kind(
+        answer, outcome, req, row["kind"], row["kind_state"]
+    ):
+        written[custom_id] = [clause_review_kind.NOT_FOR_KIND, cached]
+        return
     clause_review._store_row(
         row["review_run_id"], row["document_id"], req, outcome, page, quote,
         f"{rp.CLAUDE}:{model or row['model']}", cached,
@@ -327,7 +339,11 @@ def _missing_rows(conn, row, written: dict) -> list[str]:
             (row["review_run_id"], clause_review.ORIGIN),
         )
     }
-    return [c for c in written if asks[c] not in held]
+    return [
+        c
+        for c, (outcome, _cached) in written.items()
+        if asks[c] not in held and outcome != clause_review_kind.NOT_FOR_KIND
+    ]
 
 
 def _cached_answer(reader, row, req, pages) -> tuple[dict | None, str | None]:
@@ -335,7 +351,7 @@ def _cached_answer(reader, row, req, pages) -> tuple[dict | None, str | None]:
     passages = clause_review.retrieve(
         row["document_id"], req["requirement_text"], pages
     )
-    packet = packet_for(row["kind"], req, passages)
+    packet = packet_for(row["kind"], req, passages, row["kind_state"])
     try:
         _request, body, _prompt = reader._request(packet)
         stored, _key = rp._stored_answer(STEP, body, packet)
@@ -546,7 +562,9 @@ def _ask(conn, row, provider, requirements, gave_up, past_wait):
             return None, None, None, None
         packets = _PACKETS.get(review_run_id)
         if packets is None:
-            packets = _build_packets(row["document_id"], row["kind"], requirements)
+            packets = _build_packets(
+                row["document_id"], row["kind"], row["kind_state"], requirements
+            )
             _PACKETS[review_run_id] = packets
         live = {c: p for c, p in packets.items() if c not in gave_up}
         if past_wait:  # read what was sent; nothing new goes out
@@ -727,7 +745,9 @@ def for_review(
     conn = connect()
     ensure_schema(conn)
     asks = {_custom_id(r["id"]): r["id"] for r in wanted}
-    packets = _build_packets(submittal, kind, {_custom_id(r["id"]): r for r in wanted})
+    packets = _build_packets(
+        submittal, kind, state, {_custom_id(r["id"]): r for r in wanted}
+    )
     _PACKETS[review_run_id] = packets
     worst = sum(
         claude_batch_run.worst_usd(provider.requested_model, p)

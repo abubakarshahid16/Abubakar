@@ -21,7 +21,7 @@ import json
 import logging
 from pathlib import Path
 
-from . import equipment_scope, kind_rules, local_engine_bar, page_not_read
+from . import clause_review_status, equipment_scope, kind_rules, local_engine_bar, page_not_read
 from .claude_auto_approve import run_lines
 from .config import settings
 
@@ -388,6 +388,9 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         add("degraded_read", degraded_read.line(degraded))
     for key, plain in _unfinished(ai_status, web_status):
         add(key, plain)
+    apart = clause_review_status.not_for_kind_part((ai_status or {}).get("clause_review") or {})
+    if apart:
+        add(*apart, detail=True)
     # THE SHARE, WITH ITS DENOMINATOR, on every incomplete export.
     counts = outcome.get("unchecked_counts") or {}
     sentence = share_sentence(counts.get("not_compared", 0), counts.get("not_applied", 0),

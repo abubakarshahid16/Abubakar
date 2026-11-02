@@ -16,7 +16,10 @@ def _results(status: dict, reviewed: int) -> dict:
         "failed": len(status["failed"]),
         "not_reviewed": len(status["not_reviewed"]),
     }
-    told = reviewed + out["unreadable"] + out["failed"] + out["not_reviewed"]
+    apart = len(status.get("not_for_kind") or [])
+    if apart:  # never reviewed, never checked: its own count, in the same denominator
+        out["not_for_kind"] = apart
+    told = reviewed + out["unreadable"] + out["failed"] + out["not_reviewed"] + apart
     return {**out, "adds_up": told == out["applicable"]}
 
 
@@ -47,6 +50,27 @@ def _not_ai_reviewed(status: dict) -> str:
         f"{told} of {status['requirements']} applicable requirement(s) not AI-reviewed: "
         + ", ".join(parts)
     )
+
+
+def not_for_kind_line(status: dict) -> str:
+    """The one line for requirements left out of the rows: count, boundary, and what it does not mean. Ids apart."""
+    apart = len(status.get("not_for_kind") or [])
+    if not apart:
+        return ""
+    return (
+        f"{apart} of {status['requirements']} applicable requirement(s) not for this document kind, this "
+        "run's applicable requirements only: the AI proposed they set equipment or hardware design and code "
+        "found its words in each; no row each; not checked, not decided, not compliant, not 'not mentioned'"
+    )
+
+
+def not_for_kind_part(status: dict) -> tuple[str, str] | None:
+    """(part, line) for the internal copy's notes: the line and every rule id, so an engineer can read them."""
+    line = not_for_kind_line(status)
+    if not line:
+        return None
+    ids = ", ".join(str(i) for i in status["not_for_kind"])
+    return "clause_review_not_for_kind", f"{line}. Rule ids not for this document kind: {ids}."
 
 
 def _engine_sentence(status: dict) -> str:
@@ -84,7 +108,9 @@ def fill(status: dict, elapsed: float) -> None:
     # Reviewed: the AI gave an answer that could be read. Unreadable is asked, not reviewed.
     reviewed = read - status["unreadable"]
     status["results"] = _results(status, reviewed)
-    status["not_ai_reviewed_count"] = status["requirements"] - reviewed
+    status["not_ai_reviewed_count"] = (
+        status["requirements"] - reviewed - len(status.get("not_for_kind") or [])
+    )
     left = len(status["not_reviewed"]) + len(status["failed"])
     why = f" ({status['stopped']})" if status["stopped"] else ""
     named = [*status["not_reviewed"], *status["failed"]]
@@ -124,7 +150,11 @@ def fill(status: dict, elapsed: float) -> None:
         f"with no passage found, {status['unverified']} with a quote that could not be verified, "
         f"{status['unreadable']} unreadable; {left} not reviewed{why}{listed}; {kind}."
     )
-    for sentence in (_not_ai_reviewed(status), _engine_sentence(status)):
+    for sentence in (
+        _not_ai_reviewed(status),
+        not_for_kind_line(status),
+        _engine_sentence(status),
+    ):
         if sentence:
             status["plain"] += f" {sentence}."
     if not status["results"]["adds_up"]:
