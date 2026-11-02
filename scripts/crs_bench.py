@@ -73,7 +73,9 @@ def _clear_old_out(argv: list[str] | None) -> str | None:
     reads = (given.db, given.truth or TRUTH, given.baseline)
     if ".sqlite" in out.name or out in {Path(p).resolve() for p in reads if p}:
         return f"refused: --out {out} is a database or a file this run reads"
-    out.unlink(missing_ok=True)
+    # Never a device or pipe: /dev/null is a valid place to send the table.
+    if out.is_file():
+        out.unlink()
     return None
 
 

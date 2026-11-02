@@ -4,6 +4,7 @@ a later reader takes it for this run (twelve benches once printed old GREENs).""
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -146,3 +147,12 @@ def test_out_pointing_at_a_database_is_refused_and_the_file_is_kept(script, tmp_
 
     assert script.main(args) == 2
     assert live_shaped.read_text() == "data"
+
+
+def test_an_out_that_is_not_a_regular_file_is_never_deleted(script, tmp_path):
+    """#1578 deleted --out first, so `--out /dev/null` failed with PermissionError and
+    the board's bench stopped. A pipe stands in: deleting one needs no special rights."""
+    pipe = tmp_path / "table.pipe"
+    os.mkfifo(pipe)
+    assert script._clear_old_out(["--out", str(pipe)]) is None
+    assert pipe.is_fifo()
