@@ -122,6 +122,8 @@ export interface ReviewNumbersInput {
 /** THE ONE SOURCE OF NUMBERS. Every count the workspace shows comes from
  *  this object and nowhere else. */
 export interface ReviewNumbers {
+  /** #1638: rows that only say a field is stated, apart from met. */
+  stated: number;
   /** Comment rows on the sheet (Tier B + Tier C). */
   comments: number;
   /** Tier C rows ("Needs you"). Included in `comments`. */

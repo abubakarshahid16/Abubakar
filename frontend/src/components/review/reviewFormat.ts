@@ -114,6 +114,7 @@ export function trustWords(label: string | null | undefined): string {
 
 export function statusLabel(status: string | null | undefined): string {
   if (!status) return "";
+  if (status === "STATED_NOT_CHECKED") return STATED_NOT_CHECKED_LABEL;
   return STATUS_LABEL[status as ComplianceStatus] ?? status;
 }
 
