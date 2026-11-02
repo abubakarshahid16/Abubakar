@@ -549,7 +549,7 @@ export function ReviewWorkspace({
                       run={run}
                       counts={{
                         met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
-                        comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
+                        comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou, stated: numbers.stated,
                       }}
                       standards={standardsState.standards} missing={standardsState.missing}
                       standardsError={standardsState.error} rejected={numbers.removed}
