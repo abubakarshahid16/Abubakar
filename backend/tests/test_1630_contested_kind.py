@@ -87,7 +87,7 @@ def test_a_contested_kind_gets_no_clause_review():
     _doc("a", evidence=CONFLICT)
     _doc("b", evidence={})
     assert clause_review.eligible("a")[0] is None
-    assert "guess with a conflict" in clause_review.eligible("a")[1]
+    assert "a guess with a conflict" in clause_review.eligible("a")[1]
     assert clause_review.eligible("b")[0] == "specification"
 
 
