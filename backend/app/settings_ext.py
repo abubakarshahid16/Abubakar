@@ -22,10 +22,20 @@ class SettingsExt(BaseModel):
     standards_compiler_max_usd_per_day: float = Field(100.0, gt=0)
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
-    #: submittal, the LOCAL model only (owner decision D1: no Claude here), every
+    #: submittal, on the local model unless its engine says otherwise, every
     #: quote verified by code on the stored page text, never a verdict. OFF: nothing
     #: changes. Env: CLAUSE_REVIEW_ENABLED.
     clause_review_enabled: bool = False
+    #: The clause review's OWN engine (owner order, 2 Nov 2026). `claude`: every applicable requirement by
+    #: Message Batch (`clause_review_claude.py`), under the provider switch, both egress flags, the approved
+    #: and block lists, the answer cache and the USD caps. Anything else: the local model, with its limit.
+    #: Env: AI_CLAUSE_REVIEW_ENGINE.
+    ai_clause_review_engine: str = "ollama"
+    #: How often the idle worker asks the API about a batch. Env: CLAUSE_REVIEW_BATCH_POLL_SECONDS.
+    clause_review_batch_poll_seconds: float = Field(300.0, gt=0)
+    #: Hours until a batch not returned is closed and its asks counted not reviewed. The API ends a batch by
+    #: 24 h. Env: CLAUSE_REVIEW_BATCH_WAIT_HOURS.
+    clause_review_batch_wait_hours: float = Field(26.0, gt=0)
     #: The time allowed per page of the document; the run stops cleanly when
     #: pages x this is spent and names the requirements not reviewed. Measured
     #: minutes per page is recorded on the run. Env: CLAUSE_REVIEW_SECONDS_PER_PAGE.
@@ -36,7 +46,7 @@ class SettingsExt(BaseModel):
     #: Whole-document clause review: the 60-requirement count cap is lifted and the run
     #: is bounded by ONE time budget instead; what the budget leaves unread is named
     #: ("N of M reviewed; K not reviewed (time budget of T s reached); first not
-    #: reviewed: ..."), never a pass. Still the LOCAL model only; stored answers are
+    #: reviewed: ..."), never a pass. This mode is the LOCAL model; stored answers are
     #: reused. OFF: the count cap and the per-page budget behave as before.
     #: Env: CLAUSE_REVIEW_WHOLE_DOCUMENT_ENABLED.
     clause_review_whole_document_enabled: bool = False

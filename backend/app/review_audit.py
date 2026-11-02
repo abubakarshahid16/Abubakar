@@ -335,6 +335,13 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
     ]
 
 
+def _clause_state(clause: dict) -> str:
+    """A batch still out is pending, never completed. Limit, cap or expiry: the counts say how far."""
+    if clause.get("pending"):
+        return "pending"
+    return "completed" if clause.get("ran") else NOT_RECORDED
+
+
 def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
     """The steps whose own stored status counts their calls: the clause review
     (with its stored answers) and the CRS wording (stored Claude answers: `fold_stored_hits`)."""
@@ -346,11 +353,14 @@ def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
         out.append(
             {
                 "name": "clause_review",
-                "state": "completed" if clause.get("ran") else NOT_RECORDED,
+                "state": _clause_state(clause),
                 "model": clause.get("model"),
                 "calls": clause.get("calls"),
                 "fresh": clause.get("calls"),
                 "reused": clause.get("cache_hits"),
+                "results": clause.get("results"),
+                "plain": clause.get("plain"),
+                "usd": clause.get("usd"),
             }
         )
     if wording and wording.get("enabled"):
@@ -650,6 +660,7 @@ def _md_ai(audit: dict) -> list[str]:
             f"{_v(s['reused'])}"
         )
         out += [f"  - {s['not_sent']}"] if s.get("not_sent") else []
+        out += [f"  - {s['plain']}"] if s.get("plain") else []
         if "clauses_read_of_total" not in s:
             continue
         out[-1] += (

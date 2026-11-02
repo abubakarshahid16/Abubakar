@@ -301,7 +301,11 @@ def _unfinished(ai_status: dict | None, web_status: dict | None):
     clause = (ai_status or {}).get("clause_review") or {}
     if clause.get("stopped_by_error") or (
         clause.get("ran")
-        and (clause.get("not_read_count") or clause.get("kind_state") != "confirmed")
+        and (
+            clause.get("not_read_count")
+            or clause.get("not_ai_reviewed_count")
+            or clause.get("kind_state") != "confirmed"
+        )
     ):
         yield "clause_review", str(clause["plain"])
 

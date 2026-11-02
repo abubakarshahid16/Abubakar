@@ -4,6 +4,66 @@ from `clause_review.py` so that file does not grow. Pure: it fills a status dict
 from __future__ import annotations
 
 
+def _results(status: dict, reviewed: int) -> dict:
+    """Every outcome out of the applicable requirements; `adds_up` is checked, not assumed."""
+    out = {
+        "applicable": status["requirements"],
+        "reviewed": reviewed,
+        "verified_quote": status["verified"],
+        "no_passage_found": status["no_evidence"],
+        "unverifiable": status["unverified"],
+        "unreadable": status["unreadable"],
+        "failed": len(status["failed"]),
+        "not_reviewed": len(status["not_reviewed"]),
+    }
+    told = reviewed + out["unreadable"] + out["failed"] + out["not_reviewed"]
+    return {**out, "adds_up": told == out["applicable"]}
+
+
+def _not_ai_reviewed(status: dict) -> str:
+    """How many applicable requirements the AI did not review, and each reason. "" when none."""
+    over = int(status.get("over_limit") or 0)
+    limit = status.get("limit")
+    parts = []
+    if over:
+        parts.append(
+            f"{over} over the local engine's limit of {limit} per run (the first {limit} in "
+            "standard, page and clause order were taken, not chosen by importance)"
+        )
+    rest = len(status["not_reviewed"]) - over
+    why = status.get("not_reviewed_why")
+    if why:
+        parts += [f"{count} because {reason}" for reason, count in why.items()]
+    elif rest > 0:
+        parts.append(f"{rest} because {status['stopped'] or 'they were not reached'}")
+    if status["failed"]:
+        parts.append(f"{len(status['failed'])} failed (no answer)")
+    if status["unreadable"]:
+        parts.append(f"{status['unreadable']} with an unreadable answer")
+    told = len(status["not_reviewed"]) + len(status["failed"]) + status["unreadable"]
+    if not told:
+        return ""
+    return (
+        f"{told} of {status['requirements']} applicable requirement(s) not AI-reviewed: "
+        + ", ".join(parts)
+    )
+
+
+def _engine_sentence(status: dict) -> str:
+    """The Claude lane's money, or why it was not used. Counts and USD only."""
+    if status.get("engine_note"):
+        return str(status["engine_note"])
+    usd = status.get("usd")
+    if not usd:
+        return ""
+    return (
+        f"Claude batch, this run only: USD {usd['charged']:.4f} charged, USD {usd['held']:.4f} held "
+        f"at worst case until settled; {status['calls']} ask(s) sent, {status['cache_hits']} "
+        f"answered from stored answers at no cost; worst case had all {status['requirements']} been "
+        f"sent: USD {usd['worst_case_all']:.2f}"
+    )
+
+
 def fill(status: dict, elapsed: float) -> None:
     """Add the counts and the plain sentence to the run's status (never document text).
     Whole-document mode adds a note: "N of M requirements reviewed; K not reviewed (time
@@ -14,6 +74,10 @@ def fill(status: dict, elapsed: float) -> None:
     read = sum(
         status[k] for k in ("verified", "no_evidence", "unverified", "unreadable")
     )
+    # Reviewed: the AI gave an answer that could be read. Unreadable is asked, not reviewed.
+    reviewed = read - status["unreadable"]
+    status["results"] = _results(status, reviewed)
+    status["not_ai_reviewed_count"] = status["requirements"] - reviewed
     left = len(status["not_reviewed"]) + len(status["failed"])
     why = f" ({status['stopped']})" if status["stopped"] else ""
     named = [*status["not_reviewed"], *status["failed"]]
@@ -44,7 +108,7 @@ def fill(status: dict, elapsed: float) -> None:
             else ""
         )
         status["whole_document_note"] = (
-            f"{read} of {status['requirements']} requirements reviewed; "
+            f"{reviewed} of {status['requirements']} requirements reviewed; "
             f"{len(status['not_reviewed'])} not reviewed{stop}{first}{fail}"
         )
     status["plain"] = (
@@ -53,5 +117,8 @@ def fill(status: dict, elapsed: float) -> None:
         f"with no passage found, {status['unverified']} with a quote that could not be verified, "
         f"{status['unreadable']} unreadable; {left} not reviewed{why}{listed}; {kind}."
     )
+    for sentence in (_not_ai_reviewed(status), _engine_sentence(status)):
+        if sentence:
+            status["plain"] += f" {sentence}."
     if status.get("whole_document_note"):
         status["plain"] += f" {status['whole_document_note']}."

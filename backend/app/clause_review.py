@@ -26,8 +26,9 @@ WHAT THE CODE ENFORCES, NOT THE MODEL:
     the row says "the AI found no passage; engineer to check".
   * Rows are not counted in any headline (`without_rows`), carry origin
     `clause_review`, and are worded by code, never reworded by the model.
-  * LOCAL MODEL ONLY (owner decision D1): `OllamaProvider`, through
-    `model_transport`. No document text can reach the Claude lane from here.
+  * THIS FILE'S RUN IS THE LOCAL MODEL: `OllamaProvider`, through `model_transport`.
+    The Claude lane is `clause_review_claude.py`, behind its own engine setting
+    (`AI_CLAUSE_REVIEW_ENGINE`, default local; owner order of 2 Nov 2026 over D1).
   * A TIME BUDGET: pages x `clause_review_seconds_per_page`. When it is spent the
     run stops cleanly and names the requirements not reviewed. Measured minutes
     per page is recorded.
@@ -349,18 +350,29 @@ def requirements_for(review_run_id: str, allowed: frozenset[str]) -> list[dict]:
 # --------------------------------------------------------------------- model
 
 
-def build_prompt(kind: str, requirement: dict, passages: list[dict]) -> str:
+def examples_prefix(kind: str) -> str:
+    """The part of a prompt that is the same for every requirement of one kind."""
+    return (
+        f"DECISION EXAMPLES for a {kind} (they show how an engineer decides):\n\n"
+        f"{_example_text(examples(kind))}\n\n---\n\n"
+    )
+
+
+def question(requirement: dict, passages: list[dict]) -> str:
+    """One requirement and its few passages: all of the document an ask carries."""
     shown = (
         "\n\n".join(f"[page {p['page']}] {p['text']}" for p in passages)
         or "(no passage found)"
     )
     clause = f" (clause {requirement['clause']})" if requirement.get("clause") else ""
     return (
-        f"DECISION EXAMPLES for a {kind} (they show how an engineer decides):\n\n"
-        f"{_example_text(examples(kind))}\n\n---\n\n"
         f"NOW THE REAL QUESTION.\nRequirement{clause}: {requirement['requirement_text'].strip()[:1200]}\n\n"
         f"Passages of the document:\n{shown}\n\nAnswer with JSON only."
     )
+
+
+def build_prompt(kind: str, requirement: dict, passages: list[dict]) -> str:
+    return examples_prefix(kind) + question(requirement, passages)
 
 
 def cache_key(passages: list[dict], requirement: dict, model: str) -> str:
@@ -610,12 +622,20 @@ def for_review(review_run_id: str, scope: frozenset[str]) -> None:
     text) and recorded on the run."""
     if not settings.clause_review_enabled:
         return
-    if local_engine_bar.refuses(STEP):  # LOCAL ONLY (owner decision D1): said, not run
-        plain = f"AI clause review {local_engine_bar.NOTE}"
-        _store_status(review_run_id, {"ran": False, "plain": plain})
-        return
+    from . import clause_review_claude
+
     try:
-        run(review_run_id, allowed_document_ids=scope)
+        # The Claude lane, only when its own engine setting says so and its gates are open.
+        started, claude_note = clause_review_claude.for_review(review_run_id, scope)
+        if started:
+            return
+        if local_engine_bar.refuses(STEP):  # the local path, in a Claude-lane run: said, not run
+            plain = f"AI clause review {local_engine_bar.NOTE}"
+            if claude_note:
+                plain += f" ({claude_note})"
+            _store_status(review_run_id, {"ran": False, "plain": plain})
+            return
+        run(review_run_id, allowed_document_ids=scope, claude_note=claude_note)
     except Exception as exc:  # noqa: BLE001 - suggestions are optional; the review stands
         log.warning("clause review skipped: %s", type(exc).__name__)
         with contextlib.suppress(Exception):
@@ -719,7 +739,7 @@ def _label(req: dict) -> str:
 
 
 def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=None,
-        clock=time.monotonic) -> dict:  # fmt: skip
+        clock=time.monotonic, claude_note: str | None = None) -> dict:  # fmt: skip
     """Review one run's submittal clause by clause. Returns the counts (never text)
     and stores them on the run. Does nothing, and records nothing, when the switch
     is off or the kind does not qualify."""
@@ -738,7 +758,7 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
     if kind is None:
         return {"ran": False, "reason": state}
     if provider is None:
-        # LOCAL ONLY (owner decision D1): never `get_provider`, which may return Claude.
+        # This path is local: never `get_provider`, which may return Claude.
         provider = rp.OllamaProvider(
             timeout=float(settings.clause_review_call_timeout_s)
         )
@@ -756,6 +776,9 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
         cap = len(wanted)  # no count cap; the time budget is the bound
     status = _start_status(kind, state, model, len(readable), budget_s, len(wanted))
     status["whole_document"] = whole
+    status["limit"], status["over_limit"] = cap, max(0, len(wanted) - cap)
+    if claude_note:
+        status["engine_note"] = claude_note
     started, engine = clock(), model
     total = min(len(wanted), cap)
     for index, req in enumerate(wanted[:cap]):

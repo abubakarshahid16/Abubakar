@@ -60,6 +60,10 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
         FK_CASCADE,
         "an administrator's confirmation of this Company standard (#620)",
     ),
+    ("clause_review_batches", "document_id"): (
+        FK_CASCADE,
+        "a clause review waiting on a Claude batch: ids and counts, never text",
+    ),
     ("clause_review_cache", "document_id"): (
         FK_CASCADE,
         "stored AI answers about this submittal (#1477)",
@@ -333,10 +337,11 @@ def forget_quotes(conn: sqlite3.Connection, document_id: str) -> int:
     go with it (the registry files the column as DELETED_BY_ROUTE; it was the
     one text column a delete left behind). Inside the delete's transaction;
     returns the rows removed. The stored Claude answers quote it too: they go as well."""
-    from . import claude_answer_cache
+    from . import claude_answer_cache, clause_review_claude
     from .field_naming import forget_document
 
     claude_answer_cache.forget_documents([document_id])
+    clause_review_claude.forget_documents(conn, [document_id])
     return forget_document(conn, document_id)
 
 
