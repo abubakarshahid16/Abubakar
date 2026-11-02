@@ -1085,6 +1085,25 @@ def test_a_list_withdrawn_before_the_send_stops_it_at_the_gate(fake, monkeypatch
     assert claude_spend.NOT_APPROVED_WORDS in status["plain"]
 
 
+def test_every_send_and_read_declares_the_submittal_and_the_standards_it_carries(fake):
+    """The privacy gate reads this declaration: it names what the prompt holds, no more and no less."""
+    seen = []
+    create, retrieve = fake.batch_create, fake.batch_retrieve
+
+    def on_create(*a, **k):
+        seen.append(claude_approved.carried())
+        return create(*a, **k)
+
+    def on_retrieve(*a, **k):
+        seen.append(claude_approved.carried())
+        return retrieve(*a, **k)
+
+    fake.batch_create, fake.batch_retrieve = on_create, on_retrieve
+    sub, run, scope = _world()
+    _start(run, scope)
+    assert seen and all(c == frozenset({sub, "doc_std"}) for c in seen)
+
+
 def test_a_second_review_of_the_same_text_is_answered_from_the_cache_at_no_cost(fake):
     fake.answer = lambda text: QUOTED
     sub, run, scope = _world()

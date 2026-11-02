@@ -86,11 +86,16 @@ def part(
         if decided and labels
         else ""
     )
+    outside = (stated or {}).get("outside_line") or ""
     said = (stated or {}).get("line") or ""
     words = f"{said} Labels on these rules: {'; '.join(labels)}." if labels else said
+    words = f"{words} {outside}" if outside else words
     return {
         **meta,
-        "rulebook_v2_note": short,
+        # The rules left out, by Part and rule id, are for the internal audit: never on the issue copy.
+        "rulebook_v2_note": " ".join(
+            x for x in (short, outside if meta.get("copy") == "internal" else "") if x
+        ),
         "rulebook_v2_rows": [
             _row(f)
             for f in findings

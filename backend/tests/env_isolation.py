@@ -101,6 +101,31 @@ TEST_PINS: dict[str, object] = {
     "match_ask_max_per_run": 0,
 }
 
+#: Lock 3 (#1626): on by default. The suite stays on the off path these tests were written for
+#: (126 of them assumed it); a switch's own tests turn it on. The nightly job
+#: `.github/workflows/nightly-default-switches.yml` sets LIFT_ENV to run the code's real defaults.
+LOCK3_PINNED: tuple[str, ...] = (
+    "clause_review_enabled",
+    "data_page_not_frontmatter_enabled",
+    "datasheet_label_join_enabled",
+    "datasheet_one_value_enabled",
+    "deferred_value_is_query_enabled",
+    "document_kind_enabled",
+    "kind_chooses_rules_enabled",
+    "nothing_read_fails_enabled",
+    "page_read_by_reading_enabled",
+    "playbook_presence_without_standard_enabled",
+    "playbook_section_presence_enabled",
+    "procedure_crs_fields_enabled",
+    "procedure_path_enabled",
+    "procedure_playbook_rows_enabled",
+    "review_audit_report_enabled",
+    "review_progress_bar_enabled",
+    "transmittal_kit_enabled",
+)
+TEST_PINS.update(dict.fromkeys(LOCK3_PINNED, False))
+LIFT_ENV = "RAG_TEST_LIFT_LOCK3_PINS"
+
 #: The only values these fields may hold when a test session starts. A test
 #: that needs one of them on sets it itself, with a fake transport - that is
 #: the established pattern (monkeypatch.setattr / setenv, undone per test).
@@ -117,7 +142,6 @@ EGRESS_SAFE: dict[str, object] = {
     # above, nothing can leave either way.
     "claude_approved_list_enforced": False,
     "review_ai_check_enabled": False,
-    "rule_parse_model_enabled": False,
     "geometry_reader_enabled": False,  # also gates the Claude vision reader
     "field_naming_enabled": False,  # order 259.5: model-named fields in a review
     "vision_reader_engine": "ollama",  # #830: "claude" sends page images out under per_task
@@ -147,9 +171,6 @@ EGRESS_SAFE: dict[str, object] = {
     "review_ai_check_engine": "ollama",  # #501: "claude" sends datasheet pages out
     "ai_clause_review_engine": "ollama",  # "claude" sends requirement text and small passages out
     "crs_ai_wording_engine": "ollama",  # #819: "claude" sends CRS rows (standard references) out
-    # #647: the review's AI applicability tier calls the local model once per
-    # requirement - off, like the model matcher above.
-    "ai_applicability_enabled": False,
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,
@@ -354,9 +375,19 @@ def isolate(target: Settings, env=None) -> list[str]:
     for name in Settings.model_fields:
         setattr(target, name, getattr(clean, name))
     target.allowed_hosts = TEST_ALLOWED_HOSTS
+    lifted = _lifted(env)
     for name, value in TEST_PINS.items():
-        setattr(target, name, value)
+        if name not in lifted:
+            setattr(target, name, value)
     return removed
+
+
+def _lifted(env=None) -> tuple[str, ...]:
+    """The Lock 3 pins this session does not hold. Egress gates are never in the list."""
+    return LOCK3_PINNED if (os.environ if env is None else env).get(LIFT_ENV) else ()
+
+
+EGRESS_SAFE.update(dict.fromkeys(_lifted(), True))
 
 
 def unsafe_fields(target: Settings) -> list[str]:

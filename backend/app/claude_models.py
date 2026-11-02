@@ -42,7 +42,6 @@ LOW_EFFORT_ROUTES = frozenset(
         "datasheet_read",  # field filling: every value's quote is verified
         "b4-vision",  # a page image read into fields (`vision_reader.EFFORT`)
         "b4-naming2",  # field names and statement roles, from a fixed list
-        "rule_parse",  # every number must be on the page (`rule_eval.verify_model_rule`)
     }
 )
 MODEL_DEFAULT_ROUTES = frozenset(

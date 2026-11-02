@@ -143,6 +143,7 @@ DECLARED_BY = {
     "applicability.py": "applicability.py",
     "applicability_reasoning.py": "applicability.py",  # called per standard from there
     "chat_answers.py": "chat_answers.py",
+    "clause_review_claude.py": "clause_review_claude.py",  # its submittal and each standard asked about
     "standards_compiler.py": "standards_compiler.py",
     "rule_field_naming.py": "claude_batch_run.py",
     "rule_typed_check.py": "claude_batch_run.py",
@@ -159,7 +160,6 @@ DECLARED_BY = {
     "crs_wording.py": "crs_wording.py",
     "datasheet_ai.py": "datasheets.py",  # read per document from extract_facts
     "field_naming.py": "comparison.py",  # inside run_comparison
-    "rule_eval.py": "rule_eval.py",
     "vision_reader.py": "datasheets.py",  # read per page from extract_facts
 }
 #: The lane itself and its plumbing: they send what a caller declared.
