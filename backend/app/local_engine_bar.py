@@ -73,6 +73,14 @@ def refuses(step: str, count: int = 1) -> bool:
     return True
 
 
+def at_least(step: str, count: int) -> None:
+    """A step noted once and then stopped: the parts it left unread are what it did not
+    do, so the note says all of them. Nothing for a step the bar did not stop."""
+    skipped = _SKIPPED.get()
+    if skipped and step in skipped:
+        skipped[step] = max(skipped[step], count)
+
+
 def is_claude_lane_run() -> bool:
     """REASONING_PROVIDER says claude or per_task, and the lane itself is open."""
     from . import reasoning_provider as rp
