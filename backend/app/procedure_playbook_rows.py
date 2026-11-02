@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import re
 
-from . import crs_mapping, playbooks, procedure_text
+from . import crs_mapping, playbooks, procedure_text, word_pages
 from .config import settings
 
 KIND = "procedure"
@@ -142,7 +142,7 @@ def _comment(playbook: playbooks.Playbook, report: dict, entry: dict) -> str:
     return f"{head}: {body}." + (f" {notice}" if notice else "")
 
 
-def _row(playbook, report, entry, submittal_name: str) -> dict:
+def _row(playbook, report, entry, submittal_name: str, submittal_id: str = "") -> dict:
     shown = entry["state"] == playbooks.PRESENT or entry.get("section_state") in (
         playbooks.PRESENT,
         playbooks.UNCLEAR,
@@ -150,10 +150,15 @@ def _row(playbook, report, entry, submittal_name: str) -> dict:
     ev = (entry["evidence"] or [{}])[0] if shown else {}
     # an unclear row's page column is the page its comment cites (the verified one)
     cited = entry.get("cited_page")
+    group = [
+        {"document_id": submittal_id, "contractor_evidence_text": ev.get("quote") or ""}
+    ]
     return {
         "finding_id": "",
         "document_name": submittal_name,
-        "page_section": f"page {cited}" if cited else ev.get("locator") or "",
+        "page_section": word_pages.page_cell(f"page {cited}", [cited], group)
+        if cited
+        else ev.get("locator") or "",
         "comment": _comment(playbook, report, entry),
         "comment_by": BY,
         "standard_reference": f"{entry['source']['standard']} {entry['source']['clause']}",
@@ -200,7 +205,10 @@ def crs_rows(
     rows = []
     for pb in sorted(chosen, key=lambda p: p.id):
         report = playbooks.review(submittal_id, pb, allowed_document_ids=allowed)
-        rows.extend(_row(pb, report, e, submittal_name) for e in report["elements"])
+        rows.extend(
+            _row(pb, report, e, submittal_name, submittal_id)
+            for e in report["elements"]
+        )
     return rows, []
 
 

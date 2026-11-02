@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import access, highlight, stored_paths
+from . import access, highlight, stored_paths, word_pages
 from .api_utils import require_document
 from .pdf_guard import open_pdf
 
@@ -367,8 +367,13 @@ def side(current: dict, side: str, scope: access.AccessScope) -> dict:
                 "reason": f"this finding cites no {side} page"}
     doc = dict(require_document(document_id, scope))
     if doc.get("pagination") == "flow":
-        return {"document": None, "page": None, "rects": [], "box": None,
-                "reason": "a Word document has no printed pages"}
+        return {
+            "document": None,
+            "page": None,
+            "rects": [],
+            "box": None,
+            "reason": word_pages.no_image_words("a Word document has no printed pages"),
+        }
     if side == "submittal":
         rects, box = submittal_box(current, doc["stored_path"], int(page_no))
     else:

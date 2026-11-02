@@ -264,6 +264,7 @@ EGRESS_SAFE: dict[str, object] = {
     "page_column_rows_enabled": False,
     # --- local only, no model or socket: only the title block sets the equipment type (1 Nov, off by default)
     "equipment_from_title_block_enabled": False,
+    "word_page_markers_enabled": False,
     # --- read by the page only, one local /api/auth/me a minute, no model or socket (order 4b, off by default)
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
