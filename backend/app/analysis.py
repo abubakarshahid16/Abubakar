@@ -820,7 +820,7 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
     selected ready document is supplied to the hierarchical synthesiser. A
     missing or unfinished document stops the run before model generation.
     """
-    from . import chat_stream, states
+    from . import chat_stream
 
     started = time.monotonic()
     selected = frozenset(document_ids) & allowed_document_ids
