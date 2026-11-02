@@ -261,7 +261,14 @@ def _decisions(
     for row in ticked:
         version = _version_of(conn, _text(row[C_RULE]), _version_number(row))[0]
         word = rulebook_v2.APPROVE if row[C_TICK] == OK else rulebook_v2.REJECT
-        if rulebook_v2.last_decision(conn, version, equipment_type) == (word, signer):
+        signing = rulebook_v2.content_to_sign(conn, version)
+        same = word != rulebook_v2.APPROVE or signing == rulebook_v2.signed_content_of(
+            conn, version, equipment_type
+        )
+        if same and rulebook_v2.last_decision(conn, version, equipment_type) == (
+            word,
+            signer,
+        ):
             already += 1
             continue
         sources = _sources_shown(conn, version, row)
@@ -276,9 +283,51 @@ def _decisions(
                 "provenance_viewed": sources,
                 "note": f"{row[C_TICK]}: {comment}" if comment else row[C_TICK],
                 "source_sha256": digest,
+                "signed_content": signing if word == rulebook_v2.APPROVE else None,
             }
         )
     return out, already
+
+
+def _material_sheet(conn, file_path: Path, cover: dict, signer: str) -> tuple:
+    """(what to write, refusal). No "Material reference" sheet: nothing. An empty tick is no approval; a stale or edited
+    sheet refuses the whole file, as the rules' does."""
+    from app import material_reference as ref
+
+    book = openpyxl.load_workbook(file_path, data_only=True)
+    if ref.SHEET not in book.sheetnames:
+        return [], None
+    rows = book[ref.SHEET].iter_rows(values_only=True)
+    header = [_text(x) for x in next(rows)]
+    found = [
+        dict(zip(header, r, strict=False))
+        for r in rows
+        if any(x not in (None, "") for x in r)
+    ]
+    ref.ensure_schema(conn)
+    current = ref.sheet_rows(conn)
+    if _text(cover.get(ref.COVER_STAMP)) != ref.stamp(current) or ref.stamp(
+        found
+    ) != ref.stamp(current):
+        return [], (
+            EXIT_STALE,
+            "the material reference changed since this file was made",
+        )
+    edited = [
+        _text(r[ref.C_ID]) for r in found if ref.row_check(r) != _text(r[ref.C_CHECK])
+    ]
+    if edited:
+        return [], (EXIT_EDITED, "the words of these reference rows were edited")
+    ticked = [r for r in found if r.get(ref.C_TICK) not in (None, "")]
+    if any(r[ref.C_TICK] not in TICKS for r in ticked):
+        return [], (EXIT_EDITED, "a tick on the material reference is off the list")
+    out = []
+    for row in ticked:
+        word = ref.APPROVE if row[ref.C_TICK] == OK else ref.REJECT
+        last = ref.last_decision(conn, _text(row[ref.C_ID]))
+        if last is None or (last[0], last[1]) != (word, signer):
+            out.append({"entry_id": _text(row[ref.C_ID]), "decision": word})
+    return out, None
 
 
 def run(
@@ -330,9 +379,17 @@ def run(
     if bad:
         return stop(EXIT_EDITED, "these ticks cannot be recorded", **bad)
     ticked = [r for r in with_rule if r.get(C_TICK) not in (None, "")]
+    reference, refused = _material_sheet(conn, file_path, cover, signer)
+    if refused:
+        return stop(*refused)
     digest = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
     decisions, already = _decisions(conn, ticked, signer, tier, equipment_type, digest)
-    rulebook_v2.record_decisions(conn, decisions)
+    if reference:
+        from app import material_reference
+
+        material_reference.record(conn, reference, signer, tier, digest)
+    rulebook_v2.record_decisions(conn, decisions)  # commits both, or neither
+    conn.commit()
     words = [d["decision"] for d in decisions]
     emit(
         json.dumps(
@@ -343,6 +400,7 @@ def run(
                 "approved": words.count(rulebook_v2.APPROVE),
                 "rejected": words.count(rulebook_v2.REJECT),
                 "already_recorded": already,
+                "material_reference_decisions": len(reference),
                 "signer": signer,
                 "tier": tier,
                 "equipment_type": equipment_type,
