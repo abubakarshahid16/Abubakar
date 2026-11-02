@@ -775,8 +775,8 @@ def test_a_date_beside_the_real_number_does_not_hide_it():
 
 
 def test_a_number_that_only_starts_like_a_year_is_kept():
-    text = "TITLE\n2026-77-PD-0007\nbody"
+    text = "TITLE\n2026-77-99-07\nbody"
     assert (
         procedure_crs.read_number([{"page_no": 1, "text": text}])["number"]
-        == "2026-77-PD-0007"
+        == "2026-77-99-07"
     )
