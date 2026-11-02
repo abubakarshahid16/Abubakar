@@ -59,11 +59,15 @@ VALVE_RULE = "The invented valve body shall not be cast iron."
 SERVICE_RULE = "Invented valves shall be limited to clean gas and thin liquid service."
 
 ALL_SENTENCE = "The rules of Part XG apply to all invented equipment and to its parts."
-LINED_SENTENCE = "The rules of Part XCL apply to glazed drums made of lined plate and strip."
+LINED_SENTENCE = (
+    "The rules of Part XCL apply to glazed drums made of lined plate and strip."
+)
 POT_SENTENCE = (
     "This Appendix adds rules for heated jacketed pots of this invented code."
 )
-VALVE_SENTENCE = "The rules of Part XV apply to pressure relief valves made of invented alloy."
+VALVE_SENTENCE = (
+    "The rules of Part XV apply to pressure relief valves made of invented alloy."
+)
 GENERIC_SENTENCE = "The rules of Part XQ apply to valves made of invented alloy only."
 NEGATED_SENTENCE = (
     "The rules of Part XA apply to glazed drums and do not apply to relief valves."
@@ -172,8 +176,12 @@ PAGES = [
 ]
 
 
-SUBJECT_SENTENCE = "The rules of Part XH apply to all pressure vessels and to their parts."
-SECOND_SUBJECT_SENTENCE = "The rules of Part XI apply to all pressure vessels and to their parts."
+SUBJECT_SENTENCE = (
+    "The rules of Part XH apply to all pressure vessels and to their parts."
+)
+SECOND_SUBJECT_SENTENCE = (
+    "The rules of Part XI apply to all pressure vessels and to their parts."
+)
 PAGES += [
     (
         16,
@@ -290,7 +298,9 @@ def code(lane, monkeypatch):  # noqa: F811
     _read(
         conn,
         "XF",
-        _limited("The rules of Part XF apply only to invented drums of lined plate.", "drums"),
+        _limited(
+            "The rules of Part XF apply only to invented drums of lined plate.", "drums"
+        ),
     )
     _read(
         conn,
