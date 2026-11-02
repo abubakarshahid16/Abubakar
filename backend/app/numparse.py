@@ -346,6 +346,35 @@ def as_number(text: str | float | int | None) -> float | None:
     return n.value
 
 
+#: A fraction as a size is printed: "5/8", "5\u20448", "2-3/8", "2 3/8". Not one end of a date or a list ("12/25/2019").
+_FRACTION = re.compile(
+    r"(?<![\d./\u2044])(?:(\d+)[- ])?(\d+)\s*[/\u2044]\s*(\d+)(?![\d./\u2044])"
+)
+
+
+def find_fractions(text: str) -> list[Number]:
+    """Every whole fraction in `text`, as a Number with its span. `find_numbers` reads "5/8" as two numbers, which is
+    right for a ratio and stays as it is; only a caller that asks for a size calls this."""
+    out = []
+    for m in _FRACTION.finditer(text or ""):
+        if int(m.group(3)) == 0:
+            continue
+        value = int(m.group(1) or 0) + int(m.group(2)) / int(m.group(3))
+        out.append(Number(value, m.group(0), m.start(), m.end(), digits_at=m.start()))
+    return out
+
+
+def as_limit(text: str | float | int | None) -> float | None:
+    """One limit written alone: `as_number`, or one whole fraction. None for anything else."""
+    value = as_number(text)
+    if value is not None or not isinstance(text, str):
+        return value
+    found = find_fractions(text.strip())
+    if len(found) == 1 and found[0].start == 0 and found[0].end == len(text.strip()):
+        return found[0].value
+    return None
+
+
 # ------------------------------------------------------- strict single values
 
 _SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
