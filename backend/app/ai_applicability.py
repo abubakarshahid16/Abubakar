@@ -48,6 +48,7 @@ from .scope_type_words import (
     names as _names,
 )
 
+
 def folded_in(needle: object, haystack: object, *, least: int = 1) -> bool:
     """Is `needle` in `haystack`, compared on letters and digits only (so a
     word hyphenated over a line break still matches)?"""
