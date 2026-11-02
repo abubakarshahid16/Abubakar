@@ -698,7 +698,7 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
         # batches that were in flight are recorded as failed and the rest go
         # to a fresh pool - one dead child costs the pages it held, never the
         # document.
-        with cf.ProcessPoolExecutor(max_workers=settings.ocr_processes) as pool:
+        with stored_paths.recognition_pool(settings.ocr_processes) as pool:
             inflight: dict[int, tuple[list[int], cf.Future]] = {}
             broken = False
             while (queue and not broken) or inflight:
@@ -807,7 +807,7 @@ def page_lines(stored_path: str, sha256: str, page_no: int) -> list[tuple]:
     key = (stored_path, sha256, int(page_no))
     if key in _PAGE_LINES:
         return _PAGE_LINES[key]
-    pool = cf.ProcessPoolExecutor(max_workers=1)
+    pool = stored_paths.recognition_pool(1)
     try:
         lines = pool.submit(recognise_page_lines, stored_path, sha256,
                             int(page_no)).result(timeout=PAGE_LINES_TIMEOUT_S)
