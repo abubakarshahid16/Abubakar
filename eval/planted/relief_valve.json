@@ -1,0 +1,87 @@
+{
+  "format": "planted-base/1",
+  "source": "invented",
+  "note": "#1607: an invented relief valve datasheet and the defects planted in copies of it. Every value is made up. One row per printed line; `role` is the checklist's field name (datasheet_checks.json), `field` the printed label. The clean sheet is meant to meet the draft checklist: the sized area is 629 mm2 by the API 520 gas formula for these inputs.",
+  "name": "relief_valve",
+  "equipment_type": "Pressure Safety Valve",
+  "title": "PRESSURE SAFETY VALVE DATA SHEET",
+  "doc_prefix": "SYN-PSV",
+  "pages": [
+    {
+      "heading": "PROCESS DATA",
+      "rows": [
+        {"role": "fluid", "field": "Fluid", "value": "Natural gas"},
+        {"role": "fluid_phase", "field": "Phase", "value": "Gas"},
+        {"role": "relief_case", "field": "Relief case", "value": "Fire"},
+        {"role": "required_capacity", "field": "Required capacity", "value": "5400", "unit": "kg/h"},
+        {"role": "relieving_temperature", "field": "Relieving temperature", "value": "180", "unit": "degC"},
+        {"role": "molecular_weight", "field": "Molecular weight", "value": "28"},
+        {"role": "compressibility", "field": "Compressibility", "value": "0.95"},
+        {"role": "specific_heat_ratio", "field": "Specific heat ratio", "value": "1.3"},
+        {"role": "sour_service", "field": "Sour service", "value": "No"}
+      ]
+    },
+    {
+      "heading": "PRESSURE DATA",
+      "rows": [
+        {"role": "set_pressure", "field": "Set pressure", "value": "10", "unit": "barg"},
+        {"role": "mawp", "field": "MAWP", "value": "12", "unit": "barg"},
+        {"role": "design_pressure", "field": "Design pressure", "value": "12", "unit": "barg"},
+        {"role": "design_temperature", "field": "Design temperature", "value": "200", "unit": "degC"},
+        {"role": "operating_pressure", "field": "Operating pressure", "value": "8.5", "unit": "barg"},
+        {"role": "overpressure", "field": "Overpressure", "value": "21", "unit": "%"},
+        {"role": "built_up_back_pressure", "field": "Built-up back pressure", "value": "0.5", "unit": "barg"},
+        {"role": "superimposed_back_pressure", "field": "Superimposed back pressure", "value": "0.2", "unit": "barg"},
+        {"role": "cdtp", "field": "CDTP", "value": "10", "unit": "barg"}
+      ]
+    },
+    {
+      "heading": "VALVE DATA",
+      "rows": [
+        {"role": "valve_type", "field": "Valve type", "value": "Conventional"},
+        {"role": "orifice_designation", "field": "Orifice designation", "value": "J"},
+        {"role": "orifice_area", "field": "Orifice area", "value": "830", "unit": "mm2"},
+        {"role": "required_area", "field": "Required area", "value": "630", "unit": "mm2"},
+        {"role": "rated_capacity", "field": "Rated capacity", "value": "7100", "unit": "kg/h"},
+        {"role": "inlet_size", "field": "Inlet size", "value": "3", "unit": "in"},
+        {"role": "inlet_rating", "field": "Inlet rating", "value": "300"},
+        {"role": "outlet_size", "field": "Outlet size", "value": "4", "unit": "in"},
+        {"role": "body_material", "field": "Body material", "value": "A216 WCB"},
+        {"role": "trim_material", "field": "Trim material", "value": "316 SS"}
+      ]
+    }
+  ],
+  "controls": [
+    {"name": "clean", "set": {}},
+    {
+      "name": "clean_other_values",
+      "set": {
+        "set_pressure": "16", "mawp": "18", "design_pressure": "18", "operating_pressure": "14",
+        "cdtp": "16", "built_up_back_pressure": "1.0", "superimposed_back_pressure": "0.3",
+        "required_capacity": "9000", "required_area": "675", "rated_capacity": "11000"
+      }
+    }
+  ],
+  "plants": [
+    {"defect": "over_limit", "field": "set_pressure", "value": "13", "wanted": "does_not_meet"},
+    {"defect": "over_limit", "field": "built_up_back_pressure", "value": "2", "wanted": "does_not_meet"},
+    {"defect": "over_limit", "field": "overpressure", "value": "30", "wanted": "does_not_meet"},
+    {"defect": "wrong_unit", "field": "mawp", "unit": "psig", "wanted": "does_not_meet"},
+    {"defect": "wrong_unit", "field": "set_pressure", "unit": "degC", "wanted": "query"},
+    {"defect": "wrong_unit", "field": "required_capacity", "unit": "barg", "wanted": "query"},
+    {"defect": "blank_required", "field": "set_pressure", "wanted": "query"},
+    {"defect": "blank_required", "field": "orifice_area", "wanted": "query"},
+    {"defect": "blank_required", "field": "required_capacity", "wanted": "query"},
+    {"defect": "contradictory", "field": "set_pressure", "value": "11.5", "wanted": "query"},
+    {"defect": "contradictory", "field": "mawp", "value": "14", "wanted": "query"},
+    {"defect": "contradictory", "field": "valve_type", "value": "Pilot", "wanted": "query"},
+    {"defect": "wrong_sign", "field": "set_pressure", "wanted": "query"},
+    {"defect": "wrong_sign", "field": "built_up_back_pressure", "wanted": "query"},
+    {"defect": "wrong_sign", "field": "rated_capacity", "wanted": "query"},
+    {"defect": "wrong_field", "field": "set_pressure", "with": "mawp", "wanted": "does_not_meet"},
+    {"defect": "wrong_field", "field": "valve_type", "with": "body_material", "wanted": "does_not_meet"},
+    {"defect": "wrong_field", "field": "specific_heat_ratio", "with": "molecular_weight", "wanted": "query"},
+    {"defect": "missing_page", "page": 2, "wanted": "query"},
+    {"defect": "missing_page", "page": 3, "wanted": "query"}
+  ]
+}

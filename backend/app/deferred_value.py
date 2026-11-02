@@ -123,7 +123,11 @@ def _right_roles(rules: dict) -> dict[str, str]:
 def hold_results(
     results: list[dict], facts: list[dict], rules: dict, wanted
 ) -> list[dict]:
-    """`results` with every decided result about a deferred value turned into a query (switch ON)."""
+    """`results` with every decided result about a deferred value turned into a query (switch ON).
+    The one exit of `datasheet_checks.evaluate`, so a Pass on an impossible sign is held here too (#1607)."""
+    from . import impossible_sign
+
+    results = impossible_sign.hold_results(results, facts, rules, wanted)
     if not settings.deferred_value_is_query_enabled or not results:
         return results
     from .datasheet_checks import role_of

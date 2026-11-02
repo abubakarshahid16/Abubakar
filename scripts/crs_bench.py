@@ -13,6 +13,9 @@ Exit codes: 0 green, 1 red (a wrong verdict, or a measure worse than
 table is written; #1539 - a bench importing a file someone was editing once
 looked 'red'). Run the bench only in a checkout nobody is editing.
 
+PLANTED_DEFECTS_BENCH_ENABLED=true (#1607, default off) also prints the planted-defect
+table after the bench table. It never moves the exit code until its baseline is stable.
+
 An old --out file is deleted first thing, so a refusal or a crash leaves nothing
 a later reader could take for this run (#1574). Keep the copy you pass out of
 the OS temp folder: a reboot empties it.
@@ -88,6 +91,21 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_ERROR
 
 
+def _planted_defects(db: Path) -> str:
+    """#1607, switch PLANTED_DEFECTS_BENCH_ENABLED: printed after the table, computed
+    after the gate, so it cannot move the gate until the baseline is stable."""
+    from tools import planted_defects
+
+    from app.config import settings
+
+    if not settings.planted_defects_bench_enabled:
+        return ""
+    try:
+        return "\n\n" + planted_defects.bench_section(db) + "\n"
+    except Exception as exc:  # noqa: BLE001 - a scorer failure is not a bench result
+        return f"\n\nPlanted defects: not run ({type(exc).__name__})\n"
+
+
 def _main(argv: list[str] | None = None) -> int:
     refusal = _clear_old_out(argv)
     if refusal:
@@ -139,6 +157,7 @@ def _main(argv: list[str] | None = None) -> int:
     if args.save:
         crs_bench.save_results(Path(args.save), results)
     code = 1 if crs_bench.gate(results, baseline) else 0
+    text += _planted_defects(db)
     if args.out:  # last: exit 3 means no table (#1574)
         Path(args.out).write_text(text)
     print(text)
