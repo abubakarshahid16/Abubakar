@@ -500,15 +500,23 @@ def test_deleting_the_document_deletes_its_stored_decision(tmp_path, monkeypatch
 # ------------------------------------------------------------------ the audit reads the same count
 
 
-def test_the_audit_counts_pictures_that_returned_text_as_ready_does(tmp_path, monkeypatch):
+def test_the_audit_counts_pictures_that_returned_text_as_ready_does(
+    tmp_path, monkeypatch
+):
     """A Word picture's text goes on its page, so the old page count said 0."""
     _stub(monkeypatch, {1: "Tank label", 2: ""})
     doc = _ingest(_word_file(tmp_path, pictures=2))
     _finish(monkeypatch, doc)
     section = review_audit._pages_section(doc)
     got = reading_state.decide(doc)
-    assert (section["read_picture"], section["pictures_total"]) == (got["pictures_read"], got["pictures_total"]) == (1, 2)
-    assert "read (picture): 1 of 2 pictures" in "\n".join(review_audit._md_pages({"pages": section}))
+    assert (
+        (section["read_picture"], section["pictures_total"])
+        == (got["pictures_read"], got["pictures_total"])
+        == (1, 2)
+    )
+    assert "read (picture): 1 of 2 pictures" in "\n".join(
+        review_audit._md_pages({"pages": section})
+    )
 
 
 def test_with_only_the_word_switch_on_the_audit_counts_the_same(tmp_path, monkeypatch):
