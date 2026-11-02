@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 
-from .numparse import CASE_KEPT_UNITS
+from .numparse import CASE_KEPT_UNITS, as_printed, case_kept_words
 
 #: Unit -> dimension (`claims._UNCONVERTED_UNITS`). Bare "mWh" is absent because
 #: bare "MWh" is not a unit either; it is here only as the top of a rate.
@@ -67,6 +67,52 @@ def unit_in_match(match: re.Match, group: str = "unit") -> str | None:
     """`unit_at` for a regex match that captured a unit in `group`."""
     unit = match.group(group)
     return unit_at(match.string, unit, match.end(group)) if unit else unit
+
+
+def reading_as_printed(reading: dict, page_text: str) -> dict:
+    """A reader's reading with the case of its units as the page prints them.
+
+    A reader that retypes "20 MA" as "20 mA" read a value the sheet does print.
+    Refusing it would make the value read as missing, which is false, so the
+    PAGE decides: the quote, value and unit take the printed spelling, and the
+    fact then goes where that spelling goes ("20 MA" has no number: review). Only
+    case changes here; a quote that is not on the page stays refused."""
+    quote = str(reading.get("quote") or "")
+    pattern = r"\s+".join(map(re.escape, quote.split()))
+    on_page = (
+        list(re.finditer(pattern, page_text or "", re.IGNORECASE)) if pattern else []
+    )
+    if not on_page:
+        return reading
+    wanted = case_kept_words(quote)
+    if any(case_kept_words(m.group(0)) == wanted for m in on_page):
+        printed = quote
+    else:
+        printed = on_page[0].group(0)
+    unit = reading.get("unit")
+    # A unit that is not in the quote is in a column header: the page says.
+    in_quote = unit and str(unit).lower() in printed.lower()
+    return {
+        **reading,
+        "quote": printed,
+        "value": _printed_or_none(reading.get("value"), printed),
+        "unit": _printed_or_none(unit, printed if in_quote else page_text),
+    }
+
+
+def _printed_or_none(text: object, printed: str) -> object:
+    return as_printed(text, printed) if isinstance(text, str) and text else text
+
+
+def capitals_note(unit: object) -> str:
+    """Why a unit in capitals got no number, in words for the engineer."""
+    text = str(unit or "").strip()
+    if not text.isupper() or text.partition("/")[0] not in CASE_KEPT_UNITS:
+        return ""
+    return (
+        f". Capitals carry no case: on a sheet printed in capitals {text!r} may be"
+        " the milli unit or the mega unit, so an engineer reads it"
+    )
 
 
 def calc_key(unit: str | None) -> str:

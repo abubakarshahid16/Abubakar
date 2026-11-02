@@ -562,6 +562,27 @@ def mark_case_kept(text: object) -> str:
     return _CASE_KEPT_WORD.sub(lambda m: CASE_KEPT_MARK + m.group(0), str(text))
 
 
+#: Every spelling of a unit with a case-kept twin, for a case-blind search.
+_CASE_TWIN_WORD = re.compile(_CASE_KEPT_WORD.pattern, re.IGNORECASE)
+
+
+def as_printed(text: object, printed: object) -> str:
+    """`text` with a unit that has a case-kept twin spelled as `printed` spells it:
+    "20 mA" with "SIGNAL 20 MA" is "20 MA". Left alone when `printed` holds both
+    twins, since it then cannot say which one is meant."""
+    spelled: dict[str, set[str]] = {}
+    for word in _CASE_TWIN_WORD.findall(str(printed)):
+        spelled.setdefault(word.lower(), set()).add(word)
+
+    def respell(found: re.Match) -> str:
+        word = found.group(0)
+        said = spelled.get(word.lower(), set())
+        one = next(iter(said)) if len(said) == 1 else word
+        return one if word in CASE_KEPT_UNITS or one in CASE_KEPT_UNITS else word
+
+    return _CASE_TWIN_WORD.sub(respell, str(text))
+
+
 def case_kept_words(text: object) -> list[str]:
     """The case-kept units `text` prints, in order."""
     return _CASE_KEPT_WORD.findall(str(text))

@@ -17,7 +17,13 @@ from .numparse import mark_case_kept
 
 
 def fold(text: str | None) -> str:
-    return " ".join(mark_case_kept(text or "").lower().split())
+    return " ".join((text or "").lower().split())
+
+
+def fold_for_gate(text: str | None) -> str:
+    """`fold` for a comparison that must tell mPa from MPa. Holds a private mark:
+    compare with it, and never store or show it (#1618)."""
+    return fold(mark_case_kept(text or ""))
 
 
 _fold = fold

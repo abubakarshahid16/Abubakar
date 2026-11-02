@@ -48,6 +48,7 @@ from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
 from .unit_case import calc_key as _unit_key
+from .unit_case import capitals_note
 
 RULES_PATH = Path(__file__).parent / "reference" / "datasheet_checks.json"
 ORIGIN = "datasheet_check"
@@ -870,7 +871,7 @@ def _converted(fact: dict, role: str, table: str, rules: dict) -> float:
     factor = rules["calc_units"][table].get(unit)
     if factor is None:
         raise _NotCalculated(f"the {_pretty(role).lower()} unit '{fact.get('raw_unit') or unit or 'none'}'"
-                             f" is not one this calculation converts")
+                             f" is not one this calculation converts{capitals_note(fact.get('raw_unit'))}")
     return number * float(factor)
 
 

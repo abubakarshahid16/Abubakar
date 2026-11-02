@@ -61,7 +61,7 @@ from . import (
 )
 from .ai.json_reply import unfenced
 from .converter_gates import fold as _fold
-from .converter_gates import in_example, quote_unreadable
+from .converter_gates import fold_for_gate, in_example, quote_unreadable
 from .reasoning_provider import ProviderRefused
 
 #: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. API and ASME: HOLD.
@@ -325,13 +325,13 @@ def _has_figure(quote: str, figure: str) -> bool:
 
 
 def _has_unit(quote: str, unit: str) -> bool:
-    u = _fold(unit)
+    u = fold_for_gate(unit)
     if not u:
         return False
     return bool(
         re.search(
             rf"(?<![a-z0-9{numparse.CASE_KEPT_MARK}])" + re.escape(u) + r"(?![a-z0-9])",
-            _fold(quote),
+            fold_for_gate(quote),
         )
     )
 
@@ -385,7 +385,7 @@ def limit_scope(sentence: str, quote: str, limit: str, unit: str) -> str | None:
         r"(?<![\w.])"
         + re.escape(limit.strip().lower())
         + r"\s*"
-        + re.escape(_fold(unit))
+        + re.escape(unit.strip().lower())
         + r"(?![a-z0-9])",
         q,
     )
@@ -454,7 +454,7 @@ def verify(
     ):  # a worked example illustrates; it states no requirement (order 295.7 b)
         return "unproven", "example_not_requirement", None
     quote = " ".join(str(answer.get("quote") or "").split())
-    if len(quote) < 8 or _fold(quote) not in text:
+    if len(quote) < 8 or fold_for_gate(quote) not in fold_for_gate(_text(row)):
         return "unproven", "quote_not_in_clause", None
     if quote_unreadable(
         quote, str(row.get("source_text") or row.get("requirement_text") or "")

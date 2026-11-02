@@ -355,7 +355,7 @@ def _evaluate_terms(shape: str, condition: str, facts: list[dict]) -> dict:
 
 
 def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
-    match = _NUMERIC_CONDITION.search(_fold(condition))
+    match = _NUMERIC_CONDITION.search(" ".join(str(condition or "").split()))
     if not match:
         return _result(UNKNOWN, SHAPE_NUMERIC, condition,
                        "the threshold could not be parsed")

@@ -6,6 +6,8 @@ one as the other. All values here are invented.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app import (
@@ -14,11 +16,15 @@ from app import (
     applicability_v2,
     claims,
     claude_datasheet,
+    comparison,
     compiled_rule_context,
+    compiled_rule_proof,
     condition_choice,
+    conditions,
     datasheet_ai,
     datasheet_checks,
     datasheets,
+    db,
     dual_unit_form,
     field_copies,
     form_reader,
@@ -30,8 +36,10 @@ from app import (
     rule_eval,
     same_value,
     standards_converter,
+    submittal_review,
     unit_case,
 )
+from app.config import settings
 
 
 def _value(number: str, unit: str) -> float | None:
@@ -406,45 +414,84 @@ def test_a_true_reading_passes_every_gate(value):
     assert _api(value, quote) == []
 
 
+def _read(value, quote, page=None, unit=None):
+    """What `claude_datasheet.accept` keeps of one reading."""
+    proposal = {"field": PRESSURE, "value": value, "kind": "offered", "quote": quote}
+    if unit:
+        proposal["unit"] = unit
+    done = claude_datasheet.accept([proposal], page or f"{quote}\n")
+    assert done["rejected"] == []
+    return done["accepted"][0]
+
+
 @pytest.mark.parametrize(
     "value,printed",
     [("10 MPa", "10 mPa"), ("10 mPa", "10 MPa"), ("5 mW", "5 MW"), ("20 mA", "20 MA")],
 )
 def test_a_value_is_not_proved_by_the_other_unit(value, printed):
     quote = f"{PRESSURE} {printed}"
-    assert _accept(value, quote) == [claude_datasheet.Reason.VALUE_NOT_IN_QUOTE.value]
     assert _form(value, quote) is form_reader.Reason.VALUE_NOT_IN_QUOTE
     assert _api(value, quote) == [reader_api.Reason.VALUE_NOT_IN_QUOTE.value]
 
 
-def test_a_quote_retyped_in_the_other_case_is_not_on_the_page():
+@pytest.mark.parametrize(
+    "value,printed",
+    [("10 MPa", "10 mPa"), ("10 mPa", "10 MPa"), ("5 mW", "5 MW"), ("20 mA", "20 MA")],
+)
+def test_a_retyped_value_takes_the_spelling_the_page_prints(value, printed):
+    read = _read(value, f"{PRESSURE} {value}", f"{PRESSURE} {printed}\n")
+    assert read["value"] == printed and read["quote"] == f"{PRESSURE} {printed}"
+    assert _read(value, f"{PRESSURE} {printed}")["value"] == printed
+
+
+def test_a_quote_retyped_in_the_other_case_stays_refused_for_a_rule():
     quote, page = f"{PRESSURE} 10 MPa", f"{PRESSURE} 10 mPa\n"
-    assert _accept("10 MPa", quote, page) == [
-        claude_datasheet.Reason.QUOTE_NOT_ON_PAGE.value
-    ]
     assert _form("10 MPa", quote, page) is form_reader.Reason.QUOTE_NOT_ON_PAGE
     assert _api("10 MPa", quote, page) == [
         reader_api.Reason.QUOTE_NOT_IN_SENTENCE.value
     ]
 
 
+def test_a_quote_not_on_the_page_stays_refused_whatever_its_case():
+    assert _accept("10 MPa", f"{PRESSURE} 10 MPa", f"{PRESSURE} 12 mPa\n") == [
+        claude_datasheet.Reason.QUOTE_NOT_ON_PAGE.value
+    ]
+
+
+def test_a_quote_on_the_page_in_its_own_case_keeps_it():
+    page = f"{PRESSURE} 10 mPa\n{PRESSURE} 10 MPa\n"
+    assert _read("10 MPa", f"{PRESSURE} 10 MPa", page)["value"] == "10 MPa"
+    assert _read("10 mPa", f"{PRESSURE} 10 mPa", page)["value"] == "10 mPa"
+
+
 def test_a_unit_is_not_proved_by_the_other_unit():
     quote = f"{PRESSURE} 10 mPa"
-    assert _accept("10", quote, unit="MPa") == [
-        claude_datasheet.Reason.UNIT_NOT_IN_QUOTE.value
-    ]
     assert _form("10", quote, unit="MPa") is form_reader.Reason.UNIT_NOT_IN_QUOTE
-    assert _accept("10", quote, unit="mPa") == []
     assert _form("10", quote, unit="mPa") is None
+    assert _read("10", quote, unit="MPa")["unit"] == "mPa"
+    assert _read("10", quote, unit="mPa")["unit"] == "mPa"
 
 
-def test_a_column_header_does_not_prove_the_other_unit():
+def test_a_column_header_gives_the_printed_unit():
     page = f"Item | mPa\n{PRESSURE} | 10\n"
     quote = f"{PRESSURE} | 10"
-    assert _accept("10", quote, page, unit="MPa") == [
-        claude_datasheet.Reason.UNIT_NOT_IN_QUOTE.value
-    ]
-    assert _accept("10", quote, page, unit="mPa") == []
+    assert _read("10", quote, page, unit="MPa")["unit"] == "mPa"
+    assert _read("10", quote, page, unit="mPa")["unit"] == "mPa"
+
+
+@pytest.mark.parametrize(
+    "text,printed,expected",
+    [
+        ("20 mA", "SIGNAL 20 MA", "20 MA"),
+        ("20 MA", "signal 20 mA", "20 mA"),
+        ("5 MPA", "rated 5 MPa", "5 MPA"),
+        ("5 mm", "RATED 5 MM", "5 mm"),
+        ("5 MPa", "at 5 mPa and 5 MPa", "5 MPa"),
+        ("5 mPa", "at 5 mPa and 5 MPa", "5 mPa"),
+    ],
+)
+def test_as_printed(text, printed, expected):
+    assert numparse.as_printed(text, printed) == expected
 
 
 def _requirement(value, unit, sentence, quote=None):
@@ -600,3 +647,291 @@ def test_a_range_in_the_two_units_is_not_one_range(low, high, same):
         f"The pressure shall be between 5 {low} and 10 {high}."
     )
     assert (read is not None) is same
+
+
+# ------------------------------------------------- the condition reader
+
+
+def _condition(text, value, unit):
+    fact = {
+        "field_name": "design pressure",
+        "field_value": f"{value} {unit}",
+        "raw_value": value,
+        "raw_unit": unit,
+        "normalized_value": 7.0,
+        "extraction_method": "geometry",
+        "page": 1,
+    }
+    return conditions._evaluate_numeric(text, [fact])
+
+
+def test_a_condition_in_millipascal_is_not_read_as_megapascal():
+    held = _condition("design pressure greater than 5 mPa", "7", "MPa")
+    assert held["state"] == conditions.UNKNOWN
+    assert "not in the unit table" in held["reason"]
+
+
+def test_a_condition_in_megapascal_still_decides():
+    assert (
+        _condition("design pressure greater than 5 MPA", "7", "MPa")["state"]
+        == conditions.SATISFIED
+    )
+    assert (
+        _condition("design pressure GREATER THAN 5 MPa", "7", "MPa")["state"]
+        == conditions.SATISFIED
+    )
+
+
+# ---------------------------------------- a sheet that prints it goes to review
+
+
+@pytest.fixture
+def temp_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "case.sqlite")
+    db.reset_connection()
+    db.init_db()
+    submittal_review.ensure_schema()
+    submittal_review.migrate_facts_to_per_document()
+    yield
+    db.reset_connection()
+
+
+def _stored(accepted, page_text):
+    """Store accepted readings the way a real run does, and read them back."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)"
+            " VALUES ('d1','sheet.pdf','sha',1,'sheet.pdf','ready',1,'2026-09-18T00:00:00Z')"
+        )
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,"
+            "text,token_count,content_hash,retrievable)"
+            " VALUES ('c1','d1','sheet.pdf',1,1,1,NULL,'prose',?,1,'h1',1)",
+            (page_text,),
+        )
+    stored = claude_datasheet.store_facts(
+        None,
+        "d1",
+        [{**p, "page": 1} for p in accepted],
+        allowed_document_ids=frozenset({"d1"}),
+    )
+    assert stored["refused"] == []
+    return stored["facts"]
+
+
+REQUIREMENT = {
+    "id": "r",
+    "requirement_type": "numeric_limit",
+    "operator": "<=",
+    "raw_value": "20",
+    "raw_unit": "mA",
+    "value": 0.02,
+    "unit": "A",
+    "normalized_value": 0.02,
+    "normalized_unit": "A",
+    "subject": "signal",
+    "requirement_text": "signal at most 20 mA",
+    "exact_span": "signal at most 20 mA",
+}
+
+
+def test_a_retyped_capital_unit_goes_to_review_and_never_reads_as_missing(temp_db):
+    page = "SIGNAL RANGE 20 MA\n"
+    proposal = {
+        "field": "signal range",
+        "value": "20 mA",
+        "kind": "offered",
+        "quote": "SIGNAL RANGE 20 mA",
+    }
+    done = claude_datasheet.accept([proposal], page)
+    assert done["rejected"] == []
+    fact = _stored(done["accepted"], page)[0]
+    verdict = comparison.compare(REQUIREMENT, fact)
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "Capitals carry no case" in verdict["rationale"]
+    assert "not mentioned" not in verdict["rationale"].lower()
+    assert (
+        comparison.compare(REQUIREMENT, None)["status"]
+        == comparison.MISSING_INFORMATION
+    )
+
+
+def test_a_retyped_mega_value_on_a_millipascal_page_goes_to_review(temp_db):
+    page = "DESIGN PRESSURE 10 mPa\n"
+    proposal = {
+        "field": PRESSURE,
+        "value": "10 MPa",
+        "kind": "offered",
+        "quote": "DESIGN PRESSURE 10 MPa",
+    }
+    done = claude_datasheet.accept([proposal], page)
+    fact = _stored(done["accepted"], page)[0]
+    limit = {
+        **REQUIREMENT,
+        "raw_unit": "MPa",
+        "unit": "MPa",
+        "value": 20.0,
+        "normalized_unit": "MPa",
+        "normalized_value": 20.0,
+        "subject": PRESSURE,
+    }
+    assert comparison.compare(limit, fact)["status"] == comparison.NEEDS_ENGINEER_REVIEW
+
+
+def test_the_form_reader_gives_the_printed_spelling():
+    answer = {
+        "field_key": "design_pressure",
+        "value": "10",
+        "unit": "MPa",
+        "quote": "Design pressure: 10 MPa",
+        "status": "found",
+    }
+
+    def model(_prompt):
+        return json.dumps({"fields": [answer]})
+
+    reading = form_reader.read_form(
+        {1: "Design pressure: 10 mPa\n"}, "Centrifugal Pump", model
+    )
+    fact = next(f for f in reading.facts if f["field_key"] == "design_pressure")
+    assert (fact["value"], fact["unit"], fact["quote"]) == (
+        "10",
+        "mPa",
+        "Design pressure: 10 mPa",
+    )
+
+
+def test_the_capitals_reason_names_only_a_capital_case_kept_unit():
+    assert "Capitals carry no case" in unit_case.capitals_note("MA")
+    assert "Capitals carry no case" in unit_case.capitals_note("ML/MIN")
+    assert unit_case.capitals_note("MPA") == ""
+    assert unit_case.capitals_note("mPa") == ""
+    assert unit_case.capitals_note(None) == ""
+
+
+# ------------------------------------------------- the mark is never kept
+
+
+@pytest.mark.parametrize("word", ["MV", "MA", "Mg", "ML", "mPa"])
+def test_the_private_mark_reaches_no_stored_or_shown_field(temp_db, word):
+    mark = numparse.CASE_KEPT_MARK
+    limit = "10"
+    condition = f"at {word} level"
+    sentence = f"When {condition}, the {PRESSURE} shall not exceed {limit} bar."
+    quote = f"{PRESSURE} shall not exceed {limit} bar"
+    row = {
+        "requirement_text": sentence,
+        "clause": "6.1",
+        "requirement_type": "statement",
+    }
+    answer = {
+        "condition": condition,
+        "field": 0,
+        "comparator": "<=",
+        "limit": limit,
+        "unit": "bar",
+        "quote": quote,
+    }
+    status, why, check = standards_converter.verify(
+        answer,
+        row,
+        [PRESSURE],
+        {PRESSURE: "design_pressure"},
+        {PRESSURE: ("pressure",)},
+    )
+    assert status == "verified", why
+    assert mark not in repr(check)
+    assert mark not in standards_converter._fold(condition)
+
+    kept = compiled_rule_proof._kept_rule(
+        {"clause": "6.1", "page": 1},
+        {
+            "quote": quote,
+            "limit": limit,
+            "unit": "bar",
+            "applies_to": "pump",
+            "condition": condition,
+            "exception": condition,
+            "name": PRESSURE,
+            "comparator": "<=",
+        },
+        [],
+        "shall",
+        sentence,
+    )
+    assert kept["condition_text"] == condition.lower()
+    assert mark not in json.dumps(kept, ensure_ascii=False)
+
+    said = f"The {PRESSURE} at {word} level shall not exceed 10 bar."
+    checked, _why = ai_requirements.verify_proposal(
+        {
+            "has_limit": True,
+            "field": PRESSURE,
+            "operator": "<=",
+            "value": "10",
+            "unit": "bar",
+            "quote": said,
+            "condition": None,
+        },
+        said,
+    )
+    assert mark not in repr(checked)
+    done = reader_api.accept(
+        [{"kind": "statement", "value": "10", "quote": said, "subject": PRESSURE}], said
+    )
+    assert mark not in repr(done)
+
+    page = f"{PRESSURE} 5 {word} at {word} level\n"
+    read = claude_datasheet.accept(
+        [
+            {
+                "field": PRESSURE,
+                "value": f"5 {word}",
+                "kind": "offered",
+                "quote": page.strip(),
+            }
+        ],
+        page,
+    )
+    assert mark not in repr(read)
+    _stored(read["accepted"], page)
+    with db.connect() as conn:
+        tables = [
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        ]
+        for table in tables:
+            for line in conn.execute(f'SELECT * FROM "{table}"').fetchall():
+                assert mark not in repr(tuple(line)), table
+
+
+def test_a_calculation_says_why_a_capital_unit_got_no_number():
+    rules = {"calc_units": {"pressure_kpa": {"kpa": 1.0}}}
+    fact = {"raw_value": "5", "raw_unit": "MA", "field_name": "pressure"}
+    with pytest.raises(datasheet_checks._NotCalculated, match="Capitals carry no case"):
+        datasheet_checks._converted(fact, "pressure", "pressure_kpa", rules)
+
+
+def test_the_converter_refuses_a_quote_retyped_in_the_other_case():
+    answer = {
+        "condition": None,
+        "field": 0,
+        "comparator": "<=",
+        "limit": "10",
+        "unit": "MPa",
+        "quote": f"{PRESSURE} shall not exceed 10 MPa",
+    }
+    row = {
+        "requirement_text": f"The casing {PRESSURE} shall not exceed 10 mPa.",
+        "clause": "6.1",
+        "requirement_type": "statement",
+    }
+    status, _why, check = standards_converter.verify(
+        answer,
+        row,
+        [PRESSURE],
+        {PRESSURE: "design_pressure"},
+        {PRESSURE: ("pressure",)},
+    )
+    assert status == "unproven" and check is None
