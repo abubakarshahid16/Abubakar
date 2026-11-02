@@ -57,11 +57,19 @@ def count_on(conn, sheet: Path, document: str, role: str, equipment_type: str) -
         ),
     )
     table = ref.signed(conn)
+
+    def known(among, value) -> bool:
+        families = ref.families_of(among, value)
+        return bool(families) and None not in families
+
     return {
         "role": role,
         "values": len(found),
-        "in_the_table_signed_or_not": sum(1 for v in found if ref.family_of(every, v)),
-        "in_the_signed_table": sum(1 for v in found if ref.family_of(table, v)),
+        "parts_per_value": sorted(len(ref.parts_of(v)) for v in found),
+        "every_part_in_the_table_signed_or_not": sum(
+            1 for v in found if known(every, v)
+        ),
+        "every_part_in_the_signed_table": sum(1 for v in found if known(table, v)),
         "entries": len(every.entries),
         "signed_entries": len(table.entries),
     }

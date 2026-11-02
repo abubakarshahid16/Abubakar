@@ -10,7 +10,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 
-from app import coverage_pair, db, material_reference, rule_typed_check
+from app import coverage_pair, db, material_reference, rule_trust, rule_typed_check
 from app.config import settings
 from app.material_reference import Entry, Table, family_of, is_not, tokens
 from tests.test_805_review_reads_v2 import (  # noqa: F401
@@ -61,7 +61,6 @@ def test_a_steel_grade_passes_however_it_is_spaced(value):
         "A216 WC",  # a partial token
         "A2160 WCB",  # a partial token the other way
         "A216 WCBX",
-        "ASTM A216 WCB / ASTM A48 Class 30",  # several specifications
         "A216 WCB lined",  # words beside it
         "see note 4",
         "",
@@ -70,6 +69,41 @@ def test_a_steel_grade_passes_however_it_is_spaced(value):
 def test_anything_else_is_no_family_so_a_query(value):
     assert family_of(TABLE, value) is None
     assert is_not(TABLE, FORBID, value)[0] is None
+
+
+A351 = "ASTM A351 CF8M"
+STEEL_VALUE = "ASTM A216 WCB"
+IRON = "ASTM A48 Class 30"
+UNKNOWN = "ASTM A999 ZZZ"
+BARE_351 = Entry("ASTM A351", "CF8M", "stainless steel", False)
+
+
+@pytest.mark.parametrize(
+    ("value", "status"),
+    [
+        (f"{STEEL_VALUE} / {A351}", "COMPLIANT"),
+        (f"{STEEL_VALUE}/{A351}", "COMPLIANT"),
+        (f"{STEEL_VALUE}, {A351}", "COMPLIANT"),
+        (f"{STEEL_VALUE} and {A351}", "COMPLIANT"),
+        (f"{STEEL_VALUE} / {IRON}", "NON_COMPLIANT"),
+        (f"{IRON} / {STEEL_VALUE}", "NON_COMPLIANT"),
+        (f"{IRON} / {UNKNOWN}", "NON_COMPLIANT"),
+        (f"{STEEL_VALUE} / {UNKNOWN}", None),
+        (f"{UNKNOWN} / {STEEL_VALUE}", None),
+        (f"{STEEL_VALUE} / see note 4", None),
+        (f"{STEEL_VALUE} /", "COMPLIANT"),
+    ],
+)
+def test_a_value_listing_specifications_is_judged_part_by_part(value, status):
+    assert is_not(TABLE, FORBID, value)[0] == status
+
+
+def test_a_listed_part_must_itself_be_a_signed_entry():
+    only_steel = Table("v", (STEEL,))
+    assert is_not(only_steel, FORBID, f"{STEEL_VALUE} / {A351}")[0] is None
+    assert family_of(TABLE, f"{STEEL_VALUE} / {IRON}") is None, (
+        "the whole value is not one entry"
+    )
 
 
 def test_a_bare_grade_matches_only_where_the_table_says_it_is_unambiguous():
@@ -184,6 +218,26 @@ def test_what_is_sent_is_general_knowledge_and_names_no_document(engine):
     )
 
 
+def test_an_answer_cut_at_the_limit_says_so_and_stores_nothing(engine):
+    class Cut(Roles):
+        def batch_results(self, url, *, headers):
+            rows = super().batch_results(url, headers=headers)
+            for row in rows:
+                row["result"]["message"]["stop_reason"] = "max_tokens"
+            return rows
+
+    report = _propose(Cut(_proposal()))
+    assert report["status"] == "no_usable_answer" and "length" in report["why"]
+    assert material_reference.sheet_rows(db.connect()) == []
+
+
+def test_the_prompt_bounds_the_list_and_the_output_has_room_for_it():
+    assert (
+        f"At most {material_reference.MAX_ENTRIES} entries" in material_reference.SYSTEM
+    )
+    assert material_reference.MAX_OUTPUT_TOKENS >= material_reference.MAX_ENTRIES * 60
+
+
 def test_a_limit_already_spent_says_why(engine):
     client = Roles(_proposal())
     report = _propose(client, max_usd=0.0)
@@ -274,6 +328,62 @@ def test_switch_off_the_table_is_not_read(monkeypatch):
     assert settings.material_reference_enabled is False
     row = _one(_review(monkeypatch, run, scope, _forbid()))
     assert row["compliance_status"] == QUERY and "owner-signed" not in row["finding"]
+
+
+def _flagged_forbid(**over):
+    rule = _forbid()
+    return {
+        **rule,
+        "strength": "context_dependent",
+        "sentence_strength": "shall",
+        "context_flag": "heading_scope",
+        "applies_to": "invented words from a heading",
+        "approval": {
+            **rule["approval"],
+            "note": "Checked OK: applies to these valves.",
+        },
+        **over,
+    }
+
+
+def test_the_first_rule_decides_on_the_note_though_its_scope_is_in_a_heading(
+    engine, monkeypatch
+):
+    monkeypatch.setattr(settings, "owner_note_lifts_context_flag_enabled", True)
+    run, scope = _world(
+        monkeypatch, "ASTM A216 WCB / ASTM A395 60-40-18", STEEL, DUCTILE
+    )
+    row = _one(_review(monkeypatch, run, scope, _flagged_forbid()))
+    assert row["compliance_status"] == "NON_COMPLIANT", row["finding"]
+    assert row["trust_label"] == rule_trust.OWNER_NOTE_CONTEXT
+
+
+def test_without_the_note_switch_it_stays_a_query(engine, monkeypatch):
+    run, scope = _world(monkeypatch, "ASTM A216 WCB", STEEL)
+    row = _one(_review(monkeypatch, run, scope, _flagged_forbid()))
+    assert (
+        row["compliance_status"] == QUERY and _reason(row) == "scope_outside_sentence"
+    )
+
+
+def test_the_note_does_not_lift_a_condition(engine, monkeypatch):
+    monkeypatch.setattr(settings, "owner_note_lifts_context_flag_enabled", True)
+    run, scope = _world(monkeypatch, "ASTM A216 WCB", STEEL)
+    rule = _flagged_forbid(conditions=["where the invented flux capacitor is fitted"])
+    row = _one(_review(monkeypatch, run, scope, rule))
+    assert (
+        row["compliance_status"] == QUERY and _reason(row) == "condition_not_verified"
+    )
+
+
+def test_a_rule_with_no_flag_still_needs_its_scope_shown(engine, monkeypatch):
+    monkeypatch.setattr(settings, "owner_note_lifts_context_flag_enabled", True)
+    run, scope = _world(monkeypatch, "ASTM A216 WCB", STEEL)
+    rule = {**_forbid(), "applies_to": "invented words from a heading"}
+    row = _one(_review(monkeypatch, run, scope, rule))
+    assert (
+        row["compliance_status"] == QUERY and _reason(row) == "applies_to_not_verified"
+    )
 
 
 def test_the_switches_are_off_by_default():
@@ -387,9 +497,7 @@ def test_the_counts_print_no_value(engine, tmp_path):
         "body_material",
         "Pressure Safety Valve",
     )
-    assert (
-        said["values"] == 1
-        and said["in_the_table_signed_or_not"] == 1
-        and said["in_the_signed_table"] == 0
-    )
+    assert said["values"] == 1 and said["parts_per_value"] == [1]
+    assert said["every_part_in_the_table_signed_or_not"] == 1
+    assert said["every_part_in_the_signed_table"] == 0
     assert "WCB" not in json.dumps(said)

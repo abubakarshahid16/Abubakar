@@ -377,7 +377,8 @@ def _scope_reason(
     strength = rule.get("sentence_strength") if flagged else rule.get("strength")
     if strength != _BINDING:
         return NOT_BINDING
-    if not _applies_to_this_type(rule, equipment_type):
+    # who the rule is for is the context the note confirms; its conditions and exceptions are still verified below
+    if not flagged and not _applies_to_this_type(rule, equipment_type):
         return APPLIES_TO_NOT_VERIFIED
     if any(
         _state_of(text, facts, fact) != conditions.SATISFIED

@@ -6,8 +6,9 @@ says "owner-signed reference" and that it is not engineer-confirmed.
 AI PROPOSES, A PERSON SIGNS, CODE DECIDES. One call from general knowledge, sending no document text and no value from any
 sheet (`propose`). Each entry lands unsigned; only the owner's tick on the checklist's "Material reference" sheet signs it,
 and an entry without one never decides. A value matches when its whole tokens are the entry's specification and grade,
-nothing else: no substring, and a bare grade only where the signed entry says that is unambiguous. Anything else, a second
-specification or words beside the grade included, is no match, so a Query. Generic: nothing here knows a sheet or layout.
+nothing else: no substring, and a bare grade only where the signed entry says that is unambiguous. A value listing several
+specifications is split on its list separator and each part must match. Words beside a grade are no match, so a Query.
+Generic: nothing here knows a sheet or layout.
 
 On a COPY only: `ensure_schema` refuses a live-shaped file, and the tables grant nothing (CLAUDE.md rule 5).
 """
@@ -29,7 +30,8 @@ from .reasoning_provider import ClaudeProvider, Packet, schema_errors
 
 LABEL = "owner-signed reference"
 NOT_CONFIRMED = f"{LABEL}, not engineer-confirmed"
-PROMPT_VERSION = "material-reference-v1"
+#: v1 asked for no limit, and its one answer stopped at the output limit, so it could not be read.
+PROMPT_VERSION = "material-reference-v2"
 STEP = "material-reference"
 ENGINE_CLAUDE = "claude"
 SOURCE = "AI proposed"
@@ -48,7 +50,9 @@ FAMILIES = (
 )
 #: The words a specification or grade is written with that say nothing about which one it is.
 _NO_MEANING = frozenset({"astm", "asme", "gr", "grade", "type", "uns"})
-MAX_OUTPUT_TOKENS = 6000
+_LIST_SEPARATOR = re.compile(r"\s*[/;,]\s*|\s+and\s+", re.IGNORECASE)
+MAX_ENTRIES = 100
+MAX_OUTPUT_TOKENS = 12000
 SHEET = "Material reference"
 COVER_STAMP = "Material reference stamp"
 C_SPEC, C_GRADE, C_FAMILY, C_BARE, C_SOURCE = (
@@ -124,7 +128,8 @@ SYSTEM = (
     " entries, castings and forgings, and the iron grades too. Each entry gives its family, exactly one of: "
     f"{', '.join(FAMILIES)}. The family {CAST_IRON} includes grey, ductile and malleable iron. Set"
     " bare_grade_unambiguous true only when the grade alone, with no specification, names one material whatever"
-    " specification it appears under. Leave out anything you are not sure of. Answer JSON only."
+    f" specification it appears under. Leave out anything you are not sure of. At most {MAX_ENTRIES} entries, the most"
+    " common first. Answer JSON only, with no other words."
 )
 
 
@@ -205,20 +210,31 @@ def family_of(table: Table, stated: str | None) -> str | None:
     return next(iter(hits)) if len(hits) == 1 else None
 
 
+def parts_of(stated: str | None) -> list[str]:
+    """The specifications a value lists, split on its list separator."""
+    return [p for p in _LIST_SEPARATOR.split(str(stated or "")) if tokens(p)]
+
+
+def families_of(table: Table, stated: str | None) -> list[str | None]:
+    """One family, or None, per listed part."""
+    return [family_of(table, part) for part in parts_of(stated)]
+
+
 def is_not(table: Table, forbidden: list[str], stated: str) -> tuple[str | None, str]:
-    """(COMPLIANT or NON_COMPLIANT, words), or (None, words). A Pass needs the value's grade in the signed table, and a
-    family named by the rule itself: a narrower word in the rule ("ductile iron") is not a family, so it decides nothing."""
-    family = family_of(table, stated)
+    """(COMPLIANT or NON_COMPLIANT, words), or (None, words). Any listed part in a forbidden family fails. A Pass needs
+    every part in the signed table and a family named by the rule itself: a narrower word in the rule ("ductile iron")
+    is not a family, so it decides nothing."""
+    families = families_of(table, stated)
     named = [" ".join(v.casefold().split()) for v in forbidden]
     where = f"{NOT_CONFIRMED}, version {table.version}"
-    if family is None:
-        return None, f"the sheet states {stated}; that grade is not in the {where}"
     if not all(n in FAMILIES for n in named):
         return None, f"the rule's words are not one family of the {where}"
-    status = "NON_COMPLIANT" if family in named else "COMPLIANT"
-    return status, (
-        f"the sheet states {stated}, family {family} by the {where}; the rule forbids {'; '.join(named)}"
-    )
+    said = f"the sheet states {stated}, by the {where}, family {'; '.join(str(f) for f in families)}"
+    if any(f in named for f in families):
+        return "NON_COMPLIANT", f"{said}; the rule forbids {'; '.join(named)}"
+    if not families or None in families:
+        return None, f"the sheet states {stated}; a part of it is not in the {where}"
+    return "COMPLIANT", f"{said}; the rule forbids {'; '.join(named)}"
 
 
 def signed(conn) -> Table:
@@ -343,7 +359,12 @@ def propose(
             " plus this send's worst case",
         }
     if reply is None:
-        return {**base, "status": "no_usable_answer"}
+        stopped = (answer or {}).get("finish_reason")
+        return {
+            **base,
+            "status": "no_usable_answer",
+            "why": f"the answer could not be read; it ended with {stopped}",
+        }
     return {**base, "status": "done", **store_proposal(conn, reply, model)}
 
 

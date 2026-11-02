@@ -118,7 +118,13 @@ def counts_for_document(rows, facts: list[dict], equipment_type: str) -> dict:
         if settings.material_reference_enabled
         else None
     )
-    rules = [{**rule_of_compiled(r), "_reference": table} for r in rows]
+    # "if approved": with the note's switch on, as if the owner had written one on each such rule
+    note = (
+        {"approval": {"note": "assumed for the count"}}
+        if settings.owner_note_lifts_context_flag_enabled
+        else {}
+    )
+    rules = [{**rule_of_compiled(r), **note, "_reference": table} for r in rows]
     found = [review.pairs(rule, facts, equipment_type) for rule in rules]
     deciding = [could_decide(rule, facts, equipment_type) for rule in rules]
     stopped: dict[str, int] = {}
