@@ -165,9 +165,6 @@ class Packet:
     #: is reached: the tools stay defined, because the history holds tool
     #: blocks, but none may be called). None leaves the API default.
     tool_choice: dict | None = None
-    #: False leaves `system` out of Claude's prompt cache: a one-request job would pay the
-    #: dearer cache write and never read it (`standards_compiler.packets_of`). Same answer, same key.
-    cache_system: bool = True
 
     @property
     def sha256(self) -> str:
@@ -501,10 +498,8 @@ class ClaudeProvider:
         if packet.effort:
             body["output_config"] = {"effort": packet.effort}
         if packet.system:
-            block = {"type": "text", "text": packet.system}
-            if packet.cache_system:
-                block["cache_control"] = {"type": "ephemeral"}
-            body["system"] = [block]
+            body["system"] = [{"type": "text", "text": packet.system,
+                               "cache_control": {"type": "ephemeral"}}]
         return request, body, prompt
 
     def _cached(self, key: str, packet: Packet, step: str) -> Response | None:

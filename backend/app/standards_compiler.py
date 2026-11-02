@@ -8,7 +8,7 @@ draft files. This reads the pages and writes versioned rows. Its gates are reuse
 the comparator words, the scope after a limit, default and example words, unreadable quotes. No second number
 parser (`numparse`), no second unit reader (`datasheet_ai.unit_in_quote`, `claims.unit_dimension`).
 
-CODE VERIFIES EVERY PROPOSAL (`verify`). The quote must stand on the cited page's stored text and the limit and
+CODE VERIFIES EVERY PROPOSAL (`compiled_rule_proof.verify`). The quote must stand on the cited page's stored text and the limit and
 unit inside the quote, or the rule is dropped and counted by reason. The `standard` is written by code.
 
 VERSIONS. Version 1 is `standard_requirements`: never written here, never deleted. Version 2 is `compiled_rules`,
@@ -36,15 +36,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import time
 import uuid
 from collections import Counter
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from . import (
-    claims,
     claude_approved,
     claude_batch_run,
     claude_spend,
@@ -52,11 +49,10 @@ from . import (
     standards_converter,
 )
 from .ai.json_reply import unfenced
-from .ai_requirement_tables import quote_on_page
+from .compiled_rule_proof import Chunk, quote_verified, verify
 from .config import settings
-from .converter_gates import _CLAUSE_HEADING, in_example, quote_unreadable
+from .converter_gates import _CLAUSE_HEADING
 from .converter_gates import fold as _fold
-from .datasheet_ai import unit_in_quote
 from .reasoning_provider import ClaudeProvider, Packet, schema_errors
 
 V1, V2 = 1, 2
@@ -69,7 +65,6 @@ HEAD_CHARS = 6_000
 MAX_OUTPUT_TOKENS = 12_000
 #: Below this the API silently does not cache (512 on the 5.5 models); ~4 characters per token here.
 MIN_CACHE_TOKENS = 512
-MIN_QUOTE_CHARS = 8
 NOT_RECORDED = "not recorded"
 BOUNDARY = "active rows of the standards named in this report, this database copy only"
 SCHEMA = (
@@ -141,15 +136,6 @@ def pages_of(conn, document_id: str) -> dict[int, str]:
 def text_hash(pages: dict[int, str]) -> str:
     joined = "\f".join(f"{n}\n{t}" for n, t in sorted(pages.items()))
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
-
-
-@dataclass
-class Chunk:
-    custom_id: str
-    text: str
-    pages: set[int] = field(default_factory=set)
-    #: page -> the clauses in force on it: printed there, or running on from an earlier page.
-    clauses: dict[int, set[str]] = field(default_factory=dict)
 
 
 def _blocks(pages: dict[int, str]) -> list[tuple[int, str, str]]:
@@ -224,11 +210,15 @@ def system_text(pages: dict[int, str]) -> str:
     )
 
 
+def cache_pays(system: str, chunks: list[Chunk]) -> bool:
+    """A cache write costs more than plain input, so only a block read again, and over the minimum, is marked."""
+    return len(chunks) >= 2 and len(system) // 4 >= MIN_CACHE_TOKENS
+
+
 def packets_of(
     label: str, pages: dict[int, str], chunks: list[Chunk]
 ) -> dict[str, Packet]:
     system = system_text(pages)
-    pays = len(chunks) >= 2 and len(system) // 4 >= MIN_CACHE_TOKENS
     return {
         c.custom_id: Packet(
             prompt=f"THE PAGES TO COMPILE NOW:\n{c.text}",
@@ -238,159 +228,12 @@ def packets_of(
             system=system,
             step=standards_converter.step_for(label),
             prompt_version=PROMPT_VERSION,
-            cache_system=pays,
         )
         for c in chunks
     }
 
 
-# ------------------------------------------------------------------------------------------ the proof
-
-
-def quote_verified(quote: object, page_text: str | None) -> bool:
-    """THE quote check, for version 1 and version 2 alike: the words stand on the cited page's stored text."""
-    words = " ".join(str(quote or "").split())
-    return (
-        len(words) >= MIN_QUOTE_CHARS
-        and bool(page_text)
-        and quote_on_page(words, page_text)
-    )
-
-
-def _unit_left_out(limit: str, quote: str) -> bool:
-    """A number with a recognised unit right after it in the quote, and the answer gave no unit."""
-    text = numparse.fold(quote)
-    wanted = numparse.as_number(limit)
-    for number in numparse.find_numbers(text):
-        if wanted is not None and number.value == wanted:
-            after = text[number.end :].split()
-            if after and claims.unit_dimension(after[0].strip(",.;:()")):
-                return True
-    return False
-
-
-def _sentence_from(quote: str, page: str) -> str:
-    """The quote and what follows it on the page, up to the sentence end or the next clause number."""
-    folded, q = _fold(page), _fold(quote)
-    at = folded.find(q)
-    if at < 0:
-        return q
-    tail = re.split(
-        r"[.;](?:\s|$)|\s\d+(?:\.\d+)+\s", folded[at + len(q) :], maxsplit=1
-    )[0]
-    return q + tail
-
-
-def _scope(
-    condition: str, quote: str, page: str, limit: str, unit: str
-) -> tuple[str | None, bool]:
-    """(condition, ok). A scope written after the limit is kept as the condition (order 289.2), so a quote cut right
-    at the limit never makes a conditional rule unconditional. Two different scopes are for the engineer."""
-    sentence = _sentence_from(quote, page)
-    scope = standards_converter.limit_scope(sentence, quote, limit, unit) or ""
-    said = _fold(condition)
-    if scope and said and said not in scope and scope not in said:
-        return None, False
-    return (max(scope, said, key=len) or None), True
-
-
-def _limit_problem(
-    condition, limit, unit, comparator, quote, text
-) -> tuple[str | None, str | None]:
-    """(reason, condition) for a rule that states a limit."""
-    if any(w in _sentence_from(quote, text) for w in standards_converter.DEFAULT_WORDS):
-        return "default_not_limit", None
-    if not numparse.value_in_text(limit, quote):
-        return "limit_not_in_quote", None
-    if unit and not unit_in_quote(unit, quote):
-        return "unit_not_in_quote", None
-    if not unit and _unit_left_out(limit, quote):
-        return "unit_left_out", None
-    if (
-        comparator not in standards_converter.COMPARATORS
-        or not standards_converter._comparator_says(quote, comparator)
-    ):
-        return "comparator_not_in_quote", None
-    if not unit:
-        return None, condition
-    cut, ok = _scope(condition, quote, text, limit, unit)
-    return (None, cut or "") if ok else ("two_conditions", None)
-
-
-def _quote_problem(answer: dict, chunk: Chunk, pages: dict[int, str]) -> str | None:
-    """Why a proposal's page, quote or clause is not proven, or None."""
-    page = answer.get("page")
-    if isinstance(page, bool) or not isinstance(page, int) or page not in chunk.pages:
-        return "page_not_sent"
-    text = pages.get(page, "")
-    quote = " ".join(str(answer.get("quote") or "").split())
-    if not quote_verified(quote, text):
-        return "quote_not_on_page"
-    if quote_unreadable(quote, quote):
-        return "quote_unreadable"
-    if in_example(
-        {"requirement_text": quote, "source_text": quote, "chunk_text": text}
-    ):
-        return "example_not_requirement"
-    clause = str(answer.get("clause") or "").strip()
-    if clause.lower() in standards_converter.PLACEHOLDER_CLAUSES:
-        return "no_clause"
-    if clause not in chunk.clauses.get(page, set()) and not numparse.contains_whole(
-        _fold(text), _fold(clause)
-    ):
-        return "clause_not_on_page"
-    return None
-
-
-def verify(
-    answer: object, chunk: Chunk, pages: dict[int, str]
-) -> tuple[dict | None, str | None]:
-    """(rule, None) or (None, reason), for ONE proposal. Code decides; the answer is a claim."""
-    if not isinstance(answer, dict):
-        return None, "not_an_object"
-    problem = _quote_problem(answer, chunk, pages)
-    if problem:
-        return None, problem
-    page, text = answer["page"], pages[answer["page"]]
-    quote = " ".join(str(answer.get("quote") or "").split())
-    applies_to = " ".join(str(answer.get("applies_to") or "").split())
-    if not applies_to:
-        return None, "no_applies_to"
-    name = " ".join(str(answer.get("field") or "").split())
-    if not name:
-        return None, "no_field"
-    if not standards_converter._names_field(quote, name):
-        return None, "field_not_in_quote"
-    condition = " ".join(str(answer.get("condition") or "").split())
-    if condition and _fold(condition) not in _fold(text):
-        return None, "condition_not_on_page"
-    limit = "" if answer.get("limit") is None else str(answer.get("limit")).strip()
-    unit = str(answer.get("unit") or "").strip()
-    comparator = str(answer.get("comparator") or "").strip()
-    if limit:
-        reason, condition = _limit_problem(
-            condition, limit, unit, comparator, quote, text
-        )
-        if reason:
-            return None, reason
-    elif comparator or unit:
-        return None, "comparator_without_limit"
-    return (
-        {
-            "applies_to": applies_to,
-            "condition_text": condition or None,
-            "field": name,
-            "comparator": comparator or None,
-            "limit_text": limit or None,
-            "limit_value": numparse.as_number(limit) if limit else None,
-            "unit": unit or None,
-            "unit_dimension": claims.unit_dimension(unit) if unit else None,
-            "clause": str(answer.get("clause")).strip(),
-            "page": page,
-            "quote": quote,
-        },
-        None,
-    )
+# ------------------------------------------------------------------------------------------ the answer
 
 
 def _proposals(answer: dict) -> tuple[list | None, str | None]:
@@ -585,6 +428,52 @@ def _spent_on(label: str) -> dict:
     }
 
 
+def _sent_counts(outcome, chunks: int, worst: dict, label: str) -> dict:
+    return {
+        "chunks": chunks,
+        "estimate": worst,
+        "batch_ids": outcome.batch_ids,
+        "answered": len(outcome.answers),
+        "from_response_cache": outcome.from_cache,
+        "requeued_once": outcome.requeued,
+        "failures_by_kind": dict(Counter(outcome.failures.values())),
+        "gave_up": sorted(outcome.gave_up),
+        "resumed_batches": outcome.resumed_batches,
+        "unknown_results": outcome.unknown_results,
+        **_spent_on(label),
+    }
+
+
+def _finish(conn, document_id, label, digest, outcome, chunks, readable) -> dict:
+    """Every answer is in: verify all of them, then store rules and the run in one transaction."""
+    kept, counts = _read_answers(outcome.answers, chunks, readable)
+    models = sorted(
+        {str(a["model"]) for a in outcome.answers.values() if a.get("model")}
+    )
+    unread = (
+        set(outcome.gave_up)
+        | set(counts["chunks_truncated"])
+        | set(counts["chunks_unreadable"])
+    )
+    counts |= {
+        "kept": len(kept),
+        "gave_up": sorted(outcome.gave_up),
+        "pages_not_read": sorted(
+            {p for c in chunks if c.custom_id in unread for p in c.pages}
+        ),
+    }
+    run_id = _store(
+        conn, document_id, label, digest, kept, counts, models, outcome.batch_ids
+    )
+    return {
+        **counts,
+        "status": "complete",
+        "run_id": run_id,
+        "models_answering": models,
+        "held_until_approved": len(kept),
+    }
+
+
 def _already_compiled(conn, document_id: str, digest: str):
     return conn.execute(
         "SELECT id FROM compile_runs WHERE standard_document_id = ? AND prompt_version = ? AND text_sha256 = ?",
@@ -652,54 +541,17 @@ def compile_standard(
             max_wait_s=max_wait_s,
             sleep=sleep,
             resend_unconfirmed=resend_unconfirmed,
+            cache_system=cache_pays(next(iter(packets.values())).system, chunks),
         )
-    report |= {
-        "chunks": len(chunks),
-        "estimate": worst,
-        "batch_ids": outcome.batch_ids,
-        "answered": len(outcome.answers),
-        "from_response_cache": outcome.from_cache,
-        "requeued_once": outcome.requeued,
-        "failures_by_kind": dict(Counter(outcome.failures.values())),
-        "gave_up": sorted(outcome.gave_up),
-        "resumed_batches": outcome.resumed_batches,
-        "unknown_results": outcome.unknown_results,
-        **_spent_on(label),
-    }
+    report |= _sent_counts(outcome, len(chunks), worst, label)
     if outcome.waiting:
         return {**report, "status": "waiting"}
     if outcome.unconfirmed:
-        return {
-            **report,
-            "status": "unconfirmed",
-            "unconfirmed": sorted(outcome.unconfirmed),
-        }
-    kept, counts = _read_answers(outcome.answers, chunks, readable)
-    models = sorted(
-        {str(a["model"]) for a in outcome.answers.values() if a.get("model")}
-    )
-    unread = (
-        set(outcome.gave_up)
-        | set(counts["chunks_truncated"])
-        | set(counts["chunks_unreadable"])
-    )
-    counts |= {
-        "kept": len(kept),
-        "gave_up": sorted(outcome.gave_up),
-        "pages_not_read": sorted(
-            {p for c in chunks if c.custom_id in unread for p in c.pages}
-        ),
-    }
-    run_id = _store(
-        conn, document_id, label, digest, kept, counts, models, outcome.batch_ids
-    )
+        unsure = sorted(outcome.unconfirmed)
+        return {**report, "status": "unconfirmed", "unconfirmed": unsure}
     return {
         **report,
-        **counts,
-        "status": "complete",
-        "run_id": run_id,
-        "models_answering": models,
-        "held_until_approved": len(kept),
+        **_finish(conn, document_id, label, digest, outcome, chunks, readable),
     }
 
 

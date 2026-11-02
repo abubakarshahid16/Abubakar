@@ -152,7 +152,7 @@ def _hold(conn, job: str, model: str, sending: list[str], held: list) -> str:
             "INSERT INTO claude_batches (id, job, state, model, created_at) VALUES (?,?,'creating',?,?)",
             (batch_row, job, model, _now()),
         )
-        for custom_id, reservation in zip(sending, held):
+        for custom_id, reservation in zip(sending, held, strict=True):
             conn.execute(
                 "INSERT INTO claude_batch_requests (job, custom_id, attempts, state, batch_row, reservation_id,"
                 " worst_usd, step) VALUES (?,?,1,'held',?,?,?,?) ON CONFLICT (job, custom_id) DO UPDATE SET"
@@ -186,7 +186,15 @@ def _create_failed(conn, batch_row: str, held: list, exc: Exception) -> None:
 
 
 def _submit(
-    conn, provider: ClaudeProvider, job, packets, todo, client, may_send, out: Outcome
+    conn,
+    provider: ClaudeProvider,
+    job,
+    packets,
+    todo,
+    client,
+    may_send,
+    out: Outcome,
+    cache_system: bool,
 ) -> str | None:
     """Send `todo` as one batch and store its id. Returns the local batch row, or None when all were cached."""
     model = provider.requested_model
@@ -200,6 +208,11 @@ def _submit(
             out.from_cache += 1
             continue
         request, body, _prompt = provider._request(packet)
+        if not cache_system:  # a job that would only ever pay the dearer write
+            body["system"] = [
+                {k: v for k, v in block.items() if k != "cache_control"}
+                for block in body.get("system", [])
+            ]
         to_send.append({"custom_id": custom_id, "params": body})
         worsts.append((step, worst_usd(model, packet)))
         sending.append(custom_id)
@@ -394,6 +407,7 @@ def run(
     max_wait_s: float = 86400.0,
     sleep=time.sleep,
     resend_unconfirmed: bool = False,
+    cache_system: bool = True,
 ) -> Outcome:
     """Answer every packet, or say which were not. Open batches of this job are read first, so a run after a crash
     polls what it already paid for; only then is anything new sent. `may_send(worst_usd)` may raise to refuse."""
@@ -425,7 +439,9 @@ def run(
         todo = [c for c in packets if c not in rows or rows[c]["state"] in again]
         if not todo:
             return _finish(conn, job, packets, out)
-        batch_row = _submit(conn, provider, job, packets, todo, client, may_send, out)
+        batch_row = _submit(
+            conn, provider, job, packets, todo, client, may_send, out, cache_system
+        )
         if batch_row is not None and not _collect(
             conn, provider, job, packets, batch_row, client, **waits
         ):

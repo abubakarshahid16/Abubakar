@@ -962,10 +962,6 @@ def test_the_switch_is_off_by_default():
     assert type(settings).model_fields["standards_compiler_enabled"].default is False
 
 
-def test_an_ordinary_packet_is_still_cached_as_before():
-    assert Packet(prompt="p", num_ctx=1, num_predict=1).cache_system is True
-
-
 # ------------------------------------------------------------------------------------------ script
 
 

@@ -185,6 +185,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `converter_gates` | Orders 295.7 b and c: the standards converter's proof gates that read the SENTENCE's surroundings - `in_example` (a worked example illustrates, it is not a requirement) and `quote_unreadable` (a quote, or the sentence it was cut from, that is OCR noise); pure functions, called by `standards_converter.verify`; `fold` is the one way converter text is compared |
 | `standards_compiler` | #1584: Claude turns a held standard's pages into version 2 rules on a database copy; code verifies every quote, limit and unit on the cited page; stored apart and held until the owner approves, changing no verdict; the version 1 beside version 2 report; each run records the rule version it used |
 | `claude_batch_run` | #1584: a Message Batches run whose batch id and reservations are stored, so a crash resumes the poll without paying again; failed requests re-queued once, then counted |
+| `compiled_rule_proof` | #1584: the proof of one compiled rule: its quote on the cited page, its limit and unit inside the quote, its comparator in the quote's words, a scope after the limit kept as its condition; pure functions |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
