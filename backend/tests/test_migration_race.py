@@ -212,6 +212,39 @@ def test_a_schema_changed_answer_is_retried_not_raised(fresh_db):
     assert "extra" in db.columns_of(conn, "t_race")
 
 
+class _ScriptSchemaChanged:
+    """A connection whose `executescript` is told "schema has changed" `failures` times."""
+
+    def __init__(self, conn, failures):
+        self._conn, self.failures = conn, failures
+
+    def executescript(self, script):
+        if self.failures:
+            self.failures -= 1
+            raise sqlite3.OperationalError("database schema has changed")
+        return self._conn.executescript(script)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def test_init_db_survives_a_schema_change_in_its_script(fresh_db, monkeypatch):
+    """Seen once in CI: another process migrating answered this inside `init_db`'s script."""
+    db.init_db()
+    wrapped = _ScriptSchemaChanged(db.connect(), 1)
+    monkeypatch.setattr(db, "connect", lambda: wrapped)
+    db.init_db()
+    assert wrapped.failures == 0
+
+
+def test_init_db_still_fails_loudly_on_a_script_that_never_settles(fresh_db, monkeypatch):
+    db.init_db()
+    wrapped = _ScriptSchemaChanged(db.connect(), 99)
+    monkeypatch.setattr(db, "connect", lambda: wrapped)
+    with pytest.raises(sqlite3.OperationalError, match="schema has changed"):
+        db.init_db()
+
+
 def test_a_schema_that_never_settles_still_fails_loudly(fresh_db):
     """Bounded: a schema that keeps changing is an error, never a silent pass."""
     db.init_db()
