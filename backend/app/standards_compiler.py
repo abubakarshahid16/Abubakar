@@ -768,9 +768,8 @@ def reverify_stored(
 
 
 def record_rule_version(review_run_id: str) -> None:
-    """Switch on: the run says which rule version it used. 1 unless the run itself recorded the rulebook's version 2
-    (`rulebook_v2_review`, its own switch); a held compiled rule cannot have been used, and this counts the ones it did
-    not use. Switch off: nothing."""
+    """Switch on: which rule version the run used: 1, unless it recorded the rulebook's version 2 (`rulebook_v2_review`).
+    A held compiled rule cannot have been used; this counts them. Switch off: nothing."""
     if not settings.standards_compiler_enabled:
         return
     conn = connect()
