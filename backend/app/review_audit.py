@@ -212,12 +212,18 @@ def _pages_section(sub: str) -> dict:
             entry["not_read_reason"] = why
             not_read.append({"page": r["page_no"], "reason": why})
         per_page.append(entry)
+    from . import word_pages
+
+    extra = {}
+    if (word_read := word_pages.read_proof(sub)) is not None:
+        extra["word_read"] = word_read
     return {
         "total": len(rows),
         "read_text": text,
         "read_picture": picture,
         "not_read": not_read,
         "per_page": per_page,
+        **extra,
     }
 
 
@@ -589,7 +595,30 @@ def _md_pages(audit: dict) -> list[str]:
         for p in (pages["per_page"] or [])
         if p.get("rule")
     ]
+    if pages.get("word_read"):
+        out += _md_word_read(pages["word_read"])
     return [*out, ""]
+
+
+def _md_word_read(word: dict) -> list[str]:
+    """A Word file's own count against what reached the reader (rule 4: a picture
+    with no text back is not read; a part is not a page)."""
+    from . import word_pages
+
+    saved = word["word_saved_pages"]
+    out = [
+        f"- Word page numbers: {word['page_source']} ({word['saved_markers']} saved marks, "
+        f"{word['typed_breaks']} typed breaks, Word saved {_v(saved)} pages, "
+        f"marks reach {'no page: none available' if word['pages'] is None else word['pages']})",
+        f"- tables in the file: {word['tables_in_file']}; read: {word['tables_read']}",
+        f"- pictures in the file: {word['pictures_in_file']}; with a reading: "
+        f"{word['pictures_read']}; in headers and footers, not sent: {word['furniture_pictures']}",
+    ]
+    out += [
+        f"  - {n['kind']} not read, {word_pages.place(n)}: {n['reason']}"
+        for n in word["not_read"]
+    ]
+    return out
 
 
 def _md_standards(audit: dict) -> list[str]:

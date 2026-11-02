@@ -25,9 +25,9 @@ from app import (
     document_refs,
     field_naming,
     standards_acquisition,
+    word_pictures,
 )
 from app.db import connect
-
 from tests.r2_security_support import h, temp_storage, world  # noqa: F401
 
 
@@ -39,6 +39,7 @@ def _full_schema() -> None:
     ai_requirement_chunks.ensure_reads_schema()
     with connect() as conn:
         conn.execute(field_naming._TABLE)
+    word_pictures._ensure_table(connect())
 
 
 def _tables(conn) -> list[str]:
