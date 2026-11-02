@@ -318,13 +318,9 @@ def _scope_reason(
 
 
 def _owner_approved(requirement: dict) -> bool:
-    """`rule_trust`'s gate for a person's approval. Not there, or anything but OWNER_APPROVED: not a verdict."""
-    tier_for = getattr(rule_trust, "tier_for_approved", None)
-    wanted = getattr(rule_trust, "OWNER_APPROVED", None)
-    return bool(
-        tier_for
-        and wanted
-        and tier_for(requirement.get("approval"), requirement) == wanted
+    return (
+        rule_trust.tier_for_approved(requirement.get("approval"), requirement)
+        == rule_trust.OWNER_APPROVED
     )
 
 
@@ -612,6 +608,9 @@ def store(conn, review: Review) -> list[dict]:
                         "equipment_tag": fact.get("equipment_tag"),
                         "standard_clause": f"{rule.get('standard') or ''} {rule.get('clause') or ''}".strip(),
                         "rule_said": row.rule_said,
+                        "trust_label": (
+                            rule_trust.OWNER_APPROVED if row.status in DECIDED else None
+                        ),
                     },
                     created_by=None,
                     conn=conn,

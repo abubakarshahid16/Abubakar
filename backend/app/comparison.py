@@ -1375,6 +1375,13 @@ def create_finding(
             "citation_resolves": not unresolved}
 
 
+def _rule_trust_on() -> bool:
+    """Does this run label anything? The second switch (#1584) labels only the rules the owner approved."""
+    return (
+        settings.rule_auto_use_enabled or settings.owner_approved_rules_decide_enabled
+    )
+
+
 class _RuleTrust:
     """One run's view of `rule_trust` (#947), switch ON only: the family
     proof per (standard, equipment type) and the compiling model, read once
@@ -1406,9 +1413,9 @@ class _RuleTrust:
                 model_id=model, standard_revision=self._revision(standard_id))
         return self._proofs[key]
 
-    def label(self, verdict: dict, rule: dict) -> dict:
+    def label(self, verdict: dict, rule: dict, fact: dict | None = None) -> dict:
         from . import rule_trust
-        return rule_trust.label_finding(verdict, rule, self.proof(rule))
+        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact)
 
 
 def _trust_columns(verdict: dict, status: str | None) -> dict:
@@ -1456,6 +1463,7 @@ def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
         "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
         "auto_proven": len(auto_ids),
         "audit_sample": rule_trust.audit_sample(auto_ids, seed=review_run_id),
+        **rule_trust.decided_by_tier(rows),
     }
 
 
@@ -2434,7 +2442,7 @@ def _run_comparison(
     kn = kind_rules.for_run(submittal_id, allowed_document_ids, standard_ids)
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
-    trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
+    trust = _RuleTrust(stored.get("equipment_type")) if _rule_trust_on() else None
     # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
     # except pressure relief valves 115 dB(A)"); derived HERE, once, so no
     # caller can forget it (audit 2026-09-30); a caller's own subject wins.
@@ -2904,7 +2912,7 @@ def _run_comparison(
             # the rule's own verdict kept as `rule_said`); a SAFETY-tier
             # COMPLIANT is flagged for an engineer's tick.
             if trust is not None:
-                verdict = trust.label(verdict, requirement)
+                verdict = trust.label(verdict, requirement, fact)
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`
             # applies every gate `create_finding` would (duplicate check against

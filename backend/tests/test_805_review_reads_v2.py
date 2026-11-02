@@ -58,18 +58,15 @@ V1_FIELD = "Maximum allowable working pressure"
 def switched_on(lane, monkeypatch):  # noqa: F811
     monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
     monkeypatch.setattr(settings, "rulebook_v2_review_enabled", True)
-    monkeypatch.setattr(rule_trust, "OWNER_APPROVED", "owner_approved", raising=False)
+    monkeypatch.setattr(settings, "owner_approved_rules_decide_enabled", True)
     seen = []
+    real = rule_trust.tier_for_approved
 
     def tier(approval, rule):
         seen.append(rule)
-        return (
-            "owner_approved"
-            if (approval or {}).get("tier") == "owner"
-            else rule_trust.UNPROVEN
-        )
+        return real(approval, rule)
 
-    monkeypatch.setattr(rule_trust, "tier_for_approved", tier, raising=False)
+    monkeypatch.setattr(rule_trust, "tier_for_approved", tier)
     return seen
 
 
@@ -92,7 +89,12 @@ def _book():
 def _rule(field="Set pressure", comparator="<=", value=10.0, unit="barg", **over):
     """One rule in the contract's shape, with a real version and a person's approval in the book."""
     conn = _book()
-    quote = over.pop("quote", SENTENCE)
+    words = {"<=": "shall not exceed", ">=": "shall be at least"}.get(
+        comparator, "shall be"
+    )
+    quote = over.pop(
+        "quote", f"The invented {field.lower()} {words} {value or 0:g} {unit}."
+    )
     digest = hashlib.sha256(quote.encode("utf-8")).hexdigest()
     key = uuid.uuid4().hex
     need = {
@@ -305,6 +307,7 @@ def test_an_unverified_condition_or_exception_is_a_query(monkeypatch):
     run, scope = _sheet()
     cond = _rule(conditions=["where the invented flux capacitor is fitted"])
     exc = _rule(
+        value=11.0,
         quote="The invented set pressure shall not exceed 11 barg.",
         exceptions=["unless the invented flux capacitor is fitted"],
     )
@@ -368,7 +371,7 @@ def test_scope_from_outside_the_sentence_or_a_should_is_a_query(monkeypatch):
     run, scope = _sheet()
     flagged = _rule(context_flag="scope_elsewhere")
     advice = _rule(
-        strength="should", quote="The invented set pressure should not exceed 9.5 barg."
+        strength="should", value=9.5, quote="The invented set pressure should not exceed 9.5 barg."
     )
     rows = {
         f["requirement"]: _reason(f)
@@ -387,11 +390,51 @@ def test_only_an_owner_approval_decides(monkeypatch):
     assert row["compliance_status"] == QUERY and _reason(row) == NOT_OWNER_APPROVED
 
 
-def test_without_the_trust_gate_nothing_decides(monkeypatch):
+def test_with_the_owners_switch_off_nothing_decides(monkeypatch):
     run, scope = _sheet()
-    monkeypatch.delattr(rule_trust, "tier_for_approved")
+    monkeypatch.setattr(settings, "owner_approved_rules_decide_enabled", False)
     row = _one(_review(monkeypatch, run, scope, _rule()))
     assert row["compliance_status"] == QUERY and _reason(row) == NOT_OWNER_APPROVED
+
+
+def test_a_quote_that_does_not_hold_the_rules_number_does_not_decide(monkeypatch):
+    run, scope = _sheet()
+    rule = _rule(value=8.0, quote="The invented set pressure shall not exceed 10 barg.")
+    row = _one(_review(monkeypatch, run, scope, rule))
+    assert row["compliance_status"] == QUERY and _reason(row) == NOT_OWNER_APPROVED
+
+
+def test_a_deferred_value_is_a_query_on_both_sides(monkeypatch):
+    run, scope = _sheet(value="9 barg")
+    with db.connect() as conn:
+        conn.execute("UPDATE submittal_facts SET value_note = 'by vendor'")
+    meets = _rule(value=10.0)
+    breaks = _rule(value=8.0)
+    rows = _ours(_review(monkeypatch, run, scope, meets, breaks))
+    assert [(r["compliance_status"], _reason(r)) for r in rows] == [
+        (QUERY, VALUE_NOT_TRUSTED),
+        (QUERY, VALUE_NOT_TRUSTED),
+    ]
+
+
+def test_a_breach_reaches_the_crs_citing_its_rule_and_a_query_does_not_call_it_one(
+    monkeypatch,
+):
+    from app import crs_mapping
+
+    run, scope = _sheet(value="9 barg")
+    breach = _rule(value=8.0)
+    unsure = _rule(field="Invented gadget thickness", unit="mm", value=2.0)
+    result = _review(monkeypatch, run, scope, breach, unsure)
+    rows = crs_mapping.build_crs_rows(_ours(result), [], "sheet.pdf")
+    said = json.dumps(rows, default=str)
+    assert breach["quote"] in said and "SAES-Z-901" in said
+    assert "Owner" in said or "owner" in said
+    by_field = {f["contractor_section"]: f["compliance_status"] for f in _ours(result)}
+    assert by_field == {
+        "Set pressure": "NON_COMPLIANT",
+        "Invented gadget thickness": QUERY,
+    }
 
 
 def test_a_changed_quote_stops_that_rule_at_use(monkeypatch):
@@ -606,6 +649,7 @@ def test_coverage_states_version_2_apart_with_its_denominator(monkeypatch):
         part["query"],
     ) == (3, 2, 1, 1, 1)
     assert "2 of 3" in part["line"] and part["reasons"] == {NOT_MENTIONED: 1}
+    assert part["line"] in pair["line"], "the headline is not 0 of N alone"
     assert part["wrong"] is None and "not measured" in part["line"]
     assert pair["decided"] == 0, "never added to the version 1 count"
     assert SENTENCE not in json.dumps(coverage_pair.public_view(pair))
@@ -733,11 +777,7 @@ def test_switch_off_a_review_with_a_full_book_is_byte_identical(monkeypatch):
     assert not called
     assert "rulebook_v2" not in before[1]
     assert "rulebook_v2" not in coverage_pair.for_run(_conn(), run)
-    assert not [
-        n
-        for n in coverage_pair.crs_notes([], _conn(), run)
-        if n["note"] == coverage_pair.NOTE_RULEBOOK_V2
-    ]
+    assert "Rulebook version 2" not in coverage_pair.for_run(_conn(), run)["line"]
 
 
 def test_the_two_switches_are_off_by_default():

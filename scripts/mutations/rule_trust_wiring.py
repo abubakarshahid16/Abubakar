@@ -18,8 +18,8 @@ def _m(n, desc, path, anchor, repl, kw):
 MUTATIONS: tuple[Mutation, ...] = (
     _m(1, "the verdict skips rule_trust: an unproven rule decides",
        APP / "comparison.py",
-       "            if trust is not None:\n                verdict = trust.label(verdict, requirement)\n",
-       "            if False:\n                verdict = trust.label(verdict, requirement)\n",
+       "            if trust is not None:\n                verdict = trust.label(verdict, requirement, fact)\n",
+       "            if False:\n                verdict = trust.label(verdict, requirement, fact)\n",
        "unproven_rule_never_decides"),
     _m(2, "AI drafts are used with the switch OFF",
        APP / "ai_requirements.py",
