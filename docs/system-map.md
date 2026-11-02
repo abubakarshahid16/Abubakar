@@ -80,6 +80,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `chat_tools` | Claude-first chat (2026-09-27): the tools Claude may call |
 | `chat_web` | The chat's web lane: ask first, send one phrase, cite what came back |
 | `chunker` | Step 3 - structure-aware chunking |
+| `pdf_headings` | Step 3 - a PDF's section headings read from font size and weight (#1522, off by default) |
 | `data_page` | Step 3 - a body-text or measured-values page is never set aside as front matter |
 | `figure_page` | Step 2b - a drawing page with only a running header goes to recognition |
 | `answer_prompts` | Wording variants of the local answer prompt, off by default; measured by `eval/answer_quality/` (order 189) |
@@ -193,6 +194,10 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `compile_budget` | #1584: what the standards compiler may still spend, read from the ledger; a hold nothing owns is released after the longest a batch can run |
 | `compiled_rule_proof` | #1584: the proof of one compiled rule: its quote on the cited page, its limit and unit inside the quote, its comparator in the quote's words, a scope after the limit kept as its condition; pure functions |
 | `compiled_rule_pages` | #1584: a standard's pages read into sentences, clause headings and chunks sized to the output room of the request; pure functions |
+| `compiled_rule_context` | #1584: why a proven compiled rule may still not stand alone: a table row, scope in a heading, caption or next sentence; a flag an approval path can refuse on |
+| `compiled_rule_field` | #1584: whether a compiled rule's field name belongs to its quote: strict with a figure, one word without |
+| `compiled_rule_shape` | #1584: whether a compiled rule may store its figure: an allow-list of plain sentence shapes; anything else keeps the sentence and no limit |
+| `compiled_rule_rescue` | #1584: the rules still readable in a paid answer that does not parse as a whole; says whether anything was lost |
 | `compiled_rule_report` | #1584: a standard's page text as the app cites it, where each page's text came from, its table rows, and version 1 beside version 2 with how the version 2 run ended; reads only, counts only |
 | `rulebook_v2` | #805 plan change 6, part A: the rulebook's version 2 tables on a database copy: stable rules, append-only versions, applicability and exceptions apart, provenance, a person's decisions, trigger-written events, a snapshot per compile, the snapshot a run used; off by default; no verdict reads them |
 | `rulebook_v2_check` | #805 plan change 6, part A: one rule's requirement against one submitted value: meets, does not meet or cannot tell; pure; not mentioned is never compliant |
@@ -262,6 +267,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `unsupported_script` | A page written mostly in Arabic script is not searched and says so: "language not supported, engineer review" (#564) |
 | `rates` | Throughput reporting |
 | `reader_api` | Layer 1 for STANDARDS: the model READS one sentence, Python VERIFIES it |
+| `reading_state` | What "ready" means: every page and picture read or listed as not read, from the ledger; one function for every kind of file (ONE_CHECKED_DEFINITION_ENABLED) |
 | `reader_transport` | The one place in this codebase that may open a socket to the standards reader |
 | `reasoning_provider` | One interface for "give this bounded packet to a model and tell me exactly what answered" |
 | `reports` | Single-answer evidence reports, rendered from a frozen snapshot |

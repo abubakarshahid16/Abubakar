@@ -422,6 +422,13 @@ def _furniture_pictures(zf: zipfile.ZipFile) -> int:
     return total
 
 
+def picture_counts(path: str | os.PathLike) -> tuple[int, int]:
+    """(pictures in the body, in headers and footers), from the file alone."""
+    with zipfile.ZipFile(path) as zf:
+        root = _parse_bounded(zf, "word/document.xml")
+        return _count_in_part(root)[2], _furniture_pictures(zf)
+
+
 class PageWalk:
     """What `docx_reader.read_structure` asks as it walks the file. Off: every
     answer leaves the walk as it was, and nothing is counted."""
