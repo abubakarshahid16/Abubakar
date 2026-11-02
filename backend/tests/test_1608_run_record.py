@@ -181,8 +181,9 @@ def test_a_version_2_record_names_its_version_and_snapshot(world, on):  # noqa: 
 
 
 def test_a_run_stored_before_the_switch_says_not_recorded_and_guesses_nothing(
-    world, monkeypatch
-):  # noqa: F811
+    world,
+    monkeypatch,  # noqa: F811
+):
     run_id = _completed_run(world)  # switch off: no record
     monkeypatch.setattr(settings, "run_record_enabled", True)
     lines = _lines(world, run_id)
@@ -305,8 +306,9 @@ def test_an_empty_tick_table_is_not_a_tick(world, on):  # noqa: F811
 
 
 def test_a_tick_table_that_cannot_be_read_is_a_could_not_check_line_never_zero(
-    world, on
-):  # noqa: F811
+    world,
+    on,  # noqa: F811
+):
     with db.connect() as conn:
         conn.execute("CREATE TABLE checklist_ticks (other TEXT)")
     run_id = _completed_run(world)
@@ -346,8 +348,10 @@ def test_only_this_module_reads_the_tick_table_so_no_verdict_can():
 
 
 def test_a_completed_run_with_nothing_listed_says_that_and_what_it_does_not_mean(
-    world, on, monkeypatch
-):  # noqa: F811
+    world,
+    on,
+    monkeypatch,  # noqa: F811
+):
     monkeypatch.setattr(main_mod.absence_mod, "unchecked_parts", lambda **_k: [])
     monkeypatch.setattr(main_mod, "_missing_references", lambda *_a: [])
     run_id = _completed_run(world)

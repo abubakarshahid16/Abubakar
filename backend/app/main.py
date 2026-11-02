@@ -2964,7 +2964,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
     }
     if run_record_mod.enabled() and copy == "internal":  # #1608
-        meta["run_record"] = run_record_mod.crs_rows(review_run_id, run, outcome, unchecked, missing)
+        meta["run_record"] = run_record_mod.crs_rows(
+            review_run_id, run, outcome, unchecked, missing
+        )
     meta["review_notes"] += cited_edition_mod.for_submittal(submittal_id, allowed)
     meta["review_notes"] += added + export_status_mod.equipment_notes(
         submittal_id, review_run_id, allowed

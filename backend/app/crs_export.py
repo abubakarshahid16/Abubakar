@@ -728,7 +728,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
             _write(record_sheet, 1, col, header).font = Font(bold=True)
         for r, entry in enumerate(view["run_record"], start=2):
             for col, value in enumerate(entry, start=1):
-                _write(record_sheet, r, col, value).alignment = Alignment(wrap_text=True, vertical="top")
+                _write(record_sheet, r, col, value).alignment = Alignment(
+                    wrap_text=True, vertical="top"
+                )
         for col, width in zip("ABC", (18, 22, 110)):
             record_sheet.column_dimensions[col].width = width
 
