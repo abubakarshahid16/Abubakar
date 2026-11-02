@@ -130,6 +130,12 @@ class SettingsExt(BaseModel):
     #: footer decides as before. Takes effect when a document is (re)chunked.
     #: Env: DATA_PAGE_NOT_FRONTMATTER_ENABLED.
     data_page_not_frontmatter_enabled: bool = False
+    #: #1478 kit proof 1 Nov: a line carrying a front-matter marker ("Copyright ... All rights
+    #: reserved.") that repeats on three or more pages is the document's running footer, so it is
+    #: not counted as front-matter evidence on any page; a vendor sheet's drawing pages under it were
+    #: set aside and never read. OFF: the footer counts as before. Takes effect when a document is
+    #: (re)chunked. Env: RUNNING_FOOTER_NOT_FRONTMATTER_ENABLED.
+    running_footer_not_frontmatter_enabled: bool = False
     #: 1 Nov proof of IOGP S-619 (public vessel spec): 25 of 85 pages are a drawing (one picture over
     #: 47 % of the page) under a 100-150 character running header; the router needs 50 % coverage, so
     #: they were never recognised and the chunker dropped them. ON: a page where one picture covers a
@@ -213,7 +219,9 @@ class SettingsExt(BaseModel):
     #: Owner decision 1 Nov (part of #1478): ONLY the title block (`classification.title_block_lines`) sets
     #: the equipment type; a section or panel heading in the page body never does (a pump sheet's 'MOTOR
     #: DATA' panel made it a Motor). None or two different types in the title block: the type is NULL,
-    #: marked 'engineer to confirm', with a Review note; no checklist is chosen. OFF: unchanged.
+    #: marked 'engineer to confirm', with a Review note; no checklist is chosen. The standards step still runs with no equipment term: the
+    #: first 5 standards the sheet's own words match are kept and say so, the rest are named as not checked. No
+    #: type is taken from the body: no heading, title or field reads as the equipment. OFF: unchanged.
     #: Env: EQUIPMENT_FROM_TITLE_BLOCK_ENABLED.
     equipment_from_title_block_enabled: bool = False
     #: Order 4b: an expired sign-in (a 401) tells the reader so, once, on the sign-in form, and says

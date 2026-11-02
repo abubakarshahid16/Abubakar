@@ -45,7 +45,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import numparse
+from . import equipment_title_block, numparse
 
 VOCABULARY_PATH = Path(__file__).parent / "reference" / "equipment_vocabulary.json"
 
@@ -130,7 +130,7 @@ def read_equipment(
     The first of classification, title and equipment-describing fields that
     names an equipment type is the reading. When `equipment_doubt` finds the
     datasheet itself disagrees, the equipment is read as UNKNOWN (empty) with
-    source "unsure", so nothing is ruled out by equipment type."""
+    source "unsure": nothing is ruled out by type (`equipment_scope.hold_unsure` holds, never drops)."""
     classification = classification or {}
     sources = (
         ("classification", classification.get("equipment_type")),
@@ -146,7 +146,7 @@ def read_equipment(
             ),
         ),
     )
-    for source, text in sources:
+    for source, text in equipment_title_block.equipment_sources(sources):
         found = vocab.equipment_in(text)
         if found:
             doubt = equipment_doubt(classification, facts, found, source, vocab)

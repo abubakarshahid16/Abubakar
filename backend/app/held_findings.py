@@ -52,6 +52,7 @@ KINDS = {
     "service": "the sentence names a service the datasheet does not state",
     "part_not_read": "the part of the standard it belongs to could not be read",
     "scope_unsure": "whether the part of the standard it belongs to applies could not be confirmed",
+    "equipment_unconfirmed": "each applies only if the equipment is another type: engineer to confirm",
     "other": "",
 }
 
@@ -64,6 +65,8 @@ def kind_of(item: dict) -> str:
         return "recommendation"
     if item.get("code") == "service_unknown":
         return "service"
+    if item.get("code") == "equipment_unconfirmed":
+        return "equipment_unconfirmed"
     if decided_by.startswith("code:scope-not-read"):
         return "part_not_read"
     if decided_by.startswith("ai:"):

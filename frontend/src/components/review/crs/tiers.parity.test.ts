@@ -38,6 +38,7 @@ import {
 
 interface FactsJson {
   pages_not_read: number[];
+  pages_no_field?: number[];
   reader_timed_out_pages: number[];
   missing_standards: string[];
   library_standard_ids: string[] | null;
@@ -53,7 +54,7 @@ interface CaseTable {
   run_facts: {
     name: string;
     run: Over;
-    expected: { pages_not_read: number[]; reader_timed_out_pages: number[] };
+    expected: { pages_not_read: number[]; pages_no_field?: number[]; reader_timed_out_pages: number[] };
   }[];
 }
 
@@ -67,6 +68,7 @@ function factsOf(name: string): RunFacts {
   return {
     pagesNotRead: f.pages_not_read, readerTimedOutPages: f.reader_timed_out_pages,
     missingStandards: f.missing_standards, libraryStandardIds: f.library_standard_ids,
+    ...(f.pages_no_field ? { pagesNoField: f.pages_no_field } : {}),
   };
 }
 
@@ -105,6 +107,7 @@ describe("the shared run facts: what runFactsOf gathers from a stored run (order
   it.each(TABLE.run_facts.map((c) => [c.name, c] as const))("%s", (_name, c) => {
     const facts = runFactsOf(c.run as never, null, []);
     expect(facts.pagesNotRead).toEqual(c.expected.pages_not_read);
+    expect(facts.pagesNoField ?? []).toEqual(c.expected.pages_no_field ?? []);
     expect([...facts.readerTimedOutPages].sort((a, b) => a - b)).toEqual(c.expected.reader_timed_out_pages);
   });
 });
