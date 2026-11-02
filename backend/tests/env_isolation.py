@@ -264,6 +264,8 @@ EGRESS_SAFE: dict[str, object] = {
     "equipment_from_title_block_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
+    # --- local only, no model or socket: presence check of a playbook whose standard is not held (#1522, off by default)
+    "playbook_presence_without_standard_enabled": False,
     # --- local only, no model or socket: a procedure's CRS gets its playbook rows as engineer rows (#1522 b, off by default)
     "procedure_playbook_rows_enabled": False,
     # --- local only, no model or socket: draft exchanger kit cards join the heat exchanger checklist (#1481, off by default)
