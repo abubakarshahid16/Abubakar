@@ -330,17 +330,62 @@ def detect(pages: dict[int, list[Line]]) -> dict[int, list[str]]:
     return found
 
 
+def _section_number(text: str) -> str | None:
+    """ "4.1" of "4.1 Scope", "1" of "1. Scope"; None for "Appendix B" or no number."""
+    label = _SECTION_NO.match(text)
+    if not label or label.group().split()[0].isalpha():
+        return None
+    return label.group().rstrip(".")
+
+
+def _rising(bold: list[tuple[str, str]], numbers: list[str]) -> set[str]:
+    """Which (line text, number) in document order fit the document's numbering: the
+    chunker's own test (`plausible_heading_numbers`, and a bare number must rise AT THIS
+    POSITION, as in `segment_document`). A bare number also needs a sibling or a child: a
+    lone "1." is a caption or a list as easily as a section."""
+    from . import chunker
+
+    allowed = chunker.plausible_heading_numbers(numbers)
+    kept: dict[str, str] = {}
+    last = 0
+    for text, number in bold:
+        if number not in allowed:
+            continue
+        if number.isdigit():
+            if int(number) <= last:
+                continue
+            last = int(number)
+        kept[text] = number
+    bare = [n for n in kept.values() if n.isdigit()]
+    children = {n.split(".")[0] for n in numbers if "." in n}
+    return {
+        text
+        for text, n in kept.items()
+        if not n.isdigit() or len(bare) > 1 or n in children
+    }
+
+
 def numbered_bold(pages: dict[int, list[Line]]) -> frozenset[str]:
-    """Headings that are set apart AND carry a section number: two independent signals, so
-    the owner counts them as found (2 Nov, #1522). A bold number before a body sentence is
-    not one: the line as a whole is not bold."""
+    """Headings bold as a whole line whose section number fits the document's numbering:
+    independent signals, so the owner counts them as found (2 Nov, #1522). Large but not
+    bold, a bold number before a body sentence, a restarted number and a lone row number
+    are not. "Appendix B" and its like carry their word instead of a rising number."""
     heads = detect(pages)
-    return frozenset(
-        ln.text
-        for n, found in heads.items()
-        for ln in pages[n]
-        if ln.styled and ln.text in found and numbered(ln.text)
-    )
+    labelled, bold, numbers = set(), [], []
+    for n in sorted(pages):
+        for ln in pages[n]:
+            if not numbered(ln.text):
+                continue
+            number = _section_number(ln.text)
+            is_head = ln.bold and ln.styled and ln.text in heads.get(n, ())
+            if is_head and number is None:
+                labelled.add(ln.text)
+            elif is_head:
+                bold.append((ln.text, number))
+                numbers.append(number)
+            elif number and "." in number and _reads_as_title(ln.text):
+                numbers.append(number)  # a body-type sub-heading vouches for its parent
+    return frozenset(labelled | _rising(bold, numbers))
 
 
 def enabled() -> bool:
@@ -354,10 +399,16 @@ def signature_key(sha: str, pagination: str | None) -> str:
 
 
 def font_only_headings(document_id: str) -> frozenset[str] | None:
+    """The guesses among a PDF's font headings; see `font_headings`."""
+    both = font_headings(document_id)
+    return None if both is None else both[0]
+
+
+def font_headings(document_id: str) -> tuple[frozenset[str], frozenset[str]] | None:
     """The stored section titles of a PDF that only the font says are headings: what is
     left once the text rules are replayed on its pages and the numbered bold headings are
-    taken out. A title here is a guess (CLAUDE.md rule 4); so is every font heading when the
-    file cannot be read. None with the switch off or for a Word file (its styles decide)."""
+    taken out. Returns (guesses, numbered bold). A guess is rule 4's guess; every font heading
+    is one when the file cannot be read. None with the switch off or for a Word file."""
     if not enabled():
         return None
     from . import chunker
@@ -371,7 +422,7 @@ def font_only_headings(document_id: str) -> frozenset[str] | None:
         return None
     pages, raw_tables, page_rows = chunker._load_pages(conn, document_id)
     if not pages:
-        return frozenset()
+        return frozenset(), frozenset()
     recognised = {r["page_no"] for r in page_rows if r["recognised"]}
     lines = _font_pages(row["stored_path"], recognised)
     confirmed = numbered_bold(lines) if lines else frozenset()
@@ -383,7 +434,8 @@ def font_only_headings(document_id: str) -> frozenset[str] | None:
         "SELECT DISTINCT section FROM chunks WHERE document_id = ? AND section IS NOT NULL",
         (document_id,),
     ).fetchall()
-    return frozenset({r[0] for r in stored} - {b.section for b in blocks} - confirmed)
+    every = frozenset({r[0] for r in stored} - {b.section for b in blocks})
+    return every - confirmed, every & confirmed
 
 
 def _font_pages(

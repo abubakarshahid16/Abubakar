@@ -110,11 +110,21 @@ def _font_only_section(tmp_path, doc_id="f1"):
 
 
 def _numbered_bold_section(tmp_path, doc_id="n1"):
-    """Bold, numbered, and the text rules refuse it: the owner's "found" case."""
+    """Bold, numbered and rising, and the text rules refuse it: the owner's "found" case."""
     _store(
         tmp_path,
         doc_id,
-        [[("3. PLANT NODES", "hebo", BODY), (CUE, "helv", BODY), *PLANT * 2]],
+        [
+            [
+                ("1. AIMS OF THE WORK", "hebo", BODY),
+                *PLANT,
+                ("2. TERMS USED", "hebo", BODY),
+                *PLANT,
+                ("3. PLANT NODES", "hebo", BODY),
+                (CUE, "helv", BODY),
+                *PLANT,
+            ]
+        ],
     )
     assert pdf_headings.font_only_headings(doc_id) == frozenset()
     with db.connect() as conn:
@@ -139,9 +149,8 @@ def test_a_numbered_bold_heading_is_found_with_the_standard_held(tmp_path):
 def test_a_numbered_bold_heading_is_a_guess_when_the_file_cannot_be_read(tmp_path):
     _numbered_bold_section(tmp_path)
     (tmp_path / "uploads" / "n1.pdf").unlink()
-    assert pdf_headings.font_only_headings("n1") == frozenset({"3. PLANT NODES"})
-    # no font read: one heading from the stored chunks, too few to check against
-    assert _entry("n1")["section_state"] == playbooks.COULD_NOT_BE_CHECKED
+    assert "3. PLANT NODES" in pdf_headings.font_only_headings("n1")
+    assert _entry("n1")["section_state"] == playbooks.UNCLEAR
 
 
 def _mixed_line(tmp_path, doc_id: str) -> None:
@@ -215,6 +224,94 @@ def test_a_short_body_line_with_a_dotted_number_stays_a_guess(tmp_path):
         pages = pdf_headings.read_lines(doc)
     assert pdf_headings.detect(pages) == {1: ["7.1 Plant nodes"]}
     assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
+def _pages_of(tmp_path, items: list[tuple]) -> dict:
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=600, height=800)
+    for k, (text, font, size) in enumerate(items):
+        page.insert_text((40, 130 + 20 * k), text, fontname=font, fontsize=size)
+    pdf.save(str(tmp_path / "one.pdf"))
+    pdf.close()
+    with pymupdf.open(str(tmp_path / "one.pdf")) as doc:
+        return pdf_headings.read_lines(doc)
+
+
+def test_a_large_numbered_heading_that_is_not_bold_stays_a_guess(tmp_path):
+    items = [
+        ("1. Aims Of Work", "helv", 15),
+        *PLANT,
+        ("2. Terms Used", "helv", 15),
+        *PLANT,
+    ]
+    pages = _pages_of(tmp_path, items)
+    assert set(pdf_headings.detect(pages)[1]) == {"1. Aims Of Work", "2. Terms Used"}
+    assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
+def test_a_restarted_number_is_not_a_numbered_bold_heading(tmp_path):
+    items = [
+        ("1. Aims Of Work", "hebo", BODY),
+        *PLANT,
+        ("2. Terms Used", "hebo", BODY),
+        *PLANT,
+        ("1. Plant Nodes", "hebo", BODY),
+        *PLANT,
+    ]
+    pages = _pages_of(tmp_path, items)
+    assert "1. Plant Nodes" in pdf_headings.detect(pages)[1]
+    assert pdf_headings.numbered_bold(pages) == frozenset(
+        {"1. Aims Of Work", "2. Terms Used"}
+    )
+
+
+def test_a_lone_row_number_is_not_a_numbered_bold_heading(tmp_path):
+    pages = _pages_of(tmp_path, [*PLANT, ("12 Plant Nodes", "hebo", BODY), *PLANT])
+    assert "12 Plant Nodes" in pdf_headings.detect(pages)[1]
+    assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
+def test_a_lone_numbered_caption_is_not_a_numbered_bold_heading(tmp_path):
+    pages = _pages_of(
+        tmp_path, [*PLANT, ("1. Typical Plant Nodes", "hebo", BODY), *PLANT]
+    )
+    assert "1. Typical Plant Nodes" in pdf_headings.detect(pages)[1]
+    assert pdf_headings.numbered_bold(pages) == frozenset()
+
+
+def test_a_lone_number_with_its_own_sub_heading_is_a_numbered_bold_heading(tmp_path):
+    items = [
+        ("1. Aims Of Work", "hebo", BODY),
+        *PLANT,
+        ("1.1 Plant Nodes", "helv", BODY),
+        *PLANT,
+    ]
+    pages = _pages_of(tmp_path, items)
+    assert "1. Aims Of Work" in pdf_headings.numbered_bold(pages)
+
+
+def test_an_appendix_needs_no_rising_number(tmp_path):
+    pages = _pages_of(tmp_path, [*PLANT, ("Appendix B", "hebo", BODY), *PLANT])
+    assert pdf_headings.numbered_bold(pages) == frozenset({"Appendix B"})
+
+
+def test_not_found_on_numbered_bold_headings_alone_is_marked_as_a_guess(tmp_path):
+    """Three numbered bold lines, however false; switch off said could not be checked."""
+    pages = [
+        [
+            ("1. First Matters", "hebo", BODY),
+            *PLANT,
+            ("2. Second Matters", "hebo", BODY),
+            *PLANT,
+            ("3. Third Matters", "hebo", BODY),
+            *PLANT,
+        ]
+    ]
+    _store(tmp_path, "m3", pages)
+    assert pdf_headings.font_only_headings("m3") == frozenset()
+    entry = _entry("m3")
+    assert entry["section_state"] == playbooks.MISSING
+    assert "guess" in entry["reason"]
 
 
 def test_a_font_only_heading_is_never_section_found_without_the_standard(tmp_path):

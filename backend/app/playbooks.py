@@ -339,10 +339,11 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
 
 def _mark_guessed_headings(document_id: str, body: list[dict]) -> None:
     """Rule 4: a passage under a heading only the font vouches for says so."""
-    guessed = pdf_headings.font_only_headings(document_id)
-    if guessed is not None:
+    both = pdf_headings.font_headings(document_id)
+    if both is not None:
         for c in body:
-            c["heading_guess"] = _heading_of(c) in guessed
+            c["heading_guess"] = _heading_of(c) in both[0]
+            c["heading_by_font"] = _heading_of(c) in both[0] | both[1]
 
 
 def _unclear_held(found: dict) -> dict:
@@ -460,11 +461,14 @@ def _headings_read(body: list[dict]) -> bool:
 
 
 def _structure_is_a_guess(body: list[dict]) -> bool:
-    """Does "not found" rest on font-only headings? (Fewer than MIN_HEADINGS others.)"""
-    if not any(c.get("heading_guess") for c in body):
+    """Does "not found" rest on font evidence? The rule: it is a finding only when the TEXT
+    rules alone read MIN_HEADINGS headings. A numbered bold heading can say a section IS
+    there; a few of them, however rising, do not show the document's whole structure, so
+    they cannot say one is NOT."""
+    if not any(c.get("heading_by_font") for c in body):
         return False
-    sure = {_heading_of(c) for c in body if not c.get("heading_guess")} - {""}
-    return len(sure) < MIN_HEADINGS
+    text_rule = {_heading_of(c) for c in body if not c.get("heading_by_font")} - {""}
+    return len(text_rule) < MIN_HEADINGS
 
 
 def _section_without_standard(
