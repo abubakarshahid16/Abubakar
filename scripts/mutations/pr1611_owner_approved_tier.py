@@ -207,4 +207,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         "",
         "deferred_input_on_any_tag",
     ),
+    _m(
+        23,
+        "the stored reason states an open tick with no time, stale after the tick",
+        _R,
+        "at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this review ran, ",
+        "",
+        "unticked_safety_pass_is_never_an_approved",
+    ),
 )

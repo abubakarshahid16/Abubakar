@@ -67,7 +67,7 @@ import json
 import logging
 import math
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -452,10 +452,12 @@ def label_check(result: dict) -> dict:
 
 
 def run_has_a_record(rows: list[dict]) -> bool:
-    """A run stores `rule_trust` under the old switch, or when an owner-approved rule labelled a row. The new switch
-    with no such rule changes no output of the run."""
-    return settings.rule_auto_use_enabled or any(
-        r.get("trust_label") == OWNER_APPROVED for r in rows
+    """Whether a run that made a `_RuleTrust` stores `rule_trust`. Yes, except for the one run this exists for: the new
+    switch alone with no owner-approved row, which changes no output of the run."""
+    return (
+        not settings.owner_approved_rules_decide_enabled
+        or settings.rule_auto_use_enabled
+        or any(r.get("trust_label") == OWNER_APPROVED for r in rows)
     )
 
 
@@ -478,8 +480,10 @@ def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) 
         **result,
         "code": codes[3],
         "reason": (
-            f"Manual review: {n} safety value{'s' if n != 1 else ''} met an owner-approved rule and "
-            f"{'wait' if n != 1 else 'waits'} for an engineer's tick, so the sheet cannot be called approved"
+            # dated: the reason is stored, and a tick after this time does not rewrite it
+            f"Manual review: at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this review ran, {n} safety "
+            f"value{'s' if n != 1 else ''} met an owner-approved rule and "
+            f"{'were' if n != 1 else 'was'} waiting for an engineer's tick, so the sheet was not called approved"
         ),
         "open_safety_ticks": n,
     }
