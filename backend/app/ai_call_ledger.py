@@ -22,6 +22,8 @@ from contextvars import ContextVar
 from .config import settings
 
 _LEDGER: ContextVar[dict | None] = ContextVar("ai_call_ledger", default=None)
+#: The ask now open: `cache_hit` marks it, so a stored answer is not counted as fresh.
+_ASK: ContextVar[list | None] = ContextVar("ai_call_ledger_ask", default=None)
 
 
 @contextmanager
@@ -52,18 +54,29 @@ def _note(step: str, model: str | None, field: str, count: int) -> None:
     if ledger is None or not count:
         return
     row = ledger.setdefault((step, model), {"fresh": 0, "reused": 0, "failed": 0})
-    row[field] += count
+    row[field] = (
+        row.get(field, 0) + count
+    )  # `cache_hits` exists only on a row that had one
 
 
 @contextmanager
 def asking(step: str, model: str | None, count: int = 1) -> Iterator[None]:
     """A model is asked inside this block: an answer is fresh; a refusal, a timeout or
-    any other failure is counted as failed, and still raises."""
+    any other failure is counted as failed, and still raises. An answer the Claude cache
+    served (`cache_hit`) was not asked for: it is reused, never fresh."""
+    served: list = []
+    token = _ASK.set(served)
     try:
         yield
     except Exception:
         _note(step, model, "failed", count)
         raise
+    finally:
+        _ASK.reset(token)
+    if served:
+        _note(step, model, "reused", count)
+        _note(step, model, "cache_hits", count)
+        return
     _note(step, model, "fresh", count)
 
 
@@ -79,13 +92,14 @@ def reused(step: str, model: str | None, count: int = 1) -> None:
 
 
 def cache_hit(step: str, model: str | None) -> None:
-    """A Claude call answered from the stored answers: reused, and marked so the
-    audit can say it was not sent. The key exists only on a row that had one."""
+    """A Claude call answered from the stored answers: reused, and marked so the audit
+    can say it was not sent. Inside `asking`, that block counts it, under its own count."""
+    ask = _ASK.get()
+    if ask is not None:
+        ask.append(True)
+        return
     _note(step, model, "reused", 1)
-    ledger = _LEDGER.get()
-    if ledger is not None:
-        row = ledger[(step, model)]
-        row["cache_hits"] = row.get("cache_hits", 0) + 1
+    _note(step, model, "cache_hits", 1)
 
 
 def model_of(provider) -> str | None:

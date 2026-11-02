@@ -7,6 +7,7 @@ from ._base import APP, Mutation
 
 _CACHE = "tests/test_claude_answer_cache.py"
 _BAR = "tests/test_claude_lane_no_local_engine.py"
+_REVIEW = "tests/test_1588_review_findings.py"
 _S = APP / "claude_spend.py"
 _TAGS = ("budget", "answer_cache")
 
@@ -77,7 +78,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "07",
         "misses are not counted, so the report reads as all hits",
-        _S,
+        APP / "claude_answer_cache.py",
         "            misses += 1\n",
         "            misses += 0\n",
         "spend_reports",
@@ -118,5 +119,23 @@ MUTATIONS: tuple[Mutation, ...] = (
         "matcher_on_the_local_engine",
         target=_BAR,
         tags=("egress", "memory"),
+    ),
+    _m(
+        "12",
+        "ledger lines do not name their run, so a run's figures read as nothing",
+        _S,
+        '    if (run := _RUN.get()) is not None:\n        entry["run"] = run\n',
+        "",
+        "cache_figures_cover",
+        target=_REVIEW,
+    ),
+    _m(
+        "13",
+        "a run's cache figures count a chat and other runs",
+        APP / "claude_answer_cache.py",
+        '        if run_id is not None and entry.get("run") != run_id:\n            continue\n',
+        "",
+        "cache_figures_cover",
+        target=_REVIEW,
     ),
 )

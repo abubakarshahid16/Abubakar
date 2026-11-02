@@ -28,9 +28,9 @@ SCHEMA = {"type": "object", "required": ["answer"],
 
 
 @pytest.fixture(autouse=True)
-def _env(tmp_path, monkeypatch):
+def _env(temp_storage, tmp_path, monkeypatch):  # noqa: F811 - temp_storage first: it moves data_dir
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.setattr(settings, "anthropic_api_key", KEY)
     monkeypatch.setattr(settings, "standards_reader_enabled", True)

@@ -73,7 +73,7 @@ def lane(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "standards_reader_enabled", True)
     monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "review_ai_check_enabled", True)
     monkeypatch.setattr(settings, "crs_ai_wording_enabled", True)
     monkeypatch.setattr(settings, "clause_review_enabled", True)

@@ -30,6 +30,20 @@ from contextvars import ContextVar
 NOTE = "skipped: local engine not loaded in a Claude-lane run"
 #: The run's `outcome_json` key.
 OUTCOME_KEY = "ai_steps_skipped"
+#: What the CRS and the review notes print for a skipped step.
+NOT_CHECKED = "not checked: skipped in a Claude-lane run"
+#: Plain names of the steps; any other prints its own step name.
+STEP_WORDS = {
+    "clause_review": "AI clause review",
+    "crs_wording": "AI wording of the CRS comments",
+    "b4-naming2": "AI field naming",
+    "requirement-matcher": "AI requirement matching",
+    "datasheet-ai-reader": "AI datasheet reading",
+    "scope-reasoning-decide": "AI scope reasoning",
+    "rule_equipment_scope": "AI equipment scope of a rule",
+}
+#: Already listed under its own status (`absence.check_failed_status`).
+SAYS_ITSELF = frozenset({"review_ai_check"})
 
 _SKIPPED: ContextVar[dict[str, int] | None] = ContextVar(
     "local_engine_barred", default=None
@@ -76,6 +90,20 @@ def barring_local_engine(job):
             return job(*args, **kwargs)
 
     return wrapper
+
+
+def unchecked_lines(outcome: dict) -> list[dict]:
+    """Each step this run skipped, as `absence.unchecked_parts` lists it: a skipped step
+    never leaves a sheet looking complete for that step."""
+    return [
+        {
+            "part": f"skipped:{row['step']}",
+            "line": f"{STEP_WORDS.get(row['step'], row['step'])}: {NOT_CHECKED}.",
+            "note": "Not checked",
+        }
+        for row in outcome.get(OUTCOME_KEY) or []
+        if row.get("step") not in SAYS_ITSELF
+    ]
 
 
 def stated() -> list[dict]:
