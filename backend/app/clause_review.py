@@ -189,46 +189,9 @@ def verify_quote(quote, page_text) -> bool:
 
 
 _STOP = frozenset(
-    {
-        "shall",
-        "must",
-        "should",
-        "will",
-        "with",
-        "that",
-        "this",
-        "from",
-        "have",
-        "been",
-        "were",
-        "their",
-        "there",
-        "which",
-        "when",
-        "where",
-        "each",
-        "every",
-        "into",
-        "than",
-        "then",
-        "also",
-        "such",
-        "only",
-        "other",
-        "more",
-        "less",
-        "those",
-        "these",
-        "they",
-        "them",
-        "being",
-        "under",
-        "over",
-        "about",
-        "after",
-        "before",
-        "between",
-    }
+    (
+        "shall must should will with that this from have been were their there which when where each every into than then also such only other more less those these they them being under over about after before between"
+    ).split()
 )
 
 
@@ -740,6 +703,12 @@ def _label(req: dict) -> str:
     return req.get("clause") or req["id"]
 
 
+def _note_run(status: dict, whole: bool, cap: int, wanted: int, claude_note) -> None:
+    status.update(whole_document=whole, limit=cap, over_limit=max(0, wanted - cap))
+    if claude_note:
+        status["engine_note"] = claude_note
+
+
 def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=None,
         clock=time.monotonic, claude_note: str | None = None) -> dict:  # fmt: skip
     """Review one run's submittal clause by clause. Returns the counts (never text)
@@ -777,10 +746,7 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
     if whole or cap <= 0:
         cap = len(wanted)  # no count cap; the time budget is the bound
     status = _start_status(kind, state, model, len(readable), budget_s, len(wanted))
-    status["whole_document"] = whole
-    status["limit"], status["over_limit"] = cap, max(0, len(wanted) - cap)
-    if claude_note:
-        status["engine_note"] = claude_note
+    _note_run(status, whole, cap, len(wanted), claude_note)
     started, engine = clock(), model
     total = min(len(wanted), cap)
     for index, req in enumerate(wanted[:cap]):

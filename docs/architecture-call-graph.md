@@ -127,7 +127,7 @@ routes get the same reservation and ledger through `claude_spend.metered(transpo
 
 AI clause review on the Claude lane (`AI_CLAUSE_REVIEW_ENGINE=claude`, default local): `clause_review.for_review` ->
 `clause_review_claude.for_review` -> `rp.claude_for_task` -> `claude_batch_run.run(max_wait_s=0)` -> `reader_transport.batch_*`,
-step `clause_review`. It submits and returns; `ingest` idle loop -> `worker_review._poll_clause_batches` -> `clause_review_claude.poll_due`
+step `clause_review`. It submits and returns; `ingest` idle loop -> `worker_review._idle_wait` -> `clause_review_claude.poll_due`
 reads the batch, writes the rows through `clause_review._store_row` and closes the status. Otherwise `clause_review.run`, local, with its limit.
 
 ## 4. Conversation

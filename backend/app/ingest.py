@@ -388,8 +388,7 @@ class IngestionWorker(ReviewDrain):
                         continue
                     if self._drain_standard_extraction():
                         continue
-                    self._poll_clause_batches()
-                    self._stop.wait(self.poll_seconds)
+                    self._idle_wait()
                     continue
                 self.current_document = doc_id
                 try:

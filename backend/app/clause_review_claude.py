@@ -279,7 +279,7 @@ def _write_rows(row, answers, requirements, written: set[str]) -> None:
         written.add(custom_id)
 
 
-def _save(conn, row, *, state, gave_up, reasons, written, next_poll) -> None:
+def _save(conn, row, state, gave_up, reasons, written, next_poll) -> None:
     with conn:
         conn.execute(
             "UPDATE clause_review_batches SET state = ?, gave_up = ?, reasons = ?, written = ?,"
@@ -354,6 +354,77 @@ def _settled(conn, job: str, ids: set[str], gave_up: dict) -> dict:
     return {**gave_up, **earlier.gave_up}
 
 
+def _run_is_gone(conn, review_run_id: str) -> bool:
+    """A cancelled or deleted run is closed: no poll, no answer kept."""
+    found = conn.execute(
+        "SELECT status FROM review_runs WHERE id = ?", (review_run_id,)
+    ).fetchone()
+    if found is not None and found["status"] != "cancelled":
+        return False
+    with conn:
+        conn.execute(
+            "UPDATE clause_review_batches SET state = ? WHERE review_run_id = ?",
+            (CLOSED, review_run_id),
+        )
+    _purge(conn, _job(review_run_id))
+    _PACKETS.pop(review_run_id, None)
+    return True
+
+
+def _ask(conn, row, provider, requirements, gave_up):
+    """(outcome, why it stops, packets, provider) of one call to the batch runner. Outcome None: nothing
+    moved this time (the lane is shut, or a failed poll, which settles nothing)."""
+    review_run_id = row["review_run_id"]
+    with (
+        claude_approved.carrying(_loads(row, "documents")),
+        claude_spend.for_run(review_run_id),
+    ):
+        provider = provider or rp.claude_for_task(_engine(), step=STEP)
+        if provider is None:
+            return None, None, None, None
+        packets = _PACKETS.get(review_run_id)
+        if packets is None:
+            packets = _build_packets(row["document_id"], row["kind"], requirements)
+            _PACKETS[review_run_id] = packets
+        live = {c: p for c, p in packets.items() if c not in gave_up}
+        if not live:  # every ask has an end: nothing to send, nothing to wait for
+            return None, "", packets, provider
+        try:
+            outcome = claude_batch_run.run(
+                conn,
+                provider,
+                _job(review_run_id),
+                live,
+                client=_client(),
+                room=_room,
+                poll_seconds=0.0,
+                max_wait_s=0.0,
+                sleep=lambda _s: None,
+            )
+            return outcome, None, packets, provider
+        except claude_spend.StopRun as exc:
+            return None, claude_spend.refusal_words(exc, _why_cap()), packets, provider
+        except rp.ProviderRefused as exc:
+            return None, f"the batch was not accepted ({exc})", packets, provider
+        except Exception as exc:  # noqa: BLE001 - a failed poll settles nothing: the next tick reads the batch again
+            log.warning("clause review poll: %s", type(exc).__name__)
+            return None, None, packets, provider
+
+
+def _why_stop(outcome, stored, unanswered, packets, provider, reasons) -> str | None:
+    """With no batch out: None to go on with the next tranche, "" when done, else why what is left stays left."""
+    if outcome is None or outcome.waiting:
+        return None
+    for custom_id in stored.unconfirmed:
+        reasons[custom_id] = WHY_UNCONFIRMED
+    if outcome.over_budget:
+        next_worst = claude_batch_run.worst_usd(
+            provider.requested_model, packets[outcome.over_budget[0]]
+        )
+        return None if _room() >= next_worst else _why_cap()
+    return None if set(unanswered) - set(stored.unconfirmed) else ""
+
+
 def tick(review_run_id: str, *, provider=None, now=time.time) -> dict | None:
     """One non-blocking step: read a batch if it ended, send what fits, write rows, store the honest status."""
     conn = connect()
@@ -363,88 +434,25 @@ def tick(review_run_id: str, *, provider=None, now=time.time) -> dict | None:
     ).fetchone()
     if row is None or row["state"] == CLOSED:
         return clause_review.status_of(review_run_id)
-    job = _job(review_run_id)
-    run_row = conn.execute(
-        "SELECT status FROM review_runs WHERE id = ?", (review_run_id,)
-    ).fetchone()
-    if run_row is None or run_row["status"] == "cancelled":
-        with conn:
-            conn.execute(
-                "UPDATE clause_review_batches SET state = ? WHERE review_run_id = ?",
-                (CLOSED, review_run_id),
-            )
-        _purge(conn, job)
-        _PACKETS.pop(review_run_id, None)
+    if _run_is_gone(conn, review_run_id):
         return None
+    job = _job(review_run_id)
     asks = _loads(row, "asks")
     requirements = _requirements(asks)
     gave_up = _settled(conn, job, set(asks), _loads(row, "gave_up"))
     reasons, written = _loads(row, "reasons"), set(_loads(row, "written"))
-    _save(
-        conn,
-        row,
-        state=PENDING,
-        gave_up=gave_up,
-        reasons=reasons,
-        written=written,
-        next_poll=now() + float(settings.clause_review_batch_poll_seconds),
-    )
-    outcome, stop = None, None
-    with (
-        claude_approved.carrying(_loads(row, "documents")),
-        claude_spend.for_run(review_run_id),
-    ):
-        provider = provider or rp.claude_for_task(_engine(), step=STEP)
-        packets = _PACKETS.get(review_run_id)
-        if provider is not None and packets is None:
-            packets = _build_packets(row["document_id"], row["kind"], requirements)
-            _PACKETS[review_run_id] = packets
-        live = {c: p for c, p in (packets or {}).items() if c not in gave_up}
-        if provider is not None and not live:
-            stop = ""  # every ask has an end: nothing to send, nothing to wait for
-        elif live and provider is not None:
-            try:
-                outcome = claude_batch_run.run(
-                    conn,
-                    provider,
-                    job,
-                    live,
-                    client=_client(),
-                    room=_room,
-                    poll_seconds=0.0,
-                    max_wait_s=0.0,
-                    sleep=lambda _s: None,
-                )
-            except claude_spend.StopRun as exc:
-                stop = claude_spend.refusal_words(exc, _why_cap())
-            except rp.ProviderRefused as exc:
-                stop = f"the batch was not accepted ({exc})"
-            except Exception as exc:  # noqa: BLE001 - a failed poll settles nothing: the next tick reads the batch again
-                log.warning("clause review poll: %s", type(exc).__name__)
+    next_poll = now() + float(settings.clause_review_batch_poll_seconds)
+    _save(conn, row, PENDING, gave_up, reasons, written, next_poll)
+    outcome, stop, packets, provider = _ask(conn, row, provider, requirements, gave_up)
     stored = claude_batch_run.stored_outcome(conn, job, set(asks))
     gave_up = {**gave_up, **stored.gave_up}
     answers = stored.answers
     _write_rows(row, answers, requirements, written)
-    waiting = outcome is None or outcome.waiting
     unanswered = [
         c for c in asks if c not in answers and c not in gave_up and c in requirements
     ]
-    if stop is None and outcome is not None and not waiting:
-        for custom_id in stored.unconfirmed:
-            reasons[custom_id] = WHY_UNCONFIRMED
-        open_asks = [c for c in unanswered if c not in stored.unconfirmed]
-        fits = (
-            outcome.over_budget
-            and packets
-            and _room()
-            >= claude_batch_run.worst_usd(
-                provider.requested_model, packets[outcome.over_budget[0]]
-            )
-        )
-        if outcome.over_budget and not fits:
-            stop = _why_cap()
-        elif not open_asks:
-            stop = ""  # nothing left to wait for
+    if stop is None:
+        stop = _why_stop(outcome, stored, unanswered, packets, provider, reasons)
     if stop is None and now() >= float(row["deadline_at"]):
         hours = float(settings.clause_review_batch_wait_hours)
         stop = f"the batch did not return within {hours:g} h"
@@ -453,15 +461,8 @@ def tick(review_run_id: str, *, provider=None, now=time.time) -> dict | None:
         for custom_id in unanswered:
             reasons.setdefault(custom_id, stop)
     status = _status(row, answers, gave_up, reasons, requirements, not closing, now())
-    _save(
-        conn,
-        row,
-        state=CLOSED if closing else PENDING,
-        gave_up=gave_up,
-        reasons=reasons,
-        written=written,
-        next_poll=now() + float(settings.clause_review_batch_poll_seconds),
-    )
+    state = CLOSED if closing else PENDING
+    _save(conn, row, state, gave_up, reasons, written, next_poll)
     clause_review._store_status(review_run_id, status)
     if closing:
         _purge(conn, job)
