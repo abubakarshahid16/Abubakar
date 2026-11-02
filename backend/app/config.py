@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .settings_ext import SettingsExt
+from .settings_ext import SettingsExt, answer_affecting_when_changed
 
 
 class ModelHostRefused(RuntimeError):
@@ -1531,8 +1531,7 @@ ANSWER_AFFECTING_SETTINGS = (
     # reader read the sheet, whether applicability is decided by taxonomy or
     # by model reasoning), not only a chat answer; config_version is stamped
     # on every review run (review_jobs.py, submittal_review.py) as well as on
-    # chat reports, so leaving them out let a run's AI settings change with
-    # no change in the version a report compares against.
+    # chat reports, so leaving them out hid a change of a run's AI settings.
     "ai_task_model", "datasheet_ai_reader", "match_engine",
     "ai_applicability_enabled", "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
@@ -1552,6 +1551,7 @@ def config_version() -> str:
     import json
 
     subset = {k: getattr(settings, k) for k in sorted(ANSWER_AFFECTING_SETTINGS)}
+    subset.update(answer_affecting_when_changed(settings))
     return hashlib.sha256(
         json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:16]
