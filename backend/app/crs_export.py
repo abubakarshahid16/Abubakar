@@ -140,8 +140,8 @@ AI_COLUMN_WIDTH = 60.0
 REASONING_COLUMN = "Reasoning (internal)"
 REASONING_COLUMN_WIDTH = 70.0
 #: rule_trust (#947 step 8): who stands behind the rule a comment rests on -
-#: "engineer-approved rule", "automatic (proven rule)", "automatic rule not
-#: yet proven" - in a NEW LAST column of the INTERNAL copy only. The client's
+#: "engineer-approved rule", "AI-built, quote-verified, owner-approved",
+#: "automatic (proven rule)", "automatic rule not yet proven" - in a NEW LAST column of the INTERNAL copy only. The client's
 #: seven columns are untouched; whether the contractor's copy should carry
 #: it is the owner's call, not this file's.
 TRUST_COLUMN = "Rule trust (internal)"
