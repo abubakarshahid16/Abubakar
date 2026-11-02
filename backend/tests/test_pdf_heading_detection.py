@@ -39,6 +39,7 @@ DOTTED_BODY = ["4.5.1 Later steps"]
 HEADINGS = NUMBERED_BOLD + BOLD_ONLY + SIZE_ONLY + OVER_LABEL + DOTTED_BODY
 #: bold and title-like, but a requirement: the chunker keeps it in the text
 REQUIREMENT = "All Valves Shall Be Hydrotested"
+SHORT_REQUIREMENTS = ["Bolts Must Be Torqued", "Do Not Exceed 10 Bar"]
 SENTENCE = "The panel will check every sample of the batch during the working sessions."
 
 
@@ -131,7 +132,11 @@ def build(path) -> list[str]:
         [
             *_body(3),
             (REQUIREMENT, "hebo", BODY),
-            *_body(4),
+            *_body(2),
+            (SHORT_REQUIREMENTS[0], "hebo", BODY),
+            *_body(2),
+            (SHORT_REQUIREMENTS[1], "hebo", BODY),
+            *_body(2),
             ("4.2 MPa", "helv", BODY),
             *_body(2),
             ("3.5 Bar", "hebo", BODY),
@@ -165,7 +170,7 @@ def test_styled_headings_are_found(tmp_path):
 def test_lines_that_are_not_headings_are_not(tmp_path):
     build(tmp_path / "p.pdf")
     found = set(_found(tmp_path / "p.pdf"))
-    assert found - {REQUIREMENT} == set(
+    assert found == set(
         HEADINGS
     )  # nothing else: list items, table rows, header, footer, wrapped title
 
@@ -207,6 +212,25 @@ def test_a_value_is_not_a_title_and_a_title_word_is_kept():
     # a word that is also a unit, opening a real title
     for text in ("4.2 Bar Screens", "4.2 Scope", "Appendix B", "4.5 A Review"):
         assert not pdf_headings.states_a_value(text), text
+
+
+def test_a_requirement_or_a_limit_is_not_a_heading():
+    for text in (
+        "Bolts Must Be Torqued",
+        "Pumps Should Be Vented",
+        "Do Not Exceed 10 Bar",
+        "Not To Exceed Rating",
+        "Maximum 10 Bar",
+        "4.1 Lines Shall Be Drained",
+    ):
+        assert pdf_headings.states_a_requirement(text), text
+    for text in (
+        "Required Documents",
+        "Class 150 Pipe",
+        "4.2 Scope",
+        "Part 2 In Service",
+    ):
+        assert not pdf_headings.states_a_requirement(text), text
 
 
 def test_a_label_alone_is_a_title():
@@ -260,13 +284,16 @@ def test_on_the_chunks_carry_the_styled_headings(stored, monkeypatch):
         assert heading in sections, heading
     assert "1. Close the valve." not in sections
     # a requirement set in bold is no section, and its words stay in the chunk text
-    assert REQUIREMENT not in sections
+    for line in [REQUIREMENT, *SHORT_REQUIREMENTS]:
+        assert line not in sections, line
     with db.connect() as conn:
         texts = " ".join(
             r[0]
             for r in conn.execute("SELECT text FROM chunks WHERE document_id='doc_h'")
         )
-    assert REQUIREMENT in " ".join(texts.split())
+    folded = " ".join(texts.split())
+    for line in [REQUIREMENT, *SHORT_REQUIREMENTS, *HEADINGS]:
+        assert line in folded, line  # a heading never removes its words from the text
     with db.connect() as conn:
         contexts = {
             r[0]

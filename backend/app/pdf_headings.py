@@ -17,7 +17,8 @@ document, none names a layout (CLAUDE.md rule 13):
     fills the column is a wrapped sentence);
   * it reads as a title: 1-12 words, at most 90 characters, a capital first
     letter, no sentence or list ending (. ; , :), mostly letters, not a figure or
-    table caption or a date, and not a number with a unit or a value ("4.2 MPa");
+    table caption or a date, not a number with a unit or a value ("4.2 MPa"), not a
+    requirement or a limit ("Bolts Must Be Torqued", "Maximum 10 Bar");
   * it stands alone: no other line shares its height on the page (a table row or a
     form field does), and it is not a running header or footer (the same words in
     the top or bottom band of 3 or more pages);
@@ -27,6 +28,8 @@ document, none names a layout (CLAUDE.md rule 13):
     a body-type numbered line is not followed by text resuming in lower case (the
     first line of a numbered requirement).
 
+A heading never removes its words: the chunker carries the line into the text of the
+next block, so a wrong heading costs a label, never a requirement.
 A single number in body type ("1. Close the valve", a list item) is never a heading.
 Switch `pdf_heading_detection_enabled`, OFF by default: nothing here runs and the
 chunk signature is unchanged. ON: `chunker.segment_document` treats these lines as
@@ -40,9 +43,10 @@ import logging
 import re
 from collections import Counter
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 
-from . import claims, pdf_guard
+from . import claims, numparse, pdf_guard
 from .config import settings
 from .quality import normalise_text
 
@@ -72,6 +76,9 @@ _SECTION_NO = re.compile(
 )
 #: A dotted section number: 1.2, 4.5.1.3, A.1 - never a lone list number.
 _DOTTED = re.compile(r"^(?:[A-Z]\.\d{1,2}(?:\.\d{1,2})*|\d{1,2}(?:\.\d{1,2})+)\.?\s")
+_REQUIREMENT_WORD = re.compile(
+    r"\b(?:must|shall|should|do not|not exceed|not to exceed)\b", re.I
+)
 _ENDINGS = (".", ";", ",", ":")
 #: A figure or table caption names a picture or a table, not a section.
 _CAPTION = re.compile(
@@ -184,6 +191,18 @@ def states_a_value(text: str) -> bool:
     return claims.is_unit(rest[0].strip(",;()")) and not titled
 
 
+def states_a_requirement(text: str) -> bool:
+    """A requirement word, or a number with a unit, past the section label: a limit."""
+    if _REQUIREMENT_WORD.search(text):
+        return True
+    label = _SECTION_NO.match(text)
+    words = (text[label.end() :] if label else text).split()
+    return any(
+        numparse.as_number(word) is not None and claims.is_unit(after.strip(",;()"))
+        for word, after in pairwise(words)
+    )
+
+
 def numbered(text: str) -> bool:
     return bool(_SECTION_NO.match(text)) and not states_a_value(text)
 
@@ -198,7 +217,7 @@ def _reads_as_title(text: str) -> bool:
         return False
     if _CAPTION.match(text) or _DATE.match(text) or text.count("(") != text.count(")"):
         return False  # a caption, a date, or a piece of a title wrapped over lines
-    if states_a_value(text):
+    if states_a_value(text) or states_a_requirement(text):
         return False
     title = _SECTION_NO.sub("", text, count=1).strip(" .-\u2013\u2014")
     if not title and _SECTION_NO.match(text):

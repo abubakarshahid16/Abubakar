@@ -2000,8 +2000,7 @@ def segment_document(
         history_start, history_title = history.get(page_no, (len(lines), None))
 
         # `page_no` is a default argument ON PURPOSE: the closure captures this
-        # page's VALUE, not the loop variable, so a block is never mis-attributed
-        # if it is called after the loop has moved on (ruff B023).
+        # page's VALUE, not the loop variable (ruff B023).
         # `section` is deliberately NOT bound the same way: it is reassigned
         # while the page is walked, and text before a heading belongs to the
         # PREVIOUS section, so each flush (made before the reassignment) is passed
@@ -2157,7 +2156,7 @@ def segment_document(
                 buf.extend(lines[i:i + consumed])
                 i += consumed
                 continue
-            printed = " ".join(line.split())  # a title by its font; a requirement stays text
+            printed = " ".join(line.split())
             if not head and printed in (styled or {}).get(page_no, ()):
                 head = None if _obliges("- " + printed) else printed
 
@@ -2175,6 +2174,8 @@ def segment_document(
                     enter(head, _heading_number(head), head)
                     pending_heading = (lines[i:i + consumed], page_no, head)
                     pending_mark = len(blocks)
+                    if styled is not None:  # its words stay in the next block's text
+                        settle_heading()
                 i += consumed
                 continue
 
