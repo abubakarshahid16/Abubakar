@@ -428,10 +428,6 @@ class Settings(SettingsExt, BaseSettings):
     #: The queue pauses below this much free memory, so a chat answer is never
     #: starved by background work.
     ai_task_min_free_ram_gb: float = 1.5
-    #: #647 AI applicability: the model PROPOSES "does not apply" with a quote;
-    #: code confirms it or it stays a check. OFF by default; capped per run.
-    ai_applicability_enabled: bool = False
-    ai_applicability_max_per_run: int = 200
     #: #141 a part limited by its own scope sentence to one construction
     #: (`ai_applicability.division_gate`). ON (#805 rule 1); off: nothing changes; a part not read or past the limit is HELD.
     ai_division_scope_enabled: bool = True
@@ -458,7 +454,7 @@ class Settings(SettingsExt, BaseSettings):
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     tested_cards_decide_enabled: bool = False  # order 306.1
-    deferred_value_is_query_enabled: bool = False  # D2, #1475
+    deferred_value_is_query_enabled: bool = True  # D2, #1475
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md
@@ -745,7 +741,7 @@ class Settings(SettingsExt, BaseSettings):
     #: still at the OCR fallback's low confidence and engineer-review state.
     #: Trade-off: a CRS template workbook is then indexed too. OFF. Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
-    procedure_path_enabled: bool = False  # #1476, see procedure_text
+    procedure_path_enabled: bool = True  # #1476, see procedure_text
     #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
     #: is accepted and indexed through the SAME pipeline as a PDF, read by
     #: `docx_reader` with its structure kept and cited by heading path and
@@ -755,7 +751,7 @@ class Settings(SettingsExt, BaseSettings):
     #: back for it, apart from "fields found" (`page_ledger.coverage` adds
     #: `pages_read` / `pages_not_read`), and a Word file reaches the fact reader
     #: through `word_flow`. OFF: nothing changes. Env: PAGE_READ_BY_READING_ENABLED.
-    page_read_by_reading_enabled: bool = False
+    page_read_by_reading_enabled: bool = True
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow
@@ -1092,8 +1088,8 @@ class Settings(SettingsExt, BaseSettings):
     # #1474: decide a document's KIND (datasheet, procedure, specification,
     # contract, ...) from its title block and cover, and stop the body-text
     # equipment fallback for documents that are not datasheets. No model call.
-    # OFF by default; off, nothing is stored and nothing changes.
-    document_kind_enabled: bool = False
+    # ON by default since Lock 3 (#1626); off, nothing is stored and nothing changes.
+    document_kind_enabled: bool = True
 
     # Content-quality gate. A chunk failing these does not read like natural
     # language and is stored but not retrievable. Tuned against known-good
@@ -1248,7 +1244,7 @@ class Settings(SettingsExt, BaseSettings):
     review_ai_check_enabled: bool = True
     #: #1494: progress block of a running review (reads the jobs row only); off: no
     #: `progress_detail`. Env: REVIEW_PROGRESS_BAR_ENABLED.
-    review_progress_bar_enabled: bool = False
+    review_progress_bar_enabled: bool = True
     review_progress_stall_amber_s: int = 120  # env REVIEW_PROGRESS_STALL_AMBER_S
     #: Seconds one LOCAL-model call of the AI engineering check may take before
     #: the check stops for the run (recorded). The Claude lane keeps its own.
@@ -1285,12 +1281,6 @@ class Settings(SettingsExt, BaseSettings):
     #: (`market_live_enabled`, `market_allow_public_egress`) and a configured search
     #: tier, and goes through that lane's host allowlist, rate limit and audit.
     review_web_standards_enabled: bool = False
-    #: Owner order 2a: let Claude turn a table/formula clause the code parser
-    #: cannot read into rule_eval's structured form. Accepted ONLY when every
-    #: number in the parse appears verbatim on the clause's page; the
-    #: arithmetic is always Python. OFF BY DEFAULT; also needs the Claude lane
-    #: and stays within the USD caps (step "rule_parse").
-    rule_parse_model_enabled: bool = False
 
     # ------------------------------------------------- Claude-first chat (tools)
     #
@@ -1533,7 +1523,7 @@ ANSWER_AFFECTING_SETTINGS = (
     # on every review run (review_jobs.py, submittal_review.py) as well as on
     # chat reports, so leaving them out hid a change of a run's AI settings.
     "ai_task_model", "datasheet_ai_reader", "match_engine",
-    "ai_applicability_enabled", "applicability_reasoning_enabled",
+    "applicability_reasoning_enabled",
     "ai_division_scope_enabled",
     "ai_answer_reuse_enabled",
 )

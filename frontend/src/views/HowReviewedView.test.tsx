@@ -192,7 +192,6 @@ describe("HowReviewedView on a full run", () => {
     expect(check).toHaveTextContent("5 items (requested_items)");
     expect(check).toHaveTextContent("3 items (kept_items)");
     expect(check).toHaveTextContent("1 items (rejected)");
-    expect(screen.getByTestId("ai-step-applicability")).toHaveTextContent(/Off by default \(setting AI_APPLICABILITY_ENABLED\)/);
     expect(screen.getByTestId("ai-step-wording")).toHaveTextContent("off");
 
     // 5. time

@@ -95,8 +95,8 @@ def on(monkeypatch):
     monkeypatch.setattr(settings, "procedure_playbook_rows_enabled", True)
 
 
-def test_the_switch_is_off_by_default_and_the_crs_is_unchanged():
-    assert settings.procedure_playbook_rows_enabled is False
+def test_with_the_switch_off_the_crs_is_unchanged(monkeypatch):
+    monkeypatch.setattr(settings, "procedure_playbook_rows_enabled", False)
     run = _run(_doc("p1", HAZOP_SECTIONS))
     rows_off, meta_off = _crs(run)
     assert _mine(rows_off) == []
