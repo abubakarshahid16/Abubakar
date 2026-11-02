@@ -3,15 +3,18 @@ fails on words it cannot read. Invented standards, sheets and values only; a tem
 
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 
+import openpyxl
 import pytest
 
 from app import (
     ai_applicability,
     ai_task_runner,
     coverage_pair,
+    crs_export,
     datasheet_checks,
     db,
     division_text,
@@ -349,6 +352,11 @@ def code(lane, monkeypatch):  # noqa: F811
 def _run(monkeypatch, run, scope, rule):
     """A review by a reader who may read these invented standards."""
     return _review(monkeypatch, run, frozenset(scope) | {CODE, PLAIN}, rule)
+
+
+def _every_cell(data):
+    book = openpyxl.load_workbook(io.BytesIO(data))
+    return [str(c.value) for s in book.worksheets for r in s.iter_rows() for c in r]
 
 
 def _in(document_id, clause, page, quote=VALVE_RULE):
@@ -769,9 +777,41 @@ def test_the_note_the_engineer_reads_counts_a_rule_left_out(code, monkeypatch):
     typed = {**_typed(rule["quote"], IS_NOT, ["invented bar steel"]), **rule}
     _run(monkeypatch, run, scope, typed)
     meta = rulebook_v2_crs.part({}, db.connect(), run, frozenset({CODE}))
-    for said in (meta["review_notes"][0]["detail"], meta["rulebook_v2_note"]):
+    for said in (meta["review_notes"][0]["detail"], meta["rulebook_v2_internal_note"]):
         assert "1 outside this equipment type's scope" in said
         assert "(Part XCL 1)" in said and str(typed["rule_id"]) in said
+    assert "Part XCL" not in meta["rulebook_v2_note"]
+
+
+def test_rule_ids_and_part_labels_reach_the_internal_copy_only(code, monkeypatch):
+    run, scope = _sheet(label="Body material", value="carbon steel")
+    rule = _in(CODE, "XCL-10", 3, LINED_RULE)
+    typed = {**_typed(rule["quote"], IS_NOT, ["invented bar steel"]), **rule}
+    _run(monkeypatch, run, scope, typed)
+    allowed = frozenset(scope) | {CODE, PLAIN}
+    meta = rulebook_v2_crs.part({}, db.connect(), run, allowed)
+    rule_id = str(typed["rule_id"])
+    internal, issue = (
+        _every_cell(crs_export.build_crs([], {**meta, "copy": copy}))
+        for copy in (crs_export.COPY_INTERNAL, crs_export.COPY_ISSUE)
+    )
+    assert any(rule_id in str(c) and "Part XCL" in str(c) for c in internal)
+    assert not any(rule_id in str(c) or "Part XCL" in str(c) for c in issue)
+
+
+def test_the_run_line_says_a_plain_count_with_no_ids_or_parts(code, monkeypatch):
+    run, scope = _sheet(label="Body material", value="carbon steel")
+    rule = _in(CODE, "XCL-10", 3, LINED_RULE)
+    typed = {**_typed(rule["quote"], IS_NOT, ["invented bar steel"]), **rule}
+    _run(monkeypatch, run, scope, typed)
+    line = coverage_pair.for_run(db.connect(), run)["rulebook_v2"]["line"]
+    assert "1 outside this equipment type's scope" in line
+    assert str(typed["rule_id"]) not in line and "Part XCL" not in line
+
+
+def test_the_family_field_says_where_it_came_from_and_its_one_use():
+    data = json.loads(subject_scope.VOCABULARY_PATH.read_text(encoding="utf-8"))
+    assert "Source:" in data["_family"] and "only across families" in data["_family"]
 
 
 def test_an_unknown_word_is_a_query_end_to_end(code, monkeypatch):

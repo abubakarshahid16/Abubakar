@@ -9,7 +9,8 @@ ORIGIN = "rulebook_v2"
 
 
 def outside_line(held_back: dict) -> str:
-    """The rules a Part's scope clause left out, by Part, with their ids: a wrong "outside" can be audited. "" with none."""
+    """The rules a Part's scope clause left out, by Part, with their ids, so a wrong "outside" can be audited. Internal
+    copy only: `crs_export` never prints it on the issue copy. "" with none."""
     count = held_back.get("outside_equipment_scope") or 0
     if not count:
         return ""
@@ -69,8 +70,12 @@ def rulebook_part(part: dict, findings: list[dict], wrong_ids: set[int] | None) 
             " by the rulebook."
         )
     outside = outside_line(held_back)
-    if outside:
-        told += f" {outside}"
+    left_out = held_back.get("outside_equipment_scope") or 0
+    if left_out:
+        told += (
+            f" Rules not paired, not counted above: {left_out} outside this equipment type's scope, by the scope clause"
+            " of their own Part or Appendix."
+        )
     return {
         "state": part.get("state"),
         "equipment_type": part.get("equipment_type"),
