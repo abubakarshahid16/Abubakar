@@ -449,8 +449,8 @@ def _internal_extras(
                 "Item numbers",
                 len(view["rows"]),
                 "Item No on this copy is the sheet order. A comment's permanent number, the"
-                " one the contractor's copy prints and a reply is matched by, is on the"
-                " Internal sheet.",
+                " one the contractor's copy prints and a reply is matched by, is beside it"
+                " on the screen and on this file's Internal sheet.",
             )
         )
     if considered:

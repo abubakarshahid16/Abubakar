@@ -80,6 +80,7 @@ def test_the_workbook_prints_the_sheet_order_and_the_internal_sheet_the_number(
     notes = list(book["Review notes"].iter_rows(values_only=True))
     said = next(r for r in notes if r[0] == "Item numbers")
     assert said[2] == 3 and "permanent number" in said[3]
+    assert "on the screen" in said[3], "the screen has no Internal sheet"
 
 
 def test_the_issue_copy_keeps_the_permanent_number(monkeypatch):

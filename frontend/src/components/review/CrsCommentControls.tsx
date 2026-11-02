@@ -78,6 +78,15 @@ export function CrsReplyImportControl(
   );
 }
 
+/** The comment's permanent number when the row prints something else beside it (the
+ *  internal copy's sheet order, CRS_ITEM_SHEET_ORDER_ENABLED). A contractor's reply quotes
+ *  the permanent number: row 002 is not comment ...-002, so it is said wherever a reply
+ *  is recorded. "" when Item No already is that number. */
+function permanentBeside(row: CrsPreviewRow): string {
+  const ref = row.crs_ref ?? "";
+  return ref && ref !== String(row.item_no) ? ref : "";
+}
+
 /** The Contractor's Response cell: the reply, and "Record reply" for one
  *  that arrived by email or letter. */
 export function CrsResponseCell(
@@ -108,11 +117,12 @@ export function CrsResponseCell(
       <p className="whitespace-pre-line text-slateish-200">{row.contractor_response}</p>
       {ref && !open && (
         <button type="button" className={button} onClick={() => setOpen(true)}>
-          Record reply
+          {permanentBeside(row) ? `Record reply to ${ref}` : "Record reply"}
         </button>
       )}
       {ref && open && (
         <div className="space-y-1">
+          {permanentBeside(row) && <p className="text-xs text-slateish-300">Reply to comment {ref}</p>}
           <select
             aria-label={`Response code for ${ref}`} value={code}
             onChange={(e) => setCode(e.target.value as CrsResponseCode | "")}
@@ -222,6 +232,7 @@ export function CrsItemCell({ runId, row }: { runId: string; row: CrsPreviewRow 
   return (
     <div className="space-y-1">
       <span>{row.item_no}</span>
+      {permanentBeside(row) && <p className="text-xs text-slateish-300">{ref}</p>}
       {row.row_kind === "carried_forward" && (
         <p className="text-xs text-info-500">carried forward</p>
       )}

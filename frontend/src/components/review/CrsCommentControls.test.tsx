@@ -93,6 +93,36 @@ describe("a recorded reply is never assumed to be agreement", () => {
   });
 });
 
+describe("a row printing its sheet order says the number a reply quotes", () => {
+  // Row 002 is comment -039: a reply quoting -002 must not read as this row.
+  const ordered = row({ item_no: "002", crs_ref: "CRS-SUB7-039" });
+
+  it("prints the permanent number beside the item", () => {
+    render(<CrsItemCell runId="r" row={ordered} />);
+    expect(screen.getByText("002")).toBeTruthy();
+    expect(screen.getByText("CRS-SUB7-039")).toBeTruthy();
+  });
+
+  it("names the comment on the button and in the form, and saves to that number", async () => {
+    const user = userEvent.setup();
+    render(<CrsResponseCell runId="r" row={ordered} onChanged={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Record reply to CRS-SUB7-039" }));
+    expect(screen.getByText("Reply to comment CRS-SUB7-039")).toBeTruthy();
+    await user.type(screen.getByLabelText("Contractor's reply to CRS-SUB7-039"), "Noted");
+    await user.click(screen.getByRole("button", { name: "Save reply" }));
+    expect(recordResponse).toHaveBeenCalledWith("r", "CRS-SUB7-039", null, "Noted");
+  });
+
+  it("prints nothing extra when the item already is the number", () => {
+    render(<>
+      <CrsItemCell runId="r" row={row()} />
+      <CrsResponseCell runId="r" row={row()} onChanged={vi.fn()} />
+    </>);
+    expect(screen.getAllByText("CRS-SUB7-001")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Record reply" })).toBeTruthy();
+  });
+});
+
 describe("importing the returned sheet", () => {
   it("reports every row read and says statuses were not changed", async () => {
     importReply.mockResolvedValue({ ok: true, data: {
