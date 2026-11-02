@@ -9,8 +9,16 @@ import io
 import openpyxl
 import pytest
 
-from app import absence, access, comparison, crs_export, crs_export_quality, crs_mapping
-from app import db, main
+from app import (
+    absence,
+    access,
+    comparison,
+    crs_export,
+    crs_export_quality,
+    crs_mapping,
+    db,
+    main,
+)
 from app.config import settings
 
 OUTCOME = {

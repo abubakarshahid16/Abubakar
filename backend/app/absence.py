@@ -35,7 +35,10 @@ COULD_NOT_BE_CHECKED = "could_not_be_checked"
 #: search ran and nothing fit, or the model read the sources and said they do
 #: not contain it. Any other refusal is a failure to check, not an absence.
 ABSENCE_KIND_NOT_FOUND = "not_found"
-_STEP_WORDS = {"ai_check": "The AI engineering check", "web_check": "The web standards check"}
+_STEP_WORDS = {
+    "ai_check": "The AI engineering check",
+    "web_check": "The web standards check",
+}
 #: The Review note on rows an engineer has still to tick (`tick_note`).
 TICK_NOTE = "Rows for the engineer to tick"
 
