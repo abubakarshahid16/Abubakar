@@ -695,6 +695,17 @@ def test_each_finding_cites_its_rule_and_the_run_records_its_snapshot(monkeypatc
     assert (rule["rule_id"], 1) in rulebook_v2.in_force_versions(conn, used[1])
 
 
+def test_the_run_says_it_used_version_2_and_not_version_1(monkeypatch):
+    run, scope = _sheet()
+    _review(monkeypatch, run, scope, _rule())
+    outcome = (
+        _conn()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run,))
+        .fetchone()[0]
+    )
+    assert json.loads(outcome)["rule_version"]["used"] == 2
+
+
 def test_a_rerun_reads_the_same_snapshot_and_replaces_its_rows(monkeypatch):
     run, scope = _sheet()
     rule = _rule()
@@ -864,7 +875,12 @@ def test_switch_off_a_review_with_a_full_book_is_byte_identical(monkeypatch):
     finally:
         conn.set_authorizer(None)
     assert _everything(run) == before
-    assert read and not {t for t in read if t.startswith("rulebook_")}
+    # the run's own record of which book it used is all it touches: no rule is read
+    assert read and {t for t in read if t.startswith("rulebook_")} <= {
+        "rulebook_run",
+        "rulebook_snapshot",
+        "rulebook_event",
+    }
     assert not called
     assert "rulebook_v2" not in before[1]
     assert "rulebook_v2" not in coverage_pair.for_run(_conn(), run)

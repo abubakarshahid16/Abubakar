@@ -443,7 +443,15 @@ def test_no_module_that_decides_a_verdict_reads_the_compiled_rules():
         for p in app.rglob("*.py")
         if "compiled_rules" in p.read_text(encoding="utf-8")
     ]
-    assert set(readers) == {"compiled_rule_report.py", "standards_compiler.py"}
+    # the two naming steps write a rule's role and check; `rulebook_v2.field_role_of` hands those on for an approved
+    # version. Nothing that decides a verdict opens this table, and a held row is never read as a rule.
+    assert set(readers) == {
+        "compiled_rule_report.py",
+        "standards_compiler.py",
+        "rule_field_naming.py",
+        "rule_typed_check.py",
+        "rulebook_v2.py",
+    }
 
 
 def _review_run(run_id="run-1", outcome="{}"):

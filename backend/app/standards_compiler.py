@@ -768,8 +768,9 @@ def reverify_stored(
 
 
 def record_rule_version(review_run_id: str) -> None:
-    """Switch on: the run says which rule version it used. Always 1: verdict code reads only `standard_requirements`,
-    so a held compiled rule cannot have been used, and this counts the ones it did not use. Switch off: nothing."""
+    """Switch on: the run says which rule version it used. 1 unless the run itself recorded the rulebook's version 2
+    (`rulebook_v2_review`, its own switch); a held compiled rule cannot have been used, and this counts the ones it did
+    not use. Switch off: nothing."""
     if not settings.standards_compiler_enabled:
         return
     conn = connect()
@@ -778,7 +779,7 @@ def record_rule_version(review_run_id: str) -> None:
     ).fetchone()
     if row is None:
         return
-    rulebook_v2.record_run(conn, review_run_id)
+    recorded = rulebook_v2.record_run(conn, review_run_id)
     documents = claude_approved.review_documents(review_run_id)
     held = 0
     if documents and _has_table(conn, "compiled_rules"):
@@ -789,7 +790,7 @@ def record_rule_version(review_run_id: str) -> None:
         ).fetchone()["n"]
     outcome = json.loads(row["outcome_json"] or "{}")
     outcome["rule_version"] = {
-        "used": V1,
+        "used": recorded["used_version"] if recorded else V1,
         "compiled_rules_held_not_used": held,
         "boundary": "the standards applied to this run",
     }
