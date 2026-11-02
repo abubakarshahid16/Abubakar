@@ -255,21 +255,18 @@ def _limit_problem(limit, unit, comparator, quote, sentence) -> str | None:
     """Why this limit is not the one the sentence states, or None."""
     if any(w in sentence for w in sc.DEFAULT_WORDS):
         return "default_not_limit"
-    if (
-        numparse.as_number(limit) is None
-    ):  # "100 mm" or "316L" would skip every binding check below
+    # "100 mm" or "316L" would skip every binding check below.
+    if numparse.as_number(limit) is None:
         return "limit_not_a_bare_number"
-    if not numparse.value_in_text(limit, quote):
+    number = _written(limit, quote)
+    if number is None:
         return "limit_not_in_quote"
     if unit and not unit_in_quote(unit, quote):
         return "unit_not_in_quote"
-    number = _written(limit, quote)
-    if number is not None and not unit and _unit_left_out(number, quote):
+    if not unit and _unit_left_out(number, quote):
         return "unit_left_out"
     if comparator not in sc.COMPARATORS or not sc._comparator_says(quote, comparator):
         return "comparator_not_in_quote"
-    if number is None:
-        return "limit_not_in_quote"
     if _is_range(number, unit, quote):
         return "range_not_single"
     if sc.limit_scope(sentence, sentence, number.raw, unit) is None:

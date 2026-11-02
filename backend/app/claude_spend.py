@@ -499,6 +499,11 @@ def reserve_all(
         prompt_sha256=prompt_sha256,
         batch=batch,
     )
+    # #1584: what this call carries goes on its reservation line, so a send and
+    # its record are one write (switch off, or no document content: nothing).
+    from . import claude_approved
+
+    sent_documents = claude_approved.sent_documents()
     explicit = caps
     caps = caps or Caps.from_settings()
     now = time.time()
@@ -526,6 +531,8 @@ def reserve_all(
                           estimated_usd=r.worst_usd)
             line["reservation"] = r.id
             line["reserved"] = True
+            if sent_documents:
+                line["sent_documents"] = sent_documents
             _append(line)
     return out
 

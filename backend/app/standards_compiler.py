@@ -564,6 +564,25 @@ def _already_compiled(conn, document_id: str, digest: str):
     ).fetchone()
 
 
+def _with_cap(worst: dict) -> dict:
+    cap = float(settings.claude_budget_usd_per_standard)
+    return {
+        **worst,
+        "per_standard_cap_usd": cap,
+        "over_per_standard_cap": worst["worst_usd"] > cap,
+    }
+
+
+def _base_report(conn, document_id: str, label: str) -> dict:
+    return {
+        "standard": label,
+        "document_id": document_id,
+        "rule_version": V2,
+        "prompt_version": PROMPT_VERSION,
+        **page_coverage(conn, document_id),
+    }
+
+
 def compile_standard(
     conn,
     document_id: str,
@@ -585,13 +604,7 @@ def compile_standard(
     pages = pages_of(conn, document_id)
     readable = {n: t for n, t in pages.items() if t.strip()}
     digest = text_hash(readable)
-    report = {
-        "standard": label,
-        "document_id": document_id,
-        "rule_version": V2,
-        "prompt_version": PROMPT_VERSION,
-        **page_coverage(conn, document_id),
-    }
+    report = _base_report(conn, document_id, label)
     if not readable:  # no text was read: this is not a standard with no rules
         return {**report, "status": "not_compiled", "why": NOTHING_TO_READ}
     done = _already_compiled(conn, document_id, digest)
@@ -610,12 +623,7 @@ def compile_standard(
     if on_estimate is not None:
         on_estimate({"standard": label, **worst})
     if estimate_only:
-        cap = float(settings.claude_budget_usd_per_standard)
-        over = {
-            "per_standard_cap_usd": cap,
-            "over_per_standard_cap": worst["worst_usd"] > cap,
-        }
-        return {**report, "status": "estimate", "estimate": {**worst, **over}}
+        return {**report, "status": "estimate", "estimate": _with_cap(worst)}
     limit = float(
         settings.standards_compiler_max_usd_per_day if max_usd is None else max_usd
     )
