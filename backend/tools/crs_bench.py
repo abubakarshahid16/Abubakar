@@ -36,6 +36,12 @@ DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
 
 
+# What a row CLAIMS, so a matcher survives a label change (#1569): `check` is the
+# checklist item's id, `value` whether the row carries a value from the sheet
+# ("absent"/"present": never the value itself, the truth file holds no document
+# text), `page` the page it cites. `section` is the row's label: it can change
+# while the claim stays, so the truth file does not use it. `value` tests only
+# that the row has evidence text: a quote that defers the value is "present".
 MATCH_KEYS = (
     "origin",
     "status",
@@ -43,8 +49,11 @@ MATCH_KEYS = (
     "match_method",
     "section",
     "check",
+    "value",
+    "page",
     "deferred",
 )
+VALUE_STATES = ("absent", "present")
 
 
 class ModelCallRefused(RuntimeError):
@@ -65,6 +74,13 @@ def _check_id(finding: dict) -> str | None:
 def _matches(finding: dict, matcher: dict) -> bool:
     if not set(matcher) & set(MATCH_KEYS):
         raise ValueError(f"a truth matcher must name at least one of {MATCH_KEYS}")
+    # an unknown key used to be ignored, which quietly widened the matcher
+    unknown = set(matcher) - set(MATCH_KEYS) - {"why"}
+    if unknown:
+        raise ValueError(f"a truth matcher has unknown keys: {sorted(unknown)}")
+    if "value" in matcher and matcher["value"] not in VALUE_STATES:
+        raise ValueError(f"a truth matcher's value must be one of {VALUE_STATES}")
+    has_value = (finding.get("contractor_evidence_text") or "").strip()
     for key in MATCH_KEYS:
         if key not in matcher:
             continue
@@ -73,6 +89,8 @@ def _matches(finding: dict, matcher: dict) -> bool:
             "status": finding.get("compliance_status"),
             "section": finding.get("contractor_section"),
             "check": _check_id(finding),
+            "value": "present" if has_value else "absent",
+            "page": finding.get("contractor_page"),
         }.get(key, finding.get(key))
         if (got or "") != want:
             return False
