@@ -298,6 +298,15 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
             turn_cost += float(response.cost_usd or 0.0)
             if response.finish_reason == "cancelled":
                 return _cancelled(turn, sources, steps, started, turn_cost)
+            if response.finish_reason == "refusal":
+                # HTTP 200 with no answer: a stated failure, never an empty
+                # "answer" - the same two exits as a refused or failed call.
+                declined = rp.ProviderRefused("claude: the model declined this request")
+                if tool_calls_made == 0 and not sources:
+                    raise _Fallback(str(declined))
+                return _budget_or_provider_failure(
+                    declined, sources, steps, started, turn_cost
+                )
 
             if thinking_budget and thinking_seconds is None:
                 # `or 0.0`, never a falsy skip: a fast answer that still

@@ -53,7 +53,7 @@ def shape_problems(body: dict) -> list[str]:
         if block.get("type") == "thinking":
             if not block.get("signature"):
                 problems.append("R2: a thinking block was sent back without its signature")
-            if not (body.get("thinking") or {}).get("type") == "enabled":
+            if (body.get("thinking") or {}).get("type") not in ("enabled", "adaptive"):
                 problems.append("R2: a thinking block is in messages but thinking is not enabled")
     return problems
 
@@ -138,5 +138,7 @@ def test_a_thinking_turn_with_a_tool_call_sends_a_valid_second_request(monkeypat
     convo = client.post("/api/conversations").json()["id"]
     _ask(client, convo, "compare standard A and standard B", document_id=doc, tier="generated")
     assert len(calls) == 2
-    assert calls[0]["thinking"] == {"type": "enabled", "budget_tokens": 1500}
+    assert calls[0]["thinking"] == {
+        "type": "adaptive"
+    }  # budget_tokens is a 400 on claude-sonnet-5
     assert shape_problems(calls[1]) == []

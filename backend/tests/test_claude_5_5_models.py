@@ -1,0 +1,627 @@
+"""The three models the owner will use when the Claude lane opens.
+
+Every request is built by the REAL builder and handed to a FAKE transport: no
+API call of any kind, no key, no live database. Each path is asserted against
+what the current Messages API answers 400 to on these models (temperature,
+`budget_tokens`, `thinking: disabled`, forced `tool_choice`, assistant prefill).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app import (
+    chat_model,
+    claude_spend,
+    comparison,
+    datasheet_ai,
+    reader_api,
+    reader_transport,
+)
+from app import reasoning_provider as rp
+from app import standards_converter
+from app.ai import output_limits
+from app.config import settings
+from app.main import app
+from tests.test_chat import temp_storage, upload  # noqa: F401 - the fixture is autouse
+from tests.test_chat_pr1_model_lane import _stream_events
+
+pytestmark = pytest.mark.usefixtures("temp_storage")
+
+SONNET, OPUS, HAIKU = "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"
+MODELS = (SONNET, OPUS, HAIKU)
+KEY = "sk-ant-test-not-a-real-key"
+LONG_AGO = "2000-01-01T00:00:00+00:00"
+
+
+@pytest.fixture(autouse=True)
+def _env(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
+    monkeypatch.setattr(settings, "anthropic_api_key", KEY)
+    monkeypatch.setattr(settings, "standards_reader_enabled", True)
+    monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
+    for name in (
+        "STANDARDS_READER_ENABLED",
+        "STANDARDS_READER_ALLOW_PUBLIC_EGRESS",
+        "ANTHROPIC_API_KEY",
+        "STANDARDS_READER_MODEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def rejected_fields(body: dict) -> list[str]:
+    """What these three models answer 400 to, read off one request body."""
+    problems = []
+    if "temperature" in body or "top_p" in body or "top_k" in body:
+        problems.append("sampling parameter")
+    thinking = body.get("thinking") or {}
+    if "budget_tokens" in thinking or thinking.get("type") in ("enabled", "disabled"):
+        problems.append(f"thinking {thinking}")
+    if (body.get("tool_choice") or {}).get("type") in ("any", "tool"):
+        problems.append(f"forced tool_choice {body['tool_choice']}")
+    messages = body.get("messages") or []
+    if messages and messages[-1].get("role") == "assistant":
+        problems.append("assistant prefill")
+    return problems
+
+
+def _reply(model, text='{"answer": "yes"}', stop="end_turn", usage=None):
+    return {
+        "model": model,
+        "stop_reason": stop,
+        "content": [{"type": "text", "text": text}],
+        "usage": usage or {"input_tokens": 100, "output_tokens": 20},
+    }
+
+
+def _send(seen, reply):
+    def send(url, *, headers, body, timeout):
+        seen.append(body)
+        return reply
+
+    return send
+
+
+def _packet(**kw):
+    base = {
+        "prompt": "Is it?",
+        "num_ctx": 4096,
+        "num_predict": 200,
+        "step": "test-step",
+    }
+    base.update(kw)
+    return rp.Packet(**base)
+
+
+def _cfg(model=SONNET):
+    return reader_api.ReaderSettings(
+        enabled=True, allow_public_egress=True, model=model
+    )
+
+
+# ----------------------------------------------- every path, all three models
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_standards_reader_call_carries_no_rejected_field(model):
+    seen = []
+    reader_api.call_claude(
+        "a sentence",
+        transport=_send(seen, _reply(model)),
+        cfg=_cfg(model),
+        env={"ANTHROPIC_API_KEY": KEY},
+    )
+    assert seen and rejected_fields(seen[0]) == [] and seen[0]["model"] == model
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_provider_call_carries_no_rejected_field(model):
+    seen = []
+    rp.ClaudeProvider(model, transport=_send(seen, _reply(model)), step="s").reason(
+        _packet(temperature=0.7, json_schema={"type": "object"})
+    )
+    assert seen and rejected_fields(seen[0]) == []
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_a_thinking_call_uses_adaptive_thinking_never_a_budget(model):
+    seen = []
+    rp.ClaudeProvider(model, transport=_send(seen, _reply(model)), step="s").reason(
+        _packet(thinking_budget=2000, num_predict=4000)
+    )
+    assert seen[0]["thinking"] == {"type": "adaptive"}
+    assert rejected_fields(seen[0]) == []
+
+
+def test_an_older_model_that_only_takes_a_budget_still_gets_one():
+    seen = []
+    rp.ClaudeProvider(
+        "claude-haiku-4-5-20251001", transport=_send(seen, _reply("x")), step="s"
+    ).reason(_packet(thinking_budget=2000, num_predict=4000))
+    assert seen[0]["thinking"] == {"type": "enabled", "budget_tokens": 2000}
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_a_streamed_call_carries_no_rejected_field(model):
+    seen = []
+
+    def send(url, *, headers, body, timeout, cancel=None):
+        seen.append(body)
+        yield from _stream_events(_reply(model, "fine"))
+
+    rp.ClaudeProvider(model, stream_transport=send, step="s").stream(
+        _packet(thinking_budget=2000, num_predict=4000, temperature=0.5),
+        lambda _p: None,
+    )
+    assert seen and rejected_fields(seen[0]) == []
+
+
+class _Batches:
+    def __init__(self, model, stop="end_turn", text='{"answer": "yes"}'):
+        self.model, self.stop, self.text, self.created = model, stop, text, []
+
+    def batch_create(self, url, *, headers, requests):
+        self.created.extend(requests)
+        return {
+            "id": "b1",
+            "processing_status": "ended",
+            "results_url": "https://api.anthropic.com/r",
+        }
+
+    def batch_retrieve(self, url, batch_id, *, headers):
+        raise AssertionError("already ended")
+
+    def batch_results(self, url, *, headers):
+        return [
+            {
+                "custom_id": r["custom_id"],
+                "result": {
+                    "type": "succeeded",
+                    "message": _reply(self.model, self.text, self.stop),
+                },
+            }
+            for r in self.created
+        ]
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_a_batch_request_carries_no_rejected_field_and_is_marked_batch(model):
+    client = _Batches(model)
+    rp.ClaudeProvider(model, step="s").reason_batch(
+        [_packet(temperature=0.3)], client=client
+    )
+    assert client.created and rejected_fields(client.created[0]["params"]) == []
+    settled = [e for e in claude_spend.entries() if e.get("settles")]
+    assert settled and settled[0]["batch"] is True and settled[0]["model"] == model
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_datasheet_reader_carries_no_rejected_field(model, monkeypatch):
+    seen = []
+    monkeypatch.setattr(settings, "claude_reasoning_model", model)
+    monkeypatch.setattr(
+        reader_transport,
+        "transport",
+        lambda: _send(seen, _reply(model, '{"facts": []}')),
+    )
+    call, why = datasheet_ai.model_call_for("claude")
+    assert why is None
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    assert seen and rejected_fields(seen[0]) == []
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_matcher_carries_no_rejected_field(model, monkeypatch):
+    seen = []
+    monkeypatch.setattr(settings, "claude_reasoning_model", model)
+    monkeypatch.setattr(settings, "match_engine", "claude")
+    monkeypatch.setattr(
+        reader_transport, "transport", lambda: _send(seen, _reply(model, '{"n": 1}'))
+    )
+    text, why = comparison._ask_claude_for_a_pair("which pair?")
+    assert why is None and text
+    assert seen and rejected_fields(seen[0]) == []
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_standards_converter_packet_carries_no_rejected_field(model, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        standards_converter.claude_approved,
+        "carrying",
+        lambda _ids: contextlib.nullcontext(),
+    )
+    provider = rp.ClaudeProvider(model, transport=_send(seen, _reply(model, "[]")))
+    rows = [
+        {
+            "id": "r1",
+            "requirement_type": sorted(standards_converter.CONVERTIBLE_TYPES)[0],
+            "text": "x",
+            "section": "1",
+        }
+    ]
+    monkeypatch.setattr(standards_converter, "requirements_of", lambda _c, _d: rows)
+    monkeypatch.setattr(standards_converter, "require_family", lambda _s: None)
+    monkeypatch.setattr(standards_converter, "require_known_type", lambda _t: None)
+    monkeypatch.setattr(standards_converter.rule_roles, "form", lambda _t: ({}, {}, {}))
+    monkeypatch.setattr(standards_converter, "system_text", lambda _t, _d: "system")
+    out = standards_converter.convert(None, "d1", "SAES-X-1", "pump", provider)
+    assert seen and rejected_fields(seen[0]) == []
+    assert out.model == model
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_general_chat_path_carries_no_rejected_field(model, monkeypatch):
+    seen = []
+    engine = rp.ClaudeProvider(model, transport=_send(seen, _reply(model, "fine")))
+    monkeypatch.setattr(chat_model, "provider", lambda _preference: engine)
+    chat_model.generate("sys", "hello", temperature=0.5, timeout=30.0)
+    assert seen and rejected_fields(seen[0]) == []
+
+
+def _scripted_chat(monkeypatch, model, payloads, calls):
+    n = {"i": 0}
+
+    def send(url, *, headers, body, timeout, cancel=None):
+        calls.append(json.loads(json.dumps(body, default=str)))
+        i = min(n["i"], len(payloads) - 1)
+        n["i"] += 1
+        yield from _stream_events(payloads[i])
+
+    real = rp.ClaudeProvider
+    monkeypatch.setattr(settings, "claude_reasoning_model", model)
+    monkeypatch.setattr(
+        rp,
+        "get_provider",
+        lambda role="reasoning", *, step=None: real(
+            model, step=step, stream_transport=send
+        ),
+    )
+
+
+def _tool_round(model, doc):
+    return {
+        "model": model,
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 200, "output_tokens": 30},
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read_document",
+                "input": {"document_id": doc},
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_the_chat_tool_loop_carries_no_rejected_field_on_any_round(model, monkeypatch):
+    """A complex question (thinking on), a tool round, then the tool cap's
+    `tool_choice: none`: no round may carry a rejected field or end on an
+    assistant turn."""
+    monkeypatch.setattr(settings, "chat_tool_max_calls", 1)
+    client = TestClient(app)
+    doc = upload(client)
+    calls: list = []
+    _scripted_chat(
+        monkeypatch,
+        model,
+        [_tool_round(model, doc), _reply(model, "Nothing more to add.")],
+        calls,
+    )
+    convo = client.post("/api/conversations").json()["id"]
+    client.post(
+        f"/api/conversations/{convo}/ask",
+        json={
+            "question": "compare standard A and standard B",
+            "document_id": doc,
+            "tier": "generated",
+        },
+    )
+    assert len(calls) >= 2
+    assert any(body.get("thinking") == {"type": "adaptive"} for body in calls)
+    for body in calls:
+        assert rejected_fields(body) == [], body.get("thinking")
+
+
+# ------------------------------------------------------------------- prices
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        (SONNET, (2.0, 10.0, 2.5, 0.20)),
+        (OPUS, (4.0, 20.0, 5.0, 0.20)),
+        (HAIKU, (0.10, 0.50, 0.125, 0.01)),
+        ("claude-sonnet-5", (2.0, 10.0, 2.5, 0.20)),
+        ("claude-opus-5", (5.0, 25.0, 6.25, 0.50)),
+        ("claude-haiku-4-5-20251001", (1.0, 5.0, 1.25, 0.10)),
+    ],
+)
+def test_each_id_finds_its_own_family_price(model, expected):
+    assert claude_spend.price_for(model) == expected
+
+
+def test_a_haiku_prompt_at_100k_tokens_is_cheap_and_one_token_more_is_not():
+    at = {"input_tokens": 100_000, "output_tokens": 1_000_000}
+    over = {"input_tokens": 100_001, "output_tokens": 1_000_000}
+    assert claude_spend.cost_usd(HAIKU, at) == pytest.approx(0.01 + 0.50, abs=1e-6)
+    assert claude_spend.cost_usd(HAIKU, over) == pytest.approx(
+        100_001 * 0.50 / 1e6 + 2.50, abs=1e-6
+    )
+
+
+def test_cached_tokens_count_towards_the_haiku_prompt_length():
+    usage = {"input_tokens": 10, "cache_read_input_tokens": 100_000, "output_tokens": 0}
+    assert claude_spend.cost_usd(HAIKU, usage) == pytest.approx(
+        (10 * 0.50 + 100_000 * 0.05) / 1e6
+    )
+
+
+def test_the_haiku_worst_case_uses_the_rate_card_its_prompt_falls_on():
+    short = claude_spend.worst_case_usd(HAIKU, 3_000, 1_000)
+    assert short == pytest.approx((1_001 * 0.125 + 1_000 * 0.50) / 1e6)
+    long = claude_spend.worst_case_usd(HAIKU, 300_003, 1_000)
+    assert long == pytest.approx((100_002 * 0.625 + 1_000 * 2.50) / 1e6)
+
+
+def test_the_long_prompt_rate_is_haiku_only():
+    usage = {"input_tokens": 150_000, "output_tokens": 0}
+    assert claude_spend.cost_usd(SONNET, usage) == pytest.approx(0.30)
+
+
+# ----------------------------------------------------- stop_reason "refusal"
+
+
+def _refusal(model=SONNET, text='{"partial": true}'):
+    return {
+        **_reply(model, text, "refusal"),
+        "stop_details": {"type": "refusal", "category": "cyber"},
+    }
+
+
+def test_a_refusal_with_partial_text_is_no_text_on_the_reader_lane():
+    assert reader_api.response_text(_refusal()) == ""
+    assert output_limits.state_of_payload(_refusal()) == output_limits.UNKNOWN
+    assert output_limits.state_of("refusal", "some words") == output_limits.UNKNOWN
+
+
+def test_a_refusal_is_could_not_read_through_the_route_model_call():
+    call = output_limits.model_call_for(
+        lambda *a, **k: _refusal(),
+        output_limits.ROUTE_MATCH,
+        cfg=_cfg(),
+        env={"ANTHROPIC_API_KEY": KEY},
+    )
+    with pytest.raises(output_limits.Unreadable):
+        call("anything")
+
+
+def test_a_refusal_through_the_provider_is_empty_uncached_and_still_charged():
+    seen = []
+    provider = rp.ClaudeProvider(SONNET, transport=_send(seen, _refusal()), step="s")
+    packet = _packet(json_schema={"type": "object"})
+    response = provider.reason(packet)
+    assert response.text == "" and response.finish_reason == "refusal"
+    assert response.schema_errors, "an empty answer must fail its schema"
+    assert output_limits.state_of_response(response) == output_limits.UNKNOWN
+    assert response.cost_usd > 0
+    provider.reason(packet)
+    assert len(seen) == 2, "a refusal must never be served from the response cache"
+
+
+def test_a_refusal_in_a_stream_drops_what_was_streamed_from_the_answer():
+    def send(url, *, headers, body, timeout, cancel=None):
+        yield from _stream_events(_refusal(text="half an answer"))
+
+    response = rp.ClaudeProvider(SONNET, stream_transport=send, step="s").stream(
+        _packet(), lambda _p: None
+    )
+    assert response.finish_reason == "refusal" and response.text == ""
+    assert output_limits.state_of_response(response) == output_limits.UNKNOWN
+
+
+def test_a_refused_batch_request_is_could_not_read():
+    client = _Batches(SONNET, stop="refusal")
+    [response] = rp.ClaudeProvider(SONNET, step="s").reason_batch(
+        [_packet(json_schema={"type": "object"})], client=client
+    )
+    assert response.text == "" and response.schema_errors
+
+
+def test_a_refused_sentence_is_named_not_passed():
+    call = reader_api.model_call_via(
+        lambda *a, **k: _refusal(text='{"proposals": []}'),
+        cfg=_cfg(),
+        env={"ANTHROPIC_API_KEY": KEY},
+    )
+    out = reader_api.read_sentence("The noise shall not exceed 90 dB(A).", call)
+    assert reader_api.Reason.MODEL_MALFORMED.value in str(out)
+
+
+def test_a_refused_converter_batch_is_unreadable_never_a_pass(monkeypatch):
+    monkeypatch.setattr(
+        standards_converter.claude_approved,
+        "carrying",
+        lambda _ids: contextlib.nullcontext(),
+    )
+    provider = rp.ClaudeProvider(SONNET, transport=_send([], _refusal(text="[]")))
+    rows = [
+        {
+            "id": "r1",
+            "requirement_type": sorted(standards_converter.CONVERTIBLE_TYPES)[0],
+            "text": "x",
+            "section": "1",
+        }
+    ]
+    monkeypatch.setattr(standards_converter, "requirements_of", lambda _c, _d: rows)
+    monkeypatch.setattr(standards_converter, "require_family", lambda _s: None)
+    monkeypatch.setattr(standards_converter, "require_known_type", lambda _t: None)
+    monkeypatch.setattr(standards_converter.rule_roles, "form", lambda _t: ({}, {}, {}))
+    monkeypatch.setattr(standards_converter, "system_text", lambda _t, _d: "system")
+    out = standards_converter.convert(None, "d1", "SAES-X-1", "pump", provider)
+    assert out.unreadable_batches == 1
+
+
+def test_a_chat_refusal_is_a_stated_failure_never_an_empty_answer(monkeypatch):
+    client = TestClient(app)
+    doc = upload(client)
+    calls: list = []
+    _scripted_chat(
+        monkeypatch, SONNET, [_tool_round(SONNET, doc), _refusal(text="")], calls
+    )
+    convo = client.post("/api/conversations").json()["id"]
+    body = client.post(
+        f"/api/conversations/{convo}/ask",
+        json={
+            "question": "tell me about this document",
+            "document_id": doc,
+            "tier": "generated",
+        },
+    ).json()
+    assert len(calls) == 2
+    assert body["answer_type"] == "model_unavailable" and not body["answer"]
+
+
+# --------------------------------------------- the model actually used, recorded
+
+
+def _settled(model, step, *, usage=None, finish="stop", requested="asked-for"):
+    held = claude_spend.reserve(step, 0.01, model=requested, prompt_sha256="x")
+    return claude_spend.settle(
+        held,
+        model=model,
+        usage=usage or {"input_tokens": 5, "output_tokens": 5},
+        finish_reason=finish,
+    )
+
+
+def test_the_ledger_and_the_response_name_the_model_that_answered_not_the_one_asked():
+    response = rp.ClaudeProvider(
+        SONNET, transport=_send([], _reply("answered-by")), step="s"
+    ).reason(_packet())
+    assert response.model_tag == "answered-by"
+    settled = [e for e in claude_spend.entries() if e.get("settles")]
+    assert settled[0]["model"] == "answered-by"
+
+
+def test_a_metered_call_keeps_the_model_that_answered():
+    call = claude_spend.metered(_send([], _reply("answered-by")), "s")
+    call(
+        "https://x",
+        headers={},
+        body={"model": "asked-for", "max_tokens": 1, "messages": []},
+        timeout=1.0,
+    )
+    assert call.last_model == "answered-by"
+
+
+def test_models_used_reads_only_answers_of_this_window():
+    _settled("answered-a", "review-step")
+    _settled("answered-b", "other-step")
+    claude_spend.reserve("review-step", 0.01, model="still-open", prompt_sha256="y")
+    assert claude_spend.models_used(since=LONG_AGO) == ["answered-a", "answered-b"]
+    assert claude_spend.models_used(since=LONG_AGO, steps={"other-step"}) == [
+        "answered-b"
+    ]
+    assert claude_spend.models_used(since="2999-01-01T00:00:00+00:00") == []
+
+
+def test_models_used_leaves_out_chat_when_asked_and_a_call_that_never_answered():
+    _settled("chat-model", "chat")
+    _settled("review-model", "review-step")
+    held = claude_spend.reserve(
+        "review-step", 0.5, model="never-answered", prompt_sha256="z"
+    )
+    claude_spend.settle_failure(held, RuntimeError("read timeout"))
+    assert claude_spend.models_used(since=LONG_AGO, exclude_prefixes=("chat",)) == [
+        "review-model"
+    ]
+
+
+def test_the_datasheet_reader_names_the_model_that_answered(monkeypatch):
+    monkeypatch.setattr(settings, "claude_reasoning_model", "asked-for")
+    monkeypatch.setattr(
+        reader_transport,
+        "transport",
+        lambda: _send([], _reply("answered-by", '{"facts": []}')),
+    )
+    call, why = datasheet_ai.model_call_for("claude")
+    assert why is None
+    assert datasheet_ai.model_used(call) == "asked-for", (
+        "before any answer: what was asked"
+    )
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    assert datasheet_ai.model_used(call) == "answered-by"
+
+
+def test_the_matcher_summary_names_the_model_not_the_word_claude(monkeypatch):
+    monkeypatch.setattr(settings, "match_enabled", True)
+    monkeypatch.setattr(settings, "match_engine", "claude")
+    counts = {
+        "reasons": {},
+        "proposed": 0,
+        "sent": 0,
+        "no_candidates": 0,
+        "refused_by_rule": 0,
+    }
+    assert (
+        comparison.matcher_summary(
+            counts, model_matches=0, model_held={}, models=["answered-by"]
+        )["model"]
+        == "answered-by"
+    )
+    assert (
+        comparison.matcher_summary(counts, model_matches=0, model_held={})["model"]
+        == "claude"
+    )
+
+
+def test_the_transport_audit_line_names_the_model_that_answered(monkeypatch, caplog):
+    class _R:
+        status_code = 200
+        content = b"{}"
+        request = None
+
+        @staticmethod
+        def json():
+            return _reply("answered-by")
+
+    class _C:
+        def __init__(self, **_k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def post(self, *_a, **_k):
+            return _R()
+
+    monkeypatch.setattr(reader_transport.httpx, "Client", _C)
+    send = reader_transport.transport()
+    with caplog.at_level(logging.WARNING, logger=reader_transport.__name__):
+        send(
+            "https://api.anthropic.com/v1/messages",
+            headers={},
+            body={"model": "asked-for"},
+            timeout=1.0,
+        )
+    assert "answered=answered-by" in caplog.text and KEY not in caplog.text
+
+
+# --------------------------------------------------- the switch stays where it is
+
+
+def test_the_shipped_default_keeps_the_lane_local():
+    assert type(settings).model_fields["reasoning_provider"].default == "ollama"

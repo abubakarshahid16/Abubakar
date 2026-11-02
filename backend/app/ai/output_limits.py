@@ -89,9 +89,10 @@ STATES = (COMPLETE, TRUNCATED, UNKNOWN)
 #: The stop reasons that mean "the cap ended it": Ollama's `done_reason`
 #: (`length`) and Anthropic's `stop_reason` (`max_tokens`), either spelling.
 LENGTH_STOPS = frozenset({"length", "max_tokens"})
-#: Nothing readable came back: no stop reason at all, or the engine's own
-#: error word (`reasoning_provider._answered` for an empty payload).
-UNREADABLE_STOPS = frozenset({"", "error"})
+#: Nothing readable came back: no stop reason at all, the engine's own error
+#: word (`reasoning_provider._answered` for an empty payload), or the API's
+#: `refusal` (HTTP 200), which may carry text written before it declined.
+UNREADABLE_STOPS = frozenset({"", "error", "refusal"})
 
 
 class Truncated(RuntimeError):
@@ -202,6 +203,7 @@ def model_call_for(transport, route: str, *, cfg=None, env=None, salvage: bool =
 
     model_call.route = route
     model_call.max_tokens = cfg.max_tokens
+    model_call.send = transport
     return model_call
 
 

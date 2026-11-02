@@ -215,7 +215,9 @@ def test_extended_thinking_is_used_for_a_complex_question_and_shown(monkeypatch,
     client = TestClient(app)
     convo = client.post("/api/conversations").json()["id"]
     body = _ask(client, convo, "compare standard A and standard B")
-    assert calls[0]["thinking"] == {"type": "enabled", "budget_tokens": 1500}
+    assert calls[0]["thinking"] == {
+        "type": "adaptive"
+    }  # budget_tokens is a 400 on claude-sonnet-5
     assert "temperature" not in calls[0], "Anthropic refuses temperature while thinking is enabled"
     assert "Thought for" in body["used_line"]
 

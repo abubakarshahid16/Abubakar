@@ -123,7 +123,9 @@ def _run_section(run: dict, sub: str, filename, steps: dict) -> dict:
             "cue": evidence.get("cue") or evidence.get("rule"),
         }
     ai = _loads(run.get("ai_check_status"))
-    models = sorted({m for m in (run.get("model_name"), ai.get("model")) if m})
+    # `model_name`: every Claude model that answered in this run, comma-joined.
+    names = (run.get("model_name") or "").split(", ")
+    models = sorted({m for m in (*names, ai.get("model")) if m})
     switches = sorted(
         name
         for name in type(settings).model_fields

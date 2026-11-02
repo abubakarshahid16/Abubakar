@@ -181,10 +181,17 @@ def transport():
         usage["output_tokens"] += int(counts.get("output_tokens") or 0)
         usage["bytes_sent"] += len(payload)
         log.warning(
-            "standards reader: sent %d bytes to %s model=%s status=%d "
+            "standards reader: sent %d bytes to %s model=%s answered=%s status=%d "
             "in=%s out=%s digest=%s",
-            len(payload), host, body.get("model"), response.status_code,
-            counts.get("input_tokens"), counts.get("output_tokens"), _digest(body))
+            len(payload),
+            host,
+            body.get("model"),
+            decoded.get("model") if isinstance(decoded, dict) else None,
+            response.status_code,
+            counts.get("input_tokens"),
+            counts.get("output_tokens"),
+            _digest(body),
+        )
         return decoded
 
     _send.usage = usage
@@ -217,6 +224,7 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
     sent_headers.update(dict(headers or {}))
     payload = json.dumps({**dict(body), "stream": True}, ensure_ascii=False).encode("utf-8")
     counts = {"input_tokens": None, "output_tokens": None}
+    answered = None
     received = 0
     cancelled = False
     finished = threading.Event()
@@ -279,6 +287,7 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                 if event.get("type") == "message_start":
                     usage = (event.get("message") or {}).get("usage") or {}
                     counts["input_tokens"] = usage.get("input_tokens")
+                    answered = (event.get("message") or {}).get("model")
                 elif event.get("type") == "message_delta":
                     counts["output_tokens"] = (event.get("usage") or {}).get("output_tokens")
                 yield event
@@ -291,11 +300,18 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
         finished.set()
         client.close()
         log.warning(
-            "standards reader: streamed %d bytes to %s model=%s status=%d "
+            "standards reader: streamed %d bytes to %s model=%s answered=%s status=%d "
             "in=%s out=%s digest=%s%s",
-            len(payload), host, body.get("model"), status,
-            counts["input_tokens"], counts["output_tokens"], _digest(body),
-            " cancelled" if cancelled else "")
+            len(payload),
+            host,
+            body.get("model"),
+            answered,
+            status,
+            counts["input_tokens"],
+            counts["output_tokens"],
+            _digest(body),
+            " cancelled" if cancelled else "",
+        )
 
 
 def list_models(*, timeout: float | None = None) -> list[str]:
@@ -410,13 +426,22 @@ def batch_results(results_url: str, *, headers: Mapping[str, str], timeout: floa
     rows = [json.loads(line) for line in response.text.splitlines() if line.strip()]
     kinds: dict[str, int] = {}
     tokens_in = tokens_out = 0
+    answered = set()
     for row in rows:
         result = row.get("result") or {}
         kinds[str(result.get("type"))] = kinds.get(str(result.get("type")), 0) + 1
+        answered.add(str((result.get("message") or {}).get("model") or ""))
         usage = (result.get("message") or {}).get("usage") or {}
         tokens_in += int(usage.get("input_tokens") or 0)
         tokens_out += int(usage.get("output_tokens") or 0)
-    log.warning("standards reader: batch results %d rows from %s status=%d types=%s in=%d out=%d",
-                len(rows), model_host_of(results_url), response.status_code, json.dumps(kinds, sort_keys=True),
-                tokens_in, tokens_out)
+    log.warning(
+        "standards reader: batch results %d rows from %s status=%d types=%s in=%d out=%d answered=%s",
+        len(rows),
+        model_host_of(results_url),
+        response.status_code,
+        json.dumps(kinds, sort_keys=True),
+        tokens_in,
+        tokens_out,
+        sorted(answered - {""}),
+    )
     return rows

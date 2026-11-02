@@ -340,8 +340,7 @@ class Generation:
 
     B54: `model` WAS THROWN AWAY. Ollama returns the tag it actually loaded in
     every `/api/generate` response and this class kept two fields, so a stored
-    answer could never say which engine produced it - and `review_runs.
-    model_name` is NULL on every row for the same reason. It defaults to empty
+    answer could never say which engine produced it. It defaults to empty
     rather than being required, because an injected test double has no tag and
     should not have to invent one; what matters is that the real path stops
     discarding it.

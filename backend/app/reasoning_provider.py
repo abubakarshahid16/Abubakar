@@ -1,9 +1,10 @@
 """One interface for "give this bounded packet to a model and tell me exactly
 what answered".
 
-WHY THIS EXISTS. Today nothing in the system can say WHICH model produced an
-answer. `review_runs.model_name` is NULL on every row and nothing writes it;
-there is no `provider`, no `model_tag` and no digest column anywhere; and on
+WHY THIS EXISTS. Before this, nothing in the system could say WHICH model produced
+an answer. `review_runs.model_name` was NULL on every row (it now names the Claude
+models that answered, from `claude_spend`; a local-only run leaves it NULL);
+there was no `provider`, no `model_tag` and no digest column anywhere; and on
 the local path the information was available and thrown away, because Ollama
 reports the tag it loaded in every response and `synthesis.Generation` kept
 only the text. That is B54, and it is symmetric - neither engine recorded
@@ -158,8 +159,11 @@ class Packet:
     #: Anthropic tool definitions offered on this call. Empty for every
     #: existing caller.
     tools: tuple[dict, ...] = ()
-    #: Extended-thinking budget in tokens; None keeps thinking off (today's
-    #: behaviour). Anthropic requires `max_tokens` (`num_predict`) to exceed
+    #: Extended-thinking budget in tokens; None sends no `thinking` field.
+    #: A budget is sent only to a model that takes one, and every other model
+    #: thinks adaptively (`reader_api.thinking_for`); current models also think
+    #: by default with the field left out, and that output counts in `max_tokens`.
+    #: Anthropic requires `max_tokens` (`num_predict`) to exceed
     #: this, and rejects `temperature` while thinking is on - both handled in
     #: `ClaudeProvider._request`.
     thinking_budget: int | None = None
@@ -494,7 +498,9 @@ class ClaudeProvider:
         else:
             body["temperature"] = packet.temperature
         if packet.thinking_budget:
-            body["thinking"] = {"type": "enabled", "budget_tokens": int(packet.thinking_budget)}
+            body["thinking"] = reader_api.thinking_for(
+                self.requested_model, packet.thinking_budget
+            )
         if packet.effort:
             body["output_config"] = {"effort": packet.effort}
         if packet.system:
@@ -785,7 +791,9 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
         refused = ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}")
         refused.cost_usd = charged
         raise refused from exc
-    text = "".join(parts).strip()
+    # A refusal is could-not-read: what was streamed before it is not an answer
+    # (`reader_api.response_text`), however far it got.
+    text = "" if stop == "refusal" else "".join(parts).strip()
     stopped = cancel is not None and cancel.is_set()
     if stopped and not usage.get("output_tokens"):
         # Stopped before the provider reported its count: charge a generous
