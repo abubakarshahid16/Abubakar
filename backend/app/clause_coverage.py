@@ -149,9 +149,7 @@ def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
 
 def crs_meta(meta: dict, review_run_id: str) -> dict:
     """The CRS meta: with the switch on the pair replaces this module's review note."""
-    from . import coverage_pair
-
-    from . import run_parts
+    from . import coverage_pair, run_parts
 
     told = run_parts.crs_part(meta, connect(), review_run_id)
     return coverage_pair.crs_meta(told, connect(), review_run_id)

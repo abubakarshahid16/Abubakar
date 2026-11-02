@@ -971,7 +971,7 @@ def test_the_internal_copy_has_a_row_per_tag_and_the_note_has_the_line_and_label
     monkeypatch,
 ):
     run = _four_passes(monkeypatch, _rule())
-    told, view = _view(run, crs_export.COPY_INTERNAL)
+    _told, view = _view(run, crs_export.COPY_INTERNAL)
     rows = [r for r in view["rows"] if r["row_kind"] == rulebook_v2_crs.ROW_KIND]
     assert len(rows) == 4
     assert {r["rule_trust"] for r in rows} == {
