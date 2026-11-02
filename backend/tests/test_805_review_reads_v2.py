@@ -14,6 +14,7 @@ import pytest
 from app import (
     comparison,
     coverage_pair,
+    datasheet_checks,
     datasheets,
     db,
     rule_trust,
@@ -371,7 +372,9 @@ def test_scope_from_outside_the_sentence_or_a_should_is_a_query(monkeypatch):
     run, scope = _sheet()
     flagged = _rule(context_flag="scope_elsewhere")
     advice = _rule(
-        strength="should", value=9.5, quote="The invented set pressure should not exceed 9.5 barg."
+        strength="should",
+        value=9.5,
+        quote="The invented set pressure should not exceed 9.5 barg.",
     )
     rows = {
         f["requirement"]: _reason(f)
@@ -572,6 +575,26 @@ def test_a_query_on_version_1_is_not_a_disagreement():
     row = {"id": "x", "compliance_status": QUERY, "fact_id": "f"}
     reviewed.settle_with_findings([row], [])
     assert rule.status == "COMPLIANT"
+
+
+def test_a_review_settles_its_checks_before_they_are_stored(monkeypatch):
+    run, scope = _sheet()
+    order = []
+    real_store = datasheet_checks.store
+    real_settle = rulebook_v2_review.Review.settle_with_checks
+
+    def settle(self, results):
+        order.append("settled")
+        return real_settle(self, results)
+
+    def store(*args, **kwargs):
+        order.append("stored")
+        return real_store(*args, **kwargs)
+
+    monkeypatch.setattr(rulebook_v2_review.Review, "settle_with_checks", settle)
+    monkeypatch.setattr(datasheet_checks, "store", store)
+    _review(monkeypatch, run, scope, _rule())
+    assert order == ["settled", "stored"]
 
 
 def test_a_checklist_item_that_disagrees_is_held_with_the_rule():
