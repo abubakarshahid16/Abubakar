@@ -387,9 +387,7 @@ def _wrong_verdicts(
     return {"all": len(rows), "outside": len(outside)}
 
 
-def _rulebook_v2(
-    part: dict, findings: list[dict], wrong_ids: set[int] | None
-) -> dict:
+def _rulebook_v2(part: dict, findings: list[dict], wrong_ids: set[int] | None) -> dict:
     """The version 2 rows of a run that read them: decided of the approved rules for this
     equipment type. Never in `decided`; a run with no rule says why, not 0 of 0."""
     from .rulebook_v2_review import ORIGIN

@@ -143,6 +143,8 @@ def _rule(field="Set pressure", comparator="<=", value=10.0, unit="barg", **over
         row[0],
         decision="approve",
         engineer_id=ENGINEER,
+        tier="owner",
+        equipment_type=TYPE,
         provenance_viewed=(row[2],),
     )
     rule = {
@@ -407,6 +409,22 @@ def test_a_rule_outside_the_runs_snapshot_decides_nothing(monkeypatch):
     assert row["compliance_status"] == QUERY and _reason(row) == NOT_IN_SNAPSHOT
 
 
+def test_the_books_own_approved_rules_decide_end_to_end(monkeypatch):
+    """No fake of `approved_rules`: a person's approval for this type, then a review."""
+    run, scope = _sheet(value="9 barg")
+    _rule(value=8.0)
+    row = _one(comparison.run_comparison(run, allowed_document_ids=scope))
+    assert row["compliance_status"] == "NON_COMPLIANT"
+
+
+def test_an_approval_for_another_type_gives_this_sheet_no_rule(monkeypatch):
+    run, scope = _sheet(value="9 barg", equipment_type="Centrifugal Pump")
+    _rule(value=8.0)
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+    assert not _ours(result)
+    assert result["requirement_split"]["rulebook_v2"]["rules"] == 0
+
+
 # ------------------------------------------------------------------------------------- the equipment type
 
 
@@ -501,7 +519,7 @@ def test_agreeing_with_version_1_keeps_both_verdicts():
     rule = rulebook_v2_review.Row({}, "COMPLIANT", None, "", fact_ids={"f"})
     reviewed = rulebook_v2_review.Review("r", "d", "used", rows=[rule])
     row = {"id": "x", "compliance_status": "COMPLIANT", "fact_id": "f"}
-    rulebook_v2_review.settle_with_findings(reviewed, [row], [])
+    reviewed.settle_with_findings([row], [])
     assert row["compliance_status"] == "COMPLIANT" and rule.status == "COMPLIANT"
 
 
@@ -509,15 +527,14 @@ def test_a_query_on_version_1_is_not_a_disagreement():
     rule = rulebook_v2_review.Row({}, "COMPLIANT", None, "", fact_ids={"f"})
     reviewed = rulebook_v2_review.Review("r", "d", "used", rows=[rule])
     row = {"id": "x", "compliance_status": QUERY, "fact_id": "f"}
-    rulebook_v2_review.settle_with_findings(reviewed, [row], [])
+    reviewed.settle_with_findings([row], [])
     assert rule.status == "COMPLIANT"
 
 
 def test_a_checklist_item_that_disagrees_is_held_with_the_rule():
     rule = rulebook_v2_review.Row({}, "NON_COMPLIANT", None, "", fact_ids={"f"})
     reviewed = rulebook_v2_review.Review("r", "d", "used", rows=[rule])
-    held, other = rulebook_v2_review.settle_with_checks(
-        reviewed,
+    held, other = reviewed.settle_with_checks(
         [
             {"status": "COMPLIANT", "fact_id": "f", "checklist": True, "detail": "d"},
             {

@@ -432,6 +432,18 @@ class Review:
     snapshot_id: str | None = None
     rows: list[Row] = field(default_factory=list)
 
+    def settle_with_findings(self, prepared: list[dict], findings: list[dict]) -> None:
+        settle_with_findings(self, prepared, findings)
+
+    def settle_with_checks(self, results: list[dict]) -> list[dict]:
+        return settle_with_checks(self, results)
+
+    def store(self, conn) -> list[dict]:
+        return store(conn, self)
+
+    def summary(self) -> dict:
+        return summary(self)
+
 
 def begin(
     conn, review_run_id: str, document_id: str, record: dict, facts: list[dict]
@@ -486,12 +498,10 @@ def _disagree(row: Row, status: str) -> None:
 
 
 def settle_with_findings(
-    review: Review | None, prepared: list[dict], findings: list[dict]
+    review: Review, prepared: list[dict], findings: list[dict]
 ) -> None:
     """A version 1 row and a version 2 rule on one field that disagree: both rows become a Query, before either is
     written. `prepared` and `findings` hold one row each, by id."""
-    if review is None:
-        return
     from . import comparison
 
     for row in review.rows:
@@ -522,10 +532,8 @@ def settle_with_findings(
                     shown.update(held)
 
 
-def settle_with_checks(review: Review | None, results: list[dict]) -> list[dict]:
+def settle_with_checks(review: Review, results: list[dict]) -> list[dict]:
     """The same for a checklist item on the field. Any other check is the sheet against itself: not this question."""
-    if review is None:
-        return results
     out = []
     for result in results:
         for row in review.rows:
@@ -559,10 +567,10 @@ def citation(rule: dict) -> str:
     )
 
 
-def store(conn, review: Review | None) -> list[dict]:
+def store(conn, review: Review) -> list[dict]:
     """The rows, as findings of the run, in one transaction, each citing its rule. A row an engineer rejected in this
     run is kept by the re-run's delete and not written again beside it."""
-    if review is None or not review.rows:
+    if not review.rows:
         return []
     from . import comparison
     from . import review as review_mod
@@ -612,10 +620,8 @@ def store(conn, review: Review | None) -> list[dict]:
     return written
 
 
-def summary(review: Review | None) -> dict | None:
+def summary(review: Review) -> dict:
     """Counts and fixed reason names: what the run stores and `coverage_pair` states. No document text."""
-    if review is None:
-        return None
     reasons: dict[str, int] = {}
     for row in review.rows:
         if row.reason:

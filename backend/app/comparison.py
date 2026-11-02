@@ -2930,19 +2930,13 @@ def _run_comparison(
                              "citation_resolves": not unresolved})
 
     # ORDER 210 FIX 3: a held requirement is also an engineer-review row.
-    from . import held_findings
+    from . import held_findings, run_parts
 
     run = (review_run_id, submittal_id, replace, standard_labels)
     held_findings.add(held_items, pending, prepared_rows, findings, run)
 
-    # #805 plan change 6, switch off by default: approved version 2 rules beside version 1. Before
-    # the write, so a version 1 row that disagrees with a rule on its field becomes a Query too.
-    rulebook_review = None
-    if settings.rulebook_v2_review_enabled:
-        from . import rulebook_v2_review
-        rulebook_review = rulebook_v2_review.begin(
-            connect(), review_run_id, submittal_id, stored, facts)
-        rulebook_v2_review.settle_with_findings(rulebook_review, prepared_rows, findings)
+    # #805 plan change 6, switch off: approved version 2 rules beside version 1, before the write.
+    rulebook = run_parts.rulebook(run, stored, facts, prepared_rows, findings)
 
     # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
     # datasheet self-checks below, which add their own rows to this run and
@@ -2988,16 +2982,14 @@ def _run_comparison(
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
     check_results = kind_rules.gate(kn, checklist_scope, facts, stored, page_texts)
-    if rulebook_review is not None:
-        check_results = rulebook_v2_review.settle_with_checks(rulebook_review, check_results)
+    check_results = run_parts.checks(rulebook, check_results)
     # rule_trust (#947): every rule labelled, the checks too - a signed-off checklist item is an
     # engineer's rule; every other check is held when it would decide (#985). Off with the switch off.
     from . import rule_trust as rule_trust_mod
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
         label=rule_trust_mod.label_check if trust is not None else None))
-    if rulebook_review is not None:
-        findings.extend(rulebook_v2_review.store(connect(), rulebook_review))
+    findings.extend(run_parts.written(rulebook))
 
     # rule_trust (#947) steps 7 and 10, switch ON only: the datasheet fields
     # read with a value that no applicable rule targets (the CRS lists them
@@ -3029,14 +3021,7 @@ def _run_comparison(
     if clause_checks is not None:
         split = {**split, "clause_checks": clause_checks}
     split = {**split, **kind_rules.split_part(kn, checklist_note), **eqs.split_part(es)}
-    if cited_scope["summary"]:  # #139: standards cited only for named clauses
-        split = {**split, "cited_clauses": cited_scope["summary"]}
-    if checklist_coverage:
-        split = {**split, "checklist_coverage": checklist_coverage}
-    if rulebook_review is not None:
-        split = {**split, "rulebook_v2": rulebook_v2_review.summary(rulebook_review)}
-    if divided["summary"]:  # #141: divisions limited by their own scope
-        split = {**split, "division_scope": divided["summary"]}
+    split = run_parts.stated(split, cited_scope, checklist_coverage, divided, rulebook)
     # Owner order 2026-10-11: the run says which reader read the sheet (engine,
     # model or "code readers only") and the pages the AI did not read, with the reason.
     from . import degraded_read

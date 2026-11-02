@@ -935,14 +935,15 @@ def test_no_route_or_retrieval_module_imports_the_rulebook_and_a_verdict_only_be
         "compiled_rule_report.py",
         "standards_compiler.py",
         "rulebook_v2_review.py",
-        "comparison.py",
+        "run_parts.py",
         "coverage_pair.py",
     }
     assert "compiled_rule_report.py" in importers
-    source = (APP / "comparison.py").read_text(encoding="utf-8")
+    assert "rulebook_v2" not in (APP / "comparison.py").read_text(encoding="utf-8")
+    source = (APP / "run_parts.py").read_text(encoding="utf-8")
     assert source.count("import rulebook_v2_review") == 1
     assert re.search(
-        r"if settings\.rulebook_v2_review_enabled:\n\s+from \. import rulebook_v2_review\n",
+        r"if not settings\.rulebook_v2_review_enabled:\n\s+return None\n\s+from \. import rulebook_v2_review\n",
         source,
     )
     # coverage_pair names the origin only, and only for a run whose outcome stored the rulebook's part
