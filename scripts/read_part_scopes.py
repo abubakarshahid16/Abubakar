@@ -132,6 +132,18 @@ def _capped(send, step: str, cap: float):
     return guarded
 
 
+def _gate_refusal(conn, document_id: str, label: str) -> str | None:
+    """What would refuse this job, or None. Sends nothing."""
+    try:
+        standards_compiler.require_allowed(conn, document_id, label)
+    except Exception as exc:  # noqa: BLE001 - each of the gate's refusals carries its reason, with ids only
+        return f"{type(exc).__name__}: {exc}"
+    code, why = reasoning_provider.claude_unavailable_for_task(
+        settings.ai_division_scope_engine
+    )
+    return f"{code}: {why}" if code is not None else None
+
+
 def _sender(document_id: str, cap: float, keep_if, send):
     """A `(prompt) -> text` on the metered lane. `send`: a test's transport; else `reader_transport`'s."""
     from app import reader_transport
@@ -189,18 +201,6 @@ def _read_one(conn, part: dict, model: str, cfg, make_send, counts: dict) -> Non
             return
         counts["rejected_by_code"] += 1
     counts["not_stored"] += 1
-
-
-def _gate_refusal(conn, document_id: str, label: str) -> str | None:
-    """What would refuse this job, or None. Sends nothing."""
-    try:
-        standards_compiler.require_allowed(conn, document_id, label)
-    except Exception as exc:  # noqa: BLE001 - each of the gate's refusals carries its reason, with ids only
-        return f"{type(exc).__name__}: {exc}"
-    code, why = reasoning_provider.claude_unavailable_for_task(
-        settings.ai_division_scope_engine
-    )
-    return f"{code}: {why}" if code is not None else None
 
 
 def rule_counts(conn, document_id: str, equipment_type: str) -> dict:
