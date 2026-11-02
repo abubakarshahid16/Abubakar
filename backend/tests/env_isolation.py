@@ -232,6 +232,8 @@ EGRESS_SAFE: dict[str, object] = {
     "spec_kit_enabled": False,
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
+    # --- local only, no socket: the bench also prints the planted-defect table (#1607, off by default)
+    "planted_defects_bench_enabled": False,
     # --- local only, no model or socket: a split abbreviation is joined; a unit left off one copy is one value (off by default)
     "datasheet_label_join_enabled": False,
     # --- local only, no model or socket: a drawing is checked against a DRAFT must-contain list (#1484, off by default)
@@ -274,6 +276,7 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,
+    "owner_approved_rules_decide_enabled": False,
     # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
     "procedure_crs_fields_enabled": False,
     # --- WIDENS what the Claude lane may carry (#1584, off by default); no socket of its own

@@ -6,6 +6,20 @@ environment exactly like every other setting (`Settings` inherits them).
 
 from pydantic import BaseModel, Field
 
+#: Settings that change a review's answer only when moved off their default. They join
+#: `config_version` only then, so adding one leaves every recorded hash and baseline as it was.
+ANSWER_AFFECTING_WHEN_CHANGED = ("ai_division_scope_engine",)
+
+
+def answer_affecting_when_changed(settings) -> dict:
+    """The settings above that are off their default, for `config_version`."""
+    fields = type(settings).model_fields
+    return {
+        k: getattr(settings, k)
+        for k in ANSWER_AFFECTING_WHEN_CHANGED
+        if getattr(settings, k) != fields[k].default
+    }
+
 
 class SettingsExt(BaseModel):
     #: #1584 standards compiler (`standards_compiler.py`, `scripts/compile_standards.py`): Claude turns a held
@@ -14,12 +28,18 @@ class SettingsExt(BaseModel):
     standards_compiler_enabled: bool = False
     #: The model it asks. Env: STANDARDS_COMPILER_MODEL.
     standards_compiler_model: str = "claude-sonnet-5-5"
-    #: Standard families it may send. API and ASME by the owner's decision on #1584 (2 Nov 2026), for this compiler
+    #: Standard families it may send. API, ASME and NACE (cited as ISO 15156 / NACE MR0175) by the owner's decision on #1584 (2 Nov 2026), for this compiler
     #: only (the old converter keeps its own list). Setting it can narrow the list. Env: STANDARDS_COMPILER_FAMILIES.
-    standards_compiler_families: str = "SAES,ISO,API,ASME"
+    standards_compiler_families: str = "SAES,ISO,API,ASME,NACE"
     #: The default of `--max-usd`: the owner's USD 100 a day, across every standard, read from the spend ledger.
     #: Env: STANDARDS_COMPILER_MAX_USD_PER_DAY.
     standards_compiler_max_usd_per_day: float = Field(100.0, gt=0)
+    #: Division scope's OWN engine (owner decision, 2 Nov 2026): `claude` reads a standard's
+    #: part scopes on the Claude API (`division_text.claude_reader`), under the provider
+    #: switch, both egress flags, the approved and block lists, the answer cache and the USD
+    #: caps. Anything else stays on the local model; in a Claude-lane run that is skipped and
+    #: listed as not checked. Env: AI_DIVISION_SCOPE_ENGINE.
+    ai_division_scope_engine: str = "ollama"
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, on the local model unless its engine says otherwise, every
@@ -78,6 +98,10 @@ class SettingsExt(BaseModel):
     #: label answers each text attribute it names. OFF: nothing changes.
     #: Env: DATASHEET_ONE_VALUE_ENABLED.
     datasheet_one_value_enabled: bool = False
+    #: #1607: `scripts/crs_bench.py` also runs the planted-defect sheets on its own copy and
+    #: prints the table. Printed only: the gate does not read it until the baseline is
+    #: stable. OFF: the bench runs no scorer. Env: PLANTED_DEFECTS_BENCH_ENABLED.
+    planted_defects_bench_enabled: bool = False
     #: A datasheet field the sheet gives is not reported missing or conflicting for two general reasons: a split
     #: abbreviation ("tube o d" for O.D.) is joined before the role table is read, and a reading with no unit
     #: beside a reading of the same number with one is one value. Never decides (see `label_match`). OFF: nothing
@@ -271,8 +295,15 @@ class SettingsExt(BaseModel):
     #: Plan change 6 part B: one meaning of "checked" (`coverage_pair`). The CRS review notes and the
     #: screen's coverage lines print risk and coverage from the one function, in place of the clause
     #: coverage line (stored rows, checklist-covered rules added). The bench and the board call print
-    #: the pair always. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
+    #: the pair always. Also what "ready" means (`reading_state`): vectors complete and every page and
+    #: picture read or listed as not read. OFF: every screen and CRS word as before. Env: ONE_CHECKED_DEFINITION_ENABLED.
     one_checked_definition_enabled: bool = False
+    #: Owner's text on #1584: a rule the owner approved (`approval.tier == "owner"`) may decide a verdict, labelled
+    #: "AI-built, quote-verified, owner-approved" (`rule_trust.tier_for_approved`), never "engineer-approved". Code
+    #: still compares a read value; a safety-tier COMPLIANT keeps the engineer's tick and, until ticked, no Approved
+    #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
+    #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
+    owner_approved_rules_decide_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion

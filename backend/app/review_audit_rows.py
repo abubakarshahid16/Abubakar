@@ -220,3 +220,12 @@ def spend_lines(ai_use: dict) -> list[str]:
             "so this figure may be short"
         )
     return [*out, f"  - {spend['boundary']}"]
+
+
+def run_figures(run: dict) -> dict:
+    """The run's Claude figures for the audit's AI section: stored answers and spend per step."""
+    return {**cache_figures(run), **spend_figures(run)}
+
+
+def claude_lines(ai_use: dict) -> list[str]:
+    return [*cache_lines(ai_use), *spend_lines(ai_use)]

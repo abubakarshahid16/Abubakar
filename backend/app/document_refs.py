@@ -170,6 +170,10 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
     ("canonical_field_names", "quote"): (
         DELETED_BY_ROUTE, "a quote from the document that justified a field name;"
         " the delete route removes the rows drawn from the document (#437)"),
+    ("document_reading", "document_id"): (
+        FK_CASCADE,
+        "what was read of the document, in counts and places (`reading_state`)",
+    ),
     # OCR text of a Word file's pictures, keyed by file hash with no foreign key.
     ("word_picture_readings", "text"): (
         DELETED_BY_ROUTE,

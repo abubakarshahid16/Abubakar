@@ -19,7 +19,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              tags=("rule_trust", "honesty")),
     Mutation(id="M1010-02", phase=1010,
              description="the summary states no boundary (findings_counted dropped)",
-             path=APP / "comparison.py",
+             path=APP / "rule_trust.py",
              anchor='        "findings_counted": len(rows),\n',
              replacement='        "findings_counted": None,\n',
              target="tests/test_947_rule_trust_wiring.py", keyword="unproven_rule_never_decides",

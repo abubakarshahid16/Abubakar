@@ -483,12 +483,13 @@ def _models_refused(counter: list[int], installed: tuple[str, ...] = ()):
 
 
 @contextmanager
-def _on_copy(db_path: Path):
-    """Point the app at a throw-away copy of `db_path` for the block."""
+def _on_copy(db_path: Path, under: Path | None = None):
+    """Point the app at a throw-away copy of `db_path` for the block (in `under`
+    when given, else the OS temp folder)."""
     from app import db
     from app.config import settings
 
-    with tempfile.TemporaryDirectory(prefix="crs-bench-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="crs-bench-", dir=under) as tmp:
         target = Path(tmp) / "bench.sqlite"
         for suffix in ("", "-wal", "-shm"):
             src = Path(str(db_path) + suffix)
@@ -631,7 +632,7 @@ def use_settings_of(env_file: Path) -> None:
         setattr(settings, name, getattr(fresh, name))
 
 
-BENCH_SWITCHES = ("datasheet_one_value_enabled",)
+BENCH_SWITCHES = ("datasheet_one_value_enabled", "owner_approved_rules_decide_enabled")
 
 
 def fingerprint() -> str:

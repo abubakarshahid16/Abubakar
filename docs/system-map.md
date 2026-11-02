@@ -13,7 +13,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Job | Modules |
 |---|---|
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
-| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_text` |
+| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
 
 ## Modules
@@ -27,6 +27,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `admin_explorer` | Read-only database explorer for the Administration page. Phase 8 |
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `clause_scope` | Choose the standards that apply to a submittal |
+| `division_claude` | Choose the standards that apply to a submittal |
 | `division_text` | Choose the standards that apply to a submittal |
 | `same_value` | When two readings of a field are one value: the same number and unit with a plain note; a note that changes the meaning stays a second value |
 | `label_match` | A split abbreviation ("tube o d") is joined before the roles table is read; a reading with no unit beside the same number with one is one value (switch `datasheet_label_join_enabled`) |
@@ -160,6 +161,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
 | `degraded_read` | A degraded AI reading of a datasheet (mostly refused, timed out, stopped, unavailable) is recorded in counts and holds every checklist pass for the engineer (order 261.2) |
 | `deferred_value` | A value the sheet defers to the contractor (By Contractor, TBA) is a query, never a verdict (owner decision D2, #1475) |
+| `impossible_sign` | A value that should not be negative, printed negative, never gives a Pass; it becomes a Query (#1607) |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
@@ -196,6 +198,10 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `compile_budget` | #1584: what the standards compiler may still spend, read from the ledger; a hold nothing owns is released after the longest a batch can run |
 | `compiled_rule_proof` | #1584: the proof of one compiled rule: its quote on the cited page, its limit and unit inside the quote, its comparator in the quote's words, a scope after the limit kept as its condition; pure functions |
 | `compiled_rule_pages` | #1584: a standard's pages read into sentences, clause headings and chunks sized to the output room of the request; pure functions |
+| `compiled_rule_context` | #1584: why a proven compiled rule may still not stand alone: a table row, scope in a heading, caption or next sentence; a flag an approval path can refuse on |
+| `compiled_rule_field` | #1584: whether a compiled rule's field name belongs to its quote: strict with a figure, one word without |
+| `compiled_rule_shape` | #1584: whether a compiled rule may store its figure: an allow-list of plain sentence shapes; anything else keeps the sentence and no limit |
+| `compiled_rule_rescue` | #1584: the rules still readable in a paid answer that does not parse as a whole; says whether anything was lost |
 | `compiled_rule_report` | #1584: a standard's page text as the app cites it, where each page's text came from, its table rows, and version 1 beside version 2 with how the version 2 run ended; reads only, counts only |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
@@ -261,6 +267,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `unsupported_script` | A page written mostly in Arabic script is not searched and says so: "language not supported, engineer review" (#564) |
 | `rates` | Throughput reporting |
 | `reader_api` | Layer 1 for STANDARDS: the model READS one sentence, Python VERIFIES it |
+| `reading_state` | What "ready" means: every page and picture read or listed as not read, from the ledger; one function for every kind of file (ONE_CHECKED_DEFINITION_ENABLED) |
 | `reader_transport` | The one place in this codebase that may open a socket to the standards reader |
 | `reasoning_provider` | One interface for "give this bounded packet to a model and tell me exactly what answered" |
 | `reports` | Single-answer evidence reports, rendered from a frozen snapshot |

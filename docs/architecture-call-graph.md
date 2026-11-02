@@ -92,6 +92,13 @@ model call and that no model output reached a finding; both are no longer true:
   (`_checked_choice`), and a malformed or failed one is recorded as such.
 - Both run on the local model through `model_transport.py`; either uses the Claude API only
   under the gates of CLAUDE.md rule 1. `quotes.py` (B23) no longer exists.
+- **The division scope** (`ai_applicability.division_gate_for_run`,
+  `settings.ai_division_scope_engine = "ollama"`) reads a standard's part scopes through
+  `ai_task_runner.run_task`. With `claude`, `division_text.claude_reader` hands it a
+  `ClaudeProvider` (`rp.claude_for_task`, step `division_scope`), so each call passes
+  `claude_spend.answer_on_file` and `reserve` and leaves through `reader_transport`. Unread
+  parts hold their rules. In a Claude-lane run with the local engine setting, the step is
+  skipped by `local_engine_bar` and listed as not checked.
 
 Section 2's line references above are still those of `1b445af`.
 

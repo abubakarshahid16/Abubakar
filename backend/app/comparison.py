@@ -59,6 +59,7 @@ from .claude_auto_approve import notes_after
 from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
 from .config import settings
 from .deferred_value import framing as _framing, reason as _deferred_reason
+from .impossible_sign import hold_pass as _hold_impossible_pass
 from .db import connect
 from .provenance import ai_quote_proved
 
@@ -592,6 +593,7 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
     (CLAUDE.md rule 4); the same value read as "within the limit" was
     accepted, which is the same guess. Every other status (already a
     question, missing information) passes unchanged."""
+    verdict = _hold_impossible_pass(verdict, fact)  # #1607
     if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
         return verdict
     reason = low_trust_reason(fact)
@@ -1375,6 +1377,13 @@ def create_finding(
             "citation_resolves": not unresolved}
 
 
+def _rule_trust_on() -> bool:
+    """Does this run label anything? The second switch (#1584) labels only the rules the owner approved."""
+    return (
+        settings.rule_auto_use_enabled or settings.owner_approved_rules_decide_enabled
+    )
+
+
 class _RuleTrust:
     """One run's view of `rule_trust` (#947), switch ON only: the family
     proof per (standard, equipment type) and the compiling model, read once
@@ -1406,9 +1415,9 @@ class _RuleTrust:
                 model_id=model, standard_revision=self._revision(standard_id))
         return self._proofs[key]
 
-    def label(self, verdict: dict, rule: dict) -> dict:
+    def label(self, verdict: dict, rule: dict, fact: dict | None = None) -> dict:
         from . import rule_trust
-        return rule_trust.label_finding(verdict, rule, self.proof(rule))
+        return rule_trust.label_finding(verdict, rule, self.proof(rule), fact=fact)
 
 
 def _trust_columns(verdict: dict, status: str | None) -> dict:
@@ -1426,37 +1435,11 @@ def _trust_columns(verdict: dict, status: str | None) -> dict:
 def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
                         requirements: list[dict], rows: list[dict]) -> dict | None:
     """Steps 7 and 10 of the owner decision, for the run's record. None with
-    the switch off. Field NAMES of this machine's own datasheet; never values.
-
-    `rows` are EVERY finding written for this run - the rule rows and the
-    datasheet checks - so `held_unproven` is every verdict rule_trust held,
-    not the main loop's share of them (s2's real-group run of 17 Oct found
-    51 reported against 1,555 held). `findings_counted` states the boundary.
-    """
+    the switch off."""
     if trust is None:
         return None
     from . import rule_trust
-    # A stored fact carries its value as `field_value`; the pure function
-    # reads `raw_value`. One translation, here, never a second reader.
-    shaped = [{"field_name": f.get("field_label") or f.get("field_name"),
-               "raw_value": f.get("field_value"), "is_blank": f.get("is_blank")} for f in facts]
-    read = [f for f in shaped if not f["is_blank"] and f["raw_value"] not in (None, "")]
-    uncovered = rule_trust.uncovered_fields(shaped, requirements)
-    auto_ids = [r["id"] for r in rows if r.get("trust_label") == rule_trust.AUTO_PROVEN]
-    labels: dict[str, int] = {}
-    for r in rows:
-        if r.get("trust_label"):
-            labels[r["trust_label"]] = labels.get(r["trust_label"], 0) + 1
-    return {
-        "fields_read": len(read),
-        "uncovered_fields": [f.get("field_name") or f.get("name") for f in uncovered],
-        "labels": labels,
-        "findings_counted": len(rows),
-        "held_unproven": sum(1 for r in rows if r.get("rule_said")),
-        "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
-        "auto_proven": len(auto_ids),
-        "audit_sample": rule_trust.audit_sample(auto_ids, seed=review_run_id),
-    }
+    return rule_trust.run_summary(review_run_id, facts, requirements, rows)
 
 
 def _prepare_finding(
@@ -1905,6 +1888,8 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                   "reason": (f"Manual review: the reading is incomplete ({pages}, "  # 1550
                              "see the run's page coverage), so the rest cannot be called met"),
                   "reading_incomplete": True}
+    from . import rule_trust
+    result = rule_trust.hold_open_ticks(result, findings, codes)
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
         # A PROVEN BREACH, IN AN ENGINEER'S WORDS, with what else is open.
@@ -2434,7 +2419,7 @@ def _run_comparison(
     kn = kind_rules.for_run(submittal_id, allowed_document_ids, standard_ids)
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     # rule_trust (#947): who stands behind each rule's verdict; None with the switch off.
-    trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
+    trust = _RuleTrust(stored.get("equipment_type")) if _rule_trust_on() else None
     # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
     # except pressure relief valves 115 dB(A)"); derived HERE, once, so no
     # caller can forget it (audit 2026-09-30); a caller's own subject wins.
@@ -2904,7 +2889,7 @@ def _run_comparison(
             # the rule's own verdict kept as `rule_said`); a SAFETY-tier
             # COMPLIANT is flagged for an engineer's tick.
             if trust is not None:
-                verdict = trust.label(verdict, requirement)
+                verdict = trust.label(verdict, requirement, fact)
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`
             # applies every gate `create_finding` would (duplicate check against

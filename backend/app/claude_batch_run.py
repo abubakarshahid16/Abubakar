@@ -530,7 +530,7 @@ def _collect(run: _Run, batch_row: str) -> tuple[bool, bool]:
     if run.fallback_after_s is not None:
         born = float(found.get("created_epoch") or run.clock())
         deadline = born + run.fallback_after_s
-    if found["state"] == "canceling":
+    if found["state"] == "canceling" and run.fallback_after_s is not None:
         return _cancel_and_read(run, batch_row, found, url, headers), True
     batch = _poll(run, url, found["api_batch_id"], headers, deadline)
     if batch is None:

@@ -212,11 +212,15 @@ def _pages_section(sub: str) -> dict:
             entry["not_read_reason"] = why
             not_read.append({"page": r["page_no"], "reason": why})
         per_page.append(entry)
-    from . import word_pages
+    from . import reading_state, word_pages
 
     extra = {}
     if (word_read := word_pages.read_proof(sub)) is not None:
         extra["word_read"] = word_read
+    # A picture reader's text goes on its page, so "pages read only by OCR" says 0 while
+    # pictures came back: count pictures, from the one function "ready" reads.
+    if (counts := reading_state.picture_counts(sub)) is not None:
+        picture, extra["pictures_total"] = counts
     return {
         "total": len(rows),
         "read_text": text,
@@ -417,7 +421,7 @@ def _ai_section(
         if step["state"] == "failed"
         else "see the findings; code decides"
     )
-    figures = review_audit_rows.cache_figures(run)
+    figures = review_audit_rows.run_figures(run)
     own = [step, *_stored_steps(status, wording)]
     ledger = review_audit_rows.fold_stored_hits(own, ledger, figures)
     steps = [
@@ -425,12 +429,7 @@ def _ai_section(
         *_ledger_steps(ledger),
         *review_audit_rows.skipped_steps(_loads(run.get("outcome_json"))),
     ]
-    return {
-        "steps": steps,
-        "totals": _totals(steps),
-        **figures,
-        **review_audit_rows.spend_figures(run),
-    }
+    return {"steps": steps, "totals": _totals(steps), **figures}
 
 
 def _gates_section(outcome: dict, steps: dict) -> dict:
@@ -569,7 +568,12 @@ def _md_pages(audit: dict) -> list[str]:
     out = [
         "## 2. Pages",
         f"- pages in the document: {_v(pages['total'])}",
-        f"- read (text): {_v(pages['read_text'])}; read (picture): {_v(pages['read_picture'])}",
+        f"- read (text): {_v(pages['read_text'])}; read (picture): {_v(pages['read_picture'])}"
+        + (
+            f" of {_v(pages['pictures_total'])} pictures"
+            if "pictures_total" in pages
+            else ""
+        ),
     ]
     if pages["not_read"] is None:
         out.append(f"- not read: {NOT_RECORDED}")
@@ -667,8 +671,7 @@ def _md_ai(audit: dict) -> list[str]:
         f"reused answers {_v(totals['reused'])}",
         f"  - {totals['boundary']}",
     ]
-    out += review_audit_rows.cache_lines(audit["ai_use"])
-    out += review_audit_rows.spend_lines(audit["ai_use"])
+    out += review_audit_rows.claude_lines(audit["ai_use"])
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
