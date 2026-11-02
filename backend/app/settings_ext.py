@@ -195,6 +195,12 @@ class SettingsExt(BaseModel):
     #: the screen shows the Internal sheet. EXPORT ONLY. OFF: as #1509 left it.
     #: Env: CRS_EXPORT_QUALITY_STRICT_ENABLED.
     crs_export_quality_strict_enabled: bool = False
+    #: #1503 owner decision (`crs_one_row.py`): rows with the same clause, problem, value and
+    #: verdict are one row listing every tag, page and sentence; a "did not reference X" row goes when
+    #: nothing in scope requires X, counted and named in Review notes. On, the export views of
+    #: the two switches above merge nothing more. Findings are never touched. OFF: as it was.
+    #: Env: CRS_ONE_ROW_PER_PROBLEM_ENABLED.
+    crs_one_row_per_problem_enabled: bool = False
     #: #1591: on that export, a row with no page says the section or field it is about and why it
     #: has no page, never "page not found". A page still comes only from a verified quote. Needs
     #: CRS_EXPORT_QUALITY_ENABLED. OFF: nothing changes. Env: CRS_PAGE_CELL_FIELD_ENABLED.

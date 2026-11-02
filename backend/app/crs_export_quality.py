@@ -132,6 +132,12 @@ _MATERIAL_WIDE = re.compile(
 )
 
 
+def one_row_enabled() -> bool:
+    """CRS_ONE_ROW_PER_PROBLEM_ENABLED (`crs_one_row`): the sheet is merged where it is
+    composed, on the owner's identity, so this view merges nothing more."""
+    return bool(settings.crs_one_row_per_problem_enabled)
+
+
 def strict_enabled() -> bool:
     """CRS_EXPORT_QUALITY_STRICT_ENABLED (default off). It acts only where
     `CRS_EXPORT_QUALITY_ENABLED` already holds: every reader here is reached
@@ -499,6 +505,8 @@ def prepare(
     if copy == "internal":
         findings, gone = drop_no_comment(findings, has_no_text)
         dropped += gone
+    if one_row_enabled():
+        return findings, dropped, 0
     findings, merged = merge_duplicates(findings, _strict_key if strict else _key)
     return findings, dropped, merged
 
