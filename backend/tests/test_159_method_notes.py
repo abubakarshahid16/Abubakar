@@ -178,10 +178,18 @@ def test_a_pairing_note_is_kept_off_too_when_a_row_counts_what_it_asks():
     the program's words and must not make the contractor's row look like two
     asks ("Clarification requested on ...", a supporting-clause list)."""
     reason = "unit_mismatch: the units differ."
-    a = _finding(f"{reason} {method_notes.wrap(['field linked through the synonym table as x'])}",
-                 id="f1", crs_field_label="Flange rating")
-    b = _finding(f"{reason} {method_notes.wrap(['the same field is also on the sheet (page 5)'])}",
-                 id="f2", crs_field_label="Flange rating", contractor_page=3, fact_id="fb")
+    a = _finding(
+        f"{reason} {method_notes.wrap(['field linked through the synonym table as x'])}",
+        id="f1",
+        crs_field_label="Flange rating",
+    )
+    b = _finding(
+        f"{reason} {method_notes.wrap(['the same field is also on the sheet (page 5)'])}",
+        id="f2",
+        crs_field_label="Flange rating",
+        contractor_page=3,
+        fact_id="fb",
+    )
     group = [a, b]
     assert crs_mapping.point_count(group) == 1
     assert crs_mapping.group_action(group) is None

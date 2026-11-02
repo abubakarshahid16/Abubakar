@@ -197,8 +197,9 @@ def test_a_heavy_run_stops_at_its_budget_and_says_it_was_cut(corpus, monkeypatch
     monkeypatch.setattr(settings, "analysis_max_claims", 10**9)
     clock = _TickingClock(step=0.01)
     real = analysis.WorkBudget
-    monkeypatch.setattr(analysis, "WorkBudget",
-                        lambda *a, **k: real(*a, clock=clock, **k))
+    monkeypatch.setattr(
+        analysis, "WorkBudget", lambda *a, **k: real(*a, clock=clock, **k)
+    )
     _stub_gather(monkeypatch, _evidence(corpus, n=60, chars=6000))
     start = time.perf_counter()
     out = analysis.gaps("design pressure", _scope(corpus), limit=60)
@@ -209,7 +210,9 @@ def test_a_heavy_run_stops_at_its_budget_and_says_it_was_cut(corpus, monkeypatch
     # It stopped AT the budget: 0.4 s at 0.01 s a read is about 40 reads, far
     # below the thousands of sentences in this evidence. A deadline that never
     # fires reads the clock once per sentence to the end.
-    assert clock.reads < 100, f"the budget was read {clock.reads} times past its deadline"
+    assert clock.reads < 100, (
+        f"the budget was read {clock.reads} times past its deadline"
+    )
     assert took < 5, f"the run took {took:.1f}s against a 0.4s budget"
 
 

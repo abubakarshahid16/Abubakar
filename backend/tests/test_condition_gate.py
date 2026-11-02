@@ -366,21 +366,29 @@ def test_b49_a_length_cannot_establish_a_material_however_it_is_labelled(cond, i
 
 
 @GATES
-def test_b49_a_length_cannot_establish_a_material_even_when_its_value_names_one(cond, inside):
+def test_b49_a_length_cannot_establish_a_material_even_when_its_value_names_one(
+    cond, inside
+):
     """#1651 (M342). Since #899 a plain "0 mm" names no material, so it could
     never excuse the clause and the B49 rule went untested. A measured value
     that ALSO names a material - a liner's thickness written with the liner's
     alloy - is still a length: it says nothing about the vessel's material, so
     it must not excuse the clause either."""
-    liner = fact(id="fact-liner", field_name="liner material thickness",
-                 field_value="3 mm 316L stainless steel", raw_value="3", raw_unit="mm")
+    liner = fact(
+        id="fact-liner",
+        field_name="liner material thickness",
+        field_value="3 mm 316L stainless steel",
+        raw_value="3",
+        raw_unit="mm",
+    )
 
-    out = comparison.compare(req(condition=cond), fact(),
-                             submittal_facts=[*_named_material_fields(), liner])
+    out = comparison.compare(
+        req(condition=cond), fact(), submittal_facts=[*_named_material_fields(), liner]
+    )
 
     assert out["condition"]["state"] == conditions.UNKNOWN, (
-        "a length was accepted as proof of a material: "
-        f"{out['condition']['reason']}")
+        f"a length was accepted as proof of a material: {out['condition']['reason']}"
+    )
     assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert out["status"] != comparison.NOT_APPLICABLE
 

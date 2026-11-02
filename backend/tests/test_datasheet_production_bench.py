@@ -190,10 +190,22 @@ def test_an_ai_only_quote_is_not_on_the_page_of_a_real_bench_sheet_so_it_is_not_
     assert page.strip(), "anti-vacuity: the page must have text to check against"
 
     def proposals(_page):
-        return [{"field": "Spring material", "value": "Inconel X-750", "unit": None,
-                 "quote": "Spring material : Inconel X-750", "kind": "offered"},
-                {"field": "Body material", "value": "Carbon steel", "unit": None,
-                 "quote": "Body material : Carbon steel", "kind": "offered"}]
+        return [
+            {
+                "field": "Spring material",
+                "value": "Inconel X-750",
+                "unit": None,
+                "quote": "Spring material : Inconel X-750",
+                "kind": "offered",
+            },
+            {
+                "field": "Body material",
+                "value": "Carbon steel",
+                "unit": None,
+                "quote": "Body material : Carbon steel",
+                "kind": "offered",
+            },
+        ]
 
     read = datasheet_ai.read_pages({1: page}, _model(proposals))["pages"][1]
     kept = {f["field"] for f in read["accepted"]}

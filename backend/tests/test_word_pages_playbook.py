@@ -237,7 +237,9 @@ def test_a_pdf_cell_says_its_page_once_with_the_default_pair_on(monkeypatch, mar
         assert len(PAGE_WORDS.findall(cell)) == 1, cell
 
 
-def test_switch_off_a_word_cell_says_its_page_once_with_fields_on(tmp_path, monkeypatch):
+def test_switch_off_a_word_cell_says_its_page_once_with_fields_on(
+    tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
     pages = len(HAZOP_SECTIONS) + 1
     doc_id = _word_doc(tmp_path, "off", marks=True, saved_pages=pages)
