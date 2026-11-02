@@ -1559,12 +1559,12 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "row_kind": ROW_KIND_SAFETY_TICK,
             "severity": "",
             "engineer_confirmed": _confirmed(f),
-            **crs_decider.tick_state(f),
             "comment_key": comment_key("safety tick", _subject_key(f)),
             "crs_group": _key_text(_group_key(f)),
             "reasoning": reasoning_text([f]),
             "rule_trust": trust_words(f),
         })
+        rows[-1].update(crs_decider.tick_state(f))
         sort_keys.append(_rank_row(rows[-1], row_priority(BUCKET_TICK), [f]))
 
     # An engineer's own comments, filed from chat: individual comments to the
