@@ -5,10 +5,12 @@ compliant. So is a rule with no single figure (a sentence, a set of alternatives
 document): code has nothing to compare, and an engineer reads it.
 
 Numbers through `numparse`, a second unit of one quantity through `claims.compare_across_units`: no second reader.
+That code folds case, so it reads mPa as MPa. A spelling whose case IS its SI prefix is compared only with itself.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -28,6 +30,9 @@ KINDS = (LIMIT, RANGE, ALTERNATIVES, NO_FIGURE, DEFERS_TO)
 COMPARATORS = (">=", ">", "<=", "<", "=", "!=")
 #: The unit of a figure whose sentence prints none (the proof refuses a unit left out, so this is a count or a ratio).
 NO_UNIT = "none"
+#: milli written against a capital (mPa, mW), or mega against a small letter (Mm, Mg): case is the meaning. "MPa",
+#: "MPA", "kPa" and "mm" are not here: the unit table reads those for what they are.
+_CASE_IS_THE_PREFIX = re.compile(r"^(?:m[A-Z]|M[a-z])")
 _TEST = {
     ">=": lambda a, b: a >= b,
     ">": lambda a, b: a > b,
@@ -54,7 +59,14 @@ def _holds(
         if limit_unit == NO_UNIT and not unit:
             return _TEST[comparator](number, limit)
         return None
-    if unit.casefold() == limit_unit.casefold():
+    if unit == limit_unit:
+        return _TEST[comparator](number, limit)
+    if _CASE_IS_THE_PREFIX.match(unit) or _CASE_IS_THE_PREFIX.match(limit_unit):
+        return None
+    if claims.same_unit(
+        claims.normalise(repr(number), unit),
+        claims.normalise(repr(limit), limit_unit),
+    ):
         return _TEST[comparator](number, limit)
     if comparator == "!=":
         return None

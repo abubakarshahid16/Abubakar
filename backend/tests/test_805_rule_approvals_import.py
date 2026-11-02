@@ -19,13 +19,13 @@ from tests.test_805_rulebook_v2 import (
     _compile,
     _conn,
     _edition_page,
-    _person,
     _rows,
     _rule,
     _version,
     lane,  # noqa: F401 - autouse
     switched_on,  # noqa: F401 - autouse
 )
+from tests.test_805_rulebook_v2 import _person as _plain_person
 from tests.test_1584_standards_compiler import FakeBatches
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
@@ -39,6 +39,25 @@ COLUMNS = [
     importer.C_COMMENT,
 ]
 EMAIL = f"{ENGINEER}@example.test"
+
+
+def _grant_admin(user_id):
+    with _conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO roles (id, name, description, kind, created_at) VALUES ('role-admin', 'admin', 'invented', 'capability', '2026-11-02')"
+        )
+        role = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()[0]
+        conn.execute(
+            "INSERT INTO user_roles (user_id, role_id, granted_at) VALUES (?, ?, '2026-11-02')",
+            (user_id, role),
+        )
+
+
+def _person(user_id=ENGINEER, active=1):
+    """A signer who holds the admin role, so these tests may sign as owner."""
+    _plain_person(user_id, active)
+    _grant_admin(user_id)
+    return user_id
 
 
 def _cell_rows():
@@ -401,3 +420,103 @@ def test_decisions_are_all_or_none():
     with pytest.raises(sqlite3.IntegrityError):
         rulebook_v2.record_decisions(_conn(), [good, {**good, "tier": None}])
     assert _approvals() == []
+
+
+def _forged(rows, **cells):
+    """Words changed and the row check done again, so only the comparison with the rule can see it."""
+    rows[0].update(cells)
+    rows[0][importer.C_CHECK] = importer.row_check(rows[0])
+    return rows
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        {"Limit": "<= 30"},
+        {"Limit": ">= 25"},
+        {"Limit": "25"},
+        {"Limit": ""},
+        {"Limit": "<= 25 or so"},
+        {"Unit": "psi"},
+        {"Unit": ""},
+        {"Unit": "BAR"},
+    ],
+)
+def test_a_file_showing_another_limit_or_unit_records_no_approval(tmp_path, cells):
+    _person()
+    _compile()
+    path = _workbook(
+        tmp_path / "other.xlsx", _forged(_cell_rows(), **cells), tick=importer.OK
+    )
+    code, said = _run(path)
+    assert code == importer.EXIT_EDITED and said["rows"]
+    assert _approvals() == []
+
+
+def test_the_limit_as_the_rule_holds_it_is_accepted_however_the_number_is_written(
+    tmp_path,
+):
+    _person()
+    _compile()
+    path = _workbook(
+        tmp_path / "same.xlsx", _forged(_cell_rows(), Limit="<= 25.0"), tick=importer.OK
+    )
+    assert _run(path)[0] == 0
+
+
+def test_a_rule_with_no_figure_refuses_a_file_that_shows_one(tmp_path):
+    _person()
+    _compile(
+        rules=[
+            _rule(comparator=None, limit=None, unit=None, condition="for gas service")
+        ]
+    )
+    rows = _cell_rows()
+    for row in rows:
+        row.update({"Limit": "", "Unit": ""})
+        row[importer.C_CHECK] = importer.row_check(row)
+    assert rows, "the proof kept the rule with no figure"
+    assert _run(_workbook(tmp_path / "plain.xlsx", rows, tick=importer.OK))[0] == 0
+    code, _said = _run(
+        _workbook(
+            tmp_path / "shown.xlsx",
+            _forged(_cell_rows(), Limit="<= 25", Unit=""),
+            tick=importer.OK,
+        )
+    )
+    assert code == importer.EXIT_EDITED
+
+
+def test_the_approval_lists_only_the_source_this_file_showed(tmp_path):
+    _person()
+    _compile(doc="ed-1", pages=_edition_page(), edition="2020")
+    _compile(doc="ed-2", pages=_edition_page(), edition="2026")
+    sources = _rows(
+        "SELECT id, standard_document_id FROM rulebook_provenance ORDER BY rowid"
+    )
+    assert len(sources) == 2
+    rows = [
+        r
+        for r in _cell_rows()
+        if r[importer.C_SNAPSHOT]
+        == _rows("SELECT id FROM rulebook_snapshot ORDER BY rowid DESC")[0]["id"]
+    ][:1]
+    assert _run(_workbook(tmp_path / "ed2.xlsx", rows, tick=importer.OK))[0] == 0
+    (row,) = _approvals()
+    assert json.loads(row["provenance_viewed"]) == [sources[1]["id"]]
+
+
+def test_tier_owner_needs_the_admin_role_and_tier_engineer_does_not(tmp_path):
+    _plain_person()
+    _compile()
+    code, said = _run(_ticked(tmp_path), tier="owner")
+    assert code == importer.EXIT_BAD and "admin" in said["refused"]
+    assert _approvals() == []
+    assert _run(_ticked(tmp_path), tier="engineer")[0] == 0
+    _grant_admin(ENGINEER)
+    assert (
+        _run(
+            _workbook(tmp_path / "o.xlsx", _cell_rows(), tick=importer.OK), tier="owner"
+        )[0]
+        == 0
+    )

@@ -232,7 +232,7 @@ def ingest_latest(conn, document_id: str) -> dict:
             "proof_dropped": run["counts"].get("dropped") or {},
         }
         snapshot = rulebook_v2.take_snapshot(
-            conn, run["id"], document_id, counts, actor
+            conn, run["id"], document_id, counts, actor, standard=run["standard"]
         )
     return {**counts, "snapshot_id": snapshot, "boundary": BOUNDARY}
 

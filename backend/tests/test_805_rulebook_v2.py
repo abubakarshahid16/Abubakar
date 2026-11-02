@@ -1171,6 +1171,7 @@ CONTRACT_KEYS = {
     "quote_sha256",
     "standard",
     "edition",
+    "document_id",
     "context_flag",
     "strength",
     "approval",
@@ -1338,3 +1339,124 @@ def test_each_compiled_row_names_the_version_it_became():
         == done["snapshot_id"]
     )
     assert len(_rows("SELECT * FROM rulebook_compiled_row")) == 1
+
+
+# ---------------------------------------------------------------------- what an approved rule may not stand on
+
+
+def test_an_approved_rule_names_its_document_for_the_callers_grant_check():
+    _person()
+    _compile()
+    _decide(_version()["id"], rulebook_v2.APPROVE)
+    assert rulebook_v2.approved_rules(_conn(), PSV)[0]["document_id"] == DOC
+
+
+def test_a_deleted_documents_rule_and_quote_do_not_come_out_and_it_says_why(caplog):
+    _person()
+    _compile()
+    version = _version()
+    _decide(version["id"], rulebook_v2.APPROVE)
+    conn = _conn()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("DELETE FROM documents WHERE id = ?", (DOC,))
+    conn.commit()
+    assert rulebook_v2.approved_rules(conn, PSV) == []
+    assert version["rule_id"] in caplog.text and QUOTE not in caplog.text
+    assert rulebook_v2.withheld_rules(conn, PSV) == [
+        {
+            "rule_id": version["rule_id"],
+            "version": 1,
+            "reason": rulebook_v2.DOCUMENT_GONE,
+        }
+    ]
+
+
+def test_a_rule_with_another_editions_document_left_comes_out_from_that_one():
+    _person()
+    _compile(doc="ed-1", pages=_edition_page(), edition="2020")
+    _compile(doc="ed-2", pages=_edition_page(), edition="2026")
+    _decide(_version()["id"], rulebook_v2.APPROVE)
+    conn = _conn()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("DELETE FROM documents WHERE id = 'ed-2'")
+    conn.commit()
+    (rule,) = rulebook_v2.approved_rules(conn, PSV)
+    assert rule["document_id"] == "ed-1" and rule["edition"] == "2020"
+
+
+def test_a_rule_a_later_compile_drops_does_not_come_out_is_not_retired_and_can_return(
+    caplog,
+):
+    _person()
+    _compile(doc="ed-1", pages=_edition_page(), edition="2020")
+    version = _version()
+    _decide(version["id"], rulebook_v2.APPROVE)
+    assert len(rulebook_v2.approved_rules(_conn(), PSV)) == 1
+    _compile(doc="ed-2", pages=_edition_page("31"), edition="2026", rules=[])
+    assert rulebook_v2.approved_rules(_conn(), PSV) == []
+    (held,) = rulebook_v2.withheld_rules(_conn(), PSV)
+    assert held["reason"] == rulebook_v2.DROPPED_BY_LATER_COMPILE
+    assert held["rule_id"] in caplog.text
+    # not retired: the decision still stands, and a compile that finds the rule again serves it
+    assert rulebook_v2.approval_in_force(_conn(), version["id"])
+    _compile(doc="ed-3", pages=_edition_page(), edition="2027")
+    assert len(rulebook_v2.approved_rules(_conn(), PSV)) == 1
+
+
+def test_a_rule_the_same_documents_recompile_drops_does_not_come_out():
+    _person()
+    _compile()
+    _decide(_version()["id"], rulebook_v2.APPROVE)
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE pages SET text = text || ' Invented added words.' WHERE document_id = ?",
+            (DOC,),
+        )
+    done = _compile(rules=[])
+    assert done["compiled_rows"] == 0
+    assert rulebook_v2.approved_rules(_conn(), PSV) == []
+    assert rulebook_v2.withheld_rules(_conn(), PSV)[0]["reason"] == (
+        rulebook_v2.DROPPED_BY_LATER_COMPILE
+    )
+
+
+def test_withheld_is_empty_when_nothing_is_approved_and_when_the_switch_is_off(
+    monkeypatch,
+):
+    _person()
+    _compile()
+    assert rulebook_v2.withheld_rules(_conn(), PSV) == []
+    monkeypatch.setattr(settings, "rulebook_v2_enabled", False)
+    assert rulebook_v2.withheld_rules(_conn(), PSV) == []
+
+
+@pytest.mark.parametrize(
+    ("value", "unit", "limit_unit", "outcome"),
+    [
+        (
+            "5",
+            "mPa",
+            "MPa",
+            CANNOT_TELL,
+        ),  # was a wrong "meets": 5 millipascal read as 5 megapascal
+        ("20", "mPa", "MPa", CANNOT_TELL),
+        ("5", "MPa", "mPa", CANNOT_TELL),
+        ("5", "mPa", "kPa", CANNOT_TELL),
+        ("5", "kPa", "mPa", CANNOT_TELL),
+        ("5", "mPa", "mPa", MEETS),
+        ("11", "mPa", "mPa", DOES_NOT_MEET),
+        ("5", "MPa", "MPa", MEETS),
+        ("11", "MPa", "MPa", DOES_NOT_MEET),
+        ("5", "MPA", "MPa", MEETS),
+        ("11", "mpa", "MPa", DOES_NOT_MEET),
+        ("5000", "kPa", "MPa", MEETS),
+        ("11000", "kPa", "MPa", DOES_NOT_MEET),
+        ("5", "KPA", "kPa", MEETS),
+        ("5", "Mm", "mm", CANNOT_TELL),
+        ("5", "mm", "Mm", CANNOT_TELL),
+        ("5", "MM", "mm", MEETS),
+    ],
+)
+def test_a_units_case_is_read_as_its_si_prefix(value, unit, limit_unit, outcome):
+    rule = {"kind": LIMIT, "comparator": "<=", "value": 10.0, "unit": limit_unit}
+    assert check_requirement(rule, value, unit).outcome == outcome

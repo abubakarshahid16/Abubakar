@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -49,6 +50,8 @@ from .rulebook_v2_schema import (
     V2,
     trigger_sql,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SwitchedOff(RuntimeError):
@@ -79,9 +82,14 @@ def has_schema(conn) -> bool:
     return row[0] == 1
 
 
-def _is_missing(statement: str, held: set[str], columns: set[str]) -> bool:
+def _is_missing(conn, statement: str, held: set[str]) -> bool:
     words = statement.split()
-    return words[5] not in columns if words[0] == "ALTER" else words[2] not in held
+    if words[0] != "ALTER":
+        return words[2] not in held
+    # Empty before the table exists, and then the ALTER runs after its CREATE.
+    return words[5] not in {
+        r[1] for r in conn.execute(f"PRAGMA table_info({words[2]})")
+    }
 
 
 def ensure_schema(conn) -> None:
@@ -93,10 +101,7 @@ def ensure_schema(conn) -> None:
     if path and live_guard.is_live_shaped(path):
         raise RefusedLive("this is a live-shaped database; run on a copy")
     held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
-    columns = {
-        r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)")
-    }  # empty before the table exists, and then every ALTER runs after its CREATE
-    missing = [s for s in SCHEMA if _is_missing(s, held, columns)]
+    missing = [s for s in SCHEMA if _is_missing(conn, s, held)]
     if not missing:
         return
     conn.execute("BEGIN IMMEDIATE")
@@ -326,6 +331,10 @@ def _standing(conn, version_id: str) -> dict[str, dict]:
     return standing
 
 
+DOCUMENT_GONE = "document_deleted"
+DROPPED_BY_LATER_COMPILE = "not_in_the_newest_compile"
+
+
 def _fold_type(equipment_type: str | None) -> str:
     return " ".join((equipment_type or "").casefold().split())
 
@@ -427,12 +436,52 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
     for this type is a person's approval. An unapproved or superseded rule never appears: a rule whose newest reading
     waits for a decision is absent, not served from its older reading. Off, or no tables: nothing.
 
-    `unit` is as stored, `rulebook_v2_check.NO_UNIT` for a sentence that prints none; `value` is None for a rule with no
-    single figure, so a caller that compares has nothing to compare and says "cannot tell"."""
+    Nor does an approved rule whose document is gone, or that the newest compile of its standard no longer holds: those
+    are in `withheld_rules`, with why, and logged here (ids and reasons only). Read-only, on any connection.
+
+    `document_id` is the source the quote comes from: a caller keeps a rule only if the reader may read that document
+    (rule 5). `unit` is as stored, `rulebook_v2_check.NO_UNIT` for a sentence that prints none; `value` is None for a
+    rule with no single figure, so a caller that compares has nothing to compare and says "cannot tell"."""
+    rules, withheld = _read_book(conn, equipment_type)
+    for one in withheld:
+        logger.warning(
+            "rulebook: approved rule %s withheld: %s", one["rule_id"], one["reason"]
+        )
+    return rules
+
+
+def withheld_rules(conn, equipment_type: str) -> list[dict]:
+    """Rules approved for this type that `approved_rules` will not give, each with its rule id, version and reason."""
+    return _read_book(conn, equipment_type)[1]
+
+
+def _dropped_by_a_later_compile(conn, rule_id: str, standard: str) -> bool:
+    """The newest compile of this rule's standard holds no row of this rule. Partial or whole: the rule is not served
+    on a reading the newest compile did not repeat. It is not retired: a person may still decide, and a later compile
+    that finds it again serves it again."""
+    newest = conn.execute(
+        "SELECT compile_run_id FROM rulebook_snapshot WHERE standard = ? OR standard_document_id IN"
+        " (SELECT p.standard_document_id FROM rulebook_provenance p JOIN rulebook_version v"
+        " ON v.id = p.rule_version_id WHERE v.rule_id = ?) ORDER BY rowid DESC LIMIT 1",
+        (standard, rule_id),
+    ).fetchone()
+    if newest is None:
+        return False
+    return (
+        conn.execute(
+            "SELECT 1 FROM rulebook_compiled_row c JOIN rulebook_version v ON v.id = c.rule_version_id"
+            " WHERE c.compile_run_id = ? AND v.rule_id = ? LIMIT 1",
+            (newest[0], rule_id),
+        ).fetchone()
+        is None
+    )
+
+
+def _read_book(conn, equipment_type: str) -> tuple[list[dict], list[dict]]:
     wanted = _fold_type(equipment_type)
     if not settings.rulebook_v2_enabled or not wanted or not has_schema(conn):
-        return []
-    out = []
+        return [], []
+    out, withheld = [], []
     for row in conn.execute(
         "SELECT v.id, v.rule_id, v.version_no, v.field, v.comparator, v.value, v.unit, v.context_flag, v.strength,"
         " r.standard FROM rulebook_version v JOIN rulebook_rule r ON r.id = v.rule_id"
@@ -443,10 +492,19 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
         if approval is None:
             continue
         source = conn.execute(
-            "SELECT clause, page, quote, quote_sha256, edition FROM rulebook_provenance"
-            " WHERE rule_version_id = ? ORDER BY rowid DESC LIMIT 1",
+            "SELECT p.clause, p.page, p.quote, p.quote_sha256, p.edition, p.standard_document_id"
+            " FROM rulebook_provenance p JOIN documents d ON d.id = p.standard_document_id"
+            " WHERE p.rule_version_id = ? ORDER BY p.rowid DESC LIMIT 1",
             (row[0],),
         ).fetchone()
+        reason = None
+        if source is None:
+            reason = DOCUMENT_GONE
+        elif _dropped_by_a_later_compile(conn, row[1], row[9]):
+            reason = DROPPED_BY_LATER_COMPILE
+        if reason:
+            withheld.append({"rule_id": row[1], "version": row[2], "reason": reason})
+            continue
         keys = conn.execute(
             "SELECT key_type, value FROM rulebook_applicability WHERE rule_version_id = ? ORDER BY rowid",
             (row[0],),
@@ -472,6 +530,7 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
                 "quote_sha256": source[3],
                 "standard": row[9],
                 "edition": source[4],
+                "document_id": source[5],
                 "context_flag": row[7],
                 "strength": row[8],
                 "approval": {
@@ -481,7 +540,7 @@ def approved_rules(conn, equipment_type: str) -> list[dict]:
                 },
             }
         )
-    return out
+    return out, withheld
 
 
 # ------------------------------------------------------------------------------------------------ snapshots
@@ -497,7 +556,12 @@ def _current_versions(conn) -> list:
 
 
 def take_snapshot(
-    conn, compile_run_id: str, document_id: str, counts: Mapping, actor: str
+    conn,
+    compile_run_id: str,
+    document_id: str,
+    counts: Mapping,
+    actor: str,
+    standard: str | None = None,
 ) -> str:
     """The whole book as it stands, once per compile, inside the caller's transaction. Each member names the approval
     it stood on then, or none: a member with none is held, not in force, whatever is decided later."""
@@ -515,7 +579,7 @@ def take_snapshot(
     snapshot_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO rulebook_snapshot (id, compile_run_id, standard_document_id, snapshot_hash, rules_total,"
-        " rules_in_force, counts_json, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        " rules_in_force, counts_json, created_by, created_at, standard) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
             snapshot_id,
             compile_run_id,
@@ -526,6 +590,7 @@ def take_snapshot(
             json.dumps(counts, sort_keys=True),
             actor,
             _now(),
+            standard,
         ),
     )
     conn.executemany(
