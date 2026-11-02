@@ -3022,13 +3022,8 @@ def _run_comparison(
     from . import degraded_read
 
     split = degraded_read.with_reader(split, submittal_id)
-    ai_matcher = matcher_summary(
-        matcher_counts,
-        model_matches=model_matches,
-        model_held=model_held,
-        questions=ask_counts,
-        models=_claude_models_of_run(review_run_id, steps={MATCH_STEP}),
-    )
+    ai_matcher = matcher_summary(matcher_counts, model_matches=model_matches,
+                                 model_held=model_held, questions=ask_counts)
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
@@ -4282,38 +4277,8 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     return findings
 
 
-def _claude_models_of_run(review_run_id: str, *, steps=None) -> list[str]:
-    """The Claude models that answered since this run started, from the spend
-    ledger (`claude_spend.models_used`: the model the API reported). Chat and the
-    standards converter are separate work and left out. [] when none answered."""
-    from . import claude_spend
-
-    row = (
-        connect()
-        .execute(
-            "SELECT started_at, created_at FROM review_runs WHERE id = ?",
-            (review_run_id,),
-        )
-        .fetchone()
-    )
-    since = (row["started_at"] or row["created_at"]) if row else None
-    if not since:
-        return []
-    return claude_spend.models_used(
-        since=since,
-        steps=steps,
-        exclude_prefixes=("chat", claude_spend.STANDARD_STEP_PREFIX),
-    )
-
-
-def matcher_summary(
-    counts: dict,
-    *,
-    model_matches: int,
-    model_held: dict,
-    questions: dict | None = None,
-    models: list[str] | None = None,
-) -> dict:
+def matcher_summary(counts: dict, *, model_matches: int, model_held: dict,
+                    questions: dict | None = None) -> dict:
     """#845: the AI matcher's work on one run, as counts with what each is out
     of. `sent` requirements reached the tier (no rule pairing, not a tie);
     `asked` is those the model was actually asked about (not `no_candidates`,
@@ -4333,12 +4298,7 @@ def matcher_summary(
     return {
         "enabled": True,
         "engine": engine,
-        # The model that ANSWERED; the bare engine word only when none did.
-        "model": (
-            (", ".join(models) if models else "claude")
-            if engine == "claude"
-            else f"ollama:{settings.answer_model}"
-        ),
+        "model": "claude" if engine == "claude" else f"ollama:{settings.answer_model}",
         "sent": counts["sent"],
         "asked": counts["sent"] - counts["no_candidates"] - budget,
         "no_candidates": counts["no_candidates"],
@@ -4374,10 +4334,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
     which pages were read into fields and why the others were not - so the
     run keeps saying what it searched after the ledger is refreshed again.
-
-    The FINAL code is not written here. The AI recommends; the engineer
-    decides, and `record_engineer_code` is where that happens - section 15's
-    "the engineer's final action is governance, not the initial review".
+    The FINAL code is the engineer's decision, in `record_engineer_code` (section 15).
     """
     conn = connect()
     with conn:
@@ -4423,11 +4380,9 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
             }), _now(), _now(), review_run_id))
-        # The model that ANSWERED, never the name asked for; NULL when no Claude call did.
-        conn.execute(
-            "UPDATE review_runs SET model_name = ? WHERE id = ?",
-            (", ".join(_claude_models_of_run(review_run_id)) or None, review_run_id),
-        )
+    from . import claude_models
+
+    claude_models.record_run(review_run_id, match_step=MATCH_STEP)
 
 
 def record_engineer_code(

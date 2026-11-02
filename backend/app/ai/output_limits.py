@@ -207,6 +207,14 @@ def model_call_for(transport, route: str, *, cfg=None, env=None, salvage: bool =
     return model_call
 
 
+def model_used(call) -> str | None:
+    """The model a run record names for a `model_call` wrapped in `claude_budget.Budget`:
+    the one that ANSWERED on the Claude lane (`claude_spend.metered`), what was asked for
+    only until an answer has come back, and the local engine's own tag on that lane."""
+    send = getattr(getattr(call, "_call", None), "send", None)
+    return getattr(send, "last_model", None) or getattr(call, "model", None)
+
+
 __all__ = [
     "COMPLETE",
     "DEFAULT_MAX_TOKENS",
@@ -229,6 +237,7 @@ __all__ = [
     "complete_text",
     "max_tokens_for",
     "model_call_for",
+    "model_used",
     "state_of",
     "state_of_payload",
     "state_of_response",

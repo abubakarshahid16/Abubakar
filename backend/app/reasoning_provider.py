@@ -1,9 +1,8 @@
 """One interface for "give this bounded packet to a model and tell me exactly
 what answered".
 
-WHY THIS EXISTS. Before this, nothing in the system could say WHICH model produced
-an answer. `review_runs.model_name` was NULL on every row (it now names the Claude
-models that answered, from `claude_spend`; a local-only run leaves it NULL);
+WHY THIS EXISTS. Nothing in the system could say WHICH model produced an
+answer. `review_runs.model_name` was always NULL (`claude_models.record_run` now writes it);
 there was no `provider`, no `model_tag` and no digest column anywhere; and on
 the local path the information was available and thrown away, because Ollama
 reports the tag it loaded in every response and `synthesis.Generation` kept
@@ -159,13 +158,8 @@ class Packet:
     #: Anthropic tool definitions offered on this call. Empty for every
     #: existing caller.
     tools: tuple[dict, ...] = ()
-    #: Extended-thinking budget in tokens; None sends no `thinking` field.
-    #: A budget is sent only to a model that takes one, and every other model
-    #: thinks adaptively (`reader_api.thinking_for`); current models also think
-    #: by default with the field left out, and that output counts in `max_tokens`.
-    #: Anthropic requires `max_tokens` (`num_predict`) to exceed
-    #: this, and rejects `temperature` while thinking is on - both handled in
-    #: `ClaudeProvider._request`.
+    #: Thinking budget in tokens; None sends no `thinking` field. A budget goes only to a model
+    #: that takes one, else adaptive (`claude_models.thinking_for`). Handled in `_request`.
     thinking_budget: int | None = None
     #: Messages API `tool_choice` (e.g. {"type": "none"} once the chat tool cap
     #: is reached: the tools stay defined, because the history holds tool
@@ -458,7 +452,7 @@ class ClaudeProvider:
         one builder for a single call and a batch request alike."""
         from dataclasses import replace
 
-        from . import reader_api
+        from . import claude_models, reader_api
 
         prompt = packet.prompt
         if packet.json_schema is not None:
@@ -498,7 +492,7 @@ class ClaudeProvider:
         else:
             body["temperature"] = packet.temperature
         if packet.thinking_budget:
-            body["thinking"] = reader_api.thinking_for(
+            body["thinking"] = claude_models.thinking_for(
                 self.requested_model, packet.thinking_budget
             )
         if packet.effort:
@@ -689,12 +683,10 @@ class ClaudeProvider:
 
 
 def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) -> Response:
-    """The Messages API, streamed through `reader_transport.stream` - the
-    same gates, the same worst-case RESERVATION before the call, and that
-    reservation settled AFTER it whether it finished, was stopped (a stopped
-    call still cost what it produced) or failed (a dropped stream, or one cut
-    at the 1 MB cap, may have been billed: charged its reported final usage,
-    else its worst case). Never cached: a stream is a conversation turn."""
+    """The Messages API through `reader_transport.stream`: the same gates and worst-case
+    RESERVATION, settled AFTER whether it finished, was stopped (it cost what it produced)
+    or failed (may have been billed: its reported final usage, else its worst case). A
+    refusal raises `ProviderRefused`, charged. Never cached: a stream is a conversation turn."""
     from . import claude_spend
 
     step = provider._step or packet.step
@@ -720,10 +712,8 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
     final_usage = False
     model = provider.requested_model
     stop = ""
-    #: Tool-loop streaming (2026-09-27): `content_block_start`/`_delta`/`_stop`
-    #: for a `tool_use` or `thinking` block arrive as separate events; a block
-    #: is assembled here by its index and only finished (`input` parsed from
-    #: the accumulated JSON) at `content_block_stop`.
+    #: Tool-loop streaming: a `tool_use` or `thinking` block arrives as separate events,
+    #: assembled here by index and finished (`input` parsed) at `content_block_stop`.
     blocks: dict[int, dict] = {}
     order: list[int] = []
     try:
@@ -791,9 +781,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
         refused = ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}")
         refused.cost_usd = charged
         raise refused from exc
-    # A refusal is could-not-read: what was streamed before it is not an answer
-    # (`reader_api.response_text`), however far it got.
-    text = "" if stop == "refusal" else "".join(parts).strip()
+    text = "".join(parts).strip()
     stopped = cancel is not None and cancel.is_set()
     if stopped and not usage.get("output_tokens"):
         # Stopped before the provider reported its count: charge a generous
@@ -802,6 +790,10 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
     finish = "cancelled" if stopped else _STOP.get(stop, stop or "error")
     entry = claude_spend.settle(held, model=model, usage=usage,
                                 wall_time_s=time.time() - started, finish_reason=finish)
+    if finish == "refusal":
+        refused = ProviderRefused(f"{provider.name}: the model declined this request")
+        refused.cost_usd = entry["cost_usd"]
+        raise refused
     content_blocks = tuple(blocks[i] for i in order if i in blocks)
     thinking_text = "".join(
         str(b.get("thinking") or "") for b in content_blocks if b.get("type") == "thinking")

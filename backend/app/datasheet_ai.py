@@ -193,16 +193,8 @@ def _claude_call():
         output_limits.ROUTE_DATASHEET_READ, cfg=cfg, salvage=True))
     call.engine = CLAUDE
     call.model = model
-    call.send = call._call.send
     call.step = STEP
     return call, None
-
-
-def model_used(call) -> str | None:
-    """The model a run record names: the one that ANSWERED on the Claude lane,
-    what was asked for only until an answer has come back."""
-    answered = getattr(getattr(call, "send", None), "last_model", None)
-    return answered or getattr(call, "model", None)
 
 
 def _ollama_call(packet_shape: dict | None = None):
@@ -740,7 +732,7 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
             partly[page_no] = out["partial"]
     return {
         "engine": engine,
-        "model": model_used(call),
+        "model": output_limits.model_used(call),
         "unavailable": why,
         "pages": pages,
         "reasons": reasons,

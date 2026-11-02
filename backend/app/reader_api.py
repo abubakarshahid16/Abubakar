@@ -561,8 +561,6 @@ MESSAGES_PATH = "/v1/messages"
 #: Pinned, not "latest". An API version that moves on its own changes the
 #: response shape under a deployment nobody touched.
 ANTHROPIC_VERSION = "2023-06-01"
-#: The Messages API's `stop_reason` when a safety classifier declined (HTTP 200).
-STOP_REFUSAL = "refusal"
 
 
 def _flag(env, name: str) -> bool:
@@ -667,23 +665,6 @@ def _rejects_temperature(model: str | None) -> bool:
                for p in settings.claude_models_without_temperature)
 
 
-def thinking_for(model: str | None, budget: int) -> dict:
-    """The `thinking` field for a caller that wants `budget` tokens of thought.
-    `budget_tokens` is a 400 on Sonnet 5 and 5.5, Opus 5 and 5.5, Haiku 5.5, so
-    only the models in `claude_models_with_thinking_budget` are sent one; every
-    other id thinks adaptively. `{type: disabled}` is never sent: it is a 400 on
-    Sonnet 5.5 and Opus 5.5, and the caller that wants no thinking omits the field."""
-    from .config import settings
-
-    name = (model or "").lower()
-    if any(
-        name == p or name.startswith(p + "-")
-        for p in settings.claude_models_with_thinking_budget
-    ):
-        return {"type": "enabled", "budget_tokens": int(budget)}
-    return {"type": "adaptive"}
-
-
 def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
                   images=()) -> dict:
     """The whole outbound request, built and CHECKED, but not sent.
@@ -746,11 +727,9 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
         "max_tokens": cfg.max_tokens,
         "messages": [{"role": "user", "content": content}],
     }
-    # SOME MODELS REJECT `temperature` (config `claude_models_without_temperature`,
-    # the list `reasoning_provider.no_temperature` reads). R32, 2026-10-11:
-    # the datasheet reader and the matcher were pointed at the reasoning
-    # model, this function still sent temperature 0, and EVERY call came back
-    # an HTTP error (unbilled, nothing read). Sent wherever it is accepted.
+    # SOME MODELS REJECT `temperature` (`claude_models_without_temperature`, as
+    # `reasoning_provider.no_temperature` reads it). R32: sending it failed EVERY
+    # datasheet and matcher call (unbilled, nothing read). Sent where accepted.
     if not _rejects_temperature(cfg.model):
         body["temperature"] = 0
     return {"url": cfg.base_url.rstrip("/") + MESSAGES_PATH,
@@ -773,16 +752,11 @@ def build_models_request(*, cfg: ReaderSettings | None = None, env=None) -> dict
 def response_text(payload) -> str:
     """The model's text out of a Messages response.
 
-    Returns "" for any shape that carries none, which `parse_response` then
-    reports as `model_malformed`: an empty answer and an unparseable one are
-    both "the model said nothing usable", and neither may become a proposal.
-
-    A REFUSAL IS NOT AN ANSWER (`stop_reason: refusal`, HTTP 200). A safety
-    classifier can stop a reply part-way, so whatever text came before it is
-    not what the model would have said: it reads as no text, whichever caller
-    asks, and is could-not-read downstream.
+    Returns "" for any shape that carries none, and for `stop_reason: refusal`
+    (HTTP 200: text written before a decline is no answer). `parse_response` reports
+    that as `model_malformed`; "said nothing usable" may never become a proposal.
     """
-    if isinstance(payload, dict) and payload.get("stop_reason") == STOP_REFUSAL:
+    if isinstance(payload, dict) and payload.get("stop_reason") == "refusal":
         return ""
     blocks = (payload or {}).get("content") if isinstance(payload, dict) else None
     if not isinstance(blocks, list):

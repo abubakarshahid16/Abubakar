@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import logging
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,9 +21,9 @@ from app import (
     datasheet_ai,
     reader_api,
     reader_transport,
+    standards_converter,
 )
 from app import reasoning_provider as rp
-from app import standards_converter
 from app.ai import output_limits
 from app.config import settings
 from app.main import app
@@ -418,15 +417,16 @@ def test_a_refusal_through_the_provider_is_empty_uncached_and_still_charged():
     assert len(seen) == 2, "a refusal must never be served from the response cache"
 
 
-def test_a_refusal_in_a_stream_drops_what_was_streamed_from_the_answer():
+def test_a_refusal_in_a_stream_is_a_charged_stated_failure():
     def send(url, *, headers, body, timeout, cancel=None):
         yield from _stream_events(_refusal(text="half an answer"))
 
-    response = rp.ClaudeProvider(SONNET, stream_transport=send, step="s").stream(
-        _packet(), lambda _p: None
-    )
-    assert response.finish_reason == "refusal" and response.text == ""
-    assert output_limits.state_of_response(response) == output_limits.UNKNOWN
+    provider = rp.ClaudeProvider(SONNET, stream_transport=send, step="s")
+    with pytest.raises(rp.ProviderRefused, match="declined") as refused:
+        provider.stream(_packet(), lambda _p: None)
+    assert refused.value.cost_usd > 0
+    settled = [e for e in claude_spend.entries() if e.get("settles")]
+    assert settled[0]["finish_reason"] == "refusal"
 
 
 def test_a_refused_batch_request_is_could_not_read():
@@ -556,68 +556,11 @@ def test_the_datasheet_reader_names_the_model_that_answered(monkeypatch):
     )
     call, why = datasheet_ai.model_call_for("claude")
     assert why is None
-    assert datasheet_ai.model_used(call) == "asked-for", (
+    assert output_limits.model_used(call) == "asked-for", (
         "before any answer: what was asked"
     )
     datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
-    assert datasheet_ai.model_used(call) == "answered-by"
-
-
-def test_the_matcher_summary_names_the_model_not_the_word_claude(monkeypatch):
-    monkeypatch.setattr(settings, "match_enabled", True)
-    monkeypatch.setattr(settings, "match_engine", "claude")
-    counts = {
-        "reasons": {},
-        "proposed": 0,
-        "sent": 0,
-        "no_candidates": 0,
-        "refused_by_rule": 0,
-    }
-    assert (
-        comparison.matcher_summary(
-            counts, model_matches=0, model_held={}, models=["answered-by"]
-        )["model"]
-        == "answered-by"
-    )
-    assert (
-        comparison.matcher_summary(counts, model_matches=0, model_held={})["model"]
-        == "claude"
-    )
-
-
-def test_the_transport_audit_line_names_the_model_that_answered(monkeypatch, caplog):
-    class _R:
-        status_code = 200
-        content = b"{}"
-        request = None
-
-        @staticmethod
-        def json():
-            return _reply("answered-by")
-
-    class _C:
-        def __init__(self, **_k):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_a):
-            return False
-
-        def post(self, *_a, **_k):
-            return _R()
-
-    monkeypatch.setattr(reader_transport.httpx, "Client", _C)
-    send = reader_transport.transport()
-    with caplog.at_level(logging.WARNING, logger=reader_transport.__name__):
-        send(
-            "https://api.anthropic.com/v1/messages",
-            headers={},
-            body={"model": "asked-for"},
-            timeout=1.0,
-        )
-    assert "answered=answered-by" in caplog.text and KEY not in caplog.text
+    assert output_limits.model_used(call) == "answered-by"
 
 
 # --------------------------------------------------- the switch stays where it is

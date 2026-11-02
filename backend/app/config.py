@@ -1182,31 +1182,6 @@ class Settings(SettingsExt, BaseSettings):
     #: (`reader_transport.list_models`) before a measured run.
     claude_reasoning_model: str = "claude-sonnet-5"
     claude_labelling_model: str = "claude-haiku-4-5-20251001"
-    #: Models that REJECT `temperature` (400 "deprecated for this model",
-    #: measured on claude-sonnet-5, 2026-09-25). Prefix match on the id, so
-    #: "claude-opus-5" also covers claude-opus-5-5. Sonnet 5.5 and Haiku 5.5
-    #: refuse any non-default value, and the sender's value is never the default.
-    #: The API version in use (2023-06-01) does not bar it for every model.
-    claude_models_without_temperature: tuple[str, ...] = (
-        "claude-sonnet-5",
-        "claude-opus-5",
-        "claude-haiku-5",
-        "claude-opus-4-7",
-        "claude-opus-4-8",
-        "claude-fable-5",
-        "claude-mythos-5",
-    )
-    #: The ONLY models that still take `thinking: {type: enabled, budget_tokens}`.
-    #: Every other id gets `{type: adaptive}` (`reader_api.thinking_for`), so a
-    #: model released after this list fails towards the shape current models accept.
-    claude_models_with_thinking_budget: tuple[str, ...] = (
-        "claude-haiku-4-5",
-        "claude-sonnet-4-5",
-        "claude-opus-4-5",
-        "claude-opus-4-1",
-        "claude-opus-4-0",
-        "claude-sonnet-4-0",
-    )
     #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the worst case of the next call must fit
     #: under both. Owner: 5 per step; plan change 4 (#805, 28 Oct 2026): 25 per converted standard (the
     #: `standards_convert:` steps) and 500 in total for November (`claude_spend.total_cap`: 20 again from 1 Dec).

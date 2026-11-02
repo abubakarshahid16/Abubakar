@@ -15,7 +15,14 @@ import json
 
 import pytest
 
-from app import access, claude_spend, review_audit, review_jobs, review_trace
+from app import (
+    access,
+    claude_models,
+    claude_spend,
+    review_audit,
+    review_jobs,
+    review_trace,
+)
 from app.config import settings
 from app.db import connect
 from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
@@ -161,6 +168,36 @@ def test_a_run_no_claude_call_answered_has_no_model_name(
         .fetchone()
     )
     assert row["model_name"] is None
+
+
+def test_the_matcher_section_names_the_model_not_the_word_claude(
+    world, audit_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    run_id = _review(world)
+    with connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET outcome_json = ?, started_at = ? WHERE id = ?",
+            (
+                json.dumps({"ai_matcher": {"engine": "claude", "model": "claude"}}),
+                "2000-01-01T00:00:00+00:00",
+                run_id,
+            ),
+        )
+    held = claude_spend.reserve("matcher", 0.01, model="asked", prompt_sha256="x")
+    claude_spend.settle(
+        held,
+        model="claude-sonnet-5-5",
+        usage={"input_tokens": 1, "output_tokens": 1},
+        finish_reason="stop",
+    )
+    claude_models.record_run(run_id, match_step="matcher")
+    row = (
+        connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()
+    )
+    assert json.loads(row["outcome_json"])["ai_matcher"]["model"] == "claude-sonnet-5-5"
 
 
 def test_a_figure_that_was_not_recorded_reads_not_recorded_never_zero(world, audit_dir):
