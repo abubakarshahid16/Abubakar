@@ -23,6 +23,8 @@ from .db import connect
 
 #: At most this many tags are named in the cell; the rest are counted.
 MAX_TAGS = 3
+#: How `where` starts a cell whose field was never read.
+NOT_READ_LEAD = "Not read from the datasheet"
 
 
 def _page_count(document_id: str | None) -> int:
@@ -137,3 +139,13 @@ def where(
         else "Not read from the datasheet"
     )
     return f"{lead} - {field}{_tags(tags)}" if field else lead + _tags(tags)
+
+
+def field_first(text: str) -> str | None:
+    """A "not read" cell from `where`, the field first: "Field: Rated capacity (PSV-1) -
+    no value read from the datasheet (5 pages)". None for any other cell."""
+    if not text.startswith(NOT_READ_LEAD):
+        return None
+    lead, _, field = text.partition(" - ")
+    said = f"no value read{lead[len('Not read') :]}"
+    return f"Field: {field} - {said}" if field else said

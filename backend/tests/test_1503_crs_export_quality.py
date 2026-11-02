@@ -7,11 +7,13 @@ Invented rows only; no document text.
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import openpyxl
 
 from app import crs_export
 from app import crs_export_quality as q
+from app.config import settings
 
 ON = {"review_run_id": "run-1", "export_quality": True}
 OFF = {"review_run_id": "run-1", "export_quality": False}
@@ -371,3 +373,136 @@ def test_switch_off_workbook_is_the_workbook_main_made():
                     sheet,
                     part,
                 )
+
+
+# #1591 --------------------------------------------------------------------
+
+
+_NOT_READ = (
+    "Not read from the datasheet (5 pages) - Invented size (T-1, T-2 and 1 more)"
+)
+
+
+def _cells(monkeypatch, rows, switch=True):
+    monkeypatch.setattr(settings, "crs_page_cell_field_enabled", switch)
+    return [r["page_section"] for r in view(rows)["rows"]]
+
+
+def test_a_row_with_no_page_says_its_section_or_field_never_not_found(monkeypatch):
+    rows = [
+        row("a", page_section=_NOT_READ, standard_reference="A 1"),
+        row(
+            "b",
+            page_section="",
+            row_kind="standard_not_cited",
+            standard_reference="STD 9",
+        ),
+        row(
+            "c",
+            page_section="Not read from the datasheet",
+            standard_reference="C 1",
+        ),
+        row("d", page_section="Invented section", standard_reference="D 1"),
+        row("e", page_section="", standard_reference="E 1"),
+        row(
+            "f",
+            page_section="",
+            row_kind="standard_not_applicable",
+            standard_reference="F 1",
+        ),
+        row(
+            "g",
+            page_section="Invented part",
+            row_kind="requires_other_document",
+            standard_reference="G 1",
+        ),
+        row("h", page_section="", standard_reference=""),
+    ]
+    assert _cells(monkeypatch, rows) == [
+        "Field: Invented size (T-1, T-2 and 1 more) - no value read from the datasheet"
+        " (5 pages), so no page",
+        "Whole submittal: STD 9 is not cited, so no page",
+        "no value read from the datasheet, so no page",
+        "Section: Invented section: no verified quote, so no page",
+        "About E 1: no verified quote, so no page",
+        "Whole submittal: about F 1: no verified quote, so no page",
+        "Section: Invented part: another document is needed, so no page",
+        "No section or field recorded: no verified quote, so no page",
+    ]
+
+
+def test_the_not_read_lead_is_what_the_page_words_write():
+    """`field_first` reads the cell `where` writes; a change of words must fail here."""
+    from app import crs_page_words
+
+    cell = crs_page_words.where([], "", "Invented size", ["T-1"], set(), False)
+    assert cell.startswith(crs_page_words.NOT_READ_LEAD)
+    assert crs_page_words.field_first(cell).startswith("Field: Invented size (T-1) - ")
+    assert crs_page_words.field_first("p.1 - Invented size") is None
+
+
+def test_a_cell_with_no_page_never_gets_a_page_number(monkeypatch):
+    """A page comes only from a verified quote: words that merely mention a number, or a
+    comment that says where wording was seen, never put a page in the cell."""
+    rows = [
+        row(
+            page_section=_NOT_READ,
+            comment="Invented size: wording for it appears on pages 1, 2, 3.",
+            standard_reference="A 1",
+        ),
+        row(
+            page_section="",
+            row_kind="standard_not_cited",
+            comment="Not cited; see page 7 of the standard.",
+            standard_reference="STD 9",
+        ),
+    ]
+    for cell in _cells(monkeypatch, rows):
+        assert not q.has_page(cell)
+        assert "1, 2, 3" not in cell and "7" not in cell
+
+
+def test_a_row_with_a_page_keeps_it_with_the_switch_on(monkeypatch):
+    rows = [
+        row("a", page_section="p.2 - Invented size", standard_reference="A 1"),
+        row(
+            "b",
+            page_section="Invented size: A value was read on pages 1, 2, not tied to this"
+            " row; engineer to confirm",
+            standard_reference="B 1",
+        ),
+    ]
+    cells = _cells(monkeypatch, rows)
+    assert cells[0] == "p.2 - Invented size"
+    assert cells[1].startswith("Invented size: A value was read on pages 1, 2")
+    assert not any(q.NO_PAGE in c for c in cells)
+
+
+def test_switch_off_the_page_cell_is_as_before(monkeypatch):
+    rows = [
+        row("a", page_section=_NOT_READ, standard_reference="A 1"),
+        row(
+            "b",
+            page_section="",
+            row_kind="standard_not_cited",
+            standard_reference="B 1",
+        ),
+    ]
+    assert _cells(monkeypatch, rows, switch=False) == [
+        f"page not found (not read) - {_NOT_READ}",
+        "page not found (needs other document)",
+    ]
+
+
+def test_the_page_cell_setting_is_off_by_default():
+    from app.config import Settings
+
+    assert Settings.model_fields["crs_page_cell_field_enabled"].default is False
+
+
+def test_the_check_script_accepts_the_field_cell():
+    """`scripts/crs_export_quality_check.py` counts a cell with neither form as no page."""
+    source = (
+        Path(__file__).resolve().parents[2] / "scripts" / "crs_export_quality_check.py"
+    ).read_text(encoding="utf-8")
+    assert f'"{q.NO_PAGE}" not in p' in source

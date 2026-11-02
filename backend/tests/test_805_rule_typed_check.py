@@ -39,6 +39,7 @@ from tests.test_805_review_reads_v2 import (
     SHEET,
     _one,
     _ours,
+    _plain_standard,
     _reason,
     _review,
     _rule,
@@ -596,8 +597,11 @@ def test_the_first_rule_with_the_switch_off_is_a_query_on_every_valve(monkeypatc
 
 def test_the_checklist_is_told_each_tags_value():
     _tagged(["9 barg", "12 barg"])
+    _plain_standard()
     said = rulebook_v2_review.pair_rule_to_document(
-        db.connect(), SHEET, {"field": "Set pressure", "quote": "Invented."}
+        db.connect(),
+        SHEET,
+        {"field": "Set pressure", "quote": "Invented.", "document_id": "std-1"},
     )
     assert said["paired"] and said["tags_paired"] == said["tags"] == 2
     assert said["values_read"] == ["12 barg", "9 barg"] and said["value_read"] is None
