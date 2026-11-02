@@ -18,9 +18,14 @@ from __future__ import annotations
 
 import re
 
-from app import clause_review, document_refs, field_naming, standards_acquisition
+from app import (
+    clause_review,
+    document_refs,
+    field_naming,
+    standards_acquisition,
+    word_pictures,
+)
 from app.db import connect
-
 from tests.r2_security_support import h, temp_storage, world  # noqa: F401
 
 
@@ -30,6 +35,7 @@ def _full_schema() -> None:
     clause_review.ensure_schema()
     with connect() as conn:
         conn.execute(field_naming._TABLE)
+    word_pictures._ensure_table(connect())
 
 
 def _tables(conn) -> list[str]:

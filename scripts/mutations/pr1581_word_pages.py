@@ -59,4 +59,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    return notes + word_pages.review_notes(findings)\n",
         "    return notes\n",
     ),
+    _m(
+        7,
+        "an AI or web draft row prints a reading part as a page",
+        """            word_pages.at(f) if f.get("contractor_page") else "",\n""",
+        """            f"p.{f['contractor_page']}" if f.get("contractor_page") else "",\n""",
+    ),
 )

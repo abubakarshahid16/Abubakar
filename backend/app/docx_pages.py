@@ -292,11 +292,14 @@ def word_pages_plan(body: ET.Element, word_pages: int | None) -> _PagePlan:
             _plan_para(node, count, plan)
     last = count.last()
     found = bool(count.markers or count.breaks)
-    if word_pages == last or (count.markers and word_pages is None):
+    if not found:
+        # No break in the file: no page numbers, whatever a saved count says.
+        source = PAGES_NONE
+    elif word_pages == last or (count.markers and word_pages is None):
         # Word's own count agrees; or it saved none to check them against.
         source = PAGES_MARKERS
     else:
-        source = PAGES_PARTIAL if found else PAGES_NONE
+        source = PAGES_PARTIAL
     plan.pagination = Pagination(source, count.markers, count.breaks, word_pages, last)
     return plan
 

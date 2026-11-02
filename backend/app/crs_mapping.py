@@ -1610,7 +1610,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 text = f"{UNVERIFIED_LABEL}. {text}"
         # The datasheet's page and field, in the shape every row uses.
         where = " - ".join(p for p in (
-            f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
+            word_pages.at(f) if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
         confirmed = bool(crs_decider.decider(f))
         # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.

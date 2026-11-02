@@ -861,3 +861,142 @@ def test_with_office_input_on_too_a_word_file_keeps_one_numbering(
         .fetchone()
     )
     assert (row["pagination"], row["page_count"]) == ("flow", 3)
+
+
+# ------------------------------------------------------------------ review of the PR
+
+
+def test_no_break_at_all_is_no_page_even_when_a_stale_count_says_one(tmp_path):
+    body = "".join(d.para(f"Paragraph {i} " + LONG) for i in range(400))
+    s = docx_reader.read_structure(_doc(tmp_path, body, pages=1), picture_readings={})
+    assert s.pagination.source == docx_pages.PAGES_NONE
+    doc_id = _ingest(_doc(tmp_path, body, pages=1, name="stale.docx"))
+    assert word_pages.at(_finding(doc_id, 1)) != "p.1"
+    assert word_pages.NO_PAGE[1:] in word_pages.at(_finding(doc_id, 1))
+
+
+def test_no_markers_on_and_off_read_the_same_bytes(tmp_path, monkeypatch):
+    body = (
+        d.para("Scope", style="Heading1")
+        + d.para("One " + LONG, page_break=True).replace(
+            '<w:r><w:br w:type="page"/></w:r>', ""
+        )
+        + d.table([["a", "b"], ["1", "2"]])
+    )
+    path = _doc(tmp_path, body, pages=4)
+    on = docx_reader.read_structure(path, picture_readings={})
+    monkeypatch.setattr(settings, "word_page_markers_enabled", False)
+    off = docx_reader.read_structure(path)
+    assert on.pagination.source == docx_pages.PAGES_NONE
+    assert _as_dicts(on) == _as_dicts(off)
+
+
+def _draft_row(doc_id: str, origin: str) -> dict:
+    finding = _finding(
+        doc_id,
+        1,
+        "x",
+        origin=origin,
+        contractor_section="Weight",
+        id="fd1",
+        compliance_status="NEEDS_ENGINEER_REVIEW",
+        finding="Check it.",
+        fact_id=None,
+    )
+    rows = crs_mapping.build_crs_rows([finding], [], [])
+    return next(r for r in rows if r.get("finding_id") == "fd1")
+
+
+@pytest.mark.parametrize("origin", [crs_mapping._AI_ORIGIN, crs_mapping._WEB_ORIGIN])
+def test_draft_rows_use_the_same_page_cell(tmp_path, origin):
+    partial = _ingest(_doc(tmp_path, THREE_PAGES, pages=9, name="partial.docx"))
+    assert _draft_row(partial, origin)["page_section"].startswith(
+        "p.1 (page marks partial)"
+    )
+    body = d.para("Scope", style="Heading1") + d.para("Text " + LONG)
+    none = _ingest(_doc(tmp_path, body, pages=4, name="none2.docx"))
+    cell = _draft_row(none, origin)["page_section"]
+    assert "p.1" not in cell and word_pages.NO_PAGE in cell
+
+
+def _bad_media_doc(tmp_path, rels: str, image: bytes | None, name="bad.docx"):
+    import zipfile
+
+    body = d.para("Text " + LONG) + f"<w:p>{_drawing()}</w:p>"
+    path = _doc(
+        tmp_path, body, pages=1, extra={"word/_rels/document.xml.rels": rels}, name=name
+    )
+    if image is not None:
+        with zipfile.ZipFile(path, "a") as zf:
+            zf.writestr("word/media/a.png", image)
+    return path
+
+
+def _extracts_and_says(path, monkeypatch, words: str) -> None:
+    doc_id = _ingest(path)
+    _run_job(doc_id)
+    _stub_engine(monkeypatch, {})
+    extract.extract_document(doc_id)
+    row = (
+        db.connect()
+        .execute("SELECT status FROM documents WHERE id = ?", (doc_id,))
+        .fetchone()
+    )
+    assert row["status"] != "failed"
+    reason = {n["no"]: n["reason"] for n in word_pages.read_proof(doc_id)["not_read"]}[
+        1
+    ]
+    assert words in reason
+
+
+def test_a_missing_image_is_a_reason_and_extraction_carries_on(tmp_path, monkeypatch):
+    path = _bad_media_doc(tmp_path, _rels("media/gone.png"), None)
+    _extracts_and_says(path, monkeypatch, "missing")
+
+
+def test_a_path_outside_the_media_folder_is_refused_and_never_read(
+    tmp_path, monkeypatch
+):
+    path = _bad_media_doc(tmp_path, _rels("../media/a.png"), None)
+    import zipfile
+
+    with zipfile.ZipFile(path, "a") as zf:
+        zf.writestr("media/a.png", _png())
+    asked = _stub_engine(monkeypatch, {})
+    word_pictures.read_document(path)
+    assert asked == []
+    _extracts_and_says(path, monkeypatch, "outside")
+
+
+def test_a_decompression_bomb_is_a_reason_and_extraction_carries_on(
+    tmp_path, monkeypatch
+):
+    from PIL import Image
+
+    path = _bad_media_doc(tmp_path, _rels("media/a.png"), _png())
+
+    def bomb(*_a, **_k):
+        raise Image.DecompressionBombError("too many pixels")
+
+    monkeypatch.setattr(Image, "open", bomb)
+    _extracts_and_says(path, monkeypatch, "size limit")
+
+
+def test_anything_else_going_wrong_with_pictures_never_fails_the_document(
+    tmp_path, monkeypatch
+):
+    def broken(*_a, **_k):
+        raise RuntimeError("no")
+
+    path = _bad_media_doc(tmp_path, _rels("media/a.png"), _png())
+    monkeypatch.setattr(word_pictures, "_read_pictures", broken)
+    assert word_pictures.read_document(path)["asked"] == 0
+    doc_id = _ingest(path)
+    _run_job(doc_id)
+    extract.extract_document(doc_id)
+    assert (
+        db.connect()
+        .execute("SELECT status FROM documents WHERE id = ?", (doc_id,))
+        .fetchone()["status"]
+        != "failed"
+    )

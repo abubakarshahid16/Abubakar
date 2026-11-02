@@ -20,6 +20,7 @@ import concurrent.futures as cf
 import functools
 import hashlib
 import os
+import posixpath
 import tempfile
 import time
 import zipfile
@@ -39,6 +40,9 @@ STATUS_FAILED = "failed"
 #: Not asked again: the answer would be the same. A failure is asked again.
 _FINAL = (STATUS_READ, STATUS_NO_TEXT, STATUS_NOT_READABLE)
 
+WHY_TOO_BIG = "the image is over the recogniser's size limit"
+WHY_OUTSIDE = "the picture points outside the file's media folder, so it is refused"
+WHY_MISSING = "the picture's image is missing from the file"
 WHY_NO_TEXT = "the recogniser found no text in it (a photo or a drawing with no words)"
 #: One child process runs the batch, one picture at a time.
 BATCH_TIMEOUT_S = 600
@@ -111,12 +115,14 @@ def _readable(data: bytes) -> str | None:
         with Image.open(io.BytesIO(data)) as image:
             width, height = image.size
             kind = image.format or "unknown"
+    except Image.DecompressionBombError:
+        return WHY_TOO_BIG
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError):
         return "its image format cannot be opened by the local recogniser"
     if kind in ("WMF", "EMF"):  # Pillow names them, on Windows only it can draw them
         return f"its image format ({kind}) cannot be opened by the local recogniser"
     if width * height > MAX_IMAGE_PIXELS:
-        return "the image is over the recogniser's size limit"
+        return WHY_TOO_BIG
     return None
 
 
@@ -206,11 +212,35 @@ def _store(
     )
 
 
+def _image_bytes(zf: zipfile.ZipFile, target: str) -> tuple[bytes | None, str | None]:
+    """(image, why not). Only an entry of the media folder is ever read."""
+    entry = posixpath.normpath(target)
+    if not entry.startswith("word/media/"):
+        return None, WHY_OUTSIDE
+    try:
+        return zf.read(entry), None
+    except KeyError:
+        return None, WHY_MISSING
+    except (zipfile.BadZipFile, OSError, RuntimeError, ValueError) as exc:
+        return (
+            None,
+            f"the picture's image could not be taken from the file: {type(exc).__name__}",
+        )
+
+
 def read_document(path: str | os.PathLike) -> dict:
     """Give this Word file's unread pictures to the local engine and store the
-    answers. Counts only come back. Does nothing when the switch is off."""
+    answers. Counts only come back. Does nothing when the switch is off. Never
+    fails the document: a picture not read is said, and reading carries on."""
     if not settings.word_page_markers_enabled:
         return {"asked": 0}
+    try:
+        return _read_pictures(path)
+    except Exception as exc:  # noqa: BLE001 - logged; the pictures then read as not sent, and say so
+        return errors.fell_back("word_pictures: pictures not read", exc, {"asked": 0})
+
+
+def _read_pictures(path: str | os.PathLike) -> dict:
     sha = _sha256(path)
     conn = connect()
     _ensure_table(conn)
@@ -247,8 +277,8 @@ def read_document(path: str | os.PathLike) -> dict:
         items: list[tuple[int, str]] = []
         refused: dict[int, str] = {}
         for pic in todo:
-            data = zf.read(pic.targets[0])
-            why = _readable(data)
+            data, why = _image_bytes(zf, pic.targets[0])
+            why = why or _readable(data)
             if why:
                 refused[pic.no] = why
                 continue
