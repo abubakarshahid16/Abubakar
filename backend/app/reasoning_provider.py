@@ -164,6 +164,9 @@ class Packet:
     #: is reached: the tools stay defined, because the history holds tool
     #: blocks, but none may be called). None leaves the API default.
     tool_choice: dict | None = None
+    #: The caller's code check of a reply text, for the Claude answer cache: kept and
+    #: served only when it passes. None: the schema alone decides.
+    keep_if: object = None
 
     @property
     def sha256(self) -> str:
@@ -822,7 +825,12 @@ def _cache_version(packet: Packet) -> str:
 
 def _valid_for(packet: Packet):
     """The packet's own check on an answer, for keeping it and for serving it again."""
-    return lambda text: not schema_errors(text, packet.json_schema)
+    def valid(text: str) -> bool:
+        return not schema_errors(text, packet.json_schema) and (
+            packet.keep_if is None or packet.keep_if(text)
+        )
+
+    return valid
 
 
 def _stored_answer(step: str, body: dict, packet: Packet) -> tuple[dict | None, str]:

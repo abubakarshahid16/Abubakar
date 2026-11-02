@@ -16,12 +16,17 @@ from app import (
     claude_answer_cache,
     claude_approved,
     claude_spend,
+    comparison,
+    db,
+    division_claude,
     division_text,
     local_engine_bar,
     model_transport,
     reader_transport,
+    review_jobs,
     subject_scope,
 )
+from app import reasoning_provider as rp
 from app.config import Settings, settings
 from tests.test_141_division_scope import (
     GENERAL,
@@ -36,8 +41,16 @@ from tests.test_141_division_scope import (
     TT_SCOPE,
     ZZ_SCOPE,
 )
+from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
+    _enqueue,
+    temp_storage,
+    world,
+)
 
 STEP = division_text.CLAUDE_STEP
+AA_SCOPE = "The rules of Part AA apply to all vessels of this code."
+NO_SENTENCE = "PART QQ\nGENERAL NOTES\nQQ-1 Bolts shall be tight.\n"
+UNSURE = {"limited": "unsure", "construction": None, "quote": None}
 
 
 def _reply_to(prompt: str) -> dict:
@@ -46,10 +59,10 @@ def _reply_to(prompt: str) -> dict:
     if '"titles"' in prompt:
         return {"titles": []}
     if ZZ_SCOPE in prompt:
-        return LIMITED
+        return {**LIMITED, "scope_sentence": ZZ_SCOPE}
     if TT_SCOPE in prompt:
-        return LIMITED_TT
-    return NOT_LIMITED
+        return {**LIMITED_TT, "scope_sentence": TT_SCOPE}
+    return {**NOT_LIMITED, "scope_sentence": AA_SCOPE}
 
 
 def _prompt(body: dict) -> str:
@@ -66,7 +79,7 @@ def send():
             "content": [
                 {
                     "type": "text",
-                    "text": fake.wrap(json.dumps(_reply_to(_prompt(body)))),
+                    "text": fake.wrap(json.dumps(fake.reply(_prompt(body)))),
                 }
             ],
             "usage": {"input_tokens": 100, "output_tokens": 50},
@@ -74,6 +87,7 @@ def send():
 
     fake.bodies = []
     fake.wrap = lambda text: text
+    fake.reply = _reply_to
     fake.usage = {}
     return fake
 
@@ -324,3 +338,203 @@ def test_no_document_text_reaches_the_log(send, caplog):
         _gate()
     assert ZZ_SCOPE not in caplog.text and TT_SCOPE not in caplog.text
     assert ZZ_SCOPE not in settings.claude_spend_log.read_text("utf-8")
+
+
+# ------------------------------------------------- the claim about the scope sentence
+
+
+def _claude_task():
+    return division_claude.for_provider(
+        ai_applicability.SCOPE_TASK, rp.ClaudeProvider("m")
+    )
+
+
+@pytest.mark.parametrize(
+    ("reply", "text", "wanted"),
+    [
+        ({**NOT_LIMITED, "scope_sentence": None}, NO_SENTENCE, None),
+        ({**NOT_LIMITED, "scope_sentence": AA_SCOPE}, AA_SCOPE, None),
+        ({**UNSURE, "scope_sentence": AA_SCOPE}, AA_SCOPE, None),
+        ({**UNSURE, "scope_sentence": None}, NO_SENTENCE, "unsure needs"),
+        ({**NOT_LIMITED, "scope_sentence": None}, AA_SCOPE, "words of scope"),
+        (
+            {**NOT_LIMITED, "scope_sentence": "An invented sentence."},
+            NO_SENTENCE,
+            "not in the TEXT",
+        ),
+    ],
+)
+def test_code_checks_the_claim_about_the_scope_sentence(reply, text, wanted):
+    said = _claude_task().check(reply, text)
+    assert (said == []) if wanted is None else (wanted in said[0])
+
+
+def _sentence_of(prompt: str) -> dict:
+    sentence = next(s for s in (ZZ_SCOPE, TT_SCOPE, AA_SCOPE) if s in prompt)
+    return {**NOT_LIMITED, "scope_sentence": sentence}
+
+
+def test_a_rejected_reply_gets_one_corrective_ask_is_charged_and_the_reason_is_recorded(
+    send,
+):
+    calls = []
+
+    def reply(prompt):
+        if '"titles"' in prompt:
+            return {"titles": []}
+        calls.append(prompt)
+        wrong = {**UNSURE, "scope_sentence": None}
+        return (
+            _sentence_of(prompt) if "previous answer was rejected" in prompt else wrong
+        )
+
+    send.reply = reply
+    out = _gate()
+    summary = out["summary"]
+    assert len(calls) == 6, "each of 3 parts: one ask, one corrective ask"
+    assert summary["could_not_read"] == 0
+    assert list(summary["replies_rejected_by_code"].values()) == [3]
+    assert sum(1 for e in claude_spend.entries() if e.get("settles")) == 9  # 3 screens
+    assert ZZ_SCOPE not in json.dumps(summary["replies_rejected_by_code"])
+
+
+def test_two_rejections_hold_the_part_and_there_is_never_a_third_ask(send):
+    send.reply = lambda prompt: {**UNSURE, "scope_sentence": None}
+    out = _gate()
+    assert len(send.bodies) == 6
+    assert out["summary"]["could_not_read"] == 3 and out["kept"] == []
+    assert list(out["summary"]["replies_rejected_by_code"].values()) == [6]
+
+
+def test_a_rejected_reply_is_not_stored_and_a_repeat_pays_only_for_that(send):
+    def reply(prompt):
+        if '"titles"' in prompt:
+            return {"titles": []}
+        wrong = {**UNSURE, "scope_sentence": None}
+        return (
+            _sentence_of(prompt) if "previous answer was rejected" in prompt else wrong
+        )
+
+    send.reply = reply
+    _gate()
+    assert len(send.bodies) == 9  # 3 rejected, 3 corrected, 3 screens
+    _gate()
+    assert len(send.bodies) == 12, (
+        "the rejected first asks are bought again, the answers are not"
+    )
+    assert claude_spend.cache_report()["hits"] == 6
+
+
+def test_a_reply_that_does_not_parse_earns_no_corrective_ask(send):
+    send.wrap = lambda text: "not json at all"
+    _gate()
+    assert len(send.bodies) == 3
+
+
+def test_a_construction_rejection_gets_one_corrective_ask(send):
+    stated = (
+        '{"equipment_is": "x", "quote": "Not a stated line at all", "is_that": "no"}'
+    )
+    send.reply = lambda prompt: (
+        json.loads(stated) if "\nSTATED:\n" in prompt else _reply_to(prompt)
+    )
+    _gate()
+    asked = [b for b in send.bodies if "\nSTATED:\n" in _prompt(b)]
+    assert len(asked) == 4, "two limited parts, each asked at most twice"
+
+
+# ------------------------------------------------- the local path stays as it was
+
+
+def test_the_local_path_is_unchanged():
+    local = ai_applicability.SCOPE_TASK
+    assert division_claude.for_provider(local, rp.OllamaProvider()) is local
+    assert local.version == "v1" and local.claude_retries == 0
+    assert "scope_sentence" not in local.schema["properties"]
+    assert "scope_sentence" not in local.instruction
+
+
+def test_a_local_rejection_keeps_its_two_attempts_and_records_nothing_new():
+    class Local:
+        name = "ollama"
+        requested_model = "local-m"
+        asked = 0
+
+        def reason(self, packet):
+            assert packet.keep_if is None
+            Local.asked += 1
+            return rp.Response(
+                text='{"limited": "yes", "construction": "x", "quote": "not there at all, no"}',
+                provider="ollama",
+                model_tag="local-m",
+                digest="d",
+                finish_reason="stop",
+                prompt_sha256="p",
+            )
+
+    result = ai_task_runner.run_task(
+        ai_applicability.SCOPE_TASK,
+        "Some invented text.",
+        provider=Local(),
+        use_cache=False,
+    )
+    assert Local.asked == 2 and result.rejected == ()
+    assert "replies_rejected_by_code" not in division_claude.rejections({})
+
+
+# ------------------------------------------------- "no" decides nothing about a rule
+
+
+def test_no_scope_sentence_keeps_the_rule_for_comparison_and_says_nothing_about_it(
+    send,
+):
+    send.reply = lambda prompt: (
+        {"titles": []}
+        if '"titles"' in prompt
+        else {**NOT_LIMITED, "scope_sentence": None}
+    )
+    lane_pages = [(1, NO_SENTENCE)]
+    req = {
+        "id": "qq",
+        "standard_document_id": "std",
+        "page": 1,
+        "requirement_text": "Bolts shall be tight.",
+        "source_text": "QQ-1 Bolts shall be tight.",
+    }
+    out = ai_applicability.division_gate(
+        [dict(req)],
+        classification={"equipment_type": "Pressure vessel"},
+        facts=STEEL,
+        standard_labels={"std": "XYZ code"},
+        provider=division_text.claude_reader(),
+        pages_of=lambda sid: lane_pages,
+    )
+    assert out["kept"] == [req], "the rule goes on to comparison, unchanged"
+    assert out["items"] == [] and out["held"] == [] and out["notes"] == {}
+
+
+def test_a_rule_that_comes_through_on_no_is_never_a_pass_with_nothing_to_compare(
+    temp_storage,  # noqa: F811
+    world,  # noqa: F811
+):
+    """Comparison decides, from a value. Here the only value is about something else."""
+    run_id, job_id = _enqueue(world)
+    review_jobs.claim_next("w")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE submittal_facts SET field_name = 'flange rating', field_label = 'Flange rating',"
+            " raw_value = '10', field_value = '10', unit = 'bar', raw_unit = 'bar'"
+        )
+    assert review_jobs.run(job_id, "w") == "done"
+    rows = (
+        db.connect()
+        .execute(
+            "SELECT compliance_status, requirement FROM review_findings WHERE review_run_id = ?",
+            (run_id,),
+        )
+        .fetchall()
+    )
+    noise = [
+        r["compliance_status"] for r in rows if "noise" in r["requirement"].lower()
+    ]
+    assert noise and comparison.COMPLIANT not in noise

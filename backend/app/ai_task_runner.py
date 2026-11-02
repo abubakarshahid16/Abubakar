@@ -45,7 +45,7 @@ import logging
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 from . import (
@@ -96,6 +96,8 @@ class TaskSpec:
     #: problems; an empty list means the reply can be kept.
     check: Callable[[dict, str], list[str]] | None = None
     num_predict: int = 400
+    #: Corrective asks after a code rejection, on the Claude provider only (`division_claude`).
+    claude_retries: int = 0
 
     def prompt(self, text: str) -> str:
         return (f"{self.instruction.strip()}\n\nANSWER with one JSON object that matches the "
@@ -113,6 +115,8 @@ class TaskResult:
     model: str
     cached: bool = False
     attempts: int = 0
+    #: What code rejected along the way, on the Claude provider: fixed wording, no text.
+    rejected: tuple = ()
 
 
 TASKS: dict[str, TaskSpec] = {}
@@ -476,7 +480,8 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
             return TaskResult(spec.name, STATE_OK, hit, None, model, True, 0)
 
     problems: list[str] = []
-    allowed = 1 if on_claude else MAX_ATTEMPTS
+    rejected: list[str] = []
+    allowed = 1 + spec.claude_retries if on_claude else MAX_ATTEMPTS
     for attempt in range(1, allowed + 1):
         prompt = spec.prompt(text)
         if problems:
@@ -485,6 +490,8 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
         packet = Packet(prompt=prompt, num_ctx=2048, num_predict=spec.num_predict,
                         json_schema=spec.schema, step=f"ai_task:{spec.name}",
                         prompt_version=spec.version)
+        if on_claude:
+            packet = replace(packet, keep_if=_code_accepts(spec, text))
         try:
             with ai_call_ledger.asking(packet.step, model):  # #1525
                 response = provider.reason(packet)
@@ -502,8 +509,15 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
             data = json.loads(unfenced(response.text))
             if use_cache:
                 _cache_put(key, spec, model, data)
-            return TaskResult(spec.name, STATE_OK, data, None, model, False, attempt)
-    return _failed(spec, model, "the reply was not valid: " + "; ".join(problems[:3]), allowed)
+            done = TaskResult(spec.name, STATE_OK, data, None, model, False, attempt)
+            return replace(done, rejected=tuple(rejected))
+        if on_claude:
+            # Only code's rejection earns a second ask.
+            if _shape_problems(spec, response):
+                break
+            rejected += problems
+    why = "the reply was not valid: " + "; ".join(problems[:3])
+    return replace(_failed(spec, model, why, allowed), rejected=tuple(rejected))
 
 
 def _kind(exc: BaseException) -> str:
@@ -512,9 +526,31 @@ def _kind(exc: BaseException) -> str:
     return type(exc.__cause__ or exc).__name__
 
 
+def _code_accepts(spec: TaskSpec, text: str) -> Callable[[str], bool]:
+    """A stored Claude answer must pass the task's code check, kept or served."""
+
+    def accepts(reply: str) -> bool:
+        try:
+            data = json.loads(unfenced(reply))
+        except ValueError:
+            return False
+        return isinstance(data, dict) and not (spec.check and spec.check(data, text))
+
+    return accepts
+
+
 def _reply_problems(spec: TaskSpec, response, text: str) -> list[str]:
     """Everything wrong with a reply: empty, cut off, not JSON, off schema, or
     failing the task's own code check. Empty list = keep it."""
+    problems = _shape_problems(spec, response)
+    if problems:
+        return problems
+    data = json.loads(unfenced(response.text))
+    return [str(p) for p in spec.check(data, text)] if spec.check is not None else []
+
+
+def _shape_problems(spec: TaskSpec, response) -> list[str]:
+    """What is wrong with the reply itself, before any code check of what it says."""
     # #456: the cap is checked FIRST, by the one vocabulary both engines map
     # to - a reply cut off at zero text is "truncated", not "empty".
     state = output_limits.state_of_response(response)
@@ -529,11 +565,7 @@ def _reply_problems(spec: TaskSpec, response, text: str) -> list[str]:
     if not isinstance(data, dict):
         return ["the reply was not a JSON object"]
     errors = list(getattr(response, "schema_errors", None) or schema_errors(response.text, spec.schema))
-    if errors:
-        return [str(e) for e in errors]
-    if spec.check is not None:
-        return [str(p) for p in spec.check(data, text)]
-    return []
+    return [str(e) for e in errors]
 
 
 # ------------------------------------------------------------------ the queue
