@@ -158,7 +158,9 @@ def is_free_text(role: str | None) -> bool:
     return not (table.get(role) or {}).get("reads_as")
 
 
-def signed_synonyms(role: str | None, path: Path | None = None) -> dict[str, tuple[str, ...]]:
+def signed_synonyms(
+    role: str | None, path: Path | None = None
+) -> dict[str, tuple[str, ...]]:
     """{listed term: its signed synonyms} for this role. An entry with no status, signer and date does not count."""
     data = json.loads((path or SYNONYMS_PATH).read_text(encoding="utf-8"))
     found: dict[str, tuple[str, ...]] = {}
