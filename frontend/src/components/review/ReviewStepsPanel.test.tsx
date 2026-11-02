@@ -27,7 +27,7 @@ describe("ReviewStepsPanel", () => {
     const read = await screen.findByTestId("step-read");
     expect(reviewTrace).toHaveBeenCalledWith("run-1");
     expect(read).toHaveAttribute("data-light", "red");
-    expect(read).toHaveTextContent("Red: no value was read from the datasheet");
+    expect(read).toHaveTextContent("Red: no value was read from the document");
     expect(screen.getAllByRole("listitem").filter((li) => li.dataset.light)).toHaveLength(5);
   });
 
