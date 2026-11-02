@@ -55,9 +55,9 @@ from pathlib import Path
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
+from .claude_auto_approve import notes_after
 from .config import settings
-from .deferred_value import framing as _framing
-from .deferred_value import reason as _deferred_reason
+from .deferred_value import framing as _framing, reason as _deferred_reason
 from .db import connect
 from .provenance import ai_quote_proved
 
@@ -2284,16 +2284,16 @@ def _insufficient_reason(completeness: dict) -> str:
     return ("the submittal could not be read well enough to recommend a code")
 
 
+@notes_after  # #1584
 def run_comparison(
     review_run_id: str, *, allowed_document_ids: frozenset[str],
     subject: str | None = None, reference_coverage: float | None = None,
     model_opinions: dict | None = None, replace: bool = True,
     missing_references: list[str] | None = None,
 ) -> dict:
-    """`_run_comparison`, with the review's documents declared for the Claude
-    lane (#806 S3): any model call a comparison makes (field naming, rule
-    parsing, the matcher) carries the submittal's fields and the applied
-    standards' clause text - those documents and no others."""
+    """`_run_comparison`, with the review's documents declared for the Claude lane
+    (#806 S3): any model call it makes (field naming, rule parsing, the matcher)
+    carries the submittal's fields and the applied standards' text, and no others."""
     from . import claude_approved
     with (
         claude_approved.carrying(claude_approved.review_documents(review_run_id)),

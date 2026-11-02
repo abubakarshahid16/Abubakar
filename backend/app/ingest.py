@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import acronyms as acronyms_mod
+from . import claude_auto_approve
 from . import doc_router, errors, intake, job_queue, page_ledger, sheet_chunks, states
 from .chunker import chunk_document
 from . import telemetry
@@ -882,21 +883,20 @@ def on_role_changed(document_id: str, *, classify: bool = True) -> None:
     becomes READY. For an upload the role is usually NULL then and assigned
     afterwards, so a document that became a CONTRACTOR_SUBMITTAL after READY
     got no facts, no equipment type and no title-block metadata - ever - and
-    a COMPANY_STANDARD was covered only by its own one-off helper. One hook
-    now covers both orders: `classification.set_role` and
-    `classification.confirm` call this, and it runs the SAME hooks, in the
-    same order, as the ingest worker. Each does its own role gate and records
-    its own failure, so this never raises.
+    a COMPANY_STANDARD was covered only by its own one-off helper. One hook now
+    covers both orders: `set_role` and `confirm` call this, and it runs the SAME
+    hooks, in the same order, as the ingest worker. Each does its own role gate
+    and records its own failure, so this never raises.
 
-    Only when READY: a document still ingesting reaches the ingest hooks on
-    its own, and reading a document with no chunks yet would read nothing and
-    report success.
+    Only when READY: a document still ingesting reaches the ingest hooks on its
+    own, and reading one with no chunks yet would read nothing and report success.
 
     `classify=False` is for `confirm`: the person has just filled the form,
     and that IS the classification. The two classifiers skip a confirmed
     record, but with authentication off `confirmed_by` can be NULL, and a
     classifier must not overwrite what was typed a moment ago.
     """
+    claude_auto_approve.on_upload(document_id)  # #1584: before the READY gate
     try:
         row = sheet_chunks.status_after_role(document_id)  # #525: a workbook's role
     except Exception as exc:  # noqa: BLE001 - assigning a role must not fail here
