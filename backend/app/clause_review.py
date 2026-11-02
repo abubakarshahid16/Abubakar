@@ -51,7 +51,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from . import clause_review_status, job_progress, scope_quote
+from . import clause_review_status, job_progress, local_engine_bar, scope_quote
 from .config import settings
 from .crs_draft_lanes import CLAUSE_ORIGIN
 from .db import connect
@@ -733,6 +733,13 @@ def run(review_run_id: str, *, allowed_document_ids: frozenset[str], provider=No
     kind, state = eligible(submittal)
     if kind is None:
         return {"ran": False, "reason": state}
+    if provider is None and local_engine_bar.refuses(STEP):
+        # LOCAL ONLY (owner decision D1), so in a Claude-lane run it does not run, and says so.
+        _store_status(
+            review_run_id,
+            {"ran": False, "plain": f"AI clause review {local_engine_bar.NOTE}"},
+        )
+        return {"ran": False, "reason": local_engine_bar.NOTE}
     if provider is None:
         # LOCAL ONLY (owner decision D1): never `get_provider`, which may return Claude.
         provider = rp.OllamaProvider(

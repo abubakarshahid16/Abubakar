@@ -53,7 +53,7 @@ import re
 from datetime import datetime, timezone
 from enum import Enum
 
-from . import claude_approved, claude_spend, errors, numparse
+from . import claude_approved, claude_spend, errors, local_engine_bar, numparse
 from .ai import output_limits
 from .ai.json_reply import unfenced
 from .config import settings
@@ -788,6 +788,24 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
             local_instead = claude_approved.local_instead()
             if local_instead:
                 provider = rp.OllamaProvider()
+    if (
+        own_provider
+        and isinstance(provider, rp.OllamaProvider)
+        and local_engine_bar.refuses(STEP)
+    ):
+        from . import absence
+
+        said = absence.check_failed_status(
+            "AI engineering check", local_engine_bar.NOTE
+        )
+        _store_status(review_run_id, said)
+        return {
+            "ran": False,
+            "reason": local_engine_bar.NOTE,
+            "proposed": 0,
+            "kept": 0,
+            "rejected": {},
+        }
     max_output_tokens = output_limits.max_tokens_for(output_limits.ROUTE_ENGINEERING_CHECK)
     timeout_s = 240.0
     if isinstance(provider, rp.OllamaProvider):
@@ -852,8 +870,13 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         reason = None
         break
 
-    if (own_provider and local_pages is None and isinstance(provider, rp.ClaudeProvider)
-            and str(reason or "").startswith(CALL_FAILED)):
+    if (
+        own_provider
+        and local_pages is None
+        and isinstance(provider, rp.ClaudeProvider)
+        and str(reason or "").startswith(CALL_FAILED)
+        and not local_engine_bar.refuses(STEP)
+    ):
         # #870: THE CLOUD MODEL'S CALL FAILED (an API error, a time-out; on a
         # live review the account's credit was finished and every call came
         # back refused). The check ran with nothing although the local model

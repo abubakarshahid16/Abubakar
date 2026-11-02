@@ -31,6 +31,7 @@ from . import (
     ai_call_ledger,
     job_progress,
     job_queue,
+    local_engine_bar,
     nothing_read,
     provenance,
     reread_for_standards,
@@ -422,6 +423,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 
 @ai_call_ledger.recorded  # #1525: only with REVIEW_AUDIT_REPORT_ENABLED on
+@local_engine_bar.barring_local_engine  # a Claude-lane run never loads the local engine
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     """Run one claimed review job to its end. Returns the job's final state.
 
@@ -475,6 +477,9 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         with _phase(conn, job_id, None, heartbeat, timings, None):
             number_crs_rows(run_id, requester)
             word_crs_rows(run_id, requester)
+        local_engine_bar.record_on_run(
+            run_id
+        )  # what a Claude-lane run skipped is stated on the run
         # #791: the run's stored trace (reads only, never fails the run), then REVIEW_DEBUG prints it.
         review_trace.store(run_id, requester, timings)
         review_trace.emit(run_id, requester)

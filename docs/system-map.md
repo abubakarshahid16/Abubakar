@@ -89,6 +89,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
+| `claude_answer_cache` | The stored answer of every Claude call: the same request is never bought twice |
 | `claude_approved` | Which documents the owner approved for the cloud model, and the refusal for any other (#806 S3) |
 | `claude_models` | What a Claude model id accepts, and the models a run record names |
 | `claude_budget` | The two numbers that keep a $20 API credit from vanishing in one run |
@@ -208,6 +209,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `market_phrase` | The only text that may leave this machine, built by whitelist |
 | `market_providers` | Three tiers of public information, one row shape, and no socket in sight |
 | `market_transport` | The one place in this codebase that may open a socket to the public internet |
+| `local_engine_bar` | A review on the Claude lane never loads the local engine, and says what it skipped |
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
 | `closing_noun` | Reads the quantity a sentence names LAST ("... of its travel") so a label that runs from it into the subject can be paired (#913) |
 | `method_notes` | Order 159: marks the notes on HOW a pairing was made, so the engineer's copy keeps them and the contractor's copy leaves them off |

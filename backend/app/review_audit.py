@@ -27,7 +27,14 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import ai_call_ledger, deferred_pass, review_audit_rows
+from . import (
+    ai_call_ledger,
+    claude_answer_cache,
+    claude_spend,
+    deferred_pass,
+    local_engine_bar,
+    review_audit_rows,
+)
 from .config import settings
 
 NOT_RECORDED = "not recorded"
@@ -329,6 +336,13 @@ def _ledger_steps(ledger: list[dict] | None) -> list[dict]:
             "fresh": row["fresh"],
             "failed": row["failed"],
             "reused": row["reused"],
+            **(
+                {
+                    "not_sent": f"{claude_answer_cache.NOT_SENT} ({row['cache_hits']} of them)"
+                }
+                if row.get("cache_hits")
+                else {}
+            ),
         }
         for row in ledger
     ]
@@ -365,6 +379,35 @@ def _stored_steps(status: dict, wording: dict | None) -> list[dict]:
             }
         )
     return out
+
+
+def _skipped_steps(run: dict) -> list[dict]:
+    """The steps a Claude-lane run did not run: a true 0 calls, and said so."""
+    return [
+        {
+            "name": row["step"],
+            "state": row["note"],
+            "model": None,
+            "calls": 0,
+            "fresh": 0,
+            "failed": 0,
+            "reused": 0,
+        }
+        for row in _loads(run.get("outcome_json")).get(local_engine_bar.OUTCOME_KEY)
+        or []
+    ]
+
+
+def _cache_figures(run: dict) -> dict | None:
+    """The stored Claude answers since this run began; None on a run with no Claude call."""
+    since = run.get("started_at") or run.get("created_at")
+    if not since:
+        return None
+    try:
+        report = claude_spend.cache_report(since=since)
+    except (OSError, ValueError):
+        return None
+    return report if report["hits"] or report["misses"] else None
 
 
 def _totals(steps: list[dict]) -> dict:
@@ -419,8 +462,16 @@ def _ai_section(
         if step["state"] == "failed"
         else "see the findings; code decides"
     )
-    steps = [step, *_stored_steps(status, wording), *_ledger_steps(ledger)]
-    return {"steps": steps, "totals": _totals(steps)}
+    steps = [
+        step,
+        *_stored_steps(status, wording),
+        *_ledger_steps(ledger),
+        *_skipped_steps(run),
+    ]
+    out = {"steps": steps, "totals": _totals(steps)}
+    if (cache := _cache_figures(run)) is not None:
+        out["claude_answer_cache"] = cache
+    return out
 
 
 def _gates_section(outcome: dict, steps: dict) -> dict:
@@ -634,12 +685,21 @@ def _md_ai(audit: dict) -> list[str]:
         f"reused answers {_v(totals['reused'])}",
         f"  - {totals['boundary']}",
     ]
+    cache = audit["ai_use"].get("claude_answer_cache")
+    if cache:
+        out.append(
+            f"- stored Claude answers: {cache['hits']} hits, {cache['misses']} misses, "
+            f"USD {cache['saved_usd']} saved"
+        )
+        out.append(f"  - {cache['boundary']}")
     for s in audit["ai_use"]["steps"]:
         out.append(
             f"- {s['name']}: {s['state']}; model {_v(s['model'])}; fresh calls "
             f"{_v(s['fresh'])}; failed calls {_v(s.get('failed'))}; reused answers "
             f"{_v(s['reused'])}"
         )
+        if s.get("not_sent"):
+            out.append(f"  - {s['not_sent']}")
         if "clauses_read_of_total" not in s:
             continue
         out[-1] += (

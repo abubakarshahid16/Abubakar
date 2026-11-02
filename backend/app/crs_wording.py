@@ -44,7 +44,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from . import claude_approved
+from . import claude_approved, local_engine_bar
 from . import claims, numparse, standard_ids
 from .ai import output_limits
 from .config import settings
@@ -235,6 +235,12 @@ def _provider_for_this_review():
     return provider, None
 
 
+def _is_cloud(provider) -> bool:
+    from . import reasoning_provider as rp
+
+    return isinstance(provider, rp.ClaudeProvider)
+
+
 def _local_after_a_failed_cloud_call(provider, exc: BaseException):
     """`(local provider, what the run says)` when a CLOUD provider's call
     failed and the local model may take over (#870); None when it may not:
@@ -244,6 +250,8 @@ def _local_after_a_failed_cloud_call(provider, exc: BaseException):
     from . import claude_spend
     from . import reasoning_provider as rp
     if not isinstance(provider, rp.ClaudeProvider) or isinstance(exc, claude_spend.StopRun):
+        return None
+    if local_engine_bar.refuses(STEP):
         return None
     return rp.OllamaProvider(timeout=float(settings.crs_ai_wording_timeout_s)), rp.CLOUD_CALL_FAILED
 
@@ -297,6 +305,11 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
     except Exception as exc:  # noqa: BLE001 - no model: the template stays
         log.info("crs_wording: no model for the wording step; templates kept (%s)", type(exc).__name__)
         summary["stopped"] = f"no model available ({type(exc).__name__})"
+        return _store_summary(review_run_id, summary)
+    if own_provider and not _is_cloud(provider) and local_engine_bar.refuses(STEP):
+        # Set CRS_AI_WORDING_ENGINE=claude and the wording runs on Claude; the templates stand here.
+        summary["stopped"] = local_engine_bar.NOTE
+        summary["local_instead"] = None
         return _store_summary(review_run_id, summary)
     kept: list[tuple[str, str]] = []
     for row in candidates[:MAX_ROWS]:

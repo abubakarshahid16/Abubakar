@@ -19,7 +19,15 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 
-from .. import access, document_refs, errors, orphan_guard, schemas, stored_paths
+from .. import (
+    access,
+    claude_answer_cache,
+    document_refs,
+    errors,
+    orphan_guard,
+    schemas,
+    stored_paths,
+)
 from .. import admin as admin_mod
 from .. import chunker as chunk_mod
 from .. import classification as classification_mod
@@ -345,6 +353,8 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
             img.unlink()
             files_removed += 1
+    # The stored Claude answers quote the document: they go with it.
+    files_removed += claude_answer_cache.forget_documents([document_id])
     files_removed += review_mod.remove_report_files(document_id) + removed.pop("review_pdfs_of_citing_submittals")  # #437, #1053: audited, not in the response
 
     return {

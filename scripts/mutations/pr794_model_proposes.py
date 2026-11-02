@@ -8,6 +8,18 @@ from ._base import APP, Mutation
 _T = "tests/test_model_matching.py"
 _C = APP / "comparison.py"
 
+#: Re-anchored (the answer cache): the matcher's stored-answer arguments are in the call.
+METERED_MATCHER = """\
+            claude_spend.metered(
+                transport,
+                MATCH_STEP,
+                unbilled=reader_transport.unbilled,
+                version=f"{MATCH_PROMPT_VERSION}#{nth}",
+                keep_if=keep_if,
+            ),
+            output_limits.ROUTE_MATCH,
+"""
+
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M794-01", phase=794, description="a model proposal skips the match refusal rules",
              path=_C, anchor='                refused = (match_rules.refusal(requirement, chosen["fact"], sheet=sheet)\n',
@@ -24,9 +36,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     # MATCH_ENGINE=claude (R32): the one Claude lane, gated and metered.
     Mutation(id="M794-04", phase=794, description="the claude matcher is not metered by claude_spend",
              # re-anchored (#456): the matcher goes through the route table's model_call
-             path=_C, anchor=('        call = output_limits.model_call_for(claude_spend.metered(\n'
-                              '            transport, MATCH_STEP, unbilled=reader_transport.unbilled), output_limits.ROUTE_MATCH, cfg=cfg)\n'),
-             replacement='        call = output_limits.model_call_for(transport, output_limits.ROUTE_MATCH, cfg=cfg)\n',
+             path=_C, anchor=METERED_MATCHER,
+             replacement='            transport,\n            output_limits.ROUTE_MATCH,\n',
              target=_T, keyword="metered_lane or spend_cap", tags=("budget", "egress", "critical")),
     Mutation(id="M794-05", phase=794, description="the claude matcher skips the 'may Claude be used' check",
              # re-anchored (#456): the same check, one line shorter

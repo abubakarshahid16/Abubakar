@@ -78,6 +78,16 @@ def reused(step: str, model: str | None, count: int = 1) -> None:
     _note(step, model, "reused", count)
 
 
+def cache_hit(step: str, model: str | None) -> None:
+    """A Claude call answered from the stored answers: reused, and marked so the
+    audit can say it was not sent. The key exists only on a row that had one."""
+    _note(step, model, "reused", 1)
+    ledger = _LEDGER.get()
+    if ledger is not None:
+        row = ledger[(step, model)]
+        row["cache_hits"] = row.get("cache_hits", 0) + 1
+
+
 def model_of(provider) -> str | None:
     """The model a provider will be asked with, or None when it does not say."""
     return getattr(provider, "requested_model", None)

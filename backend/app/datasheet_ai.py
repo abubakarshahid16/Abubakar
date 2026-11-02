@@ -201,8 +201,11 @@ def _ollama_call(packet_shape: dict | None = None):
     version and answer budget of a caller with its own answer shape. None -
     this reader's own `_SCHEMA` and sizes, exactly as before."""
     from . import ai_task_runner, model_transport
+    from . import local_engine_bar
     from .reasoning_provider import OllamaProvider, Packet, schema_errors
 
+    if local_engine_bar.refuses(STEP):
+        return None, local_engine_bar.NOTE
     # The same gate every request passes (`model_transport.endpoint` ->
     # `config.check_model_url`), asked once up front so a refused host is a
     # reason for the whole document rather than a failure on every page.

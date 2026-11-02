@@ -421,7 +421,7 @@ def record(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
     whose real usage is unknown (it may have been billed but its answer was
     lost): that figure is charged and the entry is marked `"estimated": true`.
     For a call that is about to be SENT use `reserve` + `settle`; `record` is
-    for a cost with no pre-send check to make (a cache hit at USD 0)."""
+    for a cost with no pre-send check to make."""
     entry = _entry(step=step, model=model, usage=usage, prompt_sha256=prompt_sha256,
                    wall_time_s=wall_time_s, finish_reason=finish_reason, batch=batch,
                    estimated_usd=estimated_usd)
@@ -458,29 +458,47 @@ def refusal_words(exc: BaseException, cap_words: str) -> str:
     return f"{words} ({exc})"
 
 
-def reserve_all(items: list[tuple[str, float]], *, model: str, prompt_sha256: str = "",
-                batch: bool = False, caps: Caps | None = None) -> list[Reservation]:
-    """Check and reserve every `(step, worst_case)` in ONE locked step: all
-    fit together, or `BudgetExceeded` is raised and nothing is reserved.
-    Each item is checked on top of the ledger AND the items before it, so a
-    batch cannot pass one request at a time and cross a cap together."""
-    # #806 S3, BEFORE THE CAPS AND BEFORE ANYTHING IS HELD: every Claude call
-    # reserves here (the `metered` lane and the `ClaudeProvider` lane), so this
-    # is the one place a prompt carrying an unapproved document - or one whose
-    # caller declared nothing - is stopped. The refusal is written to the
-    # ledger at USD 0 (step, code, ids; never a title), for the log review.
+def _refuse_unapproved(
+    steps: list[str], *, model: str, prompt_sha256: str, batch: bool
+) -> None:
+    """#806 S3, BEFORE THE CAPS AND BEFORE ANYTHING IS HELD OR SERVED: every Claude
+    call reserves or looks up its stored answer through here (the `metered` lane
+    and the `ClaudeProvider` lane), so this is the one place a prompt carrying an
+    unapproved document - or one whose caller declared nothing - is stopped. The
+    refusal is written to the ledger at USD 0 (step, code, ids; never a title), for
+    the log review."""
     from . import claude_approved
     refused = claude_approved.refusal()
     if refused is not None:
         code, reason = refused
         with _ledger_lock():
-            for step, _worst in items:
+            for step in steps:
                 line = _entry(step=step, model=model, usage=None, prompt_sha256=prompt_sha256,
                               wall_time_s=0.0, finish_reason=f"refused:{code}", batch=batch)
                 line["refused"] = code
                 line["documents"] = sorted(claude_approved.carried() or ())
                 _append(line)
         raise DocumentNotApproved(code, reason)
+
+
+def reserve_all(
+    items: list[tuple[str, float]],
+    *,
+    model: str,
+    prompt_sha256: str = "",
+    batch: bool = False,
+    caps: Caps | None = None,
+) -> list[Reservation]:
+    """Check and reserve every `(step, worst_case)` in ONE locked step: all
+    fit together, or `BudgetExceeded` is raised and nothing is reserved.
+    Each item is checked on top of the ledger AND the items before it, so a
+    batch cannot pass one request at a time and cross a cap together."""
+    _refuse_unapproved(
+        [step for step, _worst in items],
+        model=model,
+        prompt_sha256=prompt_sha256,
+        batch=batch,
+    )
     explicit = caps
     caps = caps or Caps.from_settings()
     now = time.time()
@@ -625,7 +643,76 @@ def settle_failure(reservation: Reservation, exc: BaseException, *, unbilled=Non
                   estimated_usd=reservation.worst_usd)
 
 
-def metered(send, step: str, *, unbilled=None):
+def answer_on_file(
+    step: str, body: dict, *, version: str = "", valid=None, prompt_sha256: str = ""
+) -> tuple[dict | None, str]:
+    """THE ONE DOOR OF THE ANSWER CACHE: `(stored answer or None, key)` for the
+    request `body`. Asked before `reserve` on every lane (single call, stream, batch,
+    `metered`). The approved-list gate comes first, so a blocked document never gets
+    a stored answer. A hit opens no socket: one ledger line at USD 0, marked `cached`,
+    with the USD it saved, and the audit says "not sent: cache hit". Counts only,
+    never text."""
+    from . import ai_call_ledger, claude_answer_cache
+
+    model = str(body.get("model") or "")
+    _refuse_unapproved([step], model=model, prompt_sha256=prompt_sha256, batch=False)
+    key = claude_answer_cache.key_of(step, version, body)
+    stored = claude_answer_cache.read(key, valid=valid)
+    if stored is None:
+        return None, key
+    line = _entry(
+        step=step,
+        model=str(stored.get("model") or model),
+        usage=None,
+        prompt_sha256=prompt_sha256,
+        wall_time_s=0.0,
+        finish_reason="cache_hit",
+    )
+    line["cached"] = True
+    line["saved_usd"] = round(float(stored.get("cost_usd") or 0.0), 6)
+    line["sent"] = claude_answer_cache.NOT_SENT
+    with _ledger_lock():
+        _append(line)
+    ai_call_ledger.cache_hit(step, line["model"])
+    return stored, key
+
+
+def keep_answer(key: str, step: str, payload, *, cost_usd: float, valid=None) -> bool:
+    """Store a paid answer, when it is complete and valid (`claude_answer_cache.write`)."""
+    from . import claude_answer_cache
+
+    return claude_answer_cache.write(
+        key, step=step, payload=payload, cost_usd=cost_usd, valid=valid
+    )
+
+
+def cache_report(*, since: str | None = None) -> dict:
+    """Hits, misses and the USD the hits saved, over this ledger (since `since`, an
+    ISO time, when given). A miss is a call that went out and was charged."""
+    start = None
+    if since:
+        start = datetime.fromisoformat(since).replace(microsecond=0)
+        start = start if start.tzinfo else start.replace(tzinfo=UTC)
+    hits = misses = 0
+    saved = 0.0
+    for entry in entries():
+        if start is not None and datetime.fromisoformat(entry["at"]) < start:
+            continue
+        if entry.get("cached"):
+            hits += 1
+            saved += float(entry.get("saved_usd") or 0.0)
+        elif entry.get("settles"):
+            misses += 1
+    return {
+        "hits": hits,
+        "misses": misses,
+        "saved_usd": round(saved, 6),
+        "boundary": "Claude calls in this spend ledger; the USD is the list-price estimate "
+        "of what each stored answer first cost",
+    }
+
+
+def metered(send, step: str, *, unbilled=None, version: str = "", keep_if=None):
     """Wrap a Messages transport `send(url, *, headers, body, timeout) -> dict`
     so that every call through it RESERVES its worst case against the caps
     BEFORE it leaves (`reserve`) and is settled to its cost AFTER it returns.
@@ -644,7 +731,19 @@ def metered(send, step: str, *, unbilled=None):
     `unbilled(exc)` says the API provably did no billable work (refused before
     sending, never connected, a 4xx rejection). With no `unbilled` given,
     every failure is charged: the cap errs toward counting too much, never too
-    little. The exception is re-raised either way."""
+    little. The exception is re-raised either way.
+
+    THE ANSWER CACHE (`answer_on_file`) IS ASKED FIRST, under `version`. Every prompt
+    on this lane asks for JSON, so `keep_if` defaults to `claude_answer_cache.is_json`;
+    a caller with a stricter check hands it in. The N-th ask of the same body through
+    one wrapper has its own stored answer (a stability check that asks twice must
+    compare two answers the model really gave, `ai_task_runner.reuse_or_ask`'s rule);
+    only an answer worth keeping uses up its slot."""
+    from . import claude_answer_cache
+
+    valid = keep_if or claude_answer_cache.is_json
+    asked: dict[str, int] = {}
+
     def _metered(url, *, headers, body, timeout):
         model = str(body.get("model") or "")
         prompt_chars = (len(json.dumps(body.get("messages") or [], ensure_ascii=False, default=str))
@@ -652,6 +751,15 @@ def metered(send, step: str, *, unbilled=None):
         worst = worst_case_usd(model, prompt_chars, int(body.get("max_tokens") or 0))
         digest = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False,
                                            default=str).encode("utf-8")).hexdigest()
+        nth = asked.get(digest, 0)
+        slot = f"{version}#{nth}" if nth else version
+        stored, key = answer_on_file(
+            step, body, version=slot, valid=valid, prompt_sha256=digest
+        )
+        if stored is not None:
+            asked[digest] = nth + 1
+            _metered.last_model = str(stored.get("model") or "") or _metered.last_model
+            return stored
         held = reserve(step, worst, model=model, prompt_sha256=digest)
         try:
             payload = send(url, headers=headers, body=body, timeout=timeout)
@@ -659,8 +767,14 @@ def metered(send, step: str, *, unbilled=None):
             settle_failure(held, exc, unbilled=unbilled)
             raise
         answer = payload if isinstance(payload, dict) else {}
-        settle(held, model=str(answer.get("model") or model), usage=answer.get("usage"),
-               finish_reason=str(answer.get("stop_reason") or "error"))
+        entry = settle(
+            held,
+            model=str(answer.get("model") or model),
+            usage=answer.get("usage"),
+            finish_reason=str(answer.get("stop_reason") or "error"),
+        )
+        if keep_answer(key, step, answer, cost_usd=entry["cost_usd"], valid=valid):
+            asked[digest] = nth + 1
         # What ANSWERED, for a run record; the ledger line above says the same.
         _metered.last_model = str(answer.get("model") or "") or _metered.last_model
         return payload

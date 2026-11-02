@@ -54,7 +54,13 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import equipment_scope as eqs, intake, kind_rules, procedure_text
+from . import (
+    equipment_scope as eqs,
+    intake,
+    kind_rules,
+    local_engine_bar,
+    procedure_text,
+)
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -3832,13 +3838,17 @@ def _none_match(reason: str | None = None) -> dict:
 MATCH_STEP = "requirement-matcher"
 
 
-def _ask_claude_for_a_pair(prompt: str) -> tuple[str | None, str | None]:
+def _ask_claude_for_a_pair(
+    prompt: str, *, nth: int = 0, keep_if=None
+) -> tuple[str | None, str | None]:
     """The matcher's question through the ONE Claude lane (R32, 2026-10-11;
     MATCH_ENGINE=claude): only when `reasoning_provider.claude_unavailable`
     says Claude may be used, through `reader_transport.transport()` wrapped in
     `claude_spend.metered` (USD caps before the call, every call in the ledger).
     Returns `(text, None)` or `(None, reason)`; never raises. #456: the cap is
-    the route table's; a reply it cut off is `model_truncated`, never parsed."""
+    the route table's; a reply it cut off is `model_truncated`, never parsed.
+    `nth` and `keep_if` are the stored-answer rules of the local path below: each
+    ask of the stability check has its own answer, kept only when it passed the check."""
     from . import claude_spend, reader_api, reader_transport
     from .ai import output_limits
     from .reasoning_provider import claude_unavailable_for_task
@@ -3851,8 +3861,17 @@ def _ask_claude_for_a_pair(prompt: str) -> tuple[str | None, str | None]:
             return None, MODEL_UNAVAILABLE
         cfg = dataclasses.replace(reader_api.ReaderSettings.from_env(), model=settings.claude_reasoning_model,
                                   timeout_seconds=float(settings.match_timeout_seconds))
-        call = output_limits.model_call_for(claude_spend.metered(
-            transport, MATCH_STEP, unbilled=reader_transport.unbilled), output_limits.ROUTE_MATCH, cfg=cfg)
+        call = output_limits.model_call_for(
+            claude_spend.metered(
+                transport,
+                MATCH_STEP,
+                unbilled=reader_transport.unbilled,
+                version=f"{MATCH_PROMPT_VERSION}#{nth}",
+                keep_if=keep_if,
+            ),
+            output_limits.ROUTE_MATCH,
+            cfg=cfg,
+        )
         return call(prompt), None
     except (claude_spend.StopRun, claude_spend.BudgetExceeded):
         return None, MODEL_BUDGET
@@ -3884,10 +3903,18 @@ def _ask_model_once(
     answers is the pair the model really gave."""
     from . import ai_task_runner, model_transport
     if (str(settings.match_engine or "ollama").strip().lower()) == "claude":
-        answer, why = _ask_claude_for_a_pair(build_prompt(requirement, candidates))
+        answer, why = _ask_claude_for_a_pair(
+            build_prompt(requirement, candidates),
+            nth=nth,
+            keep_if=lambda text: (
+                _checked_choice(_json_object_in(text), candidates)[1] is None
+            ),
+        )
         if why is not None:
             return None, why
         return _checked_choice(_json_object_in(answer), candidates)
+    if local_engine_bar.refuses(MATCH_STEP):
+        return None, MODEL_UNAVAILABLE
     body = {
         "model": settings.answer_model,
         "prompt": build_prompt(requirement, candidates),
