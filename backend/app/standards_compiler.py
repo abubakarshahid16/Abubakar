@@ -3,38 +3,26 @@
 THE JOB. For one standard on the owner's approved list, Claude Sonnet 5.5 reads that standard's pages, clause by
 clause, and proposes rules: applies_to, condition, field, comparator, limit, unit, clause, page, exact quote.
 
-WHY NOT `standards_converter`. It reads rows already extracted, against one equipment type's form, and writes
-draft files. This reads the pages and writes versioned rows. Its gates are reused, not copied: the family gate,
-the comparator words, the scope after a limit, default and example words, unreadable quotes. No second number
-parser (`numparse`), no second unit reader (`datasheet_ai.unit_in_quote`, `claims.unit_dimension`).
-
 CODE VERIFIES EVERY PROPOSAL (`compiled_rule_proof.verify`). The quote must stand on the cited page's stored text and the limit and
 unit inside the quote, or the rule is dropped and counted by reason. The `standard` is written by code.
 
-VERSIONS. Version 1 is `standard_requirements`: never written here, never deleted. Version 2 is `compiled_rules`,
-a table of its own, created only in the database this runs on, with `status='held'`. No verdict code reads it, so
-nothing compiled can change a verdict. Each version 2 rule names the model that answered, the prompt version and
-the batch id. Version 1 has no model column, so it says "not recorded" (`side_by_side`), never a guess. With the
-switch on, each review run records the version it used (`record_rule_version`): 1, until an approved path exists.
+VERSIONS. Version 1 is `standard_requirements`: never written here, never deleted. Version 2 is `compiled_rules`, only
+in the database this runs on, `status='held'`, read by no verdict code. Each version 2 rule names its model, prompt
+version and batch id; version 1 says "not recorded". With the switch on, a review run records the version it used: 1.
 
-ONCE. A standard compiled at this prompt version and text hash is skipped, with a count.
+ONCE. A standard compiled at this prompt version and text hash is skipped, with a count. One cached system block per
+standard, marked when it pays.
+THE GATES, before anything is built: the switch; the family (`standards_compiler_families`, owner on #1584, can be
+narrowed); COMPANY_STANDARD; the approved list even with its enforcement off. The batch reserves through `claude_spend`:
+USD 25 per standard (#1584: it governs here), USD 500 in total, and a daily limit here. What does not fit is not sent:
+the run stops, keeps what it verified, and says "partial". A later run of the same text pays only for the rest.
 
-THE GATES, before anything is built: the switch; the family (`standards_compiler_families`; #1584:
-API, ASME and NACE are allowed on the owner's decision there, the setting can narrow it); COMPANY_STANDARD; on the approved
-list even if the list's enforcement setting is off. Then the batch reserves through `claude_spend`, which asks
-the list again and holds USD 25 per standard (#1584: it governs here, not the USD 5 per step) and USD 500 in total,
-and a daily limit here. What does not fit is not sent: the run stops at the cap, keeps what it verified, and says
-"partial" with the pages not read. A later run of the same text pays only for the rest.
-
-THE TEXT is what the app cites, recognised text included (`_page_rows`). Each report says how many pages were read
-natively, from OCR and not at all, with OCR's confidence when stored, and each rule says which its page was. Pages
-with no text are listed. A standard with no usable page is "not_compiled", never a standard with no rules.
-
+THE TEXT is what the app cites, recognised text included. Each report counts pages read natively, from OCR and not at
+all; each rule says which its page was. A standard with no usable page is "not_compiled", never one with no rules.
+ANSWERS that do not parse as a whole (`compiled_rule_rescue`): each readable rule still gets the usual proof, but a chunk
+that lost a rule stays unread and the run "partial". Words around a whole answer lose nothing.
 CONTEXT. Code cannot prove that a rule stands alone (`compiled_rule_context`), and no flag does not mean it does. A
 flagged rule's strength is `context_dependent`, its own word stays in `sentence_strength`: an approval path can refuse it.
-
-CACHING. One stable system block per standard; only the chunk's pages after the breakpoint. Marked only when it pays:
-two or more chunks, and the block over the model's minimum. The report gives the tokens the API read from cache.
 
 Standards text goes out only through `claude_batch_run` and `reader_transport`. No text in any report.
 """
@@ -85,6 +73,7 @@ from .compiled_rule_report import (
     pages_of,
     side_by_side,
 )
+from .compiled_rule_rescue import rescued
 from .config import settings
 from .converter_gates import fold as _fold
 from .db import add_column_if_missing, connect
@@ -231,7 +220,10 @@ def _proposals(answer: dict) -> tuple[list | None, str | None]:
         return None, "truncated"
     text = answer.get("text") or ""
     if schema_errors(text, ANSWER_SCHEMA):
-        return None, "unreadable"
+        rules, whole = rescued(
+            text
+        )  # words before the JSON cost nothing; a lost rule leaves the chunk unread
+        return (rules, None) if whole else (None, "unreadable")
     try:
         return json.loads(unfenced(text))["rules"], None
     except (ValueError, TypeError, KeyError):
@@ -308,12 +300,18 @@ def _read_answers(
     proposed = duplicates = 0
     cut: list[str] = []
     bad: list[str] = []
+    part_read = rescued_whole = 0
     with numparse.document_context("\n".join(pages.values())):
         for custom_id, answer in answers.items():
             proposals, why = _proposals(answer)
             if proposals is None:
                 (cut if why == "truncated" else bad).append(custom_id)
-                continue
+                if why == "truncated":
+                    continue
+                proposals = rescued(answer.get("text") or "")[0]
+                part_read += len(proposals)
+            elif schema_errors(answer.get("text") or "", ANSWER_SCHEMA):
+                rescued_whole += 1
             for proposal in proposals:
                 proposed += 1
                 rule, reason = verify(proposal, with_id[custom_id], pages, tables)
@@ -349,7 +347,7 @@ def _read_answers(
     quoted = [
         core_of(str(p.get("quote") or ""))
         for a in answers.values()
-        for p in (_proposals(a)[0] or [])
+        for p in (_proposals(a)[0] or rescued(a.get("text") or "")[0])
         if isinstance(p, dict)
     ]
     return kept, {
@@ -364,6 +362,8 @@ def _read_answers(
         "duplicates": duplicates,
         "chunks_truncated": sorted(cut),
         "chunks_unreadable": sorted(bad),
+        "chunks_rescued_whole": rescued_whole,
+        "proposals_from_unread_chunks": part_read,
     }
 
 

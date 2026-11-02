@@ -21,6 +21,7 @@ from app import (
     claude_spend,
     comparison,
     compiled_rule_proof,
+    compiled_rule_rescue,
     compiled_rule_shape,
     converter_gates,
     db,
@@ -5055,4 +5056,123 @@ def test_more_than_one_word_after_the_figure_is_not_plain():
         ("5", "bar", "<=", "pressure"),
         sentence,
         f"7.3 Part\n{sentence}",
+    )
+
+
+# ---- A paid answer that does not parse as a whole: nothing is sent, repaired or completed.
+
+
+SECOND_RULE = {
+    **_rule(condition=None, field="widget", limit=None, unit=None, comparator=None),
+    "quote": "The widget shall be painted.",
+}
+
+
+class _ShapedAnswers(FakeBatches):
+    def __init__(self, shape, rules):
+        super().__init__(rules)
+        self.shape = shape
+
+    def _answer_for(self, params):
+        return self.shape(super()._answer_for(params))
+
+
+def _rule_text(rule):
+    return json.dumps(rule)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        lambda body: f"Here are the rules:\n```json\n{body}\n```",
+        lambda body: f"Only these sentences hold a rule. {body}",
+        lambda body: f"{body}\nThat is all of them.",
+    ],
+)
+def test_words_around_a_whole_answer_lose_nothing_and_it_counts_as_answered(shape):
+    _document()
+    report = _compile(_ShapedAnswers(shape, [_rule(), SECOND_RULE]))
+    assert report["kept"] == 2 and report["status"] == "all_pages_answered"
+    assert report["chunks_rescued_whole"] == 1 and report["chunks_unreadable"] == []
+    assert (
+        report["proposals_from_unread_chunks"] == 0 and report["pages_not_read"] == []
+    )
+
+
+def test_a_whole_rescued_answer_is_not_bought_again():
+    _document()
+    fake = _ShapedAnswers(lambda body: f"Rules: {body}", [_rule()])
+    _compile(fake)
+    report = _compile(fake)
+    assert len(fake.created) == 1 and report["status"] == "skipped"
+
+
+def _broken(cut):
+    return lambda _body: '{"rules": [' + _rule_text(_rule()) + ", " + cut
+
+
+@pytest.mark.parametrize(
+    "cut",
+    [
+        '{"applies_to": "widgets", "field": "widget", "quote": "The widget shall be pain',
+        _rule_text(SECOND_RULE)[:-1] + ',"}]}',
+        '{"applies_to": "wid"gets"}]}',
+    ],
+)
+def test_a_lost_rule_keeps_the_rest_and_the_chunk_never_reads_as_answered(cut):
+    _document()
+    report = _compile(_ShapedAnswers(_broken(cut), [_rule()]))
+    assert report["kept"] == 1 and report["proposals_from_unread_chunks"] == 1
+    assert report["status"] == "partial" and len(report["chunks_unreadable"]) == 1
+    assert report["pages_not_read"] == [1, 2] and report["pages_answered"] == 0
+    assert report["chunks_rescued_whole"] == 0
+
+
+def test_a_rule_cut_off_is_dropped_never_completed():
+    text = '{"rules": [' + _rule_text(SECOND_RULE) + ', {"quote": "The wid'
+    assert compiled_rule_rescue.rescued(text) == ([SECOND_RULE], False)
+
+
+def test_rules_after_a_broken_one_are_still_read():
+    text = '{"rules": [{"quote": "a "broken" one"}, ' + _rule_text(SECOND_RULE) + "]}"
+    assert compiled_rule_rescue.rescued(text) == ([SECOND_RULE], False)
+
+
+def test_a_rule_that_does_not_fit_the_schema_is_lost_not_kept():
+    text = '{"rules": [{"quote": 5}, ' + _rule_text(SECOND_RULE) + "]} "
+    assert compiled_rule_rescue.rescued("words " + text) == ([SECOND_RULE], False)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "No rules here.",
+        "",
+        '{"rules": [',
+        '{"rules": [' + _rule_text(SECOND_RULE) + ",",
+        '{"rules": [' + _rule_text(SECOND_RULE) + "]",
+        '{"rules": []} and then {"rules": []}',
+    ],
+)
+def test_nothing_closed_is_never_whole(text):
+    assert compiled_rule_rescue.rescued(text)[1] is False
+
+
+def test_a_rescued_rule_gets_the_usual_proof():
+    _document()
+    false_quote = {
+        **SECOND_RULE,
+        "quote": "The widget shall be painted blue with 7 coats.",
+    }
+    report = _compile(_ShapedAnswers(lambda body: f"Rules: {body}", [false_quote]))
+    assert report["kept"] == 0 and report["dropped"] == {"quote_not_on_page": 1}
+
+
+def test_a_rescue_sends_nothing_on_reverify():
+    _document()
+    fake = _ShapedAnswers(_broken('{"quote": "The wid'), [_rule()])
+    _compile(fake)
+    report = standards_compiler.reverify_stored(db.connect(), DOC, LABEL)
+    assert (
+        len(fake.created) == 1 and report["kept"] == 1 and report["status"] == "partial"
     )
