@@ -32,6 +32,8 @@ from .config import settings
 
 log = logging.getLogger(__name__)
 
+#: A call whose step starts with this is charged to ONE standard (`claude_spend.Caps.for_step`).
+STANDARD_STEP_PREFIX = "standards_convert:"
 #: Where the figures sit in `review_runs.outcome_json`, and in the audit's AI section.
 OUTCOME_KEY = "claude_spend"
 #: The owner's cap (#805 plan change 6). The setting can only narrow it: raising it is a reviewed change here.
@@ -97,6 +99,57 @@ def over_day_cap(worst: float, charged: float) -> str | None:
     if charged + worst <= cap:
         return None
     return f"today (UTC): charged ${charged:.4f}, next call up to ${worst:.4f}, cap ${cap:.2f} a day"
+
+
+def cap_key(step, run: str | None):
+    """What the step cap is counted against: step + run; with no run, or for a standard, the step whatever the run."""
+    if run and not str(step).startswith(STANDARD_STEP_PREFIX):
+        return (run, step)
+    return step
+
+
+def is_runs(step, run: str | None) -> bool:
+    """Whether this call is held to its review run's caps: not a call with no run, not a standard."""
+    return isinstance(cap_key(step, run), tuple)
+
+
+def charge(held: dict, step, run: str | None, usd: float) -> None:
+    """`usd` on its `cap_key`, and on its run's total `(run,)` when it counts there. A standard's spend does not."""
+    key = cap_key(step, run)
+    held[key] = held.get(key, 0.0) + usd
+    if is_runs(step, run):
+        held[(run,)] = held.get((run,), 0.0) + usd
+
+
+def by_cap(lines: Iterable[dict], run: str | None) -> dict:
+    """USD on each key, seen from a call in `run`: only that run's own lines fall on its keys. Holds count, as they
+    do for every cap. With no run, each line falls on its step, whichever run wrote it."""
+    held: dict = {}
+    for entry in lines:
+        own = run if entry.get("run") == run else None
+        charge(held, entry.get("step"), own, float(entry.get("cost_usd") or 0))
+    return held
+
+
+def run_cap() -> float:
+    return float(settings.claude_budget_usd_per_run)
+
+
+def over_run_cap(step, run: str | None, worst: float, held: dict) -> str | None:
+    """Why this call would take its whole review run past the owner's USD 15 (#1584), or None."""
+    if not is_runs(step, run):
+        return None
+    cap, got = run_cap(), round(held.get((run,), 0.0), 6)
+    if got + worst <= cap:
+        return None
+    return f"this review run: spent ${got:.4f}, next call up to ${worst:.4f}, cap ${cap:.2f} per review run"
+
+
+def over_caps(step, run: str | None, worst: float, lines: list[dict]) -> str | None:
+    """The read-only check's question: this run's USD 15, then the day."""
+    return over_run_cap(step, run, worst, by_cap(lines, run)) or over_day_cap(
+        worst, charged_today(lines)
+    )
 
 
 def _blank(step: str) -> dict:

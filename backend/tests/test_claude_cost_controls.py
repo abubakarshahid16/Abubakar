@@ -24,6 +24,7 @@ from app import (
     claude_recheck,
     claude_spend,
     claude_spend_report,
+    clause_review,
     datasheet_ai,
     db,
     match_claude,
@@ -342,6 +343,8 @@ def test_no_existing_cap_moved():
     assert defaults.claude_budget_usd_per_step == 5.0
     assert defaults.claude_budget_usd_per_standard == 25.0
     assert defaults.claude_budget_usd_per_day == 100.0
+    assert defaults.claude_budget_usd_clause_review == 10.0
+    assert defaults.claude_budget_usd_per_run == 15.0
     assert defaults.claude_cost_controls_enabled is False
     assert defaults.reasoning_provider == "ollama"
 
@@ -876,6 +879,114 @@ def _hold_in(run, step="a-step", usd=4.0):
         return claude_spend.reserve(step, usd, model=MODEL)
 
 
+def test_the_clause_review_step_name_is_the_real_one():
+    assert claude_spend.CLAUSE_REVIEW_STEP == clause_review.STEP == "clause_review"
+
+
+def test_clause_review_cannot_exceed_10_in_a_run():
+    step = claude_spend.CLAUSE_REVIEW_STEP
+    _hold_in("run-1", step=step, usd=9.0)
+    with pytest.raises(
+        claude_spend.BudgetExceeded, match=r"cap \$10\.00 per step of this review run"
+    ):
+        _hold_in("run-1", step=step, usd=1.5)
+    assert _hold_in("run-1", step=step, usd=1.0), "exactly 10 fits"
+
+
+def test_clause_review_with_no_run_stays_at_5():
+    with pytest.raises(claude_spend.BudgetExceeded, match=r"cap \$5\.00 per step"):
+        claude_spend.reserve(claude_spend.CLAUSE_REVIEW_STEP, 5.5, model=MODEL)
+
+
+def test_a_whole_run_cannot_exceed_15():
+    _hold_in("run-1", step="a-step", usd=5.0)
+    _hold_in("run-1", step="b-step", usd=5.0)
+    _hold_in("run-1", step="c-step", usd=5.0)
+    with pytest.raises(
+        claude_spend.BudgetExceeded, match=r"cap \$15\.00 per review run"
+    ):
+        _hold_in("run-1", step="d-step", usd=0.01)
+    assert _hold_in("run-2", step="d-step", usd=5.0), "another run has its own"
+
+
+def test_clause_review_and_the_other_steps_share_the_15():
+    _hold_in("run-1", step=claude_spend.CLAUSE_REVIEW_STEP, usd=10.0)
+    _hold_in("run-1", step="a-step", usd=4.0)
+    with pytest.raises(claude_spend.BudgetExceeded, match="per review run"):
+        _hold_in("run-1", step="b-step", usd=1.5)
+
+
+def test_settled_spend_counts_on_the_runs_15():
+    for step in ("a-step", "b-step", "c-step"):
+        _settle(
+            _hold_in("run-1", step=step),
+            {"input_tokens": 2_000_000, "output_tokens": 0},
+        )
+    with pytest.raises(claude_spend.BudgetExceeded, match="per review run"):
+        _hold_in("run-1", step="d-step", usd=3.5)
+    with claude_spend.for_run("run-1"):
+        assert claude_spend.run_spent() == pytest.approx(12.0)
+        assert claude_spend.step_spent("a-step") == pytest.approx(4.0)
+
+
+def test_a_batch_across_steps_cannot_cross_the_run_cap_together():
+    with (
+        claude_spend.for_run("run-1"),
+        pytest.raises(claude_spend.BudgetExceeded, match="per review run"),
+    ):
+        claude_spend.reserve_all(
+            [("a-step", 5.0), ("b-step", 5.0), ("c-step", 5.0), ("d-step", 1.0)],
+            model=MODEL,
+        )
+    assert claude_spend.entries() == []
+
+
+def test_the_read_only_check_asks_the_run_cap_too():
+    for step in ("a-step", "b-step", "c-step"):
+        _hold_in("run-1", step=step, usd=5.0)
+    with (
+        claude_spend.for_run("run-1"),
+        pytest.raises(claude_spend.BudgetExceeded, match="per review run"),
+    ):
+        claude_spend.ensure_affordable("d-step", 0.01)
+
+
+def test_a_standards_spend_is_not_charged_to_the_run():
+    """Apart: a standard has its USD 25, and it does not use up the run's USD 15."""
+    step = claude_spend.STANDARD_STEP_PREFIX + "X"
+    _hold_in("run-1", step=step, usd=20.0)
+    for other in ("a-step", "b-step", "c-step"):
+        assert _hold_in("run-1", step=other, usd=5.0)
+
+
+def test_concurrent_reservations_on_clause_review_cannot_pass_10():
+    won = _race(
+        lambda n: _hold_in("run-1", step=claude_spend.CLAUSE_REVIEW_STEP, usd=0.6), 30
+    )
+    assert len(won) == 16
+    assert claude_spend.spent() == pytest.approx(9.6)
+
+
+def test_concurrent_reservations_across_steps_of_one_run_cannot_pass_15():
+    won = _race(lambda n: _hold_in("run-1", step=f"step-{n}", usd=1.0), 40)
+    assert len(won) == 15
+    assert claude_spend.spent() == pytest.approx(15.0)
+
+
+def test_the_vision_status_says_the_run_cap_is_reached(monkeypatch):
+    monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    monkeypatch.setattr(vision_reader, "engine_setting", lambda: "claude")
+    for step in ("a-step", "b-step", "c-step"):
+        _hold_in("run-1", step=step, usd=5.0)
+    assert _vision_block() is None, "no run: that spend is not on the vision step"
+    with claude_spend.for_run("run-1"):
+        state = _vision_block()
+    assert state["state"] == "BUDGET_REACHED" and "this review run" in state["detail"]
+    assert (
+        "for this review run" in state["reason"] and "CLAUDE_BUDGET" not in state["fix"]
+    )
+
+
 def test_a_step_of_one_run_cannot_exceed_5_and_another_run_has_its_own():
     _settle(_hold_in("run-1"), {"input_tokens": 1_500_000, "output_tokens": 0})
     with pytest.raises(
@@ -994,4 +1105,5 @@ def test_the_route_reports_this_runs_step_and_the_day(monkeypatch, sent):
     )
     assert 0 < body["step_usd"] < 1, "another run's spend is not this run's"
     assert body["step_boundary"] == "this review run"
+    assert body["cap_per_run_usd"] == 15.0 and 0 < body["run_usd"] < 1
     assert body["cap_per_day_usd"] == 100.0 and body["today_usd"] > 4.5

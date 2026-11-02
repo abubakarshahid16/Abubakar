@@ -1183,7 +1183,7 @@ class Settings(SettingsExt, BaseSettings):
     claude_reasoning_model: str = "claude-sonnet-5"
     claude_labelling_model: str = "claude-haiku-4-5-20251001"
     #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the worst case of the next call must fit
-    #: under both. Owner: 5 per step of one review run (#1584); plan change 4 (#805, 28 Oct 2026): 25 per converted standard (the
+    #: under both. Owner, #1584: per review run 5 per step, 10 for AI clause review, 15 in all (no run: 5 per step, all time); plan change 4 (#805, 28 Oct 2026): 25 per converted standard (the
     #: `standards_convert:` steps) and 500 in total for November (`claude_spend.total_cap`: 20 again from 1 Dec).
     claude_budget_usd_per_step: float = 5.0
     claude_budget_usd_per_standard: float = 25.0

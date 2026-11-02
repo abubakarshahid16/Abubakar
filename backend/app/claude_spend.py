@@ -6,10 +6,11 @@ USD 100 a day (`claude_spend_report`). The check is made before a call leaves, o
 prompt token uncached, every allowed output token spent), against what the ledger says was already spent. A call
 that could cross a cap is refused, never sent and then reported as over budget.
 
-THE STEP CAP IS PER REVIEW RUN (owner, #1584, 2 Nov 2026), keyed by step and run (`for_run`). A re-run under a new
-run id gets a new USD 5, so the day cap is what limits re-runs. A call with NO run (chat, a read at upload, a script,
-an offline job) reads every line of its step, run or not: as tight as before. A `standards_convert:` step stays USD 25
-per standard, whatever the run. So a run with several steps can spend USD 5 on each.
+PER REVIEW RUN (owner, #1584, 2 Nov 2026, 15:05 PKT): USD 5 per step, USD 10 for the AI clause review step, at most
+USD 15 for the whole run, all checked in the same reservation (`for_run`, `claude_spend_report.cap_key`). A re-run
+under a new run id starts again, so the day cap limits re-runs. A call with NO run (chat, a read at upload, a script,
+an offline job) has USD 5 on every line of its step, run or not: as tight as before. A `standards_convert:` step stays
+USD 25 per standard, whatever the run, apart from the run's USD 15.
 
 THE LEDGER is a local JSONL file (`settings.claude_spend_log`), one line per
 call: time, step, model, token counts, cost, and a digest of the prompt. It is
@@ -37,10 +38,8 @@ processes pointed at different ledger files (each is its own budget, by construc
 locks are advisory or unsupported; or against anything that writes the JSONL without this module. Settled figures are
 the list-price ESTIMATE below, not the invoice.
 
-PRICES are list prices per million tokens from Anthropic's pricing page
-(platform.claude.com/docs/en/about-claude/pricing, read 2026-09-25). They are
-an ESTIMATE; the invoice is the truth. An unknown model is priced at the most
-expensive family listed, so an estimate errs toward refusing.
+PRICES are list prices per million tokens from Anthropic's pricing page (platform.claude.com/docs/en/about-claude/
+pricing, read 2026-09-25): an ESTIMATE; the invoice is the truth. An unknown model is priced at the dearest family.
 """
 from __future__ import annotations
 
@@ -80,7 +79,9 @@ LONG_PROMPT_PRICES: dict[str, tuple[float, float, float, float]] = {
 }
 #: Order 271.3 (owner, #805 plan change 4): a call whose step starts with this is charged to ONE
 #: standard's step and capped at `claude_budget_usd_per_standard` (the converter, `standards_converter`).
-STANDARD_STEP_PREFIX = "standards_convert:"
+STANDARD_STEP_PREFIX = report_mod.STANDARD_STEP_PREFIX
+#: `clause_review.STEP` (a test pins them equal): inside a review run its step cap is the owner's USD 10.
+CLAUSE_REVIEW_STEP = "clause_review"
 #: Order 271.3: the raised total is for NOVEMBER 2026 only (UTC dates). After this day the total is
 #: `BASELINE_TOTAL_USD` whatever the setting says, so a lapsed approval fails closed; renewing it is a
 #: reviewed change here, not a line in `.env`.
@@ -282,13 +283,10 @@ def entries() -> list[dict]:
 def models_used(
     *, since: str, steps=None, exclude_prefixes: tuple[str, ...] = ()
 ) -> list[str]:
-    """The models that ANSWERED since `since` (ISO time), sorted: the ledger's
-    settled lines and cache hits, which name the model the API reported. An open reservation
-    only names what was asked for, and a call charged at an estimate never
-    showed an answer, so neither counts. `steps` narrows to those steps;
-    `exclude_prefixes` leaves out steps starting with these. Whole seconds, like
-    the ledger's `at`. The boundary is this time window on this ledger, so another
-    run in the same window is counted too."""
+    """The models that ANSWERED since `since` (ISO time), sorted: settled lines and cache hits, which name the model the
+    API reported. An open reservation only names what was asked for, and a call charged at an estimate never showed an
+    answer, so neither counts. `steps` narrows to those steps; `exclude_prefixes` leaves out steps starting with these.
+    Whole seconds, like the ledger's `at`. The boundary is this time window on this ledger: another run in it counts."""
     start = datetime.fromisoformat(since).replace(microsecond=0)
     start = start if start.tzinfo else start.replace(tzinfo=UTC)
     found = set()
@@ -331,17 +329,17 @@ def spent(step: str | None = None) -> float:
                      if step is None or e.get("step") == step), 6)
 
 
-def _in_step_key(entry: dict, run: str | None) -> bool:
-    """Whether a ledger line counts toward the step cap of a call in `run`. No run, or a standard's step: every line."""
-    step = str(entry.get("step") or "")
-    return not run or step.startswith(STANDARD_STEP_PREFIX) or entry.get("run") == run
-
-
 def step_spent(step: str) -> float:
-    """What the step cap reads for a call made here and now, holds included (`_in_step_key`). `spent(step)` is every run."""
+    """What the step cap reads for a call made here and now, holds included. `spent(step)` is the step, every run."""
     run = current_run()
-    lines = [e for e in entries() if e.get("step") == step and _in_step_key(e, run)]
-    return round(sum(float(e.get("cost_usd") or 0) for e in lines), 6)
+    held = report_mod.by_cap(entries(), run)
+    return round(held.get(report_mod.cap_key(step, run), 0.0), 6)
+
+
+def run_spent() -> float:
+    """What this review run has charged across its steps, holds included; 0 with no run."""
+    run = current_run()
+    return round(report_mod.by_cap(entries(), run).get((run,), 0.0), 6)
 
 
 def _today() -> date:
@@ -369,6 +367,8 @@ class Caps:
         the caps read from settings are resolved per step: a caller that passed its own `Caps` meant them."""
         if str(step).startswith(STANDARD_STEP_PREFIX):
             return Caps(float(settings.claude_budget_usd_per_standard), self.total)
+        if str(step) == CLAUSE_REVIEW_STEP and _RUN.get():
+            return Caps(float(settings.claude_budget_usd_clause_review), self.total)
         return self
 
 
@@ -384,7 +384,7 @@ def ensure_affordable(step: str, worst_case: float, caps: Caps | None = None) ->
         step_spent(step),
         spent(),
     )
-    if over := report_mod.over_day_cap(worst_case, report_mod.charged_today(entries())):
+    if over := report_mod.over_caps(step, current_run(), worst_case, entries()):
         raise BudgetExceeded(over)
 
 
@@ -392,7 +392,7 @@ def _check(step: str, worst_case: float, caps: Caps, step_spent: float, total_sp
     if step_spent + worst_case > caps.per_step:
         raise BudgetExceeded(
             f"step {step!r}: spent ${step_spent:.4f}, next call up to ${worst_case:.4f}, "
-            f"cap ${caps.per_step:.2f} per step{' of this review run' if current_run() else ''}")
+            f"cap ${caps.per_step:.2f} per step{' of this review run' if report_mod.is_runs(step, current_run()) else ''}")
     if total_spent + worst_case > caps.total:
         raise BudgetExceeded(
             f"total: spent ${total_spent:.4f}, next call up to ${worst_case:.4f}, "
@@ -544,24 +544,22 @@ def reserve_all(
     with _ledger_lock():
         current = entries()
         total = sum(float(e.get("cost_usd") or 0) for e in current)
-        per_step: dict[str, float] = {}
         run = current_run()
-        for e in current:
-            if _in_step_key(e, run):
-                key = e.get("step")
-                per_step[key] = per_step.get(key, 0.0) + float(e.get("cost_usd") or 0)
+        per_step = report_mod.by_cap(current, run)
         day = report_mod.charged_today(current)
         for step, worst in items:
             _check(
                 step,
                 worst,
                 explicit or caps.for_step(step),
-                round(per_step.get(step, 0.0), 6),
+                round(per_step.get(report_mod.cap_key(step, run), 0.0), 6),
                 round(total, 6),
             )
+            if over := report_mod.over_run_cap(step, run, worst, per_step):
+                raise BudgetExceeded(over)
             if over := report_mod.over_day_cap(worst, round(day, 6)):
                 raise BudgetExceeded(over)
-            per_step[step] = per_step.get(step, 0.0) + worst
+            report_mod.charge(per_step, step, run, worst)
             total += worst
             day += worst
             out.append(Reservation(uuid.uuid4().hex, step, model, float(worst), prompt_sha256, now, batch))
@@ -749,12 +747,10 @@ def metered(send, step: str, *, unbilled=None, version: str = "", keep_if=None):
     `unbilled(exc)` says the API provably did no billable work (refused before sending, never connected, a 4xx
     rejection). With no `unbilled` given, every failure is charged. The exception is re-raised either way.
 
-    THE ANSWER CACHE (`answer_on_file`) IS ASKED FIRST, under `version`. Every prompt
-    on this lane asks for JSON, so `keep_if` defaults to `claude_answer_cache.is_json`;
-    a caller with a stricter check hands it in. The N-th ask of the same body through
-    one wrapper has its own stored answer (a stability check that asks twice must
-    compare two answers the model really gave, `ai_task_runner.reuse_or_ask`'s rule);
-    only an answer worth keeping uses up its slot."""
+    THE ANSWER CACHE (`answer_on_file`) IS ASKED FIRST, under `version`. Every prompt on this lane asks for JSON, so
+    `keep_if` defaults to `claude_answer_cache.is_json`; a caller with a stricter check hands it in. The N-th ask of the
+    same body through one wrapper has its own stored answer (a stability check that asks twice must compare two answers
+    the model really gave, `ai_task_runner.reuse_or_ask`'s rule); only an answer worth keeping uses up its slot."""
     from . import claude_answer_cache
 
     valid = keep_if or claude_answer_cache.is_json

@@ -36,7 +36,7 @@ screen as what it said.
 TWO LIMITS ON EVERY CALL, BOTH INSIDE `_model_call_or_409(step)` so no route
 can reach the transport without them:
 
-  1. The USD caps (USD 5 per step of one review run, #1584; USD 100 a day; USD 500 in total for November, 20 before).
+  1. The USD caps (per review run, #1584: USD 5 per step, USD 10 for AI clause review, at most USD 15 in all; USD 100 a day; USD 500 in total for November, 20 before).
      The transport is wrapped in `claude_spend.metered(transport, step)`:
      each call's worst case is checked BEFORE it leaves, and each call is
      written to the one `claude_spend` ledger AFTER it returns, so the total
@@ -261,12 +261,15 @@ def _usd_spent(step: str | None, review_run_id: str | None = None) -> dict:
     caps = claude_spend.Caps.from_settings()
     with claude_spend.for_run(review_run_id):
         step_usd = claude_spend.step_spent(step) if step else None
+        run_usd = claude_spend.run_spent() if review_run_id else None
     return {"step": step,
             "step_usd": step_usd,
             "step_boundary": "this review run" if review_run_id else "every call on this step",
+            "run_usd": run_usd,
             "total_usd": claude_spend.spent(),
             "today_usd": claude_spend_report.charged_today(claude_spend.entries()),
             "cap_per_step_usd": caps.per_step, "cap_total_usd": caps.total,
+            "cap_per_run_usd": claude_spend_report.run_cap(),
             "cap_per_day_usd": claude_spend_report.day_cap()}
 
 

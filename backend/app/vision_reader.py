@@ -629,6 +629,11 @@ STATUS_TEXT: dict[str, tuple[str, str]] = {
         "Try again; if it repeats, check the backend log."),
 }
 
+#: Same state, other words: a run's cap is per run.
+RUN_CAP_TEXT = {
+    "reason": "The Claude spending cap for this review run is reached.",
+    "fix": "A new review run has its own caps, under the day cap. Raising this one needs the owner.",
+}
 #: Same state, other words: raising the step or total cap does nothing for a day cap, and nothing needs raising.
 DAY_CAP_TEXT = {
     "reason": "The Claude spending cap for today is reached.",
@@ -667,6 +672,10 @@ def _local_status(now: float) -> dict | None:
     if total >= caps.total:
         return _status("BUDGET_REACHED", now=now,
                        detail=f"total: ${total:.2f} of ${caps.total:.2f}")
+    run_cap = claude_spend_report.run_cap()
+    if claude_spend.current_run() and claude_spend.run_spent() >= run_cap:
+        detail = f"this review run: ${claude_spend.run_spent():.2f} of ${run_cap:.2f}"
+        return {**_status("BUDGET_REACHED", now=now, detail=detail), **RUN_CAP_TEXT}
     day = claude_spend_report.charged_today(claude_spend.entries())
     if day >= claude_spend_report.day_cap():
         return {
