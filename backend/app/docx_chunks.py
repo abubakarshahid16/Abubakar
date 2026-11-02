@@ -27,6 +27,7 @@ from __future__ import annotations
 from . import chunker
 from .chunker import Block, count_tokens
 from .config import settings
+from .docx_pages import PAGES_NONE, PAGES_PARTIAL
 from .docx_reader import (
     FURNITURE_COMMENT,
     FURNITURE_FOOTER,
@@ -52,6 +53,20 @@ _FURNITURE_KIND = {
     FURNITURE_HEADER: HEADER_FOOTER_KIND, FURNITURE_FOOTER: HEADER_FOOTER_KIND,
     FURNITURE_TRACKED: TRACKED_KIND, FURNITURE_COMMENT: COMMENT_KIND, FURNITURE_TOC: TOC_KIND,
 }
+
+
+class _Heading(str):
+    """A heading waiting for the block it is carried in with. `page`: its own page when
+    the file has real pages, so a chunk starts where its first line is; None: as before."""
+
+    page: int | None = None
+
+    @classmethod
+    def of(cls, text: str, page: int, structure: Structure) -> _Heading:
+        heading = cls(text)
+        pagination = structure.pagination
+        heading.page = page if pagination and pagination.source != PAGES_NONE else None
+        return heading
 
 
 def _where(path: tuple[str, ...]) -> str:
@@ -113,7 +128,7 @@ def build_chunks(structure: Structure) -> list[Block]:
         if pending_heading is not None:
             lines.append(pending_heading)
             tokens += count_tokens(pending_heading)
-            pages.append(block.page)
+            pages.append(pending_heading.page or block.page)
             pending_heading = None
         lines.append(line)
         tokens += t
@@ -126,7 +141,7 @@ def build_chunks(structure: Structure) -> list[Block]:
         if b.kind == KIND_HEADING:
             flush()
             path, chain = b.path, b.chain
-            pending_heading = block_lines(b)[0]
+            pending_heading = _Heading.of(block_lines(b)[0], b.page, structure)
             continue
         if b.path != path:           # body text before the first heading
             flush()
@@ -151,6 +166,21 @@ def build_chunks(structure: Structure) -> list[Block]:
         for piece in pieces:
             piece.locator = f.locator
             chunks.append(piece)
+    return _stamp_real_pages(chunks, structure)
+
+
+def _stamp_real_pages(chunks: list[Block], structure: Structure) -> list[Block]:
+    """A file with real pages (WORD_PAGE_MARKERS_ENABLED) is cited by page as well
+    as by where it sits. No pages (or the switch off): the locator alone, as before."""
+    pagination = structure.pagination
+    if pagination is None or pagination.source == PAGES_NONE:
+        return chunks
+    said = " (page marks partial)" if pagination.source == PAGES_PARTIAL else ""
+    for c in chunks:
+        if c.kind in ("prose", "table"):
+            first, last = c.page_start, c.page_end or c.page_start
+            where = f"page {first}" if first == last else f"pages {first}-{last}"
+            c.locator = f"{where}{said}, {c.locator}" if c.locator else f"{where}{said}"
     return chunks
 
 
@@ -162,9 +192,25 @@ def _table_chunks(b: DocBlock, path: tuple[str, ...], chain: tuple[str, ...], ta
     lead = [chunker._md_row(header, width)] if header else []
     md_rows = [chunker._md_row(r, width) for r in data]
     section = chain[-1] if chain else None
-    whole = Block("table", "\n".join(lead + md_rows), b.page, b.page, section, 0,
-                  lead=lead, rows=md_rows, row_pages=[b.page] * len(md_rows),
-                  header=tuple(header) if header else None)
+    # A table over several real pages: each row keeps its page (a folded header
+    # is the first rows, so the data rows are the last ones).
+    row_pages = (
+        b.row_pages[-len(md_rows) :]
+        if b.row_pages and md_rows
+        else [b.page] * len(md_rows)
+    )
+    whole = Block(
+        "table",
+        "\n".join(lead + md_rows),
+        b.page,
+        max(row_pages, default=b.page),
+        section,
+        0,
+        lead=lead,
+        rows=md_rows,
+        row_pages=row_pages,
+        header=tuple(header) if header else None,
+    )
     whole.tokens = count_tokens(whole.text)
     pieces = chunker._split_structured(whole, target, ceiling)
     tail = f"table {b.table_no}"

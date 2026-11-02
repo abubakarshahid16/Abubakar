@@ -21,7 +21,7 @@ def applies(path: str | None) -> bool:
         not path
         or not settings.page_read_by_reading_enabled
         or not settings.docx_input_enabled
-        or settings.datasheet_office_input
+        or (settings.datasheet_office_input and not settings.word_page_markers_enabled)
     ):
         return False
     try:
