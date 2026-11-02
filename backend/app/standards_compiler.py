@@ -16,8 +16,7 @@ a table of its own, created only in the database this runs on, with `status='hel
 nothing compiled can change a verdict. Each version 2 rule names the model that answered, the prompt version and
 the batch id. Version 1 has no model column, so it says "not recorded" (`side_by_side`), never a guess. With the
 switch on, each review run records the version it used (`record_rule_version`): 1, until an approved path exists.
-
-ONCE. A standard compiled at this prompt version and text hash is skipped, with a count.
+A standard compiled at this prompt version and text hash is skipped, with a count.
 
 THE GATES, before anything is built: the switch; the family (`standards_compiler_families`; #1584:
 API and ASME are allowed on the owner's decision there, the setting can narrow it); COMPANY_STANDARD; on the approved
@@ -34,11 +33,8 @@ CONTEXT. Code cannot prove that a rule stands alone, and no flag does not mean i
 or the next sentence, can be kept with no condition and be over-broad. Such a rule gets `context_flag` and the strength
 `context_dependent` (its own word stays in `sentence_strength`), so an approval path can refuse it.
 
-CACHING. One stable system block per standard (instructions plus the start of the standard), and only the pages
-of that chunk after the breakpoint. It is marked only when it pays: two or more chunks, and the block over the
-model's minimum. Five-minute entries, the price the ledger knows. In a batch a hit is best effort, so the report
-gives the tokens the API said it read from cache.
-
+CACHING. One stable system block per standard, marked only when it pays (two or more chunks, over the model's minimum);
+each chunk's pages after the breakpoint. In a batch a hit is best effort, so the report gives the tokens read from cache.
 Standards text goes out only through `claude_batch_run` and `reader_transport`. No text in any report.
 """
 
