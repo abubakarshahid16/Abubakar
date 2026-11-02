@@ -316,3 +316,33 @@ def test_the_heading_named_is_the_one_holding_the_section_not_the_first_on_the_p
     row = _row(_mine(_crs(_run(doc))[0]), ELEMENT)
     assert f'section found at page {nodes} (heading "{CUT}")' in row["comment"]
     assert "Preparation notes" not in row["comment"]
+
+
+@pytest.mark.parametrize("locator", [None, "4 > 4.6 > para 1-2"])
+def test_a_chunk_spanning_pages_cites_the_verified_page_in_the_page_column(
+    monkeypatch, locator
+):
+    _switches(monkeypatch)
+    moved = _moved()
+    doc = _doc("s1", moved)
+    first = _page_of(moved, "Analysis")
+    second = first + 1
+    with (
+        db.connect() as conn
+    ):  # the chunk spans two pages; the passage is on the second
+        conn.execute(
+            "UPDATE chunks SET page_end = ?, locator = ?"
+            " WHERE document_id = ? AND page_start = ?",
+            (second, locator, doc, first),
+        )
+        conn.execute(
+            "UPDATE pages SET text = 'Analysis' WHERE document_id = ? AND page_no = ?",
+            (doc, first),
+        )
+        conn.execute(
+            "UPDATE pages SET text = text || ? WHERE document_id = ? AND page_no = ?",
+            ("\n" + NODE, doc, second),
+        )
+    row = _row(_mine(_crs(_run(doc))[0]), ELEMENT)
+    assert f'stated at page {second} (heading "Analysis"): "{NODE}"' in row["comment"]
+    assert row["page_section"] == f"page {second}"

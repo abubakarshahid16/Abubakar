@@ -148,10 +148,12 @@ def _row(playbook, report, entry, submittal_name: str) -> dict:
         playbooks.UNCLEAR,
     )
     ev = (entry["evidence"] or [{}])[0] if shown else {}
+    # an unclear row's page column is the page its comment cites (the verified one)
+    cited = entry.get("cited_page")
     return {
         "finding_id": "",
         "document_name": submittal_name,
-        "page_section": ev.get("locator") or "",
+        "page_section": f"page {cited}" if cited else ev.get("locator") or "",
         "comment": _comment(playbook, report, entry),
         "comment_by": BY,
         "standard_reference": f"{entry['source']['standard']} {entry['source']['clause']}",

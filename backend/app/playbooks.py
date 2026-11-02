@@ -414,10 +414,11 @@ def _verified_quote(
     return (page, quote) if page is not None else (first, None)
 
 
-def _cited(ev: dict, body: list[dict], document_id: str) -> str:
+def _cited(ev: dict, body: list[dict], document_id: str) -> tuple[str, int | None]:
+    """(the words citing the passage, the page they cite: the CRS page column's too)."""
     page, quote = _verified_quote(ev, body, document_id)
     said = f': "{quote}"' if quote else "; no quote could be verified on the page text"
-    return _place(ev, body, page) + said
+    return _place(ev, body, page) + said, page
 
 
 NO_HEADINGS = "no section heading was read from this document"
@@ -467,17 +468,18 @@ def _section_without_standard(
     elif found["state"] == UNCLEAR and found.get("own_section_found"):
         lacks, best = found["own_lacks"], found["own_best"]
         out.update(evidence=[best], missing_cues=lacks)
+        cited, out["cited_page"] = _cited(best, body, document_id)
         out["reason"] = (
-            "unclear: a section of its own was found at "
-            f"{_cited(best, body, document_id)}, but it does not mention "
+            f"unclear: a section of its own was found at {cited}, but it does not mention "
             f"{', '.join(lacks)}; {not_quoted}; engineer to check"
         )
     elif found["state"] == UNCLEAR and found.get("stated_elsewhere"):
         stated = found["stated_elsewhere"]
         out["evidence"] = stated[:1]
+        cited, out["cited_page"] = _cited(stated[0], body, document_id)
         out["reason"] = (
             "unclear: no section of its own was found, but it is stated at "
-            f"{_cited(stated[0], body, document_id)}; {not_quoted}; engineer to confirm"
+            f"{cited}; {not_quoted}; engineer to confirm"
         )
     else:
         out["section_state"] = MISSING
