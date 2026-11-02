@@ -256,6 +256,8 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: CRS export quality, export only (#1503, off by default)
     "crs_export_quality_enabled": False,
     "crs_export_quality_strict_enabled": False,
+    # --- local only, no model or socket: a row with no page says its section or field (#1591, off by default)
+    "crs_page_cell_field_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
     "vessel_kit_draft_enabled": False,
     # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
@@ -274,6 +276,8 @@ EGRESS_SAFE: dict[str, object] = {
     "word_page_markers_enabled": False,
     # --- read by the page only, one local /api/auth/me a minute, no model or socket (order 4b, off by default)
     "session_expired_notice_enabled": False,
+    # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
+    "crs_plain_notes_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,
     # --- local only, no model or socket: a recognition file error holds the document (#1568, off by default)
