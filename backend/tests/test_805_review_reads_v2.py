@@ -17,6 +17,7 @@ from app import (
     datasheet_checks,
     datasheets,
     db,
+    degraded_read,
     rule_trust,
     rulebook_v2,
     rulebook_v2_review,
@@ -36,10 +37,14 @@ from app.rulebook_v2_review import (
     NOT_OWNER_APPROVED,
     ONLY_UNDER_QUALIFIER,
     ORIGIN,
+    PAIR_REFUSED,
     QUERY,
     QUOTE_HASH_MISMATCH,
+    READING_INCOMPLETE,
     SCOPE_OUTSIDE_SENTENCE,
     SEVERAL_VALUES,
+    SNAPSHOT_NOT_RECORDED,
+    STATED_VALUE_NOT_A_LIMIT,
     TYPE_UNSURE,
     V1_DISAGREES,
     VALUE_NOT_TRUSTED,
@@ -438,6 +443,63 @@ def test_a_breach_reaches_the_crs_citing_its_rule_and_a_query_does_not_call_it_o
         "Set pressure": "NON_COMPLIANT",
         "Invented gadget thickness": QUERY,
     }
+
+
+def test_a_stated_value_another_value_differs_from_is_a_query_never_a_breach(
+    monkeypatch,
+):
+    run, scope = _sheet(value="9 barg")
+    other = _rule(comparator="=", value=8.0)
+    row = _one(_review(monkeypatch, run, scope, other))
+    assert (
+        row["compliance_status"] == QUERY and _reason(row) == STATED_VALUE_NOT_A_LIMIT
+    )
+
+
+def test_a_stated_value_the_sheet_states_meets(monkeypatch):
+    run, scope = _sheet(value="9 barg")
+    row = _one(_review(monkeypatch, run, scope, _rule(comparator="=", value=9.0)))
+    assert row["compliance_status"] == "COMPLIANT", row["finding"]
+
+
+def test_a_pass_on_an_incomplete_reading_is_held_and_a_breach_is_not(monkeypatch):
+    run, scope = _sheet(value="9 barg")
+    monkeypatch.setattr(
+        degraded_read,
+        "hold",
+        lambda results, _doc: [{**r, "status": QUERY} for r in results],
+    )
+    meets, breaks = _rule(value=10.0), _rule(value=8.0)
+    rows = {
+        f["requirement"]: (f["compliance_status"], _reason(f))
+        for f in _ours(_review(monkeypatch, run, scope, meets, breaks))
+    }
+    assert rows[meets["quote"]] == (QUERY, READING_INCOMPLETE)
+    assert rows[breaks["quote"]][0] == "NON_COMPLIANT"
+
+
+def test_every_condition_must_hold_not_only_the_first(monkeypatch):
+    run, scope = _sheet()
+    _with_material("carbon steel")
+    rule = _rule(
+        conditions=["for carbon steel", "where the invented flux capacitor is fitted"]
+    )
+    row = _one(_review(monkeypatch, run, scope, rule))
+    assert row["compliance_status"] == QUERY and _reason(row) == CONDITION_NOT_VERIFIED
+
+
+def test_a_pair_of_two_quantities_is_refused_by_name(monkeypatch):
+    run, scope = _sheet(value="9 barg")
+    row = _one(_review(monkeypatch, run, scope, _rule(value=2.0, unit="mm")))
+    assert row["compliance_status"] == QUERY and _reason(row) == PAIR_REFUSED
+
+
+def test_a_run_already_recorded_on_version_1_decides_nothing_on_version_2(monkeypatch):
+    run, scope = _sheet(value="9 barg")
+    rule = _rule(value=8.0)
+    rulebook_v2.record_run(_conn(), run)
+    row = _one(_review(monkeypatch, run, scope, rule))
+    assert row["compliance_status"] == QUERY and _reason(row) == SNAPSHOT_NOT_RECORDED
 
 
 def test_a_changed_quote_stops_that_rule_at_use(monkeypatch):
