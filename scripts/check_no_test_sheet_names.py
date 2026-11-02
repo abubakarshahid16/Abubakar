@@ -1,11 +1,12 @@
 """Order 201 / #805 rule 4: no program file names a test sheet.
 
-A fix written for one datasheet ("if the sheet is 216400C ...") is exactly what
+A fix written for one datasheet ("if the sheet is <its number> ...") is exactly what
 the owner forbade, and a name in the code is how it creeps in. This check fails
 when a program file - `backend/app/` or `frontend/src/`, not the tests - holds
 the id or the name of a test sheet:
 
-* the real test sheets: 216400C, EF1975, M-03, I-06;
+* the real test sheets: not listed here, this repository is public. Their names
+  and numbers are blocked in every file by `check_client_identifiers.py --tree`;
 * every invented sheet of the PF1 set (`backend/tests/fixtures/synthetic/pf1/`):
   its id, its datasheet and standard numbers, its tag - read from `spec.json`, so
   a new invented sheet is covered the day it is added;
@@ -45,8 +46,8 @@ SCAN = (
 )
 PF1_SPEC = ROOT / "backend" / "tests" / "fixtures" / "synthetic" / "pf1" / "spec.json"
 HELDOUT_DEFAULT = ROOT / "backend" / "data" / "heldout_ids.txt"
-#: The real sheets the owner named (a real client document number is one of them).
-REAL = ("216400C", "EF1975", "M-03", "I-06")
+#: Real sheets are not spelled in a public file (see the module note); a test plants one.
+REAL: tuple[str, ...] = ()
 
 
 def _is_test_file(path: Path) -> bool:
@@ -94,7 +95,7 @@ def heldout_names(path: Path | None = None) -> tuple[list[str], str | None]:
 def build_pattern(names: Iterable[str]) -> re.Pattern[str]:
     """Each name as a whole token, any case ('pf1-t01-pump' also 'PF1-T01-PUMP').
     A hyphen does NOT end a token: a longer document number built from
-    'EF1975' and 'M-03' holds both, and is caught on both halves."""
+    'QX1234' and 'Q-77' holds both, and is caught on both halves."""
     unique = sorted({n for n in names if n}, key=len, reverse=True)
     body = "|".join(re.escape(n) for n in unique)
     return re.compile(rf"(?<![A-Za-z0-9_])(?:{body})(?![A-Za-z0-9_])", re.IGNORECASE)

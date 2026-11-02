@@ -1,6 +1,6 @@
 """Order 173.2 (B): an AI step is never skipped silently.
 
-Found on 216400C (s2, 20 Oct): `ai_task_model` defaulted to a tag the engine did
+Found on Specification 1 (s2, 20 Oct): `ai_task_model` defaulted to a tag the engine did
 not hold, every scope step failed with a 404, nothing was held, and three false
 verdicts reached the engineer. The step now falls back to the installed reader
 model and says so; when it still cannot run, its clauses are held (see

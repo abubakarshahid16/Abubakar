@@ -116,7 +116,7 @@ def find_passages(document_id: str, *, search_fn=None) -> list[dict]:
 _ITEM = {"type": "object", "properties": {"term": {"type": "string"}, "quote": {"type": "string"},
                                            "page": {"type": "integer"}}, "required": ["term", "quote", "page"]}
 #: min / max / unit are OPTIONAL: requiring them on a non-numeric limit
-#: rejected 2 of 8 real answers in the M-03 run (2026-09-25). Numbers are
+#: rejected 2 of 8 real answers in the Datasheet 2 run (2026-09-25). Numbers are
 #: still compared by code, never trusted from the model.
 _LIMIT = {"type": "object", "properties": {
     "kind": {"type": "string", "enum": ["equipment", "pressure", "temperature", "size", "service", "facility",

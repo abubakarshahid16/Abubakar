@@ -261,7 +261,7 @@ class TestTitleBlockIsNotAFact:
 
     @pytest.mark.parametrize("label,value", [
         ("NUMBER OF STAGES", "2"), ("DESIGN PRESSURE", "16"),
-        ("ITEM NO.", "09-G-411 A/B"),            # a tag, not a bare integer
+        ("ITEM NO.", "99-G-911 A/B"),            # a tag, not a bare integer
         ("NO. OF IMPELLERS", "3"),
     ])
     def test_a_count_or_a_quantity_is_not_noise(self, label, value):

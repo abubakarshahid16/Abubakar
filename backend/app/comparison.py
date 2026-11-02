@@ -4026,8 +4026,8 @@ def fact_key(fact: dict, *, tag_scoped: bool = False) -> str:
 
     AND THE EQUIPMENT TAG ONLY WHERE IT DISTINGUISHES SOMETHING. A datasheet
     covering four pressure safety valves has four `set pressure` rows, and an
-    engineer rejecting a pairing for PSV-4301 has said nothing about
-    PSV-4360 - so there the tag is part of which fact this is.
+    engineer rejecting a pairing for PSV-9901 has said nothing about
+    PSV-9960 - so there the tag is part of which fact this is.
 
     On a sheet covering one vessel it is not. Every fact carries the same tag,
     so adding it to the key changes every key while distinguishing no two

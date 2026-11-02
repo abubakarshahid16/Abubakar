@@ -13,7 +13,7 @@
   ],
   "cases": [
     {
-      "name": "I-06 (PSV datasheet)",
+      "name": "Datasheet 1 (PSV datasheet)",
       "run": "a5c45c82-063c-4ad3-9abb-e25f896dc391",
       "kind": "datasheet",
       "baseline": {"checklist_decided": 21, "checklist_decided_before_d2_rule": 28, "wrong": 0, "untrue": 5, "irrelevant": 1},
@@ -53,13 +53,13 @@
       "wrong": []
     },
     {
-      "name": "M-03 (pump datasheet)",
+      "name": "Datasheet 2 (pump datasheet)",
       "run": "ea26f990-0e5d-47e9-9277-6558f9554d2f",
       "kind": "datasheet",
       "untrue": [], "irrelevant": [], "wrong": []
     },
     {
-      "name": "216400C (specification)",
+      "name": "Specification 1 (specification)",
       "run": "b0d5067b-8cfc-4cfd-bd5a-be0941b4a87f",
       "kind": "specification",
       "untrue": [], "irrelevant": [], "wrong": []

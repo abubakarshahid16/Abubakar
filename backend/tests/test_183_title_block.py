@@ -93,7 +93,7 @@ def _evidence(doc: str) -> dict:
 # ============================================================ the PSV shape
 
 def test_a_title_block_the_chunker_stripped_is_still_the_title_evidence(tmp_path):
-    title = ["EXAMPLE OPERATING COMPANY", "DATA SHEET FOR", "PRESSURE SAFETY VALVES (PSVs)"]
+    title = ["EXAMPLE OPERATING COMPANY", "DATA SHEET FOR", "PRESSURE SAFETY VALVES (PSV)"]
     doc = _submittal(tmp_path, [title + _rows(14, f"p{p}") for p in range(1, 6)],
                      body_chunk_page=2)
 
@@ -112,7 +112,7 @@ def test_the_reprinted_header_names_the_sheet_when_page_one_is_less_specific(tmp
     """Page 1 says '... PUMPS DATA SHEET'; every later page reprints
     'CENTRIFUGAL PUMP DATA SHEET'. That running header is the sheet naming
     itself, and it is the more specific name."""
-    first = ["RECYCLE BRINE PUMPS DATA SHEET"] + _rows(14, "p1")
+    first = ["BOOSTER WATER PUMPS DATA SHEET"] + _rows(14, "p1")
     later = [["CENTRIFUGAL PUMP DATA SHEET"] + _rows(14, f"p{p}") for p in range(2, 8)]
     doc = _submittal(tmp_path, [first, *later])
 

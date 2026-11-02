@@ -1,4 +1,4 @@
-"""s2's 35B run on the M-03 pump sheet: "24.8 (109) m3/h (USGPM)" has a unit.
+"""s2's 35B run on the Datasheet 2 pump sheet: "24.8 (109) m3/h (USGPM)" has a unit.
 
 The AI reader stored the cell as printed. The cell reader met the bracketed second number where it
 expected the unit, kept "24.8" with no unit, and the mandatory-unit check said "stated as '24.8 (109)

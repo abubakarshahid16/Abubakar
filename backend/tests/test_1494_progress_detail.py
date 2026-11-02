@@ -73,7 +73,7 @@ def test_stale_follows_the_job_queue_rule_and_idle_is_the_newest_movement(monkey
         claimed=job_queue.CLAIM_STALE_SECONDS + 60,
     )
     d = review_jobs.job_for_run(run_id)["progress_detail"]
-    # Stale only when the line has not moved for as long either (live I-06).
+    # Stale only when the line has not moved for as long either (live Datasheet 1).
     assert d["stale"] is True
     newest = job_queue.CLAIM_STALE_SECONDS + 30
     assert newest - 5 <= d["idle_seconds"] <= newest + 10

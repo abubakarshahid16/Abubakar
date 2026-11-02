@@ -255,8 +255,8 @@ def _candidate_facts(shape: str, facts: list[dict]) -> list[dict]:
     """The facts that could establish this condition - by ROLE, not by name.
 
     B49. The name hints below are a first pass and they are not sufficient on
-    their own: on a real datasheet, `'design corrosion allowance for welded
-    internal parts material 2'` contains "material" and is a LENGTH. It is not
+    their own: on a real datasheet, `'stated corrosion allowance for joined
+    inner components material 2'` contains "material" and is a LENGTH. It is not
     evidence about a material; it is the field under test. Selecting it let two
     corrosion allowances of "0 mm" stand as proof that the material was
     established and was not carbon steel, and the gate excused the clause -

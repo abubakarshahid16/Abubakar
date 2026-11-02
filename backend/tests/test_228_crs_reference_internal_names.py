@@ -1,4 +1,4 @@
-"""Order 228.1-228.3 (the owner's I-06 walk-through): the program's own names stay internal.
+"""Order 228.1-228.3 (the owner's Datasheet 1 walk-through): the program's own names stay internal.
 
 A checklist row's Standard Reference cites its source ("API 520-I 3.20 (p.12)") instead of the
 program's check id; an AI draft's Standard Reference is the standard it relates to, never the
