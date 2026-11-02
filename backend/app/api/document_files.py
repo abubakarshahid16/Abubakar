@@ -14,6 +14,7 @@ from .. import applicability as applicability_mod
 from .. import highlight as highlight_mod
 from .. import page_ledger as page_ledger_mod
 from .. import pageimage as pageimage_mod
+from .. import upload as upload_mod
 from .. import workbook as workbook_mod
 from ..api_utils import (
     DEFAULT_LIMIT,
@@ -39,6 +40,9 @@ _MEDIA_TYPES = {
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
     ".xls": "application/vnd.ms-excel",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".tif": "image/tiff",
 }
 
 
@@ -165,6 +169,8 @@ def document_original(
     reject_unknown_params(request, {"download"})
     doc = require_document(document_id, scope)
     stored = Path(stored_paths.local(doc["stored_path"]))
+    # An image upload (#525 slice 2): the bytes uploaded, not the pages read from them.
+    stored = upload_mod.image_original(stored) or stored
     if not stored.exists():
         # The row outlived its bytes. Said plainly rather than served as an
         # empty file, which would read as a blank document.

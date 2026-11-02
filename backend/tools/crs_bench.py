@@ -30,13 +30,21 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from app import crs_decider, deferred_pass
+from app import crs_decider, deferred_pass, deferred_value
 
 DECIDED = ("COMPLIANT", "NON_COMPLIANT")
 DEFERRED = deferred_pass.DEFERRED  # one home with the audit (#1525)
 
 
-MATCH_KEYS = ("origin", "status", "requirement_id", "match_method", "section")
+MATCH_KEYS = (
+    "origin",
+    "status",
+    "requirement_id",
+    "match_method",
+    "section",
+    "check",
+    "deferred",
+)
 
 
 class ModelCallRefused(RuntimeError):
@@ -44,6 +52,14 @@ class ModelCallRefused(RuntimeError):
 
 
 # ----------------------------------------------------------------- matching
+
+
+def _check_id(finding: dict) -> str | None:
+    from app.datasheet_checks import LABEL
+
+    source = finding.get("requirement_source_text") or ""
+    found = re.match(rf"{re.escape(LABEL)} (\S+):", source)
+    return found.group(1) if found else None
 
 
 def _matches(finding: dict, matcher: dict) -> bool:
@@ -56,6 +72,7 @@ def _matches(finding: dict, matcher: dict) -> bool:
         got = {
             "status": finding.get("compliance_status"),
             "section": finding.get("contractor_section"),
+            "check": _check_id(finding),
         }.get(key, finding.get(key))
         if (got or "") != want:
             return False
@@ -67,6 +84,22 @@ def _hits(findings: list[dict], matchers: list[dict]) -> list[dict]:
 
 
 _deferred_pass = deferred_pass.is_deferred_pass
+
+
+def _value_is_deferred(conn: sqlite3.Connection, finding: dict) -> bool:
+    """D2, whichever reading the row kept: its wording defers the value, or another
+    current reading of the same field on the same page does."""
+    if _deferred_pass(finding):
+        return True
+    rows = conn.execute(
+        "SELECT o.value_note FROM submittal_facts f JOIN submittal_facts o"
+        " ON o.submittal_document_id = f.submittal_document_id"
+        " AND o.field_name = f.field_name AND o.page IS f.page"
+        " AND o.equipment_tag IS f.equipment_tag"
+        " WHERE f.id = ? AND o.superseded_at IS NULL",
+        (finding.get("fact_id"),),
+    ).fetchall()
+    return any(deferred_value.note_of({"value_note": r[0]}) for r in rows)
 
 
 def _fold(text: str | None) -> str:
@@ -83,8 +116,10 @@ def score(
     *,
     coverage: dict | None = None,
     kind: str | None = None,
+    replayed: bool = False,
 ) -> dict:
-    """The bench measures for one run from a database connection."""
+    """The bench measures for one run from a database connection. `wrong_replay`
+    holds the current code only: a saved run keeps the rows it wrote."""
     conn.row_factory = sqlite3.Row
     run = conn.execute("SELECT * FROM review_runs WHERE id = ?", (run_id,)).fetchone()
     if run is None:
@@ -146,10 +181,16 @@ def score(
     if kind is None:
         kind = system_kind(conn, doc)
 
+    matchers = case.get("wrong", []) + (
+        case.get("wrong_replay", []) if replayed else []
+    )
+    if any(m.get("deferred") for m in matchers):
+        for f in findings:
+            f["deferred"] = f.get(
+                "compliance_status"
+            ) == "COMPLIANT" and _value_is_deferred(conn, f)
     wrong = [
-        f
-        for f in _hits(findings, case.get("wrong", []))
-        if f.get("compliance_status") in DECIDED
+        f for f in _hits(findings, matchers) if f.get("compliance_status") in DECIDED
     ]
     return {
         "run": run_id,
@@ -552,7 +593,9 @@ def replay(db_path: Path, case: dict) -> dict:
             errors.append(f"crs: {type(exc).__name__}: {exc}"[:200])
         raw = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
         try:
-            result = score(raw, case["run"], case, coverage=coverage, kind=kind)
+            result = score(
+                raw, case["run"], case, coverage=coverage, kind=kind, replayed=True
+            )
         finally:
             raw.close()
     result.update(
@@ -628,11 +671,16 @@ def use_settings_of(env_file: Path) -> None:
         setattr(settings, name, getattr(fresh, name))
 
 
+BENCH_SWITCHES = ("datasheet_one_value_enabled",)
+
+
 def fingerprint() -> str:
-    """`config.config_version()`: the hash of the answer-affecting settings."""
+    """`config.config_version()`, the hash of the answer-affecting settings, plus the
+    review switches that hash leaves out and a replay's rows depend on, by name."""
     from app import config
 
-    return config.config_version()
+    switches = " ".join(f"{n}={getattr(config.settings, n)}" for n in BENCH_SWITCHES)
+    return f"{config.config_version()} {switches}"
 
 
 # ----------------------------------------------------------------- the table
@@ -774,6 +822,11 @@ def render_markdown(
         lines.append(f"| {label} | " + " | ".join(fn(m) for _, m in cols) + " |")
     for label, cells in source_rows(cols):
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    configs = sorted({r["config"] for r in results if r.get("config")})
+    lines += [
+        "",
+        "Settings: as loaded, nothing forced off (" + ", ".join(configs) + ")",
+    ]
     lines += ["", "Runs (model from the run record; blank = not recorded):", ""]
     for r in results:
         s = r["stored"]
