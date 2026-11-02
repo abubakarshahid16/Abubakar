@@ -182,6 +182,12 @@ class SettingsExt(BaseModel):
     #: the screen shows the Internal sheet. EXPORT ONLY. OFF: as #1509 left it.
     #: Env: CRS_EXPORT_QUALITY_STRICT_ENABLED.
     crs_export_quality_strict_enabled: bool = False
+    #: #1503 owner decision (`crs_one_row.py`): rows with the same clause, problem, value and
+    #: verdict are one row listing every tag and page; a "did not reference X" row goes when
+    #: nothing in scope requires X, counted and named in Review notes. On, the export views of
+    #: the two switches above merge nothing more. Findings are never touched. OFF: as it was.
+    #: Env: CRS_ONE_ROW_PER_PROBLEM_ENABLED.
+    crs_one_row_per_problem_enabled: bool = False
     #: #1480 vessel kit PREPARATION (parked, milestone 58): append the DRAFT vessel cards of
     #: `reference/vessel_kit_draft.json` (a held standard requires the value, not already in the
     #: checklist) to the Pressure Vessel checklist. Draft only, never decides, local only, every

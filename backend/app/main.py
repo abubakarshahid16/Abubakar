@@ -2778,8 +2778,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
     # Section 3: an edited comment names its editor the same way; 2d-2: so does a confirmed web standards check item.
-    # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
-    # edits - a plain confirmed requirement comment printed the raw user id.
+    # Audit 2026-09-30: EVERY confirmed comment, or a plain one printed the raw user id.
     confirmers = {d for f in findings if (d := crs_mapping_mod.crs_decider.decider(f))}
     if confirmers:
         marks = ",".join("?" for _ in confirmers)
@@ -2805,6 +2804,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.
     crs_scope, _crs_label = _crs_scope_of(submittal_id)
+    rows, added = export_status_mod.one_row(rows, added, findings, check, review_run_id, crs_scope, allowed)  # #1503
     crs_keys = crs_numbers_mod.row_keys(rows)
     numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
     # ORDER 139 PART 2 (spec d): a field row stands on many clauses, and each
