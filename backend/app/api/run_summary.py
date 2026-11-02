@@ -30,6 +30,7 @@ from .. import ai_numbers as ai_numbers_mod
 from .. import clause_coverage as clause_coverage_mod
 from .. import clause_review as clause_review_mod
 from .. import comparison as comparison_mod
+from .. import coverage_pair as coverage_pair_mod
 from .. import crs_mapping as crs_mapping_mod
 from .. import crs_wording as crs_wording_mod
 from .. import held_reasons as held_reasons_mod
@@ -173,6 +174,8 @@ class HowReviewed(BaseModel):
     requirement_split: dict | None = Field(
         None, json_schema_extra=_ts("RequirementSplit")
     )
+    #: Plan change 6 B: risk and coverage from the one function; null with the switch off.
+    coverage_pair: dict | None = Field(None, json_schema_extra=_ts("RunCoveragePair"))
     page_coverage: dict | None = Field(None, json_schema_extra=_ts("PageCoverage"))
     completeness: dict | None = Field(
         None, json_schema_extra=_ts('ReviewRunSummary["completeness"]')
@@ -362,6 +365,7 @@ def review_run_summary(
         "sheet": sheet,
         "how_reviewed": {
             "requirement_split": split,
+            "coverage_pair": coverage_pair_mod.for_screen(connect(), review_run_id),
             "page_coverage": outcome.get("page_coverage"),
             "completeness": outcome.get("completeness"),
             "reader": steps.get("reader"),
@@ -446,7 +450,9 @@ def review_run_detail(
         )
     from .. import main as main_mod  # main imports this module
 
-    return main_mod._run_summary(run, scope)
+    # Plan change 6 B: the pair for the one run a screen asked for; null with the switch off.
+    pair = coverage_pair_mod.for_screen(connect(), review_run_id)
+    return {**main_mod._run_summary(run, scope), "coverage_pair": pair}
 
 
 def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:

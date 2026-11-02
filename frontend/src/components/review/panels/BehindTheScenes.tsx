@@ -179,7 +179,7 @@ function StepsPage({ run, onFocusStatus, onOpenPanel }: BehindTheScenesProps) {
       />
       {/* #791: how this run was done, step by step. */}
       <ReviewPipeline key={`pipeline-${run.review_run_id}`} runId={run.review_run_id} />
-      {run.requirement_split && <RequirementSplitPanel split={run.requirement_split} />}
+      {run.requirement_split && <RequirementSplitPanel split={run.requirement_split} pair={run.coverage_pair} />}
       {(run.requirements_not_applied?.length ?? 0) > 0 && (
         <RequirementsNotAppliedList lines={run.requirements_not_applied ?? []} />
       )}

@@ -153,6 +153,7 @@ def _schema_modules() -> tuple[Module, ...]:
                     ("requirements_not_applied", "RequirementsNotApplied[]"),
                     ("requirement_split", "RequirementSplit"),
                     ("clause_coverage", "RunClauseCoverageSummary"),
+                    ("coverage_pair", "RunCoveragePair"),
                     ("applicability", "RunApplicability"),
                     ("ai_check_status", "AiCheckStatus"),
                     ("web_check_status", "RunCheckStatus"),
