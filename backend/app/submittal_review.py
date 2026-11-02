@@ -35,7 +35,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from . import review, rule_trust, run_finishing
+from . import claude_auto_approve, review, rule_trust, run_finishing
 from .db import add_column_if_missing, connect, schema_once
 
 
@@ -628,9 +628,8 @@ def create_review_run(
 
     The run opens as `running` and `comparison._store_run_outcome` moves it to
     `completed`. That is not bookkeeping: a process that dies mid-review
-    leaves the row saying `running`, which is what stops a second review being
-    started over the same document and is the honest description of what
-    happened.
+    leaves the row saying `running`, which stops a second review of the same
+    document and is the honest description of what happened.
     """
     ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "id")
@@ -658,6 +657,7 @@ def create_review_run(
             " VALUES (?,?,?,'running',?,?,?,?)",
             (run_id, submittal_document_id, template_id, started_by, now,
              now, now))
+    claude_auto_approve.on_review_start(run_id)  # #1584: before the read below
     _extract_facts_if_none(run_id, submittal_document_id, allowed_document_ids)
     return run_id
 
