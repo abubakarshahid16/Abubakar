@@ -144,7 +144,10 @@ def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
     from . import comparison, coverage_pair
 
     reason, details = comparison.plain_outcome(outcome)
-    return coverage_pair.reason_words(reason), coverage_pair.reason_words(details)
+    return (
+        coverage_pair.reason_words(reason, outcome),
+        coverage_pair.reason_words(details, outcome),
+    )
 
 
 def crs_meta(meta: dict, review_run_id: str) -> dict:

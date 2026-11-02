@@ -45,6 +45,16 @@ NO_TYPE = "no equipment type"
 #: The approval rule's stored sentence (`comparison.recommend_code`); a test holds it.
 REASON_OLD = "requirements that apply to this submittal were not checked"
 REASON_NEW = "requirements that apply to this submittal stopped before a decision"
+#: `comparison.plain_reason` and `_insufficient_reason`: the sentences a run stores about
+#: `completeness.fields_answered`; a test holds them to what those functions write.
+FOUND_OLD_PLAIN = (
+    "Found {answered} of the {required} datasheet value{s} the applicable standards ask"
+    " for."
+)
+FOUND_OLD_TECHNICAL = (
+    "{answered:,} of the {required:,} datasheet values the applicable standards'"
+    " requirements ask for were found in the fields read from this submittal"
+)
 OTHER_REASONS = "other stated reasons (their words stay out of this output)"
 #: The gate-reason row of the rules that passed every gate and reached the comparison.
 REACHED = "reached the code comparison"
@@ -193,6 +203,13 @@ def _stated_split(outcome: dict) -> dict | None:
     return outcome.get("requirement_split") or requirement_split.from_counts(
         outcome.get("unchecked_counts")
     )
+
+
+def _applicable(split: dict | None) -> int | None:
+    """The rules a run states apply: the pair's denominator, and the footer's."""
+    if split is None:
+        return None
+    return int(split.get("checked") or 0) + int(split.get("applies_not_checked") or 0)
 
 
 def _left_out(split: dict | None) -> dict:
@@ -413,11 +430,7 @@ def compute(
     )
     passed -= failed  # a rule with a Pass on one row and a Fail on another is a Fail
     decided = len(passed) + len(failed)
-    applicable = (
-        None
-        if split is None
-        else int(split.get("checked") or 0) + int(split.get("applies_not_checked") or 0)
-    )
+    applicable = _applicable(split)
     fits = applicable is not None and decided <= applicable
     wrong = None if wrong_ids is None else len(wrong_rules)
     if wrong_ids is None:
@@ -569,14 +582,97 @@ def screen_coverage(coverage: dict, conn: sqlite3.Connection, run_id: str) -> di
     return coverage if pair is None else {**coverage, "line": pair["line"]}
 
 
-def reason_words(text: str | None) -> str | None:
-    """The approval reason a run stored, as a person reads it. With the switch on, the
-    sentence does not call the rest checked. Words only: the code it explains, and the
-    rule that chose the code, do not change. Reads no database, so a list of runs can
-    use it."""
+def values_count(outcome: dict | None) -> dict | None:
+    """THE one count behind the footer's "values found" sentence, from what the run
+    stored. Two lanes, stated apart like the pair's, never added:
+
+      checklist  fields read of the fields the equipment type's checklist asks for, each
+                 field once (`datasheet_coverage.coverage`). A field read may still defer
+                 its value ("by contractor"). None when the run used no checklist.
+      rules      `comparison._required_and_answered`: the standard rules with a stored
+                 row not sent to another document (`rows`), how many a field read from
+                 the sheet was tied to (`tied`), and the pair's `applicable` around them.
+
+    The checklist's rows carry no requirement id, so `rules` cannot see a value they
+    read: "0 tied" says nothing about what was read from the sheet. None when the run
+    counted no such rows; its stored words then stand."""
+    from .comparison import BASIS_REQUIRED_FIELDS
+
+    outcome = outcome or {}
+    done = outcome.get("completeness") or {}
+    rows = done.get("fields_required")
+    if not rows or done.get("basis") != BASIS_REQUIRED_FIELDS:
+        return None
+    split = _stated_split(outcome) or {}
+    cover = split.get("checklist_coverage")
+    named = split.get("checklist") or {}
+    applicable = _applicable(split or None)
+    return {
+        "checklist": None
+        if not cover
+        else {
+            "read": int(cover["read"]),
+            "fields": int(cover["fields"]),
+            "type": named.get("type"),
+        },
+        "rules": {
+            "tied": int(done.get("fields_answered") or 0),
+            "rows": int(rows),
+            # a count that does not fit inside what the run states is not printed around it
+            "applicable": applicable if (applicable or 0) >= rows else None,
+        },
+    }
+
+
+def values_sentence(outcome: dict | None) -> str | None:
+    """The count in words, with its boundary and denominators."""
+    count = values_count(outcome)
+    if count is None:
+        return None
+    rules = count["rules"]
+    around = (
+        f"Of the {rules['applicable']} standard rules that apply, "
+        if rules["applicable"] is not None
+        else "Of the standard rules, "
+    )
+    said = (
+        f"{around}{rules['rows']} looked for a field on this sheet and a field was tied"
+        f" to {rules['tied']} of them."
+    )
+    listed = count["checklist"]
+    if listed is None:
+        return said
+    kind = f"{listed['type']} " if listed["type"] else ""
+    return (
+        f"Read from this datasheet: {listed['read']} of the {listed['fields']} fields the"
+        f" {kind}checklist asks for, each field once (a field read may still defer its"
+        f" value). {said} The checklist and the rules are counted apart."
+    )
+
+
+def _found_words(text: str, outcome: dict | None) -> str:
+    """The stored "found" sentence replaced by `values_sentence`. Words only."""
+    said = values_sentence(outcome)
+    if said is None:
+        return text
+    done = (outcome or {}).get("completeness") or {}
+    count = {
+        "answered": done.get("fields_answered") or 0,
+        "required": done.get("fields_required") or 0,
+    }
+    plain = FOUND_OLD_PLAIN.format(s="" if count["required"] == 1 else "s", **count)
+    technical = FOUND_OLD_TECHNICAL.format(**count)
+    return text.replace(plain, said).replace(technical, said.rstrip("."))
+
+
+def reason_words(text: str | None, outcome: dict | None = None) -> str | None:
+    """The reason a run stored, as a person reads it. With the switch on, the approval
+    sentence does not call the rest checked, and (given the run's `outcome`) the "found"
+    sentence says `values_sentence`. Words only: the code it explains, and the rule that
+    chose the code, do not change. Reads no database, so a list of runs can use it."""
     if text is None or not settings.one_checked_definition_enabled:
         return text
-    return text.replace(REASON_OLD, REASON_NEW)
+    return _found_words(text, outcome).replace(REASON_OLD, REASON_NEW)
 
 
 def trace_view(trace: dict | None, run_id: str) -> dict | None:
@@ -585,10 +681,14 @@ def trace_view(trace: dict | None, run_id: str) -> dict | None:
     pair = None if trace is None else for_screen(connect(), run_id)
     if pair is None:
         return trace
+    runs = _rows(
+        connect(), "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
+    )
+    outcome = json.loads((runs[0]["outcome_json"] if runs else None) or "{}")
     steps = []
     for step in trace.get("steps") or []:
         if step.get("step") == "CODE":  # prints the stored reason
-            step = {**step, "summary": reason_words(step.get("summary")) or ""}
+            step = {**step, "summary": reason_words(step.get("summary"), outcome) or ""}
         if step.get("step") == "RULES":
             words = (step.get("summary") or "").replace(
                 "not checked or not applying:",
@@ -660,7 +760,7 @@ def crs_meta(meta: dict, conn: sqlite3.Connection, run_id: str) -> dict:
     ]
     return {
         **meta,
-        "recommended_code_reason": reason if typed else reason_words(reason),
+        "recommended_code_reason": reason if typed else reason_words(reason, outcome),
         "review_notes": notes,
         "unchecked_parts": [swap(p) for p in meta.get("unchecked_parts") or []],
         "incomplete_notice": swap(meta.get("incomplete_notice") or ""),
