@@ -70,7 +70,12 @@ def test_two_safety_ticks_on_one_key_stay_two_rows_with_their_own_refs(strict):
     # A merged tick keeps the first reference: confirming it would leave the other
     # under a confirmed row, and a guess must never look confirmed.
     for section in ("p.2 - Set pressure", ""):
-        v = view([tick("Tick A.", page_section=section), tick("Tick B.", page_section=section)])
+        v = view(
+            [
+                tick("Tick A.", page_section=section),
+                tick("Tick B.", page_section=section),
+            ]
+        )
         assert [r["comment"] for r in v["rows"]] == ["Tick A.", "Tick B."]
         assert len({r["row_ref"] for r in v["rows"]}) == 2
         assert v["rows_merged"] == 0

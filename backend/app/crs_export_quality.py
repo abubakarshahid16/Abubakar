@@ -339,8 +339,8 @@ def _strict_key(row: dict):
     return (
         str(row.get("document_name") or ""),
         section or page_cell("", kind),
-        clause,
         row.get("engineer_confirmed") is True,
+        clause,
     )
 
 
