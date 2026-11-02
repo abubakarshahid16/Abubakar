@@ -27,8 +27,8 @@ row already had (numbers, units and clause references are kept whole - a cut
 falls between words, never inside one).
 
 #1503 remainder, CRS_EXPORT_QUALITY_STRICT_ENABLED (needs the switch above, off by
-default): safety ticks merge with ticks, rows with no page merge on one clause when
-their printed reason is the same (`_strict_key`), a comment that was only the "not
+default): rows with no page merge on one clause when their printed reason is the
+same (`_strict_key`; a safety tick stays its own row), a comment that was only the "not
 yet proven" flag counts as no comment (`_clear_flag_only`), the prefix table reads
 the other spellings `standard_ids` accepts (`_MATERIAL_WIDE`), and the screen gets
 the Internal sheet (`internal_preview`).
@@ -118,13 +118,14 @@ _MATERIAL = re.compile(
     r"^\s*(?:ASTM\b|ASME\s*S[AB][\s-]?\d|ASME\s*B\s*(?:16|1|18|36)\.\d)", re.I
 )
 #: The same families in every spelling `standard_ids` reads ("ASME-B16-47",
-#: "ANSI B16.5", "ANSI/ASME SA-105"), and an ASTM number cited bare ("A193", not
-#: "B31.3": a bare number with a decimal is not an ASTM designation).
+#: "ANSI B16.5", "ANSI/ASME SA-105"), and an ASTM number cited bare WITH its grade
+#: ("A193 Gr B7"): a bare letter and number alone ("A193", "B2000") could be anything,
+#: so it stays a design standard, the claim the sheet makes for anything unknown.
 _MATERIAL_WIDE = re.compile(
     r"^\s*(?:ASTM\b"
     r"|(?:ANSI\s*/\s*)?(?:ASME|ANSI)(?:\s*/\s*ANSI)?[-\s]*"
     r"(?:S[AB][-\s]?\d|B[-\s]*(?:16|1|18|36)[-._ ]\d)"
-    r"|[AB][-\s]?\d{2,4}(?![\d.]))",
+    r"|[AB][-\s]?\d{2,4}(?![\d.])[\s,/-]*(?:Gr\.?|Grade)(?![A-Za-z]))",
     re.I,
 )
 
@@ -324,14 +325,15 @@ def _key(row: dict):
 
 
 def _strict_key(row: dict):
-    """The key with the strict switch on. A tick joins only ticks (a "meets" row
-    must not take a failing row's place or colour) and a row with no page takes
-    the reason it prints as its anchor, so the sheet cannot show two rows with
-    one document, page cell and clause. Carried-forward and issued rows stay
-    their own, as in `_key`: each is answered under its own number."""
+    """The key with the strict switch on: `_key`, except that a row with no page
+    takes the reason it prints as its anchor, so the sheet cannot show two rows
+    with one document, page cell and clause. Safety ticks, carried-forward and
+    issued rows stay their own, as in `_key`: a merged tick would keep the first
+    tick's reference, and confirming it would leave the other under a confirmed
+    row."""
     clause = str(row.get("standard_reference") or "").strip()
     kind = row.get("row_kind") or ""
-    if not clause or kind == "carried_forward" or _issued(row):
+    if not clause or kind in _NEVER_MERGED or _issued(row):
         return None
     section = str(row.get("page_section") or "").strip()
     return (
@@ -339,7 +341,6 @@ def _strict_key(row: dict):
         section or page_cell("", kind),
         clause,
         row.get("engineer_confirmed") is True,
-        kind == "safety_tick",
     )
 
 
@@ -397,7 +398,8 @@ def _clear_flag_only(rows: list[dict], copy: str) -> tuple[list[dict], int]:
     """A comment that was only the "not yet proven" flag is no comment: without
     it the cell would print blank. Internal copy: the row goes on as an empty one
     (`drop_no_comment` then drops it, or it prints the engineer sentence). Client
-    copy: there is nothing to send, so it is left out and counted."""
+    copy: there is nothing to send, so it is left out, and `finish` counts it in
+    `rows_withheld_no_text`, the count the client screen says aloud."""
     out: list[dict] = []
     dropped = 0
     for row in rows:
@@ -499,20 +501,11 @@ def _internal_extras(
             )
         )
     if merged:
-        ticks_here = strict_enabled() and any(
-            e.get("row_kind") == "safety_tick" for e in view["rows"]
-        )
         notes.append(
             _note(
                 "Rows merged into an earlier row",
                 merged,
-                "same document, section and standard clause"
-                + (
-                    "; a safety tick merged here is still ticked one by one on "
-                    "the review screen"
-                    if ticks_here
-                    else ""
-                ),
+                "same document, section and standard clause",
             )
         )
     if considered:
@@ -542,6 +535,9 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
     from . import crs_export as ce
 
     internal = view["crs_copy"] == ce.COPY_INTERNAL
+    if not internal:  # a client copy has no Review notes: the withheld count says it
+        view["rows_withheld_no_text"] += dropped
+        dropped = 0
     flagged, overflowed = _finish_rows(view["rows"], ce.ROW_REF_LABEL)
     standards, considered = split_standards(
         view["applicable_standards"], ce.STATUS_CONSIDERED

@@ -1,6 +1,6 @@
 """#1503 remainder, behind CRS_EXPORT_QUALITY_STRICT_ENABLED (needs the #1509 switch):
 what the stored runs still showed after #1509. Duplicate rows on the internal
-copy (safety ticks, and rows with no page on one clause), a comment that was only
+copy (rows with no page on one clause), a comment that was only
 the "not yet proven" flag going blank, spellings of a material standard the prefix
 table missed, and the screen not showing the Internal sheet.
 
@@ -15,7 +15,7 @@ import io
 import openpyxl
 import pytest
 
-from app import crs_export, schemas
+from app import crs_export, review_audit_rows, schemas
 from app import crs_export_quality as q
 from app.config import settings
 from app.rule_trust import UNPROVEN_REASON
@@ -54,7 +54,6 @@ def strict(monkeypatch):
 
 def test_the_switch_is_off_by_default_and_off_leaves_these_rows_apart():
     assert settings.crs_export_quality_strict_enabled is False
-    assert len(view([tick("A"), tick("B")])["rows"]) == 2
     blank = [row("A", page_section=""), row("B", page_section="")]
     assert len(view(blank)["rows"]) == 2
     assert q.standard_kind("ANSI B16.5") == q.KIND_DESIGN
@@ -63,30 +62,18 @@ def test_the_switch_is_off_by_default_and_off_leaves_these_rows_apart():
 
 def test_it_needs_the_export_quality_switch(strict):
     off = {"review_run_id": "run-1", "export_quality": False, "copy": "internal"}
-    assert len(crs_export.build_crs_view([tick("A"), tick("B")], off)["rows"]) == 2
+    blank = [row("A", page_section=""), row("B", page_section="")]
+    assert len(crs_export.build_crs_view(blank, off)["rows"]) == 2
 
 
-def test_two_safety_ticks_on_one_key_are_one_row_with_both_sentences(strict):
-    v = view([tick("Tick A."), tick("Tick B.")])
-    assert len(v["rows"]) == 1
-    assert v["rows"][0]["comment"] == "Tick A.\n\nTick B."
-    assert v["rows"][0]["row_kind"] == "safety_tick"
-    assert v["rows_merged"] == 1
-
-
-def test_the_review_note_says_a_merged_tick_is_still_ticked_one_by_one(strict):
-    detail = next(
-        n["detail"]
-        for n in view([tick("Tick A."), tick("Tick B.")])["review_notes"]
-        if n["note"] == "Rows merged into an earlier row"
-    )
-    assert "ticked one by one" in detail
-    plain = next(
-        n["detail"]
-        for n in view([row("A"), row("B")])["review_notes"]
-        if n["note"] == "Rows merged into an earlier row"
-    )
-    assert "ticked" not in plain
+def test_two_safety_ticks_on_one_key_stay_two_rows_with_their_own_refs(strict):
+    # A merged tick keeps the first reference: confirming it would leave the other
+    # under a confirmed row, and a guess must never look confirmed.
+    for section in ("p.2 - Set pressure", ""):
+        v = view([tick("Tick A.", page_section=section), tick("Tick B.", page_section=section)])
+        assert [r["comment"] for r in v["rows"]] == ["Tick A.", "Tick B."]
+        assert len({r["row_ref"] for r in v["rows"]}) == 2
+        assert v["rows_merged"] == 0
 
 
 def test_a_tick_never_joins_a_row_that_is_not_a_tick(strict):
@@ -111,8 +98,11 @@ def test_an_issued_tick_and_a_carried_comment_stay_their_own_rows(strict):
     assert len(view(carried)["rows"]) == 2
 
 
-def test_a_ticked_row_stays_apart_from_one_not_yet_ticked(strict):
-    rows = [tick("A", engineer_confirmed=True), tick("B")]
+def test_a_confirmed_row_stays_apart_from_an_unconfirmed_one(strict):
+    rows = [
+        row("A", page_section="", engineer_confirmed=True),
+        row("B", page_section=""),
+    ]
     assert len(view(rows)["rows"]) == 2
 
 
@@ -153,12 +143,12 @@ def test_rows_on_another_clause_or_document_stay_apart(strict):
 
 
 def test_a_merge_past_the_limit_loses_no_word(strict):
-    first, second = "First tick sentence. " * 12, "Second tick sentence. " * 12
-    entry = view([tick(first.strip()), tick(second.strip())])["rows"][0]
+    first, second = "First row sentence. " * 12, "Second row sentence. " * 12
+    entry = view([row(first.strip()), row(second.strip())])["rows"][0]
     assert len(entry["comment"]) <= q.COMMENT_LIMIT
     whole = entry["comment"] + entry["ai_review_comment"]
-    assert whole.count("First tick sentence.") == 12
-    assert whole.count("Second tick sentence.") == 12
+    assert whole.count("First row sentence.") == 12
+    assert whole.count("Second row sentence.") == 12
 
 
 FLAG_ONLY = f" ({UNPROVEN_REASON})"
@@ -177,15 +167,28 @@ def test_a_confirmed_flag_only_row_prints_the_sentence_not_a_blank(strict):
     assert v["rows"][0]["comment_missing"] is True
 
 
-def test_the_client_copy_leaves_a_flag_only_row_out(strict):
+def test_the_client_copy_counts_a_flag_only_row_where_the_screen_says_it(strict):
     rows = [
         row(FLAG_ONLY, engineer_confirmed=True),
         row("Has words.", engineer_confirmed=True, standard_reference="STD-2 1"),
     ]
-    v = view(rows, copy="issue")
+    meta = {**ON, "copy": "issue", "title": "t"}
+    v = crs_export.build_crs_view(rows, meta)
     assert len(v["rows"]) == 1
     assert "Has words." in v["rows"][0]["comment"]
-    assert v["rows_dropped_no_comment"] == 1
+    # What the route serves, and the count `CrsPreviewSheet` prints.
+    assert schemas.CrsPreview(**v).rows_withheld_no_text == 1
+    # Counted once: the audit report still adds up.
+    assert v["rows_dropped_no_comment"] == 0
+    assert review_audit_rows.crs_reconciliation(rows, meta)["adds_up"] is True
+
+
+def test_a_flag_only_row_adds_to_the_rows_already_withheld(strict):
+    rows = [
+        row(FLAG_ONLY, engineer_confirmed=True),
+        row("", engineer_confirmed=True, standard_reference="STD-2 1"),
+    ]
+    assert view(rows, copy="issue")["rows_withheld_no_text"] == 2
 
 
 def test_a_comment_with_words_and_the_flag_keeps_its_words(strict):
@@ -204,9 +207,9 @@ def test_a_comment_with_words_and_the_flag_keeps_its_words(strict):
         "ANSI/ASME B36.10",
         "ASME-SA-193",
         "ANSI/ASME SA-105",
-        "A193",
-        "A 216",
-        "B633",
+        "A193 Gr B7",
+        "A 216 Grade WCC",
+        "B633, Gr. 5",
     ],
 )
 def test_more_spellings_of_a_material_or_product_spec(strict, reference):
@@ -215,7 +218,20 @@ def test_more_spellings_of_a_material_or_product_spec(strict, reference):
 
 @pytest.mark.parametrize(
     "reference",
-    ["ASME B31.3", "ASME-B31-3", "ANSI B31.3", "B31.3", "API 521", "IEC 61511"],
+    [
+        "ASME B31.3",
+        "ASME-B31-3",
+        "ANSI B31.3",
+        "B31.3",
+        "API 521",
+        "IEC 61511",
+        # a letter and a number alone are not a material context
+        "A193",
+        "B633",
+        "A100 Rev 2",
+        "B2000 Greenfield design basis",
+        "AB-123",
+    ],
 )
 def test_a_design_standard_stays_a_design_standard(strict, reference):
     assert q.standard_kind(reference) == q.KIND_DESIGN
@@ -243,8 +259,7 @@ def test_the_client_screen_has_no_internal_sheet(strict):
 
 def test_a_synthetic_sheet_has_no_duplicate_and_no_blank_comment(strict):
     rows = [
-        tick("Tick A."),
-        tick("Tick B."),
+        tick("Tick A.", standard_reference="STD-5 1"),
         row("No page A.", page_section=""),
         row("No page B.", page_section=""),
         row(FLAG_ONLY, standard_reference="STD-3 1"),
@@ -264,6 +279,5 @@ def test_a_synthetic_sheet_has_no_duplicate_and_no_blank_comment(strict):
         if cells[1].value
     ]
     keys = collections.Counter((c[1], c[page], c[ref]) for c in cells)
-    # a tick and a draft on one clause and page are two rows on purpose
     assert max(keys.values()) == 1
     assert all(str(c[comment] or "").strip() for c in cells)
