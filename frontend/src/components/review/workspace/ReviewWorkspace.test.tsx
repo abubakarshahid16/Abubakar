@@ -24,7 +24,7 @@ const startReviewRun = vi.fn();
 vi.mock("./useWorkspaceRun", () => ({ useWorkspaceRun: () => data() }));
 
 const NUMBERS: ReviewNumbers = {
-  comments: 3, needsYou: 1, findingsInComments: 4, met: 10, notApplicableRows: 2, notApplicableClauses: null, anotherDocument: 0, removed: 0,
+  stated: 0, comments: 3, needsYou: 1, findingsInComments: 4, met: 10, notApplicableRows: 2, notApplicableClauses: null, anotherDocument: 0, removed: 0,
   unreadPages: [4], missingStandards: ["API 610"], standardsKnown: true, pagesKnown: true, pageRecordMissing: false, undecided: 2, undecidedKeys: ["row-b", "row-c"],
   unopenedNeedsYou: 1, remainingToKeep: 1, finalCode: null, finalCodeRecorded: false, unsaved: 0, signLeft: ["tick 1 unread page"], signed: false, signedAt: null,
 };

@@ -70,6 +70,11 @@ def _row_tier(members: list[tuple[tuple, str, str]]) -> tuple[str, str]:
         for _order, tier, label in ordered:
             if tier == wanted:
                 return tier, label
+    stated = review_tiers.RULES[
+        "stated_only"
+    ]  # #1638: one such member, and it is not met
+    if any(label == stated["label"] for _order, _tier, label in ordered):
+        return stated["tier"], stated["label"]
     return ordered[0][1], ordered[0][2]
 
 
@@ -118,6 +123,7 @@ def sheet_counts(
         "comments": out["comment"] + out["needs_you"],
         "needs_you": out["needs_you"],
         "met": out["met"],
+        **({"stated": out["stated"]} if out["stated"] else {}),
         "not_applicable": out["not_applicable"],
         "another_document": out["another_document"],
         "findings_in_comments": findings_in_comments,

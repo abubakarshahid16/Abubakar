@@ -558,7 +558,7 @@ def reasoning_text(group: list[dict]) -> str:
         if reference:
             bits.append(f"Clause: {reference}")
         bits.extend(crs_reference.internal_bits(f) + crs_checklist.draft_bits(f))
-        status = f.get("compliance_status")
+        status = crs_checklist.result_status(f)
         if status:
             bits.append(f"Result: {_RESULT_WORDS.get(status, status)}")
         bits.extend(method_notes.why_bits(f.get("ai_rationale")))
@@ -837,7 +837,7 @@ def safety_tick_text(f: dict) -> str:
             else f"Datasheet states {value}." if value else "")
     return " ".join(p for p in (
         f"ENGINEER TO TICK (safety field): {ref}: {_requirement_words(f)}.", said,
-        f"Automatic result: meets the standard ({trust_words(f) or 'automatic rule'}). "
+        f"Automatic result: {crs_checklist.tick_words(f, trust_words(f) or 'automatic rule')}. "
         "Read the clause and the value on the page and tick, or say what is off.") if p)
 
 
