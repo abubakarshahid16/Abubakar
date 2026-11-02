@@ -403,7 +403,11 @@ def _not_read_item(requirement: dict, rec: dict, standard_labels: dict) -> dict:
     sid = requirement.get("standard_document_id")
     unit, why = rec["unit"], rec["not_read"]
     head = f"{unit['div']['heading']} of {standard_labels.get(sid) or sid}"
-    page = f" ({word_pages.other_document_page(unit['page'])})" if unit["page"] is not None else ""
+    page = (
+        f" ({word_pages.other_document_page(unit['page'])})"
+        if unit["page"] is not None
+        else ""
+    )
     if why == "construction":
         scope = rec["scope"]
         reason = (
@@ -446,7 +450,11 @@ def ledger_item(
     sid = requirement.get("standard_document_id")
     scope, unit = rec["scope"], rec["unit"]
     head = f"{unit['div']['heading']} of {standard_labels.get(sid) or sid}"
-    page = f" ({word_pages.other_document_page(unit['page'])})" if unit["page"] is not None else ""
+    page = (
+        f" ({word_pages.other_document_page(unit['page'])})"
+        if unit["page"] is not None
+        else ""
+    )
     if scope.get("limited") == "yes":
         construction, quote = scope["construction"].strip(), scope["quote"].strip()
         said = f'{head} applies only to {construction}: "{quote}"{page}'

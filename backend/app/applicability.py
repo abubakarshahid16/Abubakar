@@ -1335,8 +1335,12 @@ def select(
         # citation. `decide_by_reasoning` backs every APPLICABLE(_CANDIDATE)
         # with the record's verified quote; a NULL that survives (a generic
         # scope naming no item) says so in plain words.
-        cited = (f"\"{decision.get('quote')}\" ({word_pages.other_document_page(decision.get('page'))})"
-                 if decision.get("quote") else "no specific quoted clause")
+        page = word_pages.other_document_page(decision.get("page"))
+        cited = (
+            f"\"{decision.get('quote')}\" ({page})"
+            if decision.get("quote")
+            else "no specific quoted clause"
+        )
         row = selected.get(standard_id)
         if verdict == v2.APPLICABLE and (row is None or row["method"] not in INCLUDING_METHODS):
             selected[standard_id] = {

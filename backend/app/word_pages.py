@@ -49,7 +49,9 @@ PAGES_STALE = "stale"
 NO_REAL_PAGE = (PAGES_NONE, PAGES_STALE)
 READ_BEFORE_MARKS = "read before its page marks were used, so re-read it to get pages"
 NO_PAGE_SHORT = "no page number"
-NO_PAGE_UNREADABLE = "No page number: this Word file could not be opened to find its pages"
+NO_PAGE_UNREADABLE = (
+    "No page number: this Word file could not be opened to find its pages"
+)
 _OTHER_DOCUMENT = "of that document"
 
 #: A lead `page_cell` writes, other than a plain "p.3".

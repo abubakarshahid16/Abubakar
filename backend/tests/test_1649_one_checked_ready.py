@@ -99,7 +99,9 @@ def _home_sentences() -> dict[str, str]:
         "spec_kit": spec_kit.item_row(item, pages)["finding"],
         "transmittal_kit": transmittal_kit.header_rows(
             [(12, "Transmittal no:\n\nnothing")]
-        )[0]["finding"].replace("no such label found", "the label is on page 12 with no value"),
+        )[0]["finding"].replace(
+            "no such label found", "the label is on page 12 with no value"
+        ),
         "comparison": comparison.qualify_by_pages(
             {"status": "MISSING_INFORMATION", "rationale": "x"},
             {
@@ -512,4 +514,3 @@ def test_a_held_pdf_is_not_given_a_text_only_answer(tmp_path, monkeypatch):
             (str(tmp_path / "a.pdf"), held),
         )
     assert reading_state.text_only_answer(held, states.PARTIALLY_SEARCHABLE) is None
-

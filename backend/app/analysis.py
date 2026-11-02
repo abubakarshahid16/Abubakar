@@ -881,8 +881,11 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
             line := reading_state.text_only_answer(doc["document_id"], doc["status"])
         ):
             doc["read_in_part"] = line
-    unfinished = [d for d in boundary["documents"]
-                  if d["status"] != states.READY and not d.get("read_in_part")]
+    unfinished = [
+        d
+        for d in boundary["documents"]
+        if d["status"] != states.READY and not d.get("read_in_part")
+    ]
     if unfinished:
         return refused(reading_state.not_ready_words(unfinished))
 
@@ -1047,7 +1050,9 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
     read_in_part = "".join(
         f" {doc['filename']} is not fully accounted for, so this covers its text only. "
         f"{doc['read_in_part']}."
-        for doc in boundary["documents"] if doc.get("read_in_part"))
+        for doc in boundary["documents"]
+        if doc.get("read_in_part")
+    )
     return {"question": question, "answer_type": "generated",
             "answer": summary.text, "reason": None, "passages": passages,
             "cited": list(range(1, len(passages) + 1)),
