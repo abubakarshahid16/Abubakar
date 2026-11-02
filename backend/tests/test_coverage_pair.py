@@ -20,6 +20,7 @@ from app import (
     clause_coverage,
     comparison,
     coverage_pair,
+    coverage_values,
     db,
     main,
     review_trace,
@@ -1057,26 +1058,26 @@ def _stored(r):
 def test_the_found_sentences_are_what_the_comparison_stores(required):
     outcome = _values_outcome(0, required)
     count = {"answered": 0, "required": required}
-    plain = coverage_pair.FOUND_OLD_PLAIN.format(
+    plain = coverage_values.FOUND_OLD_PLAIN.format(
         s="" if required == 1 else "s", **count
     )
     assert plain in outcome["reason"]
-    assert coverage_pair.FOUND_OLD_TECHNICAL.format(**count) in outcome["details"]
+    assert coverage_values.FOUND_OLD_TECHNICAL.format(**count) in outcome["details"]
 
 
 def test_the_rule_lane_counts_once_per_rule_on_both_sides(run):
     """Not per stored id: a repeat counts once, tied if any of its rows is, and a rule
     that does not apply is not in the count. The same flaw as A-1590 otherwise."""
     r = _values_run(**_values_outcome())
-    rules = coverage_pair.values_count(_conn(), r, _stored(r))["rules"]
+    rules = coverage_values.values_count(_conn(), r, _stored(r))["rules"]
     assert rules == {"tied": 1, "rows": 2, "applicable": 8}
 
 
 def test_the_footer_prints_one_count_with_its_boundary_in_every_home(run, monkeypatch):
     stored = _values_outcome()
     r = _values_run(**stored)
-    old = coverage_pair.FOUND_OLD_PLAIN.format(answered=0, required=4, s="s")
-    tech = coverage_pair.FOUND_OLD_TECHNICAL.format(answered=0, required=4)
+    old = coverage_values.FOUND_OLD_PLAIN.format(answered=0, required=4, s="s")
+    tech = coverage_values.FOUND_OLD_TECHNICAL.format(answered=0, required=4)
     assert old in stored["reason"]
     client = _client()
     try:
@@ -1089,7 +1090,7 @@ def test_the_footer_prints_one_count_with_its_boundary_in_every_home(run, monkey
     row = next(x for x in listed if x["review_run_id"] == r)
     assert off["recommended_reason"] == stored["reason"]
     assert off["recommended_details"] == stored["details"]
-    assert coverage_pair.values_sentence(_conn(), r, _stored(r)) == SAID
+    assert coverage_values.values_sentence(_conn(), r, _stored(r)) == SAID
     meta = _meta(r)
     for home in (
         on["recommended_reason"],
@@ -1109,7 +1110,7 @@ def test_the_footer_prints_one_count_with_its_boundary_in_every_home(run, monkey
 def test_the_trace_code_step_says_the_one_count_with_the_switch_on(run, monkeypatch):
     stored = _values_outcome()
     r = _values_run(**stored)
-    old = coverage_pair.FOUND_OLD_PLAIN.format(answered=0, required=4, s="s")
+    old = coverage_values.FOUND_OLD_PLAIN.format(answered=0, required=4, s="s")
     assert old in _code_step(_trace_body(r))
     monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
     body = _code_step(_trace_body(r))
@@ -1141,15 +1142,15 @@ def test_an_engineers_typed_reason_keeps_the_found_words(run, monkeypatch):
 def test_the_rule_lane_uses_the_pairs_denominator(run):
     r = _values_run(**_values_outcome())
     assert (
-        coverage_pair.values_count(_conn(), r, _stored(r))["rules"]["applicable"]
+        coverage_values.values_count(_conn(), r, _stored(r))["rules"]["applicable"]
         == _pair(r)["applicable"]
     )
 
 
 def test_a_run_with_no_checklist_says_the_rules_alone(run):
     r = _values_run(split=SPLIT, **_values_outcome())
-    assert coverage_pair.values_count(_conn(), r, _stored(r))["checklist"] is None
-    said = coverage_pair.values_sentence(_conn(), r, _stored(r))
+    assert coverage_values.values_count(_conn(), r, _stored(r))["checklist"] is None
+    said = coverage_values.values_sentence(_conn(), r, _stored(r))
     assert "tied to 1 of them" in said
     assert "checklist" not in said
 
@@ -1158,17 +1159,17 @@ def test_a_rule_count_above_the_stated_boundary_prints_no_boundary(run):
     small = {**SPLIT, "checked": 0, "applies_not_checked": 1}
     r = _values_run(split=small, **_values_outcome())
     assert (
-        coverage_pair.values_count(_conn(), r, _stored(r))["rules"]["applicable"]
+        coverage_values.values_count(_conn(), r, _stored(r))["rules"]["applicable"]
         is None
     )
-    assert coverage_pair.values_sentence(_conn(), r, _stored(r)).startswith(
+    assert coverage_values.values_sentence(_conn(), r, _stored(r)).startswith(
         "Of the standard rules, 2 "
     )
 
 
 def test_no_rule_that_looked_says_so_never_tied_to_0_of_0(run):
     r = _run(split=SPLIT, **_values_outcome())
-    assert coverage_pair.values_sentence(_conn(), r, _stored(r)) == (
+    assert coverage_values.values_sentence(_conn(), r, _stored(r)) == (
         "Of the 8 standard rules that apply, none looked for a field on this sheet."
     )
 
@@ -1185,8 +1186,8 @@ def test_no_rows_counted_leaves_the_stored_words(run, completeness, monkeypatch)
     monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
     outcome = {"requirement_split": LISTED, "completeness": completeness}
     r = _run(split=LISTED, completeness=completeness)
-    assert coverage_pair.values_count(_conn(), r, outcome) is None
-    assert coverage_pair.values_sentence(_conn(), r, outcome) is None
+    assert coverage_values.values_count(_conn(), r, outcome) is None
+    assert coverage_values.values_sentence(_conn(), r, outcome) is None
     assert coverage_pair.reason_words("as stored", outcome, r) == "as stored"
 
 
