@@ -116,16 +116,11 @@ def _semicolon_beside(quote: str, page: str) -> bool:
 
 
 def figure_is_plain(
-    sentence: str,
-    body: str,
-    limit: str,
-    unit: str,
-    comparator: str,
-    field: str,
-    quote: str,
-    page: str,
+    sentence: str, body: str, claim: tuple[str, str, str, str], quote: str, page: str
 ) -> bool:
-    """May this rule store its figure? `body` is the quote outside what the rule holds as condition or exception."""
+    """May this rule store its figure? `body` is the quote outside what the rule holds as condition or exception.
+    `claim`: limit, unit, comparator, field."""
+    limit, unit, comparator, field = claim
     whole = numparse.fold(sentence).lower()
     modals = _MODAL.findall(whole)
     if len(modals) != 1 or modals[0] not in _OBLIGING_MODALS:

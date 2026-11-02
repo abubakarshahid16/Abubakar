@@ -742,15 +742,9 @@ def _proven(
         flags.append("exception_reworded")
     if limit and _tail_read_as_property(limit, unit, body, glossed):
         flags.append("tail_after_limit")
-    if (
-        limit
-        and (
-            flags
-            or not figure_is_plain(
-                whole, body, limit, unit, comparator, name, quote, text
-            )
-        )
-    ):  # the sentence stays for the engineer; a figure from a shape code does not understand is not stored
+    # The sentence stays for the engineer; a figure from a shape code does not understand is not stored.
+    claim = (limit, unit, comparator, name)
+    if limit and (flags or not figure_is_plain(whole, body, claim, quote, text)):
         flags.append(FIGURE_NOT_STORED)
         limit, unit, comparator = "", "", ""
     facts = {

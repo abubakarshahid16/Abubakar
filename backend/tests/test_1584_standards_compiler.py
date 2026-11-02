@@ -4733,10 +4733,7 @@ def test_a_figure_in_any_other_sentence_keeps_the_rule_and_stores_no_figure(
     assert not compiled_rule_shape.figure_is_plain(
         sentence,
         sentence,
-        "5",
-        "bar",
-        facts["comparator"],
-        facts["field"],
+        ("5", "bar", facts["comparator"], facts["field"]),
         sentence,
         f"7.3 Part\n{sentence}",
     )
@@ -5034,7 +5031,11 @@ def test_the_old_converter_keeps_its_own_family_list():
 )
 def test_what_only_the_allow_list_refuses(sentence, body, comparator, field):
     assert not compiled_rule_shape.figure_is_plain(
-        sentence, body, "5", "bar", comparator, field, sentence, f"7.3 Part\n{sentence}"
+        sentence,
+        body,
+        ("5", "bar", comparator, field),
+        sentence,
+        f"7.3 Part\n{sentence}",
     )
 
 
@@ -5051,10 +5052,7 @@ def test_more_than_one_word_after_the_figure_is_not_plain():
     assert not compiled_rule_shape.figure_is_plain(
         sentence,
         sentence,
-        "5",
-        "bar",
-        "<=",
-        "pressure",
+        ("5", "bar", "<=", "pressure"),
         sentence,
         f"7.3 Part\n{sentence}",
     )
