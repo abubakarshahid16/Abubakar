@@ -152,3 +152,29 @@ def test_on_a_compared_tick_still_says_meets(on):
 def test_the_reasoning_of_any_group_says_it(on):
     text = crs_mapping.reasoning_text([_row()])
     assert "Result: stated, not checked" in text and "meets" not in text
+
+
+# ------------------------------------------------------------------ what the rule said
+
+
+def test_on_a_held_row_of_a_presence_item_does_not_say_the_rule_said_it_meets(on):
+    held = _row(status="NEEDS_ENGINEER_REVIEW", rule_said="COMPLIANT")
+    got = presence_check.marked(held)
+    assert got["rule_said"] == presence_check.STATUS
+    assert got["stated_only"] is False, "it is a question, not a stated Pass"
+    assert crs_mapping.crs_bucket(got) == crs_mapping.crs_bucket(held), "still a row"
+
+
+def test_on_a_held_row_of_a_compared_item_keeps_what_the_rule_said(on):
+    held = _row(COMPARED, status="NEEDS_ENGINEER_REVIEW", rule_said="COMPLIANT")
+    assert presence_check.marked(held)["rule_said"] == "COMPLIANT"
+
+
+def test_on_a_rule_that_said_it_fails_keeps_its_word(on):
+    held = _row(status="NEEDS_ENGINEER_REVIEW", rule_said="NON_COMPLIANT")
+    assert presence_check.marked(held)["rule_said"] == "NON_COMPLIANT"
+
+
+def test_off_what_the_rule_said_is_as_stored():
+    held = _row(status="NEEDS_ENGINEER_REVIEW", rule_said="COMPLIANT")
+    assert presence_check.marked(held)["rule_said"] == "COMPLIANT"

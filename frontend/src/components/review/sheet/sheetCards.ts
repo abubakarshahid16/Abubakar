@@ -29,6 +29,7 @@ export interface SheetCard {
 /** The plain words of the owner's spec. Stored statuses are untouched. */
 export const PLAIN_OUTCOME: Record<string, string> = {
   COMPLIANT: "meets the standard",
+  STATED_NOT_CHECKED: "stated, not checked",
   NON_COMPLIANT: "does not meet",
   MISSING_INFORMATION: "needs you",
   NEEDS_ENGINEER_REVIEW: "needs you",

@@ -61,4 +61,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    if False:\n",
         "stated_row_is_not_met",
     ),
+    _m(
+        5,
+        "a held row of a presence item says the rule said it meets",
+        APP / "presence_check.py",
+        '        out["rule_said"] = STATUS\n',
+        "        pass\n",
+        "does_not_say_the_rule_said_it_meets",
+    ),
 )
