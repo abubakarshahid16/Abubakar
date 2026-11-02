@@ -205,6 +205,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rule_field_naming` | #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list, code verifies it; a rule no field answers is kept, marked not on a datasheet; off by default |
 | `rule_typed_check` | #805 plan change 6: a rule with a verified field role and no figure gets a typed check proposed from its quote; code verifies it and decides with the readers the project has; off by default |
 | `material_reference` | #1584: specification grade to material family, proposed from general knowledge with no document text, signed by the owner's tick, read only with its switch on; a grade not in the signed table is a Query |
+| `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |
 | `rulebook_v2_findings` | #805 plan change 6: a review's version 2 rows as findings of the run, each citing its rule, with the safety tier and open tick |
 | `rulebook_v2_signed` | #805 plan change 6: a compiled rule's field role and typed check, and what a tick records of them |
 | `rulebook_v2_stated` | #805 plan change 6: a run's version 2 rows as `coverage_pair` states them, apart, with their denominator |

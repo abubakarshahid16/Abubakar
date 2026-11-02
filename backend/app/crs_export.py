@@ -369,6 +369,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     copy = meta.get("copy") or COPY_INTERNAL
     if copy not in COPIES:
         raise ValueError(f"unknown CRS copy {copy!r}")
+    if copy == COPY_INTERNAL:  # never numbered, never on the issue copy (`rulebook_v2_crs`, its switch)
+        findings = [*findings, *(meta.get("rulebook_v2_rows") or [])]
 
     # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED (read
     # before the "Ref:" line is added). The issue copy leaves it out and counts

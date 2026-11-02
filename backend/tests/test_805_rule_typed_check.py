@@ -388,7 +388,9 @@ def test_with_the_switch_on_a_note_lets_it_decide_and_the_finding_says_so(monkey
     assert "owner note: context confirmed: Applies to every valve" in row["finding"]
     assert row["trust_label"] == rule_trust.OWNER_NOTE_CONTEXT
     rows = crs_mapping.build_crs_rows([row], [], "sheet.pdf")
-    assert rows and {r["rule_trust"] for r in rows} == {"owner note: context confirmed"}
+    assert rows and {r["rule_trust"] for r in rows} == {
+        "AI-built, quote-verified, owner-approved; owner note: context confirmed"
+    }
 
 
 @pytest.mark.parametrize("note", [None, "", "   "])

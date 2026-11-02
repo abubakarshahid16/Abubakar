@@ -44,7 +44,7 @@ describe("the trust line", () => {
     render(<FindingDetail finding={finding({ trust_label: "OWNER_NOTE_CONTEXT" })}
       documents={[]} onChanged={vi.fn()} />);
     const line = screen.getByTestId("rule-trust").textContent ?? "";
-    expect(line).toContain("owner note: context confirmed");
+    expect(line).toContain("AI-built, quote-verified, owner-approved; owner note: context confirmed");
     expect(line).not.toContain("OWNER_NOTE_CONTEXT");
   });
 

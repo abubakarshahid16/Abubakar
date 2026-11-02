@@ -14,13 +14,16 @@ import pytest
 from app import (
     comparison,
     coverage_pair,
+    crs_export,
     datasheet_checks,
     datasheets,
     db,
     degraded_read,
     rule_trust,
     rulebook_v2,
+    rulebook_v2_crs,
     rulebook_v2_review,
+    run_parts,
 )
 from app.config import settings
 from app.rulebook_v2 import Reading
@@ -935,3 +938,91 @@ def test_the_two_switches_are_off_by_default():
     from app.config import Settings
 
     assert Settings.model_fields["rulebook_v2_review_enabled"].default is False
+
+
+# ------------------------------------------------------------------------------------------------- the CRS
+
+
+def _four_passes(monkeypatch, *rules, level=rule_trust.STANDARD):
+    monkeypatch.setattr(rule_trust, "tier", lambda _r, **_k: (level, None))
+    run, scope = _sheet(value="9 barg")
+    with db.connect() as conn:
+        conn.execute("UPDATE submittal_facts SET equipment_tag = 'TAG-1'")
+    for n in (2, 3, 4):
+        datasheets.create_fact(
+            submittal_document_id=SHEET,
+            chunk_id="fc",
+            field_label=RUN_FACT_LABEL,
+            raw_value="9 barg",
+            page=1,
+            equipment_tag=f"TAG-{n}",
+        )
+    _review(monkeypatch, run, scope, *rules)
+    return run
+
+
+def _view(run, copy):
+    meta = {"copy": copy, "review_notes": [], "submittal": "s", "recommended_code": "x"}
+    told = run_parts.crs_part(meta, _conn(), run)
+    return told, crs_export.build_crs_view([], told)
+
+
+def test_the_internal_copy_has_a_row_per_tag_and_the_note_has_the_line_and_labels(
+    monkeypatch,
+):
+    run = _four_passes(monkeypatch, _rule())
+    told, view = _view(run, crs_export.COPY_INTERNAL)
+    rows = [r for r in view["rows"] if r["row_kind"] == rulebook_v2_crs.ROW_KIND]
+    assert len(rows) == 4
+    assert {r["rule_trust"] for r in rows} == {
+        "AI-built, quote-verified, owner-approved"
+    }
+    assert all("Meets, TAG-" in r["comment"] for r in rows)
+    note = next(n for n in view["review_notes"] if n["note"] == rulebook_v2_crs.NOTE)
+    assert "1 of 1 approved rules" in note["detail"]
+    assert "AI-built, quote-verified, owner-approved" in note["detail"]
+
+
+def test_the_issue_copy_rows_do_not_change(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    told, view = _view(run, crs_export.COPY_ISSUE)
+    assert view["rows"] == []
+    plain = crs_export.build_crs_view(
+        [], {"copy": crs_export.COPY_ISSUE, "review_notes": []}
+    )
+    assert view["rows"] == plain["rows"]
+    # the guard itself, whatever else would drop such a row
+    confirmed = [{**r, "engineer_confirmed": True} for r in told["rulebook_v2_rows"]]
+    again = crs_export.build_crs_view([], {**told, "rulebook_v2_rows": confirmed})
+    assert again["rows"] == []
+
+
+def test_a_breach_makes_no_second_row_and_an_open_tick_makes_no_second_row(monkeypatch):
+    run = _four_passes(monkeypatch, _rule(value=8.0))
+    assert _view(run, crs_export.COPY_INTERNAL)[0]["rulebook_v2_rows"] == []
+
+
+def test_an_open_tick_makes_no_second_row(monkeypatch):
+    run = _four_passes(monkeypatch, _rule(), level=rule_trust.SAFETY)
+    told = _view(run, crs_export.COPY_INTERNAL)[0]
+    assert told["rulebook_v2_rows"] == []
+
+
+def test_a_rule_on_the_owners_note_carries_both_labels_and_the_reference_says_whose():
+    words = rulebook_v2_crs.labels_of(
+        {
+            "trust_label": rule_trust.OWNER_NOTE_CONTEXT,
+            "finding": "family by the owner-signed reference, not engineer-confirmed, version a",
+        }
+    )
+    assert words == [
+        "AI-built, quote-verified, owner-approved; owner note: context confirmed",
+        "owner-signed reference, not engineer-confirmed",
+    ]
+
+
+def test_switch_off_the_crs_meta_is_what_it_was(monkeypatch):
+    run = _four_passes(monkeypatch, _rule())
+    monkeypatch.setattr(settings, "rulebook_v2_review_enabled", False)
+    meta = {"copy": crs_export.COPY_INTERNAL, "review_notes": []}
+    assert run_parts.crs_part(meta, _conn(), run) is meta
