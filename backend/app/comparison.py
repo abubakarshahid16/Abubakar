@@ -55,8 +55,8 @@ from pathlib import Path
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
-from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
 from .claude_auto_approve import notes_after
+from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
 from .config import settings
 from .deferred_value import framing as _framing, reason as _deferred_reason
 from .db import connect
@@ -2287,9 +2287,13 @@ def _insufficient_reason(completeness: dict) -> str:
 
 @notes_after  # #1584
 def run_comparison(
-    review_run_id: str, *, allowed_document_ids: frozenset[str],
-    subject: str | None = None, reference_coverage: float | None = None,
-    model_opinions: dict | None = None, replace: bool = True,
+    review_run_id: str,
+    *,
+    allowed_document_ids: frozenset[str],
+    subject: str | None = None,
+    reference_coverage: float | None = None,
+    model_opinions: dict | None = None,
+    replace: bool = True,
     missing_references: list[str] | None = None,
 ) -> dict:
     """`_run_comparison`, with the review's documents declared for the Claude lane
@@ -3854,6 +3858,7 @@ def _ask_model_once(
     asks twice): each ask is its own stored answer, so a reused pair of
     answers is the pair the model really gave."""
     from . import ai_task_runner, local_engine_bar, model_transport
+
     if (str(settings.match_engine or "ollama").strip().lower()) == "claude":
         prompt = build_prompt(requirement, candidates)
         answer, why = _ask_claude_for_a_pair(prompt, nth, candidates)

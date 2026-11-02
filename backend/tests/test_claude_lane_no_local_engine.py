@@ -73,7 +73,7 @@ def lane(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "standards_reader_enabled", True)
     monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "review_ai_check_enabled", True)
     monkeypatch.setattr(settings, "crs_ai_wording_enabled", True)
     monkeypatch.setattr(settings, "clause_review_enabled", True)
@@ -290,9 +290,8 @@ def test_a_barred_probe_is_not_remembered_as_the_engines_answer(engine_calls):
 
 def test_the_datasheet_reader_on_the_local_engine_is_skipped(engine_calls):
     with local_engine_bar.bar():
-        call, why = datasheet_ai.model_call_for("ollama")
-        assert call is None and "LocalEngineNotLoaded" in why
-        assert local_engine_bar.stated()[0]["note"] == NOTE
+        assert datasheet_ai.model_call_for("ollama") == (None, NOTE)
+        assert local_engine_bar.stated()[0]["step"] == datasheet_ai.STEP
     assert engine_calls == []
 
 

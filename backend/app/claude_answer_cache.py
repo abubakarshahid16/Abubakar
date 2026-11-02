@@ -18,8 +18,9 @@ check. Never a refusal, a cut-off, an error, an empty reply or a reply that fail
 check. A tool-use turn is not an answer either. Corrupt or unreadable means a miss,
 never a crash.
 
-THE FILES HOLD DOCUMENT TEXT (the answers quote it). They live under `data_dir`
-with the database, outside git, and nothing from them is ever logged: this module
+THE FILES HOLD DOCUMENT TEXT (the answers quote it). They live only inside `data_dir`
+and git-ignored: any other folder means no cache, with the reason stated
+(`refused_folder`). Outside git, and nothing from them is ever logged: this module
 logs the error type only. Each file names the documents its prompt carried, with
 their hashes (`claude_approved.still_holds`), so a document deleted, replaced,
 withdrawn or blocked leaves nothing served. Deleting a document also removes its
@@ -31,10 +32,12 @@ turns off every other stored answer (order 205): nothing read, nothing kept.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -47,6 +50,7 @@ log = logging.getLogger(__name__)
 COMPLETE_STOPS = frozenset({"end_turn", "stop_sequence"})
 #: What the audit says about a call answered from here.
 NOT_SENT = "not sent: cache hit"
+_SAID: set[str] = set()
 
 
 def is_json(text: str) -> bool:
@@ -59,16 +63,41 @@ def is_json(text: str) -> bool:
 
 
 def _root() -> Path:
-    """`settings.claude_cache_dir`, but never a folder git could pick up: a path
-    inside the repository that is not under `data_dir` falls back to `data_dir`."""
-    data = Path(settings.data_dir).resolve()
-    if not settings.claude_cache_dir:
-        return data / "claude_cache"
-    chosen = Path(settings.claude_cache_dir).resolve()
+    """`settings.claude_cache_dir`, or `<data_dir>/claude_cache` when it is not set."""
+    if settings.claude_cache_dir:
+        return Path(settings.claude_cache_dir).resolve()
+    return Path(settings.data_dir).resolve() / "claude_cache"
+
+
+@functools.lru_cache(maxsize=8)
+def _ignored_by_git(repo: Path, folder: Path) -> bool:
+    """What git itself says. No answer from git is a no: the files hold document text."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(repo), "check-ignore", "-q", str(folder / "x.json")],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+def refused_folder() -> str | None:
+    """Why the configured folder may not hold the answers, or None. It must be inside
+    the data folder, and git-ignored if that is inside the repository. Never the path:
+    this reason is printed in the audit."""
+    folder, data = _root(), Path(settings.data_dir).resolve()
     repo = Path(__file__).resolve().parents[2]
-    if repo in chosen.parents and data not in chosen.parents:
-        return data / "claude_cache"
-    return chosen
+    if folder in (repo, *repo.parents) or data in (repo, *repo.parents):
+        return "the cache folder or data folder is the repository root or above it"
+    if data != folder and data not in folder.parents:
+        return "the cache folder is outside the data folder"
+    in_repo = repo in folder.parents and (repo / ".git").exists()
+    if in_repo and not _ignored_by_git(repo, folder):
+        return "the cache folder is inside the repository and git does not ignore it"
+    return None
 
 
 def key_of(step: str, version: str, body: dict) -> str:
@@ -81,6 +110,15 @@ def key_of(step: str, version: str, body: dict) -> str:
         default=str,
     )
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _refused_now() -> bool:
+    """The refusal, stated in the log once per reason (it holds no path and no text)."""
+    why = refused_folder()
+    if why and why not in _SAID:
+        _SAID.add(why)
+        log.warning("claude answer cache is off: %s", why)
+    return why is not None
 
 
 def _path(key: str) -> Path:
@@ -116,7 +154,7 @@ def _usable(path: Path, stored, valid) -> bool:
 
 def read(key: str, *, valid=None) -> dict | None:
     """The stored answer, or None. Every failure here is a miss, never a crash."""
-    if not settings.ai_answer_reuse_enabled:
+    if not settings.ai_answer_reuse_enabled or _refused_now():
         return None
     path = _path(key)
     try:
@@ -137,7 +175,7 @@ def write(key: str, *, step: str, payload, cost_usd: float, valid=None) -> bool:
     answer is already paid for, and a full disk must not lose it for the caller."""
     from . import claude_approved
 
-    if not settings.ai_answer_reuse_enabled or not complete(payload):
+    if not settings.ai_answer_reuse_enabled or not complete(payload) or _refused_now():
         return False
     if valid is not None and not valid(_text_of(payload)):
         return False
@@ -172,7 +210,9 @@ def forget_documents(document_ids) -> int:
     Returns how many. Called when a document is deleted: its text must not stay
     behind in here."""
     wanted = {str(d) for d in document_ids if d}
-    root = _root()
+    root = (
+        _root()
+    )  # asked even when refused now: what is there still goes with its document
     removed = 0
     if not wanted or not root.is_dir():
         return 0
@@ -188,3 +228,34 @@ def forget_documents(document_ids) -> int:
             path.unlink(missing_ok=True)
             removed += 1
     return removed
+
+
+def report(entries: list[dict], *, run_id: str | None = None) -> dict:
+    """Hits, misses and the USD the hits saved, on the ledger lines of one review run, or
+    on the whole ledger with no run named. A miss is a call that went out and was charged."""
+    hits = misses = 0
+    saved = 0.0
+    by_step: dict[str, int] = {}
+    for entry in entries:
+        if run_id is not None and entry.get("run") != run_id:
+            continue
+        if entry.get("cached"):
+            hits += 1
+            saved += float(entry.get("saved_usd") or 0.0)
+            by_step[str(entry.get("step"))] = by_step.get(str(entry.get("step")), 0) + 1
+        elif entry.get("settles"):
+            misses += 1
+    whose = (
+        "this review run"
+        if run_id is not None
+        else "the whole spend ledger, every run and chat"
+    )
+    return {
+        "hits": hits,
+        "misses": misses,
+        "saved_usd": round(saved, 6),
+        "hits_by_step": by_step,
+        "cache_off": refused_folder(),
+        "boundary": f"Claude calls of {whose}; the USD is the list-price estimate of "
+        "what each stored answer first cost",
+    }

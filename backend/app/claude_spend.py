@@ -58,6 +58,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timezone
 from pathlib import Path
@@ -389,6 +390,25 @@ def _check(step: str, worst_case: float, caps: Caps, step_spent: float, total_sp
             f"cap ${caps.total:.2f} in total")
 
 
+#: The review run this context's calls belong to (`for_run`): the only thing that tells
+#: them from a chat answer on another thread in the same minutes. Ids only.
+_RUN: ContextVar[str | None] = ContextVar("claude_spend_run", default=None)
+
+
+def current_run() -> str | None:
+    return _RUN.get()
+
+
+@contextmanager
+def for_run(review_run_id: str | None):
+    """Ledger lines written inside this block carry the run's id."""
+    token = _RUN.set(review_run_id)
+    try:
+        yield
+    finally:
+        _RUN.reset(token)
+
+
 def _entry(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
            wall_time_s: float, finish_reason: str, batch: bool = False,
            estimated_usd: float | None = None) -> dict:
@@ -409,6 +429,8 @@ def _entry(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
     if estimated_usd is not None:
         entry["cost_usd"] = round(float(estimated_usd), 6)
         entry["estimated"] = True
+    if (run := _RUN.get()) is not None:
+        entry["run"] = run
     return entry
 
 
@@ -499,10 +521,10 @@ def reserve_all(
         prompt_sha256=prompt_sha256,
         batch=batch,
     )
-    # #1584: what this call carries goes on its reservation line, so a send and
-    # its record are one write (switch off, or no document content: nothing).
     from . import claude_approved
 
+    # #1584: what this call carries goes on its reservation line, so a send and
+    # its record are one write (switch off, or no document content: nothing).
     sent_documents = claude_approved.sent_documents()
     explicit = caps
     caps = caps or Caps.from_settings()
@@ -693,30 +715,11 @@ def keep_answer(key: str, step: str, payload, *, cost_usd: float, valid=None) ->
     )
 
 
-def cache_report(*, since: str | None = None) -> dict:
-    """Hits, misses and the USD the hits saved, over this ledger (since `since`, an
-    ISO time, when given). A miss is a call that went out and was charged."""
-    start = None
-    if since:
-        start = datetime.fromisoformat(since).replace(microsecond=0)
-        start = start if start.tzinfo else start.replace(tzinfo=UTC)
-    hits = misses = 0
-    saved = 0.0
-    for entry in entries():
-        if start is not None and datetime.fromisoformat(entry["at"]) < start:
-            continue
-        if entry.get("cached"):
-            hits += 1
-            saved += float(entry.get("saved_usd") or 0.0)
-        elif entry.get("settles"):
-            misses += 1
-    return {
-        "hits": hits,
-        "misses": misses,
-        "saved_usd": round(saved, 6),
-        "boundary": "Claude calls in this spend ledger; the USD is the list-price estimate "
-        "of what each stored answer first cost",
-    }
+def cache_report(*, run_id: str | None = None) -> dict:
+    """Hits, misses and the USD saved (`claude_answer_cache.report`), over this ledger."""
+    from . import claude_answer_cache
+
+    return claude_answer_cache.report(entries(), run_id=run_id)
 
 
 def metered(send, step: str, *, unbilled=None, version: str = "", keep_if=None):

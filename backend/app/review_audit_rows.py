@@ -106,24 +106,56 @@ def skipped_steps(outcome: dict) -> list[dict]:
     ]
 
 
+#: The steps whose own stored status counts calls attempted, hits included.
+_COUNT_THEIR_OWN = {
+    "ai_engineering_check": "review_ai_check",
+    "crs_wording": "crs_wording",
+}
+
+
 def cache_figures(run: dict) -> dict:
-    """The stored Claude answers since this run began; nothing on a run with no Claude call."""
-    since = run.get("started_at") or run.get("created_at")
-    if not since:
+    """The stored Claude answers of this run, by the run's id on the ledger lines; nothing
+    on a run with no Claude call."""
+    if not run.get("id"):
         return {}
     try:
-        report = claude_spend.cache_report(since=since)
+        report = claude_spend.cache_report(run_id=str(run["id"]))
     except (OSError, ValueError):
         return {}
-    return {"claude_answer_cache": report} if report["hits"] or report["misses"] else {}
+    wanted = report["hits"] or report["misses"]
+    return {"claude_answer_cache": report} if wanted else {}
+
+
+def fold_stored_hits(
+    steps: list[dict], ledger: list[dict] | None, figures: dict
+) -> list[dict] | None:
+    """A stored answer is never a fresh call. `steps` that keep their own count move their
+    hits from fresh to reused; their ledger row, which says the same, is dropped so no hit
+    is counted twice. Returns the ledger rows left."""
+    hits = (figures.get("claude_answer_cache") or {}).get("hits_by_step") or {}
+    for step in steps:
+        got = hits.get(_COUNT_THEIR_OWN.get(step.get("name"), ""))
+        if got and step.get("fresh") is not None:
+            step["fresh"] = max(0, step["fresh"] - got)
+            step["reused"] = (step.get("reused") or 0) + got
+            step.update(not_sent({"cache_hits": got}))
+    if ledger is None:
+        return None
+    return [row for row in ledger if row["step"] not in _COUNT_THEIR_OWN.values()]
 
 
 def cache_lines(ai_use: dict) -> list[str]:
     cache = ai_use.get("claude_answer_cache")
     if not cache:
         return []
+    off = (
+        [f"  - the answer cache is off: {cache['cache_off']}"]
+        if cache.get("cache_off")
+        else []
+    )
     return [
-        f"- stored Claude answers: {cache['hits']} hits, {cache['misses']} misses, "
-        f"USD {cache['saved_usd']} saved",
+        f"- stored Claude answers, this review run: {cache['hits']} hits, {cache['misses']} "
+        f"misses, USD {cache['saved_usd']} saved",
         f"  - {cache['boundary']}",
+        *off,
     ]

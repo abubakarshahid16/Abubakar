@@ -38,7 +38,7 @@ SCHEMA = {
 @pytest.fixture(autouse=True)
 def _env(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
-    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
     monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.setattr(settings, "anthropic_api_key", "sk-invented")
     monkeypatch.setattr(settings, "standards_reader_enabled", True)
@@ -343,6 +343,7 @@ def test_the_matcher_keeps_only_a_choice_that_passes_its_own_check(monkeypatch):
 
 def _approve(tmp_path, monkeypatch, shas):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
     (tmp_path / claude_approved.LIST_NAME).write_text(
         json.dumps({"documents": [{"sha256": s, "status": "approved"} for s in shas]}),
@@ -355,6 +356,7 @@ def _library(monkeypatch, known: dict[str, str]):
     monkeypatch.setattr(
         claude_approved, "_hashes_of", lambda ids: {d: known.get(d) for d in ids}
     )
+    monkeypatch.setattr(claude_approved, "_blocked_ids", lambda hashes: frozenset())
 
 
 def test_a_blocked_document_never_gets_a_stored_answer(tmp_path, monkeypatch):
@@ -399,6 +401,26 @@ def test_a_withdrawn_document_stops_serving_even_for_a_caller_that_no_longer_dec
     with claude_approved.carrying(()):
         _metered_call(send)("which?")
     assert len(send.calls) == 2, "a withdrawn document's answer was served"
+
+
+def test_a_blocked_file_stops_serving_even_with_the_guard_off_and_undeclared(
+    monkeypatch,
+):
+    """#1584: a block wins over the guard; the file knows what its prompt carried."""
+    _library(monkeypatch, {"doc1": "aaa"})
+    blocked = {"on": False}
+    monkeypatch.setattr(
+        claude_approved,
+        "_blocked_ids",
+        lambda hashes: frozenset(hashes) if blocked["on"] else frozenset(),
+    )
+    send = _send()
+    with claude_approved.carrying(["doc1"]):
+        _metered_call(send)("which?")
+    blocked["on"] = True
+    with claude_approved.carrying(()):
+        _metered_call(send)("which?")
+    assert len(send.calls) == 2, "a blocked document's answer was served"
 
 
 def test_a_deleted_document_leaves_nothing_served(monkeypatch):
@@ -469,15 +491,6 @@ def test_the_default_folder_moves_with_the_data_folder(tmp_path, monkeypatch):
     assert cache._root() == (tmp_path / "elsewhere").resolve() / "claude_cache"
 
 
-def test_a_folder_inside_the_repository_falls_back_to_the_data_folder(
-    tmp_path, monkeypatch
-):
-    repo = Path(cache.__file__).resolve().parents[2]
-    monkeypatch.setattr(settings, "claude_cache_dir", repo / "docs" / "claude_cache")
-    monkeypatch.setattr(settings, "data_dir", tmp_path)
-    assert cache._root() == tmp_path.resolve() / "claude_cache"
-
-
 def test_no_document_text_reaches_the_log_or_the_ledger(caplog):
     secret = "THE-CLIENT-SENTENCE-XYZ"
     send = _send(reply=json.dumps({"answer": secret}))
@@ -534,14 +547,12 @@ def test_the_audit_records_not_sent_cache_hit():
     assert review_audit_rows.cache_lines({}) == []
 
 
-def test_the_audit_prints_the_cache_figures_of_a_run():
+def test_the_whole_ledger_report_counts_hits_and_misses():
     send = _send()
     _metered_call(send)("which?")
     _metered_call(send)("which?")
-    figures = review_audit_rows.cache_figures(
-        {"created_at": "2000-01-01T00:00:00+00:00"}
-    )["claude_answer_cache"]
-    assert (figures["hits"], figures["misses"]) == (1, 1)
+    report = claude_spend.cache_report()
+    assert (report["hits"], report["misses"]) == (1, 1)
 
 
 def test_no_lane_reserves_without_asking_the_cache_first():

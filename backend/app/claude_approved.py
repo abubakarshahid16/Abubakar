@@ -362,13 +362,16 @@ def still_holds(documents: dict[str, str] | None) -> bool:
     `refusal()`, which only knows what THIS caller declares."""
     if not documents:
         return True
-    if _hashes_of(frozenset(documents)) != documents:
+    hashes = _hashes_of(frozenset(documents))
+    # A block wins over the guard and over consent.
+    if hashes != documents or _blocked_ids(hashes):
         return False
     if not settings.claude_approved_list_enforced:
         return True
     if _REQUEST_CONSENT.get():
         return frozenset(documents) <= (carried() or frozenset())
-    return frozenset(documents.values()) <= approved_hashes()
+    approved = frozenset(documents.values()) <= approved_hashes()
+    return approved and not _lapsed_ids(hashes)
 
 
 def _block_stop(ids: frozenset[str]) -> tuple[str, str] | None:
