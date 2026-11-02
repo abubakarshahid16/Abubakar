@@ -53,6 +53,7 @@ import re
 import sqlite3
 from datetime import UTC, datetime
 
+from .config import settings
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -84,6 +85,13 @@ _RESPONSE_SPELLINGS = (
                               "clarification requested", "clarify")),
 )
 
+#: Order 4c (`settings.procedure_crs_fields_enabled`): a document id is never an
+#: Item No. A document-sequenced submittal prints its number, else the number its
+#: cover suggests marked as a guess, else this label, which says there is none.
+NO_NUMBER_LABEL = "NO-NUMBER"
+SUGGESTED_SUFFIX = "-SUGGESTED"
+_DOC_SCOPE = "doc:"
+
 SOURCE_IMPORT = "imported reply sheet"
 SOURCE_RECORDED = "recorded by engineer"
 
@@ -103,6 +111,103 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _clean_label(number: str | None) -> str:
+    return re.sub(r"[^A-Za-z0-9-]+", "-", (number or "").strip()).strip("-").upper()
+
+
+def no_number_label(document_id: str, document_number: str | None = None) -> str:
+    """READ ONLY. The label a document-sequenced submittal prints (switch on)."""
+    from . import procedure_crs
+
+    if label := _clean_label(document_number):
+        return label
+    found = procedure_crs.suggested_number(document_id)
+    if found and (label := _clean_label(found["number"])):
+        return label + SUGGESTED_SUFFIX
+    return NO_NUMBER_LABEL
+
+
+def _sequenced_document(scope_key: str) -> str | None:
+    """The document a document sequence belongs to; None for a number's, or off."""
+    if settings.procedure_crs_fields_enabled and scope_key.startswith(_DOC_SCOPE):
+        return scope_key.removeprefix(_DOC_SCOPE)
+    return None
+
+
+def _shown_label(scope_key: str) -> str | None:
+    """What a document sequence prints now, whatever label its rows were stored
+    with (their rows are never rewritten); None for a number's sequence, or off."""
+    document_id = _sequenced_document(scope_key)
+    if document_id is None:
+        return None
+    sql = "SELECT document_number FROM document_classification WHERE document_id = ?"
+    row = connect().execute(sql, (document_id,)).fetchone()
+    return no_number_label(document_id, row["document_number"] if row else None)
+
+
+def stored_label(scope_key: str, label: str) -> str:
+    """The label a new number is stored with: neutral on a document sequence, because
+    a suggested number is a guess, printed and never kept."""
+    return NO_NUMBER_LABEL if _sequenced_document(scope_key) is not None else label
+
+
+def parse_own_ref(ref: str, label: str, scope_key: str) -> tuple[str, int] | None:
+    """`parse_ref`, with a label this sequence printed earlier read as today's."""
+    parsed = parse_ref(ref)
+    if parsed is not None and ref_label_ok(parsed[0], label, scope_key):
+        return label, parsed[1]
+    return parsed
+
+
+def _id_fragment(document_id: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "", document_id.removeprefix("doc_"))[:8].upper()
+
+
+def parse_reply_ref(
+    reply: dict, label: str, scope_key: str, document_id: str
+) -> tuple[str, int] | None:
+    """`parse_own_ref` of a reply row, resolved to exactly one document. On a document
+    sequence only the id label is unique: NO-NUMBER, a suggested number or a number
+    recorded later can be another document's too, so the row must also name this
+    document. Otherwise its label is left blank and `refusal` says why. Not behind the
+    switch: rows stored NO-NUMBER stay after it is turned off."""
+    from . import procedure_crs
+
+    quoted = parse_ref(reply["item"])
+    if quoted is None:
+        return None
+    if (
+        scope_key.startswith(_DOC_SCOPE)
+        and quoted[0] != _id_fragment(document_id)
+        and ref_label_ok(quoted[0], label, scope_key)
+    ):
+        why = procedure_crs.name_refusal(reply, document_id)
+        if why:
+            reply["refused"] = why
+            return "", quoted[1]
+    return parse_own_ref(reply["item"], label, scope_key)
+
+
+def refusal(reply: dict) -> str:
+    """Why a reply row was not matched to this submittal."""
+    return reply.get("refused") or "another submittal's number"
+
+
+def ref_label_ok(quoted: str, label: str, scope_key: str) -> bool:
+    """Does a quoted reference's label belong to this submittal's sequence? Its
+    label today, or one this document's sequence printed earlier: the id fragment
+    on a sheet already issued, the marked number before it was recorded, the neutral
+    label. Never a real number on a suggested label: that is another sequence. Off:
+    only the label itself."""
+    if quoted == label:
+        return True
+    document_id = _sequenced_document(scope_key)
+    if document_id is None:
+        return False
+    fragment = _id_fragment(document_id)
+    return quoted in (NO_NUMBER_LABEL, fragment, label + SUGGESTED_SUFFIX)
+
+
 def scope_for(submittal_number: str | None, document_id: str) -> tuple[str, str]:
     """(scope_key, printed label) for one submittal.
 
@@ -115,6 +220,8 @@ def scope_for(submittal_number: str | None, document_id: str) -> tuple[str, str]
         label = re.sub(r"[^A-Za-z0-9-]+", "-", number).strip("-").upper()
         if label:
             return "no:" + label.lower(), label
+    if settings.procedure_crs_fields_enabled:
+        return _DOC_SCOPE + document_id, no_number_label(document_id)
     short = re.sub(r"[^A-Za-z0-9]+", "", document_id.removeprefix("doc_"))[:8].upper()
     return "doc:" + document_id, short or "DOC"
 
@@ -127,7 +234,7 @@ def scope_of_document(document_id: str, document_number: str | None) -> tuple[st
         "SELECT scope_key, label FROM crs_document_scope WHERE document_id = ?",
         (document_id,)).fetchone()
     if row is not None:
-        return row["scope_key"], row["label"]
+        return row["scope_key"], _shown_label(row["scope_key"]) or row["label"]
     return scope_for(document_number, document_id)
 
 
@@ -185,9 +292,9 @@ def row_keys(rows: list[dict]) -> list[str]:
     return keys
 
 
-def _record(r) -> dict:
+def _record(r, shown: str | None = None) -> dict:
     out = {k: r[k] for k in r.keys()}
-    out["ref"] = format_ref(r["label"], r["seq"])
+    out["ref"] = format_ref(shown or r["label"], r["seq"])
     return out
 
 
@@ -200,13 +307,14 @@ def lookup(scope_key: str, keys: list[str]) -> dict[str, dict]:
         return {}
     found: dict[str, dict] = {}
     conn = connect()
+    shown = _shown_label(scope_key)
     for i in range(0, len(wanted), 500):
         chunk = wanted[i:i + 500]
         marks = ",".join("?" for _ in chunk)
         for r in conn.execute(
                 f"SELECT {_COLUMNS} FROM crs_comment_numbers"
                 f" WHERE scope_key = ? AND row_key IN ({marks})", (scope_key, *chunk)):
-            found[r["row_key"]] = _record(r)
+            found[r["row_key"]] = _record(r, shown)
     return found
 
 
@@ -215,7 +323,7 @@ def get(scope_key: str, seq: int) -> dict | None:
     r = connect().execute(
         f"SELECT {_COLUMNS} FROM crs_comment_numbers WHERE scope_key = ? AND seq = ?",
         (scope_key, seq)).fetchone()
-    return _record(r) if r is not None else None
+    return _record(r, _shown_label(scope_key)) if r is not None else None
 
 
 def open_elsewhere(scope_key: str, present_keys: set[str]) -> list[dict]:
@@ -224,10 +332,16 @@ def open_elsewhere(scope_key: str, present_keys: set[str]) -> list[dict]:
     revision's. Industry practice carries them forward until the reviewer
     closes them; a comment is never silently dropped because a later run no
     longer raises it. In number order."""
-    return [_record(r) for r in connect().execute(
-        f"SELECT {_COLUMNS} FROM crs_comment_numbers"
-        " WHERE scope_key = ? AND status = ? AND issued = 1 ORDER BY seq", (scope_key, OPEN))
-        if r["row_key"] not in present_keys]
+    shown = _shown_label(scope_key)
+    return [
+        _record(r, shown)
+        for r in connect().execute(
+            f"SELECT {_COLUMNS} FROM crs_comment_numbers"
+            " WHERE scope_key = ? AND status = ? AND issued = 1 ORDER BY seq",
+            (scope_key, OPEN),
+        )
+        if r["row_key"] not in present_keys
+    ]
 
 
 def _event(conn, scope_key: str, seq: int, by: str | None, event: str, detail: str = "") -> None:
@@ -251,7 +365,7 @@ def assign(scope_key: str, label: str, keys: list[str], *,
     Idempotent: a key that already has a number keeps it. Returns `lookup` of
     all the keys afterwards."""
     conn = connect()
-    snapshots = snapshots or {}
+    snapshots, label = snapshots or {}, stored_label(scope_key, label)
     if any(keys):
         # Fix this document to this sequence before its first number exists,
         # so the number and the sequence it belongs to can never disagree.
