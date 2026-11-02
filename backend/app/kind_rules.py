@@ -14,12 +14,25 @@ function here answers "not blocked" and the review is exactly as before.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from contextvars import ContextVar
 
 from .db import connect
 
 DATASHEET = "datasheet"
 _IGNORE: ContextVar[bool] = ContextVar("kind_rules_ignore", default=False)
+_NO_TYPE: ContextVar[bool] = ContextVar("kind_rules_no_type", default=False)
+
+
+@contextmanager
+def reading_no_type(on: bool):
+    """While `on`, `reading_for` reads no equipment: the CRS of a non-datasheet kind
+    (`procedure_crs`), whatever `kind_chooses_rules_enabled` says. Selection is untouched."""
+    token = _NO_TYPE.set(on)
+    try:
+        yield
+    finally:
+        _NO_TYPE.reset(token)
 
 
 def _lookup(document_id: str | None) -> tuple[str | None, str | None, bool]:
@@ -52,6 +65,13 @@ def enabled() -> bool:
 
 def _known(kind: str | None) -> bool:
     return bool(kind) and kind not in (DATASHEET, "unknown")
+
+
+def not_a_datasheet(document_id: str | None) -> bool:
+    """The document's kind is known and is not a datasheet (confirmed, or a
+    suggestion that is not a guess), whatever `kind_chooses_rules_enabled` says."""
+    kind, state, guess = _lookup(document_id)
+    return _known(kind) and not (guess and state != "confirmed")
 
 
 def blocked(document_id: str | None) -> dict | None:
@@ -158,6 +178,8 @@ def lines(outcome: dict | None) -> list[dict]:
 def reading_for(document_id: str, equipment: set, source, doubt, facts) -> tuple:
     """`applicability._equipment_reading`'s answer; a non-datasheet kind reads
     no equipment (so no governing standard, no required-by-type, no by-type)."""
+    if _NO_TYPE.get():
+        return set(), None, None, facts
     if blocked(document_id):
         return set(), None, None, facts
     return equipment, source, doubt, facts

@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import equipment_scope as eqs, intake, kind_rules, procedure_text
+from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
 from .config import settings
 from .deferred_value import framing as _framing
 from .deferred_value import reason as _deferred_reason
@@ -1743,10 +1743,10 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
         return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
             f"{UNREAD_PAGES}: no value for this requirement was found in the "
             f"fields read from {where} of {total}; "
-            f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
-            "were not read into fields, so the value may be there. An engineer "
-            "must check those pages before this becomes a comment to the "
-            "contractor")}
+            f"{page_not_read.unread_clause(pages, unread)}"  # 1550
+            ", so the value may be there. "
+            "An engineer must check those pages before this becomes a comment to "
+            "the contractor")}
     page_reader_only = pages.get("pages_read_only_by_page_reader") or []
     if page_reader_only:
         # Owner decision 2026-09-26 (honesty audit entry 68): these pages are
@@ -1899,10 +1899,10 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     # comments) would be a claim about it. A proven breach stays a breach.
     reading = (page_coverage or {}).get("reading") or {}
     if reading.get("status") == page_ledger.READING_INCOMPLETE and result["code"] in (codes[0], codes[1]):
-        pages = page_ledger.page_list(reading.get("incomplete_pages") or [])
+        pages = page_not_read.incomplete_words(page_coverage, reading)
         result = {**result, "code": codes[3],
-                  "reason": (f"Manual review: the reading is incomplete (page{'s' if len(reading.get('incomplete_pages') or []) != 1 else ''} "
-                             f"{pages} not read in full, see the run's page coverage), so the rest cannot be called met"),
+                  "reason": (f"Manual review: the reading is incomplete ({pages}, "  # 1550
+                             "see the run's page coverage), so the rest cannot be called met"),
                   "reading_incomplete": True}
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:

@@ -262,6 +262,10 @@ EGRESS_SAFE: dict[str, object] = {
     "page_column_rows_enabled": False,
     # --- local only, no model or socket: only the title block sets the equipment type (1 Nov, off by default)
     "equipment_from_title_block_enabled": False,
+    # --- read by the page only, one local /api/auth/me a minute, no model or socket (order 4b, off by default)
+    "session_expired_notice_enabled": False,
+    # --- local only, no model or socket: a procedure's CRS fields, equipment, page, Item No (order 4c, off by default)
+    "procedure_crs_fields_enabled": False,
     # --- local only, no model or socket: a playbook element is present only in its own section (#1522, off by default)
     "playbook_section_presence_enabled": False,
     # --- local only, no model or socket: presence check of a playbook whose standard is not held (#1522, off by default)

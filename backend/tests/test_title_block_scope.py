@@ -390,3 +390,85 @@ def test_switch_off_the_words_are_as_before():
         "Manual", technical, coverage, None, []
     )
     assert equipment_title_block.for_submittal("sub") == []
+
+
+# ---------------------------------------------------- with #1580's switch on too
+
+
+def _kind(kind):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_kinds (document_id, kind, state, evidence, routed_at)"
+            " VALUES ('sub', ?, 'suggested', '{}', '2026-11-02')",
+            (kind,),
+        )
+
+
+def _preview(monkeypatch, allowed):
+    """The CRS the engineer reads, through the route: (review notes, standards sheet)."""
+    from app import access
+    from app.main import app
+    from tests.test_crs_endpoint import _client
+    from tests.test_crs_endpoint import _run as _review_run
+
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    run_id = _review_run("sub")
+    selected = applicability.select(
+        "sub", allowed_document_ids=allowed, review_run_id=run_id
+    )
+    try:
+        view = _client(*allowed).get(f"/api/reviews/runs/{run_id}/crs/preview").json()
+    finally:
+        app.dependency_overrides.clear()
+    return view["review_notes"], selected
+
+
+def test_both_switches_a_procedure_shows_no_equipment_note(on, monkeypatch):
+    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
+    allowed = _many(8)
+    _kind("procedure")
+    assert classification.of_document("sub")["equipment_type"] is None
+    notes, selected = _preview(monkeypatch, allowed)
+    words = " ".join(f"{n['note']} {n['detail']}" for n in notes)
+    assert "engineer to confirm" not in words
+    assert "more matched" not in words
+    assert equipment_title_block.NOTE not in words
+    assert not [s for s in selected["selected"] if s["included"]]
+    assert equipment_title_block.TO_CONFIRM not in str(
+        selected["scope_decision_not_run"]
+    )
+    assert (
+        comparison.completeness_for_run(
+            "sub", allowed_document_ids=allowed, findings=[]
+        ).get("unknown_type_plain")
+        is None
+    )
+
+
+def test_both_switches_a_datasheet_with_no_title_type_shows_both_notes(on, monkeypatch):
+    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
+    allowed = _many(8)
+    _kind("datasheet")
+    notes, _selected = _preview(monkeypatch, allowed)
+    by_note = {n["note"]: n for n in notes}
+    assert equipment_title_block.NOTE in by_note
+    left = by_note["3 more matched and were not checked: engineer to confirm"]
+    assert left["count"] == 3
+
+
+def test_the_procedure_switch_alone_leaves_the_title_block_note_on_a_datasheet(
+    monkeypatch,
+):
+    """The title-block switch off: no note at all, whatever the procedure switch says."""
+    monkeypatch.setattr(settings, "procedure_crs_fields_enabled", True)
+    allowed = _many(8)
+    notes, _selected = _preview(monkeypatch, allowed)
+    assert equipment_title_block.NOTE not in [n["note"] for n in notes]
+
+
+def test_the_title_block_switch_alone_keeps_the_note_on_a_procedure(on, monkeypatch):
+    """The procedure switch off: its guard stays out of the way, as on main."""
+    allowed = _many(8)
+    _kind("procedure")
+    notes, _selected = _preview(monkeypatch, allowed)
+    assert equipment_title_block.NOTE in [n["note"] for n in notes]

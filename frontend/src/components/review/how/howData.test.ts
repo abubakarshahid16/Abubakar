@@ -106,6 +106,48 @@ describe("pagesMeaning reads the stored reading record", () => {
     expect(pagesMeaning({ ...run, page_coverage: { ...run.page_coverage, pages_read_no_field: undefined } } as unknown as ReviewRunSummary))
       .not.toContain("no checklist field");
   });
+  it("#1550: a run stored with the page-read switch counts 'not read' as pages with no reading", () => {
+    const run = { ...base, page_coverage: {
+      pages_total: 3, fact_pages: [], pages_not_read_into_fields: [1, 2, 3], not_read_reasons: {},
+      pages_read: [1, 3], pages_not_read: [2],
+    } } as unknown as ReviewRunSummary;
+    expect(pageFacts(run).notRead.value).toEqual([2]);
+    expect(pageFacts(run).notRead.source).toBe("page_coverage.pages_not_read");
+    const line = pagesMeaning(run);
+    expect(line).toContain("1 of 3 pages were not read (pages 2).");
+    expect(line).not.toContain("into fields");
+  });
+  it("#1550: a stored reason on a read page is said as no field taken, at render time only", () => {
+    const stored = "Both readers found no field on this page, so it is not counted as read";
+    const pc = {
+      pages_total: 3, fact_pages: [], pages_not_read_into_fields: [1, 2, 3],
+      not_read_reasons: { "1": stored, "2": stored, "3": stored },
+      pages_read: [1, 3], pages_not_read: [2], pages_not_read_why: { "2": "blank page" },
+      reading: { status: "incomplete", pages_total: 3, incomplete_pages: [1, 2, 3], reasons: {} },
+    };
+    const line = pagesMeaning({ ...base, page_coverage: pc } as unknown as ReviewRunSummary);
+    expect(line).not.toContain("not counted as read");
+    expect(line).toContain("page 1: Both readers found no field on this page, so no datasheet field was taken from it");
+    expect(line).toContain("page 2: blank page");
+    expect(pc.not_read_reasons["1"]).toBe(stored);
+  });
+  it("#1550: switch off keeps the stored reason word for word", () => {
+    const stored = "Both readers found no field on this page, so it is not counted as read";
+    const pc = {
+      pages_total: 1, fact_pages: [], pages_not_read_into_fields: [1], not_read_reasons: { "1": stored },
+      reading: { status: "incomplete", pages_total: 1, incomplete_pages: [1], reasons: {} },
+    };
+    expect(pagesMeaning({ ...base, page_coverage: pc } as unknown as ReviewRunSummary)).toContain(stored);
+  });
+  it("#1550: the pages with no field taken are said apart from the clean no-field pages", () => {
+    const pc = {
+      pages_total: 5, fact_pages: [], pages_not_read_into_fields: [1, 2, 3], not_read_reasons: {},
+      pages_read: [1, 3, 4, 5], pages_not_read: [2], pages_read_no_field: [4, 5],
+    };
+    const run = { ...base, page_coverage: pc } as unknown as ReviewRunSummary;
+    expect(pageFacts(run).noFieldTaken.value).toEqual([1, 3]);
+    expect(pagesMeaning(run)).toContain("The 2 pages with no datasheet field taken are apart from these");
+  });
   it("claims all pages only when the run stored the reading as complete", () => {
     const run = { ...base, page_coverage: {
       pages_total: 2, fact_pages: [1, 2], pages_not_read_into_fields: [], not_read_reasons: {}, pages_ai_not_read: [],

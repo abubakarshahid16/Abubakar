@@ -217,10 +217,14 @@ def store_to_confirm(document_id: str, reading: TitleReading) -> None:
 
 
 def _marked(document_id: str) -> dict | None:
-    """The stored "engineer to confirm" evidence: switch on, type NULL, nobody confirmed."""
+    """The stored "engineer to confirm" evidence: switch on, type NULL, nobody confirmed.
+    None on a document whose CRS carries no equipment type at all (#1580, a procedure)."""
+    from . import procedure_crs
     from .config import settings
 
     if not settings.equipment_from_title_block_enabled:
+        return None
+    if procedure_crs.no_equipment(document_id):
         return None
     row = (
         connect()

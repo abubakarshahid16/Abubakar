@@ -55,10 +55,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1133", phase=95,
              description="honesty: the readiness payload drops the page "
                          "ledger's own reason for each unread page",
-             # Re-anchored 2026-10-17 (#1017): the payload's page numbers moved to
-             # `page_ledger.readiness_pages`, read only.
-             path=_MAIN.parent / "page_ledger.py",
-             anchor='        "unread_page_reasons": cov.get("not_read_reasons") or {},\n',
+             # Re-anchored 2026-10-17 (#1017) to `page_ledger.readiness_pages`, and
+             # (#1550) to `page_not_read.readiness_part`, which that now calls.
+             path=_MAIN.parent / "page_not_read.py",
+             anchor='        "unread_page_reasons": why or {},\n',
              replacement='        "unread_page_reasons": {},\n',
              target=_T, keyword="unread_page_carries_its_own_reason",
              tags=("honesty", "critical")),
