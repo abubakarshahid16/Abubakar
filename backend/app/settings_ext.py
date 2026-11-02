@@ -6,6 +6,20 @@ environment exactly like every other setting (`Settings` inherits them).
 
 from pydantic import BaseModel, Field
 
+#: Settings that change a review's answer only when moved off their default. They join
+#: `config_version` only then, so adding one leaves every recorded hash and baseline as it was.
+ANSWER_AFFECTING_WHEN_CHANGED = ("ai_division_scope_engine",)
+
+
+def answer_affecting_when_changed(settings) -> dict:
+    """The settings above that are off their default, for `config_version`."""
+    fields = type(settings).model_fields
+    return {
+        k: getattr(settings, k)
+        for k in ANSWER_AFFECTING_WHEN_CHANGED
+        if getattr(settings, k) != fields[k].default
+    }
+
 
 class SettingsExt(BaseModel):
     #: #1584 standards compiler (`standards_compiler.py`, `scripts/compile_standards.py`): Claude turns a held
@@ -20,6 +34,16 @@ class SettingsExt(BaseModel):
     #: The default of `--max-usd`: the owner's USD 100 a day, across every standard, read from the spend ledger.
     #: Env: STANDARDS_COMPILER_MAX_USD_PER_DAY.
     standards_compiler_max_usd_per_day: float = Field(100.0, gt=0)
+    #: Division scope's OWN engine (owner decision, 2 Nov 2026): `claude` reads a standard's
+    #: part scopes on the Claude API (`division_text.claude_reader`), under the provider
+    #: switch, both egress flags, the approved and block lists, the answer cache and the USD
+    #: caps. Anything else stays on the local model; in a Claude-lane run that is skipped and
+    #: listed as not checked. Env: AI_DIVISION_SCOPE_ENGINE.
+    ai_division_scope_engine: str = "ollama"
+    #: #805 plan change 6, part A: the rulebook's version 2 tables (`rulebook_v2.py`, `scripts/rulebook_v2.py`), on a
+    #: database COPY. No verdict reads them; no rule is in force until a person approves it. OFF: nothing is read,
+    #: created or written. Env: RULEBOOK_V2_ENABLED.
+    rulebook_v2_enabled: bool = False
     #: AI clause review of a PROCEDURE or SPECIFICATION submittal (`clause_review.py`):
     #: one requirement at a time against the 4 most relevant small passages of the
     #: submittal, the LOCAL model only (owner decision D1: no Claude here), every
