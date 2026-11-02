@@ -258,6 +258,8 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: a leading-dot decimal is read as the decimal (#1515, off by default)
     "leading_dot_decimal_enabled": False,
     "data_page_not_frontmatter_enabled": False,
+    # --- local only, no model or socket: a repeated rights footer is not front-matter evidence (#1478, off by default)
+    "running_footer_not_frontmatter_enabled": False,
     # --- local only, no model or socket: a drawing page with a header only is routed to recognition (off by default)
     "figure_page_ocr_enabled": False,
     # --- local only, no model or socket: duty-point style column rows and stacked labels (#1478, off by default)
