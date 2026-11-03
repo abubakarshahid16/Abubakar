@@ -329,7 +329,9 @@ def test_the_flagged_block_shows_the_rows_own_words(flagged):
     assert FAIL["comment"] in text
 
 
-@pytest.mark.parametrize("word", ["c o m p l i e s", "compl​iant", "verified", "✓"])
+@pytest.mark.parametrize(
+    "word", ["c o m p l i e s", "compl\u200biant", "verified", "\u2713"]
+)
 def test_a_flag_quote_with_a_hidden_verdict_prints_nothing(monkeypatch, word):
     monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
     pages = {2: f"Relief valve PSV-9901  Set pressure 10 barg  {word}"}
@@ -343,7 +345,7 @@ def test_a_flag_quote_with_a_hidden_verdict_prints_nothing(monkeypatch, word):
     assert "ai_review_comment" not in rows[0]
 
 
-@pytest.mark.parametrize("figure", ["n i n e", "n-i-n-e", "nin ety", "XCIX", "9９"])
+@pytest.mark.parametrize("figure", ["n i n e", "n-i-n-e", "nin ety", "XCIX", "9\uff19"])
 def test_a_reword_reason_with_a_spelled_figure_prints_nothing(monkeypatch, figure):
     monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
     from tests.test_ai_review_view import REWORD
