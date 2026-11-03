@@ -717,6 +717,16 @@ class Settings(SettingsExt, BaseSettings):
     #: review - its standards too - is on the approved list; else local.
     #: Env: CRS_AI_WORDING_ENGINE.
     crs_ai_wording_engine: str = "ollama"
+    #: Lane 6 (owner order 3 Nov 2026): the AI engineering review pass reads the whole document and the
+    #: draft CRS and PROPOSES removals, additions, rewordings and a document-understanding note; code
+    #: accepts only what it verifies (`ai_review_proposals`). OFF by default. Env:
+    #: AI_ENGINEERING_REVIEW_PASS_ENABLED.
+    ai_engineering_review_pass_enabled: bool = False
+    #: "ollama" (local, default) or "claude" (only when every document of the review is on the approved list;
+    #: else local). Env: AI_ENGINEERING_REVIEW_PASS_ENGINE.
+    ai_engineering_review_pass_engine: str = "ollama"
+    #: Seconds one pass call may take. Env: AI_ENGINEERING_REVIEW_PASS_TIMEOUT_S.
+    ai_engineering_review_pass_timeout_s: float = 300.0
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many

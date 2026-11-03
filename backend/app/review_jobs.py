@@ -529,10 +529,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             _checks_reporting(conn, job_id, heartbeat, run_id, scope, missing)
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
         # R15 (#779) numbers every CRS row, R26 step 8 (#763) words each comment; neither fails it.
-        from .main import number_crs_rows, word_crs_rows
+        from .main import ai_review_crs_rows, number_crs_rows, word_crs_rows
         with _phase(conn, job_id, None, heartbeat, timings, None):
             number_crs_rows(run_id, requester)
             word_crs_rows(run_id, requester)
+            ai_review_crs_rows(run_id, requester)  # lane 6: off unless its switch is on
         # #791: the run's stored trace (reads only, never fails the run), then REVIEW_DEBUG prints it.
         review_trace.store(run_id, requester, timings)
         review_trace.emit(run_id, requester)
