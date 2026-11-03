@@ -168,6 +168,11 @@ def _identity(row: dict, by_id: dict[str, dict]):
     if outcome is None:
         return None
     pages = tuple(sorted({str(f.get("contractor_page") or "") for f in members}))
+    # Never merged: findings that differ in what the draft rule said, its tier, its trust label or severity.
+    kept_apart = tuple(
+        tuple(sorted({str(f.get(k) or "") for f in members}))
+        for k in ("rule_said", "tier", "trust_label", "severity")
+    )
     return (
         str(row.get("document_name") or ""),
         row.get("row_kind"),
@@ -178,7 +183,21 @@ def _identity(row: dict, by_id: dict[str, dict]):
         outcome,
         _fold(members[0].get("engineer_comment")),
         row.get("engineer_confirmed") is True,
+        kept_apart,
+        str(row.get("severity") or ""),
     )
+
+
+def _references(group: list[dict]) -> dict:
+    """Every standard reference of the group, only with CRS_ONE_ROW_IGNORE_CLAUSE_ENABLED: otherwise the key held the
+    clause and the lead's reference is all of them."""
+    if not _no_clause():
+        return {}
+    return {
+        "standard_reference": _unique(
+            (r.get("standard_reference") for r in group), "; "
+        )
+    }
 
 
 def _sentences_lines(members: list[dict]) -> str:
@@ -244,9 +263,7 @@ def _joined(group: list[dict], by_id: dict[str, dict]) -> dict:
             }
         ),
         "page_section": _unique((r.get("page_section") for r in group), "; "),
-        "standard_reference": _unique(
-            (r.get("standard_reference") for r in group), "; "
-        ),
+        **_references(group),
         **words,
         "reasoning": _unique((r.get("reasoning") for r in group), "\n\n"),
         "rule_trust": _unique((r.get("rule_trust") for r in group), "; "),
