@@ -18,7 +18,7 @@ from tests.test_1584_standards_compiler import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import rule_boxes as cli
-from rule_box_tools import rule_box_check, rule_box_run
+from rule_box_tools import rule_box_check, rule_box_fields, rule_box_run
 from rule_box_tools import rule_box_labels as rule_boxes
 
 DOC, LABEL = "std-box", "SAES-Z-910"
@@ -732,3 +732,217 @@ def test_a_disagreeing_rule_does_not_advance(rules):
 
 def test_the_second_model_is_never_the_reasoning_model():
     assert rule_box_check.second_model() != settings.claude_reasoning_model
+
+
+# ------------------------------------------------------------------------------------------ field lists
+def _cfihos(tmp_path):
+    import csv
+
+    def write(name, header, rows):
+        with (tmp_path / f"CFIHOS CORE {name} v2.0.csv").open(
+            "w", encoding="cp1252", newline=""
+        ) as fh:
+            w = csv.writer(fh)
+            w.writerow(header)
+            w.writerows(rows)
+
+    for table in ("equipment class", "tag class"):
+        write(
+            table,
+            [f"parent {table} name", "code", f"{table} name"],
+            [
+                ["rotating", "c1", "invented gizmo"],
+                ["invented gizmo", "c2", "small invented gizmo"],
+            ],
+        )
+    write(
+        "equipment class property",
+        [
+            "equipment class CFIHOS unique code",
+            "equipment class name",
+            "property CFIHOS unique code",
+            "property name",
+        ],
+        [
+            ["c1", "invented gizmo", "p1", "gizmo rated flow"],
+            ["c2", "small invented gizmo", "p2", "gizmo casing material"],
+        ],
+    )
+    write(
+        "tag class property",
+        [
+            "tag class CFIHOS unique code",
+            "tag class name",
+            "property CFIHOS unique code",
+            "property name",
+        ],
+        [["c1", "invented gizmo", "p1", "gizmo rated flow"]],
+    )
+    write(
+        "property",
+        [
+            "CFIHOS unique code",
+            "property name",
+            "property data type",
+            "unit of measure dimension code",
+        ],
+        [
+            ["p1", "gizmo rated flow", "Number", "VOLFLO"],
+            ["p2", "gizmo casing material", "Text", ""],
+        ],
+    )
+    return rule_box_fields.Cfihos(tmp_path)
+
+
+def test_cfihos_classes_are_found_by_name_with_their_children_and_properties(tmp_path):
+    cf = _cfihos(tmp_path)
+    assert cf.classes_for("invented gizmo") == [
+        "invented gizmo",
+        "small invented gizmo",
+    ]
+    assert (
+        cf.properties_for("invented gizmo")
+        == ["gizmo casing material", "gizmo rated flow"]
+        or cf.properties_for("invented gizmo")[0] == "gizmo rated flow"
+    )
+    assert cf.properties_for("unknown thing") == []
+
+
+GOOD_FIELDS = {
+    "fields": [
+        {
+            "role": "rated_flow",
+            "kind": "flow",
+            "label": "Rated flow",
+            "cfihos_property": "gizmo rated flow",
+        },
+        {
+            "role": "casing_material",
+            "kind": "text",
+            "label": "Casing material",
+            "cfihos_property": "made up property",
+        },
+        {
+            "role": "design_pressure",
+            "kind": "pressure",
+            "label": "Design pressure",
+            "cfihos_property": None,
+        },
+    ]
+}
+
+
+def test_a_field_list_keeps_only_fields_of_the_right_shape_and_only_real_cfihos_names():
+    good, why = rule_box_fields.verify(json.dumps(GOOD_FIELDS), {"gizmo rated flow"})
+    assert why is None and [f["role"] for f in good] == [
+        "rated_flow",
+        "casing_material",
+        "design_pressure",
+    ]
+    assert (
+        good[1]["cfihos_property"] is None
+        and good[0]["cfihos_property"] == "gizmo rated flow"
+    )
+    bad = {
+        "fields": [
+            *GOOD_FIELDS["fields"][:1],
+            {
+                "role": "Bad Role",
+                "kind": "flow",
+                "label": "x y",
+                "cfihos_property": None,
+            },
+            {
+                "role": "rated_flow",
+                "kind": "flow",
+                "label": "Duplicate",
+                "cfihos_property": None,
+            },
+            {
+                "role": "other_thing",
+                "kind": "banana",
+                "label": "Other",
+                "cfihos_property": None,
+            },
+        ]
+    }
+    assert rule_box_fields.verify(json.dumps(bad), set()) == (
+        None,
+        "too_few_good_fields",
+    )
+    assert rule_box_fields.verify("nope", set()) == (None, "reply_not_json")
+
+
+def test_field_lists_are_built_only_for_types_without_an_approved_list_and_are_marked_to_confirm(
+    rules, tmp_path
+):
+    with rules:
+        for rid, eq in (
+            ("r1", "invented gizmo"),
+            ("r2", "pressure vessel"),
+            ("r3", "general"),
+        ):
+            rules.execute(
+                f"INSERT INTO {rule_box_labels_table()} VALUES (?,?,?,'a',NULL,'h','v','t')",
+                (rid, "datasheet", eq),
+            )
+    rule_box_fields.ensure_schema(rules)
+    cf = _cfihos(tmp_path)
+    assert rule_box_fields.types_without_a_list(rules) == ["invented gizmo"]
+    jobs, members, counts = rule_box_fields.jobs(rules, cf, _gate_open)
+    assert counts == {"types_to_build": 1, "types_with_no_cfihos_class": 0}
+    assert (
+        "gizmo rated flow" in jobs[0].prompt
+        and Q_NUM in jobs[0].prompt
+        and jobs[0].docs == {DOC}
+    )
+    apply = rule_box_fields.storer(rules, members, "claude-sonnet-5-5")
+    report = rule_box_run.run(
+        jobs,
+        model="claude-sonnet-5-5",
+        step_prefix="f",
+        version="v",
+        apply=apply,
+        send=Fake(lambda p: json.dumps(GOOD_FIELDS)),
+    )
+    assert report["stored"] == 1 and apply.tally["fields_stored"] == 3
+    states = {r[0] for r in rules.execute(f"SELECT state FROM {rule_box_fields.TABLE}")}
+    assert states == {"field list: AI-built, to confirm"}
+    assert rule_box_check.fields_for("invented gizmo") is None
+    assert rule_box_check.fields_for("invented gizmo", rules) == {
+        "casing_material": "text",
+        "design_pressure": "pressure",
+        "rated_flow": "flow",
+    }
+    assert (
+        rule_box_check.field_list_state("invented gizmo")
+        == "field list: AI-built, to confirm"
+    )
+    assert (
+        rule_box_check.field_list_state("pressure vessel")
+        == rule_box_fields.FIXED_STATE
+    )
+    assert rule_box_fields.types_without_a_list(rules) == []
+    out = tmp_path / "lists.json"
+    assert rule_box_fields.export(rules, out) == 1
+    assert (
+        json.loads(out.read_text())["invented gizmo"]["state"]
+        == "field list: AI-built, to confirm"
+    )
+
+
+def rule_box_labels_table():
+    return rule_boxes.TABLE
+
+
+def test_a_standard_past_the_family_list_only_by_the_owners_file_and_still_needs_role_and_approval(
+    rules, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(settings, "standards_compiler_families", "ISO")
+    assert cli.make_gate(rules)(DOC, LABEL) == "FamilyNotAllowed"
+    (tmp_path / cli.EXCEPTIONS_FILE).write_text(json.dumps({"document_ids": [DOC]}))
+    assert cli.make_gate(rules)(DOC, LABEL) is None
+    assert cli.make_gate(rules)("other-doc", LABEL) == "FamilyNotAllowed"
+    path = __import__("app.claude_approved", fromlist=["x"]).list_path()
+    path.write_text(json.dumps({"documents": []}))
+    assert cli.make_gate(rules)(DOC, LABEL) == "DocumentNotApproved"

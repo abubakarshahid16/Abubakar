@@ -33,8 +33,8 @@ from app.ai.json_reply import unfenced
 from app.compiled_rule_proof import _fold as _proof_fold
 from app.compiled_rule_proof import _limit_problem, _main_clause
 from app.config import settings
+from rule_box_tools import rule_box_fields, rule_box_run
 from rule_box_tools import rule_box_labels as rule_boxes
-from rule_box_tools import rule_box_run
 
 CHECK_VERSION = "box-check-v1"
 SECOND_VERSION = "box-second-v1"
@@ -62,7 +62,7 @@ def ensure_schema(conn) -> None:
         f"CREATE TABLE IF NOT EXISTS {CHECKS} ("
         " rule_id TEXT PRIMARY KEY, status TEXT NOT NULL, reason TEXT, field_role TEXT, kind TEXT, op TEXT,"
         " limit_text TEXT, unit TEXT, values_json TEXT, condition_text TEXT, quote TEXT, pass_json TEXT, fail_json TEXT,"
-        " document_kind TEXT, equipment_type TEXT, model TEXT, prompt_version TEXT, created_at TEXT NOT NULL)"
+        " document_kind TEXT, equipment_type TEXT, field_list_state TEXT, model TEXT, prompt_version TEXT, created_at TEXT NOT NULL)"
     )
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {SECOND} ("
@@ -81,15 +81,28 @@ def _clean(text, limit: int = QUOTE_CHARS) -> str:
     return words if len(words) <= limit else words[: limit - 1] + "…"
 
 
-def fields_for(equipment_type: str | None) -> dict[str, str] | None:
-    """{role: kind} of the type's fixed field list, or None: 'field list to confirm'."""
+def fields_for(equipment_type: str | None, conn=None) -> dict[str, str] | None:
+    """{role: kind} of the type's field list, or None: 'field list to confirm'. The approved checklist first; else, with
+    a `conn`, the list built by `rule_box_fields` (state `FIELD_LIST_STATE`, to confirm). Never invented here."""
     name = rule_boxes.checklist_name(equipment_type)
     if name is None:
-        return None
+        return (
+            rule_box_fields.stored(conn, equipment_type)
+            if conn is not None and equipment_type
+            else None
+        )
     try:
         return rule_field_naming.fixed_fields(name)
     except rule_field_naming.NoFieldList:
         return None
+
+
+def field_list_state(equipment_type: str | None) -> str:
+    return (
+        rule_box_fields.FIXED_STATE
+        if rule_boxes.checklist_name(equipment_type)
+        else rule_box_fields.FIELD_LIST_STATE
+    )
 
 
 def _fold(text) -> str:
@@ -300,8 +313,8 @@ def _record(conn, rule_id, status, reason, label, model, check=None) -> None:
     c = check or {}
     conn.execute(
         f"INSERT OR REPLACE INTO {CHECKS} (rule_id, status, reason, field_role, kind, op, limit_text, unit, values_json,"
-        " condition_text, quote, pass_json, fail_json, document_kind, equipment_type, model, prompt_version, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " condition_text, quote, pass_json, fail_json, document_kind, equipment_type, field_list_state, model, prompt_version, created_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             rule_id,
             status,
@@ -318,6 +331,9 @@ def _record(conn, rule_id, status, reason, label, model, check=None) -> None:
             json.dumps(c.get("fail_case")) if c else None,
             label["document_kind"],
             label["equipment_type"],
+            None
+            if status in (FIELD_TO_CONFIRM, BY_KIND)
+            else field_list_state(label["equipment_type"]),
             model,
             CHECK_VERSION,
             _now(),
@@ -337,7 +353,7 @@ def settle_without_a_call(conn) -> dict:
         if r["box"] == SENTENCE_BOX:
             _record(conn, r["rule_id"], BY_KIND, None, r, "")
             counts[BY_KIND] += 1
-        elif fields_for(r["equipment_type"]) is None:
+        elif fields_for(r["equipment_type"], conn) is None:
             _record(conn, r["rule_id"], FIELD_TO_CONFIRM, None, r, "")
             counts[FIELD_TO_CONFIRM] += 1
     conn.commit()
@@ -353,7 +369,7 @@ def check_todo(conn) -> list:
         f" WHERE l.box IN ('a','c') AND NOT EXISTS (SELECT 1 FROM {CHECKS} c WHERE c.rule_id = r.id)"
         " ORDER BY r.standard_document_id, r.page, r.id"
     ).fetchall()
-    return [r for r in rows if fields_for(r["equipment_type"]) is not None]
+    return [r for r in rows if fields_for(r["equipment_type"], conn) is not None]
 
 
 def check_jobs(conn, gate) -> tuple[list[rule_box_run.Job], dict, dict]:
@@ -367,7 +383,7 @@ def check_jobs(conn, gate) -> tuple[list[rule_box_run.Job], dict, dict]:
         if refused[doc] is not None:
             skipped += 1
             continue
-        fields = fields_for(r["equipment_type"])
+        fields = fields_for(r["equipment_type"], conn)
         out.append(
             rule_box_run.Job(
                 f"chk:{r['id']}",
@@ -493,7 +509,7 @@ def second_jobs(conn, gate, model: str) -> tuple[list[rule_box_run.Job], dict, d
         if refused[doc] is not None:
             skipped += 1
             continue
-        fields = fields_for(r["equipment_type"])
+        fields = fields_for(r["equipment_type"], conn)
         out.append(
             rule_box_run.Job(
                 f"sec:{r['id']}",

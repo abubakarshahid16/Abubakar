@@ -30,7 +30,7 @@ sys.path.insert(0, str(REPO / "backend"))
 sys.path.insert(0, str(REPO / "scripts"))
 
 from rehearse_requirement_reextraction import refuse_live  # noqa: E402
-from rule_box_tools import rule_box_check, rule_box_run  # noqa: E402
+from rule_box_tools import rule_box_check, rule_box_fields, rule_box_run  # noqa: E402
 from rule_box_tools import rule_box_labels as rule_boxes  # noqa: E402
 
 from app import (  # noqa: E402
@@ -38,12 +38,13 @@ from app import (  # noqa: E402
     claude_spend,
     reasoning_provider,
     standards_compiler,
+    standards_converter,
 )
 from app.config import settings  # noqa: E402
 
 ENGINE_ENV = "RULE_BOXES_ENGINE"
 #: Typical answer sizes in tokens, for the ESTIMATE line only (the worst case does not use them).
-TYPICAL_OUT = {"label": 45, "check": 450, "second": 70}
+TYPICAL_OUT = {"label": 45, "check": 450, "second": 70, "fields": 1200}
 
 
 def lane_refusal() -> str | None:
@@ -53,10 +54,50 @@ def lane_refusal() -> str | None:
     return f"{code}: {why}" if code is not None else None
 
 
+EXCEPTIONS_FILE = "rule_boxes_family_exceptions.json"
+
+
+def family_exceptions() -> frozenset[str]:
+    """Document ids the OWNER allowed past the family list for this job: `{"document_ids": [...]}` in the data folder of
+    the copy (outside git). It lifts only the family test; the role and the approved-list tests still apply."""
+    path = Path(settings.data_dir) / EXCEPTIONS_FILE
+    try:
+        return frozenset(
+            str(x)
+            for x in json.loads(path.read_text(encoding="utf-8")).get(
+                "document_ids", []
+            )
+        )
+    except (OSError, ValueError, AttributeError):
+        return frozenset()
+
+
+def _approved_without_family(conn, document_id: str) -> None:
+    standards_converter.require_role(conn, document_id)
+    found = conn.execute(
+        "SELECT sha256 FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
+    digest = (found["sha256"] or "").strip().lower() if found else ""
+    if not digest or digest not in claude_approved.approved_hashes():
+        raise claude_spend.DocumentNotApproved(
+            claude_approved.NOT_APPROVED,
+            f"document {document_id} is not on the approved list; nothing was sent",
+        )
+
+
 def make_gate(conn):
+    allowed = family_exceptions()
+
     def gate(document_id: str, label: str) -> str | None:
         try:
             standards_compiler.require_allowed(conn, document_id, label)
+        except standards_converter.FamilyNotAllowed as exc:
+            if document_id not in allowed:
+                return type(exc).__name__
+            try:
+                _approved_without_family(conn, document_id)
+            except Exception as other:  # noqa: BLE001
+                return type(other).__name__
         except Exception as exc:  # noqa: BLE001 - the reason is the exception's type; ids only, never text
             return type(exc).__name__
         return None
@@ -186,7 +227,7 @@ def status(conn) -> dict:
 
 
 def run_step(
-    conn, step: str, send: bool, model: str | None, per_prompt: int, emit
+    conn, step: str, send: bool, model: str | None, per_prompt: int, emit, args=None
 ) -> int:
     rule_boxes.ensure_schema(conn)
     rule_box_check.ensure_schema(conn)
@@ -197,6 +238,16 @@ def run_step(
         apply = rule_boxes.storer(conn, members, model)
         prefix, version = "rule_box_label", rule_boxes.PROMPT_VERSION
         extra = counts
+    elif step == "fields":
+        model = model or rule_box_check.check_model()
+        rule_box_fields.ensure_schema(conn)
+        if args is None or args.cfihos is None:
+            raise SystemExit("--cfihos <folder> is needed for the fields step")
+        jobs, members, extra = rule_box_fields.jobs(
+            conn, rule_box_fields.Cfihos(args.cfihos), gate
+        )
+        apply = rule_box_fields.storer(conn, members, model)
+        prefix, version = "rule_box_fields", rule_box_fields.PROMPT_VERSION
     elif step == "check":
         model = model or rule_box_check.check_model()
         calls = (
@@ -274,10 +325,22 @@ def run_step(
 
 def main(argv: list[str] | None = None, *, emit=print) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("step", choices=("label", "check", "second", "status"))
+    ap.add_argument("step", choices=("label", "fields", "check", "second", "status"))
     ap.add_argument("--db", type=Path, required=True)
     ap.add_argument("--send", action="store_true", help="ask Claude; this spends")
     ap.add_argument("--model", default=None)
+    ap.add_argument(
+        "--cfihos",
+        type=Path,
+        default=None,
+        help="folder of the CFIHOS CORE csv files (fields step)",
+    )
+    ap.add_argument(
+        "--export",
+        type=Path,
+        default=None,
+        help="write the AI-built field lists here as JSON",
+    )
     ap.add_argument("--per-prompt", type=int, default=rule_boxes.PER_PROMPT)
     args = ap.parse_args(argv)
 
@@ -289,7 +352,7 @@ def main(argv: list[str] | None = None, *, emit=print) -> int:
     if args.step == "status":
         emit(json.dumps(status(conn), sort_keys=True))
         return 0
-    return run_step(conn, args.step, args.send, args.model, args.per_prompt, emit)
+    return run_step(conn, args.step, args.send, args.model, args.per_prompt, emit, args)
 
 
 if __name__ == "__main__":
