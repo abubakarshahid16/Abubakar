@@ -270,7 +270,9 @@ def _a_full_book():
     version = _version()
     _approve(version["id"])
     rulebook_v2.record_run(_conn(), "run-1")
-    rulebook_v2_book.restore_book(_conn(), 1, ENGINEER, "a restore, so its table has a row")
+    rulebook_v2_book.restore_book(
+        _conn(), 1, ENGINEER, "a restore, so its table has a row"
+    )
     return version
 
 

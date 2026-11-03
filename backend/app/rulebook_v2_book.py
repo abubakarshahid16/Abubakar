@@ -107,7 +107,9 @@ def mark_change(conn, actor: str, kind: str) -> str:
     rulebook_v2.require_on()
     if kind in (REVIEW_SNAPSHOT, ""):
         raise rulebook_v2.RuleRefused("a change names its kind")
-    return rulebook_v2.take_snapshot(conn, f"{kind}:{uuid.uuid4().hex}", kind, {kind: 1}, actor)
+    return rulebook_v2.take_snapshot(
+        conn, f"{kind}:{uuid.uuid4().hex}", kind, {kind: 1}, actor
+    )
 
 
 def active_pin(conn) -> str | None:

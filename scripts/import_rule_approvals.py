@@ -389,7 +389,9 @@ def run(
 
         material_reference.record(conn, reference, signer, tier, digest)
     rulebook_v2.record_decisions(conn, decisions)  # commits both, or neither
-    if decisions:  # an approval changes what is in force: it is a new book version (STEP 5)
+    if (
+        decisions
+    ):  # an approval changes what is in force: it is a new book version (STEP 5)
         rulebook_v2_book.mark_change(conn, signer, "approvals")
     conn.commit()
     words = [d["decision"] for d in decisions]
