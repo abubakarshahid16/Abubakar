@@ -490,6 +490,16 @@ def ticked_words(row: dict) -> dict:
     return {**row, "comment": said.replace(TICK_LEAD, "TICKED BY ENGINEER", 1)}
 
 
+from .contractor_scrub import (  # noqa: E402,F401
+    NOTE_LEFT,
+    contractor_words,
+    engineer_words_in,
+    note_left_over,
+    scrub_text,
+    scrub_workbook,
+)
+
+
 def prepare(
     findings: list[dict], copy: str, has_no_text, on: bool
 ) -> tuple[list[dict], int, int]:
@@ -639,6 +649,8 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
     internal = view["crs_copy"] == ce.COPY_INTERNAL
     if internal and settings.crs_drop_placeholder_rows_enabled:
         view = park_placeholders(view)
+    if internal and settings.crs_contractor_no_engineer_words_enabled:
+        view = note_left_over(view)
     if not internal:  # a client copy has no Review notes: the withheld count says it
         view["rows_withheld_no_text"] += dropped
         dropped = 0
