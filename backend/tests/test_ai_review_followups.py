@@ -319,3 +319,11 @@ def test_a_flag_on_a_row_without_a_datasheet_value_prints_nothing(monkeypatch):
     rows = [dict(row)]
     view.apply(rows, "rv-fl")
     assert "ai_review_comment" not in rows[0]
+
+
+def test_the_flagged_block_shows_the_rows_own_words(flagged):
+    view.apply(_rows(), flagged)
+    (item,) = view.for_run(flagged)["flagged"]
+    assert item["words"] == FAIL["comment"] and item["where"] == FAIL["page_section"]
+    text = _sheet_text(_workbook(flagged, "internal"), view.SHEET)
+    assert FAIL["comment"] in text
