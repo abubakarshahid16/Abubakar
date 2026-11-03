@@ -135,6 +135,42 @@ def normalise_text(text: str) -> str:
     return text.translate(_CHARACTER_TABLE)
 
 
+_LOOKALIKE = str.maketrans(
+    {chr(c): v for c, v in (
+        (0x0430, "a"), (0x0441, "c"), (0x0435, "e"), (0x043E, "o"), (0x0440, "p"), (0x0445, "x"), (0x0443, "y"),
+        (0x0456, "i"), (0x0458, "j"), (0x0455, "s"), (0x043A, "k"), (0x043C, "m"), (0x0442, "t"), (0x043D, "h"),
+        (0x0432, "b"), (0x0501, "d"), (0x04CF, "l"),
+        (0x03B1, "a"), (0x03BF, "o"), (0x03B5, "e"), (0x03BD, "v"), (0x03B9, "i"), (0x03C1, "p"), (0x03C4, "t"),
+        (0x03BA, "k"), (0x03BC, "m"), (0x03C7, "x"), (0x03C5, "u"), (0x03B2, "b"), (0x03B7, "n"), (0x03C9, "w"),
+        (0x0578, "n"), (0x057D, "u"), (0x0585, "o"), (0x0581, "g"), (0x0570, "h"), (0x0563, "q"), (0x0566, "q"),
+        # small capitals (NFKC leaves them alone)
+        (0x1D00, "a"), (0x0299, "b"), (0x1D04, "c"), (0x1D05, "d"), (0x1D07, "e"), (0xA730, "f"), (0x0262, "g"),
+        (0x029C, "h"), (0x026A, "i"), (0x1D0A, "j"), (0x1D0B, "k"), (0x029F, "l"), (0x1D0D, "m"), (0x0274, "n"),
+        (0x1D0F, "o"), (0x1D18, "p"), (0x0280, "r"), (0xA731, "s"), (0x1D1B, "t"), (0x1D1C, "u"), (0x1D20, "v"),
+        (0x1D21, "w"), (0x028F, "y"), (0x1D22, "z"),
+    )}
+)  # Cyrillic, Greek and Armenian letters that look like Latin ones, by code point
+_INVISIBLE = {"\u115f", "\u1160", "\u3164", "\uffa0", "\u180e", "\u2800"}
+
+
+def fold_compat(text: object, *, lower: bool = True) -> str:
+    """The COMPATIBILITY fold for reading WORDS (the verdict-word and number-word filters), not numbers: NFKC (math bold and
+    sans letters, circled letters, long s, modifier-letter superscripts, fullwidth forms and ligatures become plain letters),
+    invisible, format and combining characters dropped, Cyrillic/Greek/Armenian look-alikes mapped to Latin, lower case.
+    `normalise_text` is NOT this: it keeps NFKC's superscript trap out of numbers (it is NFC plus an explicit map)."""
+    folded = unicodedata.normalize("NFKC", str(text or ""))
+    kept = "".join(
+        c
+        for c in folded
+        if c in "\t\n "
+        or (unicodedata.category(c) not in ("Cf", "Mn", "Me", "Cc") and c not in _INVISIBLE)
+    )
+    plain = kept
+    if lower:
+        plain = plain.lower()
+    return plain.translate(_LOOKALIKE)
+
+
 # --------------------------------------------------------------------- numbers
 
 _D = "[0-9]"
