@@ -22,7 +22,7 @@ from app import absence, claude_datasheet as cd
 from app import datasheets
 from tests.test_claude_datasheet import PAGE, _answer, _fact, temp_storage  # noqa: F401 - autouse
 
-SET = _fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig")
+SET = _fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig")
 TEMP = _fact("Relieving temperature", "121", "9 | Relieving temperature | 121 C", unit="C")
 CASING = _fact("Casing material", "Carbon steel", "12 | Casing material | Carbon steel")
 

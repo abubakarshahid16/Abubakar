@@ -35,7 +35,7 @@ function drumRun(): ReviewFinding[] {
       standard_document_id: "doc_std", standard_clause: "6.2.2",
       matched_phrase: "maximum operating pressure", match_method: "containment",
       contractor_evidence_text: "2.2 bar (ga)",
-      equipment_tag: "2003-47-V-0001A/B",
+      equipment_tag: "9900-99-V-0101A/B",
     }),
   ];
   for (let i = 0; i < 100; i += 1) {
@@ -95,19 +95,19 @@ describe("what a reviewer sees first", () => {
 describe("filters", () => {
   it("narrows by equipment tag", async () => {
     const rows = [
-      finding({ id: "a", compliance_status: "COMPLIANT", equipment_tag: "PSV-4301", matched_phrase: "set pressure" }),
-      finding({ id: "b", compliance_status: "COMPLIANT", equipment_tag: "PSV-4360", matched_phrase: "set pressure" }),
+      finding({ id: "a", compliance_status: "COMPLIANT", equipment_tag: "PSV-9901", matched_phrase: "set pressure" }),
+      finding({ id: "b", compliance_status: "COMPLIANT", equipment_tag: "PSV-9960", matched_phrase: "set pressure" }),
     ];
     render(<FindingsTable findings={rows} selectedId={null} onSelect={vi.fn()} />);
     expect(screen.getAllByText("set pressure")).toHaveLength(2);
 
     await userEvent.selectOptions(
-      screen.getByLabelText("Filter by equipment tag"), "PSV-4301");
+      screen.getByLabelText("Filter by equipment tag"), "PSV-9901");
 
     expect(screen.getAllByText("set pressure")).toHaveLength(1);
     // Scoped to the table: the tag is also an <option> in the filter itself.
     const body = screen.getAllByRole("row")[1];
-    expect(within(body).getByText("PSV-4301")).toBeInTheDocument();
+    expect(within(body).getByText("PSV-9901")).toBeInTheDocument();
   });
 
   it("shows the filtered count against the total", async () => {

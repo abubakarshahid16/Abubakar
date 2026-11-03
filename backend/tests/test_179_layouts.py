@@ -18,7 +18,7 @@ WHAT WAS MEASURED ON THE REAL DOCUMENTS (disposable DB copy, commit 49b093f):
     legitimate, and they must stay. The real duplicates were ones the
     (name, value) count could not see: 8 facts that were ONE printed cell read
     twice on the same page, once by each reader, differing only in inner
-    whitespace ("0.01cP  By Contractor" vs "0.01cP By Contractor") or cut at a
+    whitespace ("0.02cP  By Contractor" vs "0.02cP By Contractor") or cut at a
     line wrap by the text-block reader.
     And "Over pressure % | 21" was lost on every page: 21 is exactly what a
     line number looks like, and the row was compacted before pairing, which
@@ -122,17 +122,17 @@ def _facts(doc_id):
 PSV_COLS = [24, 140, 8, 60, 80, 24, 120, 100]
 
 
-def _psv_page(tag, density="23.55 Kg/m3"):
+def _psv_page(tag, density="31.75 Kg/m3"):
     return [
         ["P&ID Reference", None, "00-00-001", None, None, "Tag No. " + tag, None, None],
-        ["Sl. No", "PROCESS DATA", "", "", "", "Sl. No", "SPRING AND BONNET", ""],
-        ["1", "Fluid", "", "Crude Oil/Gas", None, "42", "Bonnet type/ style", "Bolted/ closed"],
+        ["Sl. No", "FLOW DATA", "", "", "", "Sl. No", "SPRING AND COVER", ""],
+        ["1", "Fluid", "", "Sour Water/Gas", None, "42", "Cover type/ style", "Bolted/ closed"],
         ["3", "Required relieving capacity", "",
-         "5 m3/hr By Contractor (based on\nblocked discharge)", None,
+         "7 m3/hr By Contractor (due to\nclosed outlet)", None,
          "44", "Inlet center to face", "150 mm"],
-        ["10", "Density at relieving temper.", "", "", density, "51", "Cap material", ""],
-        ["11", "Viscosity at relieving temper.", "", "", "0.01cP  By Contractor",
-         "52", "Gasket material", ""],
+        ["10", "Density at relieving temper.", "", "", density, "51", "Cap alloy", ""],
+        ["11", "Viscosity at relieving temper.", "", "", "0.02cP  By Contractor",
+         "52", "Seal ring alloy", ""],
         ["15", "Over pressure %", "", "21", None, "56", "Weather hood", ""],
     ]
 
@@ -159,7 +159,7 @@ def test_one_printed_cell_read_by_both_readers_is_one_fact(tmp_path):
     capacity = by_name.get("required relieving capacity", [])
     assert len(capacity) == 1, [f["field_value"] for f in capacity]
     # The COMPLETE reading survives, not the one cut at the line wrap.
-    assert "blocked discharge" in capacity[0]["field_value"], capacity[0]["field_value"]
+    assert "closed outlet" in capacity[0]["field_value"], capacity[0]["field_value"]
 
 
 def test_the_same_value_for_a_different_valve_on_another_page_is_kept(tmp_path):
@@ -172,7 +172,7 @@ def test_the_same_value_for_a_different_valve_on_another_page_is_kept(tmp_path):
     density = _by_name(_facts(doc)).get("density at relieving temper", [])
     assert sorted(f["page"] for f in density) == [1, 2], density
     assert {f["equipment_tag"] for f in density} == {"PSV-0001 A/B", "PSV-0002 A/B"}
-    assert all(f["raw_value"] == "23.55" for f in density)
+    assert all(f["raw_value"] == "31.75" for f in density)
 
 
 def test_a_small_integer_in_the_value_column_is_a_value_not_a_line_number(tmp_path):
@@ -197,7 +197,7 @@ def test_each_sub_form_keeps_its_own_label_on_a_genuine_dual_column_page(tmp_pat
     inlet = by_name.get("inlet center to face", [])
     assert [(f["raw_value"], f["raw_unit"]) for f in inlet] == [("150", "mm")], inlet
     density = by_name.get("density at relieving temper", [])
-    assert [(f["raw_value"], f["raw_unit"]) for f in density] == [("23.55", "Kg/m3")]
+    assert [(f["raw_value"], f["raw_unit"]) for f in density] == [("31.75", "Kg/m3")]
     assert not any(re.fullmatch(r"\d{1,3}", f["field_name"]) for f in facts), (
         [f["field_name"] for f in facts])
 
@@ -211,9 +211,9 @@ TITLE = "GENERIC OPERATOR COMPANY"
 
 def _title_block(sheet, of, rev="00"):
     return [
-        ["DATASHEET GENERIC DRUMS", None, None, "DWG TYPE", "PLANT NO", "INDEX",
+        ["DATASHEET SAMPLE DRUMS", None, None, "DWG TYPE", "PLANT NO", "IDX",
          "DRAWING NO", "SHT NO", "REV NO"],
-        ["TAG No. : V-0001A/B", None, None, "SP", "2003", "D", "DOC-0001",
+        ["TAG No. : V-0001A/B", None, None, "SP", "9900", "D", "DOC-0001",
          str(sheet), ""],
         ["GENERIC ONSHORE FACILITY", None, None, "", "", "", "", "OF", ""],
         [TITLE + "\nCOUNTRY", None, None, "", "", "", "", str(of), rev],
@@ -238,7 +238,7 @@ def _pv_contents_page():
 
 
 PV_ROWS_A = [
-    ["4", "4.2.1", "Fabricated weight (L1) :", "4410", "kg", "", "", "", ""],
+    ["4", "4.2.1", "Fabricated weight (L1) :", "5210", "kg", "", "", "", ""],
     ["5", "Table 2", "Hydrotest weight (L4) :", "21720", "kg",
      "Field test weight", "", "", ""],
     ["6", "5.7", "Design life :", "25", "years", "", "", "", ""],
@@ -246,9 +246,9 @@ PV_ROWS_A = [
 PV_ROWS_B = [
     ["4", "", "Internal design pressure :", "3.5", "bar", "", "", "", ""],
     ["5", "D.6.1",
-     "Supplier qualification for pressure components of austenitic\n"
+     "Maker approval for pressure parts of austenitic\n"
      "stainless steel duplex vessels :", "not applicable", "", "", "", "", ""],
-    ["6", "", "Concrete bearing stress :", "8300", "kPa", "", "", "", ""],
+    ["6", "", "Concrete bearing stress :", "7400", "kPa", "", "", "", ""],
 ]
 
 
@@ -272,7 +272,7 @@ def test_the_page_title_is_never_part_of_a_field_label(tmp_path):
     # Positive first: the form's real fields are read.
     by_name = _by_name(facts)
     assert [(f["raw_value"], f["raw_unit"]) for f in by_name.get("concrete bearing stress", [])] \
-        == [("8300", "kPa")], sorted(by_name)
+        == [("7400", "kPa")], sorted(by_name)
     polluted = [f["field_label"] for f in facts if TITLE.lower() in f["field_label"].lower()]
     assert not polluted, f"the page title leaked into field labels: {polluted}"
 
@@ -327,7 +327,7 @@ def test_an_empty_hold_list_of_dashes_is_not_a_blank_field(tmp_path):
 # real sheet's. The label vocabulary is the public API datasheet form's.
 
 SLOT_LINES = [
-    ("42", "PROPOSAL CURVE NO.        _____________*_________"
+    ("42", "OFFER CURVE NO.           _____________*_________"
            "                      RPM          _______*_________",
      "Driver Type                  ___MOTOR___"),
     ("45", "RATED POWER  _______*_______      kW"
@@ -335,9 +335,9 @@ SLOT_LINES = [
      "GEAR          _____NO______"),
     ("8", "Number of Accelerometers                     __________2____________",
      "COOLING WATER PIPING PLAN          __________________"),
-    ("7", "PROVISION FOR MTG ONLY                 (6.10.2.10)             __________YES_________",
+    ("7", "PROVISION FOR MOUNTING                 (6.10.2.10)             __________YES_________",
      ""),
-    ("32", "RANGE OF AMBIENT TEMPS :     MIN/MAX"
+    ("32", "SPAN OF SITE TEMPS :     MIN/MAX"
            "                               __-03__        /       _ 55__  OC", ""),
 ]
 
@@ -365,19 +365,19 @@ def test_each_drawn_slot_on_a_line_is_its_own_field(tmp_path):
     by_name = _by_name(facts)
 
     # Empty slots are BLANKS - recorded as blank, never as 0.
-    for name in ("proposal curve no", "rpm", "rated power", "npshr at rated flow",
+    for name in ("offer curve no", "rpm", "rated power", "npshr at rated flow",
                  "cooling water piping plan"):
         found = by_name.get(name, [])
         assert len(found) == 1 and found[0]["is_blank"] == 1, (name, sorted(by_name))
     # Written ON the rule, the answer is the slot's value.
     assert [f["raw_value"] for f in by_name.get("number of accelerometers", [])] == ["2"]
     assert [f["field_value"] for f in by_name.get("gear", [])] == ["NO"]
-    provision = [f for f in facts if f["field_label"].startswith("PROVISION FOR MTG ONLY")]
+    provision = [f for f in facts if f["field_label"].startswith("PROVISION FOR MOUNTING")]
     assert [f["field_value"] for f in provision] == ["YES"], provision
 
 
 def test_a_slot_whose_field_is_not_named_stays_unknown(tmp_path):
-    """NEGATIVE. `RANGE OF AMBIENT TEMPS : MIN/MAX __-03__ / _ 55__ OC`
+    """NEGATIVE. `SPAN OF SITE TEMPS : MIN/MAX __-03__ / _ 55__ OC`
     names neither slot on its own - which one is MIN is a reading of the
     layout, not of the text. No fact may carry -03 or 55 under ANY label."""
     doc = _ingest(_slot_form_pdf(tmp_path / "pump2.pdf", SLOT_LINES), "doc_pump2")

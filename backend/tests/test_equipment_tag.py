@@ -1,19 +1,19 @@
 """Which equipment a fact describes.
 
 A DATASHEET CAN COVER MORE THAN ONE THING. `DS-0000-DAS-I-01` is four pressure
-safety valves on four pages - PSV-4301, PSV-4303, PSV-4360, PSV-4306 - each
+safety valves on four pages - PSV-9901, PSV-9903, PSV-9960, PSV-9906 - each
 with its own set pressure, its own relieving temperature, its own everything.
 Without a tag those fifty-five facts are one undifferentiated pile, and a
 finding against "the set pressure" names a quantity four different valves
 state differently.
 
-THE TAG IS READ, NEVER GUESSED, AND NEVER CLEANED. `PSV-4301 A/B (for GC-9,
-10 & 19) & PSV-3301 A/B (for GC-21)` is stored exactly as the sheet wrote it,
+THE TAG IS READ, NEVER GUESSED, AND NEVER CLEANED. `PSV-9901 A/B (for XC-71,
+72 & 73) & PSV-9801 A/B (for XC-74)` is stored exactly as the sheet wrote it,
 because it is an identifier somebody will read off a P&ID or type into a
 search box, and a tidied version matches nothing.
 
 TWO SHAPES, BOTH REAL. The drum sheet writes `Tag number :` in one cell and
-`2003-47-V-0001A/B` in the next; the PSV sheet puts the key and the tag in one
+`9900-99-V-0101A/B` in the next; the PSV sheet puts the key and the tag in one
 text block with nothing beside it. A reader that understood only the first
 would find no tag on any page of the second.
 
@@ -41,13 +41,13 @@ from app.config import settings
 
 @pytest.mark.parametrize("label,value,expected", [
     # The drum sheet: key in one cell, tag in the next.
-    ("Tag number :", "2003-47-V-0001A/B", "2003-47-V-0001A/B"),
+    ("Tag number :", "9900-99-V-0101A/B", "9900-99-V-0101A/B"),
     ("Tag No", "V-101", "V-101"),
     ("Item No.", "E-2201 A/B", "E-2201 A/B"),
     # The PSV sheet: the whole row is one cell and there is no value.
-    ("Tag No. PSV-4301 A/B (for GC-9, 10 & 19)", "",
-     "PSV-4301 A/B (for GC-9, 10 & 19)"),
-    ("Tag Number PSV-4360 A/B", "", "PSV-4360 A/B"),
+    ("Tag No. PSV-9901 A/B (for XC-71, 72 & 73)", "",
+     "PSV-9901 A/B (for XC-71, 72 & 73)"),
+    ("Tag Number PSV-9960 A/B", "", "PSV-9960 A/B"),
 ])
 def test_a_tag_row_yields_its_tag_verbatim(label, value, expected):
     assert datasheets.tag_from_pair(label, value) == expected
@@ -56,8 +56,8 @@ def test_a_tag_row_yields_its_tag_verbatim(label, value, expected):
 @pytest.mark.parametrize("label,value", [
     # NAMES WHAT THE EQUIPMENT IS, not which one it is.
     ("Tag description :", "Sour Water Drums"),
-    ("Set pressure", "340 psig"),
-    ("Design pressure", "23.5 barg"),
+    ("Set pressure", "355 psig"),
+    ("Design pressure", "27.5 barg"),
     # A key with nothing after it and nothing beside it states no tag, and
     # an empty string is not a tag.
     ("Tag No.", ""),
@@ -72,9 +72,9 @@ def test_the_tag_is_not_tidied():
     identifier. A reader that stripped them would produce a tag that matches
     nothing anybody searches for."""
     tag = datasheets.tag_from_pair(
-        "Tag No.  PSV-4301 A/B   (for GC-9, 10 & 19) & PSV-3301 A/B", "")
+        "Tag No.  PSV-9901 A/B   (for XC-71, 72 & 73) & PSV-9801 A/B", "")
 
-    assert tag == "PSV-4301 A/B (for GC-9, 10 & 19) & PSV-3301 A/B", \
+    assert tag == "PSV-9901 A/B (for XC-71, 72 & 73) & PSV-9801 A/B", \
         "only runs of whitespace may be collapsed"
 
 
@@ -95,11 +95,11 @@ def test_several_tags_stay_on_their_own_pages():
     """THE PSV'S SHAPE, and the rule that keeps one valve's numbers off
     another's. Page 3 states no tag, so page 3 gets NULL - carrying page 1's
     tag onto it would file one valve's set pressure against another."""
-    pages = {1: [("Tag No. PSV-4301", "")], 2: [("Tag No. PSV-4303", "")],
+    pages = {1: [("Tag No. PSV-9901", "")], 2: [("Tag No. PSV-9903", "")],
              3: [("Set pressure", "3 bar")]}
 
     assert datasheets.stamp_tags(pages) == {
-        1: "PSV-4301", 2: "PSV-4303", 3: None}
+        1: "PSV-9901", 2: "PSV-9903", 3: None}
 
 
 def test_a_document_with_no_tag_row_stamps_nothing():
@@ -197,7 +197,7 @@ def test_the_tag_row_never_becomes_a_fact(temp_storage, tmp_path):
         # quantity - `2003A` reads as 2003 amperes - and only the tag-row
         # rule stands between it and a fact.
         ("Tag No.", "2003A"),
-        ("Design pressure", "23.5 barg")]]))
+        ("Design pressure", "27.5 barg")]]))
 
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     names = {f["field_name"] for f in _facts(doc)}
@@ -212,8 +212,8 @@ def test_the_tag_row_never_becomes_a_fact(temp_storage, tmp_path):
 
 def test_facts_are_stamped_with_the_documents_only_tag(temp_storage, tmp_path):
     doc = _ingest(_datasheet_pdf(tmp_path / "b.pdf", [
-        [("Tag number :", "V-0001A/B"), ("Design pressure", "23.5 barg")],
-        [("Set pressure", "340 psig")],
+        [("Tag number :", "V-0001A/B"), ("Design pressure", "27.5 barg")],
+        [("Set pressure", "355 psig")],
     ]))
 
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
@@ -227,8 +227,8 @@ def test_facts_are_stamped_with_the_documents_only_tag(temp_storage, tmp_path):
 def test_a_multi_tag_document_keeps_each_page_on_its_own_tag(
         temp_storage, tmp_path):
     doc = _ingest(_datasheet_pdf(tmp_path / "c.pdf", [
-        [("Tag No. PSV-4301 A/B", ""), ("Set pressure", "340 psig")],
-        [("Tag No. PSV-4360 A/B", ""), ("Set pressure", "130 psig")],
+        [("Tag No. PSV-9901 A/B", ""), ("Set pressure", "355 psig")],
+        [("Tag No. PSV-9960 A/B", ""), ("Set pressure", "135 psig")],
         [("Design pressure", "10 barg")],
     ]))
 
@@ -236,8 +236,8 @@ def test_a_multi_tag_document_keeps_each_page_on_its_own_tag(
     by_page = {(f["page"], f["field_name"]): f["equipment_tag"]
                for f in _facts(doc)}
 
-    assert by_page[(1, "set pressure")] == "PSV-4301 A/B"
-    assert by_page[(2, "set pressure")] == "PSV-4360 A/B"
+    assert by_page[(1, "set pressure")] == "PSV-9901 A/B"
+    assert by_page[(2, "set pressure")] == "PSV-9960 A/B"
     assert by_page[(3, "design pressure")] is None, \
         "a tag was inherited across pages that name different equipment"
 
@@ -255,7 +255,7 @@ def test_a_single_tag_document_keeps_todays_key(temp_storage, tmp_path):
     keys still match.
     """
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", [[
-        ("Tag number :", "V-0001A/B"), ("Design pressure", "23.5 barg")]]))
+        ("Tag number :", "V-0001A/B"), ("Design pressure", "27.5 barg")]]))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     facts = _facts(doc)
 
@@ -272,7 +272,7 @@ def test_a_rejection_survives_re_extraction_of_a_single_tag_sheet(
     """END TO END, BECAUSE THAT IS WHERE THE KEY IS ACTUALLY USED."""
     doc = _ingest(_datasheet_pdf(tmp_path / "e.pdf", [[
         ("Tag number :", "V-0001A/B"),
-        ("Internal design pressure", "23.5 barg")]]))
+        ("Internal design pressure", "27.5 barg")]]))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     requirement = {
         "id": "req-1", "standard_document_id": "std", "clause": "5.1",
@@ -301,12 +301,12 @@ def test_rejecting_one_tag_does_not_suppress_the_same_field_on_another(
     """THE REASON THE TAG IS IN THE KEY AT ALL.
 
     Four valves, four set pressures. An engineer who says "this clause is not
-    about PSV-4301's set pressure" has said nothing whatever about PSV-4360's,
+    about PSV-9901's set pressure" has said nothing whatever about PSV-9960's,
     and a key that could not tell them apart would suppress both.
     """
     doc = _ingest(_datasheet_pdf(tmp_path / "f.pdf", [
-        [("Tag No. PSV-4301 A/B", ""), ("Set pressure", "340 psig")],
-        [("Tag No. PSV-4360 A/B", ""), ("Set pressure", "130 psig")],
+        [("Tag No. PSV-9901 A/B", ""), ("Set pressure", "355 psig")],
+        [("Tag No. PSV-9960 A/B", ""), ("Set pressure", "135 psig")],
     ]))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     facts = _facts(doc)
@@ -318,7 +318,7 @@ def test_rejecting_one_tag_does_not_suppress_the_same_field_on_another(
         "requirement_type": "numeric_limit", "raw_value": "300",
         "raw_unit": "psig", "subject": "the set pressure shall not exceed",
     }
-    first = next(f for f in facts if f["equipment_tag"] == "PSV-4301 A/B")
+    first = next(f for f in facts if f["equipment_tag"] == "PSV-9901 A/B")
     comparison.reject_pair(requirement, first, rejected_by=None,
                            reason="not this valve")
 
@@ -329,7 +329,7 @@ def test_rejecting_one_tag_does_not_suppress_the_same_field_on_another(
     suppressed = {f["equipment_tag"] for f in remaining
                   if comparison.fact_key(f, tag_scoped=scoped) in refused}
 
-    assert suppressed == {"PSV-4301 A/B"}, (
+    assert suppressed == {"PSV-9901 A/B"}, (
         "rejecting one valve's field suppressed another valve's: "
         f"{suppressed}")
 
@@ -338,7 +338,7 @@ def test_rejecting_one_tag_does_not_suppress_the_same_field_on_another(
 
 def test_a_finding_records_the_equipment_it_is_about(temp_storage, tmp_path):
     doc = _ingest(_datasheet_pdf(tmp_path / "g.pdf", [[
-        ("Tag number :", "V-0001A/B"), ("Design pressure", "23.5 barg")]]))
+        ("Tag number :", "V-0001A/B"), ("Design pressure", "27.5 barg")]]))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     fact = next(f for f in _facts(doc)
                 if f["field_name"] == "design pressure")
@@ -358,7 +358,7 @@ def test_a_finding_with_no_fact_names_no_equipment(temp_storage, tmp_path):
     and therefore no equipment; guessing the document's tag onto it would
     claim the sheet said something about that vessel when it did not."""
     doc = _ingest(_datasheet_pdf(tmp_path / "h.pdf", [[
-        ("Tag number :", "V-0001A/B"), ("Design pressure", "23.5 barg")]]))
+        ("Tag number :", "V-0001A/B"), ("Design pressure", "27.5 barg")]]))
 
     finding = comparison.create_finding(
         review_run_id=None, submittal_document_id=doc,

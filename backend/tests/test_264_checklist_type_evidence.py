@@ -1,4 +1,4 @@
-"""Order 264 / 2p gate on 216400C: a vessel or exchanger checklist runs only when the sheet's TITLE (or a person)
+"""Order 264 / 2p gate on Specification 1: a vessel or exchanger checklist runs only when the sheet's TITLE (or a person)
 named the type. A drum sheet that mentions "heat exchanger" twice in its body was labelled "Heat Exchanger"
 by the classifier (`body_phrase_match`) and was asked for tubes, TEMA type and heat duty: 12 false
 "contractor to provide" rows. Invented sheets."""
