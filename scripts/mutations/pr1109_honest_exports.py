@@ -15,7 +15,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="the view drops the run status note: an incomplete run's sheet "
                          "and preview read like a complete review",
              path=APP / "crs_export.py",
-             anchor='        "run_status_note": str(meta.get("run_status_note") or ""),\n',
+             anchor='        "run_status_note": crs_ai_review_view.top_note(meta, copy),\n',
              replacement='        "run_status_note": "",\n',
              target=_TEST, keyword="incomplete_run_carries_the_marker",
              tags=("crs", "honesty", "633")),
