@@ -44,6 +44,7 @@ from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 from . import page_not_read, paragraph_ids, procedure_text, spec_kit, word_pages
 
 # isort: split
+from .compliance_list import is_listed as listed
 from .crs_draft_lanes import (  # noqa: F401
     AI_UNCONFIRMED_COMMENT,
     CLAUSE_LANE,
@@ -52,7 +53,6 @@ from .crs_draft_lanes import (  # noqa: F401
     WEB_UNCONFIRMED_COMMENT,
     lane,
 )
-from .compliance_list import is_listed as listed
 from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
 from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
 
