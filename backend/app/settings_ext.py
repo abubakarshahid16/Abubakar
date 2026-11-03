@@ -205,6 +205,10 @@ class SettingsExt(BaseModel):
     #: the two switches above merge nothing more. Findings are never touched. OFF: as it was.
     #: Env: CRS_ONE_ROW_PER_PROBLEM_ENABLED.
     crs_one_row_per_problem_enabled: bool = False
+    #: Owner order 3 Nov (item 14): ONE note at the top of the INTERNAL CRS copy, saying the rules used are
+    #: drafts checked by code unless the row's Rule trust text says a person approved it, and that an engineer must confirm. Export text
+    #: only; no row, verdict or number changes. OFF: the sheet is as it was. Env: CRS_RULES_NOTE_ENABLED.
+    crs_rules_note_enabled: bool = False
     #: #1591: on that export, a row with no page says the section or field it is about and why it
     #: has no page, never "page not found". A page still comes only from a verified quote. Needs
     #: CRS_EXPORT_QUALITY_ENABLED. OFF: nothing changes. Env: CRS_PAGE_CELL_FIELD_ENABLED.

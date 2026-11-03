@@ -164,3 +164,14 @@ def test_the_restore_route_refuses_a_run_the_caller_cannot_read(request, monkeyp
     )
     assert response.status_code == 404
     assert arpass.restored_ids(run) == set()
+
+
+def test_the_restore_route_needs_a_named_engineer(request, monkeypatch):
+    _sub, run, _scope = request.getfixturevalue("_world")
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    arpass.run(run, [dict(ROW)], pages=PAGES, held=HELD, provider=Stub([REMOVE]))
+    response = TestClient(app).post(
+        f"/api/reviews/runs/{run}/ai-review/p1/restore", json={}
+    )
+    assert response.status_code == 401
+    assert arpass.restored_ids(run) == set()
