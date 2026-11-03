@@ -21,6 +21,7 @@ does not make one.
 | `api_docs_enabled` | `False` | permanent | | | Route docs off the developer machine only on purpose |
 | `ocr_use_cls` | `True` | permanent | | | OCR tuning measured in ADR-0005 |
 | `answer_model_allow_remote_host` | `False` | permanent | | | Egress gate for the local-model URL (rule 1) |
+| `pairing_subject_gate_enabled` | `False` | rollout | 2026-11-03 | 2026-11-17 | A requirement pairs with a datasheet field only when its subject is the same quantity (`subject_pairing`); no subject stays unpaired for the engineer; owner decides default on after the bench |
 | `procedure_path_enabled` | `True` | rollout | 2026-11-01 | 2026-11-14 | Procedure submittals: a procedure-type requirement is checked against the submittal's own text (engineer row with a verified quote, or missing); never COMPLIANT (#1476) |
 | `datasheet_one_value_enabled` | `True` | rollout | 2026-11-01 | 2026-11-14 | Datasheet checks: a range printed twice (a plain note on one reading) is one value, not "two different values"; a combined "a / rating / c" label answers the text attribute it names (an engineer question or the blank marker, never COMPLIANT) (#1472) |
 | `planted_defects_bench_enabled` | `False` | rollout | 2026-11-02 | 2026-11-16 | The bench also runs the planted-defect sheets on its own copy and prints the table (#1607); printed only, the gate does not read it until the baseline is stable |
