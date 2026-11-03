@@ -475,3 +475,8 @@ class SettingsExt(BaseModel):
     ai_engineering_review_pass_enabled: bool = False
     ai_engineering_review_pass_engine: str = "ollama"
     ai_engineering_review_pass_timeout_s: float = 300.0
+    #: Lane 6 (owner order): the AI review pass may CREATE a Pass when code verifies both quotes (`ai_pass_verifier`): a
+    #: document quote on the cited page, a clause quote in the stored clause text, the scope confirmed, the figure compared by
+    #: code, no Fail or second value on the sheet, two independent readings agreeing. OFF by default; the owner turns it on
+    #: when #1681 is applied. Env: AI_REVIEW_PASS_ENABLED.
+    ai_review_pass_enabled: bool = False

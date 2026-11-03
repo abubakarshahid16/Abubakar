@@ -23,7 +23,7 @@ import re
 from datetime import UTC, datetime
 
 from . import ai_review_proposals as arp
-from . import claude_approved, local_engine_bar
+from . import ai_pass_verifier, claude_approved, local_engine_bar
 from .ai import output_limits
 from .config import settings
 from .db import connect
@@ -268,6 +268,7 @@ def run(
     provider=None,
     out_of_scope=frozenset(),
     compare=None,
+    clause_text=None,
 ) -> dict:
     """Ask once, verify every proposal, store every verdict. Returns and stores the run's summary. Never raises."""
     ensure_schema()
@@ -293,6 +294,7 @@ def run(
         held=held,
         out_of_scope=frozenset(out_of_scope),
         compare=compare,
+        clause_text=dict(clause_text or {}),
     )
     try:
         proposals, refusal, summary["model"] = _ask(
@@ -360,6 +362,11 @@ def run_for_job(review_run_id: str, scope) -> dict | None:
             rows,
             pages=ai_engineering_check.datasheet_pages(submittal),
             held=ai_engineering_check._held_standards(review_run_id),
+            clause_text=(
+                ai_pass_verifier.stored_clause_text(review_run_id)
+                if settings.ai_review_pass_enabled
+                else None
+            ),
         )
     except Exception:
         log.warning(

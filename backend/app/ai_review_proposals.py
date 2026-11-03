@@ -34,7 +34,7 @@ from . import claims, crs_wording, numparse, standard_ids
 from .ai_engineering_check import PASS_FAIL_WORDS
 from .reader_api import _contains, _fold
 
-TYPES = ("remove", "add", "reword", "understanding", "flag")
+TYPES = ("remove", "add", "reword", "understanding", "flag", "pass")
 CONFIDENCES = ("low", "medium")  # never "high"
 MAX_PROPOSALS = 30
 MAX_TEXT_CHARS = 600
@@ -138,6 +138,8 @@ class Context:
     )  # (standard, clause) the rulebook says is outside scope
     #: (field, value, standard, clause) -> "non_compliant" | "needs_engineer_review" | None; the code comparison.
     compare: Callable[[str, str, str, str], str | None] | None = None
+    #: (standard name, clause number) -> the stored clause text; read by the AI-created Pass only (`ai_pass_verifier`)
+    clause_text: Mapping[tuple[str, str], str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -650,6 +652,10 @@ def verify(proposal: object, ctx: Context) -> Verdict:
         if proposal.get("confidence") not in CONFIDENCES:
             return Verdict(False, Reason.BAD_CONFIDENCE.value, proposal)
         return _verify_understanding(proposal, ctx)
+    if kind == "pass":
+        from . import ai_pass_verifier
+
+        return ai_pass_verifier.verify_pass(proposal, ctx)
     bad = _common(proposal, ctx)
     if bad:
         return Verdict(False, bad, proposal)
