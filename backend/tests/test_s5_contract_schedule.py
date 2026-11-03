@@ -270,3 +270,34 @@ def test_the_script_loads_a_local_file_into_a_copy_and_lists_ids_only(
         == lcs.EXIT_REFUSED
     )
     assert "outside the repository" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "Section 2. We list open holds\nlist here.",
+        "Section 2. We list open holds\u00a0list here.",
+        "Section 2. We list open hold-\ns list here.",
+        "Section 2. We list open HOLDS   LIST here.",
+    ],
+)
+def test_a_term_split_by_a_line_break_or_hyphen_or_no_break_space_is_still_found(page):
+    got = lcs.completeness(
+        RULE, _ev(pages={1: "Cover.", 2: page}, terms=["holds list"])
+    )
+    assert got[0] == lcs.NEEDS_ENGINEER, got
+
+
+def test_ordinary_item_wording_is_still_accepted(tmp_path):
+    lcs.read_items(_file(tmp_path))
+    lcs.read_items(
+        _file(
+            tmp_path,
+            [
+                {
+                    **ITEMS[0],
+                    "text": "Calculations are submitted in a package with the datasheets as a rule.",
+                }
+            ],
+        )
+    )

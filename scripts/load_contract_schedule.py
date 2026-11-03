@@ -23,6 +23,7 @@ import json
 import re
 import sqlite3
 import sys
+import unicodedata
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,7 +32,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 sys.path.insert(0, str(REPO / "scripts"))
 
-from app import numparse  # noqa: E402
+from app import claims, numparse  # noqa: E402
 
 SOURCE = "contract schedule"
 #: What the submittal must show. Each is present or not present; none is a number to meet.
@@ -44,10 +45,39 @@ KINDS = (
 ALLOWED_KEYS = {"id", "clause", "kind", "text"}
 PRESENT, NOT_PRESENT, NEEDS_ENGINEER = "present", "not_present", "needs_engineer"
 EXIT_REFUSED = 2
-_NUMBER_OR_LIMIT_WORD = re.compile(
-    r"[<>=\u2264\u2265]|\b(?:at least|at most|no more than|no less than|not exceed|exceeds?|minimum|maximum|min|max)\b",
+#: What the repo's own vocabularies do not cover: number words, and comparator phrases `claims` has no entry for.
+_NUMBER_WORD = re.compile(
+    r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|(?:thir|four|fif|six|seven|eigh|nine)teen"
+    r"|(?:twen|thir|for|fif|six|seven|eigh|nine)ty|hundred|thousand|million|dozen|half|quarter|percent|per\s?cent)\b",
     re.IGNORECASE,
 )
+_COMPARATOR_PHRASE = re.compile(
+    r"[<>=\u2264\u2265\u00b1]|\+\s?/\s?-|\b(?:up to|no (?:fewer|more|less|greater) than|fewer than|more than"
+    r"|less than|greater than|or (?:more|less)|at (?:least|most)|within|between|minimum|maximum|min|max)\b",
+    re.IGNORECASE,
+)
+#: Words `claims.is_unit` accepts that are also plain English: not a unit here.
+_UNIT_LOOKALIKES = frozenset({"in", "a", "m", "g", "s", "t", "l", "h"})
+
+
+def _states_a_limit(text: str) -> bool:
+    """A number, number word, unit, or comparator anywhere in an item's text: the repo's own detectors first
+    (`numparse`, `claims.is_unit`, `claims.comparator_ending`), any numeral of any script (fullwidth digits, one-half),
+    then the few vocabularies they lack."""
+    if numparse.find_numbers(text) or numparse.find_fractions(text):
+        return True
+    if any(unicodedata.numeric(ch, None) is not None for ch in text):
+        return True
+    words = re.findall(r"[^\W_]+", text)
+    if any(claims.is_unit(w) and w.casefold() not in _UNIT_LOOKALIKES for w in words):
+        return True
+    if any(
+        claims.comparator_ending(" ".join(words[:i])) for i in range(1, len(words) + 1)
+    ):
+        return True
+    return bool(_NUMBER_WORD.search(text) or _COMPARATOR_PHRASE.search(text))
+
+
 _PLACEHOLDER = re.compile(r"<[^<>]*>")
 
 _TABLE = f"""CREATE TABLE contract_schedule_rule (
@@ -104,9 +134,7 @@ def read_items(path: Path, *, repo: Path = REPO) -> tuple[str, list[dict]]:
                 raise Refused(f"item {n} has no {key}")
             if _PLACEHOLDER.search(value):
                 raise Refused(f"item {n} still holds a placeholder in {key}")
-        if _NUMBER_OR_LIMIT_WORD.search(item["text"]) or numparse.find_numbers(
-            item["text"]
-        ):
+        if _states_a_limit(item["text"]):
             raise Refused(
                 f"item {n} has a number, unit or comparator in its text: never an equipment limit"
             )
@@ -201,6 +229,15 @@ def current_rules(conn, contract: str | None = None) -> list[dict]:
     return [dict(zip(names, r, strict=True)) for r in rows]
 
 
+def _fold(text: str) -> str:
+    """The quote check's own folding (`compiled_rule_proof.quote_verified`): hyphen breaks joined, whitespace of every
+    kind (new line, no-break space) squashed, case folded. The search uses this on the term and on the page."""
+    from app.ai_requirements import _squash
+    from app.compiled_rule_pages import join_hyphens
+
+    return _squash(join_hyphens(" ".join(str(text or "").split())))
+
+
 def _page_no(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
@@ -244,7 +281,7 @@ def completeness(rule: dict, evidence: dict | None) -> tuple[str, str]:
         return NEEDS_ENGINEER, "not every page was read, so absence is not shown"
     if not terms:
         return NEEDS_ENGINEER, "no search term was given, so absence is not shown"
-    if any(t in text.casefold() for text in pages.values() for t in terms):
+    if any(_fold(t) in _fold(text) for text in pages.values() for t in terms):
         return NEEDS_ENGINEER, "a search term is on a page but no quote was given"
     return NOT_PRESENT, "every page was read and none holds the item"
 
