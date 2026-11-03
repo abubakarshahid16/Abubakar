@@ -675,11 +675,12 @@ RULES_NOTE = (
 )
 
 
-def with_rules_note(run_status_note) -> str:
-    """Row 1's note: the run status as it was, then the one rules note when the switch is on."""
+def with_rules_note(run_status_note, copy=None) -> str:
+    """Row 1's note: the run status as it was, then the one rules note when the switch is on. INTERNAL copy only:
+    the contractor copy never says an engineer must confirm anything (owner 3 Nov 11:40)."""
     from .config import settings
 
     said = str(run_status_note or "")
-    if not settings.crs_rules_note_enabled:
+    if not settings.crs_rules_note_enabled or (copy or "internal") != "internal":
         return said
     return f"{said}\n{RULES_NOTE}" if said else RULES_NOTE

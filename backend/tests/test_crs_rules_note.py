@@ -28,12 +28,19 @@ def row_one(copy: str) -> str:
     return openpyxl.load_workbook(io.BytesIO(data)).worksheets[0]["A1"].value or ""
 
 
-def test_the_note_is_one_sentence_on_row_1_of_both_copies_only_when_on(monkeypatch):
-    for copy in ("internal", "issue"):
-        monkeypatch.setattr(settings, "crs_rules_note_enabled", False)
-        assert quality.RULES_NOTE not in row_one(copy)
-        monkeypatch.setattr(settings, "crs_rules_note_enabled", True)
-        assert row_one(copy).count(quality.RULES_NOTE) == 1
+def test_the_note_is_one_sentence_on_row_1_of_the_internal_copy_only_when_on(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "crs_rules_note_enabled", False)
+    assert quality.RULES_NOTE not in row_one("internal")
+    monkeypatch.setattr(settings, "crs_rules_note_enabled", True)
+    assert row_one("internal").count(quality.RULES_NOTE) == 1
+
+
+def test_the_contractor_copy_never_carries_the_note(monkeypatch):
+    monkeypatch.setattr(settings, "crs_rules_note_enabled", True)
+    assert quality.RULES_NOTE not in row_one("issue")
+    assert "engineer" not in row_one("issue").lower()
 
 
 def test_the_note_says_drafts_checked_by_code_and_an_engineer_must_confirm():
