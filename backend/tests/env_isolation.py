@@ -223,6 +223,8 @@ EGRESS_SAFE: dict[str, object] = {
     "one_intake_enabled": False,
     # --- local only, no model or socket: images and workbooks accepted through intake (off by default)
     "intake_images_xlsx_enabled": False,
+    # --- local only, no model or socket: numbered blocks and hashes for every file (off by default)
+    "intake_blocks_enabled": False,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,
@@ -301,6 +303,7 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
     "crs_plain_notes_enabled": False,
+    "run_record_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,
     # --- local only, no model or socket: a recognition file error holds the document (#1568, off by default)

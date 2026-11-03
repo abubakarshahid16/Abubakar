@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import numparse
+from . import numparse, unit_case
 
 #: A number as specifications print it: 6, 0.5, -29, 1/2, 1 1/2, 1-1/2, 150.
 #: Never preceded by a letter, digit or point, so "SAES-L-310" yields no -310.
@@ -234,7 +234,7 @@ def _quantity(kind: str, text: str, unit_from: str | None = None) -> tuple[float
             return (v - 32) * 5 / 9, "F"
         return v, "C"
     factor = {"psi": 1.0, "psig": 1.0, "bar": 14.5038, "barg": 14.5038,
-              "kpa": 0.145038, "mpa": 145.038}.get(unit.lower())
+              "kpa": 0.145038, "mpa": 145.038}.get(unit_case.fold_unit(unit))
     return (v * factor, "p") if factor else None
 
 
