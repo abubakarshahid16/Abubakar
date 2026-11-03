@@ -514,9 +514,10 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
-            from . import company_standard_confirm
+            from . import company_standard_confirm, project_specification
 
             held = company_standard_confirm.held_readable(scope)  # #620
+            project_specification.pin(run_id, submittal, scope)  # lane 6: only a person marks one
             reread_for_standards.for_review(submittal, scope, run_id, timings)
         with _phase(conn, job_id, 2, heartbeat, timings, "compare"):
             comparison.run_comparison(
