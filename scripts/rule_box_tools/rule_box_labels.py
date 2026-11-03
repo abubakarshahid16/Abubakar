@@ -22,6 +22,7 @@ resumable). Counts only in a report.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import time
@@ -32,26 +33,30 @@ from app.ai.json_reply import unfenced
 from app.config import settings
 from rule_box_tools import rule_box_run
 
-PROMPT_VERSION = "box-label-v1"
+PROMPT_VERSION = "box-label-v2"
 TABLE = "rule_box_labels"
 BOXES = ("a", "b", "c", "d", "e")
 REFERENCE = Path(__file__).resolve().parents[2] / "backend" / "app" / "reference"
 #: Words that are not a kind or a type but are a real answer.
 ANY_KIND, OTHER = "any", "other"
 GENERAL = "general"
-PER_PROMPT = 25
+PER_PROMPT = 5
 QUOTE_CHARS = 700
 TOKENS_PER_RULE = 55
 _NAME_OK = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._/&()\-,]{2,119}")
 
 BOX_WORDS = (
-    "a = a number or material rule: a limit, or an allowed / excluded list, on ONE value;\n"
-    "b = a sentence rule: an obligation that must be read, with no single value to compare;\n"
-    "c = a condition first: it applies only when a stated condition holds, and then gives a limit or list;\n"
-    "d = needs ANOTHER document to be checked (a drawing, a calculation, a procedure, a test report, another standard);"
-    " name that document in document_name;\n"
-    "e = does not apply to a document under review: a definition, scope statement, reference list, administrative or"
-    " informative text"
+    "a = a number or material rule: a limit, or an allowed / excluded list, on ONE value. Any material or dimension rule"
+    " with checkable content belongs here, not in b, c or d;\n"
+    "b = a sentence rule: an obligation that must be read, with no single value to compare. Requirements to keep records,"
+    " rank, list or document something are b, not e;\n"
+    "c = a condition first: it applies only when something actually gates it, and then gives a limit or list. A trigger"
+    ' word ("if", "where", a scope phrase) makes it c only when it truly gates the rule; a rule that is gated without an'
+    " opening trigger word is still c;\n"
+    "d = needs ANOTHER NAMED document to be checked (a drawing, a calculation, a procedure, a test report, another"
+    " standard); name that document in document_name. A dimension symbol or a table label is not a document;\n"
+    "e = does not apply to a document under review, and ONLY these: a definition, a scope statement, a note, the history"
+    " of the standard"
 )
 
 
@@ -85,11 +90,13 @@ def checklist_name(equipment_type: str | None) -> str | None:
 
 
 def ensure_schema(conn) -> None:
+    with contextlib.suppress(Exception):  # the column exists, or the table is made below
+        conn.execute(f"ALTER TABLE {TABLE} ADD COLUMN box_v1 TEXT")
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {TABLE} ("
         " rule_id TEXT PRIMARY KEY, document_kind TEXT NOT NULL, equipment_type TEXT NOT NULL,"
         " box TEXT NOT NULL, needs_document_name TEXT, model TEXT NOT NULL, prompt_version TEXT NOT NULL,"
-        " created_at TEXT NOT NULL)"
+        " created_at TEXT NOT NULL, box_v1 TEXT)"
     )
     conn.commit()
 
@@ -177,7 +184,7 @@ def standard_labels(conn) -> dict[str, str]:
 def todo(conn) -> list:
     return conn.execute(
         "SELECT r.id, r.standard_document_id, r.clause, r.page, r.quote FROM compiled_rules r"
-        f" WHERE NOT EXISTS (SELECT 1 FROM {TABLE} l WHERE l.rule_id = r.id)"
+        f" WHERE NOT EXISTS (SELECT 1 FROM {TABLE} l WHERE l.rule_id = r.id AND l.prompt_version = '{PROMPT_VERSION}')"
         " ORDER BY r.standard_document_id, r.page, r.quote_start, r.id"
     ).fetchall()
 
@@ -252,9 +259,16 @@ def storer(conn, members: dict, model: str, version: str = PROMPT_VERSION):
                     tally["rejected_by_reason"].get(why, 0) + 1
                 )
                 continue
+            old = conn.execute(
+                f"SELECT box, box_v1, prompt_version FROM {TABLE} WHERE rule_id = ?",
+                (rule["id"],),
+            ).fetchone()
+            first = None if old is None else old["box"]
+            if old is not None and old["prompt_version"] == version:
+                continue
             conn.execute(
-                f"INSERT OR IGNORE INTO {TABLE} (rule_id, document_kind, equipment_type, box, needs_document_name,"
-                " model, prompt_version, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                f"INSERT OR REPLACE INTO {TABLE} (rule_id, document_kind, equipment_type, box, needs_document_name,"
+                " model, prompt_version, created_at, box_v1) VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     rule["id"],
                     clean["document_kind"],
@@ -264,6 +278,7 @@ def storer(conn, members: dict, model: str, version: str = PROMPT_VERSION):
                     model,
                     version,
                     time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    first,
                 ),
             )
             stored += 1

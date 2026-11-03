@@ -533,7 +533,7 @@ def test_a_rule_of_a_type_without_a_field_list_is_marked_and_not_asked_and_a_box
             ("r3", "b", "boiler"),
         ):
             rules.execute(
-                f"INSERT INTO {rule_boxes.TABLE} VALUES (?,?,?,?,NULL,'m','v','t')",
+                f"INSERT INTO {rule_boxes.TABLE} VALUES (?,?,?,?,NULL,'m','v','t',NULL)",
                 (rid, "datasheet", eq, box),
             )
     assert (
@@ -552,10 +552,10 @@ def test_a_rule_of_a_type_without_a_field_list_is_marked_and_not_asked_and_a_box
 def test_step_two_asks_one_rule_per_prompt_and_stores_the_check_with_the_model(rules):
     with rules:
         rules.execute(
-            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t')"
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
         )
         rules.execute(
-            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r3','datasheet','pressure vessel','a',NULL,'h','v','t')"
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r3','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
         )
     jobs, members, counts = rule_box_check.check_jobs(rules, _gate_open)
     assert counts["prompts"] == 2 and all(len(j.prompt) < 6000 for j in jobs)
@@ -646,7 +646,7 @@ def test_step_three_uses_a_fresh_prompt_that_shows_no_earlier_answer_and_never_t
 ):
     with rules:
         rules.execute(
-            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t')"
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
         )
     jobs, members, _c = rule_box_check.check_jobs(rules, _gate_open)
     rule_box_run.run(
@@ -698,7 +698,7 @@ def test_step_three_uses_a_fresh_prompt_that_shows_no_earlier_answer_and_never_t
 def test_a_disagreeing_rule_does_not_advance(rules):
     with rules:
         rules.execute(
-            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t')"
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
         )
     jobs, members, _c = rule_box_check.check_jobs(rules, _gate_open)
     rule_box_run.run(
@@ -883,7 +883,7 @@ def test_field_lists_are_built_only_for_types_without_an_approved_list_and_are_m
             ("r3", "general"),
         ):
             rules.execute(
-                f"INSERT INTO {rule_box_labels_table()} VALUES (?,?,?,'a',NULL,'h','v','t')",
+                f"INSERT INTO {rule_box_labels_table()} VALUES (?,?,?,'a',NULL,'h','v','t',NULL)",
                 (rid, "datasheet", eq),
             )
     rule_box_fields.ensure_schema(rules)
@@ -946,3 +946,29 @@ def test_a_standard_past_the_family_list_only_by_the_owners_file_and_still_needs
     path = __import__("app.claude_approved", fromlist=["x"]).list_path()
     path.write_text(json.dumps({"documents": []}))
     assert cli.make_gate(rules)(DOC, LABEL) == "DocumentNotApproved"
+
+
+def test_a_relabel_under_a_new_prompt_keeps_the_old_box_and_asks_only_what_is_not_yet_on_the_new_one(
+    rules,
+):
+    with rules:
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pump','c',NULL,'old','box-label-v1','t',NULL)"
+        )
+    assert [r["id"] for r in rule_boxes.todo(rules)] == ["r1", "r2", "r3"]
+    jobs, members, _c = rule_boxes.jobs(rules, _gate_open, per_prompt=5)
+    assert len(jobs) == 1 and rule_boxes.PER_PROMPT == 5
+    apply = rule_boxes.storer(rules, members, "m")
+    rule_box_run.run(
+        jobs,
+        model="claude-haiku-4-5",
+        step_prefix="s",
+        version="v",
+        apply=apply,
+        send=Fake(_labels),
+    )
+    row = rules.execute(
+        f"SELECT box, box_v1, prompt_version FROM {rule_boxes.TABLE} WHERE rule_id='r1'"
+    ).fetchone()
+    assert tuple(row) == ("a", "c", rule_boxes.PROMPT_VERSION)
+    assert rule_boxes.todo(rules) == []
