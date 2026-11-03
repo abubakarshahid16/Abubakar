@@ -594,7 +594,9 @@ def _internal_extras(
     return notes, {"rows": rows, "considered": considered}
 
 
-NOTE_PARKED = "AI suggestion awaiting an engineer's decision - row left off the CRS sheet"
+NOTE_PARKED = (
+    "AI suggestion awaiting an engineer's decision - row left off the CRS sheet"
+)
 
 
 def park_placeholders(view: dict) -> dict:
@@ -605,13 +607,18 @@ def park_placeholders(view: dict) -> dict:
     waiting = [
         r
         for r in view["rows"]
-        if str(r.get("comment") or "").strip() in WAITING_COMMENTS and not r.get("crs_ref")
+        if str(r.get("comment") or "").strip() in WAITING_COMMENTS
+        and not r.get("crs_ref")
     ]
     if not waiting:
         return view
     notes = [
-        {"note": NOTE_PARKED, "standard": str(r.get("standard_reference") or ""), "count": None,
-         "detail": str(r.get("ai_review_comment") or "")}
+        {
+            "note": NOTE_PARKED,
+            "standard": str(r.get("standard_reference") or ""),
+            "count": None,
+            "detail": str(r.get("ai_review_comment") or ""),
+        }
         for r in waiting
     ]
     kept = [r for r in view["rows"] if r not in waiting]
