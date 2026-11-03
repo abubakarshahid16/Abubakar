@@ -20,6 +20,7 @@ NOT_BUILT = "not_built"
 
 def run_for_job(review_run_id: str, requester) -> dict:
     """Called once per review after the CRS rows are numbered. Changes nothing while the switch is off."""
+    del review_run_id, requester  # the reader arrives in a later part
     if not settings.ai_senior_review_enabled:
         return {"state": OFF}
     return {"state": NOT_BUILT}
