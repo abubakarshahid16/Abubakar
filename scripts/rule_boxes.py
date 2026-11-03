@@ -369,14 +369,16 @@ def run_judge(conn, args, emit) -> int:
         if gate(r["standard_document_id"], labels.get(r["standard_document_id"], ""))
         is None
     ]
-    members: dict = {}
-    jobs, built = rule_box_judge.build_jobs(args.document, rows, labels, pages)
-    members.update(built)
+    units, incomplete, merged = rule_box_judge.prepare(rows)
+    jobs, members = rule_box_judge.build_jobs(args.document, units, labels, pages)
     extra = {
         "document_pages": len(pages),
         "rules_to_judge": len(rows),
+        "distinct_rules_asked": len(units),
+        "duplicates_merged": len(merged),
+        "rule_text_incomplete_not_sent": len(incomplete),
         "of_which_scoped": sum(
-            1 for r in rows if r["status"] != rule_box_check.BY_KIND
+            1 for u in units if u["rep"]["status"] != rule_box_check.BY_KIND
         ),
         "calls_per_rule": 2,
     }
@@ -393,7 +395,10 @@ def run_judge(conn, args, emit) -> int:
             )
         )
         return 3
-    apply = rule_box_judge.make_storer(conn, args.document, pages, model, members)
+    rule_box_judge.settle_unsent(conn, args.document, incomplete, labels, model)
+    apply = rule_box_judge.make_storer(
+        conn, args.document, pages, model, members, labels
+    )
     docs = frozenset().union(*(j.docs for j in jobs)) if jobs else frozenset()
     with claude_approved.carrying(docs):
         result = rule_box_run.run(

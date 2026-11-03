@@ -1221,6 +1221,7 @@ def test_only_a_same_quantity_requirement_on_the_equipment_advances_after_the_fr
 PAGE_TEXT = {
     1: "Invented datasheet. The set pressure is 12 bar and the body is cast iron with a painted finish."
 }
+RULE_TEXT = "The set pressure of the invented valve shall be marked on the body."
 
 
 def _rec(
@@ -1229,6 +1230,7 @@ def _rec(
     page=1,
     quote="The set pressure is 12 bar and the body is cast iron",
     scope=None,
+    can="yes",
 ):
     return {
         "i": i,
@@ -1237,49 +1239,69 @@ def _rec(
         "page": page,
         "quote": quote,
         "reason": "r",
+        "document_can_state": can,
     }
 
 
-def test_a_record_stands_only_when_its_quote_is_on_the_cited_page():
-    ok = rule_box_judge.verified(_rec(1, "fail"), 1, PAGE_TEXT, False)
+def _v(rec, scoped=False, rule=RULE_TEXT):
+    return rule_box_judge.verified(rec, 1, PAGE_TEXT, scoped, rule)
+
+
+def test_a_record_stands_only_when_its_quote_is_on_the_cited_page_and_touches_the_rule():
+    ok = _v(_rec(1, "fail"))
     assert ok["evidence_ok"] and ok["page"] == 1
     for bad in (
         _rec(1, "fail", quote="The set pressure is 99 bar and nothing else"),
         _rec(1, "fail", page=2),
     ):
-        got = rule_box_judge.verified(bad, 1, PAGE_TEXT, False)
+        got = _v(bad)
         assert got["evidence_ok"] is False and got["quote"] is None
-    assert rule_box_judge.verified(_rec(2, "fail"), 1, PAGE_TEXT, False) is None
-    assert rule_box_judge.verified(_rec(1, "maybe"), 1, PAGE_TEXT, False) is None
-    assert (
-        rule_box_judge.verified(_rec(1, "fail", scope="perhaps"), 1, PAGE_TEXT, True)
-        is None
+    adjacent = _v(
+        _rec(1, "query", quote="Invented datasheet. The set"),
+        rule="The relief valve capacity certificate shall be supplied.",
     )
+    assert adjacent["on_page"] and adjacent["evidence_ok"] is False
+    assert _v(_rec(2, "fail")) is None
+    assert _v(_rec(1, "maybe")) is None
+    assert _v(_rec(1, "fail", can="perhaps")) is None
+    assert _v(_rec(1, "fail", scope="perhaps"), scoped=True) is None
 
 
 def test_two_readings_must_agree_and_carry_verified_evidence_or_the_rule_goes_to_the_engineer():
-    fail = rule_box_judge.verified(_rec(1, "fail"), 1, PAGE_TEXT, False)
-    other = rule_box_judge.verified(_rec(1, "query"), 1, PAGE_TEXT, False)
-    nowhere = rule_box_judge.verified(
-        _rec(1, "fail", quote="not on any page at all here"), 1, PAGE_TEXT, False
-    )
+    fail, other = _v(_rec(1, "fail")), _v(_rec(1, "query"))
+    nowhere = _v(_rec(1, "fail", quote="not on any page at all here"))
     assert rule_box_judge.combine(fail, fail, False)[0] == "Fail"
     assert rule_box_judge.combine(fail, other, False)[0] == "needs engineer"
     assert rule_box_judge.combine(fail, nowhere, False)[0] == "needs engineer"
     assert rule_box_judge.combine(fail, None, False)[0] == "needs engineer"
-    passing = rule_box_judge.verified(_rec(1, "pass"), 1, PAGE_TEXT, False)
+    passing = _v(_rec(1, "pass"))
     assert rule_box_judge.combine(passing, passing, False)[0] == "Pass"
-    unproved = rule_box_judge.verified(
-        _rec(1, "pass", quote="invented words not present"), 1, PAGE_TEXT, False
-    )
+    unproved = _v(_rec(1, "pass", quote="invented words not present"))
     assert rule_box_judge.combine(unproved, unproved, False)[0] == "needs engineer"
+    adjacent = _v(
+        _rec(1, "query", quote="Invented datasheet. The set"),
+        rule="The relief valve capacity certificate shall be supplied.",
+    )
+    assert (
+        rule_box_judge.combine(adjacent, adjacent, False)[1]
+        == "the quoted words do not touch the rule's subject"
+    )
+
+
+def test_a_rule_a_document_kind_cannot_state_is_not_applicable_only_when_both_readings_say_so():
+    no = _v(_rec(1, "query", can="no"))
+    yes = _v(_rec(1, "query"))
+    assert rule_box_judge.combine(no, no, False) == (
+        "not applicable",
+        "not something this document kind states",
+        None,
+    )
+    assert rule_box_judge.combine(no, yes, False)[0] == "needs engineer"
 
 
 def test_a_scoped_rule_needs_both_readings_to_say_the_scope_applies():
-    yes = rule_box_judge.verified(_rec(1, "fail", scope="yes"), 1, PAGE_TEXT, True)
-    no = rule_box_judge.verified(_rec(1, "fail", scope="no"), 1, PAGE_TEXT, True)
-    unsure = rule_box_judge.verified(
-        _rec(1, "fail", scope="unsure"), 1, PAGE_TEXT, True
+    yes, no, unsure = (
+        _v(_rec(1, "fail", scope=x), scoped=True) for x in ("yes", "no", "unsure")
     )
     assert rule_box_judge.combine(yes, yes, True)[0] == "Fail"
     assert rule_box_judge.combine(no, no, True)[0] == "not applicable"
@@ -1287,7 +1309,49 @@ def test_a_scoped_rule_needs_both_readings_to_say_the_scope_applies():
     assert rule_box_judge.combine(unsure, unsure, True)[0] == "needs engineer"
 
 
-def test_the_judge_asks_each_rule_twice_independently_and_writes_labelled_rows(rules):
+def test_a_cut_off_rule_is_never_sent_and_near_duplicates_are_one_unit():
+    assert rule_box_judge.is_incomplete("The following limits shall apply:")
+    assert rule_box_judge.is_incomplete("The valve shall be marked and")
+    assert not rule_box_judge.is_incomplete("The valve shall be marked.")
+    rows = [
+        {
+            "id": "a",
+            "standard_document_id": "s",
+            "clause": "1.1",
+            "quote": "Use the latest issue unless stated otherwise 2024.",
+            "status": "stored by kind",
+            "scope_text": None,
+        },
+        {
+            "id": "b",
+            "standard_document_id": "s",
+            "clause": "2.7",
+            "quote": "Use the latest issue, unless stated otherwise 2019.",
+            "status": "stored by kind",
+            "scope_text": None,
+        },
+        {
+            "id": "c",
+            "standard_document_id": "s",
+            "clause": "3",
+            "quote": "Limits shall apply:",
+            "status": "stored by kind",
+            "scope_text": None,
+        },
+    ]
+    units, incomplete, merged = rule_box_judge.prepare(rows)
+    assert len(units) == 1 and [m["clause"] for m in units[0]["members"]] == [
+        "1.1",
+        "2.7",
+    ]
+    assert [r["id"] for r in incomplete] == ["c"] and len(merged) == 1
+    assert (
+        rule_box_judge.clauses_of(units[0], {"s": "STD-1"})
+        == "STD-1 clause 1.1; STD-1 clause 2.7"
+    )
+
+
+def _setup_judge(rules):
     with rules:
         rules.execute("DROP TABLE IF EXISTS rule_box_labels")
     rule_boxes.ensure_schema(rules)
@@ -1307,32 +1371,39 @@ def test_the_judge_asks_each_rule_twice_independently_and_writes_labelled_rows(r
                 f"INSERT INTO {rule_box_check.CHECKS} (rule_id, status, scope_text, created_at) VALUES (?,?,?,'t')",
                 (rid, status, "for jacketed vessels" if rid == "r1" else None),
             )
+        rules.execute(
+            "UPDATE compiled_rules SET quote = 'The set pressure of the invented valve shall be marked on the body.' WHERE id IN ('r1','r3')"
+        )
+
+
+def test_the_judge_asks_each_rule_twice_independently_and_writes_labelled_rows_with_page_and_comment(
+    rules, tmp_path
+):
+    _setup_judge(rules)
     rows = rule_box_judge.relevant_rules(rules, "sub-1")
     assert {r["id"] for r in rows} == {"r1", "r3"}
-    jobs, members = rule_box_judge.build_jobs(
-        "sub-1", rows, {DOC: LABEL}, rule_box_judge.pages_of(rules, "sub-1")
-    )
+    units, incomplete, _merged = rule_box_judge.prepare(rows)
+    assert len(units) == 2 and incomplete == []
+    pages = rule_box_judge.pages_of(rules, "sub-1")
+    jobs, members = rule_box_judge.build_jobs("sub-1", units, {DOC: LABEL}, pages)
     assert (
         len(jobs) == 2
         and jobs[0].prompt != jobs[1].prompt
         and "independent second reading" in jobs[1].prompt
     )
-    assert "for jacketed vessels" in jobs[0].prompt
+    assert (
+        "for jacketed vessels" in jobs[0].prompt
+        and "ONE submitted datasheet" in jobs[0].prompt
+    )
 
     def reply(prompt):
         out = []
         for n in range(1, 3):
-            line = next(x for x in prompt.splitlines() if x.startswith(f"{n}. ["))
-            scoped = (
-                "SCOPE OF THIS RULE" in prompt.split(line)[1].splitlines()[1]
-                if "SCOPE OF THIS RULE" in prompt
-                else False
-            )
-            out.append(_rec(n, "fail", scope="yes" if scoped else None))
+            out.append(_rec(n, "query", scope="yes" if "jacketed" in prompt else None))
         return json.dumps(out)
 
     apply = rule_box_judge.make_storer(
-        rules, "sub-1", rule_box_judge.pages_of(rules, "sub-1"), "m", members
+        rules, "sub-1", pages, "m", members, {DOC: LABEL}
     )
     report = rule_box_run.run(
         jobs,
@@ -1348,6 +1419,27 @@ def test_the_judge_asks_each_rule_twice_independently_and_writes_labelled_rows(r
         f"SELECT status, label, page FROM {rule_box_judge.JUDGED} ORDER BY rule_id"
     ).fetchall()
     assert [tuple(g) for g in got] == [
-        ("Fail", "AI judgement, engineer to confirm", 1)
+        ("Query", "AI judgement, engineer to confirm", 1)
     ] * 2
     assert rule_box_judge.relevant_rules(rules, "sub-1") == []
+    out = tmp_path / "crs.xlsx"
+    assert rule_box_judge.export_crs(rules, "sub-1", out) == 2
+    import openpyxl
+
+    sheet = openpyxl.load_workbook(out)["CRS"]
+    rows_out = list(sheet.iter_rows(min_row=2, values_only=True))
+    assert [r[0] for r in rows_out] == [1, 2] and all(
+        r[2] == 1 and r[4].startswith("Contractor to confirm.") for r in rows_out
+    )
+    assert all("engineer to confirm" not in r[4] for r in rows_out)
+
+
+def test_the_export_refuses_a_row_with_no_page_or_comment(rules, tmp_path):
+    _setup_judge(rules)
+    rule_box_judge.ensure_schema(rules)
+    rules.execute(
+        f"INSERT INTO {rule_box_judge.JUDGED} (document_id, rule_id, status, clause, rule_quote, calls_json, label, model, prompt_version, created_at)"
+        " VALUES ('sub-1','r1','Query','9.9','x','[]','l','m','v','t')"
+    )
+    with pytest.raises(rule_box_judge.RowRefused):
+        rule_box_judge.export_crs(rules, "sub-1", tmp_path / "x.xlsx")
