@@ -517,7 +517,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             from . import company_standard_confirm, project_specification
 
             held = company_standard_confirm.held_readable(scope)  # #620
-            project_specification.pin(run_id, submittal, scope)  # lane 6: only a person marks one
+            project_specification.pin(run_id, submittal, scope)  # lane 6
             reread_for_standards.for_review(submittal, scope, run_id, timings)
         with _phase(conn, job_id, 2, heartbeat, timings, "compare"):
             comparison.run_comparison(

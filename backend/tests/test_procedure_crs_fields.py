@@ -231,7 +231,9 @@ def test_the_title_block_note_is_not_on_a_procedure(on, monkeypatch):
     )
     _document(pages=["invented cover"])
     notes = export_status.equipment_notes(DOC, "run", frozenset({DOC}))
-    assert [n for n in notes if n.get("note") == "n"] == []  # lane 6: the project specification line is there, not this
+    assert [
+        n for n in notes if n.get("note") == "n"
+    ] == []  # lane 6: the project specification line is there, not this
 
 
 # ------------------------------------------------------------------- 2. page cell

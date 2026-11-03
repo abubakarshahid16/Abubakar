@@ -209,7 +209,7 @@ def equipment_notes(submittal_id: str, run_id: str, allowed: frozenset) -> list[
     named none or two types; `equipment_title_block`). Empty with the switch off."""
     from . import equipment_title_block, procedure_crs, project_specification
 
-    spec = project_specification.notes(submittal_id, allowed)  # lane 6: every review says which one, or none held
+    spec = project_specification.notes(submittal_id, allowed)  # lane 6
     if procedure_crs.no_equipment(submittal_id):
         return spec
     return spec + equipment_title_block.for_submittal(submittal_id, run_id, allowed)

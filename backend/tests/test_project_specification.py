@@ -1,4 +1,3 @@
-
 # ruff: noqa: F811 - pytest fixtures imported by name
 """Lane 6, M4: the project specification is marked only by a person, compared when marked, and reported in every review.
 
@@ -87,7 +86,9 @@ def test_the_line_never_says_compared_when_no_requirement_was_read(world):
             "UPDATE standard_requirements SET superseded_at = '2026-01-01' WHERE standard_document_id='std_api'"
         )
     assert "nothing was compared against it" in ps.line(world["sub"], world["scope"])
-    assert ps.pin(_completed_run(world), world["sub"], world["scope"]) is False  # nothing to compare: nothing pinned
+    assert (
+        ps.pin(_completed_run(world), world["sub"], world["scope"]) is False
+    )  # nothing to compare: nothing pinned
 
 
 def test_a_marked_specification_with_requirements_is_reported_and_pinned_to_the_run(
