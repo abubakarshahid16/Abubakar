@@ -61,7 +61,9 @@ def top_note(meta: dict, copy: str) -> str:
     note = (meta.get("ai_review") or {}).get("note") if copy == "internal" else ""
     from . import crs_export_quality
 
-    said = crs_export_quality.with_rules_note(meta)  # the run status, then the rules note when its switch is on
+    said = crs_export_quality.with_rules_note(
+        meta
+    )  # the run status, then the rules note when its switch is on
     return "\n".join(p for p in (said, note) if p)
 
 
