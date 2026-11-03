@@ -499,16 +499,27 @@ def engineer_words_in(text) -> bool:
     return bool(_ENGINEER_WORD.search(str(text or "")))
 
 
+_ASK_TO_ENGINEER = re.compile(r"\s+(?:from|by|of|to)\s+the\s+engineers?\b", re.IGNORECASE)
+
+
 def contractor_words(row: dict) -> dict:
-    """The contractor copy only: cut every part of a comment (between ; . ! ? and line ends) that names the engineer.
-    Nothing is reworded; a part with none of the words is kept whole. Switch off: the row as it was."""
+    """The contractor copy only. A request addressed to the engineer keeps its ask ("Clarification required from the
+    Engineer." reads "Clarification required."); any other part of a comment (between ; . ! ? and line ends) that
+    names the engineer is cut; the engineer word in another cell (who commented, the page text, the reference) is
+    the neutral "reviewer". A comment that is nothing but engineer wording becomes empty, so the existing no-text rule
+    withholds the row and counts it: it never reaches the contractor as an instruction. Switch off: the row as it was."""
     if not settings.crs_contractor_no_engineer_words_enabled:
         return row
-    text = str(row.get("comment") or "")
-    if not engineer_words_in(text):
-        return row
-    kept = [p for p in _PARTS.split(text) if p and not engineer_words_in(p)]
-    return {**row, "comment": " ".join(p.strip() for p in kept).strip()}
+    out = dict(row)
+    text = _ASK_TO_ENGINEER.sub("", str(row.get("comment") or ""))
+    if engineer_words_in(text):
+        kept = [p for p in _PARTS.split(text) if p and not engineer_words_in(p)]
+        text = " ".join(p.strip() for p in kept).strip()
+    out["comment"] = text if "comment" in row else row.get("comment")
+    for key in ("comment_by", "page_section", "standard_reference"):
+        if engineer_words_in(row.get(key)):
+            out[key] = _ENGINEER_WORD.sub("reviewer", str(row[key]))
+    return out if out != row else row
 
 
 def prepare(
@@ -517,7 +528,6 @@ def prepare(
     """Rules 2 and 1, before the rows are built: (rows, dropped, merged);
     the rows untouched when the switch is off."""
     findings = [ticked_words(f) for f in findings]
-    findings = [contractor_words(f) for f in findings] if copy == "issue" else findings
     if not on:
         return findings, 0, 0
     strict = strict_enabled()

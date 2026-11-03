@@ -334,6 +334,8 @@ def _copy_and_rows(findings: list[dict], meta: dict) -> tuple[str, list[dict]]:
         raise ValueError(f"unknown CRS copy {copy!r}")
     if copy == COPY_INTERNAL:
         findings = [*findings, *(meta.get("rulebook_v2_rows") or [])]
+    else:  # item 14c: before the no-text rule, so an emptied comment is withheld and counted
+        findings = [quality.contractor_words(f) for f in findings]
     return copy, findings
 
 
