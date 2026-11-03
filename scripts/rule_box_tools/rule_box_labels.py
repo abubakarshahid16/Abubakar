@@ -90,7 +90,9 @@ def checklist_name(equipment_type: str | None) -> str | None:
 
 
 def ensure_schema(conn) -> None:
-    with contextlib.suppress(Exception):  # the column exists, or the table is made below
+    with contextlib.suppress(
+        Exception
+    ):  # the column exists, or the table is made below
         conn.execute(f"ALTER TABLE {TABLE} ADD COLUMN box_v1 TEXT")
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {TABLE} ("
