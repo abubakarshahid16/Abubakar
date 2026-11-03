@@ -308,6 +308,7 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
     "crs_plain_notes_enabled": False,
+    "form_part_name_roles_enabled": False,
     "crs_contractor_no_engineer_words_enabled": False,
     "standard_scope_not_no_enabled": False,
     "crs_compliance_list_enabled": False,
@@ -324,6 +325,7 @@ EGRESS_SAFE: dict[str, object] = {
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,
+    "draft_process_items_enabled": False,
     "rulebook_v2_review_enabled": False,
     "owner_note_lifts_context_flag_enabled": False,
     "material_reference_enabled": False,

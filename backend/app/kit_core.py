@@ -157,10 +157,19 @@ def _kits() -> list[Kit]:
 
 def with_kit(key: str, items: list[dict]) -> list[dict]:
     """`items` plus the draft kit cards of every kit for this type (none while its switch is off)."""
+    from .draft_items import read
+
     out = list(items)
     for kit in _kits():
         out += kit.loader_items(key, out)
-    return out
+    return read(key, out)
+
+
+def without_stated(results: list[dict]) -> list[dict]:
+    """`results` less a draft item's stated value (it gives no verdict and no row; see `draft_items`)."""
+    from .draft_items import without_stated as keep
+
+    return keep(results)
 
 
 def held(result: dict, item: dict) -> dict:
@@ -190,6 +199,10 @@ def _with_bounds(item: dict, rules: dict) -> dict:
     the committed role table is not touched."""
     bounds = item.get("plausible")
     field = (item.get("rule") or {}).get("field")
+    draft = (rules.get("draft_roles") or {}).get(field)
+    if draft:
+        # A DRAFT item's own role is known to this item only (Part of #805): not to any other reader of the roles.
+        rules = {**rules, "roles": {**rules["roles"], field: draft}}
     if not bounds or not field:
         return rules
     role = (rules.get("roles") or {}).get(field) or {}
@@ -199,17 +212,21 @@ def _with_bounds(item: dict, rules: dict) -> dict:
 def rows(checklist, roles, common, tag, rules, page_texts) -> list[dict]:
     """The checklist's results for one tag, kit cards held (see `held`)."""
     from .datasheet_checks import evaluate_item
+    from .draft_items import hold as hold_draft_item
 
     return [
         held(
-            evaluate_item(
+            hold_draft_item(
+                evaluate_item(
+                    item,
+                    roles,
+                    common,
+                    tag,
+                    _with_bounds(item, rules),
+                    draft=checklist["draft"],
+                    page_texts=page_texts,
+                ),
                 item,
-                roles,
-                common,
-                tag,
-                _with_bounds(item, rules),
-                draft=checklist["draft"],
-                page_texts=page_texts,
             ),
             item,
         )

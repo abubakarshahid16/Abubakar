@@ -122,6 +122,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
+| `part_name_roles` | Test B (part of #805): the strict rules by which a part printed alone (IMPELLER: material) or a seal in a sentence fills its material/type field, for the form reader's label gate and the stored-facts check, behind FORM_PART_NAME_ROLES_ENABLED |
 | `crs_one_row` | #1503: one CRS row per problem, and "did not reference" rows nothing in scope requires, behind CRS_ONE_ROW_PER_PROBLEM_ENABLED |
 | `contractor_scrub` | Item 14c (owner 3 Nov 11:40): the one scrub that keeps the contractor copy free of engineer wording (text we write only; the contractor's own file names, tags and titles stay verbatim), with the code check that counts what is left, behind CRS_CONTRACTOR_NO_ENGINEER_WORDS_ENABLED |
 | `compliance_list` | Owner 3 Nov 11:40 (b): a value only a draft rule checks, with nothing found, is no CRS row; it is on the internal-only sheet "Compliance list", behind CRS_COMPLIANCE_LIST_ENABLED |
@@ -268,12 +269,14 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `model_transport` | The one place in this codebase that may open a socket to the answer model |
 | `notifications` | Fail-closed email notifications for operational EPC events |
 | `numparse` | The one place numbers, signs and exponents are read (W2, issue #445) |
+| `word_fold` | How a reader reads a WORD whatever the spelling: styled, accented, circled, parenthesised, regional-indicator and look-alike letters to plain Latin, marks and invisible characters dropped (the verdict-word and number-word filters; not a number reader) |
 | `ocr` | Step 2b - resumable page-batch recognition for scanned pages |
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
 | `pump_kit` | #1478 preparation: the pump kit's name, data file and public names over `kit_core`; box list and DRAFT pump cards from held standards, read only behind `pump_kit_draft_enabled` (off by default); never decide |
 | `at_limit` | #1475 finding: compares a value with a worked-out limit (factor or percentage) with float noise removed, behind `at_limit_precision_enabled` (off by default); local only, no model or socket |
 | `percent_kind` | #1512: a value printed under a % label with a fraction-sized number ("0.30 %") is not decided on a percent card, it goes to the engineer; behind `percent_kind_check_enabled` (off by default); local only, no model or socket |
+| `draft_items` | Part of #805: a DRAFT checklist item never decides (fluid phase, sour service); read only behind `draft_process_items_enabled` (off by default); local only |
 | `kit_core` | The shared mechanism of an equipment kit (#1478, #1480): data file, loader hook, tests, the held-for-the-engineer rule for every kit row; local only |
 | `vessel_kit` | #1480 preparation (parked kit, milestone 58): box list and DRAFT vessel cards from held standards (SAES-D-001), read only behind `vessel_kit_draft_enabled` (off by default); every row held, never decide |
 | `exchanger_kit` | #1481 preparation (parked kit, milestone 58): box list and DRAFT heat exchanger cards from the held standard SAES-E-004, read only behind `exchanger_kit_draft_enabled` (off by default); every row held, never decide |

@@ -354,6 +354,11 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner 3 Nov (test B): a part printed alone in a materials list ("IMPELLER: <material>") or a seal stated in a
+    #: sentence fills its field (impeller / shaft / casing material, seal type) when ALL of `part_name_roles`'s
+    #: strict rules hold, in the form reader's label gate and in the stored-facts check. OFF: as it was.
+    #: Env: FORM_PART_NAME_ROLES_ENABLED.
+    form_part_name_roles_enabled: bool = False
     #: Owner order 3 Nov 11:40 (item 14c): the contractor copy never tells the contractor that an engineer
     #: must confirm or check anything: wording about the engineer is cut from its comments, and a code check
     #: (`crs_export_quality.engineer_words_in`) names any left. Internal copy unchanged.
@@ -403,6 +408,12 @@ class SettingsExt(BaseModel):
     #: no approval and is not a decided rule, and is named "stated, not checked". OFF: a
     #: Pass like any other. Env: PRESENCE_NOT_PASS_ENABLED.
     presence_not_pass_enabled: bool = False
+    #: Part of #805, 3 Nov: two DRAFT relief-valve process items (fluid phase, sour service; the
+    #: governing relief case is already PSV-S05) are added to the checklist. They carry status "draft
+    #: (engineer to approve)": a missing value is "Not stated ... Contractor to provide", a stated value
+    #: gives no verdict, sour service stated "yes" is a Query for materials. OFF: the checklist is
+    #: byte-identical. Env: DRAFT_PROCESS_ITEMS_ENABLED.
+    draft_process_items_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion
