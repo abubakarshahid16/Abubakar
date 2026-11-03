@@ -58,7 +58,7 @@ SCHEMA = {
                     "standard": {"type": ["string", "null"]},
                     "field": {"type": ["string", "null"]},
                     "value": {"type": ["string", "null"]},
-                                        "reason": {"type": "string"},
+                    "reason": {"type": "string"},
                     "text": {"type": ["string", "null"]},
                     "basis": {"type": ["string", "null"], "enum": [*arp.BASES, None]},
                     "evidence": {
