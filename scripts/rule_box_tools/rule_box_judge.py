@@ -37,7 +37,7 @@ import json
 import re
 import time
 
-from app import claims, comparison, datasheet_checks, subject_pairing
+from app import datasheet_checks, subject_pairing
 from app.compiled_rule_proof import quote_verified
 from rule_box_tools import rule_box_check, rule_box_labels, rule_box_run
 
@@ -272,213 +272,6 @@ def pass_problem(rule_text: str, quote: str) -> str | None:
     return None
 
 
-#: Closed table of the ways a rule states its comparator (a negated form is read as itself, so "not less than" is never read
-#: as "less than"). A rule whose comparator is not exactly one op, once, is not compared.
-_COMPARATOR_PHRASES = (
-    ("not more than", "<="),
-    ("not greater than", "<="),
-    ("not higher than", "<="),
-    ("not larger than", "<="),
-    ("no more than", "<="),
-    ("no greater than", "<="),
-    ("no higher than", "<="),
-    ("not exceeding", "<="),
-    ("not to exceed", "<="),
-    ("shall not exceed", "<="),
-    ("must not exceed", "<="),
-    ("not exceed", "<="),
-    ("not above", "<="),
-    ("not over", "<="),
-    ("less than or equal to", "<="),
-    ("at most", "<="),
-    ("up to", "<="),
-    ("maximum", "<="),
-    ("max.", "<="),
-    ("max", "<="),
-    ("≤", "<="),
-    ("<=", "<="),
-    ("not less than", ">="),
-    ("not lower than", ">="),
-    ("not smaller than", ">="),
-    ("no less than", ">="),
-    ("no lower than", ">="),
-    ("not below", ">="),
-    ("not under", ">="),
-    ("greater than or equal to", ">="),
-    ("at least", ">="),
-    ("minimum", ">="),
-    ("min.", ">="),
-    ("min", ">="),
-    ("≥", ">="),
-    (">=", ">="),
-    ("less than", "<"),
-    ("lower than", "<"),
-    ("smaller than", "<"),
-    ("below", "<"),
-    ("under", "<"),
-    ("more than", ">"),
-    ("greater than", ">"),
-    ("higher than", ">"),
-    ("larger than", ">"),
-    ("exceeding", ">"),
-    ("exceeds", ">"),
-    ("exceed", ">"),
-    ("above", ">"),
-    ("over", ">"),
-)
-_OP_OF = dict(_COMPARATOR_PHRASES)
-
-
-def _phrase_rx() -> re.Pattern:
-    parts = []
-    for phrase, _ in sorted(_COMPARATOR_PHRASES, key=lambda x: -len(x[0])):
-        left = r"(?<!\w)" if phrase[0].isalpha() else ""
-        right = r"(?!\w)" if phrase[-1].isalpha() else ""
-        parts.append(left + re.escape(phrase) + right)
-    return re.compile("|".join(parts), re.I)
-
-
-_PHRASE_RX = _phrase_rx()
-_RANGE = re.compile(
-    r"\bbetween\b.*\band\b|\d\s*(?:to|through|thru|and|–|—|-|~)\s*\d|\d\s*\.\.\s*\d|~\s*\d",  # noqa: RUF001
-    re.I,
-)
-_PLACEHOLDER_VALUE = re.compile(r"^\W*$")
-
-
-def normalise_numbers(text: str) -> str:
-    """Decimal commas become points ("1,5 MPa" is 1.5 MPa) and thousands commas go ("1,000 kPa"), so the unit-aware reader
-    sees the number the document wrote. A comma between digits followed by exactly three digits is a thousands comma."""
-    text = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text)
-    return re.sub(r"(?<=\d),(?=\d{1,2}(?!\d))", ".", text)
-
-
-def read_comparator(rule_text: str) -> str | None:
-    """The ONE comparator a rule states, or None when it states none, or two that differ. Longest phrase wins, so a
-    negated form is read as itself."""
-    found = {_OP_OF[m.group(0).lower()] for m in _PHRASE_RX.finditer(rule_text.lower())}
-    return next(iter(found)) if len(found) == 1 else None
-
-
-_WORDS_OF_OP = {
-    "<=": "at most",
-    ">=": "at least",
-    "<": "below",
-    ">": "above",
-    "=": "equal to",
-}
-
-
-def figure_check(rule_text: str, quote: str) -> tuple[str, str]:
-    """(state, words) for a rule that asks for a figure. `no_figure`: the rule has no digit. `meets` / `violates`: the ONE
-    figure the rule asks for was compared with the ONE same-quantity value in the quote by the datasheet comparison itself
-    (units converted, gauge and absolute apart), the comparator read by the closed table above. `cannot`: anything else
-    (the figure, unit or comparator cannot be read; a range in the rule OR in the quote; more than one value, or none, of
-    the same quantity; a unit that does not convert): then no Pass and no Fail can rest on it."""
-    if not re.search(r"\d", rule_text):
-        return "no_figure", ""
-    rule_text, quote = normalise_numbers(rule_text), normalise_numbers(quote)
-    if _RANGE.search(rule_text):
-        return "cannot", "the rule states a range"
-    if _RANGE.search(quote):
-        return "cannot", "the quoted words give a range"
-    asked = [
-        m
-        for m in claims.extract_measurements(" ".join(rule_text.split()))
-        if claims.unit_dimension(m.raw_unit)
-    ]
-    if len(asked) != 1:
-        return "cannot", "the rule's figure could not be read as one value"
-    op = read_comparator(rule_text)
-    if op is None:
-        return "cannot", "the rule's comparator could not be read"
-    limit = asked[0]
-    dimension = claims.unit_dimension(limit.raw_unit)
-    stated = [
-        m
-        for m in claims.extract_measurements(" ".join(quote.split()))
-        if claims.unit_dimension(m.raw_unit) == dimension
-    ]
-    if len(stated) != 1:
-        return (
-            "cannot",
-            "the quoted words do not give exactly one value of the same quantity",
-        )
-    requirement = {
-        "requirement_type": "numeric_limit",
-        "operator": op,
-        "raw_value": limit.raw_value,
-        "raw_unit": limit.raw_unit,
-        "value": limit.normalized_value,
-    }
-    fact = {
-        "raw_value": stated[0].raw_value,
-        "raw_unit": stated[0].raw_unit,
-        "value": stated[0].normalized_value,
-        "field_name": "judge",
-        "page": 1,
-        "confirmed_by": "rule_box_judge",
-    }
-    status = comparison.compare(requirement, fact).get("status")
-    words = f"{stated[0].raw_value} {stated[0].raw_unit} against {_WORDS_OF_OP[op]} {limit.raw_value} {limit.raw_unit}"
-    if status == comparison.COMPLIANT:
-        return "meets", words
-    if status == comparison.NON_COMPLIANT:
-        return "violates", words
-    return "cannot", "the stated value could not be compared with the rule's figure"
-
-
-_TERM_TAIL = re.compile(
-    r"\b(?:shall|must|should|is to|are to)\s+(?:be|have|use|comply with|conform to)\s+(?:made\s+)?(?:(?:of|from|in|with|to|as)\s+)?(.+?)(?:[.;]|$)",
-    re.I,
-)
-_NEGATIVE_RULE = re.compile(
-    r"\b(?:shall|must|should)\s+not\b|\bnot\s+be\b|\bnever\b|\bno\b", re.I
-)
-_ARTICLES = {"a", "an", "the", "of", "any", "one", "following"}
-
-
-def required_terms(rule_text: str) -> list[str]:
-    """What a rule with no figure requires, by code: the words after 'shall be / of / in / with', split into alternatives.
-    Empty when the rule is a prohibition or states no such tail."""
-    text = " ".join(rule_text.split())
-    if _NEGATIVE_RULE.search(text):
-        return []
-    m = _TERM_TAIL.search(text)
-    if not m:
-        return []
-    out = []
-    for part in re.split(r",|/|\bor\b|\band\b", m.group(1), flags=re.I):
-        words = [
-            w for w in re.findall(r"[A-Za-z0-9\-]+", part) if w.lower() not in _ARTICLES
-        ]
-        if 0 < len(words) <= 4:
-            out.append(" ".join(words).lower())
-    return out[:6]
-
-
-def term_check(rule_text: str, quote: str) -> tuple[str, str]:
-    """For a rule WITHOUT a digit: `meets` only when a required term stands, as whole words, in the VALUE of the quote (what
-    follows its label), the value is not a placeholder or a negation, and an edition rule is never met (no register).
-    Else `cannot`."""
-    if re.search(r"\d", rule_text):
-        return "no_figure", ""
-    if is_edition_rule(rule_text):
-        return "cannot", "an edition rule needs the editions register"
-    terms = required_terms(rule_text)
-    if not terms:
-        return "cannot", "the rule's required term could not be read"
-    value = quote.split(":", 1)[1] if ":" in quote else quote
-    value = " ".join(value.split())
-    if _PLACEHOLDER_VALUE.match(value) or _NEGATION.search(value):
-        return "cannot", "the quoted value is empty, a placeholder or a negation"
-    folded = " ".join(re.findall(r"[a-z0-9\-]+", value.lower()))
-    for term in terms:
-        if re.search(r"(?<![\w-])" + re.escape(term) + r"(?![\w-])", folded):
-            return "meets", term
-    return "cannot", "the quoted value does not name a required term"
-
-
 def clean_reason(text, rule_text: str, words: int = 8) -> str:
     """The model's short reason, cut to a few words; dropped when it brings a number the rule does not have."""
     said = " ".join(str(text or "").split())
@@ -523,12 +316,6 @@ def verified(
         "pass_problem": pass_problem(rule_text, quote)
         if on_page and rule_text
         else None,
-        "figure": figure_check(rule_text, quote)
-        if on_page and rule_text
-        else ("no_figure", ""),
-        "terms": term_check(rule_text, quote)
-        if on_page and rule_text
-        else ("no_figure", ""),
     }
 
 
@@ -588,7 +375,6 @@ def combine(
                 None,
             )
         return NEEDS_ENGINEER, "a quote was not found on the cited page", None
-    figures = {first["figure"][0], second["figure"][0]}
     verdict = first["verdict"]
     if verdict == "pass":
         if "silence" in (first["pass_problem"], second["pass_problem"]):
@@ -597,27 +383,17 @@ def combine(
                 "the rule says unless stated otherwise and nothing is stated: silence is not compliance",
                 None,
             )
-        if figures == {"violates"}:
-            return (
-                "Query",
-                f"the stated value does not meet the rule: {first['figure'][1]}",
-                first,
-            )
         return NEEDS_ENGINEER, "the quotes suggest the rule is met", first
     if verdict == "fail":
-        if figures == {"violates"}:
-            return (
-                "Query",
-                f"the stated value does not meet the rule: {first['figure'][1]}",
-                first,
-            )
-        if "meets" in figures:
-            return (
-                NEEDS_ENGINEER,
-                "the reading says the rule is broken but the stated value meets the rule's figure",
-                None,
-            )
         return NEEDS_ENGINEER, "the reading says the rule is broken", first
+    if _NEGATION.search(first["quote"] or "") or _NEGATION.search(
+        second["quote"] or ""
+    ):
+        return (
+            NEEDS_ENGINEER,
+            "the quoted words are a negation or a placeholder, not a stated value",
+            first,
+        )
     if len(first["reason"].split()) < 3:
         return NEEDS_ENGINEER, "no reason was given for the verdict", None
     return "Query", first["reason"], first
@@ -829,7 +605,7 @@ PLAIN = {
     "the same quote is already used for another rule": "The only passage found was already used for another rule.",
     "the quotes suggest the rule is met": "The datasheet passage suggests this rule is met; not proven by code, so check it yourself.",
     "the reading says the rule is broken": "The readings suggest this rule is broken; not proven by code, so check it yourself.",
-    "the reading says the rule is broken but the stated value meets the rule's figure": "The readings say the rule is broken but the stated value seems to meet it; check it yourself.",
+    "the quoted words are a negation or a placeholder, not a stated value": "The passage found is a placeholder or a negation, not a stated value; check it yourself.",
 }
 
 
@@ -851,16 +627,14 @@ def _quoted(text, limit: int) -> str:
 
 
 def comment_of(row) -> str:
-    """A contractor CRS row's wording, BUILT BY CODE ONLY (CRS style guide: what, the reference, the action): a fixed opening,
-    a fixed template, the verified datasheet quote and page, the stored clause and the stored rule words. The model's own
-    sentence and every internal reason stay out of it; they go to the internal workbook only. Only a Query reaches the
-    contractor copy: the judge makes no Pass and no Fail."""
-    calls = [c for c in json.loads(row["calls_json"] or "[]") if c]
-    figure = (calls[0].get("figure") if calls else None) or ("no_figure", "")
-    shown = f"Datasheet page {row['page']} states \u201c{_quoted(row['evidence'], 240)}\u201d"
-    asked = f"{row['clause']} requires \u201c{_quoted(row['rule_quote'], 260)}\u201d"
-    value = f" ({figure[1]})" if figure[0] == "violates" else ""
-    return f"Contractor to confirm. {shown}{value}; {asked}. Contractor to confirm that it complies and revise if needed."
+    """A contractor CRS row's wording, BUILT BY CODE ONLY and NEUTRAL: it quotes what the datasheet states and what the
+    rule requires, and asks the contractor to confirm. It never says that a value meets, exceeds, violates or lies below a
+    limit: no direction is computed. The model's sentence and the internal reasons stay in the internal workbook."""
+    return (
+        f"The datasheet states \u201c{_quoted(row['evidence'], 240)}\u201d on page {row['page']}. "
+        f"{row['clause']} requires \u201c{_quoted(row['rule_quote'], 260)}\u201d. "
+        "Contractor to confirm that the stated value complies and revise if not."
+    )
 
 
 class RowRefused(ValueError):

@@ -4,6 +4,7 @@ transport: nothing leaves."""
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -1445,7 +1446,7 @@ def test_the_judge_asks_each_rule_twice_independently_and_writes_labelled_rows_w
     sheet = openpyxl.load_workbook(out)["CRS"]
     rows_out = list(sheet.iter_rows(min_row=2, values_only=True))
     assert [r[0] for r in rows_out] == [1, 2] and all(
-        r[2] == 1 and r[4].startswith("Contractor to confirm.") for r in rows_out
+        r[2] == 1 and r[4].startswith("The datasheet states") for r in rows_out
     )
     assert all("engineer to confirm" not in r[4] for r in rows_out)
 
@@ -1912,70 +1913,6 @@ def test_field_first_asks_one_field_per_prompt_and_code_verifies_each_pick(rules
 
 
 # ------------------------------------------------------------------------------------------ a Pass rests on the compared figure
-def _fig(rule, quote):
-    return rule_box_judge.figure_check(rule, quote)[0]
-
-
-def _pass_both(rule, quote):
-    rec = _rec(1, "pass", quote=quote)
-    pages = {1: f"Invented sheet. {quote} More words follow."}
-    one = rule_box_judge.verified(rec, 1, pages, False, rule)
-    return rule_box_judge.combine(one, one, False)
-
-
-def test_a_pass_needs_the_stated_value_to_meet_the_rules_figure_by_the_datasheet_comparison():
-    rule = "The set pressure shall be not less than 10 bar."
-    assert _fig(rule, "Set pressure 12 bar") == "meets"
-    assert _fig(rule, "Set pressure 5 bar") == "violates"
-    assert (
-        _pass_both(rule, "The set pressure is 5 bar")[0] == "Query"
-    )  # 5 bar against not less than 10 bar: never a Pass
-    assert _pass_both(rule, "The set pressure is 12 bar")[0] == "needs engineer"
-    assert (
-        _fig("The set pressure shall be at most 10 bar.", "Set pressure 12 bar")
-        == "violates"
-    )
-    assert (
-        _fig("The set pressure shall be at most 10 bar.", "Set pressure 8 bar")
-        == "meets"
-    )
-    assert (
-        _pass_both(
-            "The set pressure shall be at most 10 bar.", "The set pressure is 12 bar"
-        )[0]
-        == "Query"
-    )
-
-
-def test_a_figure_in_another_unit_is_converted_and_a_unit_that_does_not_convert_blocks_the_pass():
-    rule = "The set pressure shall be not less than 10 bar."
-    assert (
-        _fig(rule, "Set pressure 200 psi") == "meets"
-    )  # 100 psi is 6.9 bar? no: see the violation below
-    assert _fig(rule, "Set pressure 50 psi") == "violates"
-    assert _fig(rule, "Set pressure 12 degC") == "cannot"
-    assert _pass_both(rule, "The set pressure is 12 degC")[0] == "needs engineer"
-
-
-def test_a_range_two_values_or_another_quantitys_number_never_make_a_pass():
-    rule = "The set pressure shall be not less than 10 bar."
-    assert (
-        _fig("The set pressure shall be between 5 and 10 bar.", "Set pressure 8 bar")
-        == "cannot"
-    )
-    assert _fig(rule, "Set pressure 12 bar and test pressure 15 bar") == "cannot"
-    assert _fig(rule, "Seat tightness class 6, 3 mm lift") == "cannot"
-    assert _fig("The valve shall be marked.", "Marked on the plate 2024") == "no_figure"
-
-
-def test_a_fail_verdict_whose_value_actually_meets_the_rule_goes_to_the_engineer():
-    rule = "The set pressure shall be not less than 10 bar."
-    fail = lambda q: _v(_rec(1, "fail", quote=q), rule=rule)  # noqa: E731
-    pages_q = "The set pressure is 12 bar and the body is cast iron"
-    assert (
-        rule_box_judge.combine(fail(pages_q), fail(pages_q), False)[0]
-        == "needs engineer"
-    )
 
 
 # ------------------------------------------------------------------------------------------ the comparator, ranges, terms, leaks
@@ -1996,143 +1933,6 @@ def _real(rule, quote, verdict="pass", reason="the sheet states the value clearl
     }
     one = rule_box_judge.verified(record, 1, pages, False, rule)
     return rule_box_judge.combine(one, one, False)[0]
-
-
-@pytest.mark.parametrize(
-    "phrase, op",
-    [
-        ("not more than", "<="),
-        ("not greater than", "<="),
-        ("not higher than", "<="),
-        ("no more than", "<="),
-        ("not exceed", "<="),
-        ("shall not exceed", "<="),
-        ("not exceeding", "<="),
-        ("at most", "<="),
-        ("max.", "<="),
-        ("maximum", "<="),
-        ("up to", "<="),
-        ("\u2264", "<="),
-        ("<=", "<="),
-        ("not less than", ">="),
-        ("no less than", ">="),
-        ("not lower than", ">="),
-        ("at least", ">="),
-        ("min.", ">="),
-        ("minimum", ">="),
-        ("\u2265", ">="),
-        (">=", ">="),
-        ("less than", "<"),
-        ("below", "<"),
-        ("more than", ">"),
-        ("above", ">"),
-        ("exceeds", ">"),
-    ],
-)
-def test_every_comparator_phrase_is_read_as_itself_and_decides_both_directions(
-    phrase, op
-):
-    rule = f"The design pressure shall be {phrase} 10 bar."
-    assert rule_box_judge.read_comparator(rule) == op
-    ok, bad = {
-        "<=": ("5", "15"),
-        ">=": ("15", "5"),
-        "<": ("5", "15"),
-        ">": ("15", "5"),
-    }[op]
-    assert _real(rule, f"Design pressure {ok} bar") == "needs engineer"
-    assert (
-        _real(rule, f"Design pressure {bad} bar") == "Query"
-    )  # a breach is never a Pass
-
-
-def test_no_comparator_or_two_different_ones_means_no_pass():
-    assert (
-        rule_box_judge.read_comparator("The design pressure shall be 10 bar.") is None
-    )
-    assert (
-        rule_box_judge.read_comparator(
-            "The pressure shall be above 5 bar and below 10 bar."
-        )
-        is None
-    )
-    assert (
-        _real("The design pressure shall be 10 bar.", "Design pressure 10 bar")
-        == "needs engineer"
-    )
-
-
-def test_decimal_commas_and_ranges_in_the_quote_never_make_a_pass():
-    rule = "The design pressure shall be not more than 10 bar."
-    assert (
-        rule_box_judge.normalise_numbers("1,5 MPa and 1,000 kPa")
-        == "1.5 MPa and 1000 kPa"
-    )
-    assert _real(rule, "Design pressure 1,5 MPa") == "Query"  # 1.5 MPa is 15 bar
-    assert _real(rule, "Design pressure 0,5 MPa") == "needs engineer"  # 5 bar
-    for quote in (
-        "Design pressure 5 to 15 bar",
-        "Design pressure 5-15 bar",
-        "Design pressure 5 through 15 bar",
-        "Design pressure between 5 and 15 bar",
-        "Design pressure ~8 bar",
-        "Design pressure 5 .. 15 bar",
-    ):
-        assert _real(rule, quote) == "needs engineer", quote
-
-
-@pytest.mark.parametrize(
-    "rule, quote",
-    [
-        ("The valve body shall be stainless steel.", "Valve body: carbon steel"),
-        (
-            "The valve body shall be stainless steel.",
-            "Valve body: stainless steel excluded",
-        ),
-        ("The valve body shall be stainless steel.", "Valve body: TBA"),
-        ("The valve body shall be stainless steel.", "Valve body: -"),
-        ("The valve body shall be stainless steel.", "Valve body: n.a."),
-        (
-            "The valve body shall be stainless steel.",
-            "Valve body: never stainless steel",
-        ),
-        ("The valve body shall be stainless steel.", "Valve body: by others"),
-        ("The valve body shall be stainless steel.", "Valve body: omitted"),
-        (
-            "The valve body shall be stainless steel.",
-            "Valve body: stainless steel cannot be fitted",
-        ),
-        ("The valve body shall be stainless steel.", "Valve body: (to be provided)"),
-        (
-            "The valve body shall be stainless steel.",
-            "Valve body: vendor to advise stainless steel",
-        ),
-        (
-            "The valve body shall be stainless steel or duplex.",
-            "Valve body: carbon steel",
-        ),
-        ("The valve body shall not be cast iron.", "Valve body: carbon steel"),
-        (
-            "The latest edition of the code shall apply to the valve body.",
-            "Code edition: 2015 for the valve body",
-        ),
-    ],
-)
-def test_a_rule_without_a_figure_is_never_passed_on_a_placeholder_a_negation_or_the_wrong_word(
-    rule, quote
-):
-    assert _real(rule, quote) != "Pass"
-
-
-def test_a_rule_without_a_figure_passes_only_when_a_listed_alternative_stands_in_the_value():
-    rule = "The valve body shall be stainless steel or duplex."
-    assert _real(rule, "Valve body: duplex") == "needs engineer"
-    assert _real(rule, "Valve body: stainless steel") == "needs engineer"
-    assert rule_box_judge.required_terms(rule) == ["stainless steel", "duplex"]
-    assert (
-        _real("The valve body shall be stainless steel.", "Valve body: stainless steel")
-        == "needs engineer"
-    )
 
 
 def test_the_contractor_comment_is_built_by_code_only_and_leaks_nothing_of_the_models_sentence(
@@ -2171,7 +1971,10 @@ def test_the_contractor_comment_is_built_by_code_only_and_leaks_nothing_of_the_m
     sheet = openpyxl.load_workbook(out)["CRS"]
     comments = [r[4] for r in sheet.iter_rows(min_row=2, values_only=True)]
     assert comments and not [c for c in comments if banned.search(c)]
-    assert all(c.startswith("Contractor to confirm.") for c in comments)
+    assert all(
+        c.startswith("The datasheet states") and c.endswith("revise if not.")
+        for c in comments
+    )
     with zipfile.ZipFile(out) as z:
         assert not [
             n
@@ -2278,3 +2081,68 @@ def test_only_a_query_reaches_the_contractor_workbook(rules, tmp_path):
     assert (
         rule_box_judge.export_crs(rules, "sub-1", tmp_path / "c.xlsx") == 1
     )  # an old Pass row makes no contractor row
+
+
+_DIRECTION = re.compile(
+    r"\b(exceed\w*|below|above|under|over|violat\w*|against|meets?|within|outside|less|more|greater|lower|higher)\b",
+    re.I,
+)
+
+
+@pytest.mark.parametrize("rule, quote", ATTACKS)
+def test_a_contractor_comment_never_says_which_way_a_value_lies_against_a_limit(
+    rule, quote
+):
+    pages = {1: PRESS_PAGE.format(q=quote)}
+    record = {
+        "i": 1,
+        "verdict": "query",
+        "scope_applies": None,
+        "page": 1,
+        "quote": quote,
+        "reason": "the sheet states a value",
+        "document_can_state": "yes",
+    }
+    one = rule_box_judge.verified(record, 1, pages, False, rule)
+    status, _reason, shown = rule_box_judge.combine(one, one, False)
+    if status != "Query":
+        return
+    row = {
+        "status": status,
+        "evidence": shown["quote"],
+        "page": shown["page"],
+        "clause": "STD-1 clause 4.2",
+        "rule_quote": rule,
+        "calls_json": "[]",
+    }
+    comment = rule_box_judge.comment_of(row)
+    outside_quotes = re.sub("\u201c[^\u201d]*\u201d", "", comment)
+    assert not _DIRECTION.search(outside_quotes), comment
+    assert comment.startswith("The datasheet states") and comment.endswith(
+        "Contractor to confirm that the stated value complies and revise if not."
+    )
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Design pressure NOT 15 bar",
+        "Design pressure 15 bar (not applicable)",
+        "Design pressure: TBA",
+        "Design pressure: 15 bar by others",
+    ],
+)
+def test_a_negation_or_a_placeholder_is_not_a_stated_value_for_a_query(quote):
+    rule = "The design pressure shall be stated."
+    pages = {1: PRESS_PAGE.format(q=quote)}
+    record = {
+        "i": 1,
+        "verdict": "query",
+        "scope_applies": None,
+        "page": 1,
+        "quote": quote,
+        "reason": "the sheet states a value",
+        "document_can_state": "yes",
+    }
+    one = rule_box_judge.verified(record, 1, pages, False, rule)
+    assert rule_box_judge.combine(one, one, False)[0] == "needs engineer"
