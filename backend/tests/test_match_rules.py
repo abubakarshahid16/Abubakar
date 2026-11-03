@@ -371,6 +371,7 @@ class TestRefusal:
             match_rules.QUANTITY_KIND,
             required_values.REQUIRED_KIND,
             match_rules.NOT_ASKED,
+            match_rules.SUBJECT_QUANTITY,
         }
 
     def test_no_rule_fires_on_the_plain_case(self):
