@@ -108,7 +108,7 @@ def test_mawp_is_not_the_design_pressure_and_an_unrelated_clause_is_not_a_temper
         ),  # the sheet's own equipment is not a different object
         (
             "Corrosion allowance",
-            "corrosion allowance (T-7001/QA)",
+            "corrosion allowance (T-7001A/B)",
         ),  # a tag is not part of the quantity
         ("Corrosion allowance", "corrosion allowance (P-101AB)"),
     ],
