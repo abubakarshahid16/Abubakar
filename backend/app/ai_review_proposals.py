@@ -182,7 +182,7 @@ _SINGLE_RUN = re.compile(r"(?<![a-z0-9])(?:[a-z][\s\-._]+){2,}[a-z](?![a-z0-9])"
 def _readable(text: object) -> str:
     """What a reader reads: NFKC, invisible and combining characters dropped, look-alike letters mapped to Latin, lower
     case, and a run of single letters ("c o m p l i e s", "c-o-m-p-l-i-e-s") joined into one word."""
-    folded = unicodedata.normalize("NFKC", str(text or ""))
+    folded = numparse.normalise_text(str(text or ""))
     kept = "".join(
         c
         for c in folded
@@ -192,7 +192,7 @@ def _readable(text: object) -> str:
             and c not in _IGNORABLE
         )
     )
-    plain = unicodedata.normalize("NFKC", kept).translate(_CONFUSABLE).lower()
+    plain = numparse.normalise_text(kept).translate(_CONFUSABLE).lower()
     return _SINGLE_RUN.sub(lambda m: re.sub(r"[^a-z]", "", m.group(0)), plain)
 
 
@@ -428,7 +428,7 @@ def _reason_ok(proposal: dict, row: Mapping) -> bool:
     any script, no number word (whole word), no roman numeral, no letter outside ASCII once look-alikes are mapped, and no
     unit the row's own text does not also use."""
     plain = _readable(proposal.get("reason"))
-    raw = unicodedata.normalize("NFKC", str(proposal.get("reason") or ""))
+    raw = numparse.normalise_text(str(proposal.get("reason") or ""))
     if re.search(
         r"(?<![A-Za-z])[IVXLCDM](?![A-Za-z])", raw
     ):  # a lone capital roman numeral ("V barg")

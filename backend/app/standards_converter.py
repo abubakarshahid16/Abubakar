@@ -31,7 +31,7 @@ documents classified COMPANY_STANDARD (clause and sentence), the system block fr
 No datasheet, procedure, CRS or register text can enter it: `requirements_of` is the only source, and
 `claude_approved.carrying` declares exactly the standard being converted, so the owner's approved-documents
 list refuses the call when that standard is not on it. Only the families in `ALLOWED_FAMILIES` are ever
-sent (owner, 28 Oct: SAES and ISO; API and ASME are on hold until the owner confirms the licence).
+sent (owner, 28 Oct: SAES and ISO; owner, 3 Nov 2026, #1584: API, ASME and NACE text may also go; the code default below still names SAES and ISO until the owner sets the families).
 
 WHAT COMES OUT: one draft per standard, JSON + CSV, in a folder OUTSIDE the repository (the files hold clause
 quotes - they belong in the mirror, never in git). Every file names the pump form it was read against (the
@@ -64,7 +64,7 @@ from .converter_gates import as_printed_on, fold_for_gate, in_example, quote_unr
 from .converter_gates import fold as _fold
 from .reasoning_provider import ProviderRefused
 
-#: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. API and ASME: HOLD.
+#: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. Owner, 3 Nov 2026 (#1584): API, ASME and NACE may too; this default is unchanged and the owner sets STANDARDS_COMPILER_FAMILIES.
 ALLOWED_FAMILIES = ("SAES", "ISO")
 STEP_PREFIX = claude_spend.STANDARD_STEP_PREFIX
 #: Where the model runs. "local" is the Mac's own engine (owner order of 28 Oct, order 277: no Claude API
