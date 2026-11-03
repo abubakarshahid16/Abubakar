@@ -13,6 +13,7 @@ _OWN = APP / "own_value_limit.py"
 _SIGN = APP / "impossible_sign.py"
 _TIE = APP / "unit_tie.py"
 _CONFIG = APP / "config.py"
+_TQ = "tests/test_1655_qualifier_words.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
@@ -224,6 +225,50 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="        numparse.has_joining_minus(str(raw))\n",
         target=_T,
         keyword="held_on_a_never_negative or flagged_on_a_bounded",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1655-20",
+        phase=1655,
+        description="a bound or approximation word before a number is a label again (up to 10, NLT 10)",
+        path=_NUM,
+        anchor="    if _qualified(words):\n        return False\n",
+        replacement="    if False:\n        return False\n",
+        target=_TQ,
+        keyword="a_qualifier_word_reads_the_value",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1655-21",
+        phase=1655,
+        description="a qualifier after a comparator is not recognised (max approx 10)",
+        path=_NUM,
+        anchor="        elif (m := _QUALIFIER_END.search(words)) is not None:\n",
+        replacement="        elif False:\n",
+        target=_TQ,
+        keyword="leading_and_trailing",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1655-22",
+        phase=1655,
+        description="a qualifier before a comparator is not recognised (approx. max 10)",
+        path=_NUM,
+        anchor="        if (m := _QUALIFIER_START.match(words)) is not None:\n",
+        replacement="        if False:\n",
+        target=_TQ,
+        keyword="leading_and_trailing",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1655-23",
+        phase=1655,
+        description="a label among qualifier words is accepted (Note up to 5, Class over 150)",
+        path=_NUM,
+        anchor="        else:\n            return False\n    return True\n",
+        replacement="        else:\n            return True\n    return True\n",
+        target=_TQ,
+        keyword="a_label_before_or_among",
         tags=_TAG,
     ),
 )

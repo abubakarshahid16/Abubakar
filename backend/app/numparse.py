@@ -463,6 +463,31 @@ _LAST_BIND = re.compile("[" + re.escape(_BINDS) + "]")
 COMPARATOR_PHRASE = None
 
 
+#: A bound or approximation word that may stand before a value and says how to read it, as `parse_value`
+#: read it before #1640 ("up to 10", "approx. 10", "NLT 10"). Closed list of general words, none a label.
+_QUALIFIER = (
+    r"up\s+to|equal\s+to|over|under|below|above|about|approx\.?|approximately|circa|ca\.?"
+    r"|nominal|nom\.?|typical|typ\.?|nlt|nmt"
+)
+_QUALIFIER_START = re.compile(r"(?:" + _QUALIFIER + r")(?:\s+|$)", re.IGNORECASE)
+_QUALIFIER_END = re.compile(r"(?:^|\s)(?:" + _QUALIFIER + r")$", re.IGNORECASE)
+
+
+def _qualified(words: str) -> bool:
+    """The words are bound or approximation words only, or those around one comparator ("up to",
+    "approx. max"): no label in them, so the number after them is the value (#1640)."""
+    while words:
+        if COMPARATOR_PHRASE is not None and COMPARATOR_PHRASE(words):
+            return True
+        if (m := _QUALIFIER_START.match(words)) is not None:
+            words = words[m.end() :].strip()
+        elif (m := _QUALIFIER_END.search(words)) is not None:
+            words = words[: m.start()].strip()
+        else:
+            return False
+    return True
+
+
 def _prefix_refused(prefix: str) -> bool:
     """A word stands before the number with only space between, and is no comparator: a label ending
     in the number ("A5", "A+5", "PN16", "Note 5", "Class 150"). A symbol that ends a label or states a
@@ -476,6 +501,8 @@ def _prefix_refused(prefix: str) -> bool:
     words = prefix[binds[-1].end() :] if binds else prefix
     words = " ".join(words.split())
     if not words:
+        return False
+    if _qualified(words):
         return False
     return COMPARATOR_PHRASE is None or not COMPARATOR_PHRASE(words)
 
@@ -539,14 +566,6 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
     m = (_VALUE_LEAD if lead_on else _VALUE).fullmatch(s)
     if not m:
         return None
-    if lead_on:
-        glued = s[: m.start("num")]
-        if m.group("num").lstrip("+-").startswith(".") and glued[-1:].isalnum():
-            m = _VALUE.fullmatch(s)  # "p.4": as before
-        elif glued.rstrip().endswith(".") and not glued.rstrip()[-2:-1].isalnum():
-            return None  # ".5.3", "...5": a stranded dot, the text cannot say
-        if not m:
-            return None
     prefix = s[:m.start("num")]
     if _minus_is_joined(m) or _prefix_refused(_value_prefix(m)):
         return None  # "A-5": a joining hyphen (#1619); "A5", "Note 5": a label (#1640)
@@ -555,11 +574,8 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
     if stripped and stripped[-1] in "-" + DASHES:
         if prefix != stripped:
             return None          # "- 29": dash separated from its digits
-        before = stripped[:-1]
         if stripped[-1] in DASHES:
-            if before and not (before[-1].isspace() or not before[-1].isalnum()):
-                return None      # "T\u201329": glued to a letter
-            negative_dash = True
+            negative_dash = True  # glued to a letter ("T\u201329"): `_prefix_refused` has said no
         else:
             return None          # "x-29" / "- 29" with an ASCII hyphen: not a sign
     num = m.group("num")
