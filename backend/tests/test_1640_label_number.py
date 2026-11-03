@@ -408,7 +408,8 @@ def test_a_number_joined_to_a_letter_is_no_stated_figure(label, dash, number):
     for value in (number, f"-{number}"):
         assert not numparse.value_in_text(value, source)
         assert not numparse.value_in_text(f"{value} C", source)
-    assert numparse.number_keys(source) == set()
+    assert numparse.stated_number_keys(source) == set()
+    assert numparse.number_keys(source) != set()  # the count side still sees it
     assert not rule_eval.verify_numbers({"rows": [{"from": float(number)}]}, source)
 
 

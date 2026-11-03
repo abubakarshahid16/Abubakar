@@ -344,6 +344,13 @@ def number_keys(text: str) -> set[float | str]:
     """The set of numbers a text states, for "every number in the answer must
     appear in the source" gates. Signed: -5 and 5 are different members. A
     compound token ("5.3.2") is a member as its text."""
+    return {n.key for n in find_numbers(text)}
+
+
+def stated_number_keys(text: str) -> set[float | str]:
+    """`number_keys` without the numbers a dash joins to a letter ("PN-16"): the figures a text
+    STATES, for the allowed side of a gate. A COUNT or a both-sides comparison keeps `number_keys`,
+    so a joined number never makes a many-valued text look single-valued (#1640)."""
     return {n.key for n in find_numbers(text) if not n.joined}
 
 

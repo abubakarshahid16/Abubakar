@@ -14,6 +14,7 @@ _SIGN = APP / "impossible_sign.py"
 _TIE = APP / "unit_tie.py"
 _CONFIG = APP / "config.py"
 _TQ = "tests/test_1655_qualifier_words.py"
+_TJ = "tests/test_1655_joined_count.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
@@ -269,6 +270,28 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="        else:\n            return True\n    return True\n",
         target=_TQ,
         keyword="a_label_before_or_among",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1655-24",
+        phase=1655,
+        description="the count of numbers drops a joined number (PN-16): a many-valued text reads single-valued",
+        path=_NUM,
+        anchor="    return {n.key for n in find_numbers(text)}\n",
+        replacement="    return {n.key for n in find_numbers(text) if not n.joined}\n",
+        target=_TJ,
+        keyword="counts or several_values or refuses",
+        tags=_TAG,
+    ),
+    Mutation(
+        id="M1655-25",
+        phase=1655,
+        description="the stated figures of a text include a joined number (PN-63 is stated)",
+        path=_NUM,
+        anchor="    return {n.key for n in find_numbers(text) if not n.joined}\n",
+        replacement="    return {n.key for n in find_numbers(text)}\n",
+        target=_TJ,
+        keyword="not_take_a_joined or counts",
         tags=_TAG,
     ),
 )
