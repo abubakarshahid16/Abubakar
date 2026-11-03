@@ -27,9 +27,30 @@ def test_a_minus_directly_after_a_letter_is_no_sign(text, minus):
     assert numparse.parse_value(text.format(minus)) is None
 
 
-@pytest.mark.parametrize("text", ["T--5", "A_-5", "A.-5", "A/-5", "%-5", "+-5", "--5"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "T--5",
+        "A_-5",
+        "A.-5",
+        "A/-5",
+        "%-5",
+        "+-5",
+        "--5",
+        "\u00b1-5",
+        "\u2248-5",
+        "\u223c-5",
+    ],
+)
 def test_no_sign_outside_the_sign_leads(text):
     assert numparse.parse_value(text) is None
+
+
+@pytest.mark.parametrize("minus", ["-", U_MINUS])
+def test_a_letter_then_a_spaced_minus_is_a_label_and_reads_no_number(minus):
+    # "T {}5" was pinned as -5 here; since #1640 a word that is no comparator before the number is a
+    # label ("Note -5"), so the text cannot say and the reading is None.
+    assert numparse.parse_value(f"T {minus}5") is None
 
 
 @pytest.mark.parametrize("minus", ["-", U_MINUS])
@@ -48,7 +69,6 @@ def test_a_tag_shaped_value_has_no_measurement_value(minus):
         "T = {}5",
         "T={}5",
         "T: {}5",
-        "T {}5",
         "< {}5",
         "<{}5",
         "({}5",
