@@ -135,6 +135,8 @@ OUTCOME_USED = "used"
 OUTCOME_EXCLUDED = "excluded_by_engineer"
 OUTCOME_NO_REQUIREMENTS = "no_requirements"
 OUTCOME_NONE = "none_held"
+OUTCOME_NOT_IN_RUN = "not_in_run"
+NOT_RECORDED = "not recorded for this run"
 BY = "marked by an administrator"
 
 
@@ -143,6 +145,8 @@ def _sentence(outcome: str, name: str, requirements: int) -> str:
         return f"{NOTE} used: {name} ({BY}; {requirements} requirements read from it)"
     if outcome == OUTCOME_EXCLUDED:
         return f"{NOTE}: {name} was {BY}, but an engineer excluded it from this run, so nothing was compared against it"
+    if outcome == OUTCOME_NOT_IN_RUN:
+        return f"{NOTE}: {name} was {BY}, but it is not in this run's list of standards, so nothing was compared against it"
     if outcome == OUTCOME_NO_REQUIREMENTS:
         return f"{NOTE}: {name} was {BY}, but no requirements were read from it, so nothing was compared against it"
     return f"{NOTE}: {NONE_HELD}"
@@ -167,11 +171,25 @@ def _ensure_run_table() -> None:
 
 
 def _record(
-    run_id: str, spec: str | None, name: str, requirements: int, outcome: str
+    run_id: str,
+    spec: str | None,
+    name: str,
+    requirements: int,
+    outcome: str,
+    *,
+    changes_run: bool = False,
 ) -> None:
-    """What THIS run did about the specification, stored at pin time; a later mark or unmark never rewrites it."""
+    """Which specification THIS run was given, stored at pin time. A later mark, unmark or pin never rewrites it, except
+    a pin that really changes what the run holds (`changes_run`) or the first record. What the run DID with it (used,
+    excluded by an engineer) is not stored here: it is read from the run's own list of standards when the note is made."""
     _ensure_run_table()
     with connect() as conn:
+        have = conn.execute(
+            "SELECT outcome FROM project_specification_run WHERE review_run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if have and not changes_run and not (have["outcome"] == OUTCOME_NONE and spec):
+            return
         conn.execute(
             "INSERT OR REPLACE INTO project_specification_run (review_run_id, spec_document_id, name, requirements,"
             " outcome, recorded_at) VALUES (?,?,?,?,?,?)",
@@ -198,10 +216,26 @@ def _run_facts(run_id: str, allowed: frozenset[str]) -> tuple[str, str]:
         .fetchone()
     )
     if r is None:
-        return f"{NOTE}: not recorded for this run", NONE_HELD
+        return f"{NOTE}: {NOT_RECORDED}", NOT_RECORDED
     if r["outcome"] == OUTCOME_NONE or r["spec_document_id"] not in allowed:
         return _sentence(OUTCOME_NONE, "", 0), NONE_HELD
-    return _sentence(r["outcome"], r["name"], int(r["requirements"])), r["name"]
+    name, count = r["name"], int(r["requirements"])
+    if r["outcome"] == OUTCOME_NO_REQUIREMENTS or count == 0:
+        return _sentence(OUTCOME_NO_REQUIREMENTS, name, 0), name
+    # THE RUN'S OWN LIST OF STANDARDS is the truth about what the run compared: an engineer's exclusion shows here.
+    row = (
+        connect()
+        .execute(
+            "SELECT included FROM review_applicable_standards WHERE review_run_id = ? AND standard_document_id = ?"
+            " ORDER BY rowid DESC",
+            (run_id, r["spec_document_id"]),
+        )
+        .fetchone()
+    )
+    if row is None:
+        return _sentence(OUTCOME_NOT_IN_RUN, name, count), name
+    outcome = OUTCOME_USED if row["included"] else OUTCOME_EXCLUDED
+    return _sentence(outcome, name, count), name
 
 
 def run_line(run_id: str, allowed: frozenset[str]) -> str:
@@ -254,7 +288,7 @@ def pin(review_run_id: str, submittal_id: str, allowed: frozenset[str]) -> bool:
                 found["id"],
                 found["name"],
                 found["requirements"],
-                OUTCOME_USED if manual["included"] else OUTCOME_EXCLUDED,
+                OUTCOME_USED,
             )
             return False
         applicability.record_selection(
@@ -269,6 +303,7 @@ def pin(review_run_id: str, submittal_id: str, allowed: frozenset[str]) -> bool:
             found["name"],
             found["requirements"],
             OUTCOME_USED,
+            changes_run=True,
         )
         return True
     except Exception:

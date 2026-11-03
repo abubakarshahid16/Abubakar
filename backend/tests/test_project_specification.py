@@ -305,3 +305,61 @@ def test_the_wording_names_no_owner_for_what_any_administrator_did(world):
     (note,) = ps.notes(world["sub"], world["scope"], run_id)
     assert "marked by an administrator" in note["detail"]
     assert "owner" not in note["detail"]
+
+
+def test_an_exclusion_after_the_pin_turns_the_note_from_used_to_excluded(world):
+    from app import applicability
+
+    run_id = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    assert ps.pin(run_id, world["sub"], world["scope"]) is True
+    assert (
+        "used: std_api.pdf"
+        in ps.notes(world["sub"], world["scope"], run_id)[0]["detail"]
+    )
+    applicability.record_selection(
+        review_run_id=run_id,
+        standard_document_id="std_api",
+        method=applicability.METHOD_MANUAL,
+        reason="engineer decision",
+        included=False,
+        exclusion_reason="not for this job",
+    )
+    (note,) = ps.notes(world["sub"], world["scope"], run_id)
+    assert (
+        "excluded it from this run" in note["detail"] and "used" not in note["detail"]
+    )
+
+
+def test_a_second_pin_never_overwrites_what_the_run_holds(world):
+    run_id = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    ps.pin(run_id, world["sub"], world["scope"])
+    before = ps.notes(world["sub"], world["scope"], run_id)
+    ps.mark(world["sub"], "std_api", "adm", undo=True)  # no mark any more
+    assert ps.pin(run_id, world["sub"], world["scope"]) is False
+    assert ps.notes(world["sub"], world["scope"], run_id) == before
+    ps.mark(world["sub"], "std_api", "adm")
+    assert (
+        ps.pin(run_id, world["sub"], frozenset({world["sub"]})) is False
+    )  # cannot read it
+    assert ps.notes(world["sub"], world["scope"], run_id) == before
+    assert "used: std_api.pdf" in before[0]["detail"]
+
+
+def test_a_run_without_a_record_says_not_recorded_in_the_cell_too(world):
+    (note,) = ps.notes(world["sub"], world["scope"], "run-never-pinned")
+    assert note["standard"] == "not recorded for this run"
+
+
+def test_a_specification_missing_from_the_runs_list_is_not_called_used(world):
+    run_id = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    ps.pin(run_id, world["sub"], world["scope"])
+    with db.connect() as conn:
+        conn.execute(
+            "DELETE FROM review_applicable_standards WHERE review_run_id = ? AND standard_document_id = 'std_api'",
+            (run_id,),
+        )
+    (note,) = ps.notes(world["sub"], world["scope"], run_id)
+    assert "not in this run's list of standards" in note["detail"]
