@@ -33,7 +33,7 @@ from __future__ import annotations
 import re
 
 from . import ai_review_proposals as arp
-from . import claims, standard_ids
+from . import claims, standard_ids, subject_pairing
 from .config import settings
 from .reader_api import _fold
 
@@ -115,6 +115,7 @@ class PassReason:
     FAIL_PRESENT = "pass_fail_on_the_sheet"
     CONFLICT = "pass_field_has_two_values"
     READINGS = "pass_readings_disagree"
+    SUBJECT = "pass_clause_subject_is_not_the_field"
 
 
 def _clause_text(proposal: dict, ctx) -> str | None:
@@ -229,7 +230,7 @@ def _value_cell(field: str, quote: str) -> str | None:
     return m.group("v").strip() if m else None
 
 
-def _clause_quote(proposal: dict, ctx) -> tuple[str | None, str | None]:
+def _clause_quote(proposal: dict, ctx) -> tuple[tuple[str, str] | None, str | None]:
     """(clause quote, None) when the clause resolves to stored text, the quote stands in it and the scope is confirmed."""
     clause_text = _clause_text(proposal, ctx)
     if clause_text is None:
@@ -237,7 +238,13 @@ def _clause_quote(proposal: dict, ctx) -> tuple[str | None, str | None]:
     quote = str(proposal.get("clause_quote") or "").strip()
     if len(quote) < arp.MIN_QUOTE_CHARS or _fold(quote) not in _fold(clause_text):
         return None, PassReason.CLAUSE_QUOTE
-    if _EDITION.search(_fold(quote)):
+    sentence = next(
+        (x for x in claims.split_sentences(clause_text) if _fold(quote) in _fold(x)),
+        None,
+    )  # the stored sentence holding the quote: comparator, negation and subject are read from ALL of it
+    if sentence is None:
+        return None, PassReason.CLAUSE_QUOTE
+    if _EDITION.search(_fold(sentence)):
         return None, PassReason.EDITION
     if str(proposal.get("scope_applies") or "").strip().lower() != "yes":
         return None, PassReason.SCOPE
@@ -245,32 +252,42 @@ def _clause_quote(proposal: dict, ctx) -> tuple[str | None, str | None]:
         shown = str(proposal.get("scope_quote") or "").strip()
         if len(shown) < arp.MIN_QUOTE_CHARS or _fold(shown) not in _fold(clause_text):
             return None, PassReason.SCOPE
-    return quote, None
+    return (quote, sentence), None
 
 
 def _numeric(
-    field: str, clause_quote: str, doc_quote: str
+    field: str, clause: tuple[str, str], doc_quote: str
 ) -> tuple[str | None, str | None]:
-    """The figure path: the closed comparator table on the clause, a plain `<field> <number> <unit>` in the document."""
-    clause = _plain_number(clause_quote)
+    """The figure path: the closed comparator table read over the WHOLE stored sentence (so a negation before the quote
+    counts), a plain `<field> <number> <unit>` in the document."""
+    clause_quote, sentence = clause
+    plain = _plain_number(sentence)
+    quoted = _plain_number(clause_quote)
     value_cell = _value_cell(field, doc_quote)
     plain_cell = _plain_number(value_cell) if value_cell is not None else None
-    if clause is None or value_cell is None or plain_cell is None:
+    if plain is None or quoted is None or value_cell is None or plain_cell is None:
         return None, PassReason.UNREADABLE
-    matches = list(_COMPARATOR.finditer(clause))
-    if len(matches) != 1:
+    matches = list(_COMPARATOR.finditer(plain))
+    if len(matches) != 1 or len(list(_COMPARATOR.finditer(quoted))) != 1:
         return None, PassReason.NO_FIGURE
-    rest = clause[: matches[0].start()] + " " + clause[matches[0].end() :]
-    if _NEGATION.search(rest) or len(re.findall(r"\d+(?:\.\d+)?", rest)) != 1:
-        return None, PassReason.NEGATION if _NEGATION.search(
-            rest
-        ) else PassReason.NO_FIGURE
+    rest = plain[: matches[0].start()] + " " + plain[matches[0].end() :]
+    if _NEGATION.search(rest):
+        return (
+            None,
+            PassReason.NEGATION,
+        )  # any negation or exception the table did not consume, anywhere in the sentence
+    if len(re.findall(r"\d+(?:\.\d+)?", rest)) != 1:
+        return None, PassReason.NO_FIGURE
     limit_figure = claims.extract_measurements(rest)
     if _NEGATION.search(plain_cell):
         return None, PassReason.NEGATION
     cell = _NUMBER_UNIT.fullmatch(plain_cell)
     if len(limit_figure) != 1 or cell is None:
         return None, PassReason.NO_FIGURE
+    if (
+        limit_figure[0].raw_value not in quoted
+    ):  # the quote must carry the figure the sentence states
+        return None, PassReason.CLAUSE_QUOTE
     observed = claims.extract_measurements(plain_cell)
     if len(observed) != 1 or observed[0].comparator is not None:
         return None, PassReason.UNREADABLE
@@ -287,18 +304,19 @@ def _numeric(
     return (
         f"the submittal states {observed[0].raw_value} {observed[0].raw_unit} and the clause requires "
         f"{symbol} {limit_figure[0].raw_value} {limit_figure[0].raw_unit}",
-        None,
+        claims.unit_dimension(observed[0].raw_unit) or "",
     )
 
 
 def _term(
-    field: str, clause_quote: str, doc_quote: str
+    field: str, clause: tuple[str, str], doc_quote: str
 ) -> tuple[str | None, str | None]:
     """The term path: the required term is read from the clause ("shall be <term>") by code, never taken from the AI, and the
     document's value must equal it exactly (whole value, so "low carbon steel" or "316 stainless steel" fail)."""
     cell = _value_cell(field, doc_quote)
-    m = _MODAL_TERM.search(_fold(clause_quote).rstrip(" .;"))
-    if cell is None or m is None:
+    sentence = _fold(clause[1]).rstrip(" .;")
+    m = _MODAL_TERM.search(sentence)
+    if cell is None or m is None or _NEGATION.search(sentence[: m.start()]):
         return None, PassReason.NO_TERM
     term = m.group("t").strip()
     if (
@@ -315,16 +333,47 @@ def _term(
 
 
 def _figures(
-    field: str, clause_quote: str, doc_quote: str
+    field: str, clause: tuple[str, str], doc_quote: str
 ) -> tuple[str | None, str | None]:
-    if _COMPARATOR.search(_fold(clause_quote)):
-        return _numeric(field, clause_quote, doc_quote)
-    return _term(field, clause_quote, doc_quote)
+    if _COMPARATOR.search(_fold(clause[1])):
+        return _numeric(field, clause, doc_quote)
+    shown, bad = _term(field, clause, doc_quote)
+    return shown, ("" if shown else bad)
 
 
-def _sheet_check(field: str, ctx) -> str | None:
+_MODALS = re.compile(r"\b(?:shall|must|should|will|is|are)\b")
+
+
+def _subject_ok(field: str, sentence: str) -> bool:
+    """The clause's subject (the words before its modal) names the same quantity as the field, by the repo's own
+    same-quantity words. A "design pressure" clause does not fit a "Hydrotest pressure" field; no quantity words = no."""
+    m = _MODALS.search(_fold(sentence))
+    if m is None:
+        return False
+    subject = subject_pairing.quantity_words(_fold(sentence)[: m.start()])
+    return bool(subject) and subject == subject_pairing.quantity_words(field)
+
+
+def _line_values(lines: list[str], dimension: str) -> set[tuple[float, str]]:
+    found: set[tuple[float, str]] = set()
+    for text in lines:
+        plain = _plain_number(text) or text
+        for meas in claims.extract_measurements(plain):
+            if (
+                meas.normalized_value is not None
+                and claims.unit_dimension(meas.raw_unit) == dimension
+            ):
+                found.add(
+                    (meas.normalized_value, meas.normalized_unit or meas.raw_unit)
+                )
+    return found
+
+
+def _sheet_check(field: str, ctx, dimension: str) -> str | None:
     """A reason when the sheet holds a Fail whose field overlaps this one, or the document gives an overlapping field two
-    values. Keyed on the words of the field, not on the AI's exact wording."""
+    values. Keyed on the words of the field, not on the AI's exact wording; EVERY figure of that quantity on the label's
+    line is read (a tag, a numbering or a second value on the line does not hide one), and when the label's line has none,
+    the lines after it up to a blank line (the value on the next line of the same cell block)."""
     mine = _tokens(field)
     for row in ctx.rows.values():
         about = " ".join(
@@ -333,18 +382,21 @@ def _sheet_check(field: str, ctx) -> str | None:
         )
         if arp.is_fail_row(row) and _overlap(mine, _tokens(about)):
             return PassReason.FAIL_PRESENT
+    if not dimension:
+        return None
     values: set[tuple[float, str]] = set()
     for text in ctx.pages.values():
-        for line in text.splitlines():
-            label = re.split(r"\d", line, maxsplit=1)[0]
-            if not _overlap(mine, _tokens(label)):
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if not _overlap(mine, _tokens(line)):
                 continue
-            plain = _plain_number(line) or line
-            for meas in claims.extract_measurements(plain)[:1]:
-                if meas.normalized_value is not None:
-                    values.add(
-                        (meas.normalized_value, meas.normalized_unit or meas.raw_unit)
-                    )
+            block = [line]
+            if not _line_values([line], dimension):
+                for nxt in lines[i + 1 : i + 3]:
+                    if not nxt.strip():
+                        break
+                    block.append(nxt)
+            values |= _line_values(block, dimension)
     return PassReason.CONFLICT if len(values) > 1 else None
 
 
@@ -354,14 +406,18 @@ def verify_pass(proposal: dict, ctx) -> arp.Verdict:
         return arp.Verdict(False, PassReason.SWITCH_OFF, proposal)
     bad = arp._common(proposal, ctx)  # confidence, reason present, size
     doc_quote, bad = (None, bad) if bad else _document_quote(proposal, ctx)
-    clause_quote = None
+    clause = None
     if not bad:
-        clause_quote, bad = _clause_quote(proposal, ctx)
+        clause, bad = _clause_quote(proposal, ctx)
     field = str(proposal.get("field") or "").strip()
-    shown = None
+    if not bad and not _subject_ok(field, clause[1]):
+        bad = PassReason.SUBJECT
+    shown, dimension = None, ""
     if not bad:
-        shown, bad = _figures(field, clause_quote, doc_quote)
-    bad = bad or _sheet_check(field, ctx)
+        shown, dimension = _figures(field, clause, doc_quote)
+        if shown is None:
+            bad, dimension = dimension, ""
+    bad = bad or _sheet_check(field, ctx, dimension or "")
     if not bad and not _readings_agree(proposal, ctx):
         bad = PassReason.READINGS
     if bad:

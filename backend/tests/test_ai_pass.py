@@ -28,7 +28,7 @@ CLAUSES = {
     (
         "SAES-X-100.pdf",
         "7.2",
-    ): "The drawing language shall be English for all drawings.",
+    ): "The drawing language shall be English.",
 }
 HELD = {"SAES-X-100.pdf": ["6.1", "7.2"]}
 FAIL_ROW = {
