@@ -220,6 +220,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |
 | `rulebook_v2_findings` | #805 plan change 6: a review's version 2 rows as findings of the run, each citing its rule, with the safety tier and open tick |
 | `rulebook_v2_signed` | #805 plan change 6: a compiled rule's field role and typed check, and what a tick records of them |
+| `rulebook_v2_book` | #805 STEP 5: the rulebook's numbered book versions, and restoring any one in one verified, logged step (a pin that makes `rulebook_v2` serve that book's versions), on a database copy |
 | `rulebook_v2_stated` | #805 plan change 6: a run's version 2 rows as `coverage_pair` states them, apart, with their denominator |
 | `run_parts` | what a review run states beside its three groups, and its door to the version 2 rulebook, shut with the switch off |
 | `rulebook_v2_ingest` | #805 plan change 6, part A: a compile's verified rows become rows of the version 2 tables, each quote checked again and what fails counted by reason; counts for the version-1-beside-version-2 table |

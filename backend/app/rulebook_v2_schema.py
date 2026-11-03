@@ -39,6 +39,7 @@ TABLES = (
     "rulebook_approval",
     "rulebook_snapshot",
     "rulebook_snapshot_rule",
+    "rulebook_restore",
     "rulebook_compiled_row",
     "rulebook_run",
     "rulebook_event",
@@ -100,6 +101,13 @@ _TABLE_SQL = (
         snapshot_hash TEXT NOT NULL CHECK (length(snapshot_hash) = 64),
         rules_total INTEGER NOT NULL, rules_in_force INTEGER NOT NULL, counts_json TEXT NOT NULL,
         created_by TEXT NOT NULL, created_at TEXT NOT NULL)""",
+    # STEP 5: a restore of an earlier book version, or the release of one. Append-only like the rest.
+    """CREATE TABLE rulebook_restore (
+        id TEXT PRIMARY KEY, action TEXT NOT NULL CHECK (action IN ('restore', 'release')),
+        snapshot_id TEXT REFERENCES rulebook_snapshot(id), source_snapshot_id TEXT REFERENCES rulebook_snapshot(id),
+        book_no INTEGER, restored_book_no INTEGER, source_hash TEXT,
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0), actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+        at TEXT NOT NULL, CHECK ((action = 'restore') = (snapshot_id IS NOT NULL)))""",
     """CREATE TABLE rulebook_snapshot_rule (
         snapshot_id TEXT NOT NULL REFERENCES rulebook_snapshot(id),
         rule_version_id TEXT NOT NULL REFERENCES rulebook_version(id),
@@ -145,6 +153,7 @@ _UNIQUE_BY = {
     "rulebook_approval": ("id",),
     "rulebook_snapshot": ("id", "compile_run_id"),
     "rulebook_snapshot_rule": ("snapshot_id, rule_version_id",),
+    "rulebook_restore": ("id",),
     "rulebook_compiled_row": ("compile_run_id, compiled_row_id",),
     "rulebook_run": ("review_run_id",),
     "rulebook_event": ("id",),
@@ -188,6 +197,11 @@ _EVENTS = {
         "id",
         "NEW.created_by",
         "'snapshot_hash', NEW.snapshot_hash, 'rules_total', NEW.rules_total, 'rules_in_force', NEW.rules_in_force",
+    ),
+    "rulebook_restore": (
+        "id",
+        "NEW.actor",
+        "'action', NEW.action, 'restored_book_no', NEW.restored_book_no, 'source_hash', NEW.source_hash",
     ),
     "rulebook_run": (
         "review_run_id",

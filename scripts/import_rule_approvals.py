@@ -345,7 +345,7 @@ def run(
             EXIT_OFF, "RULEBOOK_V2_ENABLED is off: nothing was read or written."
         )
     settings.db_path = refuse_live(db_path)
-    from app import rulebook_v2
+    from app import rulebook_v2, rulebook_v2_book
     from app.db import connect
 
     if tier not in rulebook_v2.TIERS:
@@ -389,6 +389,8 @@ def run(
 
         material_reference.record(conn, reference, signer, tier, digest)
     rulebook_v2.record_decisions(conn, decisions)  # commits both, or neither
+    if decisions:  # an approval changes what is in force: it is a new book version (STEP 5)
+        rulebook_v2_book.mark_change(conn, signer, "approvals")
     conn.commit()
     words = [d["decision"] for d in decisions]
     emit(
