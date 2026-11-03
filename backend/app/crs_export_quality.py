@@ -495,7 +495,6 @@ from .contractor_scrub import (  # noqa: E402,F401
     contractor_words,
     engineer_words_in,
     note_left_over,
-    protected_values,
     scrub_text,
     scrub_workbook,
 )

@@ -8,6 +8,7 @@ import zipfile
 
 import openpyxl
 
+from app import contractor_scrub as scrub
 from app import crs_export
 from app import crs_export_quality as quality
 from app.config import settings
@@ -212,3 +213,61 @@ def test_the_residual_forms_are_in_the_word_check():
         "Engineering to confirm",
     ):
         assert quality.engineer_words_in(text)
+
+
+PHRASES = (
+    "Engineer to check",
+    "Eng. to confirm",
+    "ENGINEER TO TICK",
+    "Engineer to check which clauses apply",
+)
+
+
+def test_a_contractor_field_equal_to_a_phrase_we_write_never_puts_it_in_our_cells(
+    monkeypatch,
+):
+    """The exemption is by column and row role, never by string equality: a reference, section or file name that
+    reads like our Priority label stays in ITS column and does not unlock the same words in OUR cells."""
+    monkeypatch.setattr(settings, "crs_contractor_no_engineer_words_enabled", True)
+    monkeypatch.setattr(settings, "crs_export_quality_enabled", True)
+    for phrase in PHRASES:
+        row = {
+            **_row(comment="Set pressure 12 barg is above the limit."),
+            "document_name": phrase,
+            "page_section": phrase,
+            "standard_reference": phrase,
+            "priority": 3,
+        }
+        data = crs_export.build_crs(
+            [row], {"review_run_id": "run-1", "copy": "issue", "export_quality": True}
+        )
+        sheet = openpyxl.load_workbook(io.BytesIO(data)).worksheets[0]
+        header = next(
+            r for r in sheet.iter_rows() if r[0].value == crs_export.HEADERS[0]
+        )
+        own = {c.column for c in header if c.value in scrub.OWN_COLUMNS}
+        assert own  # the own columns are found by their header cells
+        for line in sheet.iter_rows(min_row=header[0].row + 1):
+            for cell in line:
+                if isinstance(cell.value, str) and phrase in cell.value:
+                    assert cell.column in own, (phrase, cell.coordinate)
+        priority = next(c for c in header if c.value == "Priority")
+        got = sheet.cell(row=header[0].row + 1, column=priority.column).value
+        assert not quality.engineer_words_in(got), (phrase, got)
+
+
+def test_every_string_field_of_a_row_is_counted_when_it_still_names_the_engineer(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "crs_contractor_no_engineer_words_enabled", True)
+    view = {
+        "rows": [
+            {
+                "document_name": "Engineer note.pdf",
+                "priority_label": "Engineer to check",
+                "comment": "Value is off.",
+            }
+        ]
+    }
+    # an own field is theirs and kept; the Priority label is ours and the scrub cuts it, so only the own field counts
+    assert scrub.left_over_cells(view) == ["document_name"]

@@ -28,37 +28,38 @@ _ASK_TO_ENGINEER = re.compile(
 )
 
 
-def scrub_text(text, keep=frozenset()) -> str:
+def scrub_text(text) -> str:
     """One scrub for the text WE write on the contractor copy. A request addressed to the engineer keeps its ask
     ("Clarification required from the Engineer." reads "Clarification required."); any part (between ; . ! ? and line
     ends) that still names the engineer, an abbreviation or the engineering reviewer is cut; a bare label that is
-    nothing but the word reads "reviewer". A part that is one of the `keep` values (the contractor's own file name,
-    tag, title or reference, copied from the source) is left verbatim. Nothing else is reworded."""
+    nothing but the word reads "reviewer". Nothing else is reworded."""
     said = str(text if text is not None else "")
-    if not engineer_words_in(said) or said.strip() in keep:
+    if not engineer_words_in(said):
         return said
-    parts = []
-    for p in _PARTS.split(said):
-        q = p.strip() if p.strip() in keep else _ASK_TO_ENGINEER.sub("", p).strip()
-        if q and (q in keep or not engineer_words_in(q)):
-            parts.append(q)
+    parts = [_ASK_TO_ENGINEER.sub("", p).strip() for p in _PARTS.split(said)]
+    parts = [p for p in parts if p and not engineer_words_in(p)]
     if parts:
         return " ".join(parts)
     short = len(said.split()) <= 3 and not re.search(r"[;.!?]\s*$", said.strip())
     return _ENGINEER_WORD.sub("reviewer", said) if short else ""
 
 
-def protected_values(view: dict) -> frozenset:
-    """What the contractor's own documents gave us, kept verbatim by the scrub: file names, sections and tags, standard
-    references, the header values and the title lines."""
-    found = {
-        str(r.get(k) or "").strip()
-        for r in view.get("rows", [])
-        for k in ("document_name", "page_section", "standard_reference")
-    }
-    found |= {str(h.get("value") or "").strip() for h in view.get("header", [])}
-    found |= {x.strip() for x in str(view.get("title") or "").split("\n")}
-    return frozenset(found - {""})
+#: The columns that carry the contractor's own fields, copied from their documents: kept verbatim. Identified by the
+#: column's header cell and the row's role (a table row), never by what the text says.
+OWN_COLUMNS = ("Document Name", "Page No./Section", "Standard Reference")
+#: Fields of a row dict that are the contractor's own, for the count of what is left.
+OWN_KEYS = ("document_name", "page_section", "standard_reference")
+
+
+def _own(ws, cell, header_row: int, table_rows: int, own_cols: set) -> bool:
+    """Is this cell the contractor's own field: a table row of the CRS sheet in an own column, or a value of the header
+    block (the submittal's numbers and title)? Never a note, a notice, Priority, the AI or trust columns."""
+    if ws.title != ws.parent.worksheets[0].title:
+        return False
+    in_table = header_row < cell.row <= header_row + table_rows
+    return (in_table and cell.column in own_cols) or (
+        3 <= cell.row < header_row and cell.column == 3
+    )
 
 
 def contractor_words(row: dict) -> dict:
@@ -77,17 +78,24 @@ def contractor_words(row: dict) -> dict:
     return out if out != row else row
 
 
-def scrub_workbook(wb, keep=frozenset()) -> None:
+def scrub_workbook(wb, table_rows: int = 0) -> None:
     """The contractor copy only, last: every string cell of every sheet, each sheet name and each document property
-    goes through `scrub_text`, so a note, a header or a meta value we wrote is covered by the one rule. Values in
-    `keep` stay as the contractor wrote them."""
+    goes through `scrub_text`, except the cells that carry the contractor's own field (`_own`), which stay as they
+    wrote them. `table_rows` is the number of rows in the CRS table."""
     if not settings.crs_contractor_no_engineer_words_enabled:
         return
+    from . import crs_export as ce
+
+    header_row = ce.COLUMN_HEADER_ROW
+    first = wb.worksheets[0]
+    own_cols = {c.column for c in first[header_row] if c.value in OWN_COLUMNS}
     for ws in wb.worksheets:
         for line in ws.iter_rows():
             for cell in line:
-                if isinstance(cell.value, str) and engineer_words_in(cell.value):
-                    cell.value = scrub_text(cell.value, keep) or None
+                if not isinstance(cell.value, str) or not engineer_words_in(cell.value):
+                    continue
+                if not _own(ws, cell, header_row, table_rows, own_cols):
+                    cell.value = scrub_text(cell.value) or None
         if engineer_words_in(ws.title):
             ws.title = scrub_text(ws.title) or "Sheet"
     for name in (
@@ -108,21 +116,18 @@ NOTE_LEFT = "Contractor copy: cells that still name the engineer"
 
 
 def left_over_cells(view: dict) -> list[str]:
-    """After the scrub, the contractor-copy cells of these rows that still name the engineer: the contractor's own text
-    kept verbatim (a file name, tag, title) or hand-typed wording. Names the cell, never its text."""
-    keep = protected_values(view)
-    return [
-        k
-        for r in view["rows"]
-        for k in (
-            "comment",
-            "comment_by",
-            "document_name",
-            "page_section",
-            "standard_reference",
-        )
-        if engineer_words_in(scrub_text(r.get(k), keep))
-    ]
+    """After the scrub, the cells of these rows that still name the engineer: every string field of the row. An own
+    field (file name, section, reference) is kept as the contractor wrote it, so a hit there is theirs; any other
+    field that still hits means the scrub missed something we wrote. Names the field, never its text."""
+    left = []
+    for r in view["rows"]:
+        for k, v in r.items():
+            if not isinstance(v, str):
+                continue
+            kept = v if k in OWN_KEYS else scrub_text(v)
+            if engineer_words_in(kept):
+                left.append(k)
+    return left
 
 
 def note_left_over(view: dict) -> dict:
