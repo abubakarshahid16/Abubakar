@@ -506,7 +506,6 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     try:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
-
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
         with _phase(conn, job_id, 0, heartbeat, timings, "read"):
             nothing_read.read_phase(submittal, scope, run_id)
