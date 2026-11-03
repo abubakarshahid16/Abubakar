@@ -25,6 +25,7 @@ import sqlite3
 
 from openpyxl.styles import Alignment, Font
 
+from . import crs_ai_review_view
 from .config import settings
 from .db import connect
 
@@ -294,11 +295,15 @@ def crs_meta(
     allowed: frozenset[str],
 ) -> dict:
     """What `main._crs_content` adds to the CRS meta: nothing with the switch off or on the issue copy."""
-    if not enabled() or copy != "internal":
+    if copy != "internal":
         return {}
-    return {
-        "run_record": crs_rows(run["id"], run, outcome, unchecked, missing, allowed)
-    }
+    out = {}
+    if enabled():
+        out["run_record"] = crs_rows(run["id"], run, outcome, unchecked, missing, allowed)
+    shown = crs_ai_review_view.for_run(run["id"])  # lane 6: None unless the review pass accepted something
+    if shown:
+        out["ai_review"] = shown
+    return out
 
 
 def write_sheet(wb, rows: list[tuple[str, str, str]], write) -> None:

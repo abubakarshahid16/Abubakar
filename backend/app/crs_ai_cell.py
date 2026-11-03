@@ -18,7 +18,7 @@ Nothing here reads or writes document text.
 
 from __future__ import annotations
 
-from . import crs_draft_lanes, crs_mapping, crs_wording
+from . import crs_ai_review_view, crs_draft_lanes, crs_mapping, crs_wording
 
 AI_DRAFT_NOTE = "Written by the AI (see the comment)"
 KEPT = "Plain wording kept: "
@@ -94,6 +94,7 @@ def apply(rows: list[dict], review_run_id: str) -> None:
             and not str(row.get("ai_review_comment") or "").strip()
         ):
             row["ai_review_comment"] = text
+    crs_ai_review_view.apply(rows, review_run_id)  # lane 6: off unless the pass stored accepted proposals
     _notes(rows, review_run_id)
 
 

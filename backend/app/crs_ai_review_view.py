@@ -1,0 +1,203 @@
+"""AI engineering review pass, part 3: what the INTERNAL CRS shows of the accepted proposals. Lane 6.
+
+INTERNAL COPY ONLY (the callers are `crs_ai_cell.apply`, `run_record.crs_meta` and `crs_export._later_sheets`, which are
+internal-only paths). The issue copy never shows an AI removal, an AI reason or the understanding note.
+
+  * remove: the row leaves the main sheet and is listed, with its own words, the AI's reason and who may restore it, on the
+    sheet "AI review". An engineer's restore (`ai_review_pass.restore`, append-only, undoable) puts it back at once.
+  * add: a new row, kind chosen by CODE (`ai_review_proposals.ADDED_KIND`), never confirmed, its reason in the AI Review
+    Comments cell and the AI marked as its author.
+  * reword: the new wording prints in the AI Review Comments cell beside the template, with the AI's reason; the template
+    stays the comment. An engineer's confirmed words are never touched.
+  * understanding: a short block at the top of the sheet "AI review".
+A removal never applies to a row an engineer confirmed (it is theirs), and a stored removal of a row that is no longer in the
+run is shown on the sheet as "row no longer present". Nothing here reads document text or calls a model.
+"""
+
+from __future__ import annotations
+
+import contextvars
+from contextlib import contextmanager
+
+from openpyxl.styles import Alignment, Font
+
+from . import ai_review_pass
+
+SHEET = "AI review"
+AUTHOR = "AI engineering review - engineer to confirm"
+HEADER_NOTE = (
+    "Proposed by the AI and accepted only after code verified every value, page and clause on the document. "
+    "Nothing here is a verdict; an engineer decides. A removed row can be restored; ask for the proposal id."
+)
+_SKIP = contextvars.ContextVar("crs_ai_review_view_skip", default=False)
+
+
+@contextmanager
+def unapplied():
+    """The pass itself reads the DRAFT rows, not rows it already changed."""
+    token = _SKIP.set(True)
+    try:
+        yield
+    finally:
+        _SKIP.reset(token)
+
+
+def _reason(proposal: dict) -> str:
+    return f"AI review: {str(proposal.get('reason') or '').strip()}"
+
+
+def _added_row(rows: list[dict], proposal: dict, review_run_id: str) -> dict:
+    kind = proposal["row_kind"] or "needs_engineer_review"
+    same = next(
+        (
+            r
+            for r in rows
+            if r.get("row_kind") == kind and r.get("priority") is not None
+        ),
+        None,
+    )
+    where = f"p.{proposal.get('page')} - {proposal.get('field') or ''}"
+    standard = " ".join(
+        p
+        for p in (
+            str(proposal.get("standard") or ""),
+            f"cl. {proposal['clause']}" if proposal.get("clause") else "",
+        )
+        if p
+    )
+    return {
+        "finding_id": "",
+        "finding_ids": [],
+        "document_name": next(
+            (r.get("document_name") for r in rows if r.get("document_name")), ""
+        ),
+        "page_section": where,
+        "comment": proposal["final_text"],
+        "ai_comment": proposal["final_text"],
+        "edited": False,
+        "comment_by": AUTHOR,
+        "standard_reference": standard,
+        "row_kind": kind,
+        "engineer_confirmed": False,
+        "crs_row_key": f"ai-review:{review_run_id}:{proposal['proposal_id']}",
+        "ai_review_comment": _reason(proposal),
+        "ai_review_added": True,
+        "priority": same["priority"] if same else 3,
+    }
+
+
+def apply(rows: list[dict], review_run_id: str) -> None:
+    """Change `rows` in place: drop the removed rows, add the added ones, print the rewordings. Internal copy only."""
+    if _SKIP.get():
+        return
+    accepted = ai_review_pass.accepted(review_run_id)
+    if not accepted:
+        return
+    restored = ai_review_pass.restored_ids(review_run_id)
+    by_key = {r.get("crs_row_key"): r for r in rows if r.get("crs_row_key")}
+    gone, added = set(), []
+    for item in accepted:
+        row = by_key.get(item.get("row_key"))
+        if (
+            item["type"] == "remove"
+            and row is not None
+            and item["proposal_id"] not in restored
+            and not row.get("engineer_confirmed")
+        ):
+            gone.add(item["row_key"])
+        elif (
+            item["type"] == "reword"
+            and row is not None
+            and not row.get("engineer_confirmed")
+        ):
+            row["ai_review_comment"] = f"{item['final_text']}\n{_reason(item)}"
+        elif item["type"] == "add":
+            added.append(item)
+    rows[:] = [r for r in rows if r.get("crs_row_key") not in gone]
+    rows.extend(_added_row(rows, item, review_run_id) for item in added)
+
+
+def for_run(review_run_id: str) -> dict | None:
+    """What the sheet "AI review" prints, or None when the pass left nothing to show. Internal copy only."""
+    accepted = ai_review_pass.accepted(review_run_id)
+    summary = ai_review_pass.summary_of(review_run_id) or {}
+    understanding = next(
+        (a["understanding"] for a in accepted if a["type"] == "understanding"), None
+    )
+    if not accepted and not understanding:
+        return None
+    restored = ai_review_pass.restored_ids(review_run_id)
+    removed = [
+        {
+            "proposal_id": a["proposal_id"],
+            "words": a.get("row_words", ""),
+            "where": a.get("row_where", ""),
+            "standard": a.get("row_standard", ""),
+            "reason": a.get("reason", ""),
+            "state": "restored by an engineer"
+            if a["proposal_id"] in restored
+            else "removed from the CRS",
+        }
+        for a in accepted
+        if a["type"] == "remove"
+    ]
+    return {
+        "understanding": understanding,
+        "removed": removed,
+        "engine": summary.get("engine"),
+        "model": summary.get("model"),
+        "local_instead": summary.get("local_instead"),
+        "counts": {
+            t: sum(1 for a in accepted if a["type"] == t)
+            for t in ("remove", "add", "reword")
+        },
+    }
+
+
+def write_sheet(wb, data: dict, write) -> None:
+    """Draw the sheet. `write` is `crs_export._write`, which stores every string as text."""
+    sheet = wb.create_sheet(SHEET)
+    wrap = Alignment(wrap_text=True, vertical="top")
+    write(sheet, 1, 1, HEADER_NOTE).alignment = wrap
+    how = " ".join(
+        p
+        for p in (
+            f"Engine: {data.get('engine') or ''}",
+            data.get("model") or "",
+            data.get("local_instead") or "",
+        )
+        if p
+    )
+    write(sheet, 2, 1, how).alignment = wrap
+    r = 4
+    note = data.get("understanding")
+    if note:
+        write(sheet, r, 1, "Document understanding").font = Font(bold=True)
+        for key, value in note.items():
+            r += 1
+            write(sheet, r, 1, key.replace("_", " ").capitalize())
+            write(
+                sheet, r, 2, ", ".join(value) if isinstance(value, list) else str(value)
+            ).alignment = wrap
+        r += 2
+    if data["removed"]:
+        for col, head in enumerate(
+            (
+                "Proposal id",
+                "State",
+                "Where",
+                "Standard",
+                "Row's own words",
+                "AI's reason",
+            ),
+            1,
+        ):
+            write(sheet, r, col, head).font = Font(bold=True)
+        for item in data["removed"]:
+            r += 1
+            for col, key in enumerate(
+                ("proposal_id", "state", "where", "standard", "words", "reason"), 1
+            ):
+                write(sheet, r, col, item[key]).alignment = wrap
+    for col, width in zip("ABCDEF", (22, 24, 22, 26, 70, 60), strict=True):
+        sheet.column_dimensions[col].width = width

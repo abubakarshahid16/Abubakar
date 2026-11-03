@@ -23,7 +23,7 @@ import re
 from datetime import UTC, datetime
 
 from . import ai_review_proposals as arp
-from . import claude_approved, local_engine_bar
+from . import claude_approved, crs_ai_review_view, local_engine_bar
 from .ai import output_limits
 from .config import settings
 from .db import connect
@@ -226,11 +226,17 @@ def _engine(summary: dict, provider):
     return provider, None
 
 
-def _rows_to_store(review_run_id: str, verdicts: list, summary: dict) -> list[tuple]:
+def _rows_to_store(review_run_id: str, verdicts: list, summary: dict, rows: dict) -> list[tuple]:
     """One stored row per verdict; counts the accepted and refused in the summary."""
     now, out = _now(), []
     for i, verdict in enumerate(verdicts):
-        proposal = verdict.proposal if isinstance(verdict.proposal, dict) else {}
+        proposal = dict(verdict.proposal) if isinstance(verdict.proposal, dict) else {}
+        touched = rows.get(str(proposal.get("row_key") or ""))
+        if verdict.accepted and touched and proposal.get("type") in ("remove", "reword"):
+            # The row's own words and place, kept so the removal can be shown and reversed after the row is gone.
+            proposal["row_words"] = str(touched.get("comment") or "")
+            proposal["row_where"] = str(touched.get("page_section") or "")
+            proposal["row_standard"] = str(touched.get("standard_reference") or "")
         pid = str(proposal.get("id") or f"auto-{i + 1}")
         if verdict.accepted:
             summary["accepted"][proposal["type"]] += 1
@@ -311,7 +317,7 @@ def run(
         return _store(review_run_id, summary)
     verdicts = arp.verify_all(proposals, context)
     summary["proposed"] = len(verdicts)
-    stored = _rows_to_store(review_run_id, verdicts, summary)
+    stored = _rows_to_store(review_run_id, verdicts, summary, context.rows)
     with connect() as conn:
         conn.execute(
             "DELETE FROM crs_ai_review WHERE review_run_id = ?", (review_run_id,)
@@ -341,7 +347,8 @@ def run_for_job(review_run_id: str, scope) -> dict | None:
         from . import ai_engineering_check
         from .main import _crs_content
 
-        rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        with crs_ai_review_view.unapplied():
+            rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
         submittal = (
             connect()
             .execute(

@@ -26,6 +26,7 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from . import crs_ai_review_view
 from . import crs_export_quality as quality
 from . import run_record
 from .crs_mapping import (
@@ -586,6 +587,8 @@ def _later_sheets(wb, view: dict, meta: dict, internal: bool) -> None:
         run_record.write_sheet(wb, meta["run_record"], _write)
     if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
         quality.write_internal_sheet(wb, view["internal_sheet"], _write)
+    if internal and meta.get("ai_review"):  # lane 6: what the AI review pass changed, with its reasons
+        crs_ai_review_view.write_sheet(wb, meta["ai_review"], _write)
 
 
 def _note_cell(ws, view: dict, put) -> None:
