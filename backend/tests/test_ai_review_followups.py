@@ -175,3 +175,66 @@ def test_the_restore_route_needs_a_named_engineer(request, monkeypatch):
     )
     assert response.status_code == 401
     assert arpass.restored_ids(run) == set()
+
+
+FLAG = {
+    "id": "pf",
+    "type": "flag",
+    "row_key": "k-fail",
+    "page": 2,
+    "value": "10 barg",
+    "reason": "The row's datasheet figure may be misread.",
+    "confidence": "medium",
+    "evidence": [{"page": 2, "quote": "Relief valve PSV-9901  Set pressure 10 barg"}],
+}
+
+
+@pytest.fixture
+def flagged(monkeypatch):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    arpass.run(
+        "rv10",
+        [dict(ROW), dict(FAIL)],
+        pages=PAGES,
+        held=HELD,
+        provider=Stub([FLAG, dict(REMOVE, id="p1")]),
+    )
+    return "rv10"
+
+
+def test_a_flag_keeps_the_fail_on_the_crs_and_prints_the_code_built_text(flagged):
+    rows = _rows()
+    view.apply(rows, flagged)
+    fail = next(r for r in rows if r["crs_row_key"] == "k-fail")
+    assert fail["row_kind"] == "non_compliant"  # still there, still a Fail
+    assert fail["ai_review_comment"] == (
+        "AI suspects the datasheet value was misread: page 2 shows "
+        '"Relief valve PSV-9901  Set pressure 10 barg"'
+    )
+    assert "misread." not in fail["ai_review_comment"]  # none of the AI's own words
+
+
+def test_the_note_and_the_sheet_say_flagged_for_a_flag_and_removed_for_a_removal(
+    flagged,
+):
+    data = _workbook(flagged, "internal")
+    top = data.worksheets[0]["A1"].value
+    assert (
+        "1 comment removed by AI review, 1 comment flagged by AI review, see internal sheet"
+        in top
+    )
+    text = _sheet_text(data, view.SHEET)
+    assert "Flagged by AI review (the row stays on the CRS)" in text
+    assert "flagged: the row stays on the CRS" in text
+    assert "removed from the CRS" in text
+
+
+def test_a_flag_alone_is_never_called_a_removal(monkeypatch):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    arpass.run("rv11", [dict(FAIL)], pages=PAGES, held=HELD, provider=Stub([FLAG]))
+    view.apply([dict(FAIL)], "rv11")
+    data = view.for_run("rv11")
+    assert (
+        data["removed"] == []
+        and data["note"] == "1 comment flagged by AI review, see internal sheet"
+    )

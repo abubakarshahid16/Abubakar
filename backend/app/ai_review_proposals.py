@@ -10,9 +10,9 @@ REFUSED, ENFORCED HERE (the first failure is the reason):
   * a number in its words that is on no cited page and not in the row it touches;
   * a pass or fail word in its words (`ai_engineering_check.PASS_FAIL_WORDS`): the engine's and the engineer's words;
   * confidence "high" (CLAUDE.md rule 4);
-  * a removal of a Fail (`non_compliant`) row unless its basis is verified: a MISREAD (`row_value`, the figure the row printed, is in the
-    row's words and is not on the page, and the page shows `value`) or OUT OF SCOPE (the rulebook says the clause is outside this equipment).
-    A removal of any other row must cite verified evidence quotes; "different tags with different values" is such a basis;
+  * a removal of a Fail row, EVER (any case or spelling of the kind): a Fail stays on the CRS. For a suspected misread the AI may only
+    FLAG the row (`flag`): the flag text is built by CODE from a verified page quote, the Fail stays and the engineer decides.
+    A removal of any other removable row must cite verified evidence quotes; "different tags with different values" is such a basis;
   * a removal of a safety row or of a "pages not readable" row, ever;
   * a PASS can never be created: an added row's kind is chosen by CODE (`ADDED_KIND`), never by the AI, and it is
     `needs_engineer_review` unless the code's own comparison (`Context.compare`) says `non_compliant`; there is no
@@ -32,7 +32,7 @@ from . import crs_wording, numparse, standard_ids
 from .ai_engineering_check import PASS_FAIL_WORDS
 from .reader_api import _contains, _fold
 
-TYPES = ("remove", "add", "reword", "understanding")
+TYPES = ("remove", "add", "reword", "understanding", "flag")
 CONFIDENCES = ("low", "medium")  # never "high"
 MAX_PROPOSALS = 30
 MAX_TEXT_CHARS = 600
@@ -41,7 +41,6 @@ PROTECTED_KINDS = ("safety_tick", "pages_not_readable")
 #: The ONLY row kinds an AI may remove: machine-drafted comments and the AI's own suggestions. Anything else (an engineer's
 #: comment, a carried-forward row, a kind this list does not know, a row with no kind) is never removable.
 REMOVABLE_KINDS = (
-    "non_compliant",
     "needs_engineer_review",
     "datasheet_check",
     "ai_engineering_check",
@@ -49,9 +48,7 @@ REMOVABLE_KINDS = (
 FAIL_KIND = "non_compliant"
 #: The kind of a row the pass ADDS. Chosen by code. There is no conforming kind to choose.
 ADDED_KIND = "needs_engineer_review"
-BASES = ("misread", "out_of_scope", "tag_difference", "context")
-#: Bases that may remove a Fail row. "tag_difference" and "context" never do.
-FAIL_REMOVING_BASES = ("misread", "out_of_scope")
+BASES = ("tag_difference", "context")
 UNDERSTANDING_KEYS = ("equipment", "tags", "service", "fluids", "revision_stage")
 MAX_UNDERSTANDING_ITEMS = 40
 #: An evidence quote shorter than this proves nothing ("a", "Tag" occur on every page). 8 characters is a short tag
@@ -88,14 +85,6 @@ EXTRA_VERDICT_WORDS = (
     "nonconformity",
     "per the standard",
     "per standard",
-)
-_REQUIREMENT_WORDS = re.compile(
-    r"\b(?:requires?|required|requirement|shall|should|must|not less|not more|not exceed|at least|at most|minimum|maximum|"
-    r"min\.|max\.|per (?:the )?standard|limit)\b",
-    re.IGNORECASE,
-)
-_ROW_STATES = re.compile(
-    r"\b(?:datasheet|states?|stated|shows?|reads?|reported|printed)\b", re.IGNORECASE
 )
 
 
@@ -249,54 +238,6 @@ def _evidence_carries_value(proposal: dict) -> bool:
     )
 
 
-def _unit_of(figure: str) -> str:
-    """The unit word of a figure like "14 barg" ("" when it is a bare number or a clause)."""
-    rest = re.sub(r"^[\s+\-\u2212]*[\d.,]+\s*", "", _fold(figure)).strip()
-    return (
-        rest
-        if re.fullmatch(r"[a-z%/\u00b0\u00b2\u00b3.\-]+(?: ?[a-z/]+)?", rest)
-        else ""
-    )
-
-
-def _figure(text: str) -> tuple[float, str] | None:
-    """(number, unit) of a figure like "14.0 barg"; None when it has no number or no unit."""
-    found = [n for n in numparse.find_numbers(_fold(text)) if n.value is not None]
-    unit = _unit_of(text)
-    return (found[0].value, unit) if len(found) == 1 and unit else None
-
-
-def _has_figure(text: str, fig: tuple[float, str]) -> bool:
-    """`text` states the number `fig[0]` followed by the unit `fig[1]`, compared as numbers: 14.0 barg is 14 barg."""
-    folded = _fold(text)
-    return any(
-        n.value == fig[0]
-        and re.match(rf"\s*{re.escape(fig[1])}(?![a-z])", folded[n.end :])
-        for n in numparse.find_numbers(folded)
-        if n.value is not None
-    )
-
-
-def _row_printed(fig: tuple[float, str], row: Mapping) -> bool:
-    """`fig` is a figure the ROW states for the datasheet: in a clause of its comment that reports the datasheet ("MAWP
-    states 13 barg") with no requirement word, in no clause that has one, and not in the standard reference. Clauses are
-    split at sentence ends, semicolons and ", " so one sentence holding both the requirement and the datasheet figure
-    is read clause by clause."""
-    if _has_figure(str(row.get("standard_reference") or ""), fig):
-        return False
-    stated = False
-    for clause in re.split(
-        r"(?<=[.;])\s+(?=[A-Z])|;\s*|,\s+", str(row.get("comment") or "")
-    ):
-        if not _has_figure(clause, fig):
-            continue
-        if _REQUIREMENT_WORDS.search(clause):
-            return False
-        if _ROW_STATES.search(clause):
-            stated = True
-    return stated
-
-
 def _common(proposal: dict) -> str | None:
     """The checks every type shares. The first failure is the reason."""
     if proposal.get("confidence") not in CONFIDENCES:
@@ -322,6 +263,61 @@ def _check_page_and_value(
     return page, None
 
 
+def _kind(row: Mapping) -> str:
+    return re.sub(r"[\s\-]+", "_", str(row.get("row_kind") or "").strip().lower())
+
+
+def _is_fail(kind: str) -> bool:
+    """A Fail in any case or spelling ("non_compliant", "Non-Compliant", "NONCOMPLIANT", "fail")."""
+    squeezed = re.sub(r"[^a-z]", "", kind)
+    return (
+        squeezed in ("fail", "failed", "fails")
+        or "noncompliant" in squeezed
+        or "nonconform" in squeezed
+    )
+
+
+FLAG_PREFIX = "AI suspects the datasheet value was misread: "
+
+
+def _verify_flag(proposal: dict, ctx: Context) -> Verdict:
+    """The only thing the AI may do about a suspected misread: put an internal flag on the row. The Fail stays. The flag
+    text is built HERE from the first verified page quote; none of the AI's own words are shown in it."""
+
+    def no(reason: Reason) -> Verdict:
+        return Verdict(False, reason.value, proposal)
+
+    if str(proposal.get("row_key") or "") not in ctx.rows:
+        return no(Reason.NO_SUCH_ROW)
+    page, bad = _check_page_and_value(proposal, ctx)
+    if bad:
+        return Verdict(False, bad, proposal)
+    if not str(proposal.get("value") or "").strip() or not proposal.get("evidence"):
+        return no(Reason.NO_BASIS)
+    bad = _evidence_ok(proposal, ctx)
+    if bad:
+        return Verdict(False, bad, proposal)
+    if not _evidence_carries_value(proposal):
+        return no(Reason.EVIDENCE_NOT_ON_PAGE)
+    quote = (
+        next(
+            str(e["quote"]).strip()
+            for e in proposal["evidence"]
+            if e.get("page") == page
+        )
+        if any(e.get("page") == page for e in proposal["evidence"])
+        else None
+    )
+    if quote is None:
+        return no(Reason.EVIDENCE_NOT_ON_PAGE)
+    return Verdict(
+        True,
+        None,
+        proposal,
+        final_text=f'{FLAG_PREFIX}page {page} shows "{quote}"',
+    )
+
+
 def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
     def no(reason: Reason) -> Verdict:
         return Verdict(False, reason.value, proposal)
@@ -331,10 +327,12 @@ def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
     if row is None:
         return no(Reason.NO_SUCH_ROW)
     # An unknown or differently-cased kind is read as a Fail: the safe reading never makes a row easier to remove.
-    kind = str(row.get("row_kind") or "").strip().lower()
-    if kind in PROTECTED_KINDS:
-        return no(Reason.PROTECTED_ROW)
-    if kind not in REMOVABLE_KINDS:
+    kind = _kind(row)
+    if _is_fail(kind):
+        return no(
+            Reason.FAIL_KEPT
+        )  # a Fail is never removed by the AI, whatever the basis
+    if kind in PROTECTED_KINDS or kind not in REMOVABLE_KINDS:
         return no(Reason.PROTECTED_ROW)
     basis = str(proposal.get("basis") or "")
     if basis not in BASES:
@@ -347,54 +345,12 @@ def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
     bad = _evidence_ok(proposal, ctx)
     if bad:
         return Verdict(False, bad, proposal)
-    if not proposal.get("evidence") and basis != "out_of_scope":
-        return no(
-            Reason.NO_BASIS
-        )  # a removal needs at least one verified quote, except a rulebook scope
+    if not proposal.get("evidence"):
+        return no(Reason.NO_BASIS)  # a removal needs at least one verified quote
     if not _evidence_carries_value(proposal):
         return no(Reason.EVIDENCE_NOT_ON_PAGE)
     if not _numbers_verified(proposal, ctx, ctx.pages[page], row):
         return no(Reason.NUMBER_NOT_VERIFIED)
-    if kind == FAIL_KIND:
-        if basis not in FAIL_REMOVING_BASES:
-            return no(Reason.FAIL_KEPT)
-        if basis == "misread":
-            # `value` is what the contractor's page shows, `row_value` the figure the ROW printed for the datasheet (not the
-            # standard's requirement, not a clause number). Same unit, compared as NUMBERS; the page value must DIFFER
-            # numerically from the row's, the page must not state the row's figure, and the row must not already print `value`.
-            value = _figure(str(proposal.get("value") or ""))
-            shown = _figure(str(proposal.get("row_value") or ""))
-            if not value or not shown or value[1] != shown[1] or value[0] == shown[0]:
-                return no(Reason.FAIL_KEPT)
-            if not _has_figure(ctx.pages[page], value) or _has_figure(
-                ctx.pages[page], shown
-            ):
-                return no(Reason.FAIL_KEPT)
-            if not _row_printed(shown, row) or _has_figure(
-                str(row.get("comment") or ""), value
-            ):
-                return no(Reason.FAIL_KEPT)
-            m = re.search(r"\bp\.\s*(\d+)", str(row.get("page_section") or ""))
-            if m and int(m.group(1)) != page:
-                return no(Reason.FAIL_KEPT)
-            if not proposal.get("evidence"):
-                return no(Reason.FAIL_KEPT)
-        else:  # out_of_scope: the rulebook, not the AI, says the clause is outside this equipment
-            ref = str(row.get("standard_reference") or "")
-            names = standard_ids.cited_standards(ref)
-            clause = (
-                str(proposal.get("clause") or "").strip()
-                or (re.search(r"cl\.\s*(\S+?)(?:\s|\(|$)", ref) or [None, ""])[1]
-            )
-            if not any(
-                (n, clause) in ctx.out_of_scope
-                or any(
-                    standard_ids.same_standard(n, s) and c == clause
-                    for s, c in ctx.out_of_scope
-                )
-                for n in names
-            ):
-                return no(Reason.FAIL_KEPT)
     return Verdict(True, None, proposal)
 
 
@@ -494,9 +450,12 @@ def verify(proposal: object, ctx: Context) -> Verdict:
     bad = _common(proposal)
     if bad:
         return Verdict(False, bad, proposal)
-    return {"remove": _verify_remove, "add": _verify_add, "reword": _verify_reword}[
-        kind
-    ](proposal, ctx)
+    return {
+        "remove": _verify_remove,
+        "add": _verify_add,
+        "reword": _verify_reword,
+        "flag": _verify_flag,
+    }[kind](proposal, ctx)
 
 
 def verify_all(proposals: object, ctx: Context) -> list[Verdict]:
@@ -515,7 +474,11 @@ def verify_all(proposals: object, ctx: Context) -> list[Verdict]:
             continue
         verdict = verify(item, ctx)
         key = str(verdict.proposal.get("row_key") or "")
-        if verdict.accepted and verdict.proposal.get("type") in ("remove", "reword"):
+        if verdict.accepted and verdict.proposal.get("type") in (
+            "remove",
+            "reword",
+            "flag",
+        ):
             if key in touched:
                 verdict = Verdict(
                     False,

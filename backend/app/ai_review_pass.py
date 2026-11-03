@@ -58,7 +58,6 @@ SCHEMA = {
                     "standard": {"type": ["string", "null"]},
                     "field": {"type": ["string", "null"]},
                     "value": {"type": ["string", "null"]},
-                    "row_value": {"type": ["string", "null"]},
                     "reason": {"type": "string"},
                     "text": {"type": ["string", "null"]},
                     "basis": {"type": ["string", "null"], "enum": [*arp.BASES, None]},
@@ -86,9 +85,10 @@ changes. You only propose; a program checks every proposal and keeps only what i
 
 Proposal types:
 - remove: a draft row that is wrong in context (example: different equipment tags having different MAWP is normal). Give \
-"row_key", "basis" (misread, out_of_scope, tag_difference or context), the page, the "value" the page really shows, and \
-"evidence": exact quotes copied from the pages, each with its page. For basis misread also give "row_value", the figure \
-the row printed.
+"row_key", "basis" (tag_difference or context), the page, the "value" the page really shows, and "evidence": exact quotes \
+copied from the pages, each with its page. A failing (non-compliant) row is never removed.
+- flag: a draft row whose datasheet value you suspect was misread. Give "row_key", the page, the "value" the page really shows \
+and "evidence": the exact quote with its page. The row stays; an engineer decides. Do not write the flag's words.
 - add: a comment the draft missed. Give page, "field", "value" copied exactly from that page, "clause" and "standard" \
 only if they are in the draft rows you were given, and "text", one short sentence for the contractor.
 - reword: a clearer wording of a row, keeping every number, unit, clause and standard of the row. Give "row_key" and "text".
