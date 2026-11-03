@@ -65,3 +65,12 @@ def test_a_row_with_an_issued_number_is_never_parked(monkeypatch):
     ]
     v = crs_export.build_crs_view(kept, {**META, "copy": "internal"})
     assert len(v["rows"]) == 1
+
+
+def test_the_top_note_counts_the_moved_rows_so_nothing_vanishes_unseen(monkeypatch):
+    v = view("internal", monkeypatch)
+    assert "1 AI suggestions moved to Review notes" in v["run_status_note"]
+    off = view("internal", monkeypatch, on=False)
+    assert "moved to Review notes" not in off["run_status_note"]
+    issue = view("issue", monkeypatch)
+    assert "moved to Review notes" not in issue["run_status_note"]

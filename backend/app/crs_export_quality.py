@@ -622,7 +622,14 @@ def park_placeholders(view: dict) -> dict:
         for r in waiting
     ]
     kept = [r for r in view["rows"] if r not in waiting]
-    return {**view, "rows": kept, "review_notes": [*view["review_notes"], *notes]}
+    said = f"{len(waiting)} AI suggestions moved to Review notes"
+    top = "\n".join(x for x in (view.get("run_status_note"), said) if x)
+    return {
+        **view,
+        "rows": kept,
+        "run_status_note": top,
+        "review_notes": [*view["review_notes"], *notes],
+    }
 
 
 def finish(view: dict, dropped: int, merged: int) -> dict:
