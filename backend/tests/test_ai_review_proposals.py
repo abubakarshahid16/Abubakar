@@ -794,7 +794,7 @@ def _spellings(word: str) -> list[tuple[str, str]]:
     import unicodedata
 
     marks = ["́", "̈", "̀", "̂", "̃", "̧", "̣"]
-    spacing = ["¨", "´", "ˆ", "˜"]
+    spacing = [chr(c) for c in (0xA8, 0xB4, 0x2C6, 0x2DC)]
     invisible = ["​", "‌", "‍", "­", "⁠", "﻿"]
     out: list[tuple[str, str]] = [(k, v) for k, v in _styles(word).items()]
     lookalike = {
