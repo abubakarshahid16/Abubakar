@@ -237,3 +237,42 @@ def test_no_draft_item_is_in_the_approved_checklists_table(on):
         if isinstance(entry, dict):
             assert not any(di.is_draft(i) for i in entry["items"])
     assert len(dc.load_rules()["checklists"][PSV]["items"]) == 47
+
+
+TYPES = ["Centrifugal Pump", "Pressure Vessel", "Heat Exchanger", PSV]
+ONLY = [
+    [fact("phase at relieving conditions", "Gas", tag="P-1")],
+    [fact("physical state", "Liquid", tag="P-1")],
+    [fact("sour environment", "yes", tag="P-1")],
+    [fact("iso 15156", "yes", tag="P-1")],
+    [fact("iso 15156", "yes")],
+    [fact("relieving phase", "Gas"), fact("design pressure", "5", "barg", tag="P-1")],
+]
+
+
+@pytest.mark.parametrize("equipment_type", TYPES)
+@pytest.mark.parametrize("facts", ONLY)
+def test_switch_on_a_draft_only_label_changes_no_approved_result_for_any_type(
+    on, equipment_type, facts
+):
+    def run(rules=None):
+        out = dc.evaluate(
+            facts, equipment_type=equipment_type, page_texts=PAGES, rules=rules
+        )
+        return [r for r in out if not r["rule_id"].startswith("PSV-D")]
+
+    assert run() == run(_main_like_rules())
+
+
+def test_a_draft_role_never_creates_a_tag(on):
+    facts = [fact("sour environment", "yes", tag="P-9")]
+    out = dc.evaluate(facts, equipment_type=PSV, page_texts=PAGES)
+    assert {r["equipment_tag"] for r in out} <= {None}
+
+
+def test_a_draft_only_label_is_not_a_known_field_to_the_other_readers(on):
+    from app import field_vocabulary
+
+    roles = dc.load_rules()["roles"]
+    assert "draft_fluid_phase" not in roles and "draft_sour_service" not in roles
+    assert field_vocabulary is not None

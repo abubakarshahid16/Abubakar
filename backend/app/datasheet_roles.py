@@ -79,7 +79,8 @@ def wanted_roles(equipment_type: str | None, rules: dict) -> frozenset:
                 walk(value)
 
     walk([[i.get("rule"), i.get("condition")] for i in items])
-    return frozenset(found & set(roles))
+    # a DRAFT role (Part of #805) is wanted by the types whose checklist reads draft items
+    return frozenset(found & (set(roles) | set(rules.get("draft_roles") or {})))
 
 
 _JOINERS = re.compile(r"\s*(?:/|,|&|;|\band\b)\s*")
@@ -147,7 +148,7 @@ def file_drafts(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
     """Part of #805: the facts the DRAFT items read, filed under the draft role (`rules["draft_roles"]`) for the
     types whose checklist uses it (`wanted`). A draft role never defines a role or a tag: a fact is added only to
     a tag that already exists (a fact with no tag, to every existing tag), so no approved row is re-attributed.
-    A fact of the approved role it extends is copied too (a copy: the approved role's facts never change)."""
+    The draft role lists the approved role's own spellings too, so a plain label reaches the draft item as well."""
     from .datasheet_checks import _fold
 
     for role, spec in (rules.get("draft_roles") or {}).items():
@@ -162,11 +163,6 @@ def file_drafts(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
                 mine = by_tag[key].setdefault(role, [])
                 if not any(f is fact for f in mine):
                     mine.append(fact)
-        for roles in by_tag.values():
-            mine = roles.setdefault(role, [])
-            mine += [f for f in roles.get(spec.get("extends"), []) if not any(f is m for m in mine)]
-            if not mine:
-                del roles[role]
 
 
 def add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:

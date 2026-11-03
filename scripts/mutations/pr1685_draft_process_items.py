@@ -87,18 +87,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         8,
-        "the draft roles join the approved roles with the switch off",
+        "a draft-only label creates a tag of its own",
         _R,
-        "    if not settings.draft_process_items_enabled or not rules.get",
-        "    if False or not rules.get",
-        "switch_off_every_approved_item",
-    ),
-    _m(
-        9,
-        "a fact of an approved role is not also filed under the draft role",
-        _R,
-        "        for roles in by_tag.values() if base else ():\n",
-        "        for roles in ():\n",
-        "the_other_ways_a_sheet_prints or stated_phase_gives_no_verdict",
+        "            for key in [tag] if tag in by_tag else ([] if tag else list(by_tag)):\n",
+        "            for key in [tag]:\n                by_tag.setdefault(key, {})\n",
+        "never_creates_a_tag or changes_no_approved_result",
     ),
 )
