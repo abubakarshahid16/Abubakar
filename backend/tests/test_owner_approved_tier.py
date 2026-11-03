@@ -482,6 +482,7 @@ def test_the_run_record_states_who_decided(owner_world, monkeypatch):
         "owner_approved": 1,  # the breach; the safety Pass waits for its tick
         "owner_approved_awaiting_tick": 1,
         "engineer_approved": 0,
+        "engineer_approved_awaiting_tick": 0,
     }
     stored = comparison.run_outcome(
         owner_world["run"], allowed_document_ids=owner_world["scope"]
@@ -727,3 +728,27 @@ def test_off_a_run_with_owner_rules_is_byte_identical(owner_world):
     _rerun(owner_world)
     assert _picture(owner_world) == with_approval
     assert "rule_trust" not in json.loads(with_approval[2])
+
+
+def test_an_engineer_approved_rule_label_is_counted_as_the_engineers(monkeypatch):
+    monkeypatch.setattr(coverage_pair, "_lane", lambda f, rules: "rule")
+    monkeypatch.setattr(
+        coverage_pair.requirement_split, "requirement_key", lambda rule: rule["key"]
+    )
+    rules = {"r1": {"key": "k1"}, "r2": {"key": "k2"}}
+    findings = [
+        {
+            "trust_label": rule_trust.ENGINEER_APPROVED,
+            "compliance_status": "NON_COMPLIANT",
+            "requirement_id": "r1",
+        },
+        {
+            "trust_label": rule_trust.OWNER_APPROVED,
+            "compliance_status": "NON_COMPLIANT",
+            "requirement_id": "r2",
+        },
+    ]
+    both = coverage_pair._decided_by_tier(None, findings, rules, {"k1", "k2"})
+    assert both == {"decided_by_tier": {"owner_approved": 1, "engineer_approved": 1}}
+    only = coverage_pair._decided_by_tier(None, findings[:1], rules, {"k1"})
+    assert only["decided_by_tier"] == {"owner_approved": 0, "engineer_approved": 1}
