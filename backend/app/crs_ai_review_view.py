@@ -22,7 +22,7 @@ from contextlib import contextmanager
 
 from openpyxl.styles import Alignment, Font
 
-from . import ai_review_pass
+from . import ai_pass_verifier, ai_review_pass
 
 SHEET = "AI review"
 AUTHOR = "AI engineering review - engineer to confirm"
@@ -102,6 +102,7 @@ def _added_row(rows: list[dict], proposal: dict, review_run_id: str) -> dict:
         )
         if p
     )
+    judged = kind == ai_pass_verifier.PASS_ROW_KIND
     return {
         "finding_id": "",
         "finding_ids": [],
@@ -109,6 +110,8 @@ def _added_row(rows: list[dict], proposal: dict, review_run_id: str) -> dict:
             (r.get("document_name") for r in rows if r.get("document_name")), ""
         ),
         "page_section": where,
+        # a Pass: the row's comment is the plain statement (what a confirmed row prints on the contractor copy); how it was
+        # decided is said in the internal-only AI Review Comments cell
         "comment": proposal["final_text"],
         "ai_comment": proposal["final_text"],
         "edited": False,
@@ -117,7 +120,11 @@ def _added_row(rows: list[dict], proposal: dict, review_run_id: str) -> dict:
         "row_kind": kind,
         "engineer_confirmed": False,
         "crs_row_key": f"ai-review:{review_run_id}:{proposal['proposal_id']}",
-        "ai_review_comment": _reason(proposal),
+        "ai_review_comment": (
+            ai_pass_verifier.internal_words(_reason(proposal))
+            if judged
+            else _reason(proposal)
+        ),
         "ai_review_added": True,
         "priority": same["priority"] if same else 3,
     }
@@ -185,7 +192,7 @@ def apply(rows: list[dict], review_run_id: str) -> None:
                 row["ai_review_comment"] = "\n".join(
                     p for p in (said, item["final_text"]) if p
                 )
-        elif item["type"] == "add":
+        elif item["type"] in ("add", "pass"):
             added.append(item)
     _APPLIED.set((review_run_id, states))
     if not _KEEP.get():
