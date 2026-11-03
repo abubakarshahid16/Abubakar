@@ -18,7 +18,7 @@ from tests.test_1584_standards_compiler import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import rule_boxes as cli
-from rule_box_tools import rule_box_check, rule_box_fields, rule_box_run
+from rule_box_tools import rule_box_check, rule_box_fields, rule_box_run, rule_box_scope
 from rule_box_tools import rule_box_labels as rule_boxes
 
 DOC, LABEL = "std-box", "SAES-Z-910"
@@ -59,7 +59,7 @@ def rules(lane, monkeypatch):  # noqa: F811
     conn.execute(
         "CREATE TABLE IF NOT EXISTS compiled_rules (id TEXT PRIMARY KEY, standard_document_id TEXT, clause TEXT,"
         " page INT, quote_start INT, quote TEXT, field TEXT, comparator TEXT, limit_value REAL, unit TEXT,"
-        " condition_text TEXT, exception_text TEXT)"
+        " condition_text TEXT, exception_text TEXT, applies_to TEXT)"
     )
     with conn:
         _put(conn, "r1", Q_NUM, 1, comparator="<=", limit_value=10.0, unit="bar")
@@ -417,6 +417,7 @@ def _good_number(**over):
         "unit": "bar",
         "values": [],
         "condition": None,
+        "subject": "design pressure",
         "quote": "shall not exceed 10 bar",
         "pass_case": {"value": "8", "unit": "bar"},
         "fail_case": {"value": "12", "unit": "bar"},
@@ -498,6 +499,7 @@ def test_a_list_check_is_verified_and_both_cases_run(rules):
         "kind": "list",
         "op": "is_not",
         "values": ["cast iron"],
+        "subject": "body material",
         "quote": "shall not be cast iron",
         "pass_case": {"value": "carbon steel"},
         "fail_case": {"value": "cast iron"},
@@ -545,6 +547,7 @@ def test_a_rule_of_a_type_without_a_field_list_is_marked_and_not_asked_and_a_box
         "stored by kind": 1,
         "field list to confirm": 1,
         "not_decidable_from_a_datasheet": 0,
+        "scoped: judge at review time": 0,
     }
     states = dict(
         rules.execute(f"SELECT rule_id, status FROM {rule_box_check.CHECKS}").fetchall()
@@ -695,7 +698,9 @@ def test_step_three_uses_a_fresh_prompt_that_shows_no_earlier_answer_and_never_t
         send=Fake(reply),
     )
     assert apply.tally["agreed"] == 1 and report["stored"] == 1
-    assert rule_box_check.advanced(rules) == 1
+    assert (
+        rule_box_check.advanced(rules) == 0
+    )  # agreement alone no longer advances: the identity check is needed
     row = rules.execute(
         f"SELECT agree, model, prompt_version FROM {rule_box_check.SECOND}"
     ).fetchone()
@@ -1036,3 +1041,171 @@ def test_only_a_rule_with_a_figure_and_a_unit_in_its_own_words_is_asked_and_the_
         "r2": "not_decidable_from_a_datasheet",
         "r3": "not_decidable_from_a_datasheet",
     }
+
+
+# ------------------------------------------------------------------------------------------ scope and identity
+def _scoped_row(**over):
+    row = {
+        "quote": Q_NUM,
+        "applies_to": "pressure vessels",
+        "condition_text": None,
+        "exception_text": None,
+    }
+    row.update(over)
+    return row
+
+
+@pytest.mark.parametrize(
+    "over, reason",
+    [
+        ({"condition_text": "for gas service"}, "condition"),
+        ({"exception_text": "unless the vessel is jacketed"}, "exception"),
+        (
+            {"quote": "The design pressure shall be 10 bar only for hydrogen."},
+            "condition_word_in_the_rule",
+        ),
+        ({"applies_to": "stainless steel pressure vessels"}, "applies_to_narrows"),
+        ({"applies_to": "jacketed vessels"}, "applies_to_narrows"),
+    ],
+)
+def test_a_rule_narrowed_by_anything_is_scoped_and_keeps_its_scope_text(over, reason):
+    said = rule_box_scope.scope_problem(_scoped_row(**over), "pressure vessel")
+    assert said is not None and said[0] == reason
+
+
+def test_a_rule_with_no_narrowing_beyond_the_equipment_type_is_not_scoped():
+    assert rule_box_scope.scope_problem(_scoped_row(), "pressure vessel") is None
+    assert (
+        rule_box_scope.scope_problem(
+            _scoped_row(applies_to="all the pressure vessels of this standard"),
+            "pressure vessel",
+        )
+        is None
+    )
+
+
+def test_the_subject_must_be_the_quantity_of_the_field_by_the_pairing_rule():
+    assert rule_box_scope.subject_matches(
+        "design pressure", "design pressure", "pressure vessel"
+    )
+    assert rule_box_scope.subject_matches(
+        "the design pressure of the vessel", "design pressure", "pressure vessel"
+    )
+    assert not rule_box_scope.subject_matches(
+        "coating thickness", "corrosion allowance", "pressure vessel"
+    )
+    assert not rule_box_scope.subject_matches("", "design pressure", "pressure vessel")
+
+
+def test_a_check_whose_subject_is_not_the_fields_quantity_is_a_failed_check(rules):
+    row = _row(rules, "r1")
+    wrong = _good_number(subject="design pressure", field_role="test_pressure")
+    assert (
+        rule_box_check.verify_check(row, wrong, FIELDS)[1]
+        == "subject_differs_from_field"
+    )
+    assert (
+        rule_box_check.verify_check(row, _good_number(subject="made up words"), FIELDS)[
+            1
+        ]
+        == "subject_not_in_rule"
+    )
+    assert (
+        rule_box_check.verify_check(row, _good_number(subject=""), FIELDS)[1]
+        == "subject_not_in_rule"
+    )
+
+
+def test_a_stored_check_that_is_narrowed_is_moved_to_scoped_and_a_scoped_rule_is_never_asked(
+    rules,
+):
+    with rules:
+        rules.execute(
+            "UPDATE compiled_rules SET exception_text = 'unless jacketed' WHERE id = 'r1'"
+        )
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
+        )
+    assert rule_box_check.check_todo(rules) == []
+    assert (
+        rule_box_check.settle_without_a_call(rules)["scoped: judge at review time"] == 1
+    )
+    row = rules.execute(
+        f"SELECT status, reason, scope_text FROM {rule_box_check.CHECKS}"
+    ).fetchone()
+    assert tuple(row) == (
+        "scoped: judge at review time",
+        "exception",
+        "unless jacketed",
+    )
+    rules.execute(f"UPDATE {rule_box_check.CHECKS} SET status = 'checked'")
+    assert rule_box_check.apply_scope_gate(rules) == 1
+
+
+def test_only_a_same_quantity_requirement_on_the_equipment_advances_after_the_fresh_model(
+    rules,
+):
+    with rules:
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
+        )
+    jobs, members, _c = rule_box_check.check_jobs(rules, _gate_open)
+    rule_box_run.run(
+        jobs,
+        model="claude-sonnet-5-5",
+        step_prefix="c",
+        version="v",
+        apply=rule_box_check.check_storer(rules, members, "claude-sonnet-5-5"),
+        send=Fake(lambda p: json.dumps(_good_number())),
+    )
+    jobs, members, _c = rule_box_check.second_jobs(
+        rules, _gate_open, "claude-haiku-5-5"
+    )
+    answer = json.dumps(
+        {"box": "a", "field_role": "design_pressure", "limit": "10", "unit": "bar"}
+    )
+    rule_box_run.run(
+        jobs,
+        model="claude-haiku-5-5",
+        step_prefix="s",
+        version="v",
+        apply=rule_box_check.second_storer(rules, members, "claude-haiku-5-5"),
+        send=Fake(lambda p: answer),
+    )
+    assert rule_box_check.advanced(rules) == 0
+    rule_box_scope.ensure_schema(rules)
+    for relation, requirement, expected in (
+        ("narrower", "yes", 0),
+        ("same", "no", 0),
+        ("same", "yes", 1),
+    ):
+        rules.execute(f"DELETE FROM {rule_box_scope.IDENTITY}")
+        jobs, members, counts = rule_box_scope.identity_jobs(
+            rules, _gate_open, "claude-haiku-5-5", {DOC: LABEL}
+        )
+        assert (
+            counts["prompts"] == 1
+            and "design pressure" in jobs[0].prompt
+            and "10 bar" in jobs[0].prompt
+        )
+        apply = rule_box_scope.identity_storer(
+            rules, members, "claude-haiku-5-5", rule_box_check._parse_object
+        )
+        reply = json.dumps(
+            {"relation": relation, "requirement_on_the_equipment": requirement}
+        )
+        rule_box_run.run(
+            jobs,
+            model="claude-haiku-5-5",
+            step_prefix="i",
+            version="v",
+            apply=apply,
+            send=Fake(lambda p, reply=reply: reply),
+        )
+        assert rule_box_check.advanced(rules) == expected
+    assert (
+        rule_box_scope.identity_jobs(rules, _gate_open, "claude-sonnet-5-5", {})[2][
+            "prompts"
+        ]
+        == 0
+    )

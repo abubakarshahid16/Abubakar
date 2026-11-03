@@ -34,7 +34,7 @@ from app.ai.json_reply import unfenced
 from app.compiled_rule_proof import _fold as _proof_fold
 from app.compiled_rule_proof import _limit_problem, _main_clause
 from app.config import settings
-from rule_box_tools import rule_box_fields, rule_box_run
+from rule_box_tools import rule_box_fields, rule_box_run, rule_box_scope
 from rule_box_tools import rule_box_labels as rule_boxes
 
 CHECK_VERSION = "box-check-v1"
@@ -59,6 +59,9 @@ _OP_ALIASES = {"==": "=", "≤": "<=", "≥": ">="}
 
 
 def ensure_schema(conn) -> None:
+    for column in ("scope_text", "subject"):
+        with contextlib.suppress(Exception):  # an older copy of the table
+            conn.execute(f"ALTER TABLE {CHECKS} ADD COLUMN {column} TEXT")
     with contextlib.suppress(
         Exception
     ):  # an older copy of the table has no such column
@@ -67,7 +70,7 @@ def ensure_schema(conn) -> None:
         f"CREATE TABLE IF NOT EXISTS {CHECKS} ("
         " rule_id TEXT PRIMARY KEY, status TEXT NOT NULL, reason TEXT, field_role TEXT, kind TEXT, op TEXT,"
         " limit_text TEXT, unit TEXT, values_json TEXT, condition_text TEXT, quote TEXT, pass_json TEXT, fail_json TEXT,"
-        " document_kind TEXT, equipment_type TEXT, field_list_state TEXT, model TEXT, prompt_version TEXT, created_at TEXT NOT NULL)"
+        " document_kind TEXT, equipment_type TEXT, field_list_state TEXT, scope_text TEXT, subject TEXT, model TEXT, prompt_version TEXT, created_at TEXT NOT NULL)"
     )
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {SECOND} ("
@@ -168,6 +171,7 @@ def check_prompt(row, label: str, equipment_type: str, fields: dict[str, str]) -
         ' "at_least_class"; "limit": <for a number, the figure exactly as printed, else null>, "unit": <the unit exactly'
         ' as printed, else null>, "values": <for a list, the words of the allowed or excluded values copied exactly,'
         ' else []>, "condition": <the words of the requirement that say when it applies, copied exactly, else null>,'
+        ' "subject": <the words of the requirement that name the quantity it limits, copied exactly>,'
         ' "quote": <the shortest exact words of the requirement that state the limit or the list>,'
         ' "pass_case": {"value": <a datasheet value that meets it>, "unit": <its unit or null>},'
         ' "fail_case": {"value": <a datasheet value that breaks it>, "unit": <its unit or null>},'
@@ -262,6 +266,13 @@ def _list_cases(op: str, values: list[str], role: str, passing, failing) -> str 
     return None
 
 
+def row_type(row) -> str:
+    try:
+        return str(row["equipment_type"] or "")
+    except (IndexError, KeyError):
+        return ""
+
+
 def verify_check(
     row, answer: dict | None, fields: dict[str, str]
 ) -> tuple[dict | None, str | None, str]:
@@ -272,10 +283,23 @@ def verify_check(
     if role is None or kind is None:
         said = answer.get("reason")
         return None, said if said in NO_CHECK_REASONS else "no_single_value", NO_CHECK
+    if role not in fields:
+        return None, "role_not_on_type", FAILED
     quote = _fold(row["quote"])
     said_quote = _fold(answer.get("quote"))
     if len(said_quote) < 8 or said_quote not in quote:
         return None, "quote_not_in_rule", FAILED
+    subject = " ".join(str(answer.get("subject") or "").split())
+    if not subject or _fold(subject) not in quote:
+        return None, "subject_not_in_rule", FAILED
+    if not rule_box_scope.subject_matches(
+        subject, rule_box_scope.label_of(str(role)), row_type(row)
+    ):
+        return None, "subject_differs_from_field", FAILED
+    if row["field"] and not rule_box_scope.subject_matches(
+        str(row["field"]), rule_box_scope.label_of(str(role)), row_type(row)
+    ):
+        return None, "compiled_field_differs_from_field", FAILED
     condition = " ".join(str(answer.get("condition") or "").split())
     if condition and _fold(condition) not in quote:
         return None, "condition_not_in_rule", FAILED
@@ -343,6 +367,7 @@ def verify_check(
     else:
         return None, "kind_not_allowed", FAILED
     check.update(
+        subject=subject,
         field_role=role,
         quote=_clean(answer.get("quote")),
         condition=condition or None,
@@ -391,11 +416,16 @@ def settle_without_a_call(conn) -> dict:
         f"SELECT l.rule_id, l.box, l.document_kind, l.equipment_type FROM {rule_boxes.TABLE} l"
         f" WHERE l.box IN ('a','b','c') AND NOT EXISTS (SELECT 1 FROM {CHECKS} c WHERE c.rule_id = l.rule_id)"
     ).fetchall()
-    counts = {BY_KIND: 0, FIELD_TO_CONFIRM: 0, NOT_DECIDABLE: 0}
+    counts = {
+        BY_KIND: 0,
+        FIELD_TO_CONFIRM: 0,
+        NOT_DECIDABLE: 0,
+        rule_box_scope.SCOPED: 0,
+    }
     quotes = {
         r["id"]: r
         for r in conn.execute(
-            "SELECT id, quote, limit_value, unit FROM compiled_rules WHERE id IN ("
+            "SELECT id, quote, limit_value, unit, applies_to, condition_text, exception_text FROM compiled_rules WHERE id IN ("
             f"SELECT rule_id FROM {rule_boxes.TABLE} WHERE box IN ('a','c'))"
         )
     }
@@ -409,6 +439,17 @@ def settle_without_a_call(conn) -> dict:
         elif not has_figure(quotes[r["rule_id"]]):
             _record(conn, r["rule_id"], NO_CHECK, NOT_DECIDABLE, r, "")
             counts[NOT_DECIDABLE] += 1
+        elif (
+            said := rule_box_scope.scope_problem(
+                quotes[r["rule_id"]], r["equipment_type"]
+            )
+        ) is not None:
+            _record(conn, r["rule_id"], rule_box_scope.SCOPED, said[0], r, "")
+            conn.execute(
+                f"UPDATE {CHECKS} SET scope_text = ? WHERE rule_id = ?",
+                (said[1], r["rule_id"]),
+            )
+            counts[rule_box_scope.SCOPED] += 1
     conn.commit()
     return counts
 
@@ -417,7 +458,7 @@ def check_todo(conn) -> list:
     """Box a or c rules with a field list and no check stored yet, with their label."""
     rows = conn.execute(
         "SELECT r.id, r.standard_document_id, r.clause, r.field, r.comparator, r.limit_value, r.unit, r.condition_text,"
-        " r.exception_text, r.quote, l.document_kind, l.equipment_type, l.box"
+        " r.exception_text, r.applies_to, r.quote, l.document_kind, l.equipment_type, l.box"
         f" FROM compiled_rules r JOIN {rule_boxes.TABLE} l ON l.rule_id = r.id"
         f" WHERE l.box IN ('a','c') AND NOT EXISTS (SELECT 1 FROM {CHECKS} c WHERE c.rule_id = r.id)"
         " ORDER BY r.standard_document_id, r.page, r.id"
@@ -425,7 +466,9 @@ def check_todo(conn) -> list:
     return [
         r
         for r in rows
-        if fields_for(r["equipment_type"], conn) is not None and has_figure(r)
+        if fields_for(r["equipment_type"], conn) is not None
+        and has_figure(r)
+        and rule_box_scope.scope_problem(r, r["equipment_type"]) is None
     ]
 
 
@@ -480,6 +523,11 @@ def check_storer(conn, members: dict, model: str):
         row, fields = members[job.key]
         check, reason, status = verify_check(row, _parse_object(text), fields)
         _record(conn, row["id"], status, reason, row, model, check)
+        if check:
+            conn.execute(
+                f"UPDATE {CHECKS} SET subject = ? WHERE rule_id = ?",
+                (check["subject"], row["id"]),
+            )
         conn.commit()
         if status == CHECKED:
             tally["checked"] += 1
@@ -642,11 +690,30 @@ def second_storer(conn, members: dict, model: str):
 
 
 def advanced(conn) -> int:
-    """Rules that passed everything so far: checked in step 2, agreed in step 3."""
-    return conn.execute(
-        f"SELECT COUNT(*) FROM {CHECKS} c JOIN {SECOND} s ON s.rule_id = c.rule_id"
-        f" WHERE c.status = '{CHECKED}' AND s.agree = 1"
-    ).fetchone()[0]
+    """AI-proven: checked in step 2 (scope gate and subject identity passed), agreed in step 3, and the fresh model
+    says the quantity is the same and the rule is a requirement on the equipment."""
+    rule_box_scope.ensure_schema(conn)
+    return rule_box_scope.advanced_count(conn)
+
+
+def apply_scope_gate(conn) -> int:
+    """Re-judge stored checks by the scope gate: a checked rule that is narrowed becomes `scoped`, its scope text kept."""
+    moved = 0
+    rows = conn.execute(
+        "SELECT r.id, r.applies_to, r.condition_text, r.exception_text, r.quote, l.equipment_type"
+        f" FROM compiled_rules r JOIN {CHECKS} c ON c.rule_id = r.id JOIN {rule_boxes.TABLE} l ON l.rule_id = r.id"
+        f" WHERE c.status = '{CHECKED}'"
+    ).fetchall()
+    for r in rows:
+        said = rule_box_scope.scope_problem(r, r["equipment_type"])
+        if said is not None:
+            conn.execute(
+                f"UPDATE {CHECKS} SET status = ?, reason = ?, scope_text = ? WHERE rule_id = ?",
+                (rule_box_scope.SCOPED, said[0], said[1], r["id"]),
+            )
+            moved += 1
+    conn.commit()
+    return moved
 
 
 def check_model() -> str:

@@ -30,7 +30,12 @@ sys.path.insert(0, str(REPO / "backend"))
 sys.path.insert(0, str(REPO / "scripts"))
 
 from rehearse_requirement_reextraction import refuse_live  # noqa: E402
-from rule_box_tools import rule_box_check, rule_box_fields, rule_box_run  # noqa: E402
+from rule_box_tools import (  # noqa: E402
+    rule_box_check,
+    rule_box_fields,
+    rule_box_run,
+    rule_box_scope,
+)
 from rule_box_tools import rule_box_labels as rule_boxes  # noqa: E402
 
 from app import (  # noqa: E402
@@ -44,7 +49,7 @@ from app.config import settings  # noqa: E402
 
 ENGINE_ENV = "RULE_BOXES_ENGINE"
 #: Typical answer sizes in tokens, for the ESTIMATE line only (the worst case does not use them).
-TYPICAL_OUT = {"label": 45, "check": 450, "second": 70, "fields": 1200}
+TYPICAL_OUT = {"label": 45, "check": 450, "second": 70, "fields": 1200, "identity": 40}
 
 
 def lane_refusal() -> str | None:
@@ -223,6 +228,7 @@ def status(conn) -> dict:
         )
     }
     out["advanced"] = rule_box_check.advanced(conn)
+    out["advanced_by_type"] = rule_box_scope.advanced_by_type(conn)
     return out
 
 
@@ -277,6 +283,16 @@ def run_step(
         extra.update(settled_without_a_call=calls)
         apply = rule_box_check.check_storer(conn, members, model)
         prefix, version = "rule_box_check", rule_box_check.CHECK_VERSION
+    elif step == "identity":
+        model = model or rule_box_check.second_model()
+        rule_box_scope.ensure_schema(conn)
+        jobs, members, extra = rule_box_scope.identity_jobs(
+            conn, gate, model, rule_boxes.standard_labels(conn)
+        )
+        apply = rule_box_scope.identity_storer(
+            conn, members, model, rule_box_check._parse_object
+        )
+        prefix, version = "rule_box_identity", rule_box_scope.IDENTITY_VERSION
     elif step == "second":
         model = model or rule_box_check.second_model()
         if has_labels(conn):
@@ -331,7 +347,10 @@ def run_step(
 
 def main(argv: list[str] | None = None, *, emit=print) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("step", choices=("label", "fields", "check", "second", "status"))
+    ap.add_argument(
+        "step",
+        choices=("label", "fields", "check", "second", "identity", "scope", "status"),
+    )
     ap.add_argument("--db", type=Path, required=True)
     ap.add_argument("--send", action="store_true", help="ask Claude; this spends")
     ap.add_argument("--model", default=None)
@@ -361,6 +380,20 @@ def main(argv: list[str] | None = None, *, emit=print) -> int:
     settings.db_path = refuse_live(args.db)
     reset_connection()
     conn = connect()
+    if args.step == "scope":
+        rule_boxes.ensure_schema(conn)
+        rule_box_check.ensure_schema(conn)
+        moved = rule_box_check.apply_scope_gate(conn)
+        emit(
+            json.dumps(
+                {
+                    "checked_moved_to_scoped": moved,
+                    **rule_box_check.settle_without_a_call(conn),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
     if args.step == "status":
         emit(json.dumps(status(conn), sort_keys=True))
         return 0
