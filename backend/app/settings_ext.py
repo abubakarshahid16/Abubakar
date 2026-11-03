@@ -205,6 +205,10 @@ class SettingsExt(BaseModel):
     #: the two switches above merge nothing more. Findings are never touched. OFF: as it was.
     #: Env: CRS_ONE_ROW_PER_PROBLEM_ENABLED.
     crs_one_row_per_problem_enabled: bool = False
+    #: Owner order 3 Nov (item 14): ONE note at the top of the INTERNAL CRS copy, saying the rules used are
+    #: drafts checked by code unless the row's Rule trust text says a person approved it, and that an engineer must confirm. Export text
+    #: only; no row, verdict or number changes. OFF: the sheet is as it was. Env: CRS_RULES_NOTE_ENABLED.
+    crs_rules_note_enabled: bool = False
     #: Owner 3 Nov 11:40 (a): with the switch above, rows with the same problem, field, value, verdict and page are
     #: one row whatever the clause or standard; the merged row lists every reference, tag and page. OFF: the
     #: clause is part of the key, as merged in #1648. Env: CRS_ONE_ROW_IGNORE_CLAUSE_ENABLED.
@@ -350,6 +354,11 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner 3 Nov 12:20: a cited standard is never called "does not appear to apply" on the table's word
+    #: alone (the table lists what a standard governs, not what its scope clause excludes: a pressure-vessel
+    #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
+    #: the engineer (`declared_check`). OFF: as it was. Env: STANDARD_SCOPE_NOT_NO_ENABLED.
+    standard_scope_not_no_enabled: bool = False
     #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
     #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
     #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
