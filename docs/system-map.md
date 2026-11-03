@@ -268,6 +268,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `model_transport` | The one place in this codebase that may open a socket to the answer model |
 | `notifications` | Fail-closed email notifications for operational EPC events |
 | `numparse` | The one place numbers, signs and exponents are read (W2, issue #445) |
+| `word_fold` | How a reader reads a WORD whatever the spelling: styled, accented, circled, parenthesised, regional-indicator and look-alike letters to plain Latin, marks and invisible characters dropped (the verdict-word and number-word filters; not a number reader) |
 | `ocr` | Step 2b - resumable page-batch recognition for scanned pages |
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
