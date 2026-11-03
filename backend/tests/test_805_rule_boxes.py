@@ -541,7 +541,11 @@ def test_a_rule_of_a_type_without_a_field_list_is_marked_and_not_asked_and_a_box
         and rule_box_check.fields_for("boiler") is None
     )
     counts = rule_box_check.settle_without_a_call(rules)
-    assert counts == {"stored by kind": 1, "field list to confirm": 1}
+    assert counts == {
+        "stored by kind": 1,
+        "field list to confirm": 1,
+        "not_decidable_from_a_datasheet": 0,
+    }
     states = dict(
         rules.execute(f"SELECT rule_id, status FROM {rule_box_check.CHECKS}").fetchall()
     )
@@ -557,6 +561,9 @@ def test_step_two_asks_one_rule_per_prompt_and_stores_the_check_with_the_model(r
         rules.execute(
             f"INSERT INTO {rule_boxes.TABLE} VALUES ('r3','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
         )
+    rules.execute(
+        "UPDATE compiled_rules SET quote = 'The invented test pressure shall be at least 15 bar.' WHERE id = 'r3'"
+    )
     jobs, members, counts = rule_box_check.check_jobs(rules, _gate_open)
     assert counts["prompts"] == 2 and all(len(j.prompt) < 6000 for j in jobs)
     assert Q_NUM in jobs[0].prompt and Q_SENT not in jobs[0].prompt
@@ -994,3 +1001,38 @@ def test_a_reply_with_a_sentence_before_the_fenced_object_is_still_read():
     }
     assert rule_box_check._parse_object("no object here {not json") is None
     assert rule_box_check._parse_object('[{"a": 1}]') is None
+
+
+def test_only_a_rule_with_a_figure_and_a_unit_in_its_own_words_is_asked_and_the_figures_are_in_the_prompt(
+    rules,
+):
+    with rules:
+        for rid in ("r1", "r2", "r3"):
+            rules.execute(
+                f"INSERT INTO {rule_boxes.TABLE} VALUES (?,?,?,?,NULL,'h','v','t',NULL)",
+                (rid, "datasheet", "pressure vessel", "a"),
+            )
+    assert rule_box_check.has_figure(
+        _row(rules, "r1")
+    ) and not rule_box_check.has_figure(_row(rules, "r2"))
+    assert rule_box_check.figures_of(_row(rules, "r1")) == [("10", "bar")]
+    assert [r["id"] for r in rule_box_check.check_todo(rules)] == ["r1"]
+    assert rule_box_check.todo_by_type(rules) == {"pressure vessel": 1}
+    prompt = rule_box_check.check_prompt(
+        _row(rules, "r1"), LABEL, "pressure vessel", FIELDS
+    )
+    assert "FIGURES AND UNITS CODE FOUND IN IT: 10 bar" in prompt
+    assert "FIGURES AND UNITS" not in rule_box_check.check_prompt(
+        _row(rules, "r2"), LABEL, "pressure vessel", FIELDS
+    )
+    counts = rule_box_check.settle_without_a_call(rules)
+    assert counts["not_decidable_from_a_datasheet"] == 2
+    rows = dict(
+        rules.execute(
+            f"SELECT rule_id, reason FROM {rule_box_check.CHECKS} WHERE status = 'no typed check'"
+        ).fetchall()
+    )
+    assert rows == {
+        "r2": "not_decidable_from_a_datasheet",
+        "r3": "not_decidable_from_a_datasheet",
+    }

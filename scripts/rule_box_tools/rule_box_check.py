@@ -127,16 +127,42 @@ def _list_text(fields: dict[str, str]) -> str:
 # ----------------------------------------------------------------------------------------------- step 2
 
 
+NOT_DECIDABLE = "not_decidable_from_a_datasheet"
+
+
+def figures_of(row) -> list[tuple[str, str]]:
+    """[(figure, unit)] CODE finds in the rule's own words: numbers with a unit `claims` recognises (no new reading of
+    numbers). A stored limit and unit of the compiler count too."""
+    found = [
+        (m.raw_value, m.raw_unit)
+        for m in claims.extract_measurements(" ".join(str(row["quote"] or "").split()))
+    ]
+    if row["limit_value"] is not None and row["unit"] and not found:
+        found = [(numparse.canonical_token(str(row["limit_value"])), row["unit"])]
+    return found
+
+
+def has_figure(row) -> bool:
+    return bool(figures_of(row))
+
+
 def check_prompt(row, label: str, equipment_type: str, fields: dict[str, str]) -> str:
     condition = _clean(row["condition_text"], 400)
+    figures = "; ".join(f"{v} {u}" for v, u in figures_of(row)[:8])
     return (
         "You turn ONE requirement of an engineering standard into a typed check on ONE datasheet field, choosing the"
         " field only from the fixed list below. If a person could not check it by reading one field's value, say so.\n"
         f"THE EQUIPMENT: {equipment_type}\nTHE FIELD LIST:\n{_list_text(fields)}\n\n"
         f"THE STANDARD: {label}, clause {_clean(row['clause'], 30)}\n"
         + (f"ITS CONDITION: {condition}\n" if condition else "")
-        + f"THE REQUIREMENT (its exact words): {_clean(row['quote'])}\n\n"
-        "Answer ONLY one JSON object:\n"
+        + f"THE REQUIREMENT (its exact words): {_clean(row['quote'])}\n"
+        + (
+            f"FIGURES AND UNITS CODE FOUND IN IT: {figures}. Choose the limit among these; choose the field and the"
+            " operator.\n"
+            if figures
+            else ""
+        )
+        + "\nAnswer ONLY one JSON object:\n"
         '{"field_role": <a name from the list, or null>, "kind": "number" | "list" | null,'
         ' "op": for a number one of "<=", ">=", "<", ">", "="; for a list one of "is_not", "is_one_of",'
         ' "at_least_class"; "limit": <for a number, the figure exactly as printed, else null>, "unit": <the unit exactly'
@@ -365,7 +391,14 @@ def settle_without_a_call(conn) -> dict:
         f"SELECT l.rule_id, l.box, l.document_kind, l.equipment_type FROM {rule_boxes.TABLE} l"
         f" WHERE l.box IN ('a','b','c') AND NOT EXISTS (SELECT 1 FROM {CHECKS} c WHERE c.rule_id = l.rule_id)"
     ).fetchall()
-    counts = {BY_KIND: 0, FIELD_TO_CONFIRM: 0}
+    counts = {BY_KIND: 0, FIELD_TO_CONFIRM: 0, NOT_DECIDABLE: 0}
+    quotes = {
+        r["id"]: r
+        for r in conn.execute(
+            "SELECT id, quote, limit_value, unit FROM compiled_rules WHERE id IN ("
+            f"SELECT rule_id FROM {rule_boxes.TABLE} WHERE box IN ('a','c'))"
+        )
+    }
     for r in rows:
         if r["box"] == SENTENCE_BOX:
             _record(conn, r["rule_id"], BY_KIND, None, r, "")
@@ -373,6 +406,9 @@ def settle_without_a_call(conn) -> dict:
         elif fields_for(r["equipment_type"], conn) is None:
             _record(conn, r["rule_id"], FIELD_TO_CONFIRM, None, r, "")
             counts[FIELD_TO_CONFIRM] += 1
+        elif not has_figure(quotes[r["rule_id"]]):
+            _record(conn, r["rule_id"], NO_CHECK, NOT_DECIDABLE, r, "")
+            counts[NOT_DECIDABLE] += 1
     conn.commit()
     return counts
 
@@ -386,7 +422,18 @@ def check_todo(conn) -> list:
         f" WHERE l.box IN ('a','c') AND NOT EXISTS (SELECT 1 FROM {CHECKS} c WHERE c.rule_id = r.id)"
         " ORDER BY r.standard_document_id, r.page, r.id"
     ).fetchall()
-    return [r for r in rows if fields_for(r["equipment_type"], conn) is not None]
+    return [
+        r
+        for r in rows
+        if fields_for(r["equipment_type"], conn) is not None and has_figure(r)
+    ]
+
+
+def todo_by_type(conn) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for r in check_todo(conn):
+        out[r["equipment_type"]] = out.get(r["equipment_type"], 0) + 1
+    return dict(sorted(out.items()))
 
 
 def check_jobs(

@@ -259,7 +259,11 @@ def run_step(
             jobs, members, counts = rule_box_check.check_jobs(
                 conn, gate, getattr(args, "only", None)
             )
-            extra = {**counts, "estimate": False}
+            extra = {
+                **counts,
+                "estimate": False,
+                "rules_with_a_figure_by_type": rule_box_check.todo_by_type(conn),
+            }
         else:
             jobs, members = _estimate_check_jobs(conn, numeric_only=False), {}
             numeric = _estimate_check_jobs(conn, numeric_only=True)
