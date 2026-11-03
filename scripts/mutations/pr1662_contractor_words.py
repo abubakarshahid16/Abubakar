@@ -27,7 +27,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="        findings = [quality.contractor_words(f) for f in findings]\n",
         replacement="        findings = findings\n",
         target=_T,
-        keyword="names_the_engineer",
+        keyword="all_engineer_wording_is_withheld",
         tags=("crs", "honesty"),
     ),
 )

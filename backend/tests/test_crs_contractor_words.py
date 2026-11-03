@@ -100,6 +100,12 @@ def test_a_comment_that_is_all_engineer_wording_is_withheld_never_issued_as_an_i
     only = _row(comment="Engineer to confirm. ENGINEER TO TICK.")
     kept = _row(comment="Set pressure 12 barg is above the 10 barg limit.")
     cells = _issue_cells([only, kept])
+    view = crs_export.build_crs_view(
+        [only, kept], {"review_run_id": "run-1", "copy": "issue"}
+    )
+    assert (
+        len(view["rows"]) == 1
+    )  # the all-engineer comment's row is withheld, not issued blank
     assert any("above the 10 barg limit" in c for c in cells)
     assert not any("An engineer must write it" in c for c in cells)
     assert not any("Engineer to confirm" in c for c in cells)
