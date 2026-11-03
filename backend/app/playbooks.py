@@ -534,14 +534,22 @@ def _section_without_standard(
                 f"{part}; {not_quoted}; engineer to check"
             )
             return out
-        found_words = "the closest section is at" if section_index.enabled() else "a section of its own was found at"
+        found_words = (
+            "the closest section is at"
+            if section_index.enabled()
+            else "a section of its own was found at"
+        )
         out["reason"] = (
             f"unclear: {found_words} {cited}, but it does not mention "
             f"{', '.join(lacks)}; {not_quoted}; engineer to check"
         )
     elif found["state"] == UNCLEAR and found.get("stated_elsewhere"):
         stated = found["stated_elsewhere"]
-        no_section = "no section titled for it" if section_index.enabled() else "no section of its own"
+        no_section = (
+            "no section titled for it"
+            if section_index.enabled()
+            else "no section of its own"
+        )
         out["evidence"] = stated[:1]
         cited, out["cited_page"] = _cited(stated[0], body, document_id)
         out["reason"] = (

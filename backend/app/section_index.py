@@ -163,7 +163,28 @@ def _page_of(heading: str, chunk: dict, pages: dict[int, list[str]]) -> int | No
 
 
 _STOP = frozenset(
-    "the and for with from that this their its into than then also not are was were been have has".split()
+    [
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "that",
+        "this",
+        "their",
+        "its",
+        "into",
+        "than",
+        "then",
+        "also",
+        "not",
+        "are",
+        "was",
+        "were",
+        "been",
+        "have",
+        "has",
+    ]
 )
 
 

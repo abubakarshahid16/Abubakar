@@ -54,7 +54,7 @@ def ingest_lines(tmp_path) -> str:
         d.para(text, style=style) if style else d.para(text) for style, text in LINES
     )
     path = d.build(tmp_path / "proc.docx", xml)
-    with open(path, "rb") as fh:
+    with path.open("rb") as fh:
         row, _job, _dup = upload.ingest(fh, "proc.docx")
     extract.extract_document(row["id"])
     chunker.chunk_document(row["id"])
@@ -79,7 +79,7 @@ def h04(tmp_path, monkeypatch, on):
         "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION",
         "Annex B - Calibration of the method",
         "Appendix C: Data sheets",
-        "Attachment 4 – Reporting template",
+        "Attachment 4 \u2013 Reporting template",
         "Table A10.1: Quantitative targets",
         "Table 3. Pump list",
         "Figure 2 - Flow of the method",
@@ -166,7 +166,7 @@ def test_a_dash_that_differs_between_the_chunk_and_the_page_text_still_finds_the
     monkeypatch.setattr(
         section_index, "_pages", lambda d: {1: ["x"], 5: ["ZX-77-ATT05 - WORKSHEET"]}
     )
-    out = section_index.refine([chunk("ZX-77-ATT05 – WORKSHEET\nrows")], "doc")
+    out = section_index.refine([chunk("ZX-77-ATT05 \u2013 WORKSHEET\nrows")], "doc")
     assert (
         out[0]["page_start"] == 5
     )  # a later page than the stored range: found by the printed line
