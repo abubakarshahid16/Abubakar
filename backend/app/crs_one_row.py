@@ -244,7 +244,9 @@ def _joined(group: list[dict], by_id: dict[str, dict]) -> dict:
             }
         ),
         "page_section": _unique((r.get("page_section") for r in group), "; "),
-        "standard_reference": _unique((r.get("standard_reference") for r in group), "; "),
+        "standard_reference": _unique(
+            (r.get("standard_reference") for r in group), "; "
+        ),
         **words,
         "reasoning": _unique((r.get("reasoning") for r in group), "\n\n"),
         "rule_trust": _unique((r.get("rule_trust") for r in group), "; "),
