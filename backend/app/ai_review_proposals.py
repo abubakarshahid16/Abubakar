@@ -74,6 +74,8 @@ EXTRA_VERDICT_WORDS = (
     "is consistent",
     "in accordance with",
     "in agreement with",
+    "verified",
+    "confirmed",
     "complying",
     "conformant",
     "fulfils",
@@ -164,12 +166,12 @@ def _words_of(proposal: dict) -> str:
 _SINGLE_RUN = re.compile(r"(?<![a-z0-9])(?:[a-z][\s\-._]+){2,}[a-z](?![a-z0-9])")
 
 
-def _readable(text: object) -> str:
-    """What a reader reads: the full compatibility fold (`numparse.fold_compat`: NFKC, invisible and combining characters
-    dropped, look-alike letters mapped to Latin, lower case), then a run of single letters ("c o m p l i e s",
-    "c-o-m-p-l-i-e-s") joined into one word."""
+def _readable(text: object, *, decompose: bool = True) -> str:
+    """What a reader reads: the full compatibility fold (`numparse.fold_compat`), then a run of single letters ("c o m p l i e
+    s", "c-o-m-p-l-i-e-s") joined into one word."""
     return _SINGLE_RUN.sub(
-        lambda m: re.sub(r"[^a-z]", "", m.group(0)), numparse.fold_compat(text)
+        lambda m: re.sub(r"[^a-z]", "", m.group(0)),
+        numparse.fold_compat(text, decompose=decompose),
     )
 
 
@@ -187,6 +189,8 @@ _VERDICT_SINGLES = {w.replace("-", "") for w in PASS_FAIL_WORDS if " " not in w}
     "fulfils",
     "fulfills",
     "satisfactory",
+    "verified",
+    "confirmed",
     "ok",
     "okay",
     "compliance",
@@ -196,12 +200,17 @@ _VERDICT_SINGLES = {w.replace("-", "") for w in PASS_FAIL_WORDS if " " not in w}
 def _has_pass_fail_word(text: str) -> bool:
     """A verdict CLAIM in the text: the engine's pass/fail words and phrases, whole words only, after `_readable`. Ordinary
     engineering words that merely contain one ("done", "component", "bypass", "complete") are not claims."""
-    plain = _readable(text)
-    haystacks = {_fold(plain), _fold(re.sub(r"[-_]+", " ", plain))}
     words = (*PASS_FAIL_WORDS, *EXTRA_VERDICT_WORDS)
-    if any(_contains(h, _fold(w)) for h in haystacks for w in words):
-        return True
-    return _words_in(plain, _VERDICT_SINGLES)
+    for plain in {
+        _readable(text),
+        _readable(text, decompose=False),
+    }:  # both folds: marks dropped, and composed
+        haystacks = {_fold(plain), _fold(re.sub(r"[-_]+", " ", plain))}
+        if any(_contains(h, _fold(w)) for h in haystacks for w in words):
+            return True
+        if _words_in(plain, _VERDICT_SINGLES):
+            return True
+    return False
 
 
 def _numbers_verified(
@@ -404,18 +413,20 @@ def _reason_ok(proposal: dict, row: Mapping) -> bool:
     """A reword's REASON has no evidence behind it and is printed, so it is explanation only: no verdict claim, no digit in
     any script, no number word (whole word), no roman numeral, no letter outside ASCII once look-alikes are mapped, and no
     unit the row's own text does not also use."""
-    plain = _readable(proposal.get("reason"))
-    raw = numparse.fold_compat(proposal.get("reason"), lower=False)
+    reason = proposal.get("reason")
+    plain = _readable(reason)
+    raw = numparse.fold_compat(reason, lower=False)
     if re.search(
         r"(?<![A-Za-z])[IVXLCDM](?![A-Za-z])", raw
     ):  # a lone capital roman numeral ("V barg")
         return False
-    if not plain.isascii() or _has_pass_fail_word(plain):
+    if not plain.isascii() or _has_pass_fail_word(reason):
         return False
-    if any(c.isdigit() or c.isnumeric() for c in plain) or _words_in(
-        plain, NUMBER_WORDS
-    ):
-        return False
+    for variant in {plain, _readable(reason, decompose=False)}:  # both folds
+        if any(c.isdigit() or c.isnumeric() for c in variant) or _words_in(
+            variant, NUMBER_WORDS
+        ):
+            return False
     if any(m.group(0) not in _ROMAN_WORDS for m in _ROMAN.finditer(plain)):
         return False
     own = set(
