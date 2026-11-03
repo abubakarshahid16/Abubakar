@@ -359,6 +359,10 @@ class SettingsExt(BaseModel):
     #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
     #: the engineer (`declared_check`). OFF: as it was. Env: STANDARD_SCOPE_NOT_NO_ENABLED.
     standard_scope_not_no_enabled: bool = False
+    #: Owner 3 Nov 11:40 (b): a value the sheet gives that only a DRAFT rule checks, with nothing found, writes no
+    #: CRS row; it is listed on the internal-only sheet "Compliance list" as "No issue found (draft rule)".
+    #: Findings are untouched. OFF: as it was. Env: CRS_COMPLIANCE_LIST_ENABLED.
+    crs_compliance_list_enabled: bool = False
     #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
     #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
     #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
