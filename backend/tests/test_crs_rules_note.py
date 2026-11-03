@@ -51,9 +51,11 @@ def test_the_note_says_drafts_checked_by_code_and_an_engineer_must_confirm():
 
 def test_the_note_keeps_the_run_status_line_first(monkeypatch):
     monkeypatch.setattr(settings, "crs_rules_note_enabled", True)
-    said = quality.with_rules_note("REVIEW INCOMPLETE: run partial")
+    said = quality.with_rules_note(
+        {"run_status_note": "REVIEW INCOMPLETE: run partial"}
+    )
     assert said.startswith("REVIEW INCOMPLETE: run partial\n")
     assert said.endswith(quality.RULES_NOTE)
     monkeypatch.setattr(settings, "crs_rules_note_enabled", False)
-    assert quality.with_rules_note("x") == "x"
-    assert quality.with_rules_note(None) == ""
+    assert quality.with_rules_note({"run_status_note": "x"}) == "x"
+    assert quality.with_rules_note({}) == ""

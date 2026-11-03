@@ -494,7 +494,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
         "title": "\n ".join(p for p in (company, project) if p).rstrip(),
         # #633 item 7: "REVIEW INCOMPLETE: run <status> - ..." on row 1; "" for a completed run.
-        "run_status_note": quality.with_rules_note(meta.get("run_status_note"), meta.get("copy")),
+        "run_status_note": quality.with_rules_note(meta),
         "subtitle": SUBTITLE,
         # A missing value renders as NOTHING, never as "None": a CRS carrying
         # a plausible-looking transmittal number lies about its own provenance.
