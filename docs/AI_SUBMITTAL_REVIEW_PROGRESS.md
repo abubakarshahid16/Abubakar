@@ -1408,7 +1408,7 @@ are NATIVE TEXT (not scanned):
 
 | File | Pages | What it is |
 |---|---|---|
-| `DS-0000-DAS-M-01.pdf` | 7 | client centrifugal pump datasheet (recycle brine pumps) |
+| `DS-0000-DAS-M-01.pdf` | 7 | client centrifugal pump datasheet (booster water pumps) |
 | `DS-0000-DAS-I-01.pdf` | 5 | client pressure safety valve datasheet |
 | `SAES-A-105.pdf` | 14 | the client's own standard |
 
@@ -1425,12 +1425,12 @@ honesty audit.
 | `DS-0000-DAS-I-01.pdf` | 5 of 5 | **100%** |
 | `SAES-A-105.pdf` | 3 of 14 | 21% |
 
-**The I-06 figure is worthless, and reading the content is what showed it.**
+**The Datasheet 1 figure is worthless, and reading the content is what showed it.**
 Every one of those five "tables" is the two-row title block:
 
 ```
-['EXAMPLE OPERATING COMPANY', 'DATA SHEET FOR PRESSURE SAFETY VALVES (PSVs)', 'DOCUMENT NO. DS-0000-DAS-I-01']
-['PROJECT NO. EF/1975', '', 'Sheet 2 of 6', 'Rev. 1']
+['EXAMPLE OPERATING COMPANY', 'DATA SHEET FOR PRESSURE SAFETY VALVES (PSV)', 'DOCUMENT NO. DS-0000-DAS-I-01']
+['PROJECT NO. P-1000001', '', 'Sheet 2 of 6', 'Rev. 1']
 ```
 
 Not one PSV value is in it. Reporting "100% of pages parsed" for a datasheet
@@ -1438,10 +1438,10 @@ whose every value was missed is exactly honesty-audit entry 14 repeating, and
 the only reason it did not happen is that the content was read before the rate
 was believed.
 
-M-03 is the opposite: the grid is real.
+Datasheet 2 is the opposite: the grid is real.
 
 ```
-['VAPOR PRESSURE:', 'bar a (psia)', '0.42 (6.09)']
+['VAPOR PRESSURE:', 'bar a (psia)', '0.37 (5.37)']
 ['SPECIFIC GRAVITY:', '0.974 @ 170 OF']
 ```
 
@@ -1449,12 +1449,12 @@ M-03 is the opposite: the grid is real.
 
 **Both paths, chosen per page, neither a fallback for the other.**
 
-I-06's data is in TEXT BLOCKS with a numbered label-value shape - master plan
+Datasheet 1's data is in TEXT BLOCKS with a numbered label-value shape - master plan
 section 10's "preserve text blocks and coordinates":
 
 ```
-5 | Design/Operating pressure | 23.5 / 9 barg (Note - 3) | 46 | Bonnet / Yoke | ...
-8 | Set pressure             | 340 psig (By Contractor, as per Code) | 49 | ...
+5 | Design/Operating pressure | 27.5 / 8 barg (Note - 3) | 46 | Bonnet / Yoke | ...
+8 | Set pressure             | 355 psig (By Contractor, as per Code) | 49 | ...
 ```
 
 So `datasheets.py` runs the grid path where a grid exists and
@@ -1520,10 +1520,10 @@ preference.
 What it gets right is genuinely right:
 
 ```
-Set pressure                  | 340 psig (By Contractor, as per Code) | BLANK "By Contractor"
-Density at relieving temper.  | 23.55 Kg/m3                           | 23.55  Kg/m3
+Set pressure                  | 355 psig (By Contractor, as per Code) | BLANK "By Contractor"
+Density at relieving temper.  | 31.75 Kg/m3                           | 31.75  Kg/m3
 Compressibility factor        | 0.892                                 | 0.892
-Max. allow. working pressure  | 23.5 barg By Contractor / Vendor      | BLANK
+Max. allow. working pressure  | 27.5 barg By Contractor / Vendor      | BLANK
 MANUFACTURER                  | *___                                  | BLANK "placeholder"
 ```
 
@@ -1537,7 +1537,7 @@ is reported rather than smoothed over.
 ### Two defects found by running it on the real files
 
 **1. Measurements invented from prose.** `"2nd Stage Desalter"` parsed as value
-2 with unit `nd`; `"10-05-498 & 556-05-513"`, a P&ID reference, as the value 10.
+2 with unit `nd`; `"99-05-998 & 999-05-913"`, a P&ID reference, as the value 10.
 Using the unit table as the discriminator then DROPPED `"9970 Kg/hr"`, a real
 value whose compound unit is simply not in `claims`. The rule that works is
 about what FOLLOWS: a measurement is the whole cell give or take a
@@ -1611,7 +1611,7 @@ All numbers below were taken from the same tree state, at commit
    real piece of work.
 2. **No classification of document or equipment type.** Section 10 asks for it;
    it is not built. The role already exists on the document from Phase 2.
-3. **Ranges are not parsed.** `-3 to 121OC` and `23.5 / 9 barg` yield nothing -
+3. **Ranges are not parsed.** `-3 to 121OC` and `27.5 / 8 barg` yield nothing -
    the same gap 3B recorded, now hit on real data where ranges are common.
 4. **No scanned-datasheet path.** All three files are native text, so the OCR
    route was never exercised. A scanned datasheet would fall to the text-block
@@ -1653,8 +1653,8 @@ standard:
 | **completeness** | **0.0** | **0.0** |
 
 Missing on the pump sheet: `API 610`, `API 670`, `ISO 1940`, `ISO 9906`,
-`ISO 10438`, `KOC-MP-008`, `ASTM A995`, `ASTM A276`, `EN 13463` and six more.
-On the PSV sheet: `API RP 520 Pt-1`, `KOC-MP-027`, `NACE MR-0175`,
+`ISO 10438`, `AGA-MP-008`, `ASTM A995`, `ASTM A276`, `EN 13463` and six more.
+On the PSV sheet: `API RP 520 Pt-1`, `AGA-MP-027`, `NACE MR-0175`,
 `ISO 15156`, `API RP 578`, `ASTM A216`, `ASTM A193`, `ASTM B633`.
 
 **Every standard these datasheets cite is absent from the library, and the
@@ -1941,7 +1941,7 @@ because of a character class.** Every noise comparison would have come back
 useless.
 
 Fixed in `datasheets.py`: a unit may contain parentheses when it starts with a
-letter. `0.42 (6.09)` is unaffected - the unit group must begin with a letter,
+letter. `0.37 (5.37)` is unaffected - the unit group must begin with a letter,
 so a bare parenthetical is still a dual-unit remainder, not a unit.
 
 This is the second time a phase 5 test has found a phase 4 extraction defect
@@ -2078,7 +2078,7 @@ before building anything:
 | ingested by the watcher | 281 events, 272 files currently in `watch-inbox/` |
 | NOT standards (CVs, proposals, a research paper, a test fixture, the confidential register) | **8** |
 
-So it was not 4, it was all 280 - and the 8 include `Engineering Deliverables.pdf`,
+So it was not 4, it was all 280 - and the 8 include `Deliverables Register.pdf`,
 the client's confidential register. A blanket backfill would have made that
 document a COMPANY_STANDARD, which is to say **a candidate standard for future
 submittal reviews**. Reported before acting rather than after, and the backfill
@@ -2386,7 +2386,7 @@ Fourteen images in `docs/screenshots/phase-6/`, captured signed in as an
 ordinary non-admin engineer - which is how section 84's defect surfaced. They
 show client document content (requirement sentences from the SAES standards,
 one submitted value with its field name and equipment tag) and none of
-`Engineering Deliverables.pdf`, which rule 3 keeps out of the repository
+`Deliverables Register.pdf`, which rule 3 keeps out of the repository
 entirely.
 
 ## 90. Known limitations - 6
@@ -2524,7 +2524,7 @@ was visible in one glance at the sheet.
 handed to the browser as a blob. The filename comes from the server's
 `Content-Disposition`, so one definition of "what is this file called" exists
 rather than two that can disagree. Verified by driving the real button in a
-real browser: `CRS_P-1000001-2003-SP-0810-0003_00_2026-09-19.xlsx`, 18 data
+real browser: `CRS_P-1000001-9900-SP-9910-0003_00_2026-09-19.xlsx`, 18 data
 rows, opened and checked.
 
 ## 96. Mutations - M237-M241, phase 22

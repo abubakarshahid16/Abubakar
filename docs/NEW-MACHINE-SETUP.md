@@ -191,6 +191,6 @@ A handover file that is not updated is the next false claim.
 
 ## What never moves through git, ever
 
-`.env` · the database · the models · the client's `Engineering Deliverables.pdf`
+`.env` · the database · the models · the client's `Deliverables Register.pdf`
 · any API key. Private repo or not. This is the industry rule and your own
 pre-commit hook enforces it.

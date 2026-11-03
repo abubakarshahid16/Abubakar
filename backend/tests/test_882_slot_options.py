@@ -1,4 +1,4 @@
-"""#882 (owner's M-03 CRS): a heading over options that each have a drawn slot.
+"""#882 (owner's Datasheet 2 CRS): a heading over options that each have a drawn slot.
 
 `MINIMUM FLOW` on one line and `STABLE ____   THERMAL ____` on the next used to
 give the heading the value `STABLE` (a value nobody wrote), drop STABLE's own

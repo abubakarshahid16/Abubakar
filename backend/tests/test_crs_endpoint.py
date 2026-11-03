@@ -92,7 +92,7 @@ def _finding(doc_id: str, run_id: str, status: str, **over) -> None:
         "ai_rationale": "unit_mismatch: kPa against bar (ga)",
         "standard_document_id": "doc_std", "standard_clause": "6.2.2",
         "standard_page": 14, "contractor_page": 4,
-        "equipment_tag": "2003-47-V-0001A/B",
+        "equipment_tag": "9900-99-V-0101A/B",
         "governing_sources": "[]", "citation_ids": "[]",
         "unresolved_evidence": "[]", "status": "open",
         "approval_status": "pending", "escalation_level": 0,
@@ -320,14 +320,14 @@ def test_the_transmittal_numbers_are_blank_rather_than_invented():
 
 
 def test_the_title_and_date_come_from_real_data():
-    doc = _submittal(filename="P-1000001-2003-SP-0810-0003_00.pdf")
+    doc = _submittal(filename="P-1000001-9900-SP-9910-0003_00.pdf")
     run_id = _run(doc)
 
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
 
     title_row = 3 + [k for _, k in HEADER_FIELDS].index("document_title")
     assert ws.cell(row=title_row, column=3).value == (
-        "P-1000001-2003-SP-0810-0003_00.pdf")
+        "P-1000001-9900-SP-9910-0003_00.pdf")
     issued = ws.cell(row=title_row + 1, column=3).value
     assert issued and len(issued) == 10 and issued[4] == "-"
 
@@ -371,13 +371,13 @@ def test_the_engineers_final_code_supersedes_the_recommendation_in_the_file():
 
 
 def test_the_filename_names_the_submittal_and_the_date():
-    doc = _submittal(filename="P-1000001-2003-SP-0810-0003_00.pdf")
+    doc = _submittal(filename="P-1000001-9900-SP-9910-0003_00.pdf")
     run_id = _run(doc)
 
     response = _client(doc).get(f"/api/reviews/runs/{run_id}/crs")
 
     disposition = response.headers["content-disposition"]
-    assert "CRS_P-1000001-2003-SP-0810-0003_00_" in disposition
+    assert "CRS_P-1000001-9900-SP-9910-0003_00_" in disposition
     assert disposition.endswith('.xlsx"')
 
 
@@ -575,7 +575,7 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
     test is what fails.
     """
     monkeypatch.setattr(settings, "crs_company_name", "EXAMPLE OPERATING COMPANY (EOC)")
-    doc = _submittal(filename="P-1000001-2003-SP-0810-0003_00.pdf")
+    doc = _submittal(filename="P-1000001-9900-SP-9910-0003_00.pdf")
     _submittal("doc_std", "SAES-D-001.pdf")
     run_id = _run(doc)
     _finding(doc, run_id, "NON_COMPLIANT")
@@ -740,7 +740,7 @@ def test_the_page_section_column_carries_the_datasheet_page_and_field():
 
     assert ws.cell(row=COLUMN_HEADER_ROW, column=3).value == "Page No./Section"
     where = ws.cell(row=FIRST_DATA_ROW, column=3).value
-    assert where == "p.4 - Design pressure (2003-47-V-0001A/B)"
+    assert where == "p.4 - Design pressure (9900-99-V-0101A/B)"
     assert "SAES-D-001" not in where
     assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
     assert (
@@ -901,15 +901,15 @@ def test_with_no_recorded_number_the_sheet_prints_the_documents_own_number_and_r
     own page and NO recorded submittal number, and the sheet printed a blank
     beside a number it already held."""
     doc = _submittal()
-    _document_number(doc, "EF1975-DAS-M-03", "Rev. 1")
+    _document_number(doc, "DS-0000-DAS-M-01", "Rev. 1")
     run_id = _run(doc)
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
-    assert _submittal_no(ws) == "EF1975-DAS-M-03 Rev 1"
+    assert _submittal_no(ws) == "DS-0000-DAS-M-01 Rev 1"
 
 
 def test_a_number_an_engineer_recorded_wins_over_the_page():
     doc = _submittal()
-    _document_number(doc, "EF1975-DAS-M-03", "1")
+    _document_number(doc, "DS-0000-DAS-M-01", "1")
     _number(doc, "EOC-SUB-2024-0417")
     run_id = _run(doc)
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))

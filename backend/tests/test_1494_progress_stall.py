@@ -1,4 +1,4 @@
-"""#1494 follow-up (live I-06 review): one slow page is not a stall.
+"""#1494 follow-up (live Datasheet 1 review): one slow page is not a stall.
 
 The amber threshold of a model sub-step allows the model's own time limit, the
 block names the sub-step it waits on, and a job whose progress line is moving

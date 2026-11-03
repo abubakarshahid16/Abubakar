@@ -1,6 +1,6 @@
 """Order 228.5: a function word before "service" or "application" names no service.
 
-On the owner's I-06 run at least 17 requirements were held as "applies only to 'into'"
+On the owner's Datasheet 1 run at least 17 requirements were held as "applies only to 'into'"
 because "put into service", "inspected before service", "maintained during service" and
 "the following application" were read as conditions the datasheet had to state. A phrase
 whose word right before "service"/"application" is a preposition, a participle or an

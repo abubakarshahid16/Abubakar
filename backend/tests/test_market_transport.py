@@ -204,7 +204,7 @@ def test_the_user_agent_names_the_software_and_not_the_client(live, fake_http):
     fetch = market_transport.transport()
     fetch("https://api.openalex.org/works?search=x", {}, 1.0)
     agent = fake_http.calls[0][1]["User-Agent"]
-    for leak in ("aramco", "nabaa", "saudi", "@"):
+    for leak in ("aramco", "saudi", "@"):
         assert leak not in agent.lower(), agent
 
 

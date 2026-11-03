@@ -36,10 +36,13 @@ def is_negative(fact: dict | None) -> bool:
 
 
 def _glued_number(fact: dict | None) -> bool:
-    """A number glued to a joining hyphen ("PN-16"), so no number can be read: not a negative,
-    and not a value to pass unread on these roles either (#1619)."""
+    """A number glued to a joining hyphen ("PN-16"), or after a label ("Note 5", "A5"), so no
+    number can be read: not a negative, and not a value to pass unread on these roles either
+    (#1619, #1640)."""
     raw = None if not fact or fact.get("is_blank") else fact.get("raw_value")
-    return raw is not None and numparse.has_joining_minus(str(raw))
+    return raw is not None and (
+        numparse.has_joining_minus(str(raw)) or numparse.has_label_number(str(raw))
+    )
 
 
 def glued_doubt(fact: dict, role: str) -> str | None:

@@ -5,7 +5,7 @@ priority", items 4 and 5). Binding: CLAUDE.md rules 1, 4, 6, 8, 12, 13.
 Branch `s1/139-crs-one-per-field`. The contract stubs named here are already
 committed with this file; builders fill them in.
 
-## 0. The problem, measured (M-03 run, diagnostic copy, counts only)
+## 0. The problem, measured (Datasheet 2 run, diagnostic copy, counts only)
 
 | What | Before |
 |---|---|
@@ -55,7 +55,7 @@ Rules:
    NOT merged into one giant row.
 4. **Breaches stay one row per problem.** Each NON_COMPLIANT names its own
    limit, its own value and its own deviation request; one row per clause is
-   what the contractor answers. They are few (0 on the M-03 run).
+   what the contractor answers. They are few (0 on the Datasheet 2 run).
 5. **Engineer wording.** The screen now edits a whole row, and writes the
    same `engineer_comment` on every finding of it. So within one base group,
    findings split by folded `engineer_comment` (none = "") ONLY when the

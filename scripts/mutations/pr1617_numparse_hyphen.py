@@ -26,11 +26,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1617,
         description="a Unicode hyphen glued to a letter reads as a negative number",
         path=_NUM,
-        # #1619 made the old mutant (the hyphens folded to ASCII) behave the same as the real
-        # code, since a minus after a letter is None either way; this is the guard left.
-        anchor=r"""                return None      # "T\u201329": glued to a letter
-""",
-        replacement="                pass\n",
+        # #1619 made the old mutant (the hyphens folded to ASCII) behave the same as the real code;
+        # #1655 moved the guard to `_value_prefix`: a dash before the number leaves no prefix.
+        anchor="    return prefix[:-1] if prefix[-1:] in DASHES else prefix\n",
+        replacement='    return "" if prefix[-1:] in DASHES else prefix\n',
         target=_T,
         keyword="the_text_cannot_say",
         tags=_TAG,

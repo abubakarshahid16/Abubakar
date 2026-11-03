@@ -75,7 +75,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1399-07",
         phase=1399,
-        description="a lone star between a label and a unit is stated again: the M-03 'THERMAL * m3/h' meet",
+        description="a lone star between a label and a unit is stated again: the Datasheet 2 'THERMAL * m3/h' meet",
         path=APP / "blank_markers.py",
         anchor="    if _LONE_INK.search(printed) and not _has_standalone_figure(printed):\n        return True\n",
         replacement="",
