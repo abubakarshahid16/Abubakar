@@ -151,11 +151,23 @@ def check_prompt(row, label: str, equipment_type: str, fields: dict[str, str]) -
 
 
 def _parse_object(text: str) -> dict | None:
+    """The reply's JSON object. A model may write a sentence before a fenced object; the object is still read, only when
+    it is a whole JSON object of its own (the first that decodes). Nothing outside it is used."""
     try:
         data = json.loads(unfenced(text))
+        return data if isinstance(data, dict) else None
     except (ValueError, TypeError):
-        return None
-    return data if isinstance(data, dict) else None
+        pass
+    decoder = json.JSONDecoder()
+    raw = str(text or "")
+    for m in re.finditer(r"\{", raw):
+        try:
+            data, _end = decoder.raw_decode(raw, m.start())
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
 
 
 def _case(case) -> tuple[str, str | None] | None:

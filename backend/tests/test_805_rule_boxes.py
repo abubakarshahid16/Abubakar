@@ -983,3 +983,14 @@ def test_a_checks_table_made_before_the_field_list_column_is_migrated(rules):
     assert "field_list_state" in [
         r[1] for r in rules.execute(f"PRAGMA table_info({rule_box_check.CHECKS})")
     ]
+
+
+def test_a_reply_with_a_sentence_before_the_fenced_object_is_still_read():
+    text = 'The requirement is about one field.\n```json\n{"field_role": null, "kind": null, "reason": "not_on_the_sheet"}\n```'
+    assert rule_box_check._parse_object(text) == {
+        "field_role": None,
+        "kind": None,
+        "reason": "not_on_the_sheet",
+    }
+    assert rule_box_check._parse_object("no object here {not json") is None
+    assert rule_box_check._parse_object('[{"a": 1}]') is None
