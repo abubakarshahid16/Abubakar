@@ -1,5 +1,5 @@
-"""Part of #805 / PR #1684: two DRAFT relief-valve process items (fluid phase, sour service) that never
-decide (switch `draft_process_items_enabled`). Ids M1684-01.. (CLAUDE.md rule 12)."""
+"""Part of #805 / PR #1685: two DRAFT relief-valve process items (fluid phase, sour service) that never
+decide (switch `draft_process_items_enabled`). Ids M1685-01.. (CLAUDE.md rule 12)."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ def _m(
     n: int, description: str, path, anchor: str, replacement: str, keyword: str
 ) -> Mutation:
     return Mutation(
-        id=f"M1684-{n:02d}",
-        phase=1684,
+        id=f"M1685-{n:02d}",
+        phase=1685,
         description=description,
         path=path,
         anchor=anchor,
