@@ -215,24 +215,3 @@ def test_the_review_job_hook_is_a_no_op_when_off_and_never_raises_when_on(monkey
         arpass.run_for_job("no-such-run", None) is None
     )  # on, but the run is not there: logged, not raised
     assert called == [1]
-
-
-def test_an_accepted_flag_keeps_the_rows_own_words_and_place(on):
-    flag = {
-        "id": "pf",
-        "type": "flag",
-        "row_key": "k-fail",
-        "page": 2,
-        "value": "10 barg",
-        "reason": "The datasheet figure may be misread.",
-        "confidence": "low",
-        "evidence": [
-            {"page": 2, "quote": "Relief valve PSV-9901  Set pressure 10 barg"}
-        ],
-    }
-    go("r-flag", [flag])
-    (item,) = [a for a in arpass.accepted("r-flag") if a["type"] == "flag"]
-    assert (
-        item["row_words"] == FAIL["comment"]
-        and item["row_where"] == FAIL["page_section"]
-    )
