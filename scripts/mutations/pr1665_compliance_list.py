@@ -45,12 +45,12 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1665-04",
         phase=1665,
-        description="a safety field is shown as no issue found instead of its open tick",
+        description="a safety field or tick is listed instead of staying a CRS row",
         path=_CL,
-        anchor="SAFETY_STATUS if is_safety(f) else STATUS",
-        replacement="STATUS",
+        anchor='    if finding.get("tier") == "SAFETY" or finding.get("show_for_engineer_tick"):\n',
+        replacement="    if False:\n",
         target=_T,
-        keyword="never_no_issue_and_keeps_its_open_tick",
+        keyword="never_listed_it_stays_a_row_to_tick",
         tags=("crs", "safety"),
     ),
     Mutation(

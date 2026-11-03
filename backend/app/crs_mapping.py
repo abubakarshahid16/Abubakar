@@ -252,7 +252,7 @@ def rejected_comment_keys(findings: list[dict]) -> set[str]:
     withdrawn too. A rejected comment is never issued: `main._crs_content`
     never carries these forward and `main._mint_crs_numbers` withdraws their
     numbers (less any key a row still on the sheet holds)."""
-    rejected = [f for f in findings if _rejected(f)]
+    rejected = [f for f in findings if f.get("approval_status") == "rejected"]
     return {finding_comment_key(f) for f in rejected} | {
         finding_member_key(f) for f in rejected
     }
