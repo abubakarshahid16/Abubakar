@@ -321,7 +321,7 @@ def withhold_unreadable_standards(
     for f in findings:
         if f.get("standard_document_id") not in existing:
             continue
-        for key in _STANDARD_NULLED:
+        for key in (*_STANDARD_NULLED, "standard_edition"):
             if key in f:
                 f[key] = None
         for key in _STANDARD_LABELLED:

@@ -14,7 +14,7 @@ submittal` directly would prove the classifier works, not that ingestion now
 wires it in.
 
 Title text mirrors the STRUCTURE of real engineering datasheet cover pages
-(a "<EQUIPMENT> DATA SHEET" / "PRESSURE SAFETY VALVES (PSVs)" / "MECHANICAL
+(a "<EQUIPMENT> DATA SHEET" / "PRESSURE SAFETY VALVES (PSV)" / "MECHANICAL
 DATASHEET ... pressure vessel" convention) without reproducing any of the
 client's own document numbers, tags or filenames.
 """
@@ -95,19 +95,19 @@ PUMP_COVER = """Sheet 1 of 7
 SOME CLIENT (X.Y.Z.)
 Project: A Refinery Debottlenecking Project
 CENTRIFUGAL PUMP DATA SHEET
-Item No.: 09-G-411 A/B
+Item No.: 99-G-911 A/B
 Doc. No.: SITE-DAS-M-01
-This document is subject to detail design verification.
+This sheet is subject to final engineering checks.
 """
 
 PSV_COVER = """Page 1 of 5
-PRESSURE SAFETY VALVES (PSVs)
+PRESSURE SAFETY VALVES (PSV)
 DOCUMENT NO. SITE-DAS-I-02
-Design Standard: API RP 520 Pt-1&2
+Design Code: API RP 520 Pt-1&2
 Tag No. PSV-1001 A/B
 Location 1st Stage Separator
-This document is subject to detail design verification, development and
-inclusion of vendor design information by the Contractor before issue.
+This sheet is subject to final engineering checks, further work and
+adding of supplier design data by the Contractor before issue.
 """
 
 # The vessel document's own cover carries no "pressure vessel" phrase - the
@@ -120,8 +120,8 @@ VESSEL_COVER = """MECHANICAL DATASHEET
 SOUR SERVICE DRUM
 CONTRACTOR DOC NO: SITE-2003-SP-0001
 Rev. 00
-This document is subject to detail design verification, development and
-inclusion of vendor design information by the Contractor before issue.
+This sheet is subject to final engineering checks, further work and
+adding of supplier design data by the Contractor before issue.
 """
 VESSEL_BODY = """Sht 4 Vessel Standards
 Non Material Requirements for Pressure Vessels
@@ -143,13 +143,13 @@ COMPRESSOR_COVER = """Sheet 1 of 4
 CENTRIFUGAL COMPRESSOR DATA SHEET
 Item No.: 21-K-101
 Doc. No.: SITE-DAS-M-09
-This document is subject to detail design verification.
+This sheet is subject to final engineering checks.
 """
 EXCHANGER_COVER = """Page 1 of 6
 SHELL AND TUBE HEAT EXCHANGER DATA SHEET
 Item No.: 21-E-205
 Design Standard: TEMA Class R
-This document is subject to detail design verification.
+This sheet is subject to final engineering checks.
 """
 
 

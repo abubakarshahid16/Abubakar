@@ -58,7 +58,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from . import claude_models, comparators, numparse
+from . import claude_models, comparators, numparse, unit_tie
 from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
@@ -219,16 +219,15 @@ def _contains(haystack: str, needle: str) -> bool:
     return re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", haystack) is not None
 
 
-def _value_in_quote(value, quote: str) -> bool:
-    """Rule 2, tolerant of printing and of nothing else.
-
-    Two spellings of the same number are the same number: "8,300" in the
-    standard and "8300" from the model. A DIFFERENT number is a different
-    number, and that is the case this rule exists to catch - the model that
-    quoted a 23.55 row and reported 99.9. The sign is part of the number
-    (audit F01-F03): 5 is not -5, and 5 is not the 5 of "2.5". The comparison
-    is `numparse.value_in_text`, the same one every gate uses.
+def _value_in_quote(value, quote: str, unit: str | None = None) -> bool:
+    """Rule 2, tolerant of printing and of nothing else. Two spellings of the same number are
+    one number ("8,300", "8300"); a DIFFERENT number is what this catches - the model that
+    quoted a 23.55 row and reported 99.9. The sign is part of the number (audit F01-F03): 5 is
+    not -5, nor the 5 of "2.5" (`numparse.value_in_text`). A unit given must sit with this
+    number: 10 MPa is not in "10 bar and 5 MPa" (#1653, `claims.unit_with_value`).
     """
+    if not unit_tie.unit_with_value(value, unit, quote):
+        return False
     return numparse.value_in_text(value, quote)
 
 
@@ -421,7 +420,7 @@ def accept(proposals: list[dict], sentence: str) -> dict:
             # an unusable one.
             drop(p, Reason.SUBJECT_MISSING)
             continue
-        if not _value_in_quote(p["value"], quote):
+        if not _value_in_quote(p["value"], quote, p.get("unit")):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
             continue
         if not _contains(quote, _fold(p["subject"])):

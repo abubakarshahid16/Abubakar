@@ -52,6 +52,7 @@ from .claude_spend import StopRun
 from .db import connect
 from .stored_paths import local as local_path
 from .unit_case import reading_as_printed
+from .unit_tie import unit_with_value
 
 # --------------------------------------------------------------- vocabulary
 
@@ -207,10 +208,9 @@ def without_fill(text: str) -> str:
     return re.sub(r"\s+", " ", _FILL.sub(" ", str(text or ""))).strip()
 
 
-def _value_in_quote(value, quote: str) -> bool:
-    """Rule 2, tolerant of printing and of nothing else. "8,300" and "8300"
-    are the same number; "23.55" and "99.9" are not; 5 is not "-5" and not
-    the 5 of "2.5" (audit F01-F03). `numparse.value_in_text`."""
+def _value_in_quote(value, quote: str, unit: str | None = None) -> bool:
+    if not unit_with_value(value, unit, quote):  # rule 2; the unit with it (#1653)
+        return False
     return numparse.value_in_text(value, quote)
 
 
@@ -596,7 +596,7 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
             drop(p, Reason.QUOTE_TOO_BROAD)
             continue
         printed = without_fill(quote)
-        if not _value_in_quote(p["value"], printed):
+        if not _value_in_quote(p["value"], printed, p.get("unit")):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
             continue
         if not _field_in_quote(p["field"], printed):

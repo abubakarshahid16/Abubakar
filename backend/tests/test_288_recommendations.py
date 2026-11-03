@@ -365,7 +365,7 @@ def test_the_headline_numbers_and_the_recommended_code_are_the_same_with_the_que
 def test_a_recommendation_whose_text_failed_the_quality_gate_takes_no_part_and_the_ledger_adds_up(
     review_world, queries_on
 ):
-    """s2's first I-06 run: 3 of 299 API-520 recommendations carried the 'unreadable text' flag; `table_gate`
+    """s2's first Datasheet 1 run: 3 of 299 API-520 recommendations carried the 'unreadable text' flag; `table_gate`
     dropped them with no ledger item and the run stopped with IncompleteScope."""
     from tests.test_field_naming import _world
 
