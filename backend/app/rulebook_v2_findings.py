@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import rule_trust
+from . import rule_trust, standard_editions
 from .rulebook_v2_review import (
     COMPLIANT,
     DECIDED,
@@ -51,8 +51,8 @@ def _created(conn, rule: dict, payload: dict) -> dict:
 
     made = review_mod.create(payload, created_by=None, conn=conn)
     conn.execute(
-        "UPDATE review_findings SET standard_document_id = ?, standard_page = ? WHERE id = ?",
-        (rule.get("document_id"), rule.get("page"), made["id"]),
+        "UPDATE review_findings SET standard_document_id = ?, standard_page = ?, standard_edition = ? WHERE id = ?",
+        (rule.get("document_id"), rule.get("page"), standard_editions.clean_edition(rule.get("edition")), made["id"]),
     )
     return review_mod.get(made["id"])
 

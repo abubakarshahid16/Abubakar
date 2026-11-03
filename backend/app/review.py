@@ -141,6 +141,7 @@ def ensure_schema() -> None:
                 standard_document_id TEXT,
                 standard_clause TEXT,
                 standard_page INTEGER,
+                standard_edition TEXT,
                 requirement_source_text TEXT,
                 ai_rationale TEXT
             )"""
@@ -169,6 +170,8 @@ def ensure_schema() -> None:
             "standard_document_id": "TEXT",
             "standard_clause": "TEXT",
             "standard_page": "INTEGER",
+            # The edition of the standard the requirement was read in (STEP 5): the CRS prints it. NULL: not recorded.
+            "standard_edition": "TEXT",
             "requirement_source_text": "TEXT",
             "ai_rationale": "TEXT",
             # HOW THE REQUIREMENT AND THE VALUE WERE PAIRED, on the finding
@@ -285,7 +288,7 @@ def _row(row) -> dict:
 #: quotes or names the standard goes.
 STANDARD_WITHHELD = "standard not available to you"
 
-_STANDARD_NULLED = ("standard_document_id", "standard_clause", "standard_page",
+_STANDARD_NULLED = ("standard_document_id", "standard_clause", "standard_page", "standard_edition",
                     "requirement_source_text", "requirement_id", "matched_phrase",
                     "standard_name", "scope_decision")
 _STANDARD_LABELLED = ("requirement", "finding", "ai_rationale")

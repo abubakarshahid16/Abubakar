@@ -83,6 +83,10 @@ def check_reference(finding: dict) -> str:
     page = finding.get("standard_page")
     if not cited:
         return "Datasheet check"
+    # The edition when one is known (STEP 5); a check's source with none known prints as before.
+    stored = str(finding.get("standard_edition") or "").strip()
+    if stored and not re.search(rf"(?<!\d){re.escape(stored)}(?!\d)", cited):
+        cited = f"{cited} ({stored})"
     return f"{cited} (p.{page})" if page else cited
 
 
