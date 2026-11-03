@@ -56,10 +56,10 @@ def with_removed(fn, *args):
         _KEEP.reset(token)
 
 
-def top_note(existing: str, ai_review: dict | None, copy: str) -> str:
-    """The CRS top note (internal copy only), joined under the run status note."""
-    note = (ai_review or {}).get("note") if copy == "internal" else None
-    return "\n".join(p for p in (existing, note) if p)
+def top_note(meta: dict, copy: str) -> str:
+    """Row 1 of the CRS: the run status note, then (internal copy only) the AI review's removal count."""
+    note = (meta.get("ai_review") or {}).get("note") if copy == "internal" else ""
+    return "\n".join(p for p in (str(meta.get("run_status_note") or ""), note) if p)
 
 
 @contextmanager

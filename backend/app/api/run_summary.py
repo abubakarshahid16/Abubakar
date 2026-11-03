@@ -602,7 +602,10 @@ def _clauses_by_standard(coverage: dict) -> list[dict] | None:
 
 
 class AiReviewRestoreRequest(BaseModel):
-    undo: bool = Field(False, description="true takes an earlier restore back (the row is removed again)")
+    undo: bool = Field(
+        False,
+        description="true takes an earlier restore back (the row is removed again)",
+    )
 
 
 class AiReviewRestoreResult(BaseModel):
@@ -635,21 +638,20 @@ def restore_ai_review_removal(
                 errors.UNAUTHENTICATED, "a restore must name the engineer who made it"
             ),
         )
-    if (
-        submittal_review_mod.get_review_run(
-            review_run_id, allowed_document_ids=scope.allowed_document_ids
-        )
-        is None
-        or not ai_review_pass.restore(
-            review_run_id, proposal_id, scope.user_id, undo=body.undo
-        )
+    if submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids
+    ) is None or not ai_review_pass.restore(
+        review_run_id, proposal_id, scope.user_id, undo=body.undo
     ):
         raise HTTPException(
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no such removal in this run"),
         )
     logging.getLogger(__name__).info(
-        "ai review: removal %s of run %s %s", proposal_id, review_run_id, "undone" if body.undo else "restored",
+        "ai review: removal %s of run %s %s",
+        proposal_id,
+        review_run_id,
+        "undone" if body.undo else "restored",
     )
     return {
         "review_run_id": review_run_id,

@@ -9,10 +9,9 @@ import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access
+from app import access, crs_export
 from app import ai_review_pass as arpass
 from app import crs_ai_review_view as view
-from app import crs_export
 from app.config import settings
 from app.main import _crs_content, _crs_issue_gate, app, number_crs_rows
 from tests.test_ai_review_pass import FAIL, HELD, PAGES, REMOVE, ROW, Stub
@@ -80,7 +79,7 @@ def test_a_confirmed_or_absent_row_is_never_called_removed(stored):
     data = view.for_run(stored)
     assert data["removed"][0]["state"] == view.STATE_ABSENT and data["note"] == ""
     assert "removed from the CRS" != data["removed"][0]["state"]
-    assert "removed by AI review" not in view.top_note("", data, "internal")
+    assert "removed by AI review" not in view.top_note({"ai_review": data}, "internal")
 
 
 def test_without_an_apply_the_state_does_not_claim_the_row_was_removed(stored):
@@ -156,7 +155,7 @@ def test_the_restore_route_restores_logs_and_undoes(request, monkeypatch, stored
 
 
 def test_the_restore_route_refuses_a_run_the_caller_cannot_read(request, monkeypatch):
-    _sub, run, scope = request.getfixturevalue("_world")
+    _sub, run, _scope = request.getfixturevalue("_world")
     monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
     arpass.run(run, [dict(ROW)], pages=PAGES, held=HELD, provider=Stub([REMOVE]))
     _signed_in(monkeypatch, frozenset())
