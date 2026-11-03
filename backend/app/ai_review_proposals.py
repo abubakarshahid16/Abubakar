@@ -23,6 +23,7 @@ row's compliance, it only refuses.
 
 from __future__ import annotations
 
+import itertools
 import re
 import unicodedata
 from collections.abc import Callable, Mapping
@@ -65,6 +66,15 @@ EXTRA_VERDICT_WORDS = (
     "is consistent",
     "in accordance with",
     "in agreement with",
+    "complying",
+    "conformant",
+    "fulfils",
+    "fulfills",
+    "satisfactory",
+    "verified as correct",
+    "confirmed as correct",
+    "not acceptable",
+    "does not meet",
     "in conformity",
     "agrees with the standard",
     "consistent with the standard",
@@ -74,17 +84,10 @@ EXTRA_VERDICT_WORDS = (
     "within range",
     "within spec",
     "within specification",
-    "as required by",
     "ok",
     "okay",
-    "correct",
-    "good",
-    "fine",
-    "compliance",
     "non-conformity",
     "nonconformity",
-    "per the standard",
-    "per standard",
 )
 
 
@@ -150,17 +153,69 @@ def _words_of(proposal: dict) -> str:
     return " ".join(str(proposal.get(k) or "") for k in ("reason", "text"))
 
 
-def _plain(text: str) -> str:
-    """Hyphens, dashes, underscores and runs of spaces read as one space: "in-line  with" is "in line with"."""
-    return re.sub(r"\s+", " ", re.sub(r"[-\u2010-\u2015_]+", " ", _fold(text))).strip()
+_CONFUSABLE = str.maketrans(
+    {
+        # Cyrillic, Greek and Armenian letters that look like Latin ones, by code point
+        **{chr(c): v for c, v in (
+            (0x0430, "a"), (0x0441, "c"), (0x0435, "e"), (0x043E, "o"), (0x0440, "p"), (0x0445, "x"), (0x0443, "y"),
+            (0x0456, "i"), (0x0458, "j"), (0x0455, "s"), (0x043A, "k"), (0x043C, "m"), (0x0442, "t"), (0x043D, "h"),
+            (0x0432, "b"), (0x0501, "d"), (0x04CF, "l"),
+            (0x03B1, "a"), (0x03BF, "o"), (0x03B5, "e"), (0x03BD, "v"), (0x03B9, "i"), (0x03C1, "p"), (0x03C4, "t"),
+            (0x03BA, "k"), (0x03BC, "m"), (0x03C7, "x"), (0x03C5, "u"), (0x03B2, "b"), (0x03B7, "n"), (0x03C9, "w"),
+            (0x0578, "n"), (0x057D, "u"), (0x0585, "o"), (0x0581, "g"), (0x0570, "h"), (0x0563, "q"), (0x0566, "q"),
+        )}
+    }
+)  # fmt: skip
+_IGNORABLE = {"\u115f", "\u1160", "\u3164", "\uffa0", "\u180e", "\u2800"}
+_SINGLE_RUN = re.compile(r"(?<![a-z0-9])(?:[a-z][\s\-._]+){2,}[a-z](?![a-z0-9])")
+
+
+def _readable(text: object) -> str:
+    """What a reader reads: NFKC, invisible and combining characters dropped, look-alike letters mapped to Latin, lower
+    case, and a run of single letters ("c o m p l i e s", "c-o-m-p-l-i-e-s") joined into one word."""
+    folded = unicodedata.normalize("NFKC", str(text or ""))
+    kept = "".join(
+        c
+        for c in folded
+        if c in "\t\n "
+        or (
+            unicodedata.category(c) not in ("Cf", "Mn", "Me", "Cc")
+            and c not in _IGNORABLE
+        )
+    )
+    plain = unicodedata.normalize("NFKC", kept).translate(_CONFUSABLE).lower()
+    return _SINGLE_RUN.sub(lambda m: re.sub(r"[^a-z]", "", m.group(0)), plain)
+
+
+def _words_in(plain: str, vocabulary: set[str]) -> bool:
+    """Whole-word match of single words, also when a word is split in two by a space ("nin ety", "eig ht")."""
+    tokens = re.findall(r"[a-z]+", plain)
+    if any(t in vocabulary for t in tokens):
+        return True
+    return any(a + b in vocabulary for a, b in itertools.pairwise(tokens))
+
+
+_VERDICT_SINGLES = {w.replace("-", "") for w in PASS_FAIL_WORDS if " " not in w} | {
+    "complying",
+    "conformant",
+    "fulfils",
+    "fulfills",
+    "satisfactory",
+    "ok",
+    "okay",
+    "compliance",
+}
 
 
 def _has_pass_fail_word(text: str) -> bool:
-    plain = _plain(text)
-    return any(
-        _contains(plain, _plain(word))
-        for word in (*PASS_FAIL_WORDS, *EXTRA_VERDICT_WORDS)
-    )
+    """A verdict CLAIM in the text: the engine's pass/fail words and phrases, whole words only, after `_readable`. Ordinary
+    engineering words that merely contain one ("done", "component", "bypass", "complete") are not claims."""
+    plain = _readable(text)
+    haystacks = {_fold(plain), _fold(re.sub(r"[-_]+", " ", plain))}
+    words = (*PASS_FAIL_WORDS, *EXTRA_VERDICT_WORDS)
+    if any(_contains(h, _fold(w)) for h in haystacks for w in words):
+        return True
+    return _words_in(plain, _VERDICT_SINGLES)
 
 
 def _numbers_verified(
@@ -239,7 +294,7 @@ def _evidence_carries_value(proposal: dict) -> bool:
     )
 
 
-def _common(proposal: dict) -> str | None:
+def _common(proposal: dict, ctx: Context) -> str | None:
     """The checks every type shares. The first failure is the reason."""
     if proposal.get("confidence") not in CONFIDENCES:
         return Reason.BAD_CONFIDENCE.value
@@ -247,8 +302,12 @@ def _common(proposal: dict) -> str | None:
         return Reason.MISSING_FIELD.value
     if len(_words_of(proposal)) > 2 * MAX_TEXT_CHARS:
         return Reason.TOO_LONG.value
-    if _has_pass_fail_word(_words_of(proposal)):
-        return Reason.PASS_FAIL_WORD.value
+    if _has_pass_fail_word(_words_of(proposal)) and not _verified_evidence(
+        proposal, ctx
+    ):
+        return (
+            Reason.PASS_FAIL_WORD.value
+        )  # a verdict claim needs verified evidence behind it
     return None
 
 
@@ -328,31 +387,14 @@ FLAGGABLE_KINDS = (
 )
 
 
-def _ascii(text: object) -> str | None:
-    """The text as NFKC, or None when anything non-ASCII remains. A look-alike letter, a zero-width character, a tick mark
-    or a script digit can never get through, so none of them needs to be listed."""
-    folded = unicodedata.normalize("NFKC", str(text or ""))
-    return folded if folded.isascii() else None
-
-
-def _squash(text: str) -> str:
-    """Lower case letters only: spaces, hyphens, dots, underscores and digits gone. "c o m-p.l_i e s" is "complies"."""
-    return re.sub(r"[^a-z]", "", text.lower())
-
-
-#: Stems searched in the squashed text. Over-refusal is the safe side: this text is printed on the CRS as the AI's.
-VERDICT_STEMS = (
-    "compl", "conform", "fulfil", "satisf", "verif", "confirm", "accept", "approv", "adequat", "pass", "meets", "inline",
-    "okay", "match", "correct", "valid", "good", "safe", "suitable", "agree", "reject", "fail", "wrong", "proper",
-)  # fmt: skip
-NUMBER_STEMS = (
-    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "teen",
-    "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million",
-    "half", "double", "triple", "dozen", "pair", "twice",
-)  # fmt: skip
+NUMBER_WORDS = {
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty",
+    "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million", "billion", "half", "double",
+    "triple", "dozen", "pair", "twice", "thrice",
+}  # fmt: skip
 _ROMAN = re.compile(
-    r"\b(?=[ivxlcdm]{2,}\b)m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})\b",
-    re.IGNORECASE,
+    r"\b(?=[ivxlcdm]{2,}\b)m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})\b"
 )
 _ROMAN_WORDS = {"mix", "mi", "di", "li", "mid", "dim", "mild"}
 _COMMON_UNIT_WORDS = {
@@ -362,43 +404,27 @@ _COMMON_UNIT_WORDS = {
 }  # fmt: skip
 
 
-def _verdict_text(text: str, *, numbers: bool) -> bool:
-    """True when printing `text` is not safe: non-ASCII, a verdict stem or (numbers=True) a figure of any kind."""
-    plain = _ascii(text)
-    if plain is None:
-        return True
-    squashed = _squash(plain)
-    if any(stem in squashed for stem in VERDICT_STEMS) or re.search(
-        r"\bok\b", plain.lower()
-    ):
-        return True
-    if numbers:
-        if any(c.isdigit() for c in plain) or any(
-            stem in squashed for stem in NUMBER_STEMS
-        ):
-            return True
-        if any(m.group(0).lower() not in _ROMAN_WORDS for m in _ROMAN.finditer(plain)):
-            return True
-    return False
-
-
-def _quote_has_verdict(quote: str) -> bool:
-    """A page quote that will be printed in a flag: no verdict wording in any spelling, pure ASCII."""
-    return _verdict_text(quote, numbers=False)
-
-
 def _reason_ok(proposal: dict, row: Mapping) -> bool:
-    """A reword's REASON is explanation only and is printed: pure ASCII, no verdict stem, no figure of any kind (digit,
-    number word, roman numeral), and no unit the row's own text does not also use. Strict on purpose."""
-    reason = str(proposal.get("reason") or "")
-    if _verdict_text(reason, numbers=True):
+    """A reword's REASON has no evidence behind it and is printed, so it is explanation only: no verdict claim, no digit in
+    any script, no number word (whole word), no roman numeral, no letter outside ASCII once look-alikes are mapped, and no
+    unit the row's own text does not also use."""
+    plain = _readable(proposal.get("reason"))
+    if not plain.isascii() or _has_pass_fail_word(plain):
+        return False
+    if any(c.isdigit() or c.isnumeric() for c in plain) or _words_in(
+        plain, NUMBER_WORDS
+    ):
+        return False
+    if any(m.group(0) not in _ROMAN_WORDS for m in _ROMAN.finditer(plain)):
         return False
     own = set(
         re.findall(
             r"[a-z]+",
-            " ".join(
-                str(row.get(k) or "").lower()
-                for k in ("comment", "standard_reference", "page_section")
+            _readable(
+                " ".join(
+                    str(row.get(k) or "")
+                    for k in ("comment", "standard_reference", "page_section")
+                )
             ),
         )
     )
@@ -407,8 +433,25 @@ def _reason_ok(proposal: dict, row: Mapping) -> bool:
         and t not in _COMMON_UNIT_WORDS
         and t not in own
         and claims.is_unit(t)
-        for t in re.findall(r"[a-z]+", reason.lower())
+        for t in re.findall(r"[a-z]+", plain)
     )
+
+
+def _verified_evidence(proposal: dict, ctx: Context) -> bool:
+    """True only when the proposal carries code-verified evidence: at least one quote that stands, whole and long enough,
+    on the page it names (the cited page, when the proposal cites one), and, for a proposal that cites a clause, a clause
+    read from a held standard. Only then may its words carry a verdict claim."""
+    evidence = proposal.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return False
+    if _evidence_ok(proposal, ctx) is not None:
+        return False
+    page = proposal.get("page")
+    if isinstance(page, int) and not any(
+        isinstance(e, dict) and e.get("page") == page for e in evidence
+    ):
+        return False
+    return _clause_held(proposal, ctx)
 
 
 FLAG_PREFIX = "AI suspects the datasheet value was misread: "
@@ -447,10 +490,6 @@ def _verify_flag(proposal: dict, ctx: Context) -> Verdict:
     )
     if quote is None:
         return no(Reason.EVIDENCE_NOT_ON_PAGE)
-    if _has_pass_fail_word(quote) or _quote_has_verdict(quote):
-        return no(
-            Reason.PASS_FAIL_WORD
-        )  # the quote is printed: a verdict in it reads as the AI's
     return Verdict(
         True,
         None,
@@ -587,7 +626,7 @@ def verify(proposal: object, ctx: Context) -> Verdict:
         if proposal.get("confidence") not in CONFIDENCES:
             return Verdict(False, Reason.BAD_CONFIDENCE.value, proposal)
         return _verify_understanding(proposal, ctx)
-    bad = _common(proposal)
+    bad = _common(proposal, ctx)
     if bad:
         return Verdict(False, bad, proposal)
     return {

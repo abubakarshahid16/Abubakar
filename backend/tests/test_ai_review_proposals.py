@@ -445,8 +445,10 @@ def test_a_flag_is_refused_without_a_verified_quote_value_or_row():
         reason_of(_flag(evidence=[{"page": 1, "quote": "Tag P-101A  MAWP 14 barg"}]))
         == arp.Reason.EVIDENCE_NOT_ON_PAGE.value
     )  # the quote does not carry the value
-    assert (
-        reason_of(_flag(reason="The row complies.")) == arp.Reason.PASS_FAIL_WORD.value
+    # a verdict word in a flag's reason is allowed here: the evidence is verified (see the verdict tests below)
+    assert arp.verify(_flag(reason="The row complies."), CTX).accepted
+    assert reason_of(_flag(reason="The row complies.", evidence=[])) == (
+        arp.Reason.PASS_FAIL_WORD.value
     )
 
 
@@ -542,22 +544,28 @@ def test_a_flag_is_refused_on_a_row_with_no_datasheet_value(kind):
 @pytest.mark.parametrize(
     "quote", ["Status complies  MAWP 16 barg", "MAWP 16 barg accepted OK"]
 )
-def test_a_flag_quote_with_a_verdict_word_is_refused(quote):
+def test_a_verified_page_quote_is_flagged_as_it_stands_verdict_words_and_all(quote):
+    # the quote is the document's own, code-verified; the flag text is built by code around it
     pages = {1: f"Tag P-101B  {quote}"}
     ctx = arp.Context(pages=pages, rows=CTX.rows, held=CTX.held)
     flag = _flag(evidence=[{"page": 1, "quote": f"Tag P-101B  {quote}"}])
-    assert reason_of(flag, ctx) == arp.Reason.PASS_FAIL_WORD.value
+    assert arp.verify(flag, ctx).accepted
 
 
 SPELLINGS_OF_A_NUMBER = [
     "n i n e", "n-i-n-e", "n.i.n.e", "n_i_n_e", "nin ety", "eig ht", "nine ty", "ninety nine", "one hundred",
-    "n\u0561ne",  # Armenian letter
+    "ni\u0578e",  # Armenian letter that looks like n
+    "n\u0561ne",  # an Armenian letter with no Latin twin: any leftover non-ASCII letter is refused
     "ni\u200bne", "\uff19\uff19", "\u0669\u0669", "XCIX", "14", "t w e l v e", "do zen",
 ]  # fmt: skip
 SPELLINGS_OF_A_VERDICT = [
-    "complies", "compl\u200biant", "c\u043emplies", "c o m p l i e s", "c-o-m-p-l-i-e-s", "verified", "confirmed",
-    "satisfactory", "matches", "\u2713", "\u2705", "approved", "in-line", "in line", "OK", "okay", "good", "valid",
-    "safe", "suitable", "agreed", "correct", "acceptable", "fulfils", "conformant", "complying", "p.a.s.s",
+    "complies", "compl\u200biant", "c\u043emplies", "c o m p l i e s", "c-o-m-p-l-i-e-s", "p.a.s.s", "approved",
+    "in-line with the standard", "in line with the standard", "acceptable", "fulfils", "conformant", "complying",
+    "satisfactory", "passes", "meets", "not acceptable", "does not meet", "non-compliant", "rejected",
+]  # fmt: skip
+ORDINARY_WORDS = [
+    "done", "often", "component", "bypass", "complete", "content", "passage", "stone", "money", "tone", "compliment",
+    "matched", "valid", "safe", "good", "correct", "verified", "confirmed", "suitable",
 ]  # fmt: skip
 
 
@@ -568,22 +576,78 @@ def test_a_reword_reason_holds_no_figure_however_it_is_spelled(figure):
 
 
 @pytest.mark.parametrize("word", SPELLINGS_OF_A_VERDICT)
-def test_a_reword_reason_holds_no_verdict_however_it_is_spelled(word):
-    got = reason_of(_reword(reason=f"Overall the wording is {word} here."))
+def test_a_reword_reason_with_no_evidence_holds_no_verdict_claim(word):
+    got = reason_of(_reword(reason=f"Overall the wording {word} here."))
     assert got in {
         arp.Reason.NUMBER_NOT_VERIFIED.value,
         arp.Reason.PASS_FAIL_WORD.value,
     }
 
 
+@pytest.mark.parametrize("word", ORDINARY_WORDS)
+def test_ordinary_engineering_words_are_not_verdict_claims(word):
+    assert arp.verify(
+        _reword(reason=f"Overall the {word} wording is clearer."), CTX
+    ).accepted
+
+
 @pytest.mark.parametrize("word", SPELLINGS_OF_A_VERDICT)
-def test_a_flag_quote_holds_no_verdict_however_it_is_spelled(word):
-    quote = f"Tag P-101B  MAWP 16 barg  Status {word}"
-    ctx = arp.Context(pages={1: quote}, rows=CTX.rows, held=CTX.held)
-    flag = _flag(evidence=[{"page": 1, "quote": quote}])
-    assert reason_of(flag, ctx) == arp.Reason.PASS_FAIL_WORD.value
+def test_a_verdict_claim_is_allowed_with_verified_evidence(word):
+    remove = dict(
+        TAG_REMOVE,
+        row_key="k-rev",
+        basis="context",
+        reason=f"Different tags: the row {word} for the other tag.",
+        value="16 barg",
+        evidence=[
+            {"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}
+        ],
+    )
+    assert arp.verify(prop(**remove), CTX).accepted
 
 
-def test_a_plain_ascii_quote_is_still_flagged():
-    quote = "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"
-    assert arp.verify(_flag(evidence=[{"page": 1, "quote": quote}]), CTX).accepted
+def test_a_verdict_claim_is_refused_when_the_evidence_is_not_verified():
+    remove = dict(
+        TAG_REMOVE,
+        row_key="k-rev",
+        basis="context",
+        reason="The row complies, so it goes.",
+        evidence=[{"page": 1, "quote": "a quote that is on no page at all"}],
+    )
+    assert reason_of(prop(**remove)) == arp.Reason.PASS_FAIL_WORD.value
+    short = dict(
+        remove,
+        evidence=[
+            {"page": 2, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}
+        ],
+    )
+    assert (
+        reason_of(prop(**short)) == arp.Reason.PASS_FAIL_WORD.value
+    )  # a quote not on the cited page
+    held = dict(
+        remove,
+        evidence=[
+            {"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}
+        ],
+        clause="9.9",
+        standard="SAES-X-100",
+    )
+    assert (
+        reason_of(prop(**held)) == arp.Reason.PASS_FAIL_WORD.value
+    )  # a clause that was not read
+
+
+@pytest.mark.parametrize("word", SPELLINGS_OF_A_VERDICT)
+def test_a_verdict_claim_never_lets_the_ai_remove_a_fail_or_make_a_pass(word):
+    remove = dict(
+        TAG_REMOVE,
+        row_key="k-fail",
+        basis="context",
+        reason=f"The row {word}.",
+        evidence=[
+            {"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}
+        ],
+    )
+    assert reason_of(prop(**remove)) == arp.Reason.FAIL_KEPT.value
+    added = arp.verify(prop(reason=f"Valve {word} for the set pressure."), CTX)
+    assert not added.accepted or added.row_kind != "conforming"
