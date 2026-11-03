@@ -14,7 +14,6 @@ never silently. Unknown scope stays in, as today. Reads only; no model, no socke
 
 from __future__ import annotations
 
-from . import rule_part_scope
 from .config import settings
 from .db import connect
 
@@ -38,6 +37,8 @@ def gate(requirements: list[dict], equipment_type, not_applied: list) -> list[di
     """The requirements this review reads. Off, or no equipment type: all of them, unchanged."""
     if not enabled() or not equipment_type:
         return list(requirements)
+    from . import rule_part_scope
+
     conn = connect()
     kept: list[dict] = []
     for requirement in requirements:
