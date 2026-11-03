@@ -314,7 +314,7 @@ def test_missing_information_does_not_block_approval():
 
 # ============================================= THE SEVERITY BUG, 2026-09-28
 #
-# Found reviewing a real review of EF1975-DAS-M-03: `_prepare_finding`'s
+# Found reviewing a real review of DS-0000-DAS-M-01: `_prepare_finding`'s
 # `severity` parameter defaulted to the literal string "major" and nothing
 # in this file ever passed anything else, so EVERY finding - including the
 # 1,223 NOT_IN_DOCUMENT_SCOPE rows on that run, a status this file's own
@@ -683,7 +683,7 @@ def test_a_requirement_naming_other_evidence_never_reaches_compliant_end_to_end(
     finding = result["findings"][0]
     assert finding["compliance_status"] == comparison.NOT_IN_DOCUMENT_SCOPE
     assert comparison.REQUIRES_OTHER_DOCUMENT in finding["ai_rationale"]
-    # BUG FIX, 2026-09-28 (found reviewing EF1975-DAS-M-03): this status is
+    # BUG FIX, 2026-09-28 (found reviewing DS-0000-DAS-M-01): this status is
     # documented above (NOT_IN_DOCUMENT_SCOPE's own comment) as "NOT a
     # contractor omission and NOT a failure", yet every finding used to be
     # written with the hardcoded default severity "major" regardless of
@@ -849,7 +849,7 @@ def test_an_unknown_page_count_is_not_full_extraction(monkeypatch):
 
 
 def test_applicability_completeness_keeps_m03s_determinate_zero():
-    """M-03: 0 of 15 cited standards held locally, no facts. Its 0.0 was
+    """Datasheet 2: 0 of 15 cited standards held locally, no facts. Its 0.0 was
     CORRECT - the register's framing of B18 was wrong about that - and must
     survive the fix."""
     sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=3)

@@ -68,6 +68,7 @@ When a mistake is called out on #692 or #1584, add one line here in your next PR
 - Added a second model pass without asking what it costs on the Claude lane (s3, #1288; a repeat read must be local-only).
 - Approved a danger-zone label change from the gate alone (#1446, cloud-2 caught it): a tested-card verdict printed "proven" on the CRS because the words are built from the stored label; before approving, follow the value from where it is set to the cell the engineer reads.
 - Pushed a new `backend/app` module without `check_system_map.py` and `check_unused_modules.py`, so CI sent two PRs back (#1447, #1449): run both before the push.
+- Wrote client document names, numbers and tags on GitHub (issues, PRs, commits, code) in a public repo: write "Datasheet 1" or an invented tag; `check_client_identifiers.py` now blocks a listed one.
 
 ## Tooling traps that have already bitten
 

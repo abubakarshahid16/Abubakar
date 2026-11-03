@@ -85,7 +85,7 @@ class TestClauseReferencesLeaveTheName:
         assert datasheets.normalise_field_name(
             "PERFORMANCE TEST (8.1.1 c, 8.3.3.5)") == "performance test"
         assert datasheets.normalise_field_name(
-            "TEST WITH SUBSTITUTE SEAL (8.3.3.2 b)") == "test with substitute seal"
+            "TEST WITH SPARE SEAL (8.3.3.2 b)") == "test with spare seal"
 
     def test_the_printed_label_keeps_it(self, tmp_path):
         doc = sheet(tmp_path, [(29, 100, "3"), (68, 100, "CASING TYPE:"),
@@ -224,7 +224,7 @@ class TestDashRanges:
         assert (fact["value_min"], fact["value_max"]) == (5.0, 150.0)
         assert fact["raw_unit"] == "M"
 
-    @pytest.mark.parametrize("text", ["09-G-411 A/B", "EN 13463-1", "10-05-497"])
+    @pytest.mark.parametrize("text", ["99-G-911 A/B", "EN 13463-1", "99-05-997"])
     def test_a_hyphenated_identifier_is_never_a_range(self, text):
         """NEGATIVE: a tag, a standard code or a drawing number stays what it
         is - UNKNOWN as a quantity - never min/max."""

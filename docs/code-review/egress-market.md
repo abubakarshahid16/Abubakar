@@ -197,7 +197,7 @@ _SUBJECT_WORD = re.compile(r"^[a-z]{3,}$")
 **The failure** Type `Khursaniyah tie-in corrosion` and the phrase is
 `khursaniyah tie corrosion`; type `what did Al-Mansouri approve` and `mansouri` leaves (the
 letter-hyphen-letter split at `_tokenise` breaks the surname into passing tokens); a
-letters-only project or facility codename (`NABAA`, `ZULU`, `SEAHORSE`) leaves verbatim. All
+letters-only project or facility codename (`OLDNAME`, `ZULU`, `SEAHORSE`) leaves verbatim. All
 of these are corpus/organisation metadata by the file's own definition, and the fail-closed
 argument holds only for tokens carrying digits or non-ASCII. It is invisible in the tests
 because every fixture identifier has a digit in it — `IDENTIFIERS = ("PRJ-4471-B",

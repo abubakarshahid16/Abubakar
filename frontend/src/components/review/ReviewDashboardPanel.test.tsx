@@ -32,7 +32,7 @@ vi.mock("../../api/client", () => ({
 function run(over: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
   return {
     review_run_id: "run-1", submittal_document_id: "doc_sub",
-    submittal_filename: "drum.pdf", equipment_tags: ["2003-47-V-0001A/B"],
+    submittal_filename: "drum.pdf", equipment_tags: ["9900-99-V-0101A/B"],
     status: "completed", created_at: "2026-09-19T11:00:00Z", completed_at: null,
     standards_in_scope: 10, findings_total: 1580,
     by_status: { NON_COMPLIANT: 2 },

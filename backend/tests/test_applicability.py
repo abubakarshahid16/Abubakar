@@ -112,9 +112,9 @@ def test_a_standard_named_in_the_datasheet_is_selected_by_its_file_name_number()
     assert "API 610" not in {m["identifier"] for m in result["missing_references"]}
 
 
-def test_a_one_letter_koc_discipline_code_is_read_as_a_citation():
+def test_a_one_letter_aga_discipline_code_is_read_as_a_citation():
     """#161: a real client pump datasheet's reference list names standards under
-    BOTH one-letter (KOC-E-003, electrical) and two-letter (KOC-ME-008,
+    BOTH one-letter (AGA-E-003, electrical) and two-letter (AGA-ME-008,
     mechanical equipment) discipline codes in the same document. Before the
     fix, `referenced_standards` required exactly two letters, so the
     one-letter citations were invisible end to end - not selected as
@@ -122,13 +122,13 @@ def test_a_one_letter_koc_discipline_code_is_read_as_a_citation():
     knew the submittal had cited them at all.
     """
     sub = _doc("sub", "pump.pdf", "CONTRACTOR_SUBMITTAL",
-               text="Equipment shall comply with KOC-E-003 and KOC-ME-008.")
+               text="Equipment shall comply with AGA-E-003 and AGA-ME-008.")
     result = applicability.select(sub, allowed_document_ids=_scope(sub),
                                   persist=False)
     assert result["referenced_total"] == 2
     missing = {m["identifier"] for m in result["missing_references"]}
-    assert "KOC-E-003" in missing
-    assert "KOC-ME-008" in missing
+    assert "AGA-E-003" in missing
+    assert "AGA-ME-008" in missing
 
 
 def test_a_citation_of_a_part_matches_the_standard():

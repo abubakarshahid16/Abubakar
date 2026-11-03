@@ -57,7 +57,7 @@ def test_applicable_passes_through():
 
 # --------------------------------- bug fix, 2026-09-28: APPLICABLE evidence
 #
-# THE BUG (found reviewing a real review of EF1975-DAS-M-03). The INSTRUCTIONS
+# THE BUG (found reviewing a real review of DS-0000-DAS-M-01). The INSTRUCTIONS
 # prompt tells the model quote/page are null unless it cites an exclusion or
 # limit, so an APPLICABLE/APPLICABLE_CANDIDATE decision always arrived with
 # quote=None - a claim rendered with no citation behind it, on a standard

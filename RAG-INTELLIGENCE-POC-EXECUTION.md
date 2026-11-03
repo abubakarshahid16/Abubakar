@@ -1654,8 +1654,8 @@ Before edits:
 ```bash
 git status
 git add <only-intended-files>
-git commit -m "chore(release): baseline Nabaa prototype before enterprise POC"
-git tag -a v1.0.0-prototype -m "Stable Nabaa prototype baseline"
+git commit -m "chore(release): baseline OldName prototype before enterprise POC"
+git tag -a v1.0.0-prototype -m "Stable OldName prototype baseline"
 git push origin HEAD
 git push origin v1.0.0-prototype
 ```

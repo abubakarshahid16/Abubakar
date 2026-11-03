@@ -30,8 +30,8 @@ chosen baseline, and an advisory recommendation. Runs entirely on one machine.
 **Documents never leave it.** Client use case: **reviewing contractor
 submittals** against specifications.
 
-Product name everywhere: **RAG Intelligence System**. The old names (Nabaa, the
-client's name) must not appear in code, docs or UI. The GitHub slug still
+Product name everywhere: **RAG Intelligence System**. The old names (the earlier
+project name and the client's name) must not appear in code, docs or UI. The GitHub slug still
 carries the client's name; only the owner can rename it.
 
 ## Standing rules — these are not preferences

@@ -28,9 +28,9 @@ NOW = "2026-09-22T00:00:00Z"
 
 ROWS = [
     ("Design pressure", "23.5 barg"),
-    ("Density at relieving temper.", "23.55 Kg/m3"),
+    ("Density at relieving temper.", "31.75 Kg/m3"),
     ("Compressibility factor", "0.892"),
-    ("Set pressure", "340 psig By Contractor"),
+    ("Set pressure", "355 psig By Contractor"),
 ]
 
 

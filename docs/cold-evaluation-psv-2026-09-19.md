@@ -43,7 +43,7 @@ Exactly two CONTRACTOR_SUBMITTAL rows now exist. ✅
 
 8 distinct standards cited, **0 in the library, reference coverage 0.0 of 8.**
 
-`API RP 520 Pt-1`, `KOC-MP-027`, `ASTM A216`, `ASTM A193`, `API RP 578`,
+`API RP 520 Pt-1`, `AGA-MP-027`, `ASTM A216`, `ASTM A193`, `API RP 578`,
 `NACE MR-0175`, `ISO 15156`, `ASTM B633`.
 
 The library is 272 of the client's own (SAES) standards. This is a client
@@ -101,15 +101,15 @@ Every one is then discarded. Replaying the filters:
 | would have been written | **0** |
 
 The 53 killed by the furniture rule are the ones carrying real values:
-`Set pressure` = `340 psig`, `Relieving temperature` = `220ºC`,
-`Density at relieving temper.` = `23.55 Kg/m3`, `Max. allow. working pressure`
+`Set pressure` = `355 psig`, `Relieving temperature` = `220ºC`,
+`Density at relieving temper.` = `31.75 Kg/m3`, `Max. allow. working pressure`
 = `23.5 barg`, `Compressibility factor` = `0.892`, and so on.
 
 `furniture_labels` treats any label appearing on 3 or more pages as a title
 block or footer. Its docstring states the assumption: "a real field appears
 where the form asks for it". **This sheet is five instances of one form** -
-page 1 is PSV-4301, page 2 is PSV-4303, page 3 is PSV-4360, page 4 is
-PSV-4306 - so every real field appears on every page and the rule classifies
+page 1 is PSV-9901, page 2 is PSV-9903, page 3 is PSV-9960, page 4 is
+PSV-9906 - so every real field appears on every page and the rule classifies
 the entire form as furniture.
 
 The rule postdates the 37-fact measurement: Phase 4 is commit `02e0acb`
@@ -232,7 +232,7 @@ Supplementary, since the standard side is the only citation the run emitted:
    working, four different set pressures would land in one undifferentiated
    pile.
 5. **Ranges remain unparsed and are common here.** `-3 to 121OC`,
-   `23.5 / 9 barg`, `4-28 cP`, `10.15psig/97.18psig`. Known limitation 3 from
+   `27.5 / 8 barg`, `4-28 cP`, `12.25psig/88.40psig`. Known limitation 3 from
    Phase 4, unchanged, and this sheet is dense with them.
 
 ## Suite
@@ -282,8 +282,8 @@ field reading exactly `By Contractor` on every page would have one distinct
 answer and would die under condition 1, which would be a real loss: 25 of the
 35 facts are `By Contractor` blanks and they are how the review reports
 MISSING_INFORMATION instead of inventing a breach. On this sheet none does -
-every one carries a purchaser value beside the marker (`340 psig (By
-Contractor, as per Code)` against `145 psig By Contractor, as per Code`), so
+every one carries a purchaser value beside the marker (`355 psig (By
+Contractor, as per Code)` against `165 psig By Contractor, as per Code`), so
 their answers differ per valve. **No blank-marker exemption is needed today**,
 and `test_an_identical_by_contractor_answer_everywhere_is_the_known_residual`
 is where it will show up if a future sheet needs one.
