@@ -199,7 +199,9 @@ def scope_query_rows(check: dict | None, submittal_name: str) -> list[dict]:
                 "row_kind": kind,
                 "severity": "",
                 "engineer_confirmed": False,
-                "comment_key": crs_mapping.comment_key("standard scope query", standard_ids.key(ident)),
+                "comment_key": crs_mapping.comment_key(
+                    "standard scope query", standard_ids.key(ident)
+                ),
             }
         )
     return rows
