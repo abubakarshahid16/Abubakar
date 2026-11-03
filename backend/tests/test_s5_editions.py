@@ -11,7 +11,6 @@ import pytest
 from app import crs_mapping, crs_reference, db
 from app import standard_editions as se
 from app.config import settings
-from app.review import _STANDARD_NULLED
 
 ED = [
     {"edition": "2019", "date": "2019-03-01"},
@@ -252,3 +251,22 @@ def test_a_version_2_finding_stores_the_edition_of_the_rule_it_cites(
 def test_clean_edition_trims_and_blank_is_none():
     assert se.clean_edition(" 2021 ") == "2021"
     assert se.clean_edition("  ") is None and se.clean_edition(None) is None
+
+
+def test_a_reader_with_no_grant_on_the_standard_is_not_told_its_edition(
+    tmp_path, monkeypatch
+):
+    from app import review
+
+    monkeypatch.setattr(settings, "db_path", tmp_path / "copy.sqlite")
+    db.reset_connection()
+    db.init_db()
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)"
+            " VALUES ('s1','s.pdf','sha',1,'s.pdf','ready',1,'2026-11-03T00:00:00Z')"
+        )
+    finding = {"standard_document_id": "s1", "standard_edition": "2021"}
+    review.withhold_unreadable_standards([finding], frozenset())
+    assert finding["standard_edition"] is None

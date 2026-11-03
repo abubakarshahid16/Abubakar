@@ -285,7 +285,7 @@ def _row(row) -> dict:
 #: quotes or names the standard goes.
 STANDARD_WITHHELD = "standard not available to you"
 
-_STANDARD_NULLED = ("standard_document_id", "standard_clause", "standard_page", "standard_edition",
+_STANDARD_NULLED = ("standard_document_id", "standard_clause", "standard_page",
                     "requirement_source_text", "requirement_id", "matched_phrase",
                     "standard_name", "scope_decision")
 _STANDARD_LABELLED = ("requirement", "finding", "ai_rationale")
@@ -321,7 +321,7 @@ def withhold_unreadable_standards(
     for f in findings:
         if f.get("standard_document_id") not in existing:
             continue
-        for key in _STANDARD_NULLED:
+        for key in (*_STANDARD_NULLED, "standard_edition"):
             if key in f:
                 f[key] = None
         for key in _STANDARD_LABELLED:
