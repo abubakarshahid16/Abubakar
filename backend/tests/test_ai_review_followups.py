@@ -368,3 +368,20 @@ def test_a_reword_reason_with_a_spelled_figure_prints_nothing(monkeypatch, figur
     rows = [dict(ROW)]
     view.apply(rows, "rv-fig")
     assert "ai_review_comment" not in rows[0]
+
+
+def test_apply_keeps_a_grouped_row_when_one_member_finding_cannot_be_looked_up(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    row = dict(ROW, finding_ids=["a", "b"])
+    arpass.run("rv-grp", [row], pages=PAGES, held=HELD, provider=Stub([REMOVE]))
+    known = {"a": {"compliance_status": "NEEDS_ENGINEER_REVIEW"}}
+    monkeypatch.setattr("app.review.get", lambda fid: known.get(fid))
+    rows = [dict(row)]
+    view.apply(rows, "rv-grp")
+    assert [r["crs_row_key"] for r in rows] == ["k-rev"]  # b is unknown: kept
+    known["b"] = {"compliance_status": "NEEDS_ENGINEER_REVIEW"}
+    rows = [dict(row)]
+    view.apply(rows, "rv-grp")
+    assert rows == []  # both known and not Fails: the removal applies

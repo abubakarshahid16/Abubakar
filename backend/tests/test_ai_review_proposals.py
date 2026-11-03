@@ -553,7 +553,7 @@ def test_a_verified_page_quote_is_flagged_as_it_stands_verdict_words_and_all(quo
 
 
 SPELLINGS_OF_A_NUMBER = [
-    "n i n e", "n-i-n-e", "n.i.n.e", "n_i_n_e", "nin ety", "eig ht", "nine ty", "ninety nine", "one hundred",
+    "x c i x", "V", "x-c-i-x", "n i n e", "n-i-n-e", "n.i.n.e", "n_i_n_e", "nin ety", "eig ht", "nine ty", "ninety nine", "one hundred",
     "ni\u0578e",  # Armenian letter that looks like n
     "n\u0561ne",  # an Armenian letter with no Latin twin: any leftover non-ASCII letter is refused
     "ni\u200bne", "\uff19\uff19", "\u0669\u0669", "XCIX", "14", "t w e l v e", "do zen",
@@ -561,11 +561,12 @@ SPELLINGS_OF_A_NUMBER = [
 SPELLINGS_OF_A_VERDICT = [
     "complies", "compl\u200biant", "c\u043emplies", "c o m p l i e s", "c-o-m-p-l-i-e-s", "p.a.s.s", "approved",
     "in-line with the standard", "in line with the standard", "acceptable", "fulfils", "conformant", "complying",
-    "satisfactory", "passes", "meets", "not acceptable", "does not meet", "non-compliant", "rejected",
+    "satisfactory", "passes", "meets", "not acceptable", "does not meet", "non-compliant", "rejected", "met",
+    "in spec", "no issue", "all clear", "sound", "ready", "good", "fine",
 ]  # fmt: skip
 ORDINARY_WORDS = [
     "done", "often", "component", "bypass", "complete", "content", "passage", "stone", "money", "tone", "compliment",
-    "matched", "valid", "safe", "good", "correct", "verified", "confirmed", "suitable",
+    "matched", "valid", "safe", "correct", "verified", "confirmed", "suitable",
 ]  # fmt: skip
 
 
@@ -651,3 +652,67 @@ def test_a_verdict_claim_never_lets_the_ai_remove_a_fail_or_make_a_pass(word):
     assert reason_of(prop(**remove)) == arp.Reason.FAIL_KEPT.value
     added = arp.verify(prop(reason=f"Valve {word} for the set pressure."), CTX)
     assert not added.accepted or added.row_kind != "conforming"
+
+
+def test_a_grouped_row_with_a_member_that_cannot_be_looked_up_is_not_removable():
+    from app import crs_mapping
+
+    def row(statuses):
+        findings = [
+            {
+                "id": f"m{i}",
+                "compliance_status": st,
+                "severity": "minor",
+                "origin": "review",
+                "standard_name": "SPEC-X.pdf",
+                "standard_clause": "5.1",
+                "standard_page": 7,
+                "requirement_source_text": "The pressure shall not exceed 10 barg.",
+                "crs_field_label": "PRESSURE",
+                "fact_id": "f",
+                "equipment_tag": "V-1",
+                "contractor_evidence_text": "12 barg",
+                "contractor_page": 1,
+            }
+            for i, st in enumerate(statuses)
+        ]
+        [r] = crs_mapping.build_crs_rows(findings, [], "ds.pdf")
+        return r, {f["id"]: f for f in findings}
+
+    def remove(r):
+        return dict(
+            TAG_REMOVE,
+            row_key=r["comment_key"],
+            basis="context",
+            evidence=[
+                {
+                    "page": 1,
+                    "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg",
+                }
+            ],
+        )
+
+    r, stored = row(["NEEDS_ENGINEER_REVIEW", "NEEDS_ENGINEER_REVIEW"])
+    if len(r["finding_ids"]) < 2:
+        pytest.skip("the mapping did not group these findings")
+
+    def ctx(row_):
+        return arp.Context(pages=PAGES, rows={row_["comment_key"]: row_}, held=CTX.held)
+
+    arp.carry_results([r], stored.get)
+    assert arp.verify(
+        prop(**remove(r)), ctx(r)
+    ).accepted  # all members known and not Fails
+    lost = dict(stored)
+    del lost["m1"]  # one member cannot be looked up
+    r2, _ = row(["NEEDS_ENGINEER_REVIEW", "NEEDS_ENGINEER_REVIEW"])
+    arp.carry_results([r2], lost.get)
+    assert r2["ai_review_unknown_member"] is True
+    assert arp.verify(prop(**remove(r2)), ctx(r2)).reason == arp.Reason.FAIL_KEPT.value
+    blank = dict(stored, m1={"compliance_status": ""})  # a member with no status
+    r3, _ = row(["NEEDS_ENGINEER_REVIEW", "NEEDS_ENGINEER_REVIEW"])
+    arp.carry_results([r3], blank.get)
+    assert arp.verify(prop(**remove(r3)), ctx(r3)).reason == arp.Reason.FAIL_KEPT.value
+    # findings behind the row but the results never carried into it: also not removable
+    r4, _ = row(["NEEDS_ENGINEER_REVIEW", "NEEDS_ENGINEER_REVIEW"])
+    assert arp.verify(prop(**remove(r4)), ctx(r4)).reason == arp.Reason.FAIL_KEPT.value

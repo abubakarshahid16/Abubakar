@@ -62,6 +62,15 @@ MIN_UNDERSTANDING_CHARS = 3
 EXTRA_VERDICT_WORDS = (
     "in line with",
     "in line",
+    "met",
+    "in spec",
+    "no issue",
+    "no issues",
+    "all clear",
+    "sound",
+    "ready",
+    "good",
+    "fine",
     "consistent with",
     "is consistent",
     "in accordance with",
@@ -345,6 +354,10 @@ def is_fail_row(row: Mapping) -> bool:
     return (
         is_fail_word(kind)
         or is_fail_word(row.get("compliance_status"))
+        # FAIL-SAFE: a grouped row with a member whose result could not be looked up (or is empty) is read as a Fail, and so is
+        # a row with findings behind it whose results were never carried into it
+        or bool(row.get("ai_review_unknown_member"))
+        or (bool(row.get("finding_ids")) and "compliance_status" not in row)
         or (
             kind == "datasheet_check"
             and str(row.get("severity") or "").strip().lower() in FAIL_SEVERITIES
@@ -358,13 +371,19 @@ def carry_results(rows: list[dict], lookup: Callable[[str], Mapping | None]) -> 
     carries no result, and then a datasheet check on it is not removable."""
     for row in rows:
         found = [
-            str((lookup(fid) or {}).get("compliance_status") or "")
+            str((lookup(fid) or {}).get("compliance_status") or "").strip()
             for fid in row.get("finding_ids") or []
         ]
-        found = [f for f in found if f]
-        if found:
+        if not found:
+            continue
+        if not all(
+            found
+        ):  # a member that cannot be looked up, or whose status is unknown
+            row["ai_review_unknown_member"] = True
+        known = [f for f in found if f]
+        if known:
             row["compliance_status"] = (
-                "NON_COMPLIANT" if any(is_fail_word(f) for f in found) else found[0]
+                "NON_COMPLIANT" if any(is_fail_word(f) for f in known) else known[0]
             )
 
 
@@ -409,6 +428,11 @@ def _reason_ok(proposal: dict, row: Mapping) -> bool:
     any script, no number word (whole word), no roman numeral, no letter outside ASCII once look-alikes are mapped, and no
     unit the row's own text does not also use."""
     plain = _readable(proposal.get("reason"))
+    raw = unicodedata.normalize("NFKC", str(proposal.get("reason") or ""))
+    if re.search(
+        r"(?<![A-Za-z])[IVXLCDM](?![A-Za-z])", raw
+    ):  # a lone capital roman numeral ("V barg")
+        return False
     if not plain.isascii() or _has_pass_fail_word(plain):
         return False
     if any(c.isdigit() or c.isnumeric() for c in plain) or _words_in(
