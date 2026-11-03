@@ -437,11 +437,9 @@ def test_a_clause_about_the_same_quantity_is_a_pass_whatever_the_spelling():
 )  # fmt: skip
 def test_a_second_value_near_the_label_whatever_the_layout_gives_no_pass(other):
     sentence = "The hydrotest pressure shall be not less than 10 bar."
-    ok, reason = run(
+    ok, _ = run(
         "12 bar", sentence, "not less than 10 bar", extra_pages={2: f"Notes\n{other}"}
     )
-    if other == "Hydrotest pressure:\n\n5 bar":
-        return  # a blank line ends the cell block: the value two lines on belongs to nothing
     assert not ok, other
 
 
