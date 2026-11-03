@@ -695,9 +695,10 @@ def test_a_grouped_row_with_a_member_that_cannot_be_looked_up_is_not_removable()
     r, stored = row(["NEEDS_ENGINEER_REVIEW", "NEEDS_ENGINEER_REVIEW"])
     if len(r["finding_ids"]) < 2:
         pytest.skip("the mapping did not group these findings")
-    ctx = lambda row_: arp.Context(
-        pages=PAGES, rows={row_["comment_key"]: row_}, held=CTX.held
-    )  # noqa: E731
+
+    def ctx(row_):
+        return arp.Context(pages=PAGES, rows={row_["comment_key"]: row_}, held=CTX.held)
+
     arp.carry_results([r], stored.get)
     assert arp.verify(
         prop(**remove(r)), ctx(r)
