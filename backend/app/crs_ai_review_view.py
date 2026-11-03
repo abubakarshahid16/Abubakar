@@ -35,6 +35,7 @@ STATE_REMOVED = "removed from the CRS"
 STATE_RESTORED = "restored by an engineer"
 STATE_KEPT = "kept on the CRS: an engineer confirmed this row"
 STATE_ABSENT = "not applied: the row is no longer in this run"
+STATE_FLAGGED = "flagged: the row stays on the CRS for the engineer to decide"
 STATE_UNCHECKED = "removal proposed; not checked against this run's rows"
 _SKIP = contextvars.ContextVar("crs_ai_review_view_skip", default=False)
 #: Decision paths (open-items gate, finding decision) read the rows WITH the removed rows still in them: a removal is a
@@ -156,6 +157,15 @@ def apply(rows: list[dict], review_run_id: str) -> None:
             and not row.get("engineer_confirmed")
         ):
             row["ai_review_comment"] = f"{item['final_text']}\n{_reason(item)}"
+        elif item["type"] == "flag":
+            states[item["proposal_id"]] = STATE_ABSENT if row is None else STATE_FLAGGED
+            if (
+                row is not None
+            ):  # the row (a Fail too) stays; the code-built flag prints in the AI cell
+                said = str(row.get("ai_review_comment") or "").strip()
+                row["ai_review_comment"] = "\n".join(
+                    p for p in (said, item["final_text"]) if p
+                )
         elif item["type"] == "add":
             added.append(item)
     _APPLIED.set((review_run_id, states))
@@ -207,21 +217,36 @@ def for_run(review_run_id: str) -> dict | None:
         for a in accepted
         if a["type"] == "remove"
     ]
+    flagged = [
+        {
+            "proposal_id": a["proposal_id"],
+            "where": a.get("row_where", ""),
+            "standard": a.get("row_standard", ""),
+            "words": a.get("row_words", ""),
+            "flag": a.get("final_text", ""),
+            "state": states.get(a["proposal_id"], STATE_UNCHECKED),
+        }
+        for a in accepted
+        if a["type"] == "flag"
+    ]
     gone = sum(1 for r in removed if r["state"] == STATE_REMOVED)
+    shown = sum(1 for f in flagged if f["state"] == STATE_FLAGGED)
+    parts = [
+        f"{n} comment{'s' if n != 1 else ''} {what} by AI review"
+        for n, what in ((gone, "removed"), (shown, "flagged"))
+        if n
+    ]
     return {
         "understanding": understanding,
         "removed": removed,
-        "note": (
-            f"{gone} comment{'s' if gone != 1 else ''} removed by AI review, see internal sheet"
-            if gone
-            else ""
-        ),
+        "flagged": flagged,
+        "note": (", ".join(parts) + ", see internal sheet") if parts else "",
         "engine": summary.get("engine"),
         "model": summary.get("model"),
         "local_instead": summary.get("local_instead"),
         "counts": {
             t: sum(1 for a in accepted if a["type"] == t)
-            for t in ("remove", "add", "reword")
+            for t in ("remove", "add", "reword", "flag")
         },
     }
 
@@ -281,6 +306,31 @@ def write_sheet(wb, data: dict, write) -> None:
                     "evidence",
                 ),
                 1,
+            ):
+                write(sheet, r, col, item[key]).alignment = wrap
+    if data.get("flagged"):
+        r += 2
+        write(
+            sheet, r, 1, "Flagged by AI review (the row stays on the CRS)"
+        ).font = Font(bold=True)
+        for col, head in enumerate(
+            (
+                "Proposal id",
+                "State",
+                "Where",
+                "Standard",
+                "Row's own words",
+                "Flag (built by code from the page quote)",
+            ),
+            1,
+        ):
+            r_head = r + 1
+            write(sheet, r_head, col, head).font = Font(bold=True)
+        r += 1
+        for item in data["flagged"]:
+            r += 1
+            for col, key in enumerate(
+                ("proposal_id", "state", "where", "standard", "words", "flag"), 1
             ):
                 write(sheet, r, col, item[key]).alignment = wrap
     for col, width in zip("ABCDEFGH", (22, 24, 22, 26, 70, 60, 16, 70), strict=True):
