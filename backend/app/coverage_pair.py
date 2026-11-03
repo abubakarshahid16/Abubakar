@@ -431,9 +431,13 @@ def _decided_by_tier(
 ) -> dict:
     """Of the decided rules, which the owner's label stands behind and which an engineer's; a rule with both counts
     as the owner's (the weaker claim). {} when none is the owner's: every other pair stays as it was."""
-    from .rule_trust import ENGINEER_CONFIRMED, OWNER_APPROVED
+    from .rule_trust import ENGINEER_APPROVED, ENGINEER_CONFIRMED, OWNER_APPROVED
 
-    keys: dict[str, set[str]] = {OWNER_APPROVED: set(), ENGINEER_CONFIRMED: set()}
+    keys: dict[str, set[str]] = {
+        OWNER_APPROVED: set(),
+        ENGINEER_APPROVED: set(),
+        ENGINEER_CONFIRMED: set(),
+    }
     for f in findings:
         label = f.get("trust_label")
         status = f.get("compliance_status")
@@ -444,12 +448,15 @@ def _decided_by_tier(
         key = requirement_split.requirement_key(rules[f["requirement_id"]])
         if key in decided:
             keys[label].add(key)
-    if not keys[OWNER_APPROVED]:
+    if not keys[OWNER_APPROVED] and not keys[ENGINEER_APPROVED]:
         return {}
     return {
         "decided_by_tier": {
             "owner_approved": len(keys[OWNER_APPROVED]),
-            "engineer_approved": len(keys[ENGINEER_CONFIRMED] - keys[OWNER_APPROVED]),
+            "engineer_approved": len(
+                (keys[ENGINEER_CONFIRMED] | keys[ENGINEER_APPROVED])
+                - keys[OWNER_APPROVED]
+            ),
         }
     }
 
