@@ -237,7 +237,7 @@ def _rows_to_store(
         if (
             verdict.accepted
             and touched
-            and proposal.get("type") in ("remove", "reword")
+            and proposal.get("type") in ("remove", "reword", "flag")
         ):
             # The row's own words and place, kept so the removal can be shown and reversed after the row is gone.
             proposal["row_words"] = str(touched.get("comment") or "")

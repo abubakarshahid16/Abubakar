@@ -482,10 +482,29 @@ def test_a_reword_reason_with_a_number_the_row_does_not_hold_is_refused(reason):
     assert reason_of(_reword(reason=reason)) == arp.Reason.NUMBER_NOT_VERIFIED.value
 
 
-def test_a_reword_reason_may_repeat_the_rows_own_numbers():
+def test_a_plain_explanation_is_a_good_reason():
     assert arp.verify(
-        _reword(reason="Names both tags and keeps 14 barg and 16 barg, cl. 4.2."), CTX
+        _reword(reason="Names both tags and keeps the pressures, for clarity."), CTX
     ).accepted
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "The limit is ninety nine barg.",
+        "Allow one hundred barg.",
+        "Use half of it.",
+        "The limit is \uff19\uff19 barg.",  # fullwidth digits
+        "The limit is \u0669\u0669 barg.",  # Arabic-Indic digits
+        "Clause XCIX applies.",
+        "The figure is 14 psi.",  # a changed unit on a barg row
+        "Pressure in psi is meant.",
+        "Allow n\u200bine\u200b barg",  # zero-width characters inside a number word
+        "The \u0455et value is 1\u200b4.",
+    ],
+)
+def test_a_reword_reason_holds_no_figure_in_any_spelling(reason):
+    assert reason_of(_reword(reason=reason)) == arp.Reason.NUMBER_NOT_VERIFIED.value
 
 
 @pytest.mark.parametrize(
