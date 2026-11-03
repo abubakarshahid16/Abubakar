@@ -51,7 +51,7 @@ from . import datasheets, errors, fts_index, standard_ids, standards, submittal_
 from .claude_auto_approve import lists_cited
 from .db import connect
 from .held_standards import mark_rows
-from .standard_judgment import route_cited_other
+from .standard_judgment import route_cited_other as route
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
@@ -348,8 +348,7 @@ def _cited_other_type(
             why = f"{why}; it is also a code for a {others}"
             declared.append({"identifier": c, "reason": f"{why} - {_WHICH_CLAUSES}"})
         elif equipment:
-            to_declared, item = route_cited_other(c, others, this, source, _WHICH_CLAUSES)
-            (declared if to_declared else not_applicable).append(item)
+            route(c, others, this, source, declared, not_applicable)
     return not_applicable, declared
 
 
