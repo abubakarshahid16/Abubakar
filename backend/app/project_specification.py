@@ -131,57 +131,144 @@ def used(submittal_id: str, allowed: frozenset[str]) -> dict | None:
     return {"id": spec, "name": doc["filename"], "requirements": int(count)}
 
 
+OUTCOME_USED = "used"
+OUTCOME_EXCLUDED = "excluded_by_engineer"
+OUTCOME_NO_REQUIREMENTS = "no_requirements"
+OUTCOME_NONE = "none_held"
+BY = "marked by an administrator"
+
+
+def _sentence(outcome: str, name: str, requirements: int) -> str:
+    if outcome == OUTCOME_USED:
+        return f"{NOTE} used: {name} ({BY}; {requirements} requirements read from it)"
+    if outcome == OUTCOME_EXCLUDED:
+        return f"{NOTE}: {name} was {BY}, but an engineer excluded it from this run, so nothing was compared against it"
+    if outcome == OUTCOME_NO_REQUIREMENTS:
+        return f"{NOTE}: {name} was {BY}, but no requirements were read from it, so nothing was compared against it"
+    return f"{NOTE}: {NONE_HELD}"
+
+
 def line(submittal_id: str, allowed: frozenset[str]) -> str:
-    """The one honest sentence every review reports."""
+    """The sentence for the CURRENT mark (no run): used only where there is no run to ask, and it never says 'used'
+    for a run, since a mark says nothing of what a run did (`run_line`)."""
     found = used(submittal_id, allowed)
     if found is None:
-        return f"{NOTE}: {NONE_HELD}"
+        return _sentence(OUTCOME_NONE, "", 0)
     if found["requirements"] == 0:
-        return (
-            f"{NOTE}: {found['name']} was marked by the owner, but no requirements were read from it, so nothing was "
-            "compared against it"
+        return _sentence(OUTCOME_NO_REQUIREMENTS, found["name"], 0)
+    return _sentence(OUTCOME_USED, found["name"], found["requirements"])
+
+
+def _ensure_run_table() -> None:
+    with connect() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS project_specification_run (
+            review_run_id TEXT PRIMARY KEY, spec_document_id TEXT, name TEXT, requirements INTEGER NOT NULL DEFAULT 0,
+            outcome TEXT NOT NULL, recorded_at TEXT NOT NULL)""")
+
+
+def _record(
+    run_id: str, spec: str | None, name: str, requirements: int, outcome: str
+) -> None:
+    """What THIS run did about the specification, stored at pin time; a later mark or unmark never rewrites it."""
+    _ensure_run_table()
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO project_specification_run (review_run_id, spec_document_id, name, requirements,"
+            " outcome, recorded_at) VALUES (?,?,?,?,?,?)",
+            (
+                run_id,
+                spec,
+                name,
+                requirements,
+                outcome,
+                datetime.now(UTC).isoformat(timespec="seconds"),
+            ),
         )
-    return f"{NOTE} used: {found['name']} (marked by the owner; {found['requirements']} requirements read from it)"
 
 
-def notes(submittal_id: str, allowed: frozenset[str]) -> list[dict]:
-    """The Review note (internal) every CRS carries, in the shape of the other review notes."""
-    found = used(submittal_id, allowed)
-    return [
-        {
-            "note": NOTE,
-            "standard": found["name"] if found else NONE_HELD,
-            "count": None,
-            "detail": line(submittal_id, allowed),
-        }
-    ]
+def _run_facts(run_id: str, allowed: frozenset[str]) -> tuple[str, str]:
+    """(sentence, standard) from the facts stored when the run ran. A specification the caller may not read reads as none
+    held (a filter only narrows)."""
+    _ensure_run_table()
+    r = (
+        connect()
+        .execute(
+            "SELECT * FROM project_specification_run WHERE review_run_id = ?", (run_id,)
+        )
+        .fetchone()
+    )
+    if r is None:
+        return f"{NOTE}: not recorded for this run", NONE_HELD
+    if r["outcome"] == OUTCOME_NONE or r["spec_document_id"] not in allowed:
+        return _sentence(OUTCOME_NONE, "", 0), NONE_HELD
+    return _sentence(r["outcome"], r["name"], int(r["requirements"])), r["name"]
+
+
+def run_line(run_id: str, allowed: frozenset[str]) -> str:
+    return _run_facts(run_id, allowed)[0]
+
+
+def notes(
+    submittal_id: str, allowed: frozenset[str], run_id: str | None = None
+) -> list[dict]:
+    """The Review note (internal) every CRS carries, in the shape of the other review notes. With a run: what that run did."""
+    if run_id:
+        text, standard = _run_facts(run_id, allowed)
+    else:
+        found = used(submittal_id, allowed)
+        text, standard = (
+            line(submittal_id, allowed),
+            found["name"] if found else NONE_HELD,
+        )
+    return [{"note": NOTE, "standard": standard, "count": None, "detail": text}]
 
 
 def pin(review_run_id: str, submittal_id: str, allowed: frozenset[str]) -> bool:
     """Record the marked specification as a manual selection of this run, when the caller may read it and it holds
-    requirements. Never fails the review. True when it was recorded."""
+    requirements, and STORE what the run did (used, excluded by an engineer, no requirements, none). Never fails the
+    review. True when a selection was recorded now."""
     try:
         found = used(submittal_id, allowed)
-        if found is None or found["requirements"] == 0:
+        if found is None:
+            _record(review_run_id, None, "", 0, OUTCOME_NONE)
+            return False
+        if found["requirements"] == 0:
+            _record(
+                review_run_id, found["id"], found["name"], 0, OUTCOME_NO_REQUIREMENTS
+            )
             return False
         from . import applicability
 
-        if (
+        manual = (
             connect()
             .execute(
-                "SELECT 1 FROM review_applicable_standards WHERE review_run_id = ? AND standard_document_id = ?"
+                "SELECT included FROM review_applicable_standards WHERE review_run_id = ? AND standard_document_id = ?"
                 " AND selection_method = ?",
                 (review_run_id, found["id"], applicability.METHOD_MANUAL),
             )
             .fetchone()
-        ):
-            return False  # an engineer already decided about this standard for this run; the machine never replaces it
-
+        )
+        if manual:  # an engineer already decided about this standard for this run; the machine never replaces it
+            _record(
+                review_run_id,
+                found["id"],
+                found["name"],
+                found["requirements"],
+                OUTCOME_USED if manual["included"] else OUTCOME_EXCLUDED,
+            )
+            return False
         applicability.record_selection(
             review_run_id=review_run_id,
             standard_document_id=found["id"],
             method=applicability.METHOD_MANUAL,
-            reason="marked by the owner as this submittal's project specification; compared before the standards",
+            reason="marked by an administrator as this submittal's project specification; compared before the standards",
+        )
+        _record(
+            review_run_id,
+            found["id"],
+            found["name"],
+            found["requirements"],
+            OUTCOME_USED,
         )
         return True
     except Exception:

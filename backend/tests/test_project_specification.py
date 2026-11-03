@@ -110,7 +110,7 @@ def test_a_marked_specification_with_requirements_is_reported_and_pinned_to_the_
     assert (
         row["selection_method"] == "manual"
         and row["included"] == 1
-        and "owner" in row["selection_reason"]
+        and "administrator" in row["selection_reason"]
     )
     notes = export_status.equipment_notes(world["sub"], run_id, world["scope"])
     assert any("Project specification used" in n["detail"] for n in notes)
@@ -251,3 +251,57 @@ def test_the_requirements_guard_comes_before_the_pin(world):
         )
     assert ps.pin(run_id, world["sub"], world["scope"]) is True
     assert [r for r in _rows_of(run_id) if r["standard_document_id"] == "std_api"]
+
+
+def test_the_note_says_what_the_run_did_not_what_the_mark_says(world):
+    from app import applicability
+
+    run_id = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    applicability.record_selection(
+        review_run_id=run_id,
+        standard_document_id="std_api",
+        method=applicability.METHOD_MANUAL,
+        reason="engineer decision",
+        included=False,
+        exclusion_reason="not for this job",
+    )
+    ps.pin(run_id, world["sub"], world["scope"])
+    (note,) = export_status.equipment_notes(world["sub"], run_id, world["scope"])[:1]
+    assert "excluded it from this run" in note["detail"]
+    assert "used" not in note["detail"]
+
+
+def test_a_later_mark_or_unmark_never_rewrites_an_earlier_runs_note(world):
+    run_a = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    ps.pin(run_a, world["sub"], world["scope"])
+    before = ps.notes(world["sub"], world["scope"], run_a)
+    ps.mark(world["sub"], "std_api", "adm", undo=True)
+    assert ps.marked(world["sub"]) is None
+    assert ps.notes(world["sub"], world["scope"], run_a) == before
+    assert "used: std_api.pdf" in before[0]["detail"]
+
+
+def test_a_run_with_no_stored_facts_says_so_and_never_borrows_the_current_mark(world):
+    ps.mark(world["sub"], "std_api", "adm")
+    (note,) = ps.notes(world["sub"], world["scope"], "run-never-pinned")
+    assert note["detail"] == "Project specification: not recorded for this run"
+
+
+def test_the_stored_note_hides_a_specification_the_caller_may_not_read(world):
+    run_id = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    ps.pin(run_id, world["sub"], world["scope"])
+    (note,) = ps.notes(world["sub"], frozenset({world["sub"]}), run_id)
+    assert note["detail"] == "Project specification: none held"
+    assert "std_api" not in str(note)
+
+
+def test_the_wording_names_no_owner_for_what_any_administrator_did(world):
+    run_id = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    ps.pin(run_id, world["sub"], world["scope"])
+    (note,) = ps.notes(world["sub"], world["scope"], run_id)
+    assert "marked by an administrator" in note["detail"]
+    assert "owner" not in note["detail"]
