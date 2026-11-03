@@ -455,6 +455,10 @@ def _verified_quote(
 def _cited(ev: dict, body: list[dict], document_id: str) -> tuple[str, int | None]:
     """(the words citing the passage, the page they cite: the CRS page column's too)."""
     page, quote = _verified_quote(ev, body, document_id)
+    for title in section_index.heading_quotes(_chunk_of(ev, body)) if quote is None else ():
+        page, quote = _verified_quote({**ev, "quote": title}, body, document_id)
+        if quote:
+            break
     said = f': "{quote}"' if quote else "; no quote could be verified on the page text"
     return _place(ev, body, page, document_id) + said, page
 
@@ -569,7 +573,12 @@ _REFERENCE_HEADING = re.compile(
 )
 
 
-def own_section(element: Element, chunk: dict) -> bool:
+def _near(evidence: dict) -> bool:
+    """The passage sits in a section of its own for the element, or (with the section index) in the closest one."""
+    return bool(evidence["own_section"] or evidence.get("near_section"))
+
+
+def own_section(element: Element, chunk: dict, near: bool = False) -> bool:
     """#1522: does the passage's NEAREST heading (its own section title, else the last
     heading of its chain; never a parent or document title) hold a cue of the element?"""
     chain = [p for p in re.split(r"\s*>\s*", chunk.get("context") or "") if p]
@@ -582,7 +591,7 @@ def own_section(element: Element, chunk: dict) -> bool:
     titles = [re.sub(r"^[\d\s]+", "", _norm(h)) for h in (nearest, parent)]
     if any(_REFERENCE_HEADING.fullmatch(t) for t in titles):
         return False  # an entry of a definitions or contents list is not a section about the element
-    return section_index.title_hit(element, chunk, nearest, _hits)
+    return section_index.title_hit(element, chunk, nearest, _hits, near=near)
 
 
 def _match(element: Element, body: list[dict]) -> dict:
@@ -612,6 +621,9 @@ def _match(element: Element, body: list[dict]) -> dict:
         }
         if own_only:
             entry["own_section"] = own_section(element, chunk)
+            entry["near_section"] = section_index.enabled() and own_section(
+                element, chunk, near=True
+            )
             entry["ordinal"] = chunk.get("ordinal")  # the passage itself, not its page
             if "heading_guess" in chunk:
                 entry["heading_guess"] = chunk["heading_guess"]
@@ -641,11 +653,11 @@ def _match(element: Element, body: list[dict]) -> dict:
                 "missing_cues": absent}
         # owner decision 1 Nov: does ANY passage sit in a section of the element's own,
         # and does one passage anywhere state all the element expects?
-        own = own_only and any(e["own_section"] for e in evidence)
+        own = own_only and any(_near(e) for e in evidence)
         unclear["own_section_found"] = own
         unclear["stated_elsewhere"] = stated[:3]
         if own:  # what the element's own section lacks (not the other passages)
-            mine = [e for e in evidence if e["own_section"]]
+            mine = [e for e in evidence if _near(e)]
             sure = [e for e in mine if not e.get("heading_guess")]
             best = max(sure or mine, key=lambda e: (len(e["groups"]), e["in_text"]))
             lacks = [lbl for lbl, _ in element.groups if lbl not in best["groups"]]

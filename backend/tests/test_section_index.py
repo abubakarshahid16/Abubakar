@@ -6,19 +6,25 @@ from __future__ import annotations
 
 import pytest
 
-from app import playbooks, section_index
+from app import db, playbooks, section_index
 from app.config import settings
 from tests.test_w5b_679_playbooks import (  # noqa: F401  (fixtures and helpers)
     by_id,
     chunker,
     d,
-    db,
     extract,
     hold,
     run,
     temp_storage,
     upload,
 )
+
+
+@pytest.fixture(autouse=True)
+def storage(request):
+    """The helper module's temporary database, for every test here."""
+    return request.getfixturevalue("temp_storage")
+
 
 LINES = [
     ("Heading1", "Purpose and scope"),
@@ -175,13 +181,16 @@ def test_a_dash_that_differs_between_the_chunk_and_the_page_text_still_finds_the
 # --- the playbook rows -------------------------------------------------------------------------------------------------
 
 
-def test_an_attachment_titled_for_the_element_is_its_own_section_when_on(
+def test_an_attachment_titled_for_the_element_is_named_as_the_closest_section_with_its_page_when_on(
     tmp_path, monkeypatch
 ):
     row = h04(tmp_path, monkeypatch, on=True)
     assert row["state"] != "missing"
-    assert "ATT02" in row["reason"] and row["section_state"] == "present"
-    assert "page" in row["reason"]
+    assert "ATT02" in row["reason"] and "closest section" in row["reason"]
+    assert (
+        "page" in row["reason"]
+        and "ATT02 - CRITERIA FOR NODE SELECTION" in row["reason"]
+    )
 
 
 def test_without_the_index_the_same_document_names_no_such_section(
@@ -222,7 +231,8 @@ def test_a_numbered_item_title_needs_more_than_one_word_in_common_with_the_eleme
         item = {
             "section": "2. Initiating Cause Frequency",
             "context": "5. ATTACHMENTS",
-            "heading_loose": True,
+            "indexed_heading": True,
+            "heading_code": False,
         }
         assert playbooks.own_section(element, item) is False
         clause = {
@@ -243,3 +253,259 @@ def test_the_words_of_a_partial_hit_and_of_no_title_depend_on_the_switch(monkeyp
     monkeypatch.setattr(settings, "section_index_enabled", False)
     assert section_index.own_words() == "a section of its own was found at"
     assert section_index.none_words() == "no section of its own"
+
+
+# --- the review's four defects, end to end on a document whose paragraphs sit on DIFFERENT pages -----------------------
+
+
+def fake_doc(pages, chunks):
+    """A stored document with these page texts ({number: text}) and these passages: the real review path reads exactly
+    these tables. Each chunk is (page_start, page_end, section, text)."""
+    doc_id = "doc_fake_" + str(abs(hash(str(chunks))) % 10**8)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)"
+            " VALUES (?,?,?,1,'x','ready',?,'2026-11-03T00:00:00Z')",
+            (doc_id, "proc.docx", "sha-" + doc_id, len(pages)),
+        )
+        for number, text in pages.items():
+            conn.execute(
+                "INSERT INTO pages (document_id,page_no,text,char_count,batch_no) VALUES (?,?,?,?,1)",
+                (doc_id, number, text, len(text)),
+            )
+        for n, (start, end, section, text) in enumerate(chunks):
+            conn.execute(
+                "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,token_count,"
+                "content_hash,retrievable,context,locator) VALUES (?,?,?,?,?,?,?,'prose',?,1,?,1,?,?)",
+                (
+                    f"{doc_id}:{n}",
+                    doc_id,
+                    "proc.docx",
+                    n,
+                    start,
+                    end,
+                    section,
+                    text,
+                    f"h{n}",
+                    section,
+                    f"page {start}",
+                ),
+            )
+    return doc_id
+
+
+def review_of(doc_id, on, element="H04"):
+    from tests.test_w5b_679_playbooks import by_id, run
+
+    names = (
+        "section_index_enabled",
+        "playbook_section_presence_enabled",
+        "playbook_presence_without_standard_enabled",
+    )
+    saved = {n: getattr(settings, n) for n in names}
+    settings.section_index_enabled = on
+    settings.playbook_section_presence_enabled = True
+    settings.playbook_presence_without_standard_enabled = True
+    try:
+        playbook = "sil_procedure" if element.startswith("S") else "hazop_procedure"
+        return by_id(run(doc_id, playbook))[element]
+    finally:
+        for n, v in saved.items():
+            setattr(settings, n, v)
+
+
+ATT = "5. ATTACHMENTS AND TEMPLATES"
+NODES = "The plant is divided into nodes, each a section with a clear design intent."
+
+
+def test_a_heading_printed_on_a_later_page_is_cited_at_that_page():
+    pages = {
+        1: "Cover\nThe procedure follows.",
+        2: "More text of the body.",
+        3: "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION\n" + NODES,
+    }
+    text = (
+        "Cover\nThe procedure follows.\nMore text of the body.\nZX-77-ATT02 - CRITERIA FOR NODE SELECTION\n"
+        + NODES
+    )
+    row = review_of(fake_doc(pages, [(1, 3, ATT, text)]), on=True)
+    assert "page 3" in row["reason"] and row["cited_page"] == 3
+
+
+def test_the_same_heading_printed_twice_gets_each_pass_the_page_of_its_own_print(
+    monkeypatch,
+):
+    heading = "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION"
+    pages = {2: heading + "\nfirst text", 5: heading + "\nsecond text"}
+    monkeypatch.setattr(settings, "section_index_enabled", True)
+    doc = fake_doc(
+        pages,
+        [(2, 2, ATT, heading + "\nfirst text"), (5, 5, ATT, heading + "\nsecond text")],
+    )
+    body = [
+        dict(r)
+        for r in db.connect().execute(
+            "select * from chunks where document_id=? order by ordinal", (doc,)
+        )
+    ]
+    out = section_index.refine(body, doc)
+    assert [c["page_start"] for c in out] == [2, 5]
+
+
+def test_a_title_repeated_on_every_page_is_a_running_header_never_a_heading(
+    monkeypatch,
+):
+    header = "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION"
+    pages = {n: f"{header}\nbody of page {n}" for n in range(1, 6)}
+    text = "\n".join(pages.values())
+    monkeypatch.setattr(settings, "section_index_enabled", True)
+    doc = fake_doc(pages, [(1, 5, ATT, text)])
+    body = [
+        dict(r)
+        for r in db.connect().execute(
+            "select * from chunks where document_id=?", (doc,)
+        )
+    ]
+    out = section_index.refine(body, doc)
+    assert (
+        len(out) == 1 and out[0]["section"] == ATT
+    )  # not split into five pieces cited at page 1
+
+
+def test_an_attachment_with_one_cue_word_in_its_title_is_the_closest_section_never_found():
+    pages = {1: "Body.", 2: "ZX-77-ATT05 - NODE REGISTER FORMS\n" + NODES}
+    row = review_of(
+        fake_doc(
+            pages, [(1, 2, ATT, "Body.\nZX-77-ATT05 - NODE REGISTER FORMS\n" + NODES)]
+        ),
+        on=True,
+    )
+    assert row["section_state"] != "present"
+    assert row["reason"].startswith("unclear: the closest section is at page 2")
+
+
+def test_a_contents_list_without_a_contents_heading_is_not_indexed():
+    toc = (
+        "List of attachments\nZX-77-ATT02 - CRITERIA FOR NODE SELECTION ........ 9\n"
+        "ZX-77-ATT03 - GUIDEWORDS IN STUDY SESSIONS ........ 10"
+    )
+    doc = fake_doc({1: toc}, [(1, 1, ATT, toc)])
+    off, on = review_of(doc, on=False), review_of(doc, on=True)
+    assert on["section_state"] == off["section_state"]
+    assert (
+        "ATT02" not in on["reason"].split(":")[1][:60]
+    )  # no section was made of a contents entry
+
+
+def test_three_heading_like_lines_in_a_row_are_a_list_even_without_leaders_or_numbers(
+    monkeypatch,
+):
+    toc = "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION 9\nZX-77-ATT03 - GUIDEWORDS IN STUDY SESSIONS 10\nZX-77-ATT04 - STUDY METHOD 11"
+    monkeypatch.setattr(settings, "section_index_enabled", True)
+    doc = fake_doc({1: toc}, [(1, 1, ATT, toc)])
+    body = [
+        dict(r)
+        for r in db.connect().execute(
+            "select * from chunks where document_id=?", (doc,)
+        )
+    ]
+    assert len(section_index.refine(body, doc)) == 1
+
+
+def test_a_true_section_not_found_stays_not_found_when_only_a_contents_list_names_it():
+    toc = "ZX-77-ATT09 - DEMAND MODE AND PROOF TEST ........ 9\nZX-77-ATT10 - FORMS ........ 10"
+    doc = fake_doc({1: toc}, [(1, 1, ATT, toc)])
+    row = review_of(doc, on=True, element="S08")
+    assert (
+        row["section_state"] == review_of(doc, on=False, element="S08")["section_state"]
+    )
+
+
+def test_a_closest_section_whose_own_text_states_nothing_is_cited_with_its_verified_title():
+    title = "ZX-77-ATT05 - PROPOSED STUDY WORKSHEET"
+    pages = {1: "Body.", 2: title}
+    row = review_of(
+        fake_doc(pages, [(1, 2, ATT, "Body.\n" + title)]), on=True, element="H08"
+    )
+    assert (
+        f'"{title}"' in row["reason"]
+        and "no quote could be verified" not in row["reason"]
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION ........ 9",
+        "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION\t12",
+        "Table B3.1: Invented list of words .... 14",
+    ],
+)
+def test_a_contents_entry_with_leaders_or_a_tab_and_a_page_number_is_never_a_heading(
+    line,
+):
+    assert section_index.heading_of_line(line, in_attachment=True) is None
+
+
+def test_the_same_heading_printed_twice_in_one_passage_is_cited_at_each_print(
+    monkeypatch,
+):
+    heading = "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION"
+    pages = {2: heading + "\nfirst text", 5: heading + "\nsecond text"}
+    monkeypatch.setattr(settings, "section_index_enabled", True)
+    doc = fake_doc(
+        pages, [(2, 5, ATT, heading + "\nfirst text\n" + heading + "\nsecond text")]
+    )
+    body = [
+        dict(r)
+        for r in db.connect().execute(
+            "select * from chunks where document_id=?", (doc,)
+        )
+    ]
+    out = section_index.refine(body, doc)
+    assert [c["page_start"] for c in out] == [2, 5]
+    assert out[0]["page_end"] == 5 and out[1]["page_start"] == 5
+
+
+def test_a_list_of_attachments_printed_earlier_without_page_numbers_is_not_the_heading_page():
+    listing = "ZX-77-ATT01 - FLOW OF THE METHOD\nZX-77-ATT02 - CRITERIA FOR NODE SELECTION\nZX-77-ATT03 - STUDY METHOD"
+    real = "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION\n" + NODES
+    pages = {1: listing, 3: real}
+    row = review_of(
+        fake_doc(pages, [(1, 3, ATT, listing + "\nThe attachments follow.\n" + real)]),
+        on=True,
+    )
+    assert row["cited_page"] == 3 and "page 3" in row["reason"]
+
+
+def test_a_list_of_headings_on_an_earlier_page_is_not_the_heading_even_when_the_passage_holds_only_the_real_one(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "section_index_enabled", True)
+    listing = "ZX-77-ATT01 - FLOW OF THE METHOD\nZX-77-ATT02 - CRITERIA FOR NODE SELECTION\nZX-77-ATT03 - STUDY METHOD"
+    real = "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION\n" + NODES
+    doc = fake_doc({1: listing, 3: real}, [(1, 3, ATT, "Intro.\n" + real)])
+    body = [
+        dict(r)
+        for r in db.connect().execute(
+            "select * from chunks where document_id=?", (doc,)
+        )
+    ]
+    out = section_index.refine(body, doc)
+    assert [c["page_start"] for c in out if c.get("indexed_heading")] == [3]
+
+
+def test_three_heading_like_lines_in_a_row_in_a_passage_are_not_split_into_sections(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "section_index_enabled", True)
+    page = "Intro.\nZX-77-ATT01 - A TITLE\nbody one\nZX-77-ATT02 - B TITLE\nbody two\nZX-77-ATT03 - C TITLE\nbody three"
+    run = "ZX-77-ATT01 - A TITLE\nZX-77-ATT02 - B TITLE\nZX-77-ATT03 - C TITLE"
+    doc = fake_doc({1: page}, [(1, 1, ATT, run)])
+    body = [
+        dict(r)
+        for r in db.connect().execute(
+            "select * from chunks where document_id=?", (doc,)
+        )
+    ]
+    assert len(section_index.refine(body, doc)) == 1
