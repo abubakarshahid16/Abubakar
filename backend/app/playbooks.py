@@ -455,7 +455,8 @@ def _verified_quote(
 def _cited(ev: dict, body: list[dict], document_id: str) -> tuple[str, int | None]:
     """(the words citing the passage, the page they cite: the CRS page column's too)."""
     page, quote = _verified_quote(ev, body, document_id)
-    for title in section_index.heading_quotes(_chunk_of(ev, body)) if quote is None else ():
+    titles = section_index.heading_quotes(_chunk_of(ev, body)) if quote is None else ()
+    for title in titles:
         page, quote = _verified_quote({**ev, "quote": title}, body, document_id)
         if quote:
             break

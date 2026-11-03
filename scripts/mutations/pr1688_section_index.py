@@ -134,8 +134,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         13,
         "a row citing a title-only section loses its verified quote",
         _P,
-        "    for title in section_index.heading_quotes(_chunk_of(ev, body)) if quote is None else ():\n",
-        "    for title in ():\n",
+        "    titles = section_index.heading_quotes(_chunk_of(ev, body)) if quote is None else ()\n",
+        "    titles = ()\n",
         "verified_title",
     ),
 )
