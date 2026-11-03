@@ -222,3 +222,13 @@ def title_hit(element, chunk: dict, title: str, hits) -> bool:
     if cued and chunk.get("heading_loose"):
         return _about(element.title, title)
     return cued
+
+
+def own_words() -> str:
+    """The words of a partial hit on a heading: a closest section, not a claim that it is the element's own."""
+    return "the closest section is at" if enabled() else "a section of its own was found at"
+
+
+def none_words() -> str:
+    """What the code can truthfully say when no heading names the element: no section is TITLED for it."""
+    return "no section titled for it" if enabled() else "no section of its own"
