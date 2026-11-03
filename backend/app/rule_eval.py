@@ -300,7 +300,9 @@ def rule_numbers(rule: dict) -> set[float]:
 
 def verify_numbers(rule: dict, text: str) -> bool:
     """Every number the rule uses appears verbatim in the page's text."""
-    present = {n for n in numparse.stated_number_keys(text or "") if isinstance(n, float)}
+    present = {
+        n for n in numparse.stated_number_keys(text or "") if isinstance(n, float)
+    }
     return rule_numbers(rule) <= present
 
 
