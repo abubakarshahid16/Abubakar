@@ -30,4 +30,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="is_a_fail_whatever_its_label",
         tags=_TAGS,
     ),
+    Mutation(
+        id="M1667-03",
+        phase=1667,
+        description="the verdict filter's fold is the number normaliser, so styled letters (bold, circled, long s...) read as no word",
+        path=APP / "numparse.py",
+        anchor='    folded = unicodedata.normalize("NFKC", str(text or ""))\n    dropped',
+        replacement='    folded = normalise_text(str(text or ""))\n    dropped',
+        target="tests/test_ai_review_proposals.py",
+        keyword="in_any_unicode_style",
+        tags=_TAGS,
+    ),
 )
