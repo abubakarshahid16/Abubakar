@@ -124,14 +124,18 @@ def _added_row(rows: list[dict], proposal: dict, review_run_id: str) -> dict:
 
 
 def source_is_fail(row: dict) -> bool:
-    """The second guard: re-derive the verdict from the stored findings behind the row, whatever the row or the proposal says."""
+    """The second guard: re-derive the verdict from the stored findings behind the row, whatever the row or the proposal
+    says. FAIL-SAFE: a finding that cannot be looked up, or has no status, counts as a Fail."""
     from . import ai_review_proposals as arp
     from . import review
 
-    return arp.is_fail_row(row) or any(
-        arp.is_fail_word((review.get(fid) or {}).get("compliance_status"))
-        for fid in row.get("finding_ids") or []
-    )
+    if arp.is_fail_row(row):
+        return True
+    for fid in row.get("finding_ids") or []:
+        status = str((review.get(fid) or {}).get("compliance_status") or "").strip()
+        if not status or arp.is_fail_word(status):
+            return True
+    return False
 
 
 def apply(rows: list[dict], review_run_id: str) -> None:
