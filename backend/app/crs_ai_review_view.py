@@ -125,17 +125,19 @@ def _added_row(rows: list[dict], proposal: dict, review_run_id: str) -> dict:
 
 def source_is_fail(row: dict) -> bool:
     """The second guard: re-derive the verdict from the stored findings behind the row, whatever the row or the proposal
-    says. FAIL-SAFE: a finding that cannot be looked up, or has no status, counts as a Fail."""
+    says. The result behind the row is CARRIED here from the findings (`carry_results`, on a copy), the way the review job
+    does it: a row straight from the CRS mapping has no result of its own, and without this every real row with findings
+    read as a Fail and no removal ever applied. FAIL-SAFE: a finding that cannot be looked up, or has no status, counts as
+    a Fail."""
     from . import ai_review_proposals as arp
     from . import review
 
-    if arp.is_fail_row(row):
-        return True
-    for fid in row.get("finding_ids") or []:
-        status = str((review.get(fid) or {}).get("compliance_status") or "").strip()
-        if not status or arp.is_fail_word(status):
-            return True
-    return False
+    probe = dict(row)
+    probe.pop(
+        "compliance_status", None
+    )  # never trust a result the row came with; read it from the findings
+    arp.carry_results([probe], review.get)
+    return arp.is_fail_row(probe)
 
 
 def apply(rows: list[dict], review_run_id: str) -> None:
