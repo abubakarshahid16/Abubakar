@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import standard_ids, subject_scope
+from . import standard_ids, subject_scope, v1_part_scope
 from .db import connect
 
 TABLE_PATH = Path(__file__).parent / "reference" / "governing_standards.json"
@@ -263,4 +263,5 @@ def gate_for_run(
             **result["summary"],
             "held_equipment_unconfirmed": hold["summary"],
         }
-    return hold["kept"], {**result, "held": hold["held"]}
+    kept = v1_part_scope.gate(hold["kept"], stored.get("equipment_type"), not_applied)
+    return kept, {**result, "held": hold["held"]}
