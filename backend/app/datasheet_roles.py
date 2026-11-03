@@ -143,26 +143,30 @@ def _agrees(qualifier: set, others: list[str], pair_words: frozenset) -> bool:
     return any(qualifier <= w for w in named)
 
 
-def with_drafts(rules: dict) -> dict:
-    """Part of #805: the DRAFT items' own roles join `roles` only with `draft_process_items_enabled`."""
-    from .config import settings
+def file_drafts(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
+    """Part of #805: the facts the DRAFT items read, filed under the draft role (`rules["draft_roles"]`) for the
+    types whose checklist uses it (`wanted`). A draft role never defines a role or a tag: a fact is added only to
+    a tag that already exists (a fact with no tag, to every existing tag), so no approved row is re-attributed.
+    A fact of the approved role it extends is copied too (a copy: the approved role's facts never change)."""
+    from .datasheet_checks import _fold
 
-    if not settings.draft_process_items_enabled or not rules.get("draft_roles"):
-        return rules
-    drafts = {k: v for k, v in rules["draft_roles"].items() if not k.startswith("_")}
-    return {**rules, "roles": {**rules["roles"], **drafts}}
-
-
-def file_drafts(by_tag: dict, rules: dict) -> None:
-    """A fact filed under an approved role is also filed under the draft role that extends it, so a draft
-    item sees what the approved role sees (a copy: the approved role's facts are never changed)."""
-    for role, spec in rules["roles"].items():
-        base = spec.get("extends")
-        for roles in by_tag.values() if base else ():
-            known = {id(f) for f in roles.get(role, [])}
-            more = [f for f in roles.get(base, []) if id(f) not in known]
-            if more:
-                roles[role] = roles.get(role, []) + more
+    for role, spec in (rules.get("draft_roles") or {}).items():
+        if role not in wanted or role.startswith("_"):
+            continue
+        for fact in facts:
+            name = _fold(fact.get("field_name") or "")
+            if not any(re.search(p, name) for p in spec["names"]):
+                continue
+            tag = fact.get("equipment_tag")
+            for key in [tag] if tag in by_tag else ([] if tag else list(by_tag)):
+                mine = by_tag[key].setdefault(role, [])
+                if not any(f is fact for f in mine):
+                    mine.append(fact)
+        for roles in by_tag.values():
+            mine = roles.setdefault(role, [])
+            mine += [f for f in roles.get(spec.get("extends"), []) if not any(f is m for m in mine)]
+            if not mine:
+                del roles[role]
 
 
 def add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
@@ -171,7 +175,7 @@ def add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
     role. The copy carries `combined_label`; `combined_result` never decides on it."""
     from .config import settings
 
-    file_drafts(by_tag, rules)
+    file_drafts(facts, by_tag, rules, wanted)
     if not settings.datasheet_one_value_enabled:
         return
     shared = by_tag.get(None, {})

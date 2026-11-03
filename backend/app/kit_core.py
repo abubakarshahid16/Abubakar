@@ -199,6 +199,10 @@ def _with_bounds(item: dict, rules: dict) -> dict:
     the committed role table is not touched."""
     bounds = item.get("plausible")
     field = (item.get("rule") or {}).get("field")
+    draft = (rules.get("draft_roles") or {}).get(field)
+    if draft:
+        # A DRAFT item's own role is known to this item only (Part of #805): not to any other reader of the roles.
+        rules = {**rules, "roles": {**rules["roles"], field: draft}}
     if not bounds or not field:
         return rules
     role = (rules.get("roles") or {}).get(field) or {}

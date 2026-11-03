@@ -67,7 +67,7 @@ _ABSOLUTE = re.compile(r"(a|\(a\)|abs)$")
 
 
 def load_rules(path: Path = RULES_PATH) -> dict:
-    return datasheet_roles.with_drafts(json.loads(path.read_text(encoding="utf-8")))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _fold(text) -> str:
