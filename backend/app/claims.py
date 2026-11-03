@@ -602,9 +602,9 @@ def comparator_ending(text: str) -> str | None:
     return {"min": ">=", "max": "<="}.get(symbol, symbol)
 
 
-#: The parser lives in `numparse` (#445); `comparison`, `datasheets`, `conditions`, `rule_eval` call this name.
+#: `numparse` holds the parser (#445); callers use this name. #1640: it reads words by our comparators.
 parse_value = numparse.parse_value
-numparse.COMPARATOR_PHRASE = lambda p: parse_comparator(p) is not None  # #1640: one comparator list
+numparse.COMPARATOR_PHRASE = lambda p: parse_comparator(p) is not None
 
 
 # ------------------------------------------------------------------ dataclasses
