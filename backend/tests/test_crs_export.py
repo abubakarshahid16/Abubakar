@@ -309,3 +309,26 @@ def test_an_unset_company_prints_nothing_rather_than_a_guess(monkeypatch):
     monkeypatch.setattr(settings, "crs_company_name", "")
     assert build_crs_view([], {"project": "EXAMPLE PROJECT"})["title"] == "EXAMPLE PROJECT"
     assert build_crs_view([], {})["title"] == ""
+
+
+def test_the_rules_note_is_one_sentence_on_row_1_of_both_copies_and_only_when_on(monkeypatch):
+    """Item 14: ONE note at the top; no row is labelled; off, the sheet is as it was."""
+    import io
+
+    import openpyxl
+
+    from app import crs_export
+    from app.config import settings
+
+    rows = [{"document_name": "D.pdf", "page_section": "p.2", "comment": "c", "comment_by": "AI Review", "standard_reference": "S 1.1", "row_kind": "datasheet_check", "engineer_confirmed": True}]
+
+    def row_one(copy):
+        data = crs_export.build_crs(rows, {"review_run_id": "run-1", "copy": copy})
+        return openpyxl.load_workbook(io.BytesIO(data)).worksheets[0]["A1"].value or ""
+
+    for copy in ("internal", "issue"):
+        monkeypatch.setattr(settings, "crs_rules_note_enabled", False)
+        assert crs_export.RULES_NOTE not in row_one(copy)
+        monkeypatch.setattr(settings, "crs_rules_note_enabled", True)
+        assert row_one(copy).count(crs_export.RULES_NOTE) == 1
+    assert "An engineer must confirm this CRS." in crs_export.RULES_NOTE
