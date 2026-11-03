@@ -238,3 +238,42 @@ def test_a_flag_alone_is_never_called_a_removal(monkeypatch):
         data["removed"] == []
         and data["note"] == "1 comment flagged by AI review, see internal sheet"
     )
+
+
+def test_apply_keeps_a_row_whose_source_finding_is_a_fail_even_if_the_row_says_otherwise(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    row = dict(
+        ROW,
+        row_kind="needs_engineer_review",
+        compliance_status="NEEDS_ENGINEER_REVIEW",
+        severity="minor",
+        finding_ids=["src-fail"],
+    )
+    arpass.run(
+        "rv-real",
+        [row],
+        pages=PAGES,
+        held=HELD,
+        provider=Stub([REMOVE]),
+    )
+    monkeypatch.setattr(
+        "app.review.get",
+        lambda fid: (
+            {"compliance_status": "NON_COMPLIANT"} if fid == "src-fail" else None
+        ),
+    )
+    rows = [dict(row)]
+    view.apply(rows, "rv-real")
+    assert [r["crs_row_key"] for r in rows] == ["k-rev"]  # still there
+    data = view.for_run("rv-real")
+    assert data["removed"][0]["state"] == view.STATE_KEPT_FAIL
+    assert data["note"] == ""
+    # and with the source finding not a Fail, the same removal applies
+    monkeypatch.setattr(
+        "app.review.get", lambda fid: {"compliance_status": "NEEDS_ENGINEER_REVIEW"}
+    )
+    rows = [dict(row)]
+    view.apply(rows, "rv-real")
+    assert rows == []

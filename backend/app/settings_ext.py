@@ -350,6 +350,11 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner 3 Nov 12:20: a cited standard is never called "does not appear to apply" on the table's word
+    #: alone (the table lists what a standard governs, not what its scope clause excludes: a pressure-vessel
+    #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
+    #: the engineer (`declared_check`). OFF: as it was. Env: STANDARD_SCOPE_NOT_NO_ENABLED.
+    standard_scope_not_no_enabled: bool = False
     #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
     #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
     #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.

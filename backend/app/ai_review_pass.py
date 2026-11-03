@@ -355,6 +355,11 @@ def run_for_job(review_run_id: str, scope) -> dict | None:
 
         with crs_ai_review_view.unapplied():
             rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        from . import review
+
+        arp.carry_results(
+            rows, review.get
+        )  # the result behind each row, from its findings
         submittal = (
             connect()
             .execute(
