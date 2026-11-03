@@ -163,9 +163,7 @@ def _words_of(proposal: dict) -> str:
     return " ".join(str(proposal.get(k) or "") for k in ("reason", "text"))
 
 
-_SINGLE_RUN = re.compile(
-    r"(?<![a-z0-9])(?:[a-z][\s\-._/,:;|'\u00b7*]+){2,}[a-z](?![a-z0-9])"
-)
+_SINGLE_RUN = re.compile(r"(?<![a-z0-9])(?:[a-z][^a-z0-9]+){2,}[a-z](?![a-z0-9])")
 
 
 def _readable(text: object, *, decompose: bool = True) -> str:

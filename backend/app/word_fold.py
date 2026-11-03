@@ -31,10 +31,14 @@ def fold_compat(text: object, *, lower: bool = True, decompose: bool = True) -> 
     """Plain Latin letters for `text`: NFKD (NFKC when `decompose` is False) one character at a time, so only the space NFKD
     itself makes for a spacing accent is dropped, never a space the text had; marks, format and invisible characters are
     dropped; "(c)(o)" runs are joined; look-alikes are mapped; lower case unless `lower` is False."""
-    form, cat = ("NFKD" if decompose else "NFKC"), unicodedata.category
+    cat = unicodedata.category
     out: list[str] = []
     for ch in str(text or ""):
-        d = unicodedata.normalize(form, ch)
+        d = (
+            unicodedata.normalize("NFKD", ch)
+            if decompose
+            else unicodedata.normalize("NFKC", ch)
+        )
         if d[:1] == " " and d[1:] and {cat(x) for x in d[1:]} == {"Mn"}:
             d = d[1:]  # that space is NFKD's, not the text's
         out.extend(

@@ -864,7 +864,7 @@ def _spellings(word: str) -> list[tuple[str, str]]:
     for i, ch in enumerate(word):
         if ch in cherokee:
             out.append(("cherokee", word[:i] + chr(cherokee[ch]) + word[i + 1 :]))
-    for sep in "/,:;|\u00b7*":
+    for sep in "/,:;|\u00b7*\u2022\\+=#'\"`~^&!?%@$<>[]{}":
         out.append(("separator inside the word", sep.join(word.replace("-", ""))))
     for glue in ("\u0308", "\u0301", "\u034f", "\ufe0f", "\ufe0e", "\u200d"):
         out.append(("space before a bare mark", f"the {glue}{word}"))
