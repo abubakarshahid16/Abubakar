@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import itertools
 import re
-import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -162,38 +161,16 @@ def _words_of(proposal: dict) -> str:
     return " ".join(str(proposal.get(k) or "") for k in ("reason", "text"))
 
 
-_CONFUSABLE = str.maketrans(
-    {
-        # Cyrillic, Greek and Armenian letters that look like Latin ones, by code point
-        **{chr(c): v for c, v in (
-            (0x0430, "a"), (0x0441, "c"), (0x0435, "e"), (0x043E, "o"), (0x0440, "p"), (0x0445, "x"), (0x0443, "y"),
-            (0x0456, "i"), (0x0458, "j"), (0x0455, "s"), (0x043A, "k"), (0x043C, "m"), (0x0442, "t"), (0x043D, "h"),
-            (0x0432, "b"), (0x0501, "d"), (0x04CF, "l"),
-            (0x03B1, "a"), (0x03BF, "o"), (0x03B5, "e"), (0x03BD, "v"), (0x03B9, "i"), (0x03C1, "p"), (0x03C4, "t"),
-            (0x03BA, "k"), (0x03BC, "m"), (0x03C7, "x"), (0x03C5, "u"), (0x03B2, "b"), (0x03B7, "n"), (0x03C9, "w"),
-            (0x0578, "n"), (0x057D, "u"), (0x0585, "o"), (0x0581, "g"), (0x0570, "h"), (0x0563, "q"), (0x0566, "q"),
-        )}
-    }
-)  # fmt: skip
-_IGNORABLE = {"\u115f", "\u1160", "\u3164", "\uffa0", "\u180e", "\u2800"}
 _SINGLE_RUN = re.compile(r"(?<![a-z0-9])(?:[a-z][\s\-._]+){2,}[a-z](?![a-z0-9])")
 
 
 def _readable(text: object) -> str:
-    """What a reader reads: NFKC, invisible and combining characters dropped, look-alike letters mapped to Latin, lower
-    case, and a run of single letters ("c o m p l i e s", "c-o-m-p-l-i-e-s") joined into one word."""
-    folded = numparse.normalise_text(str(text or ""))
-    kept = "".join(
-        c
-        for c in folded
-        if c in "\t\n "
-        or (
-            unicodedata.category(c) not in ("Cf", "Mn", "Me", "Cc")
-            and c not in _IGNORABLE
-        )
+    """What a reader reads: the full compatibility fold (`numparse.fold_compat`: NFKC, invisible and combining characters
+    dropped, look-alike letters mapped to Latin, lower case), then a run of single letters ("c o m p l i e s",
+    "c-o-m-p-l-i-e-s") joined into one word."""
+    return _SINGLE_RUN.sub(
+        lambda m: re.sub(r"[^a-z]", "", m.group(0)), numparse.fold_compat(text)
     )
-    plain = numparse.normalise_text(kept).translate(_CONFUSABLE).lower()
-    return _SINGLE_RUN.sub(lambda m: re.sub(r"[^a-z]", "", m.group(0)), plain)
 
 
 def _words_in(plain: str, vocabulary: set[str]) -> bool:
@@ -428,7 +405,7 @@ def _reason_ok(proposal: dict, row: Mapping) -> bool:
     any script, no number word (whole word), no roman numeral, no letter outside ASCII once look-alikes are mapped, and no
     unit the row's own text does not also use."""
     plain = _readable(proposal.get("reason"))
-    raw = numparse.normalise_text(str(proposal.get("reason") or ""))
+    raw = numparse.fold_compat(proposal.get("reason"), lower=False)
     if re.search(
         r"(?<![A-Za-z])[IVXLCDM](?![A-Za-z])", raw
     ):  # a lone capital roman numeral ("V barg")

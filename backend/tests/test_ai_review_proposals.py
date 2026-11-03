@@ -716,3 +716,73 @@ def test_a_grouped_row_with_a_member_that_cannot_be_looked_up_is_not_removable()
     # findings behind the row but the results never carried into it: also not removable
     r4, _ = row(["NEEDS_ENGINEER_REVIEW", "NEEDS_ENGINEER_REVIEW"])
     assert arp.verify(prop(**remove(r4)), ctx(r4)).reason == arp.Reason.FAIL_KEPT.value
+
+
+# ---- every compatibility spelling of a verdict word is refused (the full NFKC fold lives in numparse.fold_compat) -------
+_SUPER = dict(
+    zip("abcdefghijklmnoprstuvwxyz", "ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ", strict=True)
+)
+_SMALLCAP = dict(zip("abcdefghijklmnoprstuvwyz", "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘʀꜱᴛᴜᴠᴡʏᴢ", strict=True))  # fmt: skip
+
+
+def _styles(word: str) -> dict[str, str]:
+    def shift(base: int) -> str:
+        return "".join(chr(base + ord(c) - 97) if "a" <= c <= "z" else c for c in word)
+
+    return {
+        "math bold": shift(0x1D41A),
+        "math sans": shift(0x1D5BA),
+        "math monospace": shift(0x1D68A),
+        "circled": shift(0x24D0),
+        "fullwidth": shift(0xFF41),
+        "long s": word.replace("s", chr(0x17F)),
+        "superscript letters": "".join(_SUPER.get(c, c) for c in word),
+        "small capitals": "".join(_SMALLCAP.get(c, c) for c in word),
+    }
+
+
+_VERDICTS = [
+    "complies",
+    "non-compliant",
+    "fails",
+    "passes",
+    "acceptable",
+    "satisfactory",
+    "approved",
+    "compliant",
+    "conforms",
+]
+_CASES = [(w, k, v) for w in _VERDICTS for k, v in _styles(w).items()]
+
+
+@pytest.mark.parametrize(("word", "style", "spelled"), _CASES)
+def test_a_verdict_claim_in_any_unicode_style_is_refused_without_evidence(
+    word, style, spelled
+):
+    assert (
+        reason_of(prop(text=f"The valve {spelled} here."))
+        == arp.Reason.PASS_FAIL_WORD.value
+    ), (word, style)
+    assert reason_of(_reword(reason=f"The wording {spelled} here.")) in {
+        arp.Reason.PASS_FAIL_WORD.value,
+        arp.Reason.NUMBER_NOT_VERIFIED.value,
+    }, (word, style)
+    assert (
+        reason_of(_flag(reason=f"The row {spelled}.", evidence=[]))
+        == arp.Reason.PASS_FAIL_WORD.value
+    ), (word, style)
+
+
+def test_the_compatibility_fold_is_not_the_number_normaliser():
+    from app import numparse
+
+    assert (
+        numparse.fold_compat(
+            "\U0001d41c\U0001d428\U0001d426\U0001d429\U0001d425\U0001d422\U0001d41e\U0001d42c"
+        )
+        == "complies"
+    )
+    assert (
+        numparse.normalise_text("\U0001d41c\U0001d428") != "co"
+    )  # the number normaliser leaves these letters alone
+    assert numparse.fold_compat(chr(0xFF19) * 2) == "99"
