@@ -69,9 +69,9 @@ RECYCLE WATER PUMPS DATA SHEET
 Item No.: 01-G-101 A/B, 02-G-101 A/B &
 03-G-201 A/B
 Doc. No.: ABC-DAS-M-01
-This document is subject to detail design verification.
-Revised and Issued with
-Supplementary Letter No. 6
+This sheet is subject to final engineering checks.
+Amended and Issued with
+Supplement Letter No. 8
 Rev.
 Revision
 By
@@ -101,24 +101,24 @@ MECHANICAL SEAL (6.8.1)
 PSV_P1 = """Page 1 of 5
 SOME OPERATOR COMPANY
 DATA SHEET FOR
-PRESSURE SAFETY VALVES (PSVs)
+PRESSURE SAFETY VALVES (PSV)
 DOCUMENT NO. ABC-DAS-I-02
 PROJECT NO. AB/1234
 Sheet 1 of 6
 Rev. 1
-MAKE / MFR. MODEL NO.
-Design Standard: API RP 520 Pt-1&2
+MAKER / MODEL NO.
+Design Code: API RP 520 Pt-1&2
 Tag No. PSV-1001 A/B (for AREA-9, 10 & 19) & PSV-2001 A/B (for AREA-21)
 Location
 1st Stage Separator
 Fluid
-Crude Oil/Gas (Dual Service)
+Sour Water/Gas (Dual Service)
 Mfr. drawing no.
 """
 
 PSV_P2 = """SOME OPERATOR COMPANY
 DATA SHEET FOR
-PRESSURE SAFETY VALVES (PSVs)
+PRESSURE SAFETY VALVES (PSV)
 DOCUMENT NO. ABC-DAS-I-02
 PROJECT NO. AB/1234
 Sheet 2 of 6
@@ -130,16 +130,16 @@ VESSEL_P1 = """SOME FIELD DEVELOPMENT PROGRAM (SFDP)
 SOME OPERATING COMPANY
 OFFSHORE & ONSHORE FACILITIES PROJECT (COMMON)
 CONTRACT NO: XY001AB23
-SERVICE ORDER NO. 001-SFDP-2023
+SERVICE ORDER NO. 999-SYNX-2099
 Rev. 00
-Uncontrolled When Printed
+Not Controlled When Printed
 MECHANICAL DATASHEET
 SOME ONSHORE FACILITY
 SOUR WATER DRUMS
-(1234-47-V-0001A/B)
-CONTRACTOR DOC NO: 9999X-1234-SP-0810-0003
+(1234-99-V-0101A/B)
+CONTRACTOR DOC NO: 9999X-1234-SP-9910-0003
 SUBCONTRACTOR DOC NO: NA
-LICENSOR DOC NO: NA
+TECHNOLOGY OWNER DOC NO: NA
 00
 Issued for Final
 Rev.
@@ -148,11 +148,11 @@ Date
 
 VESSEL_P2 = """MECHANICAL DATASHEET SOUR WATER DRUMS
 DWG TYPE
-TAG No. : 1234-47-V-0001A/B
+TAG No. : 1234-99-V-0101A/B
 REV NO
 00
 Tag number :
-1234-47-V-0001A/B
+1234-99-V-0101A/B
 Tag description :
 Sour Water Drums
 Project country :
@@ -234,14 +234,14 @@ def test_the_psv_title_block_yields_tags_without_the_parenthetical_remarks():
 def test_the_vessel_title_block_yields_contractor_number_and_discipline():
     found = _suggest(VESSEL_P1, VESSEL_P2).found
 
-    assert found["document_number"].value == "9999X-1234-SP-0810-0003"
+    assert found["document_number"].value == "9999X-1234-SP-9910-0003"
     assert found["document_number"].quote == \
-        "CONTRACTOR DOC NO: 9999X-1234-SP-0810-0003"
+        "CONTRACTOR DOC NO: 9999X-1234-SP-9910-0003"
     assert found["revision"].value == "00", "'00' is the sheet's own spelling"
     assert found["discipline"].value == "Mechanical"
     assert found["discipline"].page == 1
     assert found["discipline"].quote == "MECHANICAL DATASHEET"
-    assert found["equipment_tags"].value == ["1234-47-V-0001A/B"]
+    assert found["equipment_tags"].value == ["1234-99-V-0101A/B"]
     # No labelled project number: "FACILITIES PROJECT (COMMON)" is a name,
     # "CONTRACT NO" is a contract and "Project country" is a country.
     assert "project" not in found
@@ -266,7 +266,7 @@ def test_a_page_with_no_labelled_fields_yields_nothing():
 @pytest.mark.parametrize("snippet", [
     "CONTRACT NO: XY001AB23\n",
     "SUBCONTRACTOR DOC NO: 1234-AB-0001\n",
-    "LICENSOR DOC NO: 1234-AB-0002\n",
+    "TECHNOLOGY OWNER DOC NO: 1234-AB-0002\n",
     "DOCUMENT NO.: NA\n",
     "Doc. No.: ____________\n",
     "Mfr. drawing no. 12-34-56\n",
@@ -314,12 +314,12 @@ def test_a_project_name_without_an_identifier_is_not_recorded(snippet):
 
 
 @pytest.mark.parametrize("snippet", [
-    "SERVICE ORDER NO. 001-SFDP-2023\n",
+    "SERVICE ORDER NO. 999-SYNX-2099\n",
     "Sour service :\nNACE MR0175/ISO 15156\n",
     "Sour service : NACE MR0175/ISO 15156\n",
     "Amine service : no\n",
     "SERVICE FACTOR ________________\n",
-    "Crude Oil/Gas (Dual Service)\n",
+    "Sour Water/Gas (Dual Service)\n",
     "Service\n2003\n",
     "Service\nInlet\n",
 ])
@@ -338,7 +338,7 @@ def test_a_duty_field_labelled_service_is_not_the_equipment_service():
     "TAG ALL ORIFICES (7.5.2.4) __________\n",
     "Tag description : Sour Water Drums\n",
     "ITEM No\nPUMP DRIVER GEAR BASE TOTAL\n",
-    "Tag number :\n1234-47-V-0001A/B\n",
+    "Tag number :\n1234-99-V-0101A/B\n",
     "Item No.: (for AREA-9 & AREA-10)\n",
 ])
 def test_tag_near_misses_stay_unknown(snippet):
@@ -346,10 +346,10 @@ def test_tag_near_misses_stay_unknown(snippet):
 
 
 @pytest.mark.parametrize("snippet", [
-    "This document is based on the Process Datasheet ABC-PDS-0001\n",
+    "This sheet is based on the Process Datasheet ABC-PDS-0001\n",
     "MECHANICAL SEAL (6.8.1)\n",
     "ABC-DAS-E-   MOTOR DATA SHEET\n",
-    "Vendor shall submit complete API 682 Seal Data Sheet\n",
+    "Supplier shall submit a full API 682 Seal Data Sheet\n",
 ])
 def test_discipline_near_misses_on_the_title_page_stay_unknown(snippet):
     assert "discipline" not in _suggest(snippet).found
@@ -431,12 +431,12 @@ def test_ingestion_writes_the_vessel_fields_with_evidence(tmp_path):
     doc_id = _submittal(TestClient(app), tmp_path, "vessel.pdf",
                         [VESSEL_P1, VESSEL_P2])
     row = _row(doc_id)
-    assert row["document_number"] == "9999X-1234-SP-0810-0003"
+    assert row["document_number"] == "9999X-1234-SP-9910-0003"
     assert row["revision"] == "00"
     assert row["discipline"] == "Mechanical"
     # Rule 8: the canonical column is derived at the same write.
     assert row["discipline_canonical"] == "Mechanical"
-    assert json.loads(row["equipment_tags"]) == ["1234-47-V-0001A/B"]
+    assert json.loads(row["equipment_tags"]) == ["1234-99-V-0101A/B"]
     assert row["project"] is None
     assert row["service"] is None
     assert row["contractor_vendor"] is None, "out of scope - never written"
@@ -448,7 +448,7 @@ def test_ingestion_writes_the_vessel_fields_with_evidence(tmp_path):
     assert evidence["title"]["quote"] == "MECHANICAL DATASHEET"
     number = evidence["document_number"]
     assert number["page"] == 1
-    assert number["quote"] == "CONTRACTOR DOC NO: 9999X-1234-SP-0810-0003"
+    assert number["quote"] == "CONTRACTOR DOC NO: 9999X-1234-SP-9910-0003"
     assert number["method"] == "title_block_label"
     assert number["confidence"] < 0.9
     assert number["classifier_version"] == \
@@ -581,7 +581,7 @@ def test_a_value_the_classifier_did_not_write_is_never_overwritten(tmp_path):
     assert row["discipline"] == "Process (Licensor)"
     assert "discipline" not in _evidence(doc_id)
     # The other fields were NULL and are still filled.
-    assert row["document_number"] == "9999X-1234-SP-0810-0003"
+    assert row["document_number"] == "9999X-1234-SP-9910-0003"
 
 
 def test_a_confirmed_classification_is_left_alone(tmp_path):

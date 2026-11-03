@@ -43,19 +43,19 @@ With the live trust switches ON the following Fails are held as questions by des
 
 | run | requirement rows stored | with a value | COMPLIANT / NON_COMPLIANT | replay `_compare` calls | with a value | reached numeric |
 |---|---|---|---|---|---|---|
-| I-06 PSV datasheet | 69 | 1 | 0 / 0 | 0 (rows made on other branches, not traced further) | 0 | 0 |
+| Datasheet 1 PSV datasheet | 69 | 1 | 0 / 0 | 0 (rows made on other branches, not traced further) | 0 | 0 |
 | HAZOP procedure PDF | 291 | 2 | 0 / 0 | 238 | 2 | 0 |
 | HAZOP procedure Word | 270 | 0 | 0 / 0 | 230 | 0 | 0 |
-| M-03 pump datasheet | 302 | 12 | 0 / 0 | 16 | 1 | 0 |
-| 216400C specification | 2,513 | 25 | 0 / 0 | 583 | 2 | 0 |
+| Datasheet 2 pump datasheet | 302 | 12 | 0 / 0 | 16 | 1 | 0 |
+| Specification 1 specification | 2,513 | 25 | 0 / 0 | 583 | 2 | 0 |
 
 Of the rows that had a value, the stop reasons were: "states no numeric limit" (statement type) 12, AI-matcher or field-name pairing held 18, quantity kind unsure 5, table row 1, unit mismatch 1, pressure reference 1, named value 1, blank field 1 (40 rows). None reached `comparison.py:1165`.
 
-Checklist side (stored, per run): I-06 28 decided of 172 (all COMPLIANT), M-03 3 of 20 (all COMPLIANT), the three others 0. With the live switches off the same replay decides 75 of 172 on I-06, still 0 NON_COMPLIANT.
+Checklist side (stored, per run): Datasheet 1 28 decided of 172 (all COMPLIANT), Datasheet 2 3 of 20 (all COMPLIANT), the three others 0. With the live switches off the same replay decides 75 of 172 on Datasheet 1, still 0 NON_COMPLIANT.
 
 ## Where the Pass on "By Contractor" is produced (owner decision D2)
 
-I-06 has 6 COMPLIANT checklist rows (set pressure 4, viscosity at relieving temperature 2; all tested cards) on values the sheet prints beside "By Contractor".
+Datasheet 1 has 6 COMPLIANT checklist rows (set pressure 4, viscosity at relieving temperature 2; all tested cards) on values the sheet prints beside "By Contractor".
 
 * The reader keeps a figure printed with a deferral phrase as a value and puts the phrase in `value_note` (`datasheets.py:2174`, #725 F3).
 * `blank_markers.fact_is_placeholder(fact, figure_wins=True)` then says it is not a placeholder (`datasheet_checks.py:731`), and the check judges the figure: "is stated" or the arithmetic (`:746-831`), printing the note in its sentence (`:738`).
@@ -68,12 +68,12 @@ Fix, behind `deferred_value_is_query_enabled` (OFF by default, env `DEFERRED_VAL
 | line | switch off | switch on |
 |---|---|---|
 | wrong verdicts | 0 | 0 |
-| Pass on By Contractor/TBA, I-06 | 6 | 0 |
-| checklist decided, I-06 | 28 | 22 (the same 6 rows, now questions) |
+| Pass on By Contractor/TBA, Datasheet 1 | 6 | 0 |
+| checklist decided, Datasheet 1 | 28 | 22 (the same 6 rows, now questions) |
 | Fail rows, all five runs | 0 | 0 |
 | every other line | unchanged | unchanged |
 
-Default switches (`RULE_AUTO_USE_ENABLED=false`, `TESTED_CARDS_DECIDE_ENABLED=false`, which is what a worktree without `backend/.env` runs): I-06 decides 75 of 172 with 17 Pass on By Contractor; with the D2 switch on, 58 decided and 0 such Pass (0 wrong verdicts). The difference between 75 and 28 is `rule_auto_use_enabled`: with it ON every checklist item that is not a tested relief-valve card is held as UNPROVEN (`rule_trust.py:357`, `check_label` `:320`), 47 held rows on I-06, all of them would-be passes. `tested_cards_decide_enabled` then lets the tested relief-valve cards decide (the 28).
+Default switches (`RULE_AUTO_USE_ENABLED=false`, `TESTED_CARDS_DECIDE_ENABLED=false`, which is what a worktree without `backend/.env` runs): Datasheet 1 decides 75 of 172 with 17 Pass on By Contractor; with the D2 switch on, 58 decided and 0 such Pass (0 wrong verdicts). The difference between 75 and 28 is `rule_auto_use_enabled`: with it ON every checklist item that is not a tested relief-valve card is held as UNPROVEN (`rule_trust.py:357`, `check_label` `:320`), 47 held rows on Datasheet 1, all of them would-be passes. `tested_cards_decide_enabled` then lets the tested relief-valve cards decide (the 28).
 
 On the owner's switches the bench gate prints "checklist_decided 28 -> 22" for the switch-on run: those are the 6 deferred passes that became questions, the intended effect. With the switch off the bench gate is GREEN (unchanged code).
 

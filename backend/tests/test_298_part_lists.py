@@ -1,4 +1,4 @@
-"""Order 298.2 (I-06 hand check, CRS-015): "API RP 520 Pt-1&2" cites Parts 1 AND 2. The CRS said the contractor
+"""Order 298.2 (Datasheet 1 hand check, CRS-015): "API RP 520 Pt-1&2" cites Parts 1 AND 2. The CRS said the contractor
 did not reference Part II. Invented citations only."""
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ def _cites(text: str, wanted: str) -> bool:
 @pytest.mark.parametrize(
     "text",
     [
-        "Design Standard: API RP 520 Pt-1&2, KOC-MP-027 Pt. 1&2",
+        "Design Code: API RP 520 Pt-1&2, AGA-MP-027 Pt. 1&2",
         "API RP 520 Part 1 and 2",
         "API 520 Part I & II",
         "API RP 520 Pt.1/2",

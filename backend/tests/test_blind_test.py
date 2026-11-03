@@ -14,7 +14,7 @@ import pytest
 from tools import blind_test
 
 REPO = Path(__file__).resolve().parents[2]
-SUB = "EF1975-DAS-M-99.pdf"
+SUB = "DS-0000-DAS-M-99.pdf"
 
 
 def _line(n, field, expected, page=None, tag="", clause="", submittal=SUB):

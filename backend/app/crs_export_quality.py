@@ -616,11 +616,51 @@ def _internal_extras(
     return notes, {"rows": rows, "considered": considered}
 
 
+NOTE_PARKED = (
+    "AI suggestion awaiting an engineer's decision - row left off the CRS sheet"
+)
+
+
+def park_placeholders(view: dict) -> dict:
+    """Internal copy, switch on: a row whose comment is only the waiting sentence leaves the sheet. Its AI words go to
+    the Review notes, one line each. A row with an issued number stays."""
+    from .crs_draft_lanes import WAITING_COMMENTS
+
+    waiting = [
+        r
+        for r in view["rows"]
+        if str(r.get("comment") or "").strip() in WAITING_COMMENTS
+        and not r.get("crs_ref")
+    ]
+    if not waiting:
+        return view
+    notes = [
+        {
+            "note": NOTE_PARKED,
+            "standard": str(r.get("standard_reference") or ""),
+            "count": None,
+            "detail": str(r.get("ai_review_comment") or ""),
+        }
+        for r in waiting
+    ]
+    kept = [r for r in view["rows"] if r not in waiting]
+    said = f"{len(waiting)} AI suggestions moved to Review notes"
+    top = "\n".join(x for x in (view.get("run_status_note"), said) if x)
+    return {
+        **view,
+        "rows": kept,
+        "run_status_note": top,
+        "review_notes": [*view["review_notes"], *notes],
+    }
+
+
 def finish(view: dict, dropped: int, merged: int) -> dict:
     """Rules 3 to 7 on the view `build_crs_view` made (switch on only)."""
     from . import crs_export as ce
 
     internal = view["crs_copy"] == ce.COPY_INTERNAL
+    if internal and settings.crs_drop_placeholder_rows_enabled:
+        view = park_placeholders(view)
     if not internal:  # a client copy has no Review notes: the withheld count says it
         view["rows_withheld_no_text"] += dropped
         dropped = 0

@@ -30,8 +30,8 @@ from app.main import app
 #: `test_datasheets.py`, so the rule-based extractor has genuine values to
 #: read rather than prose it will correctly refuse.
 ROWS = [
-    ("Set pressure", "340 psig By Contractor"),
-    ("Density at relieving temper.", "23.55 Kg/m3"),
+    ("Set pressure", "355 psig By Contractor"),
+    ("Density at relieving temper.", "31.75 Kg/m3"),
     ("Design pressure", "23.5 barg"),
     ("Compressibility factor", "0.892"),
 ]

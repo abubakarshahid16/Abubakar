@@ -34,7 +34,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from . import live_guard
+from . import live_guard, rulebook_v2_book
 from .config import settings
 from .rulebook_v2_check import CANNOT_TELL, Outcome, check_requirement
 from .rulebook_v2_schema import (
@@ -513,11 +513,11 @@ def _read_book(conn, equipment_type: str) -> tuple[list[dict], list[dict]]:
     if not settings.rulebook_v2_enabled or not wanted or not has_schema(conn):
         return [], []
     out, withheld = [], []
+    where = rulebook_v2_book.current_filter(conn)
     for row in conn.execute(
         "SELECT v.id, v.rule_id, v.version_no, v.field, v.comparator, v.value, v.unit, v.context_flag, v.strength,"
         " r.standard FROM rulebook_version v JOIN rulebook_rule r ON r.id = v.rule_id"
-        " WHERE v.version_no = (SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = v.rule_id)"
-        " ORDER BY r.standard, v.rule_id"
+        f" WHERE {where} ORDER BY r.standard, v.rule_id"
     ).fetchall():
         approval = _standing(conn, row[0]).get(wanted)
         if approval is None:
@@ -583,11 +583,10 @@ def _read_book(conn, equipment_type: str) -> tuple[list[dict], list[dict]]:
 
 
 def _current_versions(conn) -> list:
+    where = rulebook_v2_book.current_filter(conn)
     return conn.execute(
         "SELECT v.id, v.version_no, v.content_hash, r.rule_key FROM rulebook_version v"
-        " JOIN rulebook_rule r ON r.id = v.rule_id"
-        " WHERE v.version_no = (SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = v.rule_id)"
-        " ORDER BY r.rule_key"
+        f" JOIN rulebook_rule r ON r.id = v.rule_id WHERE {where} ORDER BY r.rule_key"
     ).fetchall()
 
 

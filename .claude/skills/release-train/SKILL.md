@@ -25,7 +25,7 @@ Read this instead of re-deriving it. The planner's orders on #692 are the source
 Request changes only for correctness, a safety fence, order 143 or a missing test. Everything else is "optional, not blocking". GitHub refuses a formal approval on a PR from the same account, so an approval is a PR comment naming the head sha.
 
 ## The proof (orders 148, 157)
-M-03, 216400C and I-06 run on the release head with the local model: fewer lines than main, 0 empty comments, 0 time-outs, I-06 no worse. A sheet with a time-out is re-run. Counts are checked read-only from the stored runs (order 155). When it passes, 1a merges, then 1b straight after.
+Datasheet 2, Specification 1 and Datasheet 1 run on the release head with the local model: fewer lines than main, 0 empty comments, 0 time-outs, Datasheet 1 no worse. A sheet with a time-out is re-run. Counts are checked read-only from the stored runs (order 155). When it passes, 1a merges, then 1b straight after.
 
 ## Merge
 Merge commits, not squash. A release PR shows only its own changes once the one under it is merged. After each merge s2 confirms the plan issues closed (order 151) and the worktrees of merged PRs are removed.

@@ -186,7 +186,7 @@ ISSUED = dict(FINDING, engineer_confirmed=True)
 
 
 def test_the_internal_copy_never_opens_a_comment_with_the_reference():
-    """Order 236 (owner report on the M-03 export): "Ref: RF-..." sat inside
+    """Order 236 (owner report on the Datasheet 2 export): "Ref: RF-..." sat inside
     COMPANY Comments on the engineer's copy. The reference stays on the row
     (`row_ref`, for the preview) and on the contractor's copy."""
     from app.crs_export import build_crs_view

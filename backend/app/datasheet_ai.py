@@ -60,6 +60,7 @@ from . import (
 from .ai import output_limits
 from .claude_spend import StopRun
 from .config import settings
+from .unit_tie import unit_with_value
 
 # ---------------------------------------------------------------- vocabulary
 
@@ -883,12 +884,9 @@ def reading_relation(rule_fact: dict, ai_fact: dict) -> str:
       UNIT_DIFFERS  the NUMBERS are equal and the two readings carry two
                     different units - "75 kW" and "75 hp" are not one value,
                     and nothing here may pick one;
-      AI_UNIT       the numbers are equal, the rules' reading LOST its unit
-                    ("75" read from a grid whose unit sits in its own column)
-                    and the AI's quote - checked on the page - prints the
-                    unit it gives: the AI's unit is proven;
-      SAME          otherwise: the same value. A unit only the rules carry,
-                    or an AI unit its own quote does not print, adds nothing.
+      AI_UNIT       the numbers are equal, the rules' reading LOST its unit ("75" from a
+                    grid with a unit column) and the page-checked AI quote prints that unit
+                    WITH this number (#1653); SAME otherwise: an unproven unit adds nothing.
     """
     raw = ai_raw_value(ai_fact)
     blank, _marker = datasheets.is_blank_value(raw)
@@ -899,6 +897,8 @@ def reading_relation(rule_fact: dict, ai_fact: dict) -> str:
     theirs, ours = rule_unit(rule_fact), ai_unit(ai_fact)
     if theirs and ours:
         return SAME if same_unit(theirs, ours) else UNIT_DIFFERS
+    if ours and not unit_with_value(ai_fact.get("value"), ours, ai_fact.get("quote")):
+        return SAME
     if ours and unit_in_quote(ours, ai_fact.get("quote")):
         return AI_UNIT
     return SAME

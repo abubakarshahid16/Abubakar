@@ -21,11 +21,11 @@ have reported 100% for a datasheet whose every value was missed - the same
 mistake phase 3B made and recorded as honesty-audit entry 14. The content was
 read before the rate was believed.
 
-What I-06's data is actually in is TEXT BLOCKS with a numbered label-value [found-on]
+What Datasheet 1's data is actually in is TEXT BLOCKS with a numbered label-value [found-on]
 shape, which is what master plan section 10 asks to preserve:
 
-    5 | Design/Operating pressure | 23.5 / 9 barg (Note - 3) | 46 | ...
-    8 | Set pressure | 340 psig (By Contractor, as per Code) | 49 | ...
+    5 | Design/Operating pressure | 27.5 / 8 barg (Note - 3) | 46 | ...
+    8 | Set pressure | 355 psig (By Contractor, as per Code) | 49 | ...
 
 So this module runs BOTH paths and neither is a fallback for the other:
 the grid path where a grid exists, and coordinate-ordered label-value pairing
@@ -459,7 +459,7 @@ def normalise_degree_glyph(text: str | None) -> str:
 #: `-3 to 55 C`, `4-28 cP`, `0 to 100%`.
 #:
 #: THE HYPHEN IS ONLY A RANGE BETWEEN TWO NUMBERS, and the whole cell must be
-#: the range. `10-05-497` is a P&ID reference: it starts like a range and then
+#: the range. `99-05-997` is a P&ID reference: it starts like a range and then
 #: carries `-497`, which lands in `rest` and refuses the match. A parenthetical
 #: remainder is allowed for the same reason `measure_value` allows one - a
 #: datasheet writes `(Note - 3)` after a real quantity.
@@ -492,7 +492,7 @@ def parse_range(raw: str | None) -> tuple[str, str, str | None] | None:
 
     The unit may arrive three ways and all three count: written on the range
     itself (`4-28 cP`), distributed from the other half of a compound value
-    by `split_compound_pair` (`23.5 / 11.03 barg`), or recovered by the
+    by `split_compound_pair` (`27.5 / 12.04 barg`), or recovered by the
     degree-glyph rule (`-3 to 121OC`). A bare symbol is a unit: `0 to 100%`
     is a percentage range and parses.
     """
@@ -593,13 +593,13 @@ def split_compound_pair(label: str, value: str) -> list[tuple[str, str]]:
     TWO FACTS ONLY WHEN THE VALUE AGREES WITH THE LABEL. The label says two
     fields and the value must say two answers, separated the same way and the
     same number of times. `Design/Operating pressure` against
-    `23.5 / 11.03 barg` is a pair of pressures; the same label against a
+    `27.5 / 12.04 barg` is a pair of pressures; the same label against a
     single `23.5 barg` is a cell this function will not guess at, and it comes
     back as one pair whose value `create_fact` then refuses to parse.
 
     A TRAILING UNIT DISTRIBUTES, AND ONLY WHEN NOTHING ELSE CARRIES ONE.
-    `23.5 / 11.03 barg` is two pressures in barg, so the unit reaches both.
-    `10.15psig/97.18psig` already gives each half its own and nothing is
+    `27.5 / 12.04 barg` is two pressures in barg, so the unit reaches both.
+    `12.25psig/88.40psig` already gives each half its own and nothing is
     added. A unit invented onto a half that had one of its own would be the
     worst outcome available here.
     """
@@ -634,8 +634,8 @@ def split_compound_pair(label: str, value: str) -> list[tuple[str, str]]:
 #: The label that introduces an equipment tag. Matched at the START of the
 #: label, because a datasheet writes the tag two ways and both must read:
 #:
-#:   `Tag number :` | `2003-47-V-0001A/B`     - label and value, two cells
-#:   `Tag No. PSV-4301 A/B (for GC-9, 10 & 19)` | ``   - all one cell
+#:   `Tag number :` | `9900-99-V-0101A/B`     - label and value, two cells
+#:   `Tag No. PSV-9901 A/B (for XC-71, 72 & 73)` | ``   - all one cell
 #:
 #: The second is the client PSV sheet, where the text block carries the key and
 #: the tag together and there is no value beside it. A reader that only
@@ -653,7 +653,7 @@ def tag_from_pair(label: str, value: str) -> str | None:
 
     NEVER GUESSED AND NEVER CLEANED beyond collapsing whitespace. A tag is an
     identifier somebody will type into a search box or read off a P&ID, so
-    `PSV-4301 A/B (for GC-9, 10 & 19)` is stored exactly as the sheet wrote
+    `PSV-9901 A/B (for XC-71, 72 & 73)` is stored exactly as the sheet wrote
     it. Stripping the bracket, the `A/B` or the service note would produce a
     tag that matches nothing a person would look for.
     """
@@ -691,7 +691,7 @@ def stamp_tags(pairs_by_page: dict[int, list[tuple[str, str]]]) -> dict[int, str
       * a page that states its own tag stamps its own facts with it;
       * a document whose pages state exactly ONE distinct tag stamps EVERY
         page with it, including the pages that say nothing. The drum sheet
-        names `2003-47-V-0001A/B` once, on its data page, and every fact in
+        names `9900-99-V-0101A/B` once, on its data page, and every fact in
         the document is about that vessel.
 
     WHEN THE TAGS DIFFER, NOTHING IS INHERITED. The PSV sheet is four valves
@@ -721,8 +721,8 @@ def section_heading(chunk_section: str | None) -> str | None:
     `chunks.section` is the heading the CHUNKER found, and on a ruled two-column
     form it is routinely another column's text. Measured on the real submittal:
     "concrete bearing stress" was filed under the section `3.5 bar (ga)`, and
-    others under `3 Mark` and `5.7 Extent of positive material identification
-    (PMI) :` - none of which is the section that row belongs to.
+    others under `3 Mark` and `6.3 Scope of alloy verification
+    (AVC) :` - none of which is the section that row belongs to.
 
     A wrong section is worse than no section. It tells a reader the value came
     from a part of the document it did not come from, and it does so with the
@@ -775,7 +775,7 @@ def is_field_label(text: str) -> bool:
 
     THIS EXISTS BECAUSE THE FIRST VERSION INVENTED 427 FACTS. Running the
     extractor over the real PSV sheet produced rows whose "label" was
-    `0.01cP By Contractor` and `10-05-497 & 556-05-512` - values and drawing
+    `0.01cP By Contractor` and `99-05-997 & 999-05-912` - values and drawing
     numbers promoted into labels by a pairing that walked off the end of a
     block - and whose value was empty, so every one of them was then recorded
     as a required field left blank. 439 facts from a five-page sheet, 427 of
@@ -800,7 +800,7 @@ def is_field_label(text: str) -> bool:
     # "this is a number" in this module rather than two that can drift.
     if measure_value(candidate)[0] is not None:
         return False
-    # "10-05-497 & 556-05-512" is a drawing reference: more digits than letters.
+    # "99-05-997 & 999-05-912" is a drawing reference: more digits than letters.
     digits = sum(1 for ch in candidate if ch.isdigit())
     if digits > letters:
         return False
@@ -875,8 +875,8 @@ def is_blank_value(value: str | None) -> tuple[bool, str | None]:
     # ONE HOME (rule 8): `blank_markers.classify`, which the geometry reader
     # and the datasheet self-checks read too.
     # #725 F3, OWNER DECISION 2026-10-09 (reverses the rule written here
-    # before): "340 psig (By Contractor, as per Code)" carries a number AND
-    # the marker, and it is the VALUE 340 psig with the note "By Contractor"
+    # before): "355 psig (By Contractor, as per Code)" carries a number AND
+    # the marker, and it is the VALUE 355 psig with the note "By Contractor"
     # - not a blank. Storing it as blank made the CRS tell the contractor the
     # set pressure was "left to be provided" when the sheet gives it.
     blank, marker = blank_markers.classify(value)
@@ -894,7 +894,7 @@ def value_and_note(value: str | None) -> tuple[str | None, str | None]:
     """`(the value without its note, the note)` for a cell that prints a "not
     provided" phrase BESIDE a value (#725 F3).
 
-    "340 psig (By Contractor, as per Code)" -> ("340 psig (, as per Code)"
+    "355 psig (By Contractor, as per Code)" -> ("355 psig (, as per Code)"
     cleaned to a readable value, "By Contractor"). The value counts only when
     the text left after removing the marker reads as a number or a range; a
     marker alone ("By Contractor", "TBD") is `(None, marker)`. A cell with no
@@ -909,9 +909,9 @@ def value_and_note(value: str | None) -> tuple[str | None, str | None]:
     found = re.search(re.escape(marker), value or "", flags=re.IGNORECASE)
     text = value or ""
     before, after = (text[:found.start()], text[found.end():]) if found else (text, "")
-    # The value is the text BEFORE the marker ("145 psig By Contractor, as per
-    # Code"), else AFTER it ("(By Contractor) 340 psig"), else what is left of
-    # the whole cell ("340 psig (By Contractor, as per Code)").
+    # The value is the text BEFORE the marker ("165 psig By Contractor, as per
+    # Code"), else AFTER it ("(By Contractor) 355 psig"), else what is left of
+    # the whole cell ("355 psig (By Contractor, as per Code)").
     for candidate in (before, after, before + " " + after):
         rest = " ".join(_EMPTY_BRACKETS.sub(" ", candidate).split()).strip(_EDGE)
         if rest and (measure_value(rest)[0] is not None or parse_range(rest) is not None):
@@ -1040,7 +1040,7 @@ def _unit_in_label(label: str) -> tuple[str, str | None]:
 #: A pointer to somewhere else on the sheet: "Figure 1", "Table 3", "Note 5",
 #: "Detail A", "Sheet 2 of 4". Never the name of a field.
 #: A DOTTED CLAUSE NUMBER IS THE SAME KIND OF POINTER. The drum sheet's
-#: weight rows read `19 | 4.2.1 | Fabricated weight (L1) : | 4410 | kg`, so
+#: weight rows read `19 | 4.2.1 | Fabricated weight (L1) : | 5210 | kg`, so
 #: after the line number is dropped the clause reference takes the label
 #: position and the real label becomes its value - the same defect as
 #: `Figure 1`, in a different spelling, and it cost three weights.
@@ -1071,7 +1071,7 @@ def _join_continuations(parts: list[str]) -> list[str]:
     A LINE THAT IS ONLY A PARENTHETICAL IS A CONTINUATION, NOT A LABEL. The
     drum sheet writes a corrosion allowance over two lines:
 
-        Design corrosion allowance for removable internal parts
+        Stated corrosion allowance for detachable inner parts
         (material 2)
 
     and the text-block path reads each line as its own cell. `(material 2)`
@@ -1125,7 +1125,7 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
         # to somewhere else on the sheet, not the name of a field.
         #
         # MEASURED DEFECT. The drum sheet's corrosion-allowance rows read
-        # `Figure 1 | Design corrosion allowance for removable internal parts
+        # `Figure 1 | Stated corrosion allowance for detachable inner parts
         # (material 2) | 0 | mm`. Pairing strictly left to right made
         # `Figure 1` the label and the real label its value, so the row's only
         # surviving fact was named after the fragment left over - the field
@@ -1369,7 +1369,7 @@ def _pairs_from_numbered_row(cells: list[str], serials: list[int]) -> list[tuple
 #:
 #: A column header is a TAG only in the shape plant tags are written: letters,
 #: a HYPHEN, digits, an optional letter suffix ("P-101A", "V-2001",
-#: "2003-47-V-0001A"). The hyphen is required so a designation header
+#: "9900-99-V-0101A"). The hyphen is required so a designation header
 #: ("CL300", "SA516") is never taken for a piece of equipment.
 _TAG_COLUMN = re.compile(r"^(?:\d{2,5}-){0,3}[A-Z]{1,5}-\d{2,5}[A-Z]{0,2}(?:/[A-Z])?$")
 _UNIT_COLUMN = re.compile(r"^(?:units?|uom|u/m|unit of measure)$", re.IGNORECASE)
@@ -1696,11 +1696,11 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
         # label, several values under several headers" scoping does not
         # apply to it.
         #
-        # I-06 pairs a PROCESS DATA sub-form and a SPRING AND BONNET sub-form [found-on]
+        # Datasheet 1 pairs a PROCESS DATA sub-form and a SPRING AND COVER sub-form [found-on]
         # on the SAME physical row, each introduced by its own line number:
-        # `1 | Fluid | | Crude Oil/Gas (Dual Service) | | 42 | Bonnet type/
+        # `1 | Fluid | | Sour Water/Gas (Dual Service) | | 42 | Cover type/
         # style | Bolted/ closed`. Treating cells[0] ("1") as the row's one
-        # label turned the two REAL labels ("Fluid", "Bonnet type/ style")
+        # label turned the two REAL labels ("Fluid", "Cover type/ style")
         # into VALUES paired against that bare digit, and the digit itself
         # became the field_name recorded on the fact - 49 of the document's
         # 268 facts were labelled "11", "12", "15" etc. this way, and the
@@ -1708,7 +1708,7 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
         #
         # A second regression document is the same shape with one sub-form per row rather than
         # two: the real label sits one cell past the row number
-        # (`5 | | Tag number : | 2003-47-V-0001A/B | ...`). Scoped-to-header
+        # (`5 | | Tag number : | 9900-99-V-0101A/B | ...`). Scoped-to-header
         # naming then quoted the page's own repeating title text as if it
         # were a column name, because that furniture line is what this
         # table's ROW 0 actually contains - 8 of 10 spot-checked facts had
@@ -1999,7 +1999,7 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
 
     The unit handling is `claims.normalise` and nothing else. An unknown unit
     leaves `normalized_value` None - never 0 - and the raw spelling is kept, so
-    `340 psig` and `9970 Kg/hr` are both recorded exactly as written whether or
+    `355 psig` and `9970 Kg/hr` are both recorded exactly as written whether or
     not this system can convert them.
     """
     # `121OC` IS A TEMPERATURE (the sheet writes the degree sign as a letter): rewritten here so
@@ -2031,7 +2031,7 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     # the real sheet, not imagined:
     #
     #   "2nd Stage Desalter"      -> value 2, unit "nd"   - a location
-    #   "10-05-498 & 556-05-513"  -> value 10             - a P&ID number
+    #   "99-05-998 & 999-05-913"  -> value 10             - a P&ID number
     #
     # The discriminator is NOT whether the unit is recognised. Using the unit
     # table for this dropped "9970 Kg/hr", which is a real value whose compound
@@ -2202,7 +2202,7 @@ def rule_reader_version() -> str:
 def facts_reader_stale(document_id: str) -> bool:
     """Were this datasheet's current RULE-READ facts read by another reader
     version (or by one that recorded none)? Planner 2026-10-10 (F-b, roadmap
-    R5): a fix to the reader ("340 psig (By Contractor)" is a value, #725 F3)
+    R5): a fix to the reader ("355 psig (By Contractor)" is a value, #725 F3)
     reached no live review, because a review reuses stored facts forever.
     Geometry and model facts carry their own versions and are not judged here;
     an engineer-confirmed fact survives a re-read (supersession, #179)."""
