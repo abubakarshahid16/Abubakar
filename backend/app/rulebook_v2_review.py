@@ -541,8 +541,12 @@ def _judge(
     if held["status"] != row.status:
         return _query(rule, VALUE_NOT_TRUSTED, found, held["rationale"])
     if row.status in DECIDED and _context_dependent(rule):
-        row.trust_label = rule_trust.OWNER_NOTE_CONTEXT
         note = rule["approval"]["note"]
+        if rule["approval"].get("tier") == rule_trust.ENGINEER_TIER:
+            # an engineer's note keeps the engineer's label and says so; the owner's words are the owner's alone
+            row.words = f"{row.words}. engineer note: context confirmed: {note}"
+            return row
+        row.trust_label = rule_trust.OWNER_NOTE_CONTEXT
         row.words = f"{row.words}. {rule_trust.OWNER_NOTE_CONTEXT_WORDS}: {note}"
     return row
 
