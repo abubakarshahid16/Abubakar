@@ -37,7 +37,6 @@ import re
 import time
 
 from app import claims, comparison, datasheet_checks, subject_pairing
-from app import standards_converter as sc
 from app.compiled_rule_proof import quote_verified
 from rule_box_tools import rule_box_check, rule_box_labels, rule_box_run
 
@@ -248,7 +247,10 @@ def touches(quote: str, rule_text: str) -> bool:
 
 
 _NEGATION = re.compile(
-    r"\b(no|not|none|nil|blank|tbd|n/a|na|without|absent|missing)\b", re.I
+    r"\b(no|not|never|none|nil|blank|tba|tbc|tbd|n/a|na|n\.a\.?|without|absent|missing|excluded|exclude|excluding|except|"
+    r"omitted|others|cannot|can't|unavailable|by others|to be provided|to be advised|to be confirmed|vendor to|"
+    r"supplier to|contractor to|by vendor|by supplier)\b|\(\s*to be|^\W*$",
+    re.I,
 )
 _LANGUAGES = ("english", "arabic", "french", "german", "spanish", "chinese")
 
@@ -269,23 +271,116 @@ def pass_problem(rule_text: str, quote: str) -> str | None:
     return None
 
 
-_COMPARE_OPS = ("<=", ">=", "<", ">", "=")
+#: Closed table of the ways a rule states its comparator (a negated form is read as itself, so "not less than" is never read
+#: as "less than"). A rule whose comparator is not exactly one op, once, is not compared.
+_COMPARATOR_PHRASES = (
+    ("not more than", "<="),
+    ("not greater than", "<="),
+    ("not higher than", "<="),
+    ("not larger than", "<="),
+    ("no more than", "<="),
+    ("no greater than", "<="),
+    ("no higher than", "<="),
+    ("not exceeding", "<="),
+    ("not to exceed", "<="),
+    ("shall not exceed", "<="),
+    ("must not exceed", "<="),
+    ("not exceed", "<="),
+    ("not above", "<="),
+    ("not over", "<="),
+    ("less than or equal to", "<="),
+    ("at most", "<="),
+    ("up to", "<="),
+    ("maximum", "<="),
+    ("max.", "<="),
+    ("max", "<="),
+    ("≤", "<="),
+    ("<=", "<="),
+    ("not less than", ">="),
+    ("not lower than", ">="),
+    ("not smaller than", ">="),
+    ("no less than", ">="),
+    ("no lower than", ">="),
+    ("not below", ">="),
+    ("not under", ">="),
+    ("greater than or equal to", ">="),
+    ("at least", ">="),
+    ("minimum", ">="),
+    ("min.", ">="),
+    ("min", ">="),
+    ("≥", ">="),
+    (">=", ">="),
+    ("less than", "<"),
+    ("lower than", "<"),
+    ("smaller than", "<"),
+    ("below", "<"),
+    ("under", "<"),
+    ("more than", ">"),
+    ("greater than", ">"),
+    ("higher than", ">"),
+    ("larger than", ">"),
+    ("exceeding", ">"),
+    ("exceeds", ">"),
+    ("exceed", ">"),
+    ("above", ">"),
+    ("over", ">"),
+)
+_OP_OF = dict(_COMPARATOR_PHRASES)
+
+
+def _phrase_rx() -> re.Pattern:
+    parts = []
+    for phrase, _ in sorted(_COMPARATOR_PHRASES, key=lambda x: -len(x[0])):
+        left = r"(?<!\w)" if phrase[0].isalpha() else ""
+        right = r"(?!\w)" if phrase[-1].isalpha() else ""
+        parts.append(left + re.escape(phrase) + right)
+    return re.compile("|".join(parts), re.I)
+
+
+_PHRASE_RX = _phrase_rx()
+_RANGE = re.compile(
+    r"\bbetween\b.*\band\b|\d\s*(?:to|through|thru|and|–|—|-|~)\s*\d|\d\s*\.\.\s*\d|~\s*\d",  # noqa: RUF001
+    re.I,
+)
+_PLACEHOLDER_VALUE = re.compile(r"^\W*$")
+
+
+def normalise_numbers(text: str) -> str:
+    """Decimal commas become points ("1,5 MPa" is 1.5 MPa) and thousands commas go ("1,000 kPa"), so the unit-aware reader
+    sees the number the document wrote. A comma between digits followed by exactly three digits is a thousands comma."""
+    text = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text)
+    return re.sub(r"(?<=\d),(?=\d{1,2}(?!\d))", ".", text)
+
+
+def read_comparator(rule_text: str) -> str | None:
+    """The ONE comparator a rule states, or None when it states none, or two that differ. Longest phrase wins, so a
+    negated form is read as itself."""
+    found = {_OP_OF[m.group(0).lower()] for m in _PHRASE_RX.finditer(rule_text.lower())}
+    return next(iter(found)) if len(found) == 1 else None
+
+
+_WORDS_OF_OP = {
+    "<=": "at most",
+    ">=": "at least",
+    "<": "below",
+    ">": "above",
+    "=": "equal to",
+}
 
 
 def figure_check(rule_text: str, quote: str) -> tuple[str, str]:
-    """(state, words) for a rule that asks for a figure. `no_figure`: the rule has no digit, nothing to compare.
-    `meets` / `violates`: the ONE figure the rule asks for was compared with the ONE same-quantity value in the quote by
-    the datasheet comparison itself (units converted, gauge and absolute kept apart). `cannot`: anything else (the rule's
-    figure, unit or comparator cannot be read, a range, more than one value in the quote, no value of the same quantity,
-    a unit that does not convert): then no Pass and no Fail can rest on it."""
+    """(state, words) for a rule that asks for a figure. `no_figure`: the rule has no digit. `meets` / `violates`: the ONE
+    figure the rule asks for was compared with the ONE same-quantity value in the quote by the datasheet comparison itself
+    (units converted, gauge and absolute apart), the comparator read by the closed table above. `cannot`: anything else
+    (the figure, unit or comparator cannot be read; a range in the rule OR in the quote; more than one value, or none, of
+    the same quantity; a unit that does not convert): then no Pass and no Fail can rest on it."""
     if not re.search(r"\d", rule_text):
         return "no_figure", ""
-    if re.search(
-        r"\bbetween\b.*\band\b|\d\s*(?:to|\u2013|\u2014)\s*\d|\d\s*-\s*\d",
-        rule_text,
-        re.I,
-    ):
+    rule_text, quote = normalise_numbers(rule_text), normalise_numbers(quote)
+    if _RANGE.search(rule_text):
         return "cannot", "the rule states a range"
+    if _RANGE.search(quote):
+        return "cannot", "the quoted words give a range"
     asked = [
         m
         for m in claims.extract_measurements(" ".join(rule_text.split()))
@@ -293,8 +388,8 @@ def figure_check(rule_text: str, quote: str) -> tuple[str, str]:
     ]
     if len(asked) != 1:
         return "cannot", "the rule's figure could not be read as one value"
-    ops = sc.comparators_said(" ".join(rule_text.lower().split())) & set(_COMPARE_OPS)
-    if len(ops) != 1:
+    op = read_comparator(rule_text)
+    if op is None:
         return "cannot", "the rule's comparator could not be read"
     limit = asked[0]
     dimension = claims.unit_dimension(limit.raw_unit)
@@ -310,10 +405,10 @@ def figure_check(rule_text: str, quote: str) -> tuple[str, str]:
         )
     requirement = {
         "requirement_type": "numeric_limit",
-        "operator": next(iter(ops)),
+        "operator": op,
         "raw_value": limit.raw_value,
         "raw_unit": limit.raw_unit,
-        "value": limit.normalized_value if limit.normalized_value is not None else None,
+        "value": limit.normalized_value,
     }
     fact = {
         "raw_value": stated[0].raw_value,
@@ -324,17 +419,63 @@ def figure_check(rule_text: str, quote: str) -> tuple[str, str]:
         "confirmed_by": "rule_box_judge",
     }
     status = comparison.compare(requirement, fact).get("status")
+    words = f"{stated[0].raw_value} {stated[0].raw_unit} against {_WORDS_OF_OP[op]} {limit.raw_value} {limit.raw_unit}"
     if status == comparison.COMPLIANT:
-        return (
-            "meets",
-            f"{stated[0].raw_value} {stated[0].raw_unit} against {next(iter(ops))} {limit.raw_value} {limit.raw_unit}",
-        )
+        return "meets", words
     if status == comparison.NON_COMPLIANT:
-        return (
-            "violates",
-            f"{stated[0].raw_value} {stated[0].raw_unit} against {next(iter(ops))} {limit.raw_value} {limit.raw_unit}",
-        )
+        return "violates", words
     return "cannot", "the stated value could not be compared with the rule's figure"
+
+
+_TERM_TAIL = re.compile(
+    r"\b(?:shall|must|should|is to|are to)\s+(?:be|have|use|comply with|conform to)\s+(?:made\s+)?(?:(?:of|from|in|with|to|as)\s+)?(.+?)(?:[.;]|$)",
+    re.I,
+)
+_NEGATIVE_RULE = re.compile(
+    r"\b(?:shall|must|should)\s+not\b|\bnot\s+be\b|\bnever\b|\bno\b", re.I
+)
+_ARTICLES = {"a", "an", "the", "of", "any", "one", "following"}
+
+
+def required_terms(rule_text: str) -> list[str]:
+    """What a rule with no figure requires, by code: the words after 'shall be / of / in / with', split into alternatives.
+    Empty when the rule is a prohibition or states no such tail."""
+    text = " ".join(rule_text.split())
+    if _NEGATIVE_RULE.search(text):
+        return []
+    m = _TERM_TAIL.search(text)
+    if not m:
+        return []
+    out = []
+    for part in re.split(r",|/|\bor\b|\band\b", m.group(1), flags=re.I):
+        words = [
+            w for w in re.findall(r"[A-Za-z0-9\-]+", part) if w.lower() not in _ARTICLES
+        ]
+        if 0 < len(words) <= 4:
+            out.append(" ".join(words).lower())
+    return out[:6]
+
+
+def term_check(rule_text: str, quote: str) -> tuple[str, str]:
+    """For a rule WITHOUT a digit: `meets` only when a required term stands, as whole words, in the VALUE of the quote (what
+    follows its label), the value is not a placeholder or a negation, and an edition rule is never met (no register).
+    Else `cannot`."""
+    if re.search(r"\d", rule_text):
+        return "no_figure", ""
+    if is_edition_rule(rule_text):
+        return "cannot", "an edition rule needs the editions register"
+    terms = required_terms(rule_text)
+    if not terms:
+        return "cannot", "the rule's required term could not be read"
+    value = quote.split(":", 1)[1] if ":" in quote else quote
+    value = " ".join(value.split())
+    if _PLACEHOLDER_VALUE.match(value) or _NEGATION.search(value):
+        return "cannot", "the quoted value is empty, a placeholder or a negation"
+    folded = " ".join(re.findall(r"[a-z0-9\-]+", value.lower()))
+    for term in terms:
+        if re.search(r"(?<![\w-])" + re.escape(term) + r"(?![\w-])", folded):
+            return "meets", term
+    return "cannot", "the quoted value does not name a required term"
 
 
 def clean_reason(text, rule_text: str, words: int = 8) -> str:
@@ -384,13 +525,17 @@ def verified(
         "figure": figure_check(rule_text, quote)
         if on_page and rule_text
         else ("no_figure", ""),
+        "terms": term_check(rule_text, quote)
+        if on_page and rule_text
+        else ("no_figure", ""),
     }
 
 
 def combine(
     first: dict | None, second: dict | None, scoped: bool
 ) -> tuple[str, str | None, dict | None]:
-    """(status, reason, the call whose evidence is shown). Status: Pass / Fail / Query, `not applicable`, or needs engineer."""
+    """(status, reason, the call whose evidence is shown). Status: Pass / Fail / Query, `not applicable`, or needs engineer.
+    The reason is INTERNAL wording; the contractor comment never uses it (see `comment_of`)."""
     if first is None or second is None:
         return NEEDS_ENGINEER, "a call gave no readable answer", None
     if first["can_state"] != second["can_state"]:
@@ -439,39 +584,51 @@ def combine(
                 None,
             )
         return NEEDS_ENGINEER, "a quote was not found on the cited page", None
-    states = {first["figure"][0], second["figure"][0]}
-    if first["verdict"] in ("pass", "fail") and "cannot" in states:
+    figures = {first["figure"][0], second["figure"][0]}
+    terms = {first["terms"][0], second["terms"][0]}
+    if first["verdict"] in ("pass", "fail") and "cannot" in figures:
         return (
             "Query",
             "the code could not compare the stated value with the rule's figure",
             first,
         )
-    if first["verdict"] == "pass" and "violates" in states:
-        return (
-            "Query",
-            f"the stated value does not meet the rule: {first['figure'][1]}",
-            first,
-        )
-    if first["verdict"] == "fail" and "meets" in states:
-        return (
-            NEEDS_ENGINEER,
-            "the reading says fail but the stated value meets the rule's figure",
-            None,
-        )
     if first["verdict"] == "pass":
-        problem = first["pass_problem"] or second["pass_problem"]
-        if problem == "silence":
+        if "silence" in (first["pass_problem"], second["pass_problem"]):
             return (
                 "not applicable",
                 "the rule says unless stated otherwise and nothing is stated: silence is not compliance",
                 None,
             )
-        if problem:
+        if "violates" in figures:
+            return (
+                "Query",
+                f"the stated value does not meet the rule: {first['figure'][1]}",
+                first,
+            )
+        if "cannot" in terms:
             return (
                 "Query",
                 "the quoted words do not state what the rule asks for",
                 first,
             )
+        if first["pass_problem"] or second["pass_problem"]:
+            return (
+                "Query",
+                "the quoted words do not state what the rule asks for",
+                first,
+            )
+        if "meets" not in figures and "meets" not in terms:
+            return (
+                "Query",
+                "the quoted words do not state what the rule asks for",
+                first,
+            )
+    if first["verdict"] == "fail" and "meets" in figures:
+        return (
+            NEEDS_ENGINEER,
+            "the reading says fail but the stated value meets the rule's figure",
+            None,
+        )
     if len(first["reason"].split()) < 3:
         return NEEDS_ENGINEER, "no reason was given for the verdict", None
     return (
@@ -702,31 +859,27 @@ def plain_look(row) -> str:
     return f"{why} Check {row['clause']} against the datasheet{where}."
 
 
+def _quoted(text, limit: int) -> str:
+    words = " ".join(str(text or "").split())
+    return words if len(words) <= limit else words[: limit - 1].rstrip() + "…"
+
+
 def comment_of(row) -> str:
-    """A CRS row's wording, built by code from verified parts (what, the reference, the action). The model's one sentence is
-    kept only when every number in it is in the quote or the rule."""
+    """A CRS row's wording, BUILT BY CODE ONLY (CRS style guide: what, the reference, the action): a fixed opening, a fixed
+    template, the verified datasheet quote and page, the stored clause and the stored rule words. The model's own sentence
+    and every internal reason stay out of it; they go to the internal workbook only."""
     status = row["status"]
-    first = next((c for c in json.loads(row["calls_json"] or "[]") if c), {})
-    said = str(first.get("reason") or "")
-    allowed = set(_NUMBER.findall(f"{row['evidence'] or ''} {row['rule_quote'] or ''}"))
-    if set(_NUMBER.findall(said)) - allowed:
-        said = ""
-    reason = (row["reason"] or "") if status == "Query" and not said else ""
-    parts = [
-        _OPEN[status],
-        (said or reason).rstrip(".") + "." if (said or reason) else "",
-    ]
-    parts.append(
-        f"Datasheet page {row['page']} states \u201c{' '.join(str(row['evidence']).split())}\u201d; {row['clause']}."
-    )
-    parts.append(
-        "Contractor to confirm and revise if needed."
-        if status == "Query"
-        else "Contractor to revise and resubmit."
-        if status == "Fail"
-        else ""
-    )
-    return " ".join(p for p in parts if p).strip()
+    calls = [c for c in json.loads(row["calls_json"] or "[]") if c]
+    figure = (calls[0].get("figure") if calls else None) or ("no_figure", "")
+    shown = f"Datasheet page {row['page']} states “{_quoted(row['evidence'], 240)}”"
+    asked = f"{row['clause']} requires “{_quoted(row['rule_quote'], 260)}”"
+    if status == "Pass":
+        return f"Acceptable. {shown}; this meets {row['clause']}."
+    if status == "Fail":
+        return f"Not acceptable. {shown}; {asked}. Contractor to revise and resubmit."
+    if figure[0] == "violates":
+        return f"Not acceptable. {shown}: {figure[1]}; {asked}. Contractor to revise and resubmit."
+    return f"Contractor to confirm. {shown}; {asked}. Contractor to confirm that it complies and revise if needed."
 
 
 class RowRefused(ValueError):
@@ -795,6 +948,30 @@ def export_crs(conn, document_id: str, path, internal_path=None) -> int:
                 plain_look(r),
                 r["rule_quote"],
                 "Internal: " + r["label"],
+            ]
+        )
+    notes = inner.create_sheet("AI notes")
+    notes.append(
+        [
+            "Clause",
+            "Result",
+            "Page",
+            "The reading's own sentence (internal)",
+            "Internal reason",
+        ]
+    )
+    for r in conn.execute(
+        f"SELECT * FROM {JUDGED} WHERE document_id = ? AND status IN ('Pass','Fail','Query') ORDER BY clause, rule_id",
+        (document_id,),
+    ):
+        calls = [c for c in json.loads(r["calls_json"] or "[]") if c]
+        notes.append(
+            [
+                r["clause"],
+                r["status"],
+                r["page"],
+                (calls[0].get("reason") if calls else "") or "",
+                r["reason"] or "",
             ]
         )
     inner.save(internal_path)

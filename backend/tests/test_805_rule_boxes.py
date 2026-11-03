@@ -1280,7 +1280,10 @@ def test_two_readings_must_agree_and_carry_verified_evidence_or_the_rule_goes_to
     assert rule_box_judge.combine(fail, other, False)[0] == "needs engineer"
     assert rule_box_judge.combine(fail, nowhere, False)[0] == "needs engineer"
     assert rule_box_judge.combine(fail, None, False)[0] == "needs engineer"
-    passing = _v(_rec(1, "pass"))
+    passing = _v(
+        _rec(1, "pass", quote="The body is cast iron with a painted finish"),
+        rule="The valve body shall be cast iron.",
+    )
     assert rule_box_judge.combine(passing, passing, False)[0] == "Pass"
     unproved = _v(_rec(1, "pass", quote="invented words not present"))
     assert rule_box_judge.combine(unproved, unproved, False)[0] == "needs engineer"
@@ -1973,3 +1976,209 @@ def test_a_fail_verdict_whose_value_actually_meets_the_rule_goes_to_the_engineer
         rule_box_judge.combine(fail(pages_q), fail(pages_q), False)[0]
         == "needs engineer"
     )
+
+
+# ------------------------------------------------------------------------------------------ the comparator, ranges, terms, leaks
+PRESS_PAGE = "Invented sheet. {q} More words follow."
+
+
+def _real(rule, quote, verdict="pass", reason="the sheet states the value clearly"):
+    """Both readings give `verdict`, through the real verified() and combine()."""
+    pages = {1: PRESS_PAGE.format(q=quote)}
+    record = {
+        "i": 1,
+        "verdict": verdict,
+        "scope_applies": None,
+        "page": 1,
+        "quote": quote,
+        "reason": reason,
+        "document_can_state": "yes",
+    }
+    one = rule_box_judge.verified(record, 1, pages, False, rule)
+    return rule_box_judge.combine(one, one, False)[0]
+
+
+@pytest.mark.parametrize(
+    "phrase, op",
+    [
+        ("not more than", "<="),
+        ("not greater than", "<="),
+        ("not higher than", "<="),
+        ("no more than", "<="),
+        ("not exceed", "<="),
+        ("shall not exceed", "<="),
+        ("not exceeding", "<="),
+        ("at most", "<="),
+        ("max.", "<="),
+        ("maximum", "<="),
+        ("up to", "<="),
+        ("\u2264", "<="),
+        ("<=", "<="),
+        ("not less than", ">="),
+        ("no less than", ">="),
+        ("not lower than", ">="),
+        ("at least", ">="),
+        ("min.", ">="),
+        ("minimum", ">="),
+        ("\u2265", ">="),
+        (">=", ">="),
+        ("less than", "<"),
+        ("below", "<"),
+        ("more than", ">"),
+        ("above", ">"),
+        ("exceeds", ">"),
+    ],
+)
+def test_every_comparator_phrase_is_read_as_itself_and_decides_both_directions(
+    phrase, op
+):
+    rule = f"The design pressure shall be {phrase} 10 bar."
+    assert rule_box_judge.read_comparator(rule) == op
+    ok, bad = {
+        "<=": ("5", "15"),
+        ">=": ("15", "5"),
+        "<": ("5", "15"),
+        ">": ("15", "5"),
+    }[op]
+    assert _real(rule, f"Design pressure {ok} bar") == "Pass"
+    assert (
+        _real(rule, f"Design pressure {bad} bar") == "Query"
+    )  # a breach is never a Pass
+
+
+def test_no_comparator_or_two_different_ones_means_no_pass():
+    assert (
+        rule_box_judge.read_comparator("The design pressure shall be 10 bar.") is None
+    )
+    assert (
+        rule_box_judge.read_comparator(
+            "The pressure shall be above 5 bar and below 10 bar."
+        )
+        is None
+    )
+    assert (
+        _real("The design pressure shall be 10 bar.", "Design pressure 10 bar")
+        == "Query"
+    )
+
+
+def test_decimal_commas_and_ranges_in_the_quote_never_make_a_pass():
+    rule = "The design pressure shall be not more than 10 bar."
+    assert (
+        rule_box_judge.normalise_numbers("1,5 MPa and 1,000 kPa")
+        == "1.5 MPa and 1000 kPa"
+    )
+    assert _real(rule, "Design pressure 1,5 MPa") == "Query"  # 1.5 MPa is 15 bar
+    assert _real(rule, "Design pressure 0,5 MPa") == "Pass"  # 5 bar
+    for quote in (
+        "Design pressure 5 to 15 bar",
+        "Design pressure 5-15 bar",
+        "Design pressure 5 through 15 bar",
+        "Design pressure between 5 and 15 bar",
+        "Design pressure ~8 bar",
+        "Design pressure 5 .. 15 bar",
+    ):
+        assert _real(rule, quote) == "Query", quote
+
+
+@pytest.mark.parametrize(
+    "rule, quote",
+    [
+        ("The valve body shall be stainless steel.", "Valve body: carbon steel"),
+        (
+            "The valve body shall be stainless steel.",
+            "Valve body: stainless steel excluded",
+        ),
+        ("The valve body shall be stainless steel.", "Valve body: TBA"),
+        ("The valve body shall be stainless steel.", "Valve body: -"),
+        ("The valve body shall be stainless steel.", "Valve body: n.a."),
+        (
+            "The valve body shall be stainless steel.",
+            "Valve body: never stainless steel",
+        ),
+        ("The valve body shall be stainless steel.", "Valve body: by others"),
+        ("The valve body shall be stainless steel.", "Valve body: omitted"),
+        (
+            "The valve body shall be stainless steel.",
+            "Valve body: stainless steel cannot be fitted",
+        ),
+        ("The valve body shall be stainless steel.", "Valve body: (to be provided)"),
+        (
+            "The valve body shall be stainless steel.",
+            "Valve body: vendor to advise stainless steel",
+        ),
+        (
+            "The valve body shall be stainless steel or duplex.",
+            "Valve body: carbon steel",
+        ),
+        ("The valve body shall not be cast iron.", "Valve body: carbon steel"),
+        (
+            "The latest edition of the code shall apply to the valve body.",
+            "Code edition: 2015 for the valve body",
+        ),
+    ],
+)
+def test_a_rule_without_a_figure_is_never_passed_on_a_placeholder_a_negation_or_the_wrong_word(
+    rule, quote
+):
+    assert _real(rule, quote) != "Pass"
+
+
+def test_a_rule_without_a_figure_passes_only_when_a_listed_alternative_stands_in_the_value():
+    rule = "The valve body shall be stainless steel or duplex."
+    assert _real(rule, "Valve body: duplex") == "Pass"
+    assert _real(rule, "Valve body: stainless steel") == "Pass"
+    assert rule_box_judge.required_terms(rule) == ["stainless steel", "duplex"]
+    assert (
+        _real("The valve body shall be stainless steel.", "Valve body: stainless steel")
+        == "Pass"
+    )
+
+
+def test_the_contractor_comment_is_built_by_code_only_and_leaks_nothing_of_the_models_sentence(
+    rules, tmp_path
+):
+    _setup_judge(rules)
+    leaky = json.dumps(
+        [
+            {
+                "verdict": "query",
+                "reason": "Engineer should confirm this judgement. The AI says fine.",
+            }
+        ]
+    )
+    for rid, status in (("r1", "Query"), ("r3", "Pass")):
+        rules.execute(
+            f"INSERT INTO {rule_box_judge.JUDGED} (document_id, rule_id, status, reason, page, evidence, clause, rule_quote, calls_json, label, model, prompt_version, created_at)"
+            " VALUES ('sub-1',?,?,?,1,'The set pressure is 12 bar','STD-1 clause 4.3','The set pressure shall be stated.',?,'AI judgement, engineer to confirm','m','v','t')",
+            (
+                rid,
+                status,
+                "the code could not compare the stated value with the rule's figure",
+                leaky,
+            ),
+        )
+    out = tmp_path / "c.xlsx"
+    assert rule_box_judge.export_crs(rules, "sub-1", out) == 2
+    import re
+    import zipfile
+
+    import openpyxl
+
+    banned = re.compile(
+        r"engineer|\bAI\b|judgement|internal|the code|could not compare", re.IGNORECASE
+    )
+    sheet = openpyxl.load_workbook(out)["CRS"]
+    comments = [r[4] for r in sheet.iter_rows(min_row=2, values_only=True)]
+    assert comments and not [c for c in comments if banned.search(c)]
+    assert any(c.startswith("Contractor to confirm.") for c in comments) and any(
+        c.startswith("Acceptable.") for c in comments
+    )
+    with zipfile.ZipFile(out) as z:
+        assert not [
+            n
+            for n in z.namelist()
+            if banned.search(z.read(n).decode("utf-8", "ignore"))
+        ]
+    notes = openpyxl.load_workbook(tmp_path / "c-internal.xlsx")["AI notes"]
+    assert "Engineer should confirm" in str(list(notes.iter_rows(values_only=True)))
