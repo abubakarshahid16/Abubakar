@@ -156,36 +156,97 @@ def test_loading_names_who(conn):
 
 
 RULE = {"kind": "holds_listed"}
-QUOTE = {"quote": "Holds: none.", "page": 4, "verified": True}
+QUOTE = "Holds: there are no holds on this submittal."
+PAGES = {
+    1: "Cover sheet of the invented submittal.",
+    2: f"Section 2. {QUOTE} End of section.",
+}
+
+
+def _ev(**over):
+    return {"pages": PAGES, "page_count": 2, "terms": ["holds"], "found": [], **over}
 
 
 @pytest.mark.parametrize(
     ("evidence", "status"),
     [
-        ({"found": [QUOTE]}, lcs.PRESENT),
-        ({"found": [QUOTE], "searched_whole": False}, lcs.PRESENT),
-        ({"found": [{**QUOTE, "verified": False}]}, lcs.NEEDS_ENGINEER),
-        ({"found": [{**QUOTE, "page": None}]}, lcs.NEEDS_ENGINEER),
-        ({"found": [{**QUOTE, "quote": " "}]}, lcs.NEEDS_ENGINEER),
-        ({"found": [], "searched_whole": True}, lcs.NOT_PRESENT),
-        ({"found": [], "searched_whole": False}, lcs.NEEDS_ENGINEER),
-        ({"found": []}, lcs.NEEDS_ENGINEER),
-        (None, lcs.NEEDS_ENGINEER),
+        (_ev(found=[{"quote": QUOTE, "page": 2}]), lcs.PRESENT),
+        # an invented quote, a quote on another page, a bool page, a negative page, a missing page, a short quote
         (
-            {"found": [{**QUOTE, "verified": False}], "searched_whole": True},
+            _ev(
+                found=[
+                    {
+                        "quote": "Holds are fully listed in the invented annex.",
+                        "page": 2,
+                    }
+                ]
+            ),
             lcs.NEEDS_ENGINEER,
         ),
+        (_ev(found=[{"quote": QUOTE, "page": 1}]), lcs.NEEDS_ENGINEER),
+        (_ev(found=[{"quote": QUOTE, "page": True}]), lcs.NEEDS_ENGINEER),
+        (_ev(found=[{"quote": QUOTE, "page": -5}]), lcs.NEEDS_ENGINEER),
+        (_ev(found=[{"quote": QUOTE, "page": 9}]), lcs.NEEDS_ENGINEER),
+        (_ev(found=[{"quote": QUOTE, "page": None}]), lcs.NEEDS_ENGINEER),
+        (_ev(found=[{"quote": "Holds", "page": 2}]), lcs.NEEDS_ENGINEER),
+        # a caller flag is not evidence
+        (
+            _ev(
+                found=[
+                    {
+                        "quote": "Invented words not on any page at all.",
+                        "page": 2,
+                        "verified": True,
+                    }
+                ]
+            ),
+            lcs.NEEDS_ENGINEER,
+        ),
+        # absence: every page read, a term to look for, nothing on any page
+        (_ev(pages={1: "Cover.", 2: "Body."}), lcs.NOT_PRESENT),
+        (
+            _ev(pages={1: "Cover.", 2: "Body."}, searched_whole=True, page_count=3),
+            lcs.NEEDS_ENGINEER,
+        ),  # partial
+        (_ev(pages={1: "Cover."}), lcs.NEEDS_ENGINEER),  # partial read of two pages
+        (_ev(pages={}, page_count=0), lcs.NEEDS_ENGINEER),  # an empty submittal
+        (_ev(pages={}, page_count=None), lcs.NEEDS_ENGINEER),
+        (_ev(pages={1: "Cover.", 2: " "}), lcs.NEEDS_ENGINEER),  # a page with no text
+        (_ev(pages={1: "Cover.", 2: "Body."}, page_count=True), lcs.NEEDS_ENGINEER),
+        (_ev(pages={1: "Cover.", 2: "Body."}, terms=[]), lcs.NEEDS_ENGINEER),
+        (_ev(), lcs.NEEDS_ENGINEER),  # the term is on a page but nobody quoted it
+        (
+            _ev(pages={1: "Cover.", 2: "Body."}, found=[{"quote": QUOTE, "page": 2}]),
+            lcs.NEEDS_ENGINEER,
+        ),
+        (None, lcs.NEEDS_ENGINEER),
     ],
 )
-def test_present_needs_a_verified_quote_and_absent_needs_a_whole_search(
+def test_present_needs_a_quote_on_its_own_page_and_absent_needs_every_page_read(
     evidence, status
 ):
     assert lcs.completeness(RULE, evidence)[0] == status
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Invented: pressure of 25 bar",
+        "Invented: a value >= x",
+        "Invented: at least one copy",
+        "Invented: not exceed it",
+    ],
+)
+def test_a_number_unit_or_comparator_in_the_text_is_refused(tmp_path, text):
+    with pytest.raises(lcs.Refused, match="never an equipment limit"):
+        lcs.read_items(_file(tmp_path, [{**ITEMS[0], "text": text}]))
+
+
 def test_an_item_of_another_kind_is_never_decided():
     assert (
-        lcs.completeness({"kind": "max_pressure"}, {"found": [QUOTE]})[0]
+        lcs.completeness(
+            {"kind": "max_pressure"}, _ev(found=[{"quote": QUOTE, "page": 2}])
+        )[0]
         == lcs.NEEDS_ENGINEER
     )
 

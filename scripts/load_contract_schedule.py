@@ -31,6 +31,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 sys.path.insert(0, str(REPO / "scripts"))
 
+from app import numparse  # noqa: E402
+
 SOURCE = "contract schedule"
 #: What the submittal must show. Each is present or not present; none is a number to meet.
 KINDS = (
@@ -42,6 +44,10 @@ KINDS = (
 ALLOWED_KEYS = {"id", "clause", "kind", "text"}
 PRESENT, NOT_PRESENT, NEEDS_ENGINEER = "present", "not_present", "needs_engineer"
 EXIT_REFUSED = 2
+_NUMBER_OR_LIMIT_WORD = re.compile(
+    r"[<>=\u2264\u2265]|\b(?:at least|at most|no more than|no less than|not exceed|exceeds?|minimum|maximum|min|max)\b",
+    re.IGNORECASE,
+)
 _PLACEHOLDER = re.compile(r"<[^<>]*>")
 
 _TABLE = f"""CREATE TABLE contract_schedule_rule (
@@ -98,6 +104,12 @@ def read_items(path: Path, *, repo: Path = REPO) -> tuple[str, list[dict]]:
                 raise Refused(f"item {n} has no {key}")
             if _PLACEHOLDER.search(value):
                 raise Refused(f"item {n} still holds a placeholder in {key}")
+        if _NUMBER_OR_LIMIT_WORD.search(item["text"]) or numparse.find_numbers(
+            item["text"]
+        ):
+            raise Refused(
+                f"item {n} has a number, unit or comparator in its text: never an equipment limit"
+            )
         if item["kind"] not in KINDS:
             raise Refused(
                 f"item {n} has a kind that is not a completeness kind; allowed: {', '.join(KINDS)}"
@@ -189,30 +201,52 @@ def current_rules(conn, contract: str | None = None) -> list[dict]:
     return [dict(zip(names, r, strict=True)) for r in rows]
 
 
+def _page_no(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
 def completeness(rule: dict, evidence: dict | None) -> tuple[str, str]:
-    """(status, reason) of one schedule item on one submittal. `evidence` is what the reader found:
-    {"searched_whole": bool, "found": [{"quote": str, "page": int, "verified": bool}]}.
-    PRESENT needs a found item whose quote was verified on its page. NOT_PRESENT needs the whole submittal searched, and
-    nothing found, verified or not. Everything else is NEEDS_ENGINEER: unsure never reads as met or as missing."""
+    """(status, reason) of one schedule item on one submittal, decided here from the submittal's own pages.
+    `evidence` = {"pages": {page number: page text}, "page_count": int, "terms": [phrases to look for],
+    "found": [{"quote": str, "page": int}]}. Nothing is taken on trust: no flag says a quote is verified or the search
+    was whole.
+    PRESENT needs a found quote that stands on ITS OWN cited page's text (`compiled_rule_proof.quote_verified`, the one
+    quote check) with a page that is a positive whole number. NOT_PRESENT needs every page 1..page_count read
+    (page_count > 0, a text for each), at least one search term, no claimed find, and none of the terms on any page.
+    Everything else is NEEDS_ENGINEER: unsure never reads as met or as missing."""
+    from app.compiled_rule_proof import quote_verified
+
     if rule.get("kind") not in KINDS:
         return NEEDS_ENGINEER, "the item is not a completeness kind"
     evidence = evidence or {}
+    pages = evidence.get("pages") if isinstance(evidence.get("pages"), dict) else {}
     found = [f for f in evidence.get("found") or [] if isinstance(f, dict)]
-    if any(
-        f.get("verified") is True
-        and str(f.get("quote") or "").strip()
-        and isinstance(f.get("page"), int)
-        for f in found
-    ):
-        return PRESENT, "a quote that was verified on its page"
+    for f in found:
+        if _page_no(f.get("page")) and quote_verified(
+            f.get("quote"), pages.get(f["page"])
+        ):
+            return PRESENT, "a quote that stands on its cited page"
     if found:
         return (
             NEEDS_ENGINEER,
-            "something was found but no quote was verified on its page",
+            "something was found but no quote stands on its cited page",
         )
-    if evidence.get("searched_whole") is True:
-        return NOT_PRESENT, "the whole submittal was searched and nothing was found"
-    return NEEDS_ENGINEER, "not every page was read, so absence is not shown"
+    count = evidence.get("page_count")
+    terms = [
+        str(t).casefold().strip() for t in evidence.get("terms") or [] if str(t).strip()
+    ]
+    whole = (
+        _page_no(count)
+        and set(pages) == set(range(1, count + 1))
+        and all(isinstance(t, str) and t.strip() for t in pages.values())
+    )
+    if not whole:
+        return NEEDS_ENGINEER, "not every page was read, so absence is not shown"
+    if not terms:
+        return NEEDS_ENGINEER, "no search term was given, so absence is not shown"
+    if any(t in text.casefold() for text in pages.values() for t in terms):
+        return NEEDS_ENGINEER, "a search term is on a page but no quote was given"
+    return NOT_PRESENT, "every page was read and none holds the item"
 
 
 def main(argv: list[str] | None = None) -> int:
