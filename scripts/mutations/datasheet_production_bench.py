@@ -19,7 +19,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1720", phase=1720, description="the AI reads MuPDF's numbers-only reading of a workbook",
              path=_A, anchor="    if stored_path and datasheet_inputs.is_office_input(stored_path):\n",
              replacement="    if False:\n",
-             target=_T, keyword="hybrid_reads_the_xlsx", tags=("honesty",)),
+             target=_T, keyword="hybrid_reads_the_xlsx or workbook_page_with_its_labels", tags=("honesty",)),
     Mutation(id="M1721", phase=1721, description="a model call handed in is ignored (the configured engine is used)",
              path=_A, anchor="    if override is not None:\n        return override, None\n",
              replacement="    if False:\n        return override, None\n",
