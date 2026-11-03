@@ -322,7 +322,9 @@ def _misread(**kw):
         value="14 barg",
         row_value="20 barg",
         reason="The row cites the wrong figure for P-101A.",
-        evidence=[{"page": 1, "quote": "Tag P-101A  Design pressure 12 barg  MAWP 14 barg"}],
+        evidence=[
+            {"page": 1, "quote": "Tag P-101A  Design pressure 12 barg  MAWP 14 barg"}
+        ],
     )
     base.update(kw)
     return prop(**base)
@@ -345,7 +347,9 @@ def test_a_misread_needs_the_page_value_and_row_value_in_the_same_unit_and_not_a
     good = _misread(
         value="16 barg",
         row_value="13 barg",
-        evidence=[{"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}],
+        evidence=[
+            {"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}
+        ],
     )
     assert arp.verify(good, ctx).accepted
     assert (
@@ -393,22 +397,35 @@ def test_a_row_without_a_kind_is_read_as_a_fail_and_a_cased_kind_too():
             TAG_REMOVE,
             row_key="k-rev",
             basis="context",
-            evidence=[{"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}],
+            evidence=[
+                {
+                    "page": 1,
+                    "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg",
+                }
+            ],
         )
         assert reason_of(prop(**remove), ctx) == arp.Reason.FAIL_KEPT.value
 
 
 def test_understanding_is_one_page_and_not_trivial():
     ctx = arp.Context(pages=PAGES, rows={}, held={})
-    one = {"type": "understanding", "confidence": "low", "understanding": {"tags": ["a"]}}
+    one = {
+        "type": "understanding",
+        "confidence": "low",
+        "understanding": {"tags": ["a"]},
+    }
     assert not arp.verify(one, ctx).accepted
     across = {
         "type": "understanding",
         "confidence": "low",
-        "understanding": {"service": ["MAWP 16 barg Relief valve PSV-201"]},
+        "understanding": {"service": ["MAWP 16 barg Relief valve"]},
     }  # the end of page 1 and the start of page 2
     assert not arp.verify(across, ctx).accepted
-    fine = {"type": "understanding", "confidence": "low", "understanding": {"fluids": ["amine"]}}
+    fine = {
+        "type": "understanding",
+        "confidence": "low",
+        "understanding": {"fluids": ["amine"]},
+    }
     assert arp.verify(fine, ctx).accepted
 
 

@@ -54,16 +54,37 @@ MIN_UNDERSTANDING_CHARS = 3
 #: Words that read as a verdict in other spelling. Added to `PASS_FAIL_WORDS` for this pass: "in line with the standard",
 #: "acceptable" and the like are the engine's and the engineer's words, never the AI's.
 EXTRA_VERDICT_WORDS = (
-    "in line with", "in accordance with", "in agreement with", "in conformity", "agrees with the standard",
-    "consistent with the standard", "within limits", "within the limit", "within limit", "within range",
-    "within spec", "within specification", "as required by", "ok", "okay", "correct", "good", "fine",
-    "compliance", "non-conformity", "nonconformity", "per the standard", "per standard",
+    "in line with",
+    "in accordance with",
+    "in agreement with",
+    "in conformity",
+    "agrees with the standard",
+    "consistent with the standard",
+    "within limits",
+    "within the limit",
+    "within limit",
+    "within range",
+    "within spec",
+    "within specification",
+    "as required by",
+    "ok",
+    "okay",
+    "correct",
+    "good",
+    "fine",
+    "compliance",
+    "non-conformity",
+    "nonconformity",
+    "per the standard",
+    "per standard",
 )
 _REQUIREMENT_WORDS = re.compile(
     r"\b(?:requires?|required|not less than|not more than|not exceed|at least|at most|minimum|maximum|min\.|max\.|shall|must)\b",
     re.IGNORECASE,
 )
-_ROW_STATES = re.compile(r"\b(?:datasheet|states?|stated|shows?|reads?|reported|printed)\b", re.IGNORECASE)
+_ROW_STATES = re.compile(
+    r"\b(?:datasheet|states?|stated|shows?|reads?|reported|printed)\b", re.IGNORECASE
+)
 
 
 class Reason(Enum):
@@ -129,7 +150,9 @@ def _words_of(proposal: dict) -> str:
 
 def _has_pass_fail_word(text: str) -> bool:
     folded = _fold(text)
-    return any(_contains(folded, word) for word in (*PASS_FAIL_WORDS, *EXTRA_VERDICT_WORDS))
+    return any(
+        _contains(folded, word) for word in (*PASS_FAIL_WORDS, *EXTRA_VERDICT_WORDS)
+    )
 
 
 def _numbers_verified(
@@ -211,7 +234,11 @@ def _evidence_carries_value(proposal: dict) -> bool:
 def _unit_of(figure: str) -> str:
     """The unit word of a figure like "14 barg" ("" when it is a bare number or a clause)."""
     rest = re.sub(r"^[\s+\-\u2212]*[\d.,]+\s*", "", _fold(figure)).strip()
-    return rest if re.fullmatch(r"[a-z%/\u00b0\u00b2\u00b3.\-]+(?: ?[a-z/]+)?", rest) else ""
+    return (
+        rest
+        if re.fullmatch(r"[a-z%/\u00b0\u00b2\u00b3.\-]+(?: ?[a-z/]+)?", rest)
+        else ""
+    )
 
 
 def _row_printed(figure: str, row: Mapping) -> bool:
@@ -392,7 +419,9 @@ def _verify_understanding(proposal: dict, ctx: Context) -> Verdict:
     note = proposal.get("understanding")
     if not isinstance(note, dict) or not note:
         return Verdict(False, Reason.MALFORMED.value, proposal)
-    pages = [_fold(t) for t in ctx.pages.values()]  # one page at a time: text spanning two pages is no quote
+    pages = [
+        _fold(t) for t in ctx.pages.values()
+    ]  # one page at a time: text spanning two pages is no quote
     count = 0
     for key, value in note.items():
         if key not in UNDERSTANDING_KEYS:
