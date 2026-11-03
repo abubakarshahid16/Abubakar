@@ -281,6 +281,7 @@ def run(
     out_of_scope=frozenset(),
     compare=None,
     clause_text=None,
+    reading_ids=frozenset(),
 ) -> dict:
     """Ask once, verify every proposal, store every verdict. Returns and stores the run's summary. Never raises."""
     ensure_schema()
@@ -307,6 +308,7 @@ def run(
         out_of_scope=frozenset(out_of_scope),
         compare=compare,
         clause_text=dict(clause_text or {}),
+        reading_ids=frozenset(reading_ids),
     )
     try:
         proposals, refusal, summary["model"] = _ask(

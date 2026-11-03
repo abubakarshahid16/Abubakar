@@ -140,6 +140,8 @@ class Context:
     compare: Callable[[str, str, str, str], str | None] | None = None
     #: (standard name, clause number) -> the stored clause text; read by the AI-created Pass only (`ai_pass_verifier`)
     clause_text: Mapping[tuple[str, str], str] = field(default_factory=dict)
+    #: the call ids the runner issued for the independent readings of a Pass (`ai_pass_verifier`)
+    reading_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)

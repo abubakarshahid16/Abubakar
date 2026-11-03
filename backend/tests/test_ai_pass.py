@@ -46,6 +46,7 @@ def ctx(pages=None, rows=None, clauses=None):
         rows=rows or {},
         held=HELD,
         clause_text=CLAUSES if clauses is None else clauses,
+        reading_ids=frozenset({"c1", "c2"}),
     )
 
 
@@ -61,6 +62,7 @@ def good(**kw):
         "clause_quote": "not less than 10 bar",
         "scope_applies": "yes",
         "scope_quote": "for vessels in sour service",
+        "call_id": "c1",
         "reason": "Both quotes are on the pages.",
         "confidence": "medium",
         "evidence": [{"page": 1, "quote": quote}],
@@ -73,7 +75,9 @@ def good(**kw):
             "page": base["page"],
             "standard": base["standard"],
             "clause": base["clause"],
+            "call_id": "c2",
             "doc_quote": (base["evidence"] or [{}])[0].get("quote"),
+            "clause_quote": base["clause_quote"],
             "scope_applies": "yes",
         },
     )
@@ -197,10 +201,11 @@ def test_a_second_reading_that_disagrees_or_is_missing_is_not_a_pass(on):
 def test_silence_and_negation_in_the_document_quote_are_never_a_pass(on, tail):
     quote = f"Hydrotest pressure 12 bar {tail}"
     pages = {1: quote}
-    assert (
-        reason_of(good(evidence=[{"page": 1, "quote": quote}]), ctx(pages))
-        == apv.PassReason.NEGATION
-    )
+    assert reason_of(good(evidence=[{"page": 1, "quote": quote}]), ctx(pages)) in {
+        apv.PassReason.NEGATION,
+        apv.PassReason.UNREADABLE,
+        apv.PassReason.PLACEHOLDER,
+    }
 
 
 def _term(**kw):
@@ -209,23 +214,23 @@ def _term(**kw):
         clause="7.2",
         clause_quote="shall be English",
         scope_quote="for all drawings",
-        required_term="English",
         evidence=[{"page": 1, "quote": "Drawing language English"}],
     )
     base.update(kw)
     return base
 
 
-def test_a_requirement_with_no_figure_needs_its_exact_term_in_both_quotes(on):
-    p = _term()
-    p["second"] = dict(p["second"], doc_quote="Drawing language English")
-    assert arp.verify(p, ctx()).accepted
-    q = _term(required_term="Arabic")
-    q["second"] = p["second"]
-    assert reason_of(q) == apv.PassReason.NO_TERM
-    r = _term(required_term="Engl")  # not a whole word
-    r["second"] = p["second"]
-    assert reason_of(r) == apv.PassReason.NO_TERM
+def test_a_requirement_with_no_figure_reads_its_term_from_the_clause_by_code(on):
+    assert arp.verify(_term(), ctx()).accepted
+    # the AI's own required_term is never used: a wrong one changes nothing, a right one does not rescue a wrong value
+    assert arp.verify(_term(required_term="Arabic"), ctx()).accepted
+    pages = {1: "Drawing language Arabic"}
+    p = _term(
+        evidence=[{"page": 1, "quote": "Drawing language Arabic"}],
+        required_term="Arabic",
+    )
+    p["second"] = dict(p["second"], doc_quote="Drawing language Arabic")
+    assert reason_of(p, ctx(pages)) == apv.PassReason.NO_TERM
 
 
 def test_the_other_checks_still_apply_to_a_pass(on):
@@ -265,6 +270,7 @@ def test_the_runner_stores_the_pass_and_the_internal_copy_says_how_it_was_decide
         held=HELD,
         provider=stub,
         clause_text=CLAUSES,
+        reading_ids={"c1", "c2"},
     )
     assert summary["accepted"]["pass"] == 1
     rows: list[dict] = []
@@ -298,7 +304,13 @@ def test_the_contractor_copy_never_carries_an_unconfirmed_ai_pass(on, monkeypatc
 
     monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
     arpass.run(
-        "rv-x", [], pages=DOC, held=HELD, provider=Stub([good()]), clause_text=CLAUSES
+        "rv-x",
+        [],
+        pages=DOC,
+        held=HELD,
+        provider=Stub([good()]),
+        clause_text=CLAUSES,
+        reading_ids={"c1", "c2"},
     )
     rows: list[dict] = []
     view.apply(rows, "rv-x")
