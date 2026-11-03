@@ -363,16 +363,11 @@ def tier_for_approved(approval: dict | None, rule: dict) -> str:
         approval, dict
     ):
         return UNPROVEN
-    if not _signed(approval):
-        return UNPROVEN
-    if approval.get("tier") == OWNER_TIER:
-        return OWNER_APPROVED if second_check(rule)[0] else UNPROVEN
-    if (
-        approval.get("tier") == ENGINEER_TIER
-        and settings.engineer_approved_rules_decide_enabled
-    ):
-        return ENGINEER_APPROVED if second_check(rule)[0] else UNPROVEN
-    return UNPROVEN
+    tiers = {OWNER_TIER: OWNER_APPROVED}
+    if settings.engineer_approved_rules_decide_enabled:
+        tiers[ENGINEER_TIER] = ENGINEER_APPROVED
+    label = tiers.get(approval.get("tier"))
+    return label if label and _signed(approval) and second_check(rule)[0] else UNPROVEN
 
 
 def owner_signed(approval: dict | None) -> bool:
@@ -529,11 +524,8 @@ def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) 
     if not still_open or result["code"] not in (codes[0], codes[1]):
         return result
     n = len(still_open)
-    who = "an owner-approved rule"
-    if all(f.get("trust_label") == ENGINEER_APPROVED for f in still_open):
-        who = "an engineer-approved rule"
-    elif any(f.get("trust_label") == ENGINEER_APPROVED for f in still_open):
-        who = "an owner- or engineer-approved rule"
+    names = sorted({str(f["trust_label"]).split("_")[0].lower() for f in still_open})
+    who = f"an {'- or '.join(names)}-approved rule"
     return {
         **result,
         "code": codes[3],
@@ -609,11 +601,12 @@ def decided_by_tier(rows: list[dict]) -> dict:
     ticks = [r for r in decided(owner) if r.get("show_for_engineer_tick")]
     eng_ticks = [r for r in decided(by_engineer) if r.get("show_for_engineer_tick")]
     confirmed = decided(rows_of(ENGINEER_CONFIRMED))
+    engineer_decided = len(confirmed) + len(decided(by_engineer)) - len(eng_ticks)
     return {
         "decided_by_tier": {
             "owner_approved": len(decided(owner)) - len(ticks),
             "owner_approved_awaiting_tick": len(ticks),
-            "engineer_approved": len(confirmed) + len(decided(by_engineer)) - len(eng_ticks),
+            "engineer_approved": engineer_decided,
             "engineer_approved_awaiting_tick": len(eng_ticks),
         }
     }

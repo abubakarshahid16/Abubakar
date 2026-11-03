@@ -72,4 +72,4 @@ def test_the_held_sheet_reason_names_the_real_tier():
         [_open(rule_trust.OWNER_APPROVED), _open(rule_trust.ENGINEER_APPROVED)],
         CODES,
     )
-    assert "owner- or engineer-approved" in mixed["reason"]
+    assert "engineer- or owner-approved" in mixed["reason"]
