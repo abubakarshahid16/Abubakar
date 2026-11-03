@@ -90,11 +90,11 @@ def test_two_parts_in_one_quote_never_fill():
 
 
 def test_a_part_word_inside_a_longer_phrase_never_fills():
-    page = "IMPELLER WEAR RING :  Hard faced super duplex S.S.\n"
+    page = "IMPELLER WEAR RING :  Stellite coated bronze\n"
     got = verify(
         "impeller_material",
-        "Hard faced super duplex S.S.",
-        "IMPELLER WEAR RING : Hard faced super duplex S.S.",
+        "Stellite coated bronze",
+        "IMPELLER WEAR RING : Stellite coated bronze",
         page,
     )
     assert got is form_reader.Reason.LABEL_NOT_IN_QUOTE
