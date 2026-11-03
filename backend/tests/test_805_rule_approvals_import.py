@@ -354,7 +354,14 @@ def test_the_import_writes_only_the_decision_and_its_event_and_changes_no_rule_t
         assert _run(path)[0] == 0
     finally:
         conn.set_authorizer(None)
-    assert written <= {"rulebook_approval", "rulebook_event", "sqlite_sequence"}
+    # STEP 5: an approval is a new book version, so the import also appends a snapshot of the book (never rule text).
+    assert written <= {
+        "rulebook_approval",
+        "rulebook_event",
+        "rulebook_snapshot",
+        "rulebook_snapshot_rule",
+        "sqlite_sequence",
+    }
     assert "rulebook_approval" in written
     assert {t: _rows(f"SELECT * FROM {t}") for t in tables} == before
 
