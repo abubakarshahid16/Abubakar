@@ -94,7 +94,9 @@ def apply(rows: list[dict], review_run_id: str) -> None:
             and not str(row.get("ai_review_comment") or "").strip()
         ):
             row["ai_review_comment"] = text
-    crs_ai_review_view.apply(rows, review_run_id)  # lane 6: off unless the pass stored accepted proposals
+    crs_ai_review_view.apply(
+        rows, review_run_id
+    )  # lane 6: off unless the pass stored accepted proposals
     _notes(rows, review_run_id)
 
 

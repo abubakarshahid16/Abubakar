@@ -299,8 +299,12 @@ def crs_meta(
         return {}
     out = {}
     if enabled():
-        out["run_record"] = crs_rows(run["id"], run, outcome, unchecked, missing, allowed)
-    shown = crs_ai_review_view.for_run(run["id"])  # lane 6: None unless the review pass accepted something
+        out["run_record"] = crs_rows(
+            run["id"], run, outcome, unchecked, missing, allowed
+        )
+    shown = crs_ai_review_view.for_run(
+        run["id"]
+    )  # lane 6: None unless the review pass accepted something
     if shown:
         out["ai_review"] = shown
     return out

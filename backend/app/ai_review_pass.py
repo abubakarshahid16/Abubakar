@@ -226,13 +226,19 @@ def _engine(summary: dict, provider):
     return provider, None
 
 
-def _rows_to_store(review_run_id: str, verdicts: list, summary: dict, rows: dict) -> list[tuple]:
+def _rows_to_store(
+    review_run_id: str, verdicts: list, summary: dict, rows: dict
+) -> list[tuple]:
     """One stored row per verdict; counts the accepted and refused in the summary."""
     now, out = _now(), []
     for i, verdict in enumerate(verdicts):
         proposal = dict(verdict.proposal) if isinstance(verdict.proposal, dict) else {}
         touched = rows.get(str(proposal.get("row_key") or ""))
-        if verdict.accepted and touched and proposal.get("type") in ("remove", "reword"):
+        if (
+            verdict.accepted
+            and touched
+            and proposal.get("type") in ("remove", "reword")
+        ):
             # The row's own words and place, kept so the removal can be shown and reversed after the row is gone.
             proposal["row_words"] = str(touched.get("comment") or "")
             proposal["row_where"] = str(touched.get("page_section") or "")
