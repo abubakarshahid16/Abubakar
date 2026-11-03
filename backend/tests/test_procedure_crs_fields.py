@@ -231,9 +231,10 @@ def test_the_title_block_note_is_not_on_a_procedure(on, monkeypatch):
     )
     _document(pages=["invented cover"])
     notes = export_status.equipment_notes(DOC, "run", frozenset({DOC}))
-    assert [
-        n for n in notes if n.get("note") == "n"
-    ] == []  # lane 6: the project specification line is there, not this
+    from app import project_specification
+
+    # the exact list: only the project specification note; a stray title block note would be caught
+    assert [n["note"] for n in notes] == [project_specification.NOTE]
 
 
 # ------------------------------------------------------------------- 2. page cell

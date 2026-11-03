@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+from . import access
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ log = logging.getLogger(__name__)
 MARKABLE_ROLES = ("CONTRACT_DOCUMENT", "COMPANY_STANDARD")
 NONE_HELD = "none held"
 NOTE = "Project specification"
+NOT_READABLE = "no such document that you may read"
 
 
 def ensure_schema() -> None:
@@ -56,6 +58,11 @@ def mark(
         return False, "only the owner (the admin role) marks a project specification"
     if submittal_id == spec_id:
         return False, "a document is not its own project specification"
+    # Rule 5: the admin role is a label, not access. The caller must be able to read BOTH documents, and the refusal is the
+    # same words for "does not exist" and "may not read", so it says nothing of a document (its class, title or existence).
+    readable = access.scope_for_user(by_user).allowed_document_ids
+    if submittal_id not in readable or spec_id not in readable:
+        return False, NOT_READABLE
     roles = {
         r["document_id"]: r["document_role"]
         for r in conn.execute(
@@ -86,17 +93,23 @@ def mark(
 
 
 def marked(submittal_id: str) -> str | None:
-    """The specification currently marked for the submittal (the latest mark not undone), or None."""
+    """The specification currently marked for the submittal, or None.
+
+    ONE project specification at a time: marking a second REPLACES the first, and unmarking a document that is not the
+    current one changes nothing. The order is the mark record's own `id` (append order), read in that order, never a dict's
+    insertion order: mark A, mark B, unmark A, mark A gives A."""
     ensure_schema()
-    state: dict[str, str] = {}
+    current: str | None = None
     for r in connect().execute(
         "SELECT spec_document_id, action FROM project_specification_mark"
-        " WHERE submittal_document_id = ? ORDER BY id",
+        " WHERE submittal_document_id = ? ORDER BY id ASC",
         (submittal_id,),
     ):
-        state[r["spec_document_id"]] = r["action"]
-    live = [spec for spec, action in state.items() if action == "mark"]
-    return live[-1] if live else None
+        if r["action"] == "mark":
+            current = r["spec_document_id"]
+        elif current == r["spec_document_id"]:
+            current = None
+    return current
 
 
 def used(submittal_id: str, allowed: frozenset[str]) -> dict | None:
@@ -152,6 +165,17 @@ def pin(review_run_id: str, submittal_id: str, allowed: frozenset[str]) -> bool:
         if found is None or found["requirements"] == 0:
             return False
         from . import applicability
+
+        if (
+            connect()
+            .execute(
+                "SELECT 1 FROM review_applicable_standards WHERE review_run_id = ? AND standard_document_id = ?"
+                " AND selection_method = ?",
+                (review_run_id, found["id"], applicability.METHOD_MANUAL),
+            )
+            .fetchone()
+        ):
+            return False  # an engineer already decided about this standard for this run; the machine never replaces it
 
         applicability.record_selection(
             review_run_id=review_run_id,
