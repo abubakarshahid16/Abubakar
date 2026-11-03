@@ -155,6 +155,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `form_reader` | Read the form of a datasheet page with a model and verify every answer in code |
 | `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
 | `form_reader_run` | Run the form reader over a datasheet for extraction |
+| `unit_tie` | A reader's unit must sit with its number in the quote ("10 bar and 5 MPa" is no 10 MPa, #1653) |
 | `reread_for_standards` | Read the sheet once more when the standards a review chose ask for fields the first read never asked (order 211 R2) |
 | `own_value_limit` | A reference that states its own value ("the vessel MAWP of 12 barg") is a plain limit of that value |
 | `severity_rule` | One rule for a severity word: a failed requirement is never minor |
@@ -337,6 +338,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `standards_inventory` | Standards inventory (B5 part 2): family, edition/revision, licence status, cover-page backfill, and which stan |
 | `stated_value` | Order 124 item 9: a long stated value is quoted in a finding's text as a marked excerpt ending " …", never a raw table chunk; verdicts still use the whole value |
 | `statement_asks` | Orders 180.1 item 2: a plain statement paired with a blank field supports the row only if it asks the sheet to state something |
+| `subject_pairing` | Pairing rule 7: a requirement pairs with a datasheet field only when its subject is the same quantity (off by default) |
 | `states` | Document lifecycle state machine |
 | `stored_paths` | A stored file's path, relative to `data_dir`, resolved on read (order 121 C) |
 | `structured_search` | Small, scope-aware search over EPC workflow records |
