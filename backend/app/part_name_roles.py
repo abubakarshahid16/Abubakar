@@ -7,13 +7,13 @@ carry the printed label ("IMPELLER") sit under no role, so the check said "no la
 
 THE RULES (all must hold; the label gate protects against putting a value on the wrong role, so this stays strict):
   1. the role's data names the part (`part_names`); every part word of the field is a WHOLE word of the quote;
-  2. the quote holds no OTHER role's part word (two parts in one quote never fill anything);
+  2. (the exact-match forms below leave no room for a second part word in the quote);
   3. for a "<part> material" field: the part word is the label of the cell, i.e. the quote opens with it (after a row
      number or a bullet), and the value follows it directly; the value is MADE ONLY of recognised material tokens
-     (`material_value`): any other word (not, same, as, at, vendor, see, or ...) means no fill, and an alternative is
-     never one value; an "impeller wear ring" row is another part and never fills "impeller material";
-  4. for a "<part> type" field: the value is exactly one phrase of the closed list `seal_type_phrases`, it ends the
-     quote, and the quote holds no negation;
+     EXACTLY one entry of the closed data (`material_value`): a name, or spec + grade + name, or name + spec + grade;
+     any separator, second entry or extra word means no fill, and an alternative is never one value; an "impeller wear ring" row is another part and never fills "impeller material";
+  4. for a "<part> type" field: the QUOTE is exactly "<part> [:=] <one phrase of the closed list `seal_type_phrases`>",
+     nothing before or after (so no sentence, no negation, no flush plan);
   5. stored facts (`with_roles`): a bare part-name fact fills only if its value reads as a material, it is not blank, and
      ONE distinct value exists for that part in the whole document; two values means no fill; a role that already
      has a fact under its own name is left alone.
@@ -39,61 +39,64 @@ def _parts_of(role: str, rules: dict) -> list[str]:
     return [w.lower() for w in (rules["roles"].get(role, {}).get("part_names") or [])]
 
 
-def _all_part_words(rules: dict) -> set[str]:
-    return {
-        w.lower()
-        for spec in rules["roles"].values()
-        for w in (spec.get("part_names") or [])
-    }
+#: A grade or spec code: a token holding a digit and a letter (a216, cf8m, 5a, s32760) or three to five digits (316).
+_GRADE = r"(?:[a-z]+\d[a-z0-9]*|\d+[a-z][a-z0-9]*|\d{3,5})"
+_CACHE: dict[tuple, re.Pattern] = {}
 
 
-_SEPARATORS = re.compile(r"[\s/,;()&+\-\.:]+")
-
-
-def _tokens(value) -> list[str]:
-    text = str(value or "").lower().replace("ni-resist", "niresist")
-    text = re.sub(r"\bs\.s\.?", "ss", text)
-    return [t for t in _SEPARATORS.split(text) if t]
-
-
-def _grade_like(token: str) -> bool:
-    """A grade or spec code: letters and digits together (a216, cf8m, 5a, s32760) or three to five digits (316, 4140)."""
-    has_digit, has_letter = (
-        any(c.isdigit() for c in token),
-        any(c.isalpha() for c in token),
+def _entry_pattern(rules: dict) -> re.Pattern:
+    """The ONE shape a material value may have, built from the closed data: a material name alone; or [spec] [Gr.] grade
+    code then a material name; or a material name then [spec] [Gr.] grade code. Whole value, single spaces, no
+    separator (, / - ; & +), no second entry, no extra word. A code alone is never a material, nor a family word alone
+    (steel, iron): they are not names in the data."""
+    key = (
+        tuple(rules.get("material_names", [])),
+        tuple(rules.get("material_spec_words", [])),
     )
-    return (has_digit and has_letter) or (token.isdigit() and 3 <= len(token) <= 5)
+    if key not in _CACHE:
+        names = sorted(
+            {
+                " ".join(_words(n.replace("-", " ")))
+                for n in rules.get("material_names", [])
+            },
+            key=len,
+            reverse=True,
+        )
+        name = (
+            "(?:"
+            + "|".join(r"\s+".join(map(re.escape, n.split())) for n in names)
+            + ")"
+        )
+        spec = (
+            "(?:"
+            + "|".join(re.escape(w) for w in rules.get("material_spec_words", []))
+            + ")"
+        )
+        code = rf"(?!{name}(?:\s|\.|$)){_GRADE}"  # a material name is not also read as a grade code
+        coded = rf"(?:{spec}\s+)?(?:(?:gr|grade)\.?\s+)?{code}(?:\s+(?:(?:gr|grade)\.?\s+)?{code})?"
+        _CACHE[key] = re.compile(rf"^(?:{name}|{coded}\s+{name}|{name}\s+{coded})\.?$")
+    return _CACHE[key]
 
 
 def material_value(value, rules: dict) -> bool:
-    """The value is MADE ONLY of recognised material tokens (names, modifiers, spec words, grade codes) and holds at
-    least one material name or grade code. Any other word (not, same, as, at, vendor, works, see, per, or, and, a
-    number alone ...) means it is not a material: prose, a negation, a cross-reference or an alternative never fills."""
-    nouns = {w.lower() for w in rules.get("material_nouns", [])}
-    others = {
-        w.lower()
-        for w in (
-            *rules.get("material_modifiers", []),
-            *rules.get("material_spec_words", []),
-        )
-    }
-    tokens = _tokens(value)
-    if not tokens:
-        return False
-    strong = False
-    for token in tokens:
-        if token in nouns or _grade_like(token):
-            strong = True
-        elif token not in others:
-            return False
-    return strong
+    """The ENTIRE value (trimmed) is exactly one allowed entry; see `_entry_pattern`. Prose, a negation, a cross-reference,
+    an alternative, a bare code, a bare family word: never."""
+    text = str(value or "").strip().lower().replace("ni-resist", "ni resist")
+    text = re.sub(r"\bs\.s\b\.?", "ss", text)
+    return bool(text) and bool(_entry_pattern(rules).match(" ".join(text.split())))
 
 
-def seal_type_value(value, quote_words: list[str], rules: dict) -> bool:
-    """The value is exactly one phrase of the closed list of seal types, and the quote holds no negation."""
-    phrases = {" ".join(_words(p)) for p in rules.get("seal_type_phrases", [])}
-    negations = {w.lower() for w in rules.get("seal_negations", [])}
-    return " ".join(_words(value)) in phrases and not (negations & set(quote_words))
+def seal_type_quote(part: str, value, printed: str, rules: dict) -> bool:
+    """The QUOTE is exactly "<part> [:=] <one phrase of the closed list of seal types>", optionally ending in a full stop:
+    nothing before it, nothing after it. The value is that phrase."""
+    phrases = sorted(
+        {" ".join(_words(p)) for p in rules.get("seal_type_phrases", [])},
+        key=len,
+        reverse=True,
+    )
+    pattern = rf"^{re.escape(part)}\s*[:=]\s*({'|'.join(r'\s+'.join(map(re.escape, p.split())) for p in phrases)})\.?$"
+    found = re.match(pattern, " ".join(str(printed or "").strip().lower().split()))
+    return bool(found) and " ".join(_words(found.group(1))) == " ".join(_words(value))
 
 
 def accepts(role: str, value: str, printed: str, rules: dict) -> bool:
@@ -104,10 +107,6 @@ def accepts(role: str, value: str, printed: str, rules: dict) -> bool:
     kind = role.rsplit("_", 1)[-1]
     if not parts or kind not in ("material", "type"):
         return False
-    quote_words = _words(printed)
-    others = _all_part_words(rules) - set(parts)
-    if any(o in quote_words for o in others):
-        return False  # rule 2: another role's part is in the same quote
     value_words = _words(value)
     if kind == "material":
         if not material_value(value, rules):
@@ -122,16 +121,8 @@ def accepts(role: str, value: str, printed: str, rules: dict) -> bool:
             if opening and _words(opening.group(1)) == value_words:
                 return True
         return False
-    # kind == "type": a sentence that states it, with a value from the closed list that ends the quote
-    for part in parts:
-        if (
-            part in quote_words
-            and part in value_words
-            and quote_words[-len(value_words) :] == value_words
-            and seal_type_value(value, quote_words, rules)
-        ):
-            return True
-    return False
+    # kind == "type": the quote is exactly "<part>: <one listed seal type>"
+    return any(seal_type_quote(part, value, printed, rules) for part in parts)
 
 
 def with_roles(facts: list[dict], rules: dict, wanted) -> list[dict]:
