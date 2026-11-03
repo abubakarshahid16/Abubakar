@@ -13,7 +13,7 @@ from app import ai_review_proposals as arp
 PAGES = {
     1: "Tag P-101A  Design pressure 12 barg  MAWP 14 barg  Service: lean amine  Fluid: amine\n"
     "Tag P-101B  Design pressure 12 barg  MAWP 16 barg",
-    2: "Relief valve PSV-201  Set pressure 10 barg  Orifice area 650 mm2  Revision stage: IFR",
+    2: "Relief valve PSV-9901  Set pressure 10 barg  Orifice area 650 mm2  Revision stage: IFR",
 }
 FAIL_ROW = {
     "row_kind": "non_compliant",
@@ -52,7 +52,7 @@ def prop(**kw):
         "field": "Set pressure",
         "value": "10 barg",
         "reason": "The valve set pressure should be confirmed.",
-        "text": "Contractor to confirm the set pressure of PSV-201 against the design pressure.",
+        "text": "Contractor to confirm the set pressure of PSV-9901 against the design pressure.",
         "confidence": "medium",
         "basis": None,
         "evidence": [],
@@ -277,7 +277,7 @@ def test_understanding_may_only_name_what_the_document_says():
         "reason": "x",
         "understanding": {
             "equipment": "Relief valve",
-            "tags": ["P-101A", "PSV-201"],
+            "tags": ["P-101A", "PSV-9901"],
             "fluids": ["amine"],
             "revision_stage": "IFR",
         },
