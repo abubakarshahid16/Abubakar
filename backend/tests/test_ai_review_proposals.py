@@ -51,7 +51,7 @@ def prop(**kw):
         "standard": "SAES-X-100",
         "field": "Set pressure",
         "value": "10 barg",
-        "reason": "The valve set pressure should be confirmed.",
+        "reason": "The valve set pressure needs a check.",
         "text": "Contractor to confirm the set pressure of PSV-9901 against the design pressure.",
         "confidence": "medium",
         "basis": None,
@@ -566,7 +566,7 @@ SPELLINGS_OF_A_VERDICT = [
 ]  # fmt: skip
 ORDINARY_WORDS = [
     "done", "often", "component", "bypass", "complete", "content", "passage", "stone", "money", "tone", "compliment",
-    "matched", "valid", "safe", "correct", "verified", "confirmed", "suitable",
+    "matched", "valid", "safe", "correct", "suitable",
 ]  # fmt: skip
 
 
@@ -786,3 +786,127 @@ def test_the_compatibility_fold_is_not_the_number_normaliser():
         numparse.normalise_text("\U0001d41c\U0001d428") != "co"
     )  # the number normaliser leaves these letters alone
     assert numparse.fold_compat(chr(0xFF19) * 2) == "99"
+
+
+# ---- a deterministic generator of spellings of the verdict words: every class must be caught, 0 leaks -------------------------
+def _spellings(word: str) -> list[tuple[str, str]]:
+    import random
+    import unicodedata
+
+    marks = ["́", "̈", "̀", "̂", "̃", "̧", "̣"]
+    spacing = ["¨", "´", "ˆ", "˜"]
+    invisible = ["​", "‌", "‍", "­", "⁠", "﻿"]
+    out: list[tuple[str, str]] = [(k, v) for k, v in _styles(word).items()]
+    lookalike = {
+        "a": 0x430,
+        "c": 0x441,
+        "e": 0x435,
+        "o": 0x43E,
+        "p": 0x440,
+        "x": 0x445,
+        "y": 0x443,
+        "i": 0x456,
+    }
+    for i, ch in enumerate(word):
+        if not ch.isalpha():
+            continue
+        for m in marks:
+            out.append(
+                (
+                    "composed accent",
+                    word[:i] + unicodedata.normalize("NFC", ch + m) + word[i + 1 :],
+                )
+            )
+            out.append(("combining mark", word[: i + 1] + m + word[i + 1 :]))
+        for sp in spacing:
+            out.append(("spacing accent", word[: i + 1] + sp + word[i + 1 :]))
+        for z in invisible:
+            out.append(("invisible", word[: i + 1] + z + word[i + 1 :]))
+        out.append(
+            ("parenthesised", word[:i] + chr(0x249C + ord(ch) - 97) + word[i + 1 :])
+        )
+        out.append(("ascii parentheses", word[:i] + f"({ch})" + word[i + 1 :]))
+        if ch in lookalike:
+            out.append(("homoglyph", word[:i] + chr(lookalike[ch]) + word[i + 1 :]))
+    for kind, spelled in list(_styles(word).items()):
+        out.append((kind + " + zero-width", spelled[:2] + "​" + spelled[2:]))
+        out.append((kind + " + accent", spelled[:2] + "́" + spelled[2:]))
+    rnd = random.Random(20261103)
+    for _ in range(60):  # combinations: three random tricks on one word
+        letters = list(word)
+        for _t in range(3):
+            i = rnd.randrange(len(letters))
+            base = word[i]
+            letters[i] = rnd.choice(
+                [
+                    letters[i] + rnd.choice(marks + invisible + spacing),
+                    chr(0x249C + ord(base) - 97) if base.isalpha() else base,
+                    letters[i],
+                ]
+            )
+        out.append(("combination", "".join(letters)))
+    return out
+
+
+_ALL_WORDS = [
+    "complies",
+    "compliant",
+    "non-compliant",
+    "fails",
+    "passes",
+    "acceptable",
+    "satisfactory",
+    "approved",
+    "conforms",
+    "verified",
+    "confirmed",
+]
+
+
+def test_no_spelling_of_a_verdict_word_leaks_through_the_filter():
+    from app import ai_review_proposals as module
+
+    leaks = [
+        (k, s)
+        for w in _ALL_WORDS
+        for k, s in _spellings(w)
+        if not module._has_pass_fail_word(f"The valve {s} here.")
+    ]
+    assert leaks == [], f"{len(leaks)} leaks, e.g. {leaks[:5]}"
+
+
+def test_a_deterministic_sample_of_the_spellings_is_refused_through_verify():
+    import random
+
+    cases = [(k, s) for w in _ALL_WORDS for k, s in _spellings(w)]
+    sample = random.Random(7).sample(cases, 300)
+    for kind, spelled in sample:
+        assert (
+            reason_of(prop(text=f"The valve {spelled} here."))
+            == arp.Reason.PASS_FAIL_WORD.value
+        ), (kind, spelled)
+        assert reason_of(_reword(reason=f"The wording {spelled} here.")) in {
+            arp.Reason.PASS_FAIL_WORD.value,
+            arp.Reason.NUMBER_NOT_VERIFIED.value,
+        }, (kind, spelled)
+
+
+def test_verified_and_confirmed_are_verdict_claims_without_evidence_and_allowed_with_it():
+    assert (
+        reason_of(prop(text="The valve is verified here."))
+        == arp.Reason.PASS_FAIL_WORD.value
+    )
+    assert (
+        reason_of(prop(text="The valve is confirmed here."))
+        == arp.Reason.PASS_FAIL_WORD.value
+    )
+    remove = dict(
+        TAG_REMOVE,
+        row_key="k-rev",
+        basis="context",
+        reason="The row is verified for the other tag.",
+        evidence=[
+            {"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}
+        ],
+    )
+    assert arp.verify(prop(**remove), CTX).accepted

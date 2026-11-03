@@ -55,7 +55,7 @@ ADD = {
     "clause": "5.1",
     "standard": "SAES-X-100",
     "text": "Contractor to confirm the set pressure of PSV-9901.",
-    "reason": "Set pressure should be confirmed.",
+    "reason": "Set pressure needs a check.",
     "confidence": "low",
 }
 BAD_VALUE = dict(ADD, id="p3", value="99 barg")
