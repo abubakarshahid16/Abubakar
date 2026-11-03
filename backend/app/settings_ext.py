@@ -209,6 +209,10 @@ class SettingsExt(BaseModel):
     #: drafts checked by code unless the row's Rule trust text says a person approved it, and that an engineer must confirm. Export text
     #: only; no row, verdict or number changes. OFF: the sheet is as it was. Env: CRS_RULES_NOTE_ENABLED.
     crs_rules_note_enabled: bool = False
+    #: Owner 3 Nov 11:40 (a): with the switch above, rows with the same problem, field, value, verdict and page are
+    #: one row whatever the clause or standard; the merged row lists every reference, tag and page. OFF: the
+    #: clause is part of the key, as merged in #1648. Env: CRS_ONE_ROW_IGNORE_CLAUSE_ENABLED.
+    crs_one_row_ignore_clause_enabled: bool = False
     #: #1591: on that export, a row with no page says the section or field it is about and why it
     #: has no page, never "page not found". A page still comes only from a verified quote. Needs
     #: CRS_EXPORT_QUALITY_ENABLED. OFF: nothing changes. Env: CRS_PAGE_CELL_FIELD_ENABLED.
