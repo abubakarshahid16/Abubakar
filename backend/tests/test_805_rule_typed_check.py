@@ -447,6 +447,21 @@ def test_with_the_switch_on_a_note_lets_it_decide_and_the_finding_says_so(monkey
     }
 
 
+def test_an_engineer_approval_with_a_note_keeps_the_engineer_label_never_the_owners(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "owner_note_lifts_context_flag_enabled", True)
+    monkeypatch.setattr(settings, "engineer_approved_rules_decide_enabled", True)
+    run, scope = _sheet(value="9 barg")
+    rule = _flagged()
+    rule["approval"] = {**rule["approval"], "tier": "engineer"}
+    row = _one(_review(monkeypatch, run, scope, rule))
+    assert row["compliance_status"] == "NON_COMPLIANT", row["finding"]
+    assert row["trust_label"] == rule_trust.ENGINEER_APPROVED
+    assert "engineer note: context confirmed: Applies to every valve" in row["finding"]
+    assert "owner" not in row["finding"].lower()
+
+
 @pytest.mark.parametrize("note", [None, "", "   "])
 def test_no_note_or_a_blank_one_lifts_nothing(monkeypatch, note):
     monkeypatch.setattr(settings, "owner_note_lifts_context_flag_enabled", True)

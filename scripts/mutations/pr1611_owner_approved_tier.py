@@ -43,23 +43,23 @@ MUTATIONS: tuple[Mutation, ...] = (
         2,
         "the label says quote-verified but code never verified the quote",
         _R,
-        "    return OWNER_APPROVED if second_check(rule)[0] else UNPROVEN\n",
-        "    return OWNER_APPROVED\n",
+        "    return label if label and _signed(approval) and second_check(rule)[0] else UNPROVEN\n",
+        "    return label if label and _signed(approval) else UNPROVEN\n",
         "quote_code_cannot_verify",
     ),
     _m(
         3,
         "any approval tier counts as the owner's",
         _R,
-        '    if approval.get("tier") != OWNER_TIER or not _signed(approval):\n',
-        "    if not _signed(approval):\n",
+        '    label = tiers.get(approval.get("tier"))\n',
+        "    label = OWNER_APPROVED\n",
         "whole_owner_approval",
     ),
     _m(
         4,
         "an owner rule that also says confirmed_by prints as engineer-approved",
         _R,
-        '    if _owner_tier(rule):\n        return tier_for_approved(rule.get("approval"), rule)\n',
+        '    if _owner_tier(rule) or _engineer_tier(rule):\n        return tier_for_approved(rule.get("approval"), rule)\n',
         "",
         "never_labelled_engineer_approved",
     ),
@@ -131,8 +131,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         13,
         "the pair adds engineer-approved rules into the owner's count",
         _P,
-        '            "engineer_approved": len(keys[ENGINEER_CONFIRMED] - keys[OWNER_APPROVED]),',
-        '            "engineer_approved": 0,',
+        '            "engineer_approved": len(\n'
+        "                (keys[ENGINEER_CONFIRMED] | keys[ENGINEER_APPROVED])\n"
+        "                - keys[OWNER_APPROVED]\n"
+        "            ),\n",
+        '            "engineer_approved": 0,\n',
         "counted_apart",
     ),
     _m(
@@ -147,8 +150,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         15,
         "with the switch off an owner rule's finding is labelled and held",
         _R,
-        "    owner_rule = settings.owner_approved_rules_decide_enabled and _owner_tier(rule)\n",
-        "    owner_rule = _owner_tier(rule)\n",
+        "    owner_rule = settings.owner_approved_rules_decide_enabled and (\n"
+        "        _owner_tier(rule) or _engineer_tier(rule)\n"
+        "    )\n",
+        "    owner_rule = _owner_tier(rule) or _engineer_tier(rule)\n",
         "off_the_hook",
     ),
     _m(
