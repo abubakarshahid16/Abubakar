@@ -256,7 +256,9 @@ def run_step(
             else {}
         )
         if has_labels(conn):
-            jobs, members, counts = rule_box_check.check_jobs(conn, gate, getattr(args, "only", None))
+            jobs, members, counts = rule_box_check.check_jobs(
+                conn, gate, getattr(args, "only", None)
+            )
             extra = {**counts, "estimate": False}
         else:
             jobs, members = _estimate_check_jobs(conn, numeric_only=False), {}
@@ -329,7 +331,12 @@ def main(argv: list[str] | None = None, *, emit=print) -> int:
     ap.add_argument("--db", type=Path, required=True)
     ap.add_argument("--send", action="store_true", help="ask Claude; this spends")
     ap.add_argument("--model", default=None)
-    ap.add_argument("--only", choices=("fixed", "ai"), default=None, help="check step: types with an approved list, or with an AI-built one")
+    ap.add_argument(
+        "--only",
+        choices=("fixed", "ai"),
+        default=None,
+        help="check step: types with an approved list, or with an AI-built one",
+    )
     ap.add_argument(
         "--cfihos",
         type=Path,
