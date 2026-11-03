@@ -1,6 +1,6 @@
 """Order 224.1: the AI checks' drafts keep NO status, sit in their own bucket and an exact repeat is marked, never deleted.
 
-On the owner's I-06 run (four relief valves, one per page) the AI engineering
+On the owner's Datasheet 1 run (four relief valves, one per page) the AI engineering
 check wrote "valve size is blank" once per page, each with an EMPTY status.
 The status stays empty (a draft is not a verdict), the drafts are counted as
 "AI observations (draft, no verdict)", exact repeats are marked and every row

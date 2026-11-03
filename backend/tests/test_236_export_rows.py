@@ -1,4 +1,4 @@
-"""Order 236 (owner report, M-03): the exported internal CRS must be the sheet
+"""Order 236 (owner report, Datasheet 2): the exported internal CRS must be the sheet
 the screen shows - every row, and the AI wording beside the rows it belongs to.
 
 Both the preview and the export compose through `main._crs_content`; this holds

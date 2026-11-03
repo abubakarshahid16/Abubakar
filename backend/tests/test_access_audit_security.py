@@ -408,6 +408,8 @@ def test_the_ci_identifier_check_blocks_new_tokens_and_ignores_old_ones(tmp_path
     (repo / ".github").mkdir()
     (repo / ".github" / "client-identifier-patterns.txt").write_bytes(
         (REPO / ".github" / "client-identifier-patterns.txt").read_bytes())
+    hash_file = ".github/client-data-hashes.txt"
+    (repo / hash_file).write_bytes((REPO / hash_file).read_bytes())
     (repo / "old.txt").write_text(f"already tracked {_TAG}\n")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "base")
@@ -428,7 +430,9 @@ def test_the_ci_identifier_check_blocks_new_tokens_and_ignores_old_ones(tmp_path
     _git(repo, "commit", "-qm", "adds one")
     hit = _scan(repo, base)
     assert hit.returncode == 1, hit.stdout + hit.stderr
-    assert f"new.txt:1: {_TAG}" in hit.stdout
+    masked = re.sub("[A-Z]", "A", re.sub("[0-9]", "9", _TAG))
+    assert f"new.txt:1: {masked}" in hit.stdout
+    assert _TAG not in hit.stdout, "the public log repeated the token"
     assert "for the pump" not in hit.stdout, "the log republished the surrounding line"
 
     # The developer's local list is read too, when present.
@@ -437,7 +441,7 @@ def test_the_ci_identifier_check_blocks_new_tokens_and_ignores_old_ones(tmp_path
     (repo / "name.txt").write_text("FAKECLIENT pumps\n")
     _git(repo, "add", "name.txt")
     _git(repo, "commit", "-qm", "name")
-    assert "name.txt:1: FAKECLIENT" in _scan(repo, base).stdout
+    assert "name.txt:1: AAAAAAAAAA" in _scan(repo, base).stdout
 
 
 def test_the_ci_workflow_runs_the_identifier_check_on_the_diff():

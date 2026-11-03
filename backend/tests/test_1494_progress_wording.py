@@ -1,4 +1,4 @@
-"""#1494 follow-up (live I-06 review): the words of a running review's progress.
+"""#1494 follow-up (live Datasheet 1 review): the words of a running review's progress.
 
 A procedure (or any non-datasheet) review never says "datasheet": the line
 names the CONFIRMED kind, or says "document" (a suggested kind is a guess). A

@@ -17,7 +17,7 @@ from app.config import settings
 
 PAGES = {
     1: "Tag P-101A  MAWP 14 barg\nTag P-101B  MAWP 16 barg",
-    2: "Relief valve PSV-201  Set pressure 10 barg",
+    2: "Relief valve PSV-9901  Set pressure 10 barg",
 }
 ROW = {
     "row_kind": "needs_engineer_review",
@@ -54,7 +54,7 @@ ADD = {
     "value": "10 barg",
     "clause": "5.1",
     "standard": "SAES-X-100",
-    "text": "Contractor to confirm the set pressure of PSV-201.",
+    "text": "Contractor to confirm the set pressure of PSV-9901.",
     "reason": "Set pressure should be confirmed.",
     "confidence": "low",
 }

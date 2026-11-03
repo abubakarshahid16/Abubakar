@@ -717,16 +717,6 @@ class Settings(SettingsExt, BaseSettings):
     #: review - its standards too - is on the approved list; else local.
     #: Env: CRS_AI_WORDING_ENGINE.
     crs_ai_wording_engine: str = "ollama"
-    #: Lane 6 (owner order 3 Nov 2026): the AI engineering review pass reads the whole document and the
-    #: draft CRS and PROPOSES removals, additions, rewordings and a document-understanding note; code
-    #: accepts only what it verifies (`ai_review_proposals`). OFF by default. Env:
-    #: AI_ENGINEERING_REVIEW_PASS_ENABLED.
-    ai_engineering_review_pass_enabled: bool = False
-    #: "ollama" (local, default) or "claude" (only when every document of the review is on the approved list;
-    #: else local). Env: AI_ENGINEERING_REVIEW_PASS_ENGINE.
-    ai_engineering_review_pass_engine: str = "ollama"
-    #: Seconds one pass call may take. Env: AI_ENGINEERING_REVIEW_PASS_TIMEOUT_S.
-    ai_engineering_review_pass_timeout_s: float = 300.0
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many
@@ -1256,6 +1246,10 @@ class Settings(SettingsExt, BaseSettings):
     #: `progress_detail`. Env: REVIEW_PROGRESS_BAR_ENABLED.
     review_progress_bar_enabled: bool = True
     review_progress_stall_amber_s: int = 120  # env REVIEW_PROGRESS_STALL_AMBER_S
+    #: Owner order 3 Nov 2026: a requirement pairs with a datasheet field only when its SUBJECT is the same quantity
+    #: (`subject_pairing`); a requirement with no subject stays unpaired, an engineer's question. Off by default.
+    #: Env: PAIRING_SUBJECT_GATE_ENABLED.
+    pairing_subject_gate_enabled: bool = False
     #: Seconds one LOCAL-model call of the AI engineering check may take before
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
@@ -1285,7 +1279,7 @@ class Settings(SettingsExt, BaseSettings):
     review_ai_check_max_output_tokens: int = 12000
     #: Owner order 2d-2: for a standard the datasheet cites but the library does not
     #: hold, an OPTIONAL check against a PUBLIC web copy. OFF BY DEFAULT. Never for a
-    #: company standard (SAES/SAMSS/KOC-* and the like) - those always read "Company
+    #: company standard (SAES/SAMSS and the like) - those always read "Company
     #: standard - upload required" and nothing is searched for them. On its own this
     #: flag sends nothing either: it also needs the market lane's own two egress flags
     #: (`market_live_enabled`, `market_allow_public_egress`) and a configured search

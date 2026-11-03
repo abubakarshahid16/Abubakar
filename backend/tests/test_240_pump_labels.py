@@ -1,4 +1,4 @@
-"""Order 238/240 (s2's 35B run on the M-03 pump sheet): a pump sheet's own labels for its flow and
+"""Order 238/240 (s2's 35B run on the Datasheet 2 pump sheet): a pump sheet's own labels for its flow and
 temperature are read as those fields.
 
 The 35B reader reads every page, so the mandatory-field check ran on facts it had never seen:

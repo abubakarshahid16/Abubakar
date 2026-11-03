@@ -188,9 +188,9 @@ def test_a_plain_unit_has_no_reference():
 
 
 def test_a_parenthetical_that_is_not_a_reference_is_left_alone():
-    """"0.42 (6.09)" is a dual-unit value and "Design pressure (a)" is not a
+    """"0.37 (5.37)" is a dual-unit value and "Design pressure (a)" is not a
     pressure in absolute."""
-    assert claims.split_reference("0.42 (6.09)") == ("0.42 (6.09)", None)
+    assert claims.split_reference("0.37 (5.37)") == ("0.37 (5.37)", None)
     assert claims.split_reference("Design pressure (a)") == ("Design pressure (a)", None)
 
 
@@ -279,7 +279,7 @@ def test_a_unit_written_with_a_space_is_read_whole(cell, unit):
 
 @pytest.mark.parametrize("cell", [
     "2nd Stage Desalter",
-    "10-05-498 & 556-05-513",
+    "99-05-998 & 999-05-913",
     "0.974 @ 170 OF",
 ])
 def test_prose_beginning_with_a_digit_is_still_refused(cell):
@@ -313,7 +313,7 @@ def test_a_section_that_is_not_a_heading_is_null(heading):
 
 @pytest.mark.parametrize("heading", [
     "Process data", "Materials of construction",
-    "5.7 Extent of positive material identification (PMI) :",
+    "6.3 Scope of alloy verification (AVC) :",
 ])
 def test_a_heading_that_reads_like_a_heading_is_kept(heading):
     assert datasheets.section_heading(heading) == heading

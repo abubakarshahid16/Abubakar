@@ -1,0 +1,22 @@
+# Known client data left in code logic on purpose, as `path digest`. Each line was
+# flagged to the owner rather than rewritten (CLAUDE.md rule 13). Remove a line when
+# the owner decides; a new line needs the owner.
+# register-file block logic (CLAUDE.md rule 3 wording and the block that keeps that file from the API); owner to decide
+CLAUDE.md 39ec2e8c5824
+backend/app/claude_approved.py a6dc2412140a
+backend/tests/test_1584_claude_auto_approve.py 39ec2e8c5824
+backend/tests/test_1584_claude_auto_approve.py a6dc2412140a
+# guessable-password blocklist and a legacy environment fallback; owner to decide
+backend/app/auth.py da0bb7b3e6f1
+scripts/seed_access.py da0bb7b3e6f1
+backend/tests/conftest.py da0bb7b3e6f1
+# a standards family in the identifier logic; owner to decide
+backend/app/reference/standard_identifiers.json cddf00d71cb4
+backend/app/standards_inventory.py cddf00d71cb4
+backend/app/standards_acquisition.py cddf00d71cb4
+backend/app/web_standards.py cddf00d71cb4
+backend/app/schemas.py cddf00d71cb4
+scripts/mutations/citation_reader.py cddf00d71cb4
+backend/tests/test_standards_inventory.py cddf00d71cb4
+backend/tests/test_standards_acquisition.py cddf00d71cb4
+backend/tests/test_web_standards.py cddf00d71cb4

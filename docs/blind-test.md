@@ -18,8 +18,8 @@ One person can hold two roles, never Engineer and Operator on the same datasheet
 ## Steps
 
 1. **Custodian picks 2-3 datasheets nobody on the project has opened**, preferably
-   of different equipment types and layouts. Not M-03, I-06 or 216400C: those are
-   burned (already inspected, and 216400C was used for tuning).
+   of different equipment types and layouts. Not Datasheet 2, Datasheet 1 or Specification 1: those are
+   burned (already inspected, and Specification 1 was used for tuning).
 2. **Engineer fills the answer key** (`gold/FINDINGS-TEMPLATE.csv`, copied to
    `gold/FINDINGS-<datasheet>.csv`), from the datasheet and the standards alone:
    - one row per comment they would raise: page, field, tag, and `breach`,

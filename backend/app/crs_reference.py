@@ -83,6 +83,15 @@ def check_reference(finding: dict) -> str:
     page = finding.get("standard_page")
     if not cited:
         return "Datasheet check"
+    # The edition when one is known (STEP 5); a check's source with none known prints as before.
+    stored = str(finding.get("standard_edition") or "").strip()
+    printed = edition_of(
+        cited
+    )  # a year the source itself prints; "3" in "3.20" is a clause number, not an edition
+    if stored and printed is None:
+        cited = f"{cited} ({stored})"
+    elif stored and printed != stored:
+        cited = f"{cited} (edition to confirm)"  # the register and the source disagree: print neither as settled
     return f"{cited} (p.{page})" if page else cited
 
 

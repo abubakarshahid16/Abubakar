@@ -15,7 +15,7 @@ checklist at section 8 - STOP if it differs), `CURRENT_STATE_AND_BLOCKERS.md`,
 ## Scope
 
 B24 and B23 only. **Do not** rerun Phase 0.5, touch the frozen packet, start B19,
-M-03, HAZOP, FEED, CRS expansion or Claude benchmarking. No deletes, no git reset, no
+Datasheet 2, HAZOP, FEED, CRS expansion or Claude benchmarking. No deletes, no git reset, no
 schema change, no push, no claim of engineering accuracy.
 
 ---

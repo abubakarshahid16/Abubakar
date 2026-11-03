@@ -48,6 +48,10 @@ class SettingsExt(BaseModel):
     #: 1 (`rulebook_v2_review.py`). Needs RULEBOOK_V2_ENABLED and the tables, so a database copy today. OFF: a review
     #: reads none of it and is byte-identical. Env: RULEBOOK_V2_REVIEW_ENABLED.
     rulebook_v2_review_enabled: bool = False
+    #: #805 order 3 Nov STEP 5: the register of every edition of a standard with its issue date
+    #: (`standard_editions.py`), on a database COPY. The pure choice of edition needs no switch. OFF: nothing is read,
+    #: created or written. Env: STANDARD_EDITIONS_ENABLED.
+    standard_editions_enabled: bool = False
     #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
@@ -342,6 +346,10 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
+    #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
+    #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
+    crs_drop_placeholder_rows_enabled: bool = False
     #: #1608 (plan change 6 G): at the end of each comparison the run stores its rulebook (version used, rules applied,
     #: fingerprint) and the ticks imported; the internal CRS gets a "Run record" sheet with those, the run's models and
     #: the could-not-check list, which says so when empty (`run_record`). OFF: nothing stored, no sheet.
@@ -434,3 +442,10 @@ class SettingsExt(BaseModel):
     claude_budget_usd_per_run: float = Field(15.0, gt=0)
     #: The day cap; it can only narrow the owner's USD 100 (`claude_spend_report.day_cap`). Env: CLAUDE_BUDGET_USD_PER_DAY.
     claude_budget_usd_per_day: float = Field(100.0, gt=0)
+    #: Lane 6 (owner order 3 Nov 2026): the AI engineering review pass PROPOSES removals, additions, rewordings and a
+    #: document-understanding note; code accepts only what it verifies (`ai_review_proposals`). OFF by default.
+    #: Env: AI_ENGINEERING_REVIEW_PASS_ENABLED, AI_ENGINEERING_REVIEW_PASS_ENGINE ("ollama" local, or "claude" only when
+    #: every document of the review is on the approved list), AI_ENGINEERING_REVIEW_PASS_TIMEOUT_S.
+    ai_engineering_review_pass_enabled: bool = False
+    ai_engineering_review_pass_engine: str = "ollama"
+    ai_engineering_review_pass_timeout_s: float = 300.0
