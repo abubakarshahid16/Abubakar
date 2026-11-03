@@ -46,6 +46,45 @@ BASES = ("misread", "out_of_scope", "tag_difference", "context")
 FAIL_REMOVING_BASES = ("misread", "out_of_scope")
 UNDERSTANDING_KEYS = ("equipment", "tags", "service", "fluids", "revision_stage")
 MAX_UNDERSTANDING_ITEMS = 40
+#: An evidence quote shorter than this proves nothing ("a", "Tag" occur on every page). 8 characters is a short tag
+#: plus a word ("Tag P-101B"); a single character or a bare common word can never be a removal's evidence.
+MIN_QUOTE_CHARS = 8
+#: A document-understanding item shorter than this (one or two characters) occurs inside almost any page.
+MIN_UNDERSTANDING_CHARS = 3
+#: Words that read as a verdict in other spelling. Added to `PASS_FAIL_WORDS` for this pass: "in line with the standard",
+#: "acceptable" and the like are the engine's and the engineer's words, never the AI's.
+EXTRA_VERDICT_WORDS = (
+    "in line with",
+    "in accordance with",
+    "in agreement with",
+    "in conformity",
+    "agrees with the standard",
+    "consistent with the standard",
+    "within limits",
+    "within the limit",
+    "within limit",
+    "within range",
+    "within spec",
+    "within specification",
+    "as required by",
+    "ok",
+    "okay",
+    "correct",
+    "good",
+    "fine",
+    "compliance",
+    "non-conformity",
+    "nonconformity",
+    "per the standard",
+    "per standard",
+)
+_REQUIREMENT_WORDS = re.compile(
+    r"\b(?:requires?|required|not less than|not more than|not exceed|at least|at most|minimum|maximum|min\.|max\.|shall|must)\b",
+    re.IGNORECASE,
+)
+_ROW_STATES = re.compile(
+    r"\b(?:datasheet|states?|stated|shows?|reads?|reported|printed)\b", re.IGNORECASE
+)
 
 
 class Reason(Enum):
@@ -59,6 +98,7 @@ class Reason(Enum):
     NUMBER_NOT_VERIFIED = "number_not_on_page_or_row"
     CLAUSE_NOT_VERIFIED = "clause_not_verified"
     EVIDENCE_NOT_ON_PAGE = "evidence_not_on_page"
+    EVIDENCE_TOO_SHORT = "evidence_quote_too_short"
     PASS_FAIL_WORD = "pass_fail_word"
     NO_SUCH_ROW = "row_not_in_this_run"
     PROTECTED_ROW = "row_never_removed_by_ai"
@@ -110,7 +150,9 @@ def _words_of(proposal: dict) -> str:
 
 def _has_pass_fail_word(text: str) -> bool:
     folded = _fold(text)
-    return any(_contains(folded, word) for word in PASS_FAIL_WORDS)
+    return any(
+        _contains(folded, word) for word in (*PASS_FAIL_WORDS, *EXTRA_VERDICT_WORDS)
+    )
 
 
 def _numbers_verified(
@@ -171,9 +213,50 @@ def _evidence_ok(proposal: dict, ctx: Context) -> str | None:
         page, quote = item.get("page"), str(item.get("quote") or "").strip()
         if not isinstance(page, int) or isinstance(page, bool) or page not in ctx.pages:
             return Reason.PAGE_NOT_IN_DOCUMENT.value
-        if not quote or _fold(quote) not in _fold(ctx.pages[page]):
+        if len(quote) < MIN_QUOTE_CHARS:
+            return Reason.EVIDENCE_TOO_SHORT.value
+        if _fold(quote) not in _fold(ctx.pages[page]):
             return Reason.EVIDENCE_NOT_ON_PAGE.value
     return None
+
+
+def _evidence_carries_value(proposal: dict) -> bool:
+    """When the proposal cites a value, at least one evidence quote contains it: the quote is what the reason relies on."""
+    value = str(proposal.get("value") or "").strip()
+    if not value:
+        return True
+    return any(
+        isinstance(i, dict) and numparse.value_in_text(value, str(i.get("quote") or ""))
+        for i in proposal.get("evidence") or []
+    )
+
+
+def _unit_of(figure: str) -> str:
+    """The unit word of a figure like "14 barg" ("" when it is a bare number or a clause)."""
+    rest = re.sub(r"^[\s+\-\u2212]*[\d.,]+\s*", "", _fold(figure)).strip()
+    return (
+        rest
+        if re.fullmatch(r"[a-z%/\u00b0\u00b2\u00b3.\-]+(?: ?[a-z/]+)?", rest)
+        else ""
+    )
+
+
+def _row_printed(figure: str, row: Mapping) -> bool:
+    """`figure` is a figure the ROW states for the datasheet: in a sentence of its comment that reports the datasheet
+    ("Datasheet p.1, MAWP states 13 barg") and in no sentence that gives the standard's requirement or clause."""
+    comment = str(row.get("comment") or "")
+    ref = str(row.get("standard_reference") or "")
+    if numparse.value_in_text(figure, ref):
+        return False
+    stated = False
+    for sentence in re.split(r"(?<=[.;])\s+(?=[A-Z])", comment):
+        if not numparse.value_in_text(figure, sentence):
+            continue
+        if _REQUIREMENT_WORDS.search(sentence) and not _ROW_STATES.search(sentence):
+            return False
+        if _ROW_STATES.search(sentence):
+            stated = True
+    return stated
 
 
 def _common(proposal: dict) -> str | None:
@@ -209,7 +292,8 @@ def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
     row = ctx.rows.get(key)
     if row is None:
         return no(Reason.NO_SUCH_ROW)
-    kind = str(row.get("row_kind") or "")
+    # An unknown or differently-cased kind is read as a Fail: the safe reading never makes a row easier to remove.
+    kind = str(row.get("row_kind") or "").strip().lower() or FAIL_KIND
     if kind in PROTECTED_KINDS:
         return no(Reason.PROTECTED_ROW)
     basis = str(proposal.get("basis") or "")
@@ -227,6 +311,8 @@ def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
         return no(
             Reason.NO_BASIS
         )  # a removal needs at least one verified quote, except a rulebook scope
+    if not _evidence_carries_value(proposal):
+        return no(Reason.EVIDENCE_NOT_ON_PAGE)
     if not _numbers_verified(proposal, ctx, ctx.pages[page], row):
         return no(Reason.NUMBER_NOT_VERIFIED)
     if kind == FAIL_KIND:
@@ -237,13 +323,23 @@ def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
             value = str(proposal.get("value") or "").strip()
             if not value or not numparse.value_in_text(value, ctx.pages[page]):
                 return no(Reason.FAIL_KEPT)
-            # `row_value`: the datasheet figure the row printed. It is in the row's words and is NOT on the page.
+            # `row_value` is the figure the ROW printed for the datasheet (not the standard's requirement, not a clause
+            # number). `value` is what the contractor's page shows. Both carry a unit, the same unit; the page shows `value`
+            # inside a quote of at least MIN_QUOTE_CHARS; the row does not already print `value`; the page lacks `row_value`.
             shown = str(proposal.get("row_value") or "").strip()
-            if not shown or not numparse.value_in_text(
-                shown, str(row.get("comment") or "")
+            unit = _unit_of(value)
+            if not shown or not unit or _unit_of(shown) != unit:
+                return no(Reason.FAIL_KEPT)
+            if not _row_printed(shown, row) or numparse.value_in_text(
+                value, str(row.get("comment") or "")
             ):
                 return no(Reason.FAIL_KEPT)
             if numparse.value_in_text(shown, ctx.pages[page]):
+                return no(Reason.FAIL_KEPT)
+            m = re.search(r"\bp\.\s*(\d+)", str(row.get("page_section") or ""))
+            if m and int(m.group(1)) != page:
+                return no(Reason.FAIL_KEPT)
+            if not proposal.get("evidence"):
                 return no(Reason.FAIL_KEPT)
         else:  # out_of_scope: the rulebook, not the AI, says the clause is outside this equipment
             ref = str(row.get("standard_reference") or "")
@@ -323,7 +419,9 @@ def _verify_understanding(proposal: dict, ctx: Context) -> Verdict:
     note = proposal.get("understanding")
     if not isinstance(note, dict) or not note:
         return Verdict(False, Reason.MALFORMED.value, proposal)
-    document = _fold(" ".join(ctx.pages.values()))
+    pages = [
+        _fold(t) for t in ctx.pages.values()
+    ]  # one page at a time: text spanning two pages is no quote
     count = 0
     for key, value in note.items():
         if key not in UNDERSTANDING_KEYS:
@@ -335,7 +433,9 @@ def _verify_understanding(proposal: dict, ctx: Context) -> Verdict:
             count += 1
             if _has_pass_fail_word(text):
                 return Verdict(False, Reason.PASS_FAIL_WORD.value, proposal)
-            if _fold(text) not in document:
+            if len(text) < MIN_UNDERSTANDING_CHARS:
+                return Verdict(False, Reason.NOT_IN_DOCUMENT.value, proposal)
+            if not any(_fold(text) in page for page in pages):
                 return Verdict(False, Reason.NOT_IN_DOCUMENT.value, proposal)
     if count > MAX_UNDERSTANDING_ITEMS:
         return Verdict(False, Reason.TOO_LONG.value, proposal)

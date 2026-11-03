@@ -3244,7 +3244,7 @@ def _crs_issue_gate(review_run_id: str, scope: access.AccessScope) -> dict:
     if run is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
-    rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+    rows = crs_ai_cell_mod.kept(_crs_content, review_run_id, scope, "internal")[0]
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
     # order 127: the reader record too, so the gate, the tick route and the
@@ -3327,7 +3327,7 @@ def decide_crs_open_finding(
     a reason, without waiting for any AI step. The decision is written on the
     finding (by the caller) and the reason is kept beside it."""
     actor = _crs_decision_actor(review_run_id, scope)
-    rows = _crs_content(review_run_id, scope, "internal")[0]
+    rows = crs_ai_cell_mod.kept(_crs_content, review_run_id, scope, "internal")[0]
     current = review_mod.get(finding_id)
     is_finding = (current is not None and current.get("review_run_id") == review_run_id
                   and scope.may_read(current["document_id"]))

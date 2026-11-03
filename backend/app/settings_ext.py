@@ -442,3 +442,10 @@ class SettingsExt(BaseModel):
     claude_budget_usd_per_run: float = Field(15.0, gt=0)
     #: The day cap; it can only narrow the owner's USD 100 (`claude_spend_report.day_cap`). Env: CLAUDE_BUDGET_USD_PER_DAY.
     claude_budget_usd_per_day: float = Field(100.0, gt=0)
+    #: Lane 6 (owner order 3 Nov 2026): the AI engineering review pass PROPOSES removals, additions, rewordings and a
+    #: document-understanding note; code accepts only what it verifies (`ai_review_proposals`). OFF by default.
+    #: Env: AI_ENGINEERING_REVIEW_PASS_ENABLED, AI_ENGINEERING_REVIEW_PASS_ENGINE ("ollama" local, or "claude" only when
+    #: every document of the review is on the approved list), AI_ENGINEERING_REVIEW_PASS_TIMEOUT_S.
+    ai_engineering_review_pass_enabled: bool = False
+    ai_engineering_review_pass_engine: str = "ollama"
+    ai_engineering_review_pass_timeout_s: float = 300.0
