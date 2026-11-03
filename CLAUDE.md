@@ -6,11 +6,14 @@
 > written approval on #692 and #1584. #805 (PLAN ONE) is the only plan; where anything
 > else here, in `docs/` or in `.cowork/` differs from it, #805 wins.
 >
-> **Top rule - AI-first (owner, 11 Oct 2026; #805 rule 1):** the review is
-> AI-first. AI reads, understands and proposes; code verifies and decides
-> pass/fail; the engineer decides. Switching any AI step off by default, or
-> replacing an AI step with a rules-only path, needs the owner's written
-> approval on #692 and #1584.
+> **Top rule - AI-first (owner, 11 Oct 2026; changed 3 Nov 2026 17:55 PKT, #1584;
+> #805 rule 1):** AI reviews and judges like a senior engineer; code verifies
+> every quote and does every number comparison; the engineer signs. A verdict
+> (Pass, Fail, Missing) counts as decided only with evidence: a quote from the
+> document AND from the clause, both verified by code, numbers compared by code,
+> 0 wrong verdicts. Switching any AI step off by default, or replacing an AI
+> step with a rules-only path, needs the owner's written approval on #692 and
+> #1584.
 
 ## Where we are (pointers only)
 
@@ -44,12 +47,10 @@ carries the client's name; only the owner can rename it.
    standard, USD 100 per day and USD 500 for November** (owner, #1584, 2 Nov
    2026; the USD 500 ends on 30 Nov unless the owner says otherwise; enforced in `claude_spend`), and with **no
    document text in logs, GitHub issues, PRs or CI**. **The standards
-   converter's Claude lane is off by owner decision of 28 Oct 2026 (order 277);
-   its caps apply only when the owner opens it.** Until then the converter runs
-   on the local engine only.
-   The standards converter
-   (order 270.3) sends STANDARDS text only, of the SAES and ISO families (API
-   and ASME on hold), and never a datasheet, procedure or CRS. Every other
+   converter's Claude lane is open (owner, 3 Nov 2026, #1584; it was off from
+   28 Oct, order 277); its caps are those above.** The standards converter
+   (order 270.3) sends STANDARDS text only, of the SAES, ISO, API, ASME and NACE
+   families (owner, 3 Nov 2026, #1584), and never a datasheet, procedure or CRS. Every other
    outbound path for document content stays forbidden. In chat, the user may choose Claude and explicitly
    select the documents for that request; that selection is per-request consent
    for only those files. Local sends no file content to Claude; Claude without
