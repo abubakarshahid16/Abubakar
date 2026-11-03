@@ -234,3 +234,12 @@ def test_a_numbered_item_title_needs_more_than_one_word_in_common_with_the_eleme
         )  # an original clause heading keeps the old rule
     finally:
         settings.section_index_enabled = False
+
+
+def test_the_words_of_a_partial_hit_and_of_no_title_depend_on_the_switch(monkeypatch):
+    monkeypatch.setattr(settings, "section_index_enabled", True)
+    assert section_index.own_words() == "the closest section is at"
+    assert section_index.none_words() == "no section titled for it"
+    monkeypatch.setattr(settings, "section_index_enabled", False)
+    assert section_index.own_words() == "a section of its own was found at"
+    assert section_index.none_words() == "no section of its own"
