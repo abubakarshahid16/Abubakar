@@ -17,7 +17,16 @@ TABLE = {
         "datasheet": ["equipment design", "general"],
         "procedure": ["process/method", "general"],
         "study": ["process/method", "general"],
+        "contract": ["equipment design", "process/method", "general"],
     },
+    "never_left_out_methods": [
+        "manual",
+        "project",
+        "pinned",
+        "specification",
+        "contract",
+        "owner",
+    ],
     "method_standards": {"procedure": ["SAEP-901", "IEC 99999-1"]},
     "standards": {
         "SAES-Z-100": "equipment design",
@@ -207,3 +216,63 @@ def test_with_the_switch_off_the_note_is_exactly_what_it_was(
         )
         == []
     )
+
+
+@pytest.mark.parametrize("method", ["manual", "project"])
+def test_a_standard_a_person_or_the_project_chose_is_never_left_out(on, kind, method):
+    selected = _selected(method=method)
+    result = kind_standards.apply(selected, "doc", LIBRARY, TABLE)
+    assert result is None or result["count"] == 0
+    assert not any(r.get("excluded_by_scope") for r in selected.values())
+
+
+def test_only_rows_that_were_included_are_dropped_counted_and_given_the_reason(
+    on, kind
+):
+    selected = _selected()
+    selected["d1"]["held_for_engineer"] = "held: the type is unsure"
+    selected["d2"]["excluded_by_scope"] = "its scope clause excludes this equipment"
+    selected["d3"] = {
+        "method": "semantic",
+        "identifier": None,
+        "reason": "similar wording",
+    }  # never included
+    selected["d5"] = {
+        "method": "referenced",
+        "identifier": "SAES-Z-100",
+        "reason": "named",
+    }
+    library = [*LIBRARY, _entry("d5", "SAES-Z-100")]
+    result = kind_standards.apply(selected, "doc", library, TABLE)
+    assert result["count"] == 1 and result["identifiers"] == ["SAES-Z-100"]
+    assert (
+        selected["d1"]["held_for_engineer"] == "held: the type is unsure"
+        and "excluded_by_scope" not in selected["d1"]
+    )
+    assert (
+        selected["d2"]["excluded_by_scope"]
+        == "its scope clause excludes this equipment"
+    )
+    assert "excluded_by_scope" not in selected["d3"]
+    assert (
+        selected["d5"]["excluded_by_scope"]
+        == "equipment design standards do not apply to a procedure"
+    )
+
+
+def test_a_contract_loses_no_standard_and_says_so_in_the_table(on, kind):
+    kind["kind"] = "contract"
+    selected = _selected()
+    assert kind_standards.apply(selected, "doc", LIBRARY, TABLE) is None
+    assert not any(r.get("excluded_by_scope") for r in selected.values())
+    real = kind_standards.table()
+    assert real["kinds_apply"]["contract"] == [
+        "equipment design",
+        "process/method",
+        "general",
+    ]
+    assert (
+        "project" in real["never_left_out_methods"]
+        and "contract kind" not in real["_about"]
+    )
+    assert "A contract keeps ALL roles" in real["_about"]

@@ -81,10 +81,15 @@ def apply(
     allowed_roles = (data.get("kinds_apply") or {}).get(kind or "")
     if kind is None or allowed_roles is None:
         return None
+    from . import applicability
+
     by_id = {entry["id"]: entry for entry in library}
+    spared = set(data.get("never_left_out_methods") or ())
     left: dict[str, list[str]] = {}
     for standard_id, row in selected.items():
-        if row.get("method") == "manual":
+        # Only a standard the review's own matching picked, and only one it actually included: a person's or the project's
+        # choice stays, and a row already held, excluded or candidate-only keeps its own reason and is not counted.
+        if row.get("method") in spared or not applicability.is_included(row):
             continue
         labels = _labels(by_id.get(standard_id), row)
         role = role_of(labels, data)
