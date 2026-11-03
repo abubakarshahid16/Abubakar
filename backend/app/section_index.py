@@ -226,7 +226,11 @@ def title_hit(element, chunk: dict, title: str, hits) -> bool:
 
 def own_words() -> str:
     """The words of a partial hit on a heading: a closest section, not a claim that it is the element's own."""
-    return "the closest section is at" if enabled() else "a section of its own was found at"
+    return (
+        "the closest section is at"
+        if enabled()
+        else "a section of its own was found at"
+    )
 
 
 def none_words() -> str:

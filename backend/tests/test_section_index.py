@@ -40,7 +40,7 @@ LINES = [
     ),
     (None, "ZX-77-ATT03 - GUIDEWORDS IN STUDY SESSIONS"),
     (None, "Guidewords such as no, more and less are applied to each parameter."),
-    (None, "Table A03.1: List of Parameters and Guidewords"),
+    (None, "Table B3.1: Invented list of words"),
     (None, "ZX-77-ATT04 - STUDY METHOD"),
     (
         None,
