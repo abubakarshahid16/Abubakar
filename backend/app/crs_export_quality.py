@@ -710,8 +710,8 @@ def write_internal_sheet(wb, inner: dict, write) -> None:
 #: Item 14 (owner order 3 Nov, CRS_RULES_NOTE_ENABLED): the ONE note at the top of the CRS, both copies. A draft
 #: row is never labelled one by one; a row marked with a tick uses an approved rule.
 RULES_NOTE = (
-    "Rules used in this review are drafts built from the standards and checked by code; "
-    "rows marked ✔ use an approved rule. An engineer must confirm this CRS."
+    "Rules used in this review are drafts built from the standards and checked by code, "
+    "unless the Rule trust text of a row says a person approved the rule. An engineer must confirm this CRS."
 )
 
 

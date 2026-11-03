@@ -206,7 +206,7 @@ class SettingsExt(BaseModel):
     #: Env: CRS_ONE_ROW_PER_PROBLEM_ENABLED.
     crs_one_row_per_problem_enabled: bool = False
     #: Owner order 3 Nov (item 14): ONE note at the top of the INTERNAL CRS copy, saying the rules used are
-    #: drafts checked by code unless the row is marked approved, and that an engineer must confirm. Export text
+    #: drafts checked by code unless the row's Rule trust text says a person approved it, and that an engineer must confirm. Export text
     #: only; no row, verdict or number changes. OFF: the sheet is as it was. Env: CRS_RULES_NOTE_ENABLED.
     crs_rules_note_enabled: bool = False
     #: #1591: on that export, a row with no page says the section or field it is about and why it
