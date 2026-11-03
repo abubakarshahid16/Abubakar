@@ -291,6 +291,22 @@ def is_fail_row(row: Mapping) -> bool:
     )
 
 
+def carry_results(rows: list[dict], lookup: Callable[[str], Mapping | None]) -> None:
+    """Put the result behind each row into the row (`compliance_status`: NON_COMPLIANT when ANY of its findings is one),
+    read from the stored findings (`lookup(finding_id)`), never from the row's label. A row whose findings cannot be found
+    carries no result, and then a datasheet check on it is not removable."""
+    for row in rows:
+        found = [
+            str((lookup(fid) or {}).get("compliance_status") or "")
+            for fid in row.get("finding_ids") or []
+        ]
+        found = [f for f in found if f]
+        if found:
+            row["compliance_status"] = (
+                "NON_COMPLIANT" if any(is_fail_word(f) for f in found) else found[0]
+            )
+
+
 def _removable(row: Mapping) -> bool:
     kind = _kind(row)
     if kind == "datasheet_check":

@@ -37,6 +37,7 @@ def _finding(status, origin="datasheet_check", severity="major", fid=None, **ove
 def _row(finding):
     rows = crs_mapping.build_crs_rows([finding], [], "ds.pdf")
     assert len(rows) == 1
+    arp.carry_results(rows, {finding["id"]: finding}.get)  # as the review job does
     return rows[0]
 
 
@@ -107,3 +108,21 @@ def test_a_needs_engineer_review_row_built_from_a_question_can_go_and_a_breach_c
     assert (
         arp.verify(_remove(breach), _ctx(breach)).reason == arp.Reason.FAIL_KEPT.value
     )
+
+
+def test_a_row_whose_findings_cannot_be_found_carries_no_result_and_a_check_stays():
+    finding = _finding("NEEDS_ENGINEER_REVIEW", severity="minor")
+    [row] = crs_mapping.build_crs_rows([finding], [], "ds.pdf")
+    arp.carry_results([row], lambda _id: None)
+    assert "compliance_status" not in row
+    assert not arp.verify(_remove(row), _ctx(row)).accepted
+
+
+def test_a_row_carries_the_worst_result_of_its_findings():
+    stored = {
+        "a": {"compliance_status": "NEEDS_ENGINEER_REVIEW"},
+        "b": {"compliance_status": "NON_COMPLIANT"},
+    }
+    row = {"finding_ids": ["a", "b"]}
+    arp.carry_results([row], stored.get)
+    assert row["compliance_status"] == "NON_COMPLIANT"

@@ -11,12 +11,12 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1667-01",
         phase=1667,
-        description="the CRS row no longer carries the result behind it, so a failed self-check looks like a question",
-        path=APP / "crs_mapping.py",
-        anchor='                    "compliance_status": worst_status(group),\n',
-        replacement='                    "compliance_status": "",\n',
+        description="the row no longer carries the result behind it, so a failed self-check looks like a question",
+        path=APP / "ai_review_proposals.py",
+        anchor='                "NON_COMPLIANT" if any(is_fail_word(f) for f in found) else found[0]',
+        replacement="                found[0]",
         target=_T,
-        keyword="carries_its_result",
+        keyword="worst_result",
         tags=_TAGS,
     ),
     Mutation(
