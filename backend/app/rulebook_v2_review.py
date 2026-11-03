@@ -442,7 +442,10 @@ class Row:
     def __post_init__(self) -> None:
         """An engineer's approval is labelled as the engineer's, never the owner's (item 14)."""
         approval = self.rule.get("approval")
-        if isinstance(approval, dict) and approval.get("tier") == rule_trust.ENGINEER_TIER:
+        if (
+            isinstance(approval, dict)
+            and approval.get("tier") == rule_trust.ENGINEER_TIER
+        ):
             self.trust_label = rule_trust.ENGINEER_APPROVED
 
 

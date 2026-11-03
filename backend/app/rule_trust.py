@@ -367,7 +367,10 @@ def tier_for_approved(approval: dict | None, rule: dict) -> str:
         return UNPROVEN
     if approval.get("tier") == OWNER_TIER:
         return OWNER_APPROVED if second_check(rule)[0] else UNPROVEN
-    if approval.get("tier") == ENGINEER_TIER and settings.engineer_approved_rules_decide_enabled:
+    if (
+        approval.get("tier") == ENGINEER_TIER
+        and settings.engineer_approved_rules_decide_enabled
+    ):
         return ENGINEER_APPROVED if second_check(rule)[0] else UNPROVEN
     return UNPROVEN
 
