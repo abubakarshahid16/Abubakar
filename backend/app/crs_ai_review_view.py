@@ -251,6 +251,25 @@ def for_run(review_run_id: str) -> dict | None:
     }
 
 
+def _write_flagged(sheet, wrap, r: int, flagged: list[dict], write) -> int:
+    """The "Flagged" block under the removals; returns the last row written."""
+    if not flagged:
+        return r
+    r += 2
+    title = "Flagged by AI review (the row stays on the CRS)"
+    write(sheet, r, 1, title).font = Font(bold=True)
+    heads = ("Proposal id", "State", "Where", "Standard", "Row's own words")
+    for col, head in enumerate((*heads, "Flag (built by code from the page quote)"), 1):
+        write(sheet, r + 1, col, head).font = Font(bold=True)
+    r += 1
+    for item in flagged:
+        r += 1
+        keys = ("proposal_id", "state", "where", "standard", "words", "flag")
+        for col, key in enumerate(keys, 1):
+            write(sheet, r, col, item[key]).alignment = wrap
+    return r
+
+
 def write_sheet(wb, data: dict, write) -> None:
     """Draw the sheet. `write` is `crs_export._write`, which stores every string as text."""
     sheet = wb.create_sheet(SHEET)
@@ -308,30 +327,6 @@ def write_sheet(wb, data: dict, write) -> None:
                 1,
             ):
                 write(sheet, r, col, item[key]).alignment = wrap
-    if data.get("flagged"):
-        r += 2
-        write(
-            sheet, r, 1, "Flagged by AI review (the row stays on the CRS)"
-        ).font = Font(bold=True)
-        for col, head in enumerate(
-            (
-                "Proposal id",
-                "State",
-                "Where",
-                "Standard",
-                "Row's own words",
-                "Flag (built by code from the page quote)",
-            ),
-            1,
-        ):
-            r_head = r + 1
-            write(sheet, r_head, col, head).font = Font(bold=True)
-        r += 1
-        for item in data["flagged"]:
-            r += 1
-            for col, key in enumerate(
-                ("proposal_id", "state", "where", "standard", "words", "flag"), 1
-            ):
-                write(sheet, r, col, item[key]).alignment = wrap
+    r = _write_flagged(sheet, wrap, r, data.get("flagged") or [], write)
     for col, width in zip("ABCDEFGH", (22, 24, 22, 26, 70, 60, 16, 70), strict=True):
         sheet.column_dimensions[col].width = width
