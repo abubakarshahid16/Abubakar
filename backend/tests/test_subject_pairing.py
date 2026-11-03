@@ -206,3 +206,37 @@ def test_a_same_quantity_pair_still_pairs_and_decides(world, on):
         found["fact_id"] == fact["id"]
         and found["compliance_status"] == comparison.COMPLIANT
     )
+
+
+@pytest.mark.parametrize(
+    "subject, label",
+    [
+        ("design pressure", "Design pressure (MPa)"),
+        ("design pressure", "Design pressure kPa(g)"),
+        ("design pressure", "Design pressure, bar"),
+        ("The maximum design temperature", "Design temperature (degC)"),
+        ("corrosion allowance", "Corrosion allowance (mm)"),
+        (
+            "the design pressure in kPa(g)",
+            "Design pressure (bar)",
+        ),  # a unit on the subject's side is no part of it either
+    ],
+)
+def test_a_unit_printed_in_the_label_is_not_part_of_the_quantity(on, subject, label):
+    assert sp.conflict(req(subject), fact(label)) is None
+
+
+def test_units_do_not_make_two_different_quantities_the_same(on):
+    assert (
+        sp.conflict(
+            req("the maximum coating thickness"), fact("Corrosion allowance (mm)")
+        )
+        == sp.SUBJECT_DIFFERS
+    )
+    assert (
+        sp.conflict(req("design life"), fact("Design pressure (MPa)"))
+        == sp.SUBJECT_DIFFERS
+    )
+    assert sp.quantity_words("Design pressure (MPa)") == sp.quantity_words(
+        "design pressure"
+    )

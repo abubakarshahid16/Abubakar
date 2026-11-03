@@ -6,8 +6,8 @@ the field was in the sentence, and the quantity was not the same.
 
 THE RULE (general: no spelling, standard or layout is named here). Both sides are reduced to the words that say WHICH
 quantity they are: the phrase in its canonical spelling (`field_links.canonical`, the closed synonym table), minus
-numbers and tags, minus the neutral and bound words (a, the, of, minimum, maximum, shall, exceed ...: the rest of the
-checks handle which bound), minus the words naming the sheet's own kind of equipment ("the design pressure of the
+numbers, tags and units (the unit table), minus the neutral and bound words (a, the, of, minimum, maximum, shall,
+exceed ...: the rest of the checks handle which bound), minus the words naming the sheet's own kind of equipment ("the design pressure of the
 vessel" is the sheet's design pressure). The two sets must be EQUAL:
   * different quantity (coating thickness against corrosion allowance; the design life of a window against the design
     life; MAWP against design pressure): refused;
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 
-from . import field_links, field_vocabulary
+from . import claims, field_links, field_vocabulary
 from .config import settings
 
 SUBJECT_DIFFERS = "subject_differs"
@@ -62,9 +62,16 @@ _BOUND_WORDS = frozenset(
 )
 
 
+def _is_unit(token: str) -> bool:
+    """A token that is a unit spelling (the one unit table, `claims.is_unit`), bare or in brackets."""
+    return claims.is_unit(token) or claims.is_unit(token.strip("()[],;:"))
+
+
 def quantity_words(text: object, sheet: str | None = None) -> frozenset[str]:
     """The words of `text` that name the quantity (see the module docstring); empty when it names none."""
-    folded = field_links.canonical(str(text or ""))
+    # a unit printed beside the quantity ("(MPa)", "kPa(g)", "bar", "degC") is how it is measured, not which quantity it is
+    raw = " ".join(t for t in str(text or "").split() if not _is_unit(t))
+    folded = field_links.canonical(raw)
     # a token with a digit (a tag, a clause number) or a single letter (what is left of a tag) names no quantity
     words = {
         w
