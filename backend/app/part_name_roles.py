@@ -1,0 +1,186 @@
+"""Test B (part of #805), behind FORM_PART_NAME_ROLES_ENABLED: a part printed ALONE fills its field, under strict rules.
+
+THE DEFECT. A materials list prints "IMPELLER: <material>" and a sentence prints "... A DOUBLE MECHANICAL SEAL". The form
+reader's label gate wants "impeller material" / "seal type" in the quote (`claude_datasheet._field_in_quote`, audit M2:
+half the label's words, at least two), so correct answers were refused as `label_not_in_quote`, and the stored facts that
+carry the printed label ("IMPELLER") sit under no role, so the check said "no label found".
+
+THE RULES (all must hold; the label gate protects against putting a value on the wrong role, so this stays strict):
+  1. the role's data names the part (`part_names`); every part word of the field is a WHOLE word of the quote;
+  2. (the exact-match forms below leave no room for a second part word in the quote);
+  3. for a "<part> material" field: the part word is the label of the cell, i.e. the quote opens with it (after a row
+     number or a bullet), and the value follows it directly; the value is MADE ONLY of recognised material tokens
+     EXACTLY one entry of the closed data (`material_value`): a name, or spec + grade + name, or name + spec + grade;
+     any separator, second entry or extra word means no fill, and an alternative is never one value; an "impeller wear ring" row is another part and never fills "impeller material";
+  4. for a "<part> type" field: the QUOTE is exactly "<part> [:=] <one phrase of the closed list `seal_type_phrases`>",
+     nothing before or after (so no sentence, no negation, no flush plan);
+  5. stored facts (`with_roles`): a bare part-name fact fills only if its value reads as a material, it is not blank, and
+     ONE distinct value exists for that part in the whole document; two values means no fill; a role that already
+     has a fact under its own name is left alone.
+Nothing here knows a sheet: the part words and material words are reference data (rule 13).
+"""
+
+from __future__ import annotations
+
+import re
+
+from .config import settings
+
+
+def enabled() -> bool:
+    return bool(settings.form_part_name_roles_enabled)
+
+
+def _words(text) -> list[str]:
+    return re.findall(r"[a-z0-9]+", str(text or "").lower())
+
+
+def _parts_of(role: str, rules: dict) -> list[str]:
+    return [w.lower() for w in (rules["roles"].get(role, {}).get("part_names") or [])]
+
+
+#: A grade or spec code: a token holding a digit and a letter (a216, cf8m, 5a, s32760) or three to five digits (316).
+_GRADE = r"(?:[a-z]+\d[a-z0-9]*|\d+[a-z][a-z0-9]*|\d{3,5})"
+_CACHE: dict[tuple, re.Pattern] = {}
+
+
+def _entry_pattern(rules: dict) -> re.Pattern:
+    """The ONE shape a material value may have, built from the closed data: a material name alone; or [spec] [Gr.] grade
+    code then a material name; or a material name then [spec] [Gr.] grade code. Whole value, single spaces, no
+    separator (, / - ; & +), no second entry, no extra word. A code alone is never a material, nor a family word alone
+    (steel, iron): they are not names in the data."""
+    key = (
+        tuple(rules.get("material_names", [])),
+        tuple(rules.get("material_spec_words", [])),
+    )
+    if key not in _CACHE:
+        names = sorted(
+            {
+                " ".join(_words(n.replace("-", " ")))
+                for n in rules.get("material_names", [])
+            },
+            key=len,
+            reverse=True,
+        )
+        name = (
+            "(?:"
+            + "|".join(r"\s+".join(map(re.escape, n.split())) for n in names)
+            + ")"
+        )
+        spec = (
+            "(?:"
+            + "|".join(re.escape(w) for w in rules.get("material_spec_words", []))
+            + ")"
+        )
+        code = rf"(?!{name}(?:\s|\.|$)){_GRADE}"  # a material name is not also read as a grade code
+        coded = rf"(?:{spec}\s+)?(?:(?:gr|grade)\.?\s+)?{code}(?:\s+(?:(?:gr|grade)\.?\s+)?{code})?"
+        _CACHE[key] = re.compile(rf"^(?:{name}|{coded}\s+{name}|{name}\s+{coded})\.?$")
+    return _CACHE[key]
+
+
+def grade_alternatives(value, rules: dict) -> list[str]:
+    """A printed grade range ("... Gr. 5A/6A") is two grades, an engineer's choice. The two values, each exactly one
+    allowed entry; [] for anything else (a slash anywhere but between two grade codes is never a range)."""
+    parts = str(value or "").split("/")
+    if len(parts) != 2:
+        return []
+    left, right = parts[0].split(), parts[1].split()
+    grade = re.compile(_GRADE + "$", re.IGNORECASE)
+    if (
+        not left
+        or len(right) != 1
+        or not (grade.match(left[-1]) and grade.match(right[0]))
+    ):
+        return []
+    alternatives = [" ".join(left), " ".join([*left[:-1], right[0]])]
+    return alternatives if all(material_value(a, rules) for a in alternatives) else []
+
+
+def material_value(value, rules: dict) -> bool:
+    """The ENTIRE value (trimmed) is exactly one allowed entry; see `_entry_pattern`. Prose, a negation, a cross-reference,
+    an alternative, a bare code, a bare family word: never."""
+    text = str(value or "").strip().lower().replace("ni-resist", "ni resist")
+    text = re.sub(r"\bs\.s\b\.?", "ss", text)
+    return bool(text) and bool(_entry_pattern(rules).match(" ".join(text.split())))
+
+
+def seal_type_quote(part: str, value, printed: str, rules: dict) -> bool:
+    """The QUOTE is exactly "<part> [:=] <one phrase of the closed list of seal types>", optionally ending in a full stop:
+    nothing before it, nothing after it. The value is that phrase."""
+    phrases = sorted(
+        {" ".join(_words(p)) for p in rules.get("seal_type_phrases", [])},
+        key=len,
+        reverse=True,
+    )
+    pattern = rf"^{re.escape(part)}\s*[:=]\s*({'|'.join(r'\s+'.join(map(re.escape, p.split())) for p in phrases)})\.?$"
+    found = re.match(pattern, " ".join(str(printed or "").strip().lower().split()))
+    return bool(found) and " ".join(_words(found.group(1))) == " ".join(_words(value))
+
+
+def accepts(role: str, value: str, printed: str, rules: dict) -> bool:
+    """The form reader's label gate, relaxed for a bare part name. `printed` is the folded quote."""
+    if not enabled() or not value:
+        return False
+    parts = _parts_of(role, rules)
+    kind = role.rsplit("_", 1)[-1]
+    if not parts or kind not in ("material", "type"):
+        return False
+    value_words = _words(value)
+    if kind == "material":
+        if not material_value(value, rules):
+            return False
+        for part in parts:
+            # rule 3: the quote opens with the part (a row number or bullet may come first) and the value follows it
+            opening = re.match(
+                r"^\W*(?:\d+\W+)?" + re.escape(part) + r"\b\W*(.*)$",
+                str(printed or "").strip(),
+                re.IGNORECASE,
+            )
+            if opening and _words(opening.group(1)) == value_words:
+                return True
+        return False
+    # kind == "type": the quote is exactly "<part>: <one listed seal type>"
+    return any(seal_type_quote(part, value, printed, rules) for part in parts)
+
+
+def with_roles(facts: list[dict], rules: dict, wanted) -> list[dict]:
+    """`facts`, with each bare part-name fact that satisfies the rules renamed to its role's words. Switch off: as given."""
+    if not enabled():
+        return facts
+    named = {}
+    for role in wanted:
+        spec = rules["roles"].get(role) or {}
+        if role.endswith("_material") and spec.get("part_names"):
+            for part in spec["part_names"]:
+                named[part.lower()] = role
+    if not named:
+        return facts
+    bare: dict[str, list[tuple[dict, list[str]]]] = {}
+    for fact in facts:
+        name = " ".join(_words(fact.get("field_name")))
+        value = fact.get("field_value")
+        if name not in named or fact.get("is_blank"):
+            continue
+        if material_value(value, rules):
+            bare.setdefault(named[name], []).append((fact, [value]))
+        elif len(alts := grade_alternatives(value, rules)) > 1:
+            bare.setdefault(named[name], []).append((fact, alts))
+    own = {" ".join(_words(f.get("field_name"))) for f in facts}
+    replace: dict[int, list[dict]] = {}
+    for role, found in bare.items():
+        if " ".join(role.split("_")) in own:
+            continue  # a fact under the role's own name already speaks for it
+        if len({" ".join(_words(f.get("field_value"))) for f, _ in found}) != 1:
+            continue  # two values for one part: no fill
+        for fact, values in found:
+            # two printed grades ("5A/6A") are two values: the check says "two different values", never a fill
+            replace[id(fact)] = [
+                {
+                    **fact,
+                    "field_name": " ".join(role.split("_")),
+                    "field_value": v,
+                    "part_name_filled": True,
+                }
+                for v in values
+            ]
+    return [g for f in facts for g in replace.get(id(f), [f])]
