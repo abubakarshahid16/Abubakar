@@ -1241,6 +1241,9 @@ class Settings(SettingsExt, BaseSettings):
     #: within the USD caps), else the LOCAL model, which sends nothing off the machine.
     #: A slow or failed call is recorded on the run (a warning), never a failed review.
     #: Env: REVIEW_AI_CHECK_ENABLED (false turns it off).
+    #: Part of #805, step 3 (owner order 3 Nov 2026, "the best CRS"): the AI senior review (A's code checks plus B's AI rows, only rows A
+    #: lacks). OFF by default; nothing runs while it is off. Env: AI_SENIOR_REVIEW_ENABLED.
+    ai_senior_review_enabled: bool = False
     review_ai_check_enabled: bool = True
     #: #1494: progress block of a running review (reads the jobs row only); off: no
     #: `progress_detail`. Env: REVIEW_PROGRESS_BAR_ENABLED.

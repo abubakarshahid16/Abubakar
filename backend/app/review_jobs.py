@@ -32,6 +32,7 @@ from . import (
     access,
     ai_call_ledger,
     ai_review_pass,
+    ai_senior_review,
     claude_auto_approve,
     claude_spend_report,
     job_progress,
@@ -534,6 +535,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             number_crs_rows(run_id, requester)  # R15 (#779)
             word_crs_rows(run_id, requester)
             ai_review_pass.run_for_job(run_id, requester)  # lane 6, off by default
+            ai_senior_review.run_for_job(run_id, requester)  # step 3, off by default
         # #791: the run's stored trace (reads only, never fails the run), then REVIEW_DEBUG prints it.
         review_trace.store(run_id, requester, timings)
         review_trace.emit(run_id, requester)
