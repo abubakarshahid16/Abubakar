@@ -85,18 +85,25 @@ _SQL = (
 )
 
 
-def for_run(run_id: str | None) -> list[tuple]:
-    """The listed lines of one review run, read from its stored findings. Nothing when the switch is off."""
-    if not enabled() or not run_id:
-        return []
+def _stored(run_id: str) -> list[dict]:
     from .db import connect
 
     cursor = connect().cursor()
     cursor.row_factory = lambda cur, row: {
         d[0]: v for d, v in zip(cur.description, row, strict=True)
     }
-    found = cursor.execute(_SQL, (run_id,)).fetchall()
-    return sheet_rows(found)
+    return cursor.execute(_SQL, (run_id,)).fetchall()
+
+
+def for_run(run_id: str | None) -> list[tuple]:
+    """The listed lines of one review run, read from its stored findings the way the CRS reads them
+    (`presence_check.marked`: a held pass that only says a field is stated was never a pass, so it is no list line).
+    Nothing when the switch is off."""
+    if not enabled() or not run_id:
+        return []
+    from .presence_check import marked
+
+    return sheet_rows([marked(f) for f in _stored(run_id)])
 
 
 def count_line(total: int) -> str:

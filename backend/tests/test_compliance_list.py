@@ -135,3 +135,25 @@ def test_the_internal_copy_has_the_sheet_and_the_contractor_copy_never_does(
 ):
     assert "Compliance list" in _sheet_names("internal", monkeypatch)
     assert "Compliance list" not in _sheet_names("issue", monkeypatch)
+
+
+def test_with_both_switches_on_a_stated_only_held_pass_is_not_listed(monkeypatch):
+    """The CRS reads a stated-only held pass as a question (`presence_check.marked`); the list must too."""
+    from app import presence_check
+
+    on(monkeypatch)
+    monkeypatch.setattr(settings, "presence_not_pass_enabled", True)
+    monkeypatch.setattr(
+        presence_check,
+        "_only_asks_stated",
+        lambda f: f.get("origin") == presence_check.ORIGIN,
+    )
+    stated = held_pass(origin=presence_check.ORIGIN)
+    compared = held_pass(origin="invented_other", contractor_section="Other")
+    monkeypatch.setattr(cl, "_stored", lambda run_id: [stated, compared])
+    lines = cl.for_run("run-1")
+    assert [line[1] for line in lines] == [
+        "Other"
+    ]  # the stated-only one stays a CRS row
+    monkeypatch.setattr(settings, "presence_not_pass_enabled", False)
+    assert len(cl.for_run("run-1")) == 2
