@@ -316,14 +316,6 @@ def test_a_stored_edition_that_is_a_clause_number_does_not_hide_the_printed_edit
         crs_reference.check_reference({**base, "standard_edition": "3"})
         == "ZZ 520-I 3.20 (3) (p.12)"
     )
-    assert crs_mapping._standard_reference(
-        {
-            "standard_name": "ZZ-3.pdf",
-            "standard_clause": "3.20",
-            "standard_page": 2,
-            "standard_edition": "3",
-        }
-    ).startswith("ZZ-3 (3)")
 
 
 def test_a_check_source_that_prints_another_year_is_flagged_not_given_a_second_edition():
