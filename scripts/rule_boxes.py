@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 from rehearse_requirement_reextraction import refuse_live  # noqa: E402
 from rule_box_tools import (  # noqa: E402
     rule_box_check,
+    rule_box_fieldfirst,
     rule_box_fields,
     rule_box_judge,
     rule_box_run,
@@ -57,6 +58,7 @@ TYPICAL_OUT = {
     "fields": 1200,
     "identity": 40,
     "judge": 1000,
+    "fieldfirst": 600,
 }
 
 
@@ -357,6 +359,56 @@ def run_step(
     return 0 if result["status"] in (rule_box_run.DONE, rule_box_run.NOTHING) else 5
 
 
+FIELD_FIRST_TYPES = ("relief valve", "pressure vessel", "heat exchanger", "pump")
+
+
+def run_fieldfirst(conn, args, emit) -> int:
+    rule_boxes.ensure_schema(conn)
+    rule_box_check.ensure_schema(conn)
+    model = args.model or rule_box_check.check_model()
+    gate = make_gate(conn)
+    plan = rule_box_fieldfirst.dry_plan(conn, list(FIELD_FIRST_TYPES))
+    jobs, members = rule_box_fieldfirst.jobs(conn, plan, gate)
+    per_field = {}
+    for item in plan:
+        per_field.setdefault(item["type"], {})[item["role"]] = len(item["rows"])
+    extra = {
+        "fields": len(plan),
+        "fields_with_candidates": sum(1 for i in plan if i["rows"]),
+        "candidates_per_field": per_field,
+        "candidates_total": sum(len(i["rows"]) for i in plan),
+    }
+    report = dry_report("fieldfirst", model, jobs, extra)
+    if not args.send:
+        emit(json.dumps(report, sort_keys=True))
+        return 0
+    refused = lane_refusal()
+    if refused:
+        emit(
+            json.dumps(
+                {**report, "status": "refused", "why": refused, "sent": 0},
+                sort_keys=True,
+            )
+        )
+        return 3
+    apply = rule_box_fieldfirst.storer(conn, members, model)
+    docs = frozenset().union(*(j.docs for j in jobs)) if jobs else frozenset()
+    with claude_approved.carrying(docs):
+        result = rule_box_run.run(
+            jobs,
+            model=model,
+            step_prefix="rule_box_fieldfirst",
+            version="field-first-v1",
+            apply=apply,
+        )
+    if args.export_checks:
+        result["checks_exported"] = rule_box_check.export_checks(
+            conn, args.export_checks
+        )
+    emit(json.dumps({**report, **result, **apply.tally}, sort_keys=True))
+    return 0 if result["status"] in (rule_box_run.DONE, rule_box_run.NOTHING) else 5
+
+
 def run_judge(conn, args, emit) -> int:
     if not args.document:
         raise SystemExit("--document <submittal id> is needed for the judge step")
@@ -433,6 +485,7 @@ def main(argv: list[str] | None = None, *, emit=print) -> int:
             "identity",
             "scope",
             "judge",
+            "fieldfirst",
             "status",
         ),
     )
@@ -485,6 +538,8 @@ def main(argv: list[str] | None = None, *, emit=print) -> int:
     settings.db_path = refuse_live(args.db)
     reset_connection()
     conn = connect()
+    if args.step == "fieldfirst":
+        return run_fieldfirst(conn, args, emit)
     if args.step == "judge":
         return run_judge(conn, args, emit)
     if args.step == "scope":

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import rule_boxes as cli
 from rule_box_tools import (
     rule_box_check,
+    rule_box_fieldfirst,
     rule_box_fields,
     rule_box_judge,
     rule_box_run,
@@ -1793,3 +1794,93 @@ def test_a_scoped_check_is_never_ai_proven_until_the_scope_question_is_answered(
         ),
     )
     assert rule_box_check.advanced(rules) == 0
+
+
+# ------------------------------------------------------------------------------------------ field-first linking
+def _ff_setup(rules):
+    with rules:
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','specification','pressure vessel','a',NULL,'h','v','t',NULL)"
+        )
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r2','datasheet','general','a',NULL,'h','v','t',NULL)"
+        )
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r3','datasheet','pump','a',NULL,'h','v','t',NULL)"
+        )
+        rules.execute(
+            "UPDATE compiled_rules SET quote = 'The invented design pressure shall be at least 4 bar.' WHERE id = 'r2'"
+        )
+
+
+def test_candidates_for_a_field_are_rules_of_any_kind_that_name_its_quantity_best_kind_first(
+    rules,
+):
+    _ff_setup(rules)
+    got = [
+        r["id"]
+        for r in rule_box_fieldfirst.candidates(
+            rules, "pressure vessel", "design_pressure"
+        )
+    ]
+    assert (
+        got == ["r2", "r1"]
+    )  # a datasheet rule first, then the specification rule; the pump rule is another type
+    assert (
+        rule_box_fieldfirst.candidates(rules, "pressure vessel", "no_such_field") == []
+    )
+
+
+def test_field_first_asks_one_field_per_prompt_and_code_verifies_each_pick(rules):
+    _ff_setup(rules)
+    plan = [
+        i
+        for i in rule_box_fieldfirst.dry_plan(rules, ["pressure vessel"])
+        if i["role"] == "design_pressure"
+    ]
+    jobs, members = rule_box_fieldfirst.jobs(rules, plan, _gate_open)
+    assert (
+        len(jobs) == 1
+        and "design pressure" in jobs[0].prompt
+        and Q_NUM in jobs[0].prompt
+    )
+
+    def reply(prompt):
+        good = {
+            "candidate": 2,
+            "kind": "number",
+            "op": "<=",
+            "limit": "10",
+            "unit": "bar",
+            "values": [],
+            "condition": None,
+            "scope": None,
+            "subject": "design pressure",
+            "quote": "shall not exceed 10 bar",
+            "pass_case": {"value": "8", "unit": "bar"},
+            "fail_case": {"value": "12", "unit": "bar"},
+        }
+        return json.dumps(
+            {
+                "picks": [
+                    good,
+                    {**good, "candidate": 9},
+                    {**good, "candidate": 1, "limit": "99"},
+                ]
+            }
+        )
+
+    apply = rule_box_fieldfirst.storer(rules, members, "claude-sonnet-5-5")
+    rule_box_run.run(
+        jobs,
+        model="claude-sonnet-5-5",
+        step_prefix="f",
+        version="v",
+        apply=apply,
+        send=Fake(reply),
+    )
+    states = dict(
+        rules.execute(f"SELECT rule_id, status FROM {rule_box_check.CHECKS}").fetchall()
+    )
+    assert states == {"r1": "checked", "r2": "failed check"}
+    assert apply.tally["picks"] == 2
