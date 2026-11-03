@@ -131,8 +131,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         13,
         "the pair adds engineer-approved rules into the owner's count",
         _P,
-        '            "engineer_approved": len(keys[ENGINEER_CONFIRMED] - keys[OWNER_APPROVED]),',
-        '            "engineer_approved": 0,',
+        '            "engineer_approved": len(\n'
+        "                (keys[ENGINEER_CONFIRMED] | keys[ENGINEER_APPROVED])\n"
+        "                - keys[OWNER_APPROVED]\n"
+        "            ),\n",
+        '            "engineer_approved": 0,\n',
         "counted_apart",
     ),
     _m(

@@ -454,7 +454,8 @@ def _decided_by_tier(
         "decided_by_tier": {
             "owner_approved": len(keys[OWNER_APPROVED]),
             "engineer_approved": len(
-                (keys[ENGINEER_CONFIRMED] | keys[ENGINEER_APPROVED]) - keys[OWNER_APPROVED]
+                (keys[ENGINEER_CONFIRMED] | keys[ENGINEER_APPROVED])
+                - keys[OWNER_APPROVED]
             ),
         }
     }
