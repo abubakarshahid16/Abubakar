@@ -52,6 +52,7 @@ from .crs_draft_lanes import (  # noqa: F401
     WEB_UNCONFIRMED_COMMENT,
     lane,
 )
+from .compliance_list import is_listed as listed
 from .crs_draft_lanes import CLAUSE_CONFIRMED_BY as _CLAUSE_CONFIRMED_BY
 from .crs_draft_lanes import CLAUSE_ORIGIN as _CLAUSE_ORIGIN
 
@@ -214,9 +215,8 @@ def _ai_unverified(finding: dict) -> bool:
 
 
 def _rejected(finding: dict) -> bool:
-    """Owner order section 3: an engineer rejected this comment - it is left
-    off the sheet. The finding and the rejection both stay on record."""
-    return finding.get("approval_status") == "rejected"
+    """Left off the sheet: an engineer rejected it (owner order section 3) or it is a compliance-list item."""
+    return finding.get("approval_status") == "rejected" or listed(finding)
 
 
 def finding_comment_key(f: dict) -> str:

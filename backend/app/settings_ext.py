@@ -342,6 +342,10 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner 3 Nov 11:40 (b): a value the sheet gives that only a DRAFT rule checks, with nothing found, writes no
+    #: CRS row; it is listed on the internal-only sheet "Compliance list" as "No issue found (draft rule)".
+    #: Findings are untouched. OFF: as it was. Env: CRS_COMPLIANCE_LIST_ENABLED.
+    crs_compliance_list_enabled: bool = False
     #: #1608 (plan change 6 G): at the end of each comparison the run stores its rulebook (version used, rules applied,
     #: fingerprint) and the ticks imported; the internal CRS gets a "Run record" sheet with those, the run's models and
     #: the could-not-check list, which says so when empty (`run_record`). OFF: nothing stored, no sheet.

@@ -26,6 +26,7 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from . import compliance_list
 from . import crs_export_quality as quality
 from . import run_record
 from .crs_mapping import (
@@ -586,6 +587,8 @@ def _later_sheets(wb, view: dict, meta: dict, internal: bool) -> None:
         run_record.write_sheet(wb, meta["run_record"], _write)
     if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
         quality.write_internal_sheet(wb, view["internal_sheet"], _write)
+    if internal:  # owner 3 Nov (b): draft-rule values with nothing found
+        compliance_list.write_sheet(wb, meta.get("review_run_id"), _write)
 
 
 def _note_cell(ws, view: dict, put) -> None:
