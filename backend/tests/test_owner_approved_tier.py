@@ -482,6 +482,7 @@ def test_the_run_record_states_who_decided(owner_world, monkeypatch):
         "owner_approved": 1,  # the breach; the safety Pass waits for its tick
         "owner_approved_awaiting_tick": 1,
         "engineer_approved": 0,
+        "engineer_approved_awaiting_tick": 0,
     }
     stored = comparison.run_outcome(
         owner_world["run"], allowed_document_ids=owner_world["scope"]

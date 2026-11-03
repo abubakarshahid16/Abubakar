@@ -529,13 +529,18 @@ def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) 
     if not still_open or result["code"] not in (codes[0], codes[1]):
         return result
     n = len(still_open)
+    who = "an owner-approved rule"
+    if all(f.get("trust_label") == ENGINEER_APPROVED for f in still_open):
+        who = "an engineer-approved rule"
+    elif any(f.get("trust_label") == ENGINEER_APPROVED for f in still_open):
+        who = "an owner- or engineer-approved rule"
     return {
         **result,
         "code": codes[3],
         "reason": (
             # dated: the reason is stored, and a tick after this time does not rewrite it
             f"Manual review: at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this review ran, {n} safety "
-            f"value{'s' if n != 1 else ''} met an owner-approved rule and "
+            f"value{'s' if n != 1 else ''} met {who} and "
             f"{'were' if n != 1 else 'was'} waiting for an engineer's tick, so the sheet was not called approved"
         ),
         "open_safety_ticks": n,
@@ -598,15 +603,18 @@ def decided_by_tier(rows: list[dict]) -> dict:
             r for r in found if r.get("compliance_status") in (COMPLIANT, NON_COMPLIANT)
         ]
 
-    owner = rows_of(OWNER_APPROVED)
-    if not owner:
+    owner, by_engineer = rows_of(OWNER_APPROVED), rows_of(ENGINEER_APPROVED)
+    if not owner and not by_engineer:
         return {}
     ticks = [r for r in decided(owner) if r.get("show_for_engineer_tick")]
+    eng_ticks = [r for r in decided(by_engineer) if r.get("show_for_engineer_tick")]
+    confirmed = decided(rows_of(ENGINEER_CONFIRMED))
     return {
         "decided_by_tier": {
             "owner_approved": len(decided(owner)) - len(ticks),
             "owner_approved_awaiting_tick": len(ticks),
-            "engineer_approved": len(decided(rows_of(ENGINEER_CONFIRMED))),
+            "engineer_approved": len(confirmed) + len(decided(by_engineer)) - len(eng_ticks),
+            "engineer_approved_awaiting_tick": len(eng_ticks),
         }
     }
 
@@ -773,7 +781,8 @@ def review_notes(outcome: dict, findings: list[dict]) -> list[dict]:
                 "detail": (
                     f"Of this run's {trust.get('findings_counted')} findings: {tiers['owner_approved']} decided "
                     f"by rules labelled {OWNER_APPROVED_WORDS}; {tiers['owner_approved_awaiting_tick']} more wait "
-                    f"for an engineer's tick; {tiers['engineer_approved']} by engineer-approved rules, "
+                    f"for an engineer's tick; {tiers['engineer_approved']} by engineer-approved rules"
+                    f" ({tiers.get('engineer_approved_awaiting_tick', 0)} more of those wait for a tick), "
                     "counted apart."
                 ),
             }
