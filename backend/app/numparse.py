@@ -135,6 +135,38 @@ def normalise_text(text: str) -> str:
     return text.translate(_CHARACTER_TABLE)
 
 
+# Letters that look like Latin ones, by code point: Cyrillic, Greek, Armenian, small capitals.
+_LOOKALIKE_CODES = (
+    "0430 0441 0435 043E 0440 0445 0443 0456 0458 0455 043A 043C 0442 043D "
+    "0432 0501 04CF 03B1 03BF 03B5 03BD 03B9 03C1 03C4 03BA 03BC 03C7 03C5 "
+    "03B2 03B7 03C9 0578 057D 0585 0581 0570 0563 0566 1D00 0299 1D04 1D05 "
+    "1D07 A730 0262 029C 026A 1D0A 1D0B 029F 1D0D 0274 1D0F 1D18 0280 A731 "
+    "1D1B 1D1C 1D20 1D21 028F 1D22"
+)
+_LOOKALIKE_LETTERS = "aceopxyijskmthbdlaoeviptkmxubnwnuoghqqabcdefghijklmnoprstuvwyz"
+_LOOKALIKE = {
+    chr(int(h, 16)): v
+    for h, v in zip(_LOOKALIKE_CODES.split(), _LOOKALIKE_LETTERS, strict=True)
+}
+_INVISIBLE = {chr(c) for c in (0x115F, 0x1160, 0x3164, 0xFFA0, 0x180E, 0x2800)}
+
+
+def fold_compat(text: object, *, lower: bool = True, decompose: bool = True) -> str:
+    """The compatibility fold for reading WORDS, not numbers: NFKD (NFKC when `decompose` is False) so accented, styled,
+    circled, parenthesised and fullwidth letters read as plain letters; every mark, format and invisible character dropped
+    (and the space an accent leaves); "(c)(o)" runs joined; look-alikes mapped to Latin."""
+    folded = unicodedata.normalize("NFKD" if decompose else "NFKC", str(text or ""))
+    cat, dropped = unicodedata.category, ("Cf", "Mn", "Me", "Mc", "Cc")
+    plain = "".join(
+        c
+        for i, c in enumerate(folded)
+        if (c in "\t\n " or (cat(c) not in dropped and c not in _INVISIBLE))
+        and not (c == " " and cat(folded[i + 1 : i + 2] or "a") == "Mn")
+    )
+    plain = (plain.lower() if lower else plain).translate(str.maketrans(_LOOKALIKE))
+    return re.sub(r"\(([A-Za-z])\)", r"\1", plain)
+
+
 # --------------------------------------------------------------------- numbers
 
 _D = "[0-9]"

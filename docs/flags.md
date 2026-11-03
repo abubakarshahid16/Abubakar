@@ -17,6 +17,7 @@ does not make one.
 
 | Flag | Default | Kind | Since | Decide by | Note |
 |---|---|---|---|---|---|
+| `ai_engineering_review_pass_enabled` | `False` | rollout | 2026-11-03 | 2026-11-17 | AI engineering review pass (lane 6): proposes, code verifies; off until the owner proves it |
 | `allow_unauthenticated_network_bind` | `False` | permanent | | | Safety override: serving the network with nobody signing in |
 | `api_docs_enabled` | `False` | permanent | | | Route docs off the developer machine only on purpose |
 | `ocr_use_cls` | `True` | permanent | | | OCR tuning measured in ADR-0005 |
