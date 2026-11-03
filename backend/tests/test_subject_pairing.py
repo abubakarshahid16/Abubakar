@@ -240,3 +240,43 @@ def test_units_do_not_make_two_different_quantities_the_same(on):
     assert sp.quantity_words("Design pressure (MPa)") == sp.quantity_words(
         "design pressure"
     )
+
+
+@pytest.mark.parametrize(
+    "subject, label",
+    [
+        ("design pressure", "Design pressure (kPa(g))"),
+        ("design pressure", "Design pressure (bar(g))"),
+        ("design pressure", "Design pressure [MPa(a)]"),
+        ("design temperature", "Design temperature (deg C)"),
+        ("design temperature", "Design temperature, deg C"),
+        ("design life", "Design life (years)"),
+        ("design life", "Design life, years"),
+        (
+            "design life",
+            "Design life ((x) years)",
+        ),  # the outer bracket is still open after the inner one
+        ("number of years", "Number of years"),
+    ],
+)
+def test_nested_and_multi_word_units_and_calendar_annotations_are_not_the_quantity(
+    on, subject, label
+):
+    assert sp.conflict(req(subject), fact(label)) is None
+
+
+def test_a_calendar_word_that_is_the_quantity_stays_the_quantity(on):
+    assert (
+        sp.conflict(req("number of years"), fact("Number of days"))
+        == sp.SUBJECT_DIFFERS
+    )
+    assert (
+        sp.conflict(req("number of days"), fact("Number of weeks"))
+        == sp.SUBJECT_DIFFERS
+    )
+    assert (
+        sp.conflict(
+            req("inspection interval in years"), fact("Inspection interval in days")
+        )
+        == sp.SUBJECT_DIFFERS
+    )

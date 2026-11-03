@@ -62,16 +62,86 @@ _BOUND_WORDS = frozenset(
 )
 
 
-def _is_unit(token: str) -> bool:
-    """A token that is a unit spelling (the one unit table, `claims.is_unit`), bare or in brackets."""
-    return claims.is_unit(token) or claims.is_unit(token.strip("()[],;:"))
+#: Time words that are units ONLY as an annotation ("Design life (years)"); written bare they are the quantity ("number of
+#: years" is not "number of days"). A time dimension in the unit table counts too.
+_CALENDAR = frozenset(
+    [
+        "year",
+        "years",
+        "yr",
+        "yrs",
+        "month",
+        "months",
+        "week",
+        "weeks",
+        "wk",
+        "day",
+        "days",
+    ]
+)
+
+
+def _tokens(text: object) -> list[tuple[str, bool]]:
+    """(token, annotation): every word, and whether it sits inside brackets (any depth) or after a comma, colon or
+    semicolon, where a unit is printed beside the quantity."""
+    out: list[tuple[str, bool]] = []
+    depth, tail, buf = 0, False, []
+
+    def flush() -> None:
+        word = "".join(buf).strip()
+        buf.clear()
+        if word:
+            out.append((word, depth > 0 or tail))
+
+    for ch in str(text or ""):
+        if ch in "([":
+            flush()
+            depth += 1
+        elif ch in ")]":
+            flush()
+            depth = max(0, depth - 1)
+        elif ch in ",;:":
+            flush()
+            tail = True
+        elif ch.isspace():
+            flush()
+        else:
+            buf.append(ch)
+    flush()
+    return out
+
+
+def _calendar(spelling: str) -> bool:
+    return spelling.lower() in _CALENDAR or claims.unit_dimension(spelling) == "time"
+
+
+def _without_units(text: object) -> str:
+    """`text` without the units printed beside the quantity: any spelling the unit table knows, alone or as a run of up
+    to three words ("deg C"), at any bracket depth; a calendar word only when it is an annotation."""
+    tokens = _tokens(text)
+    kept: list[str] = []
+    i = 0
+    while i < len(tokens):
+        for size in (3, 2, 1):
+            window = tokens[i : i + size]
+            spelling = " ".join(w for w, _ in window)
+            if (
+                len(window) == size
+                and claims.is_unit(spelling)
+                and (not _calendar(spelling) or any(a for _, a in window))
+            ):
+                i += size
+                break
+        else:
+            kept.append(tokens[i][0])
+            i += 1
+    return " ".join(kept)
 
 
 def quantity_words(text: object, sheet: str | None = None) -> frozenset[str]:
     """The words of `text` that name the quantity (see the module docstring); empty when it names none."""
     # a unit printed beside the quantity ("(MPa)", "kPa(g)", "bar", "degC") is how it is measured, not which quantity it is
-    raw = " ".join(t for t in str(text or "").split() if not _is_unit(t))
-    folded = field_links.canonical(raw)
+    folded = field_links.canonical(_without_units(text))
     # a token with a digit (a tag, a clause number) or a single letter (what is left of a tag) names no quantity
     words = {
         w
