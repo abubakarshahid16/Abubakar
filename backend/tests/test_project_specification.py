@@ -222,3 +222,32 @@ def test_with_no_mark_a_review_changes_nothing_in_its_rows(world):
         .fetchone()[0]
         == marks_before
     )
+
+
+def test_a_specification_with_no_requirements_read_is_not_pinned_over_nothing(world):
+    # a marked specification the caller may read, but nothing was read from it: pin records no row at all
+    run_id = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    with db.connect() as conn:
+        conn.execute(
+            "DELETE FROM review_applicable_standards WHERE review_run_id = ? AND standard_document_id = 'std_api'",
+            (run_id,),
+        )
+        conn.execute(
+            "UPDATE standard_requirements SET superseded_at = '2026-01-01' WHERE standard_document_id='std_api'"
+        )
+    assert ps.pin(run_id, world["sub"], world["scope"]) is False
+    assert not [r for r in _rows_of(run_id) if r["standard_document_id"] == "std_api"]
+
+
+def test_the_requirements_guard_comes_before_the_pin(world):
+    # with requirements read, the same call pins: so the zero-requirements refusal above is the guard's own doing
+    run_id = _completed_run(world)
+    ps.mark(world["sub"], "std_api", "adm")
+    with db.connect() as conn:
+        conn.execute(
+            "DELETE FROM review_applicable_standards WHERE review_run_id = ? AND standard_document_id = 'std_api'",
+            (run_id,),
+        )
+    assert ps.pin(run_id, world["sub"], world["scope"]) is True
+    assert [r for r in _rows_of(run_id) if r["standard_document_id"] == "std_api"]
