@@ -96,6 +96,11 @@ TESTED_CARD = "TESTED_CARD"
 OWNER_APPROVED = "OWNER_APPROVED"
 OWNER_TIER = "owner"
 OWNER_APPROVED_WORDS = "AI-built, quote-verified, owner-approved"
+#: Item 14: an engineer approved this rule. Its own label, so it never reads as the owner's.
+ENGINEER_APPROVED = "ENGINEER_APPROVED"
+ENGINEER_TIER = "engineer"
+ENGINEER_APPROVED_WORDS = "AI-built, quote-verified, engineer-approved"
+APPROVED_RULE_LABELS = (OWNER_APPROVED, ENGINEER_APPROVED)
 #: A context-dependent rule that decided on the owner's written note (#1584): the owner's exact words for the CRS.
 OWNER_NOTE_CONTEXT = "OWNER_NOTE_CONTEXT"
 OWNER_NOTE_CONTEXT_WORDS = "owner note: context confirmed"
@@ -108,6 +113,7 @@ TRUST_WORDS = {
     AUTO_PROVEN: "automatic (proven rule)",
     TESTED_CARD: "automatic (tested rule, engineer approval pending)",
     OWNER_APPROVED: OWNER_APPROVED_WORDS,
+    ENGINEER_APPROVED: ENGINEER_APPROVED_WORDS,
     OWNER_NOTE_CONTEXT: OWNER_NOTE_CONTEXT_LABEL,
     UNPROVEN: "automatic rule not yet proven",
 }
@@ -327,6 +333,15 @@ def _owner_tier(rule: dict) -> bool:
     return isinstance(approval, dict) and approval.get("tier") == OWNER_TIER
 
 
+def _engineer_tier(rule: dict) -> bool:
+    approval = rule.get("approval")
+    return (
+        settings.engineer_approved_rules_decide_enabled
+        and isinstance(approval, dict)
+        and approval.get("tier") == ENGINEER_TIER
+    )
+
+
 def _signed(approval: dict) -> bool:
     """A named signer and a time that reads as one: the approval has to say who and when."""
     by, at = approval.get("by"), approval.get("at")
@@ -348,9 +363,11 @@ def tier_for_approved(approval: dict | None, rule: dict) -> str:
         approval, dict
     ):
         return UNPROVEN
-    if approval.get("tier") != OWNER_TIER or not _signed(approval):
-        return UNPROVEN
-    return OWNER_APPROVED if second_check(rule)[0] else UNPROVEN
+    tiers = {OWNER_TIER: OWNER_APPROVED}
+    if settings.engineer_approved_rules_decide_enabled:
+        tiers[ENGINEER_TIER] = ENGINEER_APPROVED
+    label = tiers.get(approval.get("tier"))
+    return label if label and _signed(approval) and second_check(rule)[0] else UNPROVEN
 
 
 def owner_signed(approval: dict | None) -> bool:
@@ -359,7 +376,13 @@ def owner_signed(approval: dict | None) -> bool:
     return (
         settings.owner_approved_rules_decide_enabled
         and isinstance(approval, dict)
-        and approval.get("tier") == OWNER_TIER
+        and (
+            approval.get("tier") == OWNER_TIER
+            or (
+                approval.get("tier") == ENGINEER_TIER
+                and settings.engineer_approved_rules_decide_enabled
+            )
+        )
         and _signed(approval)
     )
 
@@ -372,7 +395,7 @@ def trust_label(rule: dict, proof: dict | None) -> str:
     rule - a code-extracted row an engineer has not confirmed included, proof
     or not. A rule the owner approved is `tier_for_approved`'s alone, whatever
     else its dict says: it never reads as an engineer's or a proven rule."""
-    if _owner_tier(rule):
+    if _owner_tier(rule) or _engineer_tier(rule):
         return tier_for_approved(rule.get("approval"), rule)
     if rule.get("confirmed_by"):
         return ENGINEER_CONFIRMED
@@ -442,11 +465,13 @@ def label_finding(
     `settings.owner_approved_rules_decide_enabled` turns it on for a rule the
     owner approved and for no other. `always`: a rule a draft checklist kept in
     scope (Lock 2) is labelled with both switches off."""
-    owner_rule = settings.owner_approved_rules_decide_enabled and _owner_tier(rule)
+    owner_rule = settings.owner_approved_rules_decide_enabled and (
+        _owner_tier(rule) or _engineer_tier(rule)
+    )
     if not settings.rule_auto_use_enabled and not owner_rule and not always:
         return finding
     out = apply_trust(finding, trust_label(rule, proof))
-    if out["trust_label"] == OWNER_APPROVED:
+    if out["trust_label"] in APPROVED_RULE_LABELS:
         out = deferred_value.hold_owner_rule(_hold_without_a_value(out, fact), fact)
     level, why = tier(rule)
     out.update(tier=level, tier_reason=why,
@@ -480,7 +505,7 @@ def run_has_a_record(rows: list[dict]) -> bool:
     return (
         not settings.owner_approved_rules_decide_enabled
         or settings.rule_auto_use_enabled
-        or any(r.get("trust_label") == OWNER_APPROVED for r in rows)
+        or any(r.get("trust_label") in APPROVED_RULE_LABELS for r in rows)
     )
 
 
@@ -491,7 +516,7 @@ def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) 
     still_open = [
         f
         for f in findings
-        if f.get("trust_label") in (OWNER_APPROVED, OWNER_NOTE_CONTEXT)
+        if f.get("trust_label") in (*APPROVED_RULE_LABELS, OWNER_NOTE_CONTEXT)
         and f.get("show_for_engineer_tick")
         and f.get("compliance_status") == COMPLIANT
         and not f.get("confirmed_by")
@@ -499,13 +524,15 @@ def hold_open_ticks(result: dict, findings: list[dict], codes: tuple[str, ...]) 
     if not still_open or result["code"] not in (codes[0], codes[1]):
         return result
     n = len(still_open)
+    names = sorted({str(f["trust_label"]).split("_")[0].lower() for f in still_open})
+    who = f"an {'- or '.join(names)}-approved rule"
     return {
         **result,
         "code": codes[3],
         "reason": (
             # dated: the reason is stored, and a tick after this time does not rewrite it
             f"Manual review: at {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, when this review ran, {n} safety "
-            f"value{'s' if n != 1 else ''} met an owner-approved rule and "
+            f"value{'s' if n != 1 else ''} met {who} and "
             f"{'were' if n != 1 else 'was'} waiting for an engineer's tick, so the sheet was not called approved"
         ),
         "open_safety_ticks": n,
@@ -568,15 +595,19 @@ def decided_by_tier(rows: list[dict]) -> dict:
             r for r in found if r.get("compliance_status") in (COMPLIANT, NON_COMPLIANT)
         ]
 
-    owner = rows_of(OWNER_APPROVED)
-    if not owner:
+    owner, by_engineer = rows_of(OWNER_APPROVED), rows_of(ENGINEER_APPROVED)
+    if not owner and not by_engineer:
         return {}
     ticks = [r for r in decided(owner) if r.get("show_for_engineer_tick")]
+    eng_ticks = [r for r in decided(by_engineer) if r.get("show_for_engineer_tick")]
+    confirmed = decided(rows_of(ENGINEER_CONFIRMED))
+    engineer_decided = len(confirmed) + len(decided(by_engineer)) - len(eng_ticks)
     return {
         "decided_by_tier": {
             "owner_approved": len(decided(owner)) - len(ticks),
             "owner_approved_awaiting_tick": len(ticks),
-            "engineer_approved": len(decided(rows_of(ENGINEER_CONFIRMED))),
+            "engineer_approved": engineer_decided,
+            "engineer_approved_awaiting_tick": len(eng_ticks),
         }
     }
 
@@ -743,7 +774,8 @@ def review_notes(outcome: dict, findings: list[dict]) -> list[dict]:
                 "detail": (
                     f"Of this run's {trust.get('findings_counted')} findings: {tiers['owner_approved']} decided "
                     f"by rules labelled {OWNER_APPROVED_WORDS}; {tiers['owner_approved_awaiting_tick']} more wait "
-                    f"for an engineer's tick; {tiers['engineer_approved']} by engineer-approved rules, "
+                    f"for an engineer's tick; {tiers['engineer_approved']} by engineer-approved rules"
+                    f" ({tiers.get('engineer_approved_awaiting_tick', 0)} more of those wait for a tick), "
                     "counted apart."
                 ),
             }

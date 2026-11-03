@@ -1217,3 +1217,62 @@ def test_a_reader_with_no_grant_gets_no_note(monkeypatch):
 
 def test_switch_off_no_note():
     assert crs_export.build_crs_view([], {"review_notes": []})["rulebook_v2_note"] == ""
+
+
+def _engineer_rule(**over):
+    approval = {"by": ENGINEER, "at": "2026-11-02", "tier": "engineer"}
+    return _rule(approval=approval, **over)
+
+
+def test_an_engineer_approval_decides_and_is_labelled_engineer_with_the_switch_on(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "engineer_approved_rules_decide_enabled", True)
+    run, scope = _sheet()
+    row = _one(_review(monkeypatch, run, scope, _engineer_rule()))
+    assert row["compliance_status"] != QUERY
+    assert row["trust_label"] == rule_trust.ENGINEER_APPROVED
+
+
+def test_with_the_engineer_switch_off_an_engineer_approval_still_does_not_decide(
+    monkeypatch,
+):
+    run, scope = _sheet()
+    row = _one(_review(monkeypatch, run, scope, _engineer_rule()))
+    assert row["compliance_status"] == QUERY and _reason(row) == NOT_OWNER_APPROVED
+
+
+def test_a_draft_rule_without_an_approval_never_decides_even_with_both_switches_on(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "engineer_approved_rules_decide_enabled", True)
+    run, scope = _sheet()
+    for approval in (None, {}, {"tier": "engineer"}, {"by": "x", "tier": "draft"}):
+        row = _one(_review(monkeypatch, run, scope, _rule(approval=approval)))
+        assert row["compliance_status"] == QUERY, approval
+
+
+def test_a_rejected_rule_is_not_served_so_it_cannot_decide(monkeypatch):
+    monkeypatch.setattr(settings, "engineer_approved_rules_decide_enabled", True)
+    _plain_standard()
+    rule = _engineer_rule()
+    conn = _conn()
+    version = conn.execute(
+        "SELECT id FROM rulebook_version WHERE rule_id = ?", (rule["rule_id"],)
+    ).fetchone()[0]
+    assert [r["rule_id"] for r in rulebook_v2.approved_rules(conn, TYPE)] == [
+        rule["rule_id"]
+    ]
+    shown = conn.execute(
+        "SELECT id FROM rulebook_provenance WHERE rule_version_id = ?", (version,)
+    ).fetchall()
+    rulebook_v2.record_decision(
+        conn,
+        version,
+        decision="reject",
+        engineer_id=ENGINEER,
+        tier="engineer",
+        equipment_type=TYPE,
+        provenance_viewed=tuple(r[0] for r in shown),
+    )
+    assert rulebook_v2.approved_rules(conn, TYPE) == []

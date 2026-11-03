@@ -390,6 +390,10 @@ class SettingsExt(BaseModel):
     #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
     #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
     owner_approved_rules_decide_enabled: bool = False
+    #: Owner order 3 Nov (item 14): a rule an ENGINEER approved may decide Pass, Fail or Query like an
+    #: owner-approved one, labelled engineer-approved. Needs the switch above. A draft, a rejected or an
+    #: unsigned rule never decides. OFF: only the owner's approval decides. Env: ENGINEER_APPROVED_RULES_DECIDE_ENABLED.
+    engineer_approved_rules_decide_enabled: bool = False
     #: #1638: a checklist `required` row only asks that a field is stated. ON: it counts for
     #: no approval and is not a decided rule, and is named "stated, not checked". OFF: a
     #: Pass like any other. Env: PRESENCE_NOT_PASS_ENABLED.
