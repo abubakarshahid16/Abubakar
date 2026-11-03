@@ -51,6 +51,7 @@ from .ai.json_reply import opened_tagged, unfenced_whole
 from .claude_spend import StopRun
 from .db import connect
 from .stored_paths import local as local_path
+from .unit_case import reading_as_printed
 
 # --------------------------------------------------------------- vocabulary
 
@@ -173,8 +174,8 @@ def build_prompt(page_text: str, page_no: int, known_fields: list[str]) -> str:
 # -------------------------------------------------------- text, folded
 
 def _fold(text: str) -> str:
-    """Whitespace-insensitive, case-insensitive form. `reader_api._fold`."""
-    return re.sub(r"\s+", " ", str(text)).strip().lower()
+    """Whitespace- and case-insensitive form, mPa apart from MPa. `reader_api._fold`."""
+    return re.sub(r"\s+", " ", numparse.mark_case_kept(text)).strip().lower()
 
 
 def _contains(haystack: str, needle: str) -> bool:
@@ -563,9 +564,7 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
     known before any text is compared.
 
     Returns `{"accepted": [...], "rejected": [...], "counts": {reason: n}}`.
-    Every rejected proposal carries `reason`. Every accepted one carries
-    `field_name`, the normalised name `store_facts` and the duplicate check
-    use, beside the label the model wrote.
+    Every rejected proposal carries `reason`, every accepted one `field_name`.
     """
     folded_page = _fold(page_text)
     known = _known_names(known_fields)
@@ -576,6 +575,7 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         rejected.append({**proposal, "reason": reason.value})
 
     for p in atomise(proposals):
+        p = reading_as_printed(p, page_text)
         if not p.get("field"):
             drop(p, Reason.FIELD_MISSING)
             continue

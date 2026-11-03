@@ -146,6 +146,10 @@ def fill_pages(rows: list[dict], findings: list[dict], document_id: str) -> None
             for q, _ in quotes
         ]
         lead = word_pages.page_cell(_page_words(pages), pages, group) if pages else ""
+        if lead:
+            # #1652: the lead is the page; a page named in words beside it is the
+            # same claim twice ("p.5 - page 5"), for a PDF as for a Word file.
+            rest = word_pages.without_page_words(rest)
         row["page_section"] = f"{lead} - {rest}" if lead and rest else lead or rest
 
 

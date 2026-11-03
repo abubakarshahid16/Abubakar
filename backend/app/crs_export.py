@@ -27,6 +27,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from . import crs_export_quality as quality
+from . import run_record
 from .crs_mapping import (
     PRIORITY_CARRIED_FORWARD,
     ROW_KIND_CARRIED_FORWARD,
@@ -579,6 +580,14 @@ def _write(ws, row: int, col: int, value):
     return cell
 
 
+def _later_sheets(wb, view: dict, meta: dict, internal: bool) -> None:
+    """The sheets drawn last, internal copy only. #1608: the issue copy keeps the count and the share (#633)."""
+    if internal and meta.get("run_record"):
+        run_record.write_sheet(wb, meta["run_record"], _write)
+    if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
+        quality.write_internal_sheet(wb, view["internal_sheet"], _write)
+
+
 def _note_cell(ws, view: dict, put) -> None:
     """The version 2 note, on both copies, in a new cell below the code. Never in column A: a reply is read by the Item
     No there (`crs_reply.read_replies`), so this cell is no row of the table."""
@@ -739,8 +748,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         for col, width in zip("ABCD", (44, 30, 8, 90)):
             notes_sheet.column_dimensions[col].width = width
 
-    if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
-        quality.write_internal_sheet(wb, view["internal_sheet"], _write)
+    _later_sheets(wb, view, meta, internal)
 
     buffer = BytesIO()
     wb.save(buffer)

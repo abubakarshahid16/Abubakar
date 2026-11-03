@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS documents (
     -- units and a citation uses chunks.locator); NULL or 'fixed' for a PDF.
     pagination        TEXT
 );
+CREATE TABLE IF NOT EXISTS intake_blocks (document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, page_no INTEGER NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, rows_json TEXT, block_hash TEXT, reason TEXT, PRIMARY KEY (document_id, page_no, seq));
 CREATE TABLE IF NOT EXISTS intake_reasons (document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, page_no INTEGER NOT NULL, code TEXT NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (document_id, page_no, code));
 -- W5b-02 (#526): what SORT of document this is (datasheet, procedure, study,
 -- report, FEED, letter). `kind` is NULL when the router could not decide and an
@@ -105,8 +106,7 @@ CREATE TABLE IF NOT EXISTS pages (
 -- the recognised text alike - is therefore destroyed by a re-extraction, and
 -- states.py explicitly permits re-extraction from both no_searchable_content
 -- and failed. Twenty minutes of recognition would be silently overwritten by
--- the empty extraction that triggered it. Extraction cannot reach this table.
--- See ADR-0006.
+-- the empty extraction that triggered it. Extraction cannot reach this table (ADR-0006).
 CREATE TABLE IF NOT EXISTS page_ocr (
     document_id   TEXT    NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     page_no       INTEGER NOT NULL,
@@ -1247,11 +1247,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if pg and "ocr_route_version" not in pg:
         add_column_if_missing(conn, "pages", "ocr_route_version", "TEXT")
     add_column_if_missing(conn, "page_ocr", "error", "TEXT")
+    add_column_if_missing(conn, "page_ocr", "tables_json", "TEXT")  # #525 slice 3
     add_column_if_missing(conn, "page_ledger", "ocr_reason", "TEXT")
-    # Per-box low-confidence count (2026-09-29): an existing row was recognised
-    # before this counter existed, so it defaults to 0 rather than an unknown
-    # NULL - the same choice already made for box_count/alphabet_violations on
-    # this table, not a claim that the page truly had zero low-confidence boxes.
+    # Per-box low-confidence count (2026-09-29): a row recognised before this counter
+    # defaults to 0 rather than NULL, the same choice as box_count/alphabet_violations
+    # on this table, not a claim that the page truly had zero low-confidence boxes.
     add_column_if_missing(conn, "page_ocr", "low_conf_boxes", "INTEGER NOT NULL DEFAULT 0")
     add_column_if_missing(conn, "page_ledger", "ocr_low_conf_boxes", "INTEGER")
     # --------------------------------------------- AI submittal review, phase 1

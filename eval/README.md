@@ -85,6 +85,17 @@ docstring for the exact definitions (exact-chunk vs same-value vs really-wrong
 answers, and the four approximations the numbers carry). Findings and the
 2026-09-29 run are recorded in `docs/limitations.md`.
 
+## Search index measurement bed (`scripts/retrieval_bed.py`, #1606)
+
+Recall@5, recall@20, MRR and citation precision for the search as it is today,
+each with its denominator, so every search change is scored on the same cases.
+It runs on a database copy; the gold set it builds holds document text, so it is
+refused inside this repository and stays beside the copies. Results and stdout
+hold ids and counts only. The embedding comparison is off unless
+`RETRIEVAL_BED_EMBEDDER` is set, and uses only a model already on the machine.
+No gate yet: `--compare` prints a drop and exits 0. The module docstring has the
+exact definitions and what the labels are not (no engineer has confirmed them).
+
 ## Reading the numbers honestly
 
 - **Run it with nothing else on the machine.** This laptop is the production

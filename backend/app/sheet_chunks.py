@@ -127,7 +127,13 @@ def withhold(document_id: str) -> bool:
     fts_index.ensure_schema(conn)  # the keyword table is made on first use
     why = WHY_TEMPLATE if held[1] == CRS_TEMPLATE else WHY_WAITING
     with conn:
-        for table in ("chunks_fts", "chunk_vectors", "chunks", "intake_reasons"):
+        for table in (
+            "chunks_fts",
+            "chunk_vectors",
+            "chunks",
+            "intake_blocks",
+            "intake_reasons",
+        ):
             conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
         conn.execute(
             "INSERT INTO intake_reasons (document_id, page_no, code, reason)"

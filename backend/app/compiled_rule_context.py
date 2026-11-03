@@ -32,8 +32,11 @@ def quote_span(quote: str, text: str) -> tuple[int | None, int | None]:
         r"(?:[-\u00ad]\s*)?".join(re.escape(ch) for ch in word)
         for word in joined.split()
     )
-    found = re.search(pattern, text, re.IGNORECASE)
-    return found.span() if found else (None, None)
+    wanted = numparse.case_kept_words(joined)
+    for found in re.finditer(pattern, text, re.IGNORECASE):
+        if numparse.case_kept_words(found.group(0)) == wanted:  # mPa is not MPa, #1618
+            return found.span()
+    return None, None
 
 
 def _is_scope(words: str) -> bool:

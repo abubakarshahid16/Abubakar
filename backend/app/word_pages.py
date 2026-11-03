@@ -159,7 +159,14 @@ def without_lead(section: str, document_id: str | None) -> str:
     once. Switch off, or not a Word file: the cell as it was."""
     if page_source(document_id) is None:
         return section
-    return _PAGE_WORD_LEAD.sub("", _LEAD.sub("", section))
+    return without_page_words(_LEAD.sub("", section))
+
+
+def without_page_words(section: str) -> str:
+    """`section` with a leading page named in words ("page 2", "page 2, 4.2 >
+    para 1") taken off, for any file: the caller is about to print the page
+    as its own lead, and a cell says its page once (#1652)."""
+    return _PAGE_WORD_LEAD.sub("", section)
 
 
 def no_image_words(default: str) -> str:

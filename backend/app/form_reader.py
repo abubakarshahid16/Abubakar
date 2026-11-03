@@ -61,6 +61,7 @@ from .form_reader_fields import (
     schema_for,
 )
 from .model_evidence import APPROVED_CHARACTER_MAP
+from .unit_case import reading_as_printed
 
 log = logging.getLogger(__name__)
 
@@ -370,6 +371,7 @@ def read_batch(fields: list[Field], page_text: str, page: int, model_call, rules
         elif first["status"] == LEFT_BLANK:
             reason = verify_blank(f, first, page_text, rules)
         else:
+            first = reading_as_printed(first, page_text)
             reason = verify(f, first, page_text, rules)
         if reason is None:
             facts.append(_fact(f, first, page))

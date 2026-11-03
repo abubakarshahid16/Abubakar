@@ -63,6 +63,7 @@ from .deferred_value import framing as _framing, reason as _deferred_reason
 from .impossible_sign import hold_pass as _hold_impossible_pass
 from .db import connect
 from .provenance import ai_quote_proved
+from .unit_case import capitals_note
 
 # ----------------------------------------------------------------- statuses
 
@@ -1275,7 +1276,7 @@ def _unit_obstacle(submitted_unit: str | None, required_unit: str | None) -> str
         return (f"the requirement states no unit and the submitted value is in "
                 f"{got!r}; {UNIT_NOT_GUESSED_PHRASE}")
     return (f"the submitted unit {got!r} and the required unit {want!r} cannot "
-            "be compared by this system; no conversion is guessed")
+            f"be compared by this system; no conversion is guessed{capitals_note(got)}")
 
 
 def _plain(number: float) -> str:

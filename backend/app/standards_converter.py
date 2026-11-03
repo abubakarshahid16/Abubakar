@@ -56,11 +56,12 @@ from . import (
     claude_spend,
     field_naming,
     field_vocabulary,
+    numparse,
     rule_roles,
 )
 from .ai.json_reply import unfenced
+from .converter_gates import as_printed_on, fold_for_gate, in_example, quote_unreadable
 from .converter_gates import fold as _fold
-from .converter_gates import in_example, quote_unreadable
 from .reasoning_provider import ProviderRefused
 
 #: Owner, 28 Oct 2026 (order 271.2): SAES and ISO text may go to the API. API and ASME: HOLD.
@@ -324,11 +325,14 @@ def _has_figure(quote: str, figure: str) -> bool:
 
 
 def _has_unit(quote: str, unit: str) -> bool:
-    u = _fold(unit)
+    u = fold_for_gate(unit)
     if not u:
         return False
     return bool(
-        re.search(r"(?<![a-z0-9])" + re.escape(u) + r"(?![a-z0-9])", _fold(quote))
+        re.search(
+            rf"(?<![a-z0-9{numparse.CASE_KEPT_MARK}])" + re.escape(u) + r"(?![a-z0-9])",
+            fold_for_gate(quote),
+        )
     )
 
 
@@ -431,7 +435,7 @@ def verify(
     for the sentence: nothing to look at, and never "not applicable" - applicability is not decided here)."""
     text = _fold(_text(row))
     condition = (answer.get("condition") or "").strip()
-    if condition and _fold(condition) not in text:
+    if condition and fold_for_gate(condition) not in fold_for_gate(_text(row)):
         return "unproven", "condition_not_in_clause", None
     idx = answer.get("field")
     if idx is None:
@@ -450,7 +454,7 @@ def verify(
     ):  # a worked example illustrates; it states no requirement (order 295.7 b)
         return "unproven", "example_not_requirement", None
     quote = " ".join(str(answer.get("quote") or "").split())
-    if len(quote) < 8 or _fold(quote) not in text:
+    if len(quote) < 8 or fold_for_gate(quote) not in fold_for_gate(_text(row)):
         return "unproven", "quote_not_in_clause", None
     if quote_unreadable(
         quote, str(row.get("source_text") or row.get("requirement_text") or "")
@@ -488,7 +492,14 @@ def verify(
     return (
         "verified",
         None,
-        Check(roles[name], comparator, limit, unit, quote, _fold(condition) or None),
+        Check(
+            roles[name],
+            comparator,
+            limit,
+            unit,
+            quote,
+            as_printed_on(condition, _text(row)) or None,
+        ),
     )
 
 

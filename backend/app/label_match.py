@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 
-from . import claims
+from . import claims, unit_case
 
 _SINGLE = re.compile(r"^[a-z]$")
 
@@ -77,7 +77,7 @@ def drop_unit_less_twins(found: list[dict]) -> list[dict]:
         return found
     if not united or not bare or len(united) + len(bare) != len(found):
         return found
-    units = {" ".join(str(f["raw_unit"]).lower().split()) for f in united}
+    units = {unit_case.fold_unit(f["raw_unit"]) for f in united}
     numbers = {_number(f) for f in united}
     if len(units) != 1 or len(numbers) != 1:
         return found
