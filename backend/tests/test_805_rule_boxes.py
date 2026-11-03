@@ -972,3 +972,14 @@ def test_a_relabel_under_a_new_prompt_keeps_the_old_box_and_asks_only_what_is_no
     ).fetchone()
     assert tuple(row) == ("a", "c", rule_boxes.PROMPT_VERSION)
     assert rule_boxes.todo(rules) == []
+
+
+def test_a_checks_table_made_before_the_field_list_column_is_migrated(rules):
+    rules.execute(f"DROP TABLE {rule_box_check.CHECKS}")
+    rules.execute(
+        f"CREATE TABLE {rule_box_check.CHECKS} (rule_id TEXT PRIMARY KEY, status TEXT NOT NULL)"
+    )
+    rule_box_check.ensure_schema(rules)
+    assert "field_list_state" in [
+        r[1] for r in rules.execute(f"PRAGMA table_info({rule_box_check.CHECKS})")
+    ]

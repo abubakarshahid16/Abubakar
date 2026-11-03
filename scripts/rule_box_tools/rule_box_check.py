@@ -24,6 +24,7 @@ STANDARDS TEXT ONLY. ON A COPY. Counts only in a report.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import time
@@ -58,6 +59,10 @@ _OP_ALIASES = {"==": "=", "≤": "<=", "≥": ">="}
 
 
 def ensure_schema(conn) -> None:
+    with contextlib.suppress(
+        Exception
+    ):  # an older copy of the table has no such column
+        conn.execute(f"ALTER TABLE {CHECKS} ADD COLUMN field_list_state TEXT")
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {CHECKS} ("
         " rule_id TEXT PRIMARY KEY, status TEXT NOT NULL, reason TEXT, field_role TEXT, kind TEXT, op TEXT,"
@@ -372,11 +377,16 @@ def check_todo(conn) -> list:
     return [r for r in rows if fields_for(r["equipment_type"], conn) is not None]
 
 
-def check_jobs(conn, gate) -> tuple[list[rule_box_run.Job], dict, dict]:
+def check_jobs(
+    conn, gate, only: str | None = None
+) -> tuple[list[rule_box_run.Job], dict, dict]:
     labels = rule_boxes.standard_labels(conn)
     refused: dict[str, str | None] = {}
     out, members, skipped = [], {}, 0
     for r in check_todo(conn):
+        fixed = rule_boxes.checklist_name(r["equipment_type"]) is not None
+        if (only == "fixed" and not fixed) or (only == "ai" and fixed):
+            continue
         doc = r["standard_document_id"]
         if doc not in refused:
             refused[doc] = gate(doc, labels.get(doc, ""))
