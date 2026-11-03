@@ -36,7 +36,8 @@ import json
 import re
 import time
 
-from app import datasheet_checks, subject_pairing
+from app import claims, comparison, datasheet_checks, subject_pairing
+from app import standards_converter as sc
 from app.compiled_rule_proof import quote_verified
 from rule_box_tools import rule_box_check, rule_box_labels, rule_box_run
 
@@ -268,6 +269,74 @@ def pass_problem(rule_text: str, quote: str) -> str | None:
     return None
 
 
+_COMPARE_OPS = ("<=", ">=", "<", ">", "=")
+
+
+def figure_check(rule_text: str, quote: str) -> tuple[str, str]:
+    """(state, words) for a rule that asks for a figure. `no_figure`: the rule has no digit, nothing to compare.
+    `meets` / `violates`: the ONE figure the rule asks for was compared with the ONE same-quantity value in the quote by
+    the datasheet comparison itself (units converted, gauge and absolute kept apart). `cannot`: anything else (the rule's
+    figure, unit or comparator cannot be read, a range, more than one value in the quote, no value of the same quantity,
+    a unit that does not convert): then no Pass and no Fail can rest on it."""
+    if not re.search(r"\d", rule_text):
+        return "no_figure", ""
+    if re.search(
+        r"\bbetween\b.*\band\b|\d\s*(?:to|\u2013|\u2014)\s*\d|\d\s*-\s*\d",
+        rule_text,
+        re.I,
+    ):
+        return "cannot", "the rule states a range"
+    asked = [
+        m
+        for m in claims.extract_measurements(" ".join(rule_text.split()))
+        if claims.unit_dimension(m.raw_unit)
+    ]
+    if len(asked) != 1:
+        return "cannot", "the rule's figure could not be read as one value"
+    ops = sc.comparators_said(" ".join(rule_text.lower().split())) & set(_COMPARE_OPS)
+    if len(ops) != 1:
+        return "cannot", "the rule's comparator could not be read"
+    limit = asked[0]
+    dimension = claims.unit_dimension(limit.raw_unit)
+    stated = [
+        m
+        for m in claims.extract_measurements(" ".join(quote.split()))
+        if claims.unit_dimension(m.raw_unit) == dimension
+    ]
+    if len(stated) != 1:
+        return (
+            "cannot",
+            "the quoted words do not give exactly one value of the same quantity",
+        )
+    requirement = {
+        "requirement_type": "numeric_limit",
+        "operator": next(iter(ops)),
+        "raw_value": limit.raw_value,
+        "raw_unit": limit.raw_unit,
+        "value": limit.normalized_value if limit.normalized_value is not None else None,
+    }
+    fact = {
+        "raw_value": stated[0].raw_value,
+        "raw_unit": stated[0].raw_unit,
+        "value": stated[0].normalized_value,
+        "field_name": "judge",
+        "page": 1,
+        "confirmed_by": "rule_box_judge",
+    }
+    status = comparison.compare(requirement, fact).get("status")
+    if status == comparison.COMPLIANT:
+        return (
+            "meets",
+            f"{stated[0].raw_value} {stated[0].raw_unit} against {next(iter(ops))} {limit.raw_value} {limit.raw_unit}",
+        )
+    if status == comparison.NON_COMPLIANT:
+        return (
+            "violates",
+            f"{stated[0].raw_value} {stated[0].raw_unit} against {next(iter(ops))} {limit.raw_value} {limit.raw_unit}",
+        )
+    return "cannot", "the stated value could not be compared with the rule's figure"
+
+
 def clean_reason(text, rule_text: str, words: int = 8) -> str:
     """The model's short reason, cut to a few words; dropped when it brings a number the rule does not have."""
     said = " ".join(str(text or "").split())
@@ -312,6 +381,9 @@ def verified(
         "pass_problem": pass_problem(rule_text, quote)
         if on_page and rule_text
         else None,
+        "figure": figure_check(rule_text, quote)
+        if on_page and rule_text
+        else ("no_figure", ""),
     }
 
 
@@ -367,6 +439,25 @@ def combine(
                 None,
             )
         return NEEDS_ENGINEER, "a quote was not found on the cited page", None
+    states = {first["figure"][0], second["figure"][0]}
+    if first["verdict"] in ("pass", "fail") and "cannot" in states:
+        return (
+            "Query",
+            "the code could not compare the stated value with the rule's figure",
+            first,
+        )
+    if first["verdict"] == "pass" and "violates" in states:
+        return (
+            "Query",
+            f"the stated value does not meet the rule: {first['figure'][1]}",
+            first,
+        )
+    if first["verdict"] == "fail" and "meets" in states:
+        return (
+            NEEDS_ENGINEER,
+            "the reading says fail but the stated value meets the rule's figure",
+            None,
+        )
     if first["verdict"] == "pass":
         problem = first["pass_problem"] or second["pass_problem"]
         if problem == "silence":
@@ -642,25 +733,26 @@ class RowRefused(ValueError):
     """A result row with no page or no comment cannot be emitted."""
 
 
-def export_crs(conn, document_id: str, path) -> int:
-    """Two sheets. `CRS`: Pass, Fail and Query rows only (what a contractor copy may carry); a row with no page or no
-    comment is refused. `AI judgement not decided`: the needs-engineer rows, INTERNAL, one plain line each. Merged and
-    not-applicable rules make no row. Returns the number of CRS rows."""
+def export_crs(conn, document_id: str, path, internal_path=None) -> int:
+    """TWO workbooks. `path`: the CONTRACTOR copy, one sheet `CRS` with Pass, Fail and Query rows only, no label and no
+    word about AI or the engineer; a row with no page or no comment is refused. `internal_path` (default beside it, with
+    `-internal` in its name): `AI judgement not decided`, the needs-engineer rows with one plain line each, and the label.
+    Merged and not-applicable rules make no row. Returns the number of CRS rows."""
+    from pathlib import Path
+
     import openpyxl
 
+    path = Path(path)
+    internal_path = (
+        Path(internal_path)
+        if internal_path
+        else path.with_name(path.stem + "-internal.xlsx")
+    )
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "CRS"
     ws.append(
-        [
-            "Row",
-            "Clause",
-            "Page",
-            "Result",
-            "Comment",
-            "Requirement (stored words)",
-            "Label",
-        ]
+        ["Row", "Clause", "Page", "Result", "Comment", "Requirement (stored words)"]
     )
     n = 0
     for r in conn.execute(
@@ -673,19 +765,12 @@ def export_crs(conn, document_id: str, path) -> int:
                 f"rule {r['rule_id']}: a {r['status']} row needs a clause, a page and a comment"
             )
         n += 1
-        ws.append(
-            [
-                n,
-                r["clause"],
-                r["page"],
-                r["status"],
-                comment,
-                r["rule_quote"],
-                r["label"],
-            ]
-        )
-    internal = wb.create_sheet("AI judgement not decided")
-    internal.append(
+        ws.append([n, r["clause"], r["page"], r["status"], comment, r["rule_quote"]])
+    wb.save(path)
+    inner = openpyxl.Workbook()
+    sheet = inner.active
+    sheet.title = "AI judgement not decided"
+    sheet.append(
         [
             "Row",
             "Clause",
@@ -702,7 +787,7 @@ def export_crs(conn, document_id: str, path) -> int:
         ),
         1,
     ):
-        internal.append(
+        sheet.append(
             [
                 k,
                 r["clause"],
@@ -712,5 +797,5 @@ def export_crs(conn, document_id: str, path) -> int:
                 "Internal: " + r["label"],
             ]
         )
-    wb.save(path)
+    inner.save(internal_path)
     return n

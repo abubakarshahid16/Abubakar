@@ -1521,7 +1521,7 @@ def test_edition_rules_make_no_call_and_a_not_applicable_reason_is_the_models_ow
     assert rule_box_judge.combine(no, no, False)[1] == "site delivery media only"
 
 
-def test_the_export_keeps_needs_engineer_rows_off_the_crs_sheet_and_in_plain_words(
+def test_the_export_keeps_needs_engineer_rows_and_the_label_off_the_contractor_workbook(
     rules, tmp_path
 ):
     _setup_judge(rules)
@@ -1529,13 +1529,35 @@ def test_the_export_keeps_needs_engineer_rows_off_the_crs_sheet_and_in_plain_wor
         f"INSERT INTO {rule_box_judge.JUDGED} (document_id, rule_id, status, reason, page, clause, rule_quote, calls_json, label, model, prompt_version, created_at)"
         " VALUES ('sub-1','r1','needs engineer','the two readings differ',2,'STD-1 clause 4.2','x','[]','AI judgement, engineer to confirm','m','v','t')"
     )
-    out = tmp_path / "x.xlsx"
-    assert rule_box_judge.export_crs(rules, "sub-1", out) == 0
+    rules.execute(
+        f"INSERT INTO {rule_box_judge.JUDGED} (document_id, rule_id, status, page, evidence, clause, rule_quote, calls_json, label, model, prompt_version, created_at)"
+        " VALUES ('sub-1','r3','Query',1,'The set pressure is 12 bar','STD-1 clause 4.3','The set pressure shall be stated.','[{\"reason\": \"the sheet gives a set pressure\"}]','AI judgement, engineer to confirm','m','v','t')"
+    )
+    out = tmp_path / "contractor.xlsx"
+    assert rule_box_judge.export_crs(rules, "sub-1", out) == 1
+    import re
+    import zipfile
+
     import openpyxl
 
-    wb = openpyxl.load_workbook(out)
-    assert wb["CRS"].max_row == 1
-    line = next(wb["AI judgement not decided"].iter_rows(min_row=2, values_only=True))
+    book = openpyxl.load_workbook(out)
+    assert book.sheetnames == ["CRS"]
+    cells = [
+        str(c)
+        for row in book["CRS"].iter_rows(values_only=True)
+        for c in row
+        if c is not None
+    ]
+    assert len(book["CRS"][1]) == 6 and len(cells) >= 6
+    banned = re.compile(r"engineer|\bAI\b|judgement|internal", re.IGNORECASE)
+    assert [c for c in cells if banned.search(c)] == []
+    with zipfile.ZipFile(out) as z:
+        for name in z.namelist():
+            assert not banned.search(z.read(name).decode("utf-8", "ignore")), name
+    inner = openpyxl.load_workbook(tmp_path / "contractor-internal.xlsx")
+    line = next(
+        inner["AI judgement not decided"].iter_rows(min_row=2, values_only=True)
+    )
     assert (
         line[2] == 2
         and "disagreed" in line[3]
@@ -1884,3 +1906,70 @@ def test_field_first_asks_one_field_per_prompt_and_code_verifies_each_pick(rules
     )
     assert states == {"r1": "checked", "r2": "failed check"}
     assert apply.tally["picks"] == 2
+
+
+# ------------------------------------------------------------------------------------------ a Pass rests on the compared figure
+def _fig(rule, quote):
+    return rule_box_judge.figure_check(rule, quote)[0]
+
+
+def _pass_both(rule, quote):
+    rec = _rec(1, "pass", quote=quote)
+    pages = {1: f"Invented sheet. {quote} More words follow."}
+    one = rule_box_judge.verified(rec, 1, pages, False, rule)
+    return rule_box_judge.combine(one, one, False)
+
+
+def test_a_pass_needs_the_stated_value_to_meet_the_rules_figure_by_the_datasheet_comparison():
+    rule = "The set pressure shall be not less than 10 bar."
+    assert _fig(rule, "Set pressure 12 bar") == "meets"
+    assert _fig(rule, "Set pressure 5 bar") == "violates"
+    assert (
+        _pass_both(rule, "The set pressure is 5 bar")[0] == "Query"
+    )  # 5 bar against not less than 10 bar: never a Pass
+    assert _pass_both(rule, "The set pressure is 12 bar")[0] == "Pass"
+    assert (
+        _fig("The set pressure shall be at most 10 bar.", "Set pressure 12 bar")
+        == "violates"
+    )
+    assert (
+        _fig("The set pressure shall be at most 10 bar.", "Set pressure 8 bar")
+        == "meets"
+    )
+    assert (
+        _pass_both(
+            "The set pressure shall be at most 10 bar.", "The set pressure is 12 bar"
+        )[0]
+        == "Query"
+    )
+
+
+def test_a_figure_in_another_unit_is_converted_and_a_unit_that_does_not_convert_blocks_the_pass():
+    rule = "The set pressure shall be not less than 10 bar."
+    assert (
+        _fig(rule, "Set pressure 200 psi") == "meets"
+    )  # 100 psi is 6.9 bar? no: see the violation below
+    assert _fig(rule, "Set pressure 50 psi") == "violates"
+    assert _fig(rule, "Set pressure 12 degC") == "cannot"
+    assert _pass_both(rule, "The set pressure is 12 degC")[0] == "Query"
+
+
+def test_a_range_two_values_or_another_quantitys_number_never_make_a_pass():
+    rule = "The set pressure shall be not less than 10 bar."
+    assert (
+        _fig("The set pressure shall be between 5 and 10 bar.", "Set pressure 8 bar")
+        == "cannot"
+    )
+    assert _fig(rule, "Set pressure 12 bar and test pressure 15 bar") == "cannot"
+    assert _fig(rule, "Seat tightness class 6, 3 mm lift") == "cannot"
+    assert _fig("The valve shall be marked.", "Marked on the plate 2024") == "no_figure"
+
+
+def test_a_fail_verdict_whose_value_actually_meets_the_rule_goes_to_the_engineer():
+    rule = "The set pressure shall be not less than 10 bar."
+    fail = lambda q: _v(_rec(1, "fail", quote=q), rule=rule)  # noqa: E731
+    pages_q = "The set pressure is 12 bar and the body is cast iron"
+    assert (
+        rule_box_judge.combine(fail(pages_q), fail(pages_q), False)[0]
+        == "needs engineer"
+    )
