@@ -24,6 +24,7 @@ model: the stored clause text arrives in the context.
 from __future__ import annotations
 
 import re
+
 from . import ai_review_proposals as arp
 from . import claims, numparse, standard_ids
 from .config import settings
@@ -58,7 +59,10 @@ class PassReason:
 
 def _clause_text(proposal: dict, ctx) -> str | None:
     """The stored clause text for the standard and clause the proposal names, or None."""
-    standard, clause = str(proposal.get("standard") or ""), str(proposal.get("clause") or "").strip()
+    standard, clause = (
+        str(proposal.get("standard") or ""),
+        str(proposal.get("clause") or "").strip(),
+    )
     if not standard or not clause:
         return None
     for (name, number), text in (getattr(ctx, "clause_text", None) or {}).items():
@@ -74,9 +78,13 @@ def _same_reading(proposal: dict, second: object) -> bool:
     fields = ("field", "page", "clause")
     if any(str(second.get(k)) != str(proposal.get(k)) for k in fields):
         return False
-    if not standard_ids.same_standard(str(second.get("standard") or ""), str(proposal.get("standard") or "")):
+    if not standard_ids.same_standard(
+        str(second.get("standard") or ""), str(proposal.get("standard") or "")
+    ):
         return False
-    if _fold(str(second.get("doc_quote") or "")) != _fold(str((proposal.get("evidence") or [{}])[0].get("quote") or "")):
+    if _fold(str(second.get("doc_quote") or "")) != _fold(
+        str((proposal.get("evidence") or [{}])[0].get("quote") or "")
+    ):
         return False
     return str(second.get("scope_applies") or "").strip().lower() == "yes"
 
@@ -90,7 +98,9 @@ def _field_values(field: str, ctx) -> set[tuple[float, str]]:
         for m in re.finditer(re.escape(label), folded):
             for meas in claims.extract_measurements(folded[m.end() : m.end() + 40])[:1]:
                 if meas.normalized_value is not None:
-                    found.add((meas.normalized_value, meas.normalized_unit or meas.raw_unit))
+                    found.add(
+                        (meas.normalized_value, meas.normalized_unit or meas.raw_unit)
+                    )
     return found
 
 
@@ -98,7 +108,7 @@ def _satisfies(observed: claims.Measurement, limit: claims.Measurement) -> bool 
     crossed = claims.compare_across_units(observed, limit)
     if crossed is not None:
         return crossed.verdict
-    return claims._compatible(observed, limit)  # noqa: SLF001 - the comparison's own test
+    return claims._compatible(observed, limit)
 
 
 def verify_pass(proposal: dict, ctx) -> arp.Verdict:
@@ -109,10 +119,10 @@ def verify_pass(proposal: dict, ctx) -> arp.Verdict:
 
     if not settings.ai_review_pass_enabled:
         return no(PassReason.SWITCH_OFF)
-    bad = arp._common(proposal, ctx)  # confidence, reason present, size  # noqa: SLF001
+    bad = arp._common(proposal, ctx)  # confidence, reason present, size
     if bad:
         return no(bad)
-    page = arp._page_of(proposal, ctx)  # noqa: SLF001
+    page = arp._page_of(proposal, ctx)
     evidence = proposal.get("evidence")
     field = str(proposal.get("field") or "").strip()
     if (
@@ -122,7 +132,7 @@ def verify_pass(proposal: dict, ctx) -> arp.Verdict:
         or len(evidence) != 1
         or not isinstance(evidence[0], dict)
         or evidence[0].get("page") != page
-        or arp._evidence_ok(proposal, ctx) is not None  # noqa: SLF001
+        or arp._evidence_ok(proposal, ctx) is not None
         or _fold(field) not in _fold(str(evidence[0].get("quote") or ""))
     ):
         return no(PassReason.NO_DOC_QUOTE)
@@ -133,20 +143,34 @@ def verify_pass(proposal: dict, ctx) -> arp.Verdict:
     if clause_text is None:
         return no(PassReason.NO_CLAUSE)
     clause_quote = str(proposal.get("clause_quote") or "").strip()
-    if len(clause_quote) < arp.MIN_QUOTE_CHARS or _fold(clause_quote) not in _fold(clause_text):
+    if len(clause_quote) < arp.MIN_QUOTE_CHARS or _fold(clause_quote) not in _fold(
+        clause_text
+    ):
         return no(PassReason.CLAUSE_QUOTE)
     if str(proposal.get("scope_applies") or "").strip().lower() != "yes":
         return no(PassReason.SCOPE)
     if _SCOPE_MARKERS.search(_fold(clause_text)):
         scope_quote = str(proposal.get("scope_quote") or "").strip()
-        if len(scope_quote) < arp.MIN_QUOTE_CHARS or _fold(scope_quote) not in _fold(clause_text):
+        if len(scope_quote) < arp.MIN_QUOTE_CHARS or _fold(scope_quote) not in _fold(
+            clause_text
+        ):
             return no(PassReason.SCOPE)
-    limits = [m for m in claims.extract_measurements(clause_quote) if m.comparator in COMPARATORS]
+    limits = [
+        m
+        for m in claims.extract_measurements(clause_quote)
+        if m.comparator in COMPARATORS
+    ]
     observed = claims.extract_measurements(doc_quote)
     if limits:
-        if len(limits) != 1 or len(claims.extract_measurements(clause_quote)) != 1 or len(observed) != 1:
+        if (
+            len(limits) != 1
+            or len(claims.extract_measurements(clause_quote)) != 1
+            or len(observed) != 1
+        ):
             return no(PassReason.NO_FIGURE)
-        limit = claims.normalise(limits[0].raw_value, limits[0].raw_unit, limits[0].comparator)
+        limit = claims.normalise(
+            limits[0].raw_value, limits[0].raw_unit, limits[0].comparator
+        )
         value = claims.normalise(observed[0].raw_value, observed[0].raw_unit)
         verdict = _satisfies(value, limit)
         if verdict is None:
@@ -155,20 +179,30 @@ def verify_pass(proposal: dict, ctx) -> arp.Verdict:
             return no(PassReason.NOT_SATISFIED)
         shown = f"the submittal states {observed[0].raw_value} {observed[0].raw_unit} and the clause requires {limits[0].comparator} {limits[0].raw_value} {limits[0].raw_unit}"
     else:
-        if claims.extract_measurements(clause_quote) or claims.extract_measurements(doc_quote):
+        if claims.extract_measurements(clause_quote) or claims.extract_measurements(
+            doc_quote
+        ):
             return no(PassReason.NO_FIGURE)
         term = str(proposal.get("required_term") or "").strip()
-        if not term or not numparse.contains_whole(_fold(doc_quote), _fold(term)) or not numparse.contains_whole(_fold(clause_quote), _fold(term)):
+        if (
+            not term
+            or not numparse.contains_whole(_fold(doc_quote), _fold(term))
+            or not numparse.contains_whole(_fold(clause_quote), _fold(term))
+        ):
             return no(PassReason.NO_TERM)
         shown = f'the submittal states "{term}" and the clause requires it'
     for row in ctx.rows.values():
-        if _fold(field) in _fold(str(row.get("page_section") or "") + " " + str(row.get("comment") or "")) and arp.is_fail_row(row):
+        if _fold(field) in _fold(
+            str(row.get("page_section") or "") + " " + str(row.get("comment") or "")
+        ) and arp.is_fail_row(row):
             return no(PassReason.FAIL_PRESENT)
     if len(_field_values(field, ctx)) > 1:
         return no(PassReason.CONFLICT)
     if not _same_reading(proposal, proposal.get("second")):
         return no(PassReason.READINGS)
-    return arp.Verdict(True, None, proposal, row_kind=PASS_ROW_KIND, final_text=f"{field}: {shown}.")
+    return arp.Verdict(
+        True, None, proposal, row_kind=PASS_ROW_KIND, final_text=f"{field}: {shown}."
+    )
 
 
 def internal_words(plain: str) -> str:
