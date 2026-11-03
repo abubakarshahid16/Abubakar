@@ -127,24 +127,9 @@ carries the client's name; only the owner can rename it.
     it also helps, or does not hurt, sheets it was not built on (invented +
     held-out totals).
 
-## Mistakes not to repeat (26 Oct)
+## Mistakes not to repeat
 
-One line each; the fix is an order, and a machine now checks what it can.
-When a mistake is called out on #692 or #1584, add one line here in your next PR.
-
-- Pushed unformatted code, so CI sent the PR back (order 215 R1; `.githooks/pre-push`).
-- Formatted a whole old file: never whole-file format, only the lines you touched (order 216.4; `quality_ratchet.py format-check --base origin/main` is the test).
-- Asked for review on a branch that was behind main (R2).
-- The packer slept for hours while approved fixes waited (R4: s2 packs after 15 minutes).
-- Doorbell answered only to "urgent" (R5: any mention).
-- A pause also stopped the wake-ups, so an order was missed (order 211: pause stops work, never wake-ups).
-- Plan tasks were closed without a before/after run (order 213: close only when every acceptance line is proven on main).
-- A new fixture PDF was silently ignored by `.gitignore` (`*.pdf`) and never pushed, so CI failed: after `git add`, check `git ls-files` / `git status` shows the file, and use `git add -f` for fixtures (PR 1294).
-- Approved a PR from its code while it made an existing mutation entry blind (#1355 and M2513: a new rule caught the sentence the old test used, so the entry no longer failed): before approving a change to a module that has mutation entries, apply those entries by hand and run their tests (PR 1369).
-- Moved lines a mutation anchor quotes and pushed without `check_mutation_anchors.py`, so CI went red (s3, #1285; the pre-push guard now runs it).
-- Added a second model pass without asking what it costs on the Claude lane (s3, #1288; a repeat read must be local-only).
-- Approved a danger-zone label change from the gate alone (#1446, cloud-2 caught it): a tested-card verdict printed "proven" on the CRS because the words are built from the stored label; before approving, follow the value from where it is set to the cell the engineer reads.
-- Pushed a new `backend/app` module without `check_system_map.py` and `check_unused_modules.py`, so CI sent two PRs back (#1447, #1449): run both before the push.
+One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat". Read it before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
 
 ## Who does what
 
@@ -154,29 +139,9 @@ When a mistake is called out on #692 or #1584, add one line here in your next PR
 - **The user (Ali):** approves, runs demos, flips `.env` flags, renames the
   GitHub repo, sends client questions. Prefers simple English, tables, ✅/❌.
 
-## Tooling traps that have already bitten
+## Tooling traps
 
-- Backend needs **Python 3.12 exactly**; `run.py` refuses others.
-- The Cowork device shell is a **Linux VM** bridged to the Windows folder:
-  Python 3.10, cannot reach Windows localhost, **cannot run the backend suite**.
-  `npx`/`npm` from that VM installs **Linux** native binaries into
-  `node_modules` and breaks `npm run dev` on Windows (happened once — fixed
-  with `npm install lightningcss-win32-x64-msvc@1.32.0`). Do not run npm/npx
-  against the repo from the VM. `node node_modules/typescript/bin/tsc` is safe.
-- SQLite is **WAL mode**: the DB is three files (`.sqlite`, `-wal`, `-shm`).
-  Copying only one loses documents. Never open the live DB from the VM
-  (disk I/O error).
-- **Only the server writes the live DB.** Start it with `python run.py` (it
-  marks the process; uvicorn directly would be refused its own database).
-  Any other process that must write `backend/data/rag_intelligence.sqlite`
-  calls `app.live_guard.prepare_live_write(path, reason=...)`, which takes a
-  verified online backup and runs a restore drill first; `db.connect()`
-  refuses otherwise. Read-only work: `sqlite3 "file:...?mode=ro"`, or
-  `live_guard.diagnostic_copy()`. A script run from a git worktree once wrote
-  the main checkout's live DB (2026-09-24) - this is why.
-- Shell heredocs eat backslashes in regexes. Write Python patch scripts to a
-  file, or use quoted heredocs (`<<'EOF'`).
-  [continued verbatim in `docs/claude-md-detail.md`, section "Tooling traps: AUTH_MODE item"]
+In `docs/claude-md-detail.md`, section "Tooling traps". The ones that matter every session: Python 3.12 exactly; only the server writes the live database (start it with `python run.py`; any other writer calls `app.live_guard.prepare_live_write`); SQLite is WAL, so copy all three files; write regex patches to a file, not a heredoc.
 
 ## Heavy checks: one lock, batched (#680)
 
