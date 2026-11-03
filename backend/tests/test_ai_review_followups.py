@@ -385,3 +385,67 @@ def test_apply_keeps_a_grouped_row_when_one_member_finding_cannot_be_looked_up(
     rows = [dict(row)]
     view.apply(rows, "rv-grp")
     assert rows == []  # both known and not Fails: the removal applies
+
+
+def _real_row(status, fid):
+    from app import crs_mapping
+
+    finding = {
+        "id": fid,
+        "compliance_status": status,
+        "severity": "minor" if status != "NON_COMPLIANT" else "major",
+        "origin": "datasheet_check" if status == "NON_COMPLIANT" else "review",
+        "standard_name": "SPEC-X.pdf",
+        "standard_clause": "5.1",
+        "standard_page": 7,
+        "requirement_source_text": "The pressure shall not exceed 10 barg.",
+        "crs_field_label": "PRESSURE",
+        "fact_id": "f",
+        "equipment_tag": "V-1",
+        "contractor_evidence_text": "12 barg",
+        "contractor_page": 1,
+    }
+    [row] = crs_mapping.build_crs_rows([finding], [], "ds.pdf")
+    return row, finding
+
+
+def test_apply_carries_the_result_itself_so_a_real_row_can_be_removed_and_a_fail_cannot(
+    monkeypatch,
+):
+    """Rows straight from `build_crs_rows` (no result set by hand): the question goes, the Fail stays."""
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    q_row, q_finding = _real_row("NEEDS_ENGINEER_REVIEW", "src-q")
+    f_row, f_finding = _real_row("NON_COMPLIANT", "src-f")
+    stored = {"src-q": q_finding, "src-f": f_finding}
+    monkeypatch.setattr("app.review.get", stored.get)
+    items = [
+        {
+            "type": "remove",
+            "row_key": q_row["comment_key"],
+            "proposal_id": "pq",
+            "reason": "r",
+            "evidence": [],
+        },
+        {
+            "type": "remove",
+            "row_key": f_row["comment_key"],
+            "proposal_id": "pf",
+            "reason": "r",
+            "evidence": [],
+        },
+    ]
+    monkeypatch.setattr(arpass, "accepted", lambda _r: items)
+    monkeypatch.setattr(arpass, "restored_ids", lambda _r: set())
+    assert (
+        "compliance_status" not in q_row
+    )  # the mapping gives the row no result of its own
+    rows = [
+        dict(q_row, crs_row_key=q_row["comment_key"]),
+        dict(f_row, crs_row_key=f_row["comment_key"]),
+    ]
+    for r in rows:
+        r["crs_row_key"] = r["comment_key"]
+    view.apply(rows, "rv-real-rows")
+    kept = [r["comment_key"] for r in rows]
+    assert q_row["comment_key"] not in kept  # the question row was removed
+    assert f_row["comment_key"] in kept  # the Fail stayed
