@@ -354,6 +354,11 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner order 3 Nov 11:40 (item 14c): the contractor copy never tells the contractor that an engineer
+    #: must confirm or check anything: wording about the engineer is cut from its comments, and a code check
+    #: (`crs_export_quality.engineer_words_in`) names any left. Internal copy unchanged.
+    #: OFF: as it was. Env: CRS_CONTRACTOR_NO_ENGINEER_WORDS_ENABLED.
+    crs_contractor_no_engineer_words_enabled: bool = False
     #: Owner 3 Nov 12:20: a cited standard is never called "does not appear to apply" on the table's word
     #: alone (the table lists what a standard governs, not what its scope clause excludes: a pressure-vessel
     #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
