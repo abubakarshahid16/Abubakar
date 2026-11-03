@@ -146,6 +146,13 @@ def pick(editions, policy: dict, family: str, feed_edition: str | None = None) -
     """The edition(s) of `family` this contract applies. `editions` are {'edition', 'date'} rows; `policy` one entry
     of `load_policies`. Pure: reads nothing, writes nothing."""
     dated, undated = _held(editions)
+    if undated:
+        # The edition with no readable date may be the newer one; nothing is picked around it.
+        return Pick(
+            NEEDS_ENGINEER,
+            (),
+            f"edition {undated[0]} has no readable date, so the order of editions is not known",
+        )
     if not dated:
         return Pick(
             NEEDS_ENGINEER,
@@ -188,11 +195,7 @@ def pick(editions, policy: dict, family: str, feed_edition: str | None = None) -
             )
         chosen = best[0]
         basis = f"latest edition on or before {policy['date']}"
-    note = (
-        f"; {len(undated)} edition(s) on file have no readable date and were not used"
-        if undated
-        else ""
-    )
+    note = ""
     if (
         feed_edition
         and policy.get("feed_conflict") == "strictest"
@@ -237,7 +240,8 @@ _GUARDS = (
         for verb in ("UPDATE", "DELETE")
     ),
     "CREATE TRIGGER standard_edition_no_replace BEFORE INSERT ON standard_edition"
-    " WHEN EXISTS (SELECT 1 FROM standard_edition t WHERE t.id = NEW.id)"
+    " WHEN EXISTS (SELECT 1 FROM standard_edition t WHERE t.id = NEW.id"
+    " OR (t.family = NEW.family AND t.edition = NEW.edition))"
     " BEGIN SELECT RAISE(ABORT, 'editions: standard_edition is never replaced'); END",
 )
 

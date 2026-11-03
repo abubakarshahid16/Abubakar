@@ -71,8 +71,7 @@ def edition_words(finding: dict, name: str) -> str:
     edition = stored or edition_of(name)
     if not edition:
         return f" ({NOT_RECORDED})"
-    present = re.search(rf"(?<!\d){re.escape(edition)}(?!\d)", name)
-    return "" if present else f" ({edition})"
+    return "" if edition_of(name) == edition else f" ({edition})"
 
 
 def check_reference(finding: dict) -> str:
@@ -85,8 +84,11 @@ def check_reference(finding: dict) -> str:
         return "Datasheet check"
     # The edition when one is known (STEP 5); a check's source with none known prints as before.
     stored = str(finding.get("standard_edition") or "").strip()
-    if stored and not re.search(rf"(?<!\d){re.escape(stored)}(?!\d)", cited):
+    printed = edition_of(cited)  # a year the source itself prints; "3" in "3.20" is a clause number, not an edition
+    if stored and printed is None:
         cited = f"{cited} ({stored})"
+    elif stored and printed != stored:
+        cited = f"{cited} (edition to confirm)"  # the register and the source disagree: print neither as settled
     return f"{cited} (p.{page})" if page else cited
 
 

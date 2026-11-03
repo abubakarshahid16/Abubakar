@@ -83,7 +83,8 @@ def test_nothing_is_guessed_when_dates_do_not_decide():
     assert se.pick(coarse, IN_EFFECT, "ZZ-A").status == se.NEEDS_ENGINEER
     # an edition without a date is named, not used
     mixed = [*ED, {"edition": "X", "date": ""}]
-    assert "no readable date" in se.pick(mixed, IN_EFFECT, "ZZ-A").reason
+    got = se.pick(mixed, IN_EFFECT, "ZZ-A")
+    assert got.status == se.NEEDS_ENGINEER and "no readable date" in got.reason
 
 
 def test_strictest_takes_the_harder_limit_per_comparator():
@@ -270,3 +271,70 @@ def test_a_reader_with_no_grant_on_the_standard_is_not_told_its_edition(
 def test_the_apps_schema_walk_creates_nothing(monkeypatch):
     monkeypatch.setattr(settings, "standard_editions_enabled", True)
     assert se.ensure_schema() is None
+
+
+@pytest.mark.parametrize(
+    "bad", ["", None, "2021-02-30", "2021-05-10T10:00", "May 2021", "2021-13"]
+)
+def test_one_edition_without_a_readable_date_sends_the_whole_choice_to_the_engineer(
+    bad,
+):
+    # it may be the newer one: nothing is picked around it, for either rule and with a FEED edition too
+    mixed = [*ED, {"edition": "X", "date": bad}]
+    for policy in (IN_EFFECT, AWARD):
+        assert se.pick(mixed, policy, "ZZ-B-001").status == se.NEEDS_ENGINEER
+    assert (
+        se.pick(mixed, IN_EFFECT, "ZZ-A", feed_edition="2019").status
+        == se.NEEDS_ENGINEER
+    )
+
+
+def test_insert_or_replace_with_a_new_id_cannot_replace_an_edition(conn):
+    se.add_edition(conn, "ZZ-A-001", "2019", "2019-03-01", "me")
+    for verb in ("INSERT OR REPLACE", "REPLACE", "INSERT OR IGNORE"):
+        try:
+            conn.execute(
+                f"{verb} INTO standard_edition (id, family, edition, issued_on, recorded_by, recorded_at)"
+                " VALUES ('new-id', 'ZZ-A-001', '2019', '2030-01-01', 'x', 'x')"
+            )
+        except sqlite3.DatabaseError as err:
+            assert "editions" in str(err)
+        else:
+            pytest.fail(f"{verb} on an existing (family, edition) was not refused")
+    assert se.editions_of(conn, "ZZ-A-001") == [
+        {"edition": "2019", "date": "2019-03-01", "document_id": None}
+    ]
+
+
+def test_a_stored_edition_that_is_a_clause_number_does_not_hide_the_printed_edition():
+    base = {
+        "origin": "datasheet_check",
+        "standard_clause": "ZZ 520-I 3.20",
+        "standard_page": 12,
+    }
+    assert (
+        crs_reference.check_reference({**base, "standard_edition": "3"})
+        == "ZZ 520-I 3.20 (3) (p.12)"
+    )
+    assert crs_mapping._standard_reference(
+        {
+            "standard_name": "ZZ-3.pdf",
+            "standard_clause": "3.20",
+            "standard_page": 2,
+            "standard_edition": "3",
+        }
+    ).startswith("ZZ-3 (3)")
+
+
+def test_a_check_source_that_prints_another_year_is_flagged_not_given_a_second_edition():
+    base = {
+        "origin": "datasheet_check",
+        "standard_clause": "ZZ 520-I 2019 3.20",
+        "standard_page": 12,
+    }
+    got = crs_reference.check_reference({**base, "standard_edition": "2021"})
+    assert "(2021)" not in got and "edition to confirm" in got and "2019" in got
+    assert (
+        crs_reference.check_reference({**base, "standard_edition": "2019"})
+        == "ZZ 520-I 2019 3.20 (p.12)"
+    )
