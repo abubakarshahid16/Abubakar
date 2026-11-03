@@ -209,6 +209,10 @@ class SettingsExt(BaseModel):
     #: drafts checked by code unless the row's Rule trust text says a person approved it, and that an engineer must confirm. Export text
     #: only; no row, verdict or number changes. OFF: the sheet is as it was. Env: CRS_RULES_NOTE_ENABLED.
     crs_rules_note_enabled: bool = False
+    #: Owner 3 Nov 11:40 (a): with the switch above, rows with the same problem, field, value, verdict and page are
+    #: one row whatever the clause or standard; the merged row lists every reference, tag and page. OFF: the
+    #: clause is part of the key, as merged in #1648. Env: CRS_ONE_ROW_IGNORE_CLAUSE_ENABLED.
+    crs_one_row_ignore_clause_enabled: bool = False
     #: #1591: on that export, a row with no page says the section or field it is about and why it
     #: has no page, never "page not found". A page still comes only from a verified quote. Needs
     #: CRS_EXPORT_QUALITY_ENABLED. OFF: nothing changes. Env: CRS_PAGE_CELL_FIELD_ENABLED.
@@ -360,6 +364,10 @@ class SettingsExt(BaseModel):
     #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
     #: the engineer (`declared_check`). OFF: as it was. Env: STANDARD_SCOPE_NOT_NO_ENABLED.
     standard_scope_not_no_enabled: bool = False
+    #: Owner 3 Nov 11:40 (b): a value the sheet gives that only a DRAFT rule checks, with nothing found, writes no
+    #: CRS row; it is listed on the internal-only sheet "Compliance list" as "No issue found (draft rule)".
+    #: Findings are untouched. OFF: as it was. Env: CRS_COMPLIANCE_LIST_ENABLED.
+    crs_compliance_list_enabled: bool = False
     #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
     #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
     #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
@@ -387,6 +395,10 @@ class SettingsExt(BaseModel):
     #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
     #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
     owner_approved_rules_decide_enabled: bool = False
+    #: Owner order 3 Nov (item 14): a rule an ENGINEER approved may decide Pass, Fail or Query like an
+    #: owner-approved one, labelled engineer-approved. Needs the switch above. A draft, a rejected or an
+    #: unsigned rule never decides. OFF: only the owner's approval decides. Env: ENGINEER_APPROVED_RULES_DECIDE_ENABLED.
+    engineer_approved_rules_decide_enabled: bool = False
     #: #1638: a checklist `required` row only asks that a field is stated. ON: it counts for
     #: no approval and is not a decided rule, and is named "stated, not checked". OFF: a
     #: Pass like any other. Env: PRESENCE_NOT_PASS_ENABLED.
