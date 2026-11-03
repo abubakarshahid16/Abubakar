@@ -1,3 +1,4 @@
+# ruff: noqa: RUF001 - the attack lists name look-alike dashes, minus signs and spaces on purpose
 """Lane 6: every wrong Pass the reviewers built against the AI-created Pass is refused, through `ai_review_proposals.verify`.
 
 Each case is a document quote against a clause quote; a plain positive control sits beside each family so the harness is
