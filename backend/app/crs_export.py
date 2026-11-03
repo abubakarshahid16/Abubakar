@@ -334,6 +334,8 @@ def _copy_and_rows(findings: list[dict], meta: dict) -> tuple[str, list[dict]]:
         raise ValueError(f"unknown CRS copy {copy!r}")
     if copy == COPY_INTERNAL:
         findings = [*findings, *(meta.get("rulebook_v2_rows") or [])]
+    else:  # item 14c: before the no-text rule, so an emptied comment is withheld and counted
+        findings = [quality.contractor_words(f) for f in findings]
     return copy, findings
 
 
@@ -588,6 +590,8 @@ def _later_sheets(wb, view: dict, meta: dict, internal: bool) -> None:
         quality.write_internal_sheet(wb, view["internal_sheet"], _write)
     if internal and meta.get("ai_review"):  # lane 6: the AI review pass's changes
         crs_ai_review_view.write_sheet(wb, meta["ai_review"], _write)
+    if not internal:  # item 14c: one scrub over every string of the contractor copy
+        quality.scrub_workbook(wb, len(view["rows"]))
     if internal:  # owner 3 Nov (b): draft-rule values with nothing found
         compliance_list.write_sheet(wb, meta.get("review_run_id"), _write)
 
