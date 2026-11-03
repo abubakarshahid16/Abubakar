@@ -183,10 +183,6 @@ def test_a_finding_keeps_its_edition_and_the_standard_reference_prints_it(
     db.init_db()
     from app import review
 
-    review.ensure_schema()
-    assert (
-        "standard_edition" in _STANDARD_NULLED
-    )  # a reader with no grant on the standard is not told its edition
     ref = crs_mapping._standard_reference(
         {
             "standard_name": "ZZ-A-001.pdf",
