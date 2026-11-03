@@ -420,7 +420,7 @@ def _scope_reason(
 def _owner_approved(requirement: dict) -> bool:
     return (
         rule_trust.tier_for_approved(requirement.get("approval"), requirement)
-        == rule_trust.OWNER_APPROVED
+        in rule_trust.APPROVED_RULE_LABELS
     )
 
 
@@ -438,6 +438,15 @@ class Row:
     fact_ids: set = field(default_factory=set)
     rule_said: str | None = None
     trust_label: str = rule_trust.OWNER_APPROVED
+
+    def __post_init__(self) -> None:
+        """An engineer's approval is labelled as the engineer's, never the owner's (item 14)."""
+        approval = self.rule.get("approval")
+        if (
+            isinstance(approval, dict)
+            and approval.get("tier") == rule_trust.ENGINEER_TIER
+        ):
+            self.trust_label = rule_trust.ENGINEER_APPROVED
 
 
 def _query(rule: dict, reason: str, found: Pair | None = None, words: str = "") -> Row:
