@@ -38,6 +38,14 @@ MAX_PROPOSALS = 30
 MAX_TEXT_CHARS = 600
 #: Rows an AI may never remove, whatever it says.
 PROTECTED_KINDS = ("safety_tick", "pages_not_readable")
+#: The ONLY row kinds an AI may remove: machine-drafted comments and the AI's own suggestions. Anything else (an engineer's
+#: comment, a carried-forward row, a kind this list does not know, a row with no kind) is never removable.
+REMOVABLE_KINDS = (
+    "non_compliant",
+    "needs_engineer_review",
+    "datasheet_check",
+    "ai_engineering_check",
+)
 FAIL_KIND = "non_compliant"
 #: The kind of a row the pass ADDS. Chosen by code. There is no conforming kind to choose.
 ADDED_KIND = "needs_engineer_review"
@@ -55,6 +63,9 @@ MIN_UNDERSTANDING_CHARS = 3
 #: "acceptable" and the like are the engine's and the engineer's words, never the AI's.
 EXTRA_VERDICT_WORDS = (
     "in line with",
+    "in line",
+    "consistent with",
+    "is consistent",
     "in accordance with",
     "in agreement with",
     "in conformity",
@@ -79,7 +90,8 @@ EXTRA_VERDICT_WORDS = (
     "per standard",
 )
 _REQUIREMENT_WORDS = re.compile(
-    r"\b(?:requires?|required|not less than|not more than|not exceed|at least|at most|minimum|maximum|min\.|max\.|shall|must)\b",
+    r"\b(?:requires?|required|requirement|shall|should|must|not less|not more|not exceed|at least|at most|minimum|maximum|"
+    r"min\.|max\.|per (?:the )?standard|limit)\b",
     re.IGNORECASE,
 )
 _ROW_STATES = re.compile(
@@ -148,10 +160,16 @@ def _words_of(proposal: dict) -> str:
     return " ".join(str(proposal.get(k) or "") for k in ("reason", "text"))
 
 
+def _plain(text: str) -> str:
+    """Hyphens, dashes, underscores and runs of spaces read as one space: "in-line  with" is "in line with"."""
+    return re.sub(r"\s+", " ", re.sub(r"[-\u2010-\u2015_]+", " ", _fold(text))).strip()
+
+
 def _has_pass_fail_word(text: str) -> bool:
-    folded = _fold(text)
+    plain = _plain(text)
     return any(
-        _contains(folded, word) for word in (*PASS_FAIL_WORDS, *EXTRA_VERDICT_WORDS)
+        _contains(plain, _plain(word))
+        for word in (*PASS_FAIL_WORDS, *EXTRA_VERDICT_WORDS)
     )
 
 
@@ -241,20 +259,40 @@ def _unit_of(figure: str) -> str:
     )
 
 
-def _row_printed(figure: str, row: Mapping) -> bool:
-    """`figure` is a figure the ROW states for the datasheet: in a sentence of its comment that reports the datasheet
-    ("Datasheet p.1, MAWP states 13 barg") and in no sentence that gives the standard's requirement or clause."""
-    comment = str(row.get("comment") or "")
-    ref = str(row.get("standard_reference") or "")
-    if numparse.value_in_text(figure, ref):
+def _figure(text: str) -> tuple[float, str] | None:
+    """(number, unit) of a figure like "14.0 barg"; None when it has no number or no unit."""
+    found = [n for n in numparse.find_numbers(_fold(text)) if n.value is not None]
+    unit = _unit_of(text)
+    return (found[0].value, unit) if len(found) == 1 and unit else None
+
+
+def _has_figure(text: str, fig: tuple[float, str]) -> bool:
+    """`text` states the number `fig[0]` followed by the unit `fig[1]`, compared as numbers: 14.0 barg is 14 barg."""
+    folded = _fold(text)
+    return any(
+        n.value == fig[0]
+        and re.match(rf"\s*{re.escape(fig[1])}(?![a-z])", folded[n.end :])
+        for n in numparse.find_numbers(folded)
+        if n.value is not None
+    )
+
+
+def _row_printed(fig: tuple[float, str], row: Mapping) -> bool:
+    """`fig` is a figure the ROW states for the datasheet: in a clause of its comment that reports the datasheet ("MAWP
+    states 13 barg") with no requirement word, in no clause that has one, and not in the standard reference. Clauses are
+    split at sentence ends, semicolons and ", " so one sentence holding both the requirement and the datasheet figure
+    is read clause by clause."""
+    if _has_figure(str(row.get("standard_reference") or ""), fig):
         return False
     stated = False
-    for sentence in re.split(r"(?<=[.;])\s+(?=[A-Z])", comment):
-        if not numparse.value_in_text(figure, sentence):
+    for clause in re.split(
+        r"(?<=[.;])\s+(?=[A-Z])|;\s*|,\s+", str(row.get("comment") or "")
+    ):
+        if not _has_figure(clause, fig):
             continue
-        if _REQUIREMENT_WORDS.search(sentence) and not _ROW_STATES.search(sentence):
+        if _REQUIREMENT_WORDS.search(clause):
             return False
-        if _ROW_STATES.search(sentence):
+        if _ROW_STATES.search(clause):
             stated = True
     return stated
 
@@ -293,8 +331,10 @@ def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
     if row is None:
         return no(Reason.NO_SUCH_ROW)
     # An unknown or differently-cased kind is read as a Fail: the safe reading never makes a row easier to remove.
-    kind = str(row.get("row_kind") or "").strip().lower() or FAIL_KIND
+    kind = str(row.get("row_kind") or "").strip().lower()
     if kind in PROTECTED_KINDS:
+        return no(Reason.PROTECTED_ROW)
+    if kind not in REMOVABLE_KINDS:
         return no(Reason.PROTECTED_ROW)
     basis = str(proposal.get("basis") or "")
     if basis not in BASES:
@@ -319,22 +359,20 @@ def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
         if basis not in FAIL_REMOVING_BASES:
             return no(Reason.FAIL_KEPT)
         if basis == "misread":
-            # The row states a figure that is NOT on the page, and the page shows the value the AI cites.
-            value = str(proposal.get("value") or "").strip()
-            if not value or not numparse.value_in_text(value, ctx.pages[page]):
+            # `value` is what the contractor's page shows, `row_value` the figure the ROW printed for the datasheet (not the
+            # standard's requirement, not a clause number). Same unit, compared as NUMBERS; the page value must DIFFER
+            # numerically from the row's, the page must not state the row's figure, and the row must not already print `value`.
+            value = _figure(str(proposal.get("value") or ""))
+            shown = _figure(str(proposal.get("row_value") or ""))
+            if not value or not shown or value[1] != shown[1] or value[0] == shown[0]:
                 return no(Reason.FAIL_KEPT)
-            # `row_value` is the figure the ROW printed for the datasheet (not the standard's requirement, not a clause
-            # number). `value` is what the contractor's page shows. Both carry a unit, the same unit; the page shows `value`
-            # inside a quote of at least MIN_QUOTE_CHARS; the row does not already print `value`; the page lacks `row_value`.
-            shown = str(proposal.get("row_value") or "").strip()
-            unit = _unit_of(value)
-            if not shown or not unit or _unit_of(shown) != unit:
-                return no(Reason.FAIL_KEPT)
-            if not _row_printed(shown, row) or numparse.value_in_text(
-                value, str(row.get("comment") or "")
+            if not _has_figure(ctx.pages[page], value) or _has_figure(
+                ctx.pages[page], shown
             ):
                 return no(Reason.FAIL_KEPT)
-            if numparse.value_in_text(shown, ctx.pages[page]):
+            if not _row_printed(shown, row) or _has_figure(
+                str(row.get("comment") or ""), value
+            ):
                 return no(Reason.FAIL_KEPT)
             m = re.search(r"\bp\.\s*(\d+)", str(row.get("page_section") or ""))
             if m and int(m.group(1)) != page:

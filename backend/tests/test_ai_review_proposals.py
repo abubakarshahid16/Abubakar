@@ -389,22 +389,86 @@ def test_the_quote_must_carry_the_value_the_reason_relies_on():
     assert reason_of(prop(**remove)) == arp.Reason.EVIDENCE_NOT_ON_PAGE.value
 
 
-def test_a_row_without_a_kind_is_read_as_a_fail_and_a_cased_kind_too():
-    for kind in (None, "", "NON_COMPLIANT"):
-        row = dict(REVIEW_ROW, row_kind=kind)
-        ctx = arp.Context(pages=PAGES, rows={"k-rev": row}, held=CTX.held)
-        remove = dict(
-            TAG_REMOVE,
-            row_key="k-rev",
-            basis="context",
-            evidence=[
-                {
-                    "page": 1,
-                    "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg",
-                }
-            ],
-        )
-        assert reason_of(prop(**remove), ctx) == arp.Reason.FAIL_KEPT.value
+@pytest.mark.parametrize(
+    ("kind", "reason"),
+    [
+        (None, arp.Reason.PROTECTED_ROW.value),
+        ("", arp.Reason.PROTECTED_ROW.value),
+        ("engineer_comment", arp.Reason.PROTECTED_ROW.value),
+        ("carried_forward", arp.Reason.PROTECTED_ROW.value),
+        ("some_new_kind", arp.Reason.PROTECTED_ROW.value),
+        ("NON_COMPLIANT", arp.Reason.FAIL_KEPT.value),  # cased: still a Fail
+    ],
+)
+def test_only_an_allow_list_of_row_kinds_can_be_removed(kind, reason):
+    row = dict(REVIEW_ROW, row_kind=kind)
+    ctx = arp.Context(pages=PAGES, rows={"k-rev": row}, held=CTX.held)
+    remove = dict(
+        TAG_REMOVE,
+        row_key="k-rev",
+        basis="context",
+        evidence=[
+            {"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}
+        ],
+    )
+    assert reason_of(prop(**remove), ctx) == reason
+
+
+def test_the_standards_figure_in_the_same_sentence_is_not_the_rows_figure():
+    one_sentence = dict(
+        FAIL_ROW,
+        comment="SAES-X-100 cl. 4.2 requires MAWP not less than 20 barg, Datasheet p.1 MAWP states 13 barg.",
+    )
+    ctx = arp.Context(pages=PAGES, rows={"k-fail": one_sentence}, held=CTX.held)
+    evid = [{"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}]
+    assert reason_of(
+        _misread(row_value="20 barg", value="16 barg", evidence=evid), ctx
+    ) == (arp.Reason.FAIL_KEPT.value)
+    ok = _misread(
+        row_value="13 barg",
+        value="16 barg",
+        evidence=[
+            {"page": 1, "quote": "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"}
+        ],
+    )
+    assert arp.verify(ok, ctx).accepted
+
+
+def test_a_figure_in_another_format_is_the_same_figure():
+    # the row says 14 barg, the page says 14.0 barg: the Fail is right, whatever the spelling
+    pages = {1: "Tag P-101A  MAWP 14.0 barg  Design pressure 12 barg"}
+    ctx = arp.Context(pages=pages, rows={"k-fail": FAIL_ROW}, held=CTX.held)
+    same = _misread(
+        value="14.0 barg",
+        row_value="14 barg",
+        evidence=[{"page": 1, "quote": "Tag P-101A  MAWP 14.0 barg"}],
+    )
+    assert reason_of(same, ctx) == arp.Reason.FAIL_KEPT.value
+    row_dot = dict(
+        FAIL_ROW, comment="requires 20 barg. Datasheet p.1, MAWP states 14.0 barg."
+    )
+    ctx2 = arp.Context(
+        pages={1: "Tag P-101A  MAWP 14 barg"}, rows={"k-fail": row_dot}, held=CTX.held
+    )
+    same2 = _misread(
+        value="14 barg",
+        row_value="14.0 barg",
+        evidence=[{"page": 1, "quote": "Tag P-101A  MAWP 14 barg"}],
+    )
+    assert reason_of(same2, ctx2) == arp.Reason.FAIL_KEPT.value
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        "The row is in-line with the standard.",
+        "The row is in  line  with the standard.",
+        "The value is consistent with the standard.",
+        "This is consistent.",
+    ],
+)
+def test_hyphenated_and_spaced_verdict_wording_is_refused(words):
+    assert reason_of(prop(text=words)) == arp.Reason.PASS_FAIL_WORD.value
 
 
 def test_understanding_is_one_page_and_not_trivial():

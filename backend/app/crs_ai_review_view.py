@@ -59,7 +59,10 @@ def with_removed(fn, *args):
 def top_note(meta: dict, copy: str) -> str:
     """Row 1 of the CRS: the run status note, then (internal copy only) the AI review's removal count."""
     note = (meta.get("ai_review") or {}).get("note") if copy == "internal" else ""
-    return "\n".join(p for p in (str(meta.get("run_status_note") or ""), note) if p)
+    from . import crs_export_quality
+
+    said = crs_export_quality.with_rules_note(meta)  # the run status, then the rules note when its switch is on
+    return "\n".join(p for p in (said, note) if p)
 
 
 @contextmanager
