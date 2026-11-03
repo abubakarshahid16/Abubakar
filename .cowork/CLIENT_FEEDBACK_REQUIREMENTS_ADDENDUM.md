@@ -35,7 +35,7 @@ The initial applicability matrix should cover, where relevant:
 - hazardous-area electrical equipment: IEC 60079 and applicable NFPA rules;
 - functional safety and instrumentation: IEC 61508, IEC 61511 and ISA rules;
 - HAZOP: IEC 61882;
-- the client's own, KOC, project and contract requirements whenever applicable.
+- the client's own, the operator, project and contract requirements whenever applicable.
 
 These are candidate families, not automatic requirements for every submission.
 The system must store the reason each standard was selected or excluded. A
@@ -51,7 +51,7 @@ and cited. Model knowledge alone is never an acceptable clause source.
 
 The system must review against every applicable requirement source, not only
 the client's own SAES/SAMSS documents. Supported source families may include API,
-ASME, ASTM, ISO, IEC, NFPA, NACE, KOC, project specifications, contract
+ASME, ASTM, ISO, IEC, NFPA, NACE, the operator, project specifications, contract
 articles, FEED/design-basis documents, and other standards explicitly cited by
 the project.
 

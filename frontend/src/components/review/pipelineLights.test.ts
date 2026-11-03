@@ -122,7 +122,7 @@ describe("pipeline lights", () => {
     ]);
   });
 
-  it("live I-06: the read light never says datasheet (a procedure is read too)", () => {
+  it("live Datasheet 1: the read light never says datasheet (a procedure is read too)", () => {
     const empty: ReviewTrace = { ...TRACE, steps: [tstep("READ", { values: 0, pages: 5 })] };
     for (const t of [TRACE, empty, null]) {
       const read = byKey(run(), t).read;

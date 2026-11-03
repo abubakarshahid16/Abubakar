@@ -28,7 +28,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1418-03",
         phase=1418,
-        description="the digits of a hyphenated code ('KOC-ME-008') are a figure again and cancel the star",
+        description="the digits of a hyphenated code ('AGA-ME-008') are a figure again and cancel the star",
         path=APP / "blank_markers.py",
         anchor="(?<![A-Za-z]-)",
         replacement="",

@@ -363,7 +363,7 @@ Compare against the laptop and report every difference:
 
 | What will differ | Why |
 |---|---|
-| `submittal_facts` may be **zero** for re-ingested documents | **B19** - `extract_facts` has no caller. M-03 proved it: 29 chunks, 0 facts |
+| `submittal_facts` may be **zero** for re-ingested documents | **B19** - `extract_facts` has no caller. Datasheet 2 proved it: 29 chunks, 0 facts |
 | The 20,288 historical `review_findings` will be absent | They belong to past runs, not to the documents |
 | Row ids, including fact row `75aa9cba…`, will be new | Generated at ingestion |
 | `equipment_type`, `service`, `project` still NULL | **B9** - unchanged by re-ingestion |
@@ -481,7 +481,7 @@ Record this in `CURRENT_STATE_AND_BLOCKERS.md` section 7 so it travels with the 
 |---|---|---|
 | 1 | Commit B24/B23 | 1 hour |
 | 2 | **B19 - wire `datasheets.extract_facts`; it has no caller, so new uploads yield zero findings** | 1-2 days |
-| 3 | Validate B19 on M-03 (29 chunks, 0 facts today) | 0.5 day |
+| 3 | Validate B19 on Datasheet 2 (29 chunks, 0 facts today) | 0.5 day |
 | 4 | B3/B4 CRS export - 13 failing tests | 1.5-2 days |
 | 5 | B7 analysis routes - 4 failures, cause unknown | 0.5-1 day |
 

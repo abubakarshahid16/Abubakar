@@ -48,6 +48,10 @@ class SettingsExt(BaseModel):
     #: 1 (`rulebook_v2_review.py`). Needs RULEBOOK_V2_ENABLED and the tables, so a database copy today. OFF: a review
     #: reads none of it and is byte-identical. Env: RULEBOOK_V2_REVIEW_ENABLED.
     rulebook_v2_review_enabled: bool = False
+    #: #805 order 3 Nov STEP 5: the register of every edition of a standard with its issue date
+    #: (`standard_editions.py`), on a database COPY. The pure choice of edition needs no switch. OFF: nothing is read,
+    #: created or written. Env: STANDARD_EDITIONS_ENABLED.
+    standard_editions_enabled: bool = False
     #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
@@ -342,11 +346,18 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+<<<<<<< HEAD
     #: Owner 3 Nov 12:20: a cited standard is never called "does not appear to apply" on the table's word
     #: alone (the table lists what a standard governs, not what its scope clause excludes: a pressure-vessel
     #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
     #: the engineer (`declared_check`). OFF: as it was. Env: STANDARD_SCOPE_NOT_NO_ENABLED.
     standard_scope_not_no_enabled: bool = False
+=======
+    #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
+    #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
+    #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
+    crs_drop_placeholder_rows_enabled: bool = False
+>>>>>>> origin/main
     #: #1608 (plan change 6 G): at the end of each comparison the run stores its rulebook (version used, rules applied,
     #: fingerprint) and the ticks imported; the internal CRS gets a "Run record" sheet with those, the run's models and
     #: the could-not-check list, which says so when empty (`run_record`). OFF: nothing stored, no sheet.

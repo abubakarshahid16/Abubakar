@@ -204,7 +204,7 @@ def _specific() -> list[tuple[re.Pattern, object]]:
 
 
 #: THE GENERAL SHAPE, for every other body (IEC 61511-1, EN 13445 Part 3,
-#: ISA 84.00.01, NFPA 20, IEEE 1584, MSS SP 58, PIP VEFV1100, KOC-ME-003, the
+#: ISA 84.00.01, NFPA 20, IEEE 1584, MSS SP 58, PIP VEFV1100, AGA-ME-003, the
 #: invented STD-A-001): issuing body (one word, or two joined by "/" as in
 #: ANSI/ISA), optional series letters (BS EN, MSS SP), a whole number (dotted
 #: allowed: 84.00.01), optional part or division; a trailing year (":2019",

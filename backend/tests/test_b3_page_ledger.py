@@ -38,7 +38,7 @@ from app.ingest import IngestionWorker
 from app.main import app
 
 NOW = "2026-09-24T00:00:00Z"
-ROWS = [("Design pressure", "23.5 barg"), ("Set pressure", "340 psig"),
+ROWS = [("Design pressure", "23.5 barg"), ("Set pressure", "355 psig"),
         ("Compressibility factor", "0.892"), ("Design temperature", "80 C")]
 NOTE = ("All materials and workmanship remain subject to inspection by the "
         "purchaser before shipment")
@@ -365,8 +365,8 @@ def test_the_unread_page_decides_the_code_not_an_approval(tmp_path):
 
 #: The rows `test_ingest_fact_extraction` uses: known to clear the chunker's
 #: quality gate, so the document reaches READY rather than no-searchable.
-READY_ROWS = [("Set pressure", "340 psig By Contractor"),
-              ("Density at relieving temper.", "23.55 Kg/m3"),
+READY_ROWS = [("Set pressure", "355 psig By Contractor"),
+              ("Density at relieving temper.", "31.75 Kg/m3"),
               ("Design pressure", "23.5 barg"), ("Compressibility factor", "0.892")]
 
 
