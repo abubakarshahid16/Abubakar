@@ -288,7 +288,7 @@ def test_a_row_whose_kind_reads_fail_is_kept_even_if_its_stored_findings_do_not(
 ):
     # the removal was accepted for a question; by apply time the row's kind reads Fail but its findings say otherwise
     monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
-    row = dict(ROW, finding_ids=["f1"])
+    row = dict(ROW, finding_ids=["f1"], compliance_status="NEEDS_ENGINEER_REVIEW")
     arpass.run("rv-kind", [row], pages=PAGES, held=HELD, provider=Stub([REMOVE]))
     monkeypatch.setattr(
         "app.review.get", lambda fid: {"compliance_status": "NEEDS_ENGINEER_REVIEW"}
@@ -374,7 +374,7 @@ def test_apply_keeps_a_grouped_row_when_one_member_finding_cannot_be_looked_up(
     monkeypatch,
 ):
     monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
-    row = dict(ROW, finding_ids=["a", "b"])
+    row = dict(ROW, finding_ids=["a", "b"], compliance_status="NEEDS_ENGINEER_REVIEW")
     arpass.run("rv-grp", [row], pages=PAGES, held=HELD, provider=Stub([REMOVE]))
     known = {"a": {"compliance_status": "NEEDS_ENGINEER_REVIEW"}}
     monkeypatch.setattr("app.review.get", lambda fid: known.get(fid))
