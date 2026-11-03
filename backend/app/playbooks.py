@@ -39,7 +39,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import pdf_headings, reading_state, word_pages
+from . import pdf_headings, reading_state, section_index, word_pages
 from .config import settings
 from .db import connect
 
@@ -270,6 +270,7 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
     submittal_review.ensure_schema()
     chunks = _chunks(document_id)
     body = [c for c in chunks if c["kind"] in BODY_KINDS and c["retrievable"]]
+    body = section_index.refine(body, document_id)
     _mark_guessed_headings(document_id, body)
     read_in_full, why_not, filename = _readiness(document_id)
     if not body and read_in_full:
@@ -533,16 +534,18 @@ def _section_without_standard(
                 f"{part}; {not_quoted}; engineer to check"
             )
             return out
+        found_words = "the closest section is at" if section_index.enabled() else "a section of its own was found at"
         out["reason"] = (
-            f"unclear: a section of its own was found at {cited}, but it does not mention "
+            f"unclear: {found_words} {cited}, but it does not mention "
             f"{', '.join(lacks)}; {not_quoted}; engineer to check"
         )
     elif found["state"] == UNCLEAR and found.get("stated_elsewhere"):
         stated = found["stated_elsewhere"]
+        no_section = "no section titled for it" if section_index.enabled() else "no section of its own"
         out["evidence"] = stated[:1]
         cited, out["cited_page"] = _cited(stated[0], body, document_id)
         out["reason"] = (
-            "unclear: no section of its own was found, but it is stated at "
+            f"unclear: {no_section} was found, but it is stated at "
             f"{cited}; {not_quoted}; engineer to confirm"
         )
     else:
@@ -579,7 +582,7 @@ def own_section(element: Element, chunk: dict) -> bool:
     titles = [re.sub(r"^[\d\s]+", "", _norm(h)) for h in (nearest, parent)]
     if any(_REFERENCE_HEADING.fullmatch(t) for t in titles):
         return False  # an entry of a definitions or contents list is not a section about the element
-    return any(_hits(phrases, nearest) for _, phrases in element.groups)
+    return section_index.title_hit(element, chunk, nearest, _hits)
 
 
 def _match(element: Element, body: list[dict]) -> dict:

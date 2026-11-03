@@ -1,0 +1,12 @@
+{
+  "_about": "Headings of any kind, as regex classes (rule 13: no document is named). A line that matches a class is a heading, its title is the named group. Used at review time, in memory, on the stored text (section_index.py). generic_title_words: cues so common in a title (document, report, input ...) that a title holding only one of them is not about the element.",
+  "heading_classes": {
+    "code_title": "^(?:[\\w.]+-)*(?:ATT(?:ACHMENT)?|APP(?:ENDIX)?|ANNEX|SCHEDULE|EXHIBIT)[\\s_-]*[A-Z]?\\d{1,3}[A-Z]?\\s*[-–—:.]\\s*(?P<title>\\S.{2,})$",
+    "word_title": "^(?:attachment|appendix|annex|schedule|exhibit)\\s+[A-Z0-9][\\w.]*\\s*[-–—:.]\\s*(?P<title>\\S.{2,})$",
+    "table_title": "^table\\s+[A-Z]?\\d+(?:\\.\\d+)*[A-Z]?(?::|\\s+[-\u2013\u2014]|\\.)\\s+(?P<title>\\S.{2,})$",
+    "figure_title": "^figure\\s+[A-Z]?\\d+(?:\\.\\d+)*[A-Z]?(?::|\\s+[-\u2013\u2014]|\\.)\\s+(?P<title>\\S.{2,})$"
+  },
+  "item_heading": "^\\d{1,2}\\.\\s+(?P<title>[A-Z][^.!?;]{2,80}?):?$",
+  "item_heading_max_words": 9,
+  "generic_title_words": ["document*", "documents", "documentation", "record*", "report*", "input*", "output*", "basis", "outcome*", "action*", "template*", "team", "role*", "data", "list", "general", "requirements", "review"]
+}
