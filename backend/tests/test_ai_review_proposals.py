@@ -457,3 +457,60 @@ def test_a_flag_changes_no_row_and_a_flag_and_a_removal_of_one_row_are_not_both_
     )
     assert both[0].accepted and not both[1].accepted
     assert CTX.rows == rows_before
+
+
+GOOD_WORDS = "Engineer to check MAWP: tags P-101A and P-101B state 14 barg and 16 barg; please confirm."
+
+
+def _reword(**kw):
+    base = prop(
+        type="reword", row_key="k-rev", text=GOOD_WORDS, page=1, clause=None, value=None
+    )
+    base.update(kw)
+    return base
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "The maximum allowed is 99 barg per clause 7.7.",
+        "SAES-X-200 clause 4.2 says so.",
+        "Clearer for the 14 barg tag and the 18 barg tag.",
+    ],
+)
+def test_a_reword_reason_with_a_number_the_row_does_not_hold_is_refused(reason):
+    assert reason_of(_reword(reason=reason)) == arp.Reason.NUMBER_NOT_VERIFIED.value
+
+
+def test_a_reword_reason_may_repeat_the_rows_own_numbers():
+    assert arp.verify(
+        _reword(reason="Names both tags and keeps 14 barg and 16 barg, cl. 4.2."), CTX
+    ).accepted
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "standard_not_cited",
+        "carried_forward",
+        "engineer_comment",
+        "missing_information",
+        "safety_tick",
+        None,
+    ],
+)
+def test_a_flag_is_refused_on_a_row_with_no_datasheet_value(kind):
+    ctx = arp.Context(
+        pages=PAGES, rows={"k-fail": dict(FAIL_ROW, row_kind=kind)}, held=CTX.held
+    )
+    assert reason_of(_flag(), ctx) == arp.Reason.ROW_HAS_NO_VALUE.value
+
+
+@pytest.mark.parametrize(
+    "quote", ["Status complies  MAWP 16 barg", "MAWP 16 barg accepted OK"]
+)
+def test_a_flag_quote_with_a_verdict_word_is_refused(quote):
+    pages = {1: f"Tag P-101B  {quote}"}
+    ctx = arp.Context(pages=pages, rows=CTX.rows, held=CTX.held)
+    flag = _flag(evidence=[{"page": 1, "quote": f"Tag P-101B  {quote}"}])
+    assert reason_of(flag, ctx) == arp.Reason.PASS_FAIL_WORD.value

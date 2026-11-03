@@ -104,6 +104,7 @@ class Reason(Enum):
     PROTECTED_ROW = "row_never_removed_by_ai"
     FAIL_KEPT = "fail_kept_no_verified_reason"
     NO_BASIS = "removal_has_no_verified_basis"
+    ROW_HAS_NO_VALUE = "row_carries_no_datasheet_value"
     DUPLICATE_ROW = "row_already_exists_for_this_field_and_page"
     REWORD_REFUSED = "reword_refused_by_lock"
     NOT_IN_DOCUMENT = "understanding_text_not_in_document"
@@ -317,6 +318,26 @@ def _removable(row: Mapping) -> bool:
     return kind in REMOVABLE_KINDS
 
 
+#: A flag says a DATASHEET VALUE was misread, so it can only sit on a row that carries one.
+FLAGGABLE_KINDS = (
+    "non_compliant",
+    "datasheet_check",
+    "needs_engineer_review",
+    "ai_engineering_check",
+)
+
+
+def _reason_numbers_ok(proposal: dict, row: Mapping) -> bool:
+    """Every number in the reason (a clause number and a standard's digits too) is in the row's own text: the reason is printed."""
+    own = " ".join(
+        str(row.get(k) or "") for k in ("comment", "standard_reference", "page_section")
+    )
+    reason = _fold(str(proposal.get("reason") or ""))
+    return numparse.number_keys(reason) <= (
+        numparse.number_keys(own) | numparse.number_keys(_fold(own))
+    )
+
+
 FLAG_PREFIX = "AI suspects the datasheet value was misread: "
 
 
@@ -327,8 +348,11 @@ def _verify_flag(proposal: dict, ctx: Context) -> Verdict:
     def no(reason: Reason) -> Verdict:
         return Verdict(False, reason.value, proposal)
 
-    if str(proposal.get("row_key") or "") not in ctx.rows:
+    row = ctx.rows.get(str(proposal.get("row_key") or ""))
+    if row is None:
         return no(Reason.NO_SUCH_ROW)
+    if _kind(row) not in FLAGGABLE_KINDS:
+        return no(Reason.ROW_HAS_NO_VALUE)
     page, bad = _check_page_and_value(proposal, ctx)
     if bad:
         return Verdict(False, bad, proposal)
@@ -350,6 +374,10 @@ def _verify_flag(proposal: dict, ctx: Context) -> Verdict:
     )
     if quote is None:
         return no(Reason.EVIDENCE_NOT_ON_PAGE)
+    if _has_pass_fail_word(
+        quote
+    ):  # the quote is printed: a verdict word in it would read as the AI's verdict
+        return no(Reason.PASS_FAIL_WORD)
     return Verdict(
         True,
         None,
@@ -440,6 +468,8 @@ def _verify_reword(proposal: dict, ctx: Context) -> Verdict:
     text = str(proposal.get("text") or "").strip()
     if not text:
         return Verdict(False, Reason.MISSING_FIELD.value, proposal)
+    if not _reason_numbers_ok(proposal, row):
+        return Verdict(False, Reason.NUMBER_NOT_VERIFIED.value, proposal)
     refused = crs_wording.lock(text, dict(row))
     if refused:
         return Verdict(False, f"{Reason.REWORD_REFUSED.value}:{refused}", proposal)
