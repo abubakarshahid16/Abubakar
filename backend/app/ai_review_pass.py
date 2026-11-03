@@ -217,7 +217,7 @@ def _engine(summary: dict, provider):
     try:
         if own:
             provider, summary["local_instead"] = _provider()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - never fails the review
         return None, f"no model available ({type(exc).__name__})"
     cloud = isinstance(provider, rp.ClaudeProvider)
     summary["engine"] = "claude" if cloud else "local"
@@ -298,7 +298,7 @@ def run(
         proposals, refusal, summary["model"] = _ask(
             provider, build_prompt(rows, pages, local=summary["engine"] == "local")
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - never fails the review
         log.info("ai review pass: the model call failed (%s)", type(exc).__name__)
         summary["stopped"] = (
             f"the model call failed ({type(exc).__name__}); the draft CRS stands"
