@@ -40,11 +40,10 @@ MAX_TEXT_CHARS = 600
 PROTECTED_KINDS = ("safety_tick", "pages_not_readable")
 #: The ONLY row kinds an AI may remove: machine-drafted comments and the AI's own suggestions. Anything else (an engineer's
 #: comment, a carried-forward row, a kind this list does not know, a row with no kind) is never removable.
-REMOVABLE_KINDS = (
-    "needs_engineer_review",
-    "datasheet_check",
-    "ai_engineering_check",
-)
+REMOVABLE_KINDS = ("needs_engineer_review", "ai_engineering_check")
+#: A datasheet self-check row is removable only when the result it carries is explicitly one of these (never a Fail).
+DATASHEET_CHECK_NON_FAIL = ("needs_engineer_review",)
+FAIL_SEVERITIES = ("critical", "major")
 FAIL_KIND = "non_compliant"
 #: The kind of a row the pass ADDS. Chosen by code. There is no conforming kind to choose.
 ADDED_KIND = "needs_engineer_review"
@@ -267,14 +266,39 @@ def _kind(row: Mapping) -> str:
     return re.sub(r"[\s\-]+", "_", str(row.get("row_kind") or "").strip().lower())
 
 
-def _is_fail(kind: str) -> bool:
+def is_fail_word(text: object) -> bool:
     """A Fail in any case or spelling ("non_compliant", "Non-Compliant", "NONCOMPLIANT", "fail")."""
-    squeezed = re.sub(r"[^a-z]", "", kind)
+    squeezed = re.sub(r"[^a-z]", "", str(text or "").lower())
     return (
         squeezed in ("fail", "failed", "fails")
         or "noncompliant" in squeezed
         or "nonconform" in squeezed
     )
+
+
+def is_fail_row(row: Mapping) -> bool:
+    """A row is a Fail when its kind OR the result it carries is one, or it is a datasheet self-check of major or critical
+    severity (a failed requirement is never filed minor). The row's own kind alone is not trusted: a datasheet check that
+    FAILED has the kind `datasheet_check`."""
+    kind = _kind(row)
+    return (
+        is_fail_word(kind)
+        or is_fail_word(row.get("compliance_status"))
+        or (
+            kind == "datasheet_check"
+            and str(row.get("severity") or "").strip().lower() in FAIL_SEVERITIES
+        )
+    )
+
+
+def _removable(row: Mapping) -> bool:
+    kind = _kind(row)
+    if kind == "datasheet_check":
+        status = re.sub(
+            r"[\s\-]+", "_", str(row.get("compliance_status") or "").strip().lower()
+        )
+        return status in DATASHEET_CHECK_NON_FAIL
+    return kind in REMOVABLE_KINDS
 
 
 FLAG_PREFIX = "AI suspects the datasheet value was misread: "
@@ -326,13 +350,10 @@ def _verify_remove(proposal: dict, ctx: Context) -> Verdict:
     row = ctx.rows.get(key)
     if row is None:
         return no(Reason.NO_SUCH_ROW)
-    # An unknown or differently-cased kind is read as a Fail: the safe reading never makes a row easier to remove.
     kind = _kind(row)
-    if _is_fail(kind):
-        return no(
-            Reason.FAIL_KEPT
-        )  # a Fail is never removed by the AI, whatever the basis
-    if kind in PROTECTED_KINDS or kind not in REMOVABLE_KINDS:
+    if is_fail_row(row):  # a Fail is never removed by the AI, whatever the basis
+        return no(Reason.FAIL_KEPT)
+    if kind in PROTECTED_KINDS or not _removable(row):
         return no(Reason.PROTECTED_ROW)
     basis = str(proposal.get("basis") or "")
     if basis not in BASES:

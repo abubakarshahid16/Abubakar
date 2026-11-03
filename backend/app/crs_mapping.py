@@ -959,6 +959,12 @@ def _final_keys(ordered: list[dict]) -> dict[int, str]:
 SEVERITY_ORDER = severity_rule.ORDER
 
 
+def worst_status(group: list[dict]) -> str:
+    """NON_COMPLIANT when any finding of the group is one, else the first finding's status ("" when none)."""
+    found = [str(g.get("compliance_status") or "") for g in group]
+    return "NON_COMPLIANT" if "NON_COMPLIANT" in found else (found[0] if found else "")
+
+
 def row_severity(group: list[dict]) -> str:
     """The worst severity in the group; "" when none is recorded."""
     found = {severity_rule.effective_severity(g) for g in group}
@@ -1510,6 +1516,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     ),
                     "row_kind": kind,
                     "severity": row_severity(group),
+                    # Never printed: the worst result behind the row, so the AI review can tell a Fail from a question.
+                    "compliance_status": worst_status(group),
                     "engineer_confirmed": all(_confirmed(g) for g in group),
                     # Never printed: what the permanent CRS number is keyed on.
                     # A field row (order 139 part 2) is keyed on the FIELD, never
