@@ -329,19 +329,32 @@ def test_the_flagged_block_shows_the_rows_own_words(flagged):
     assert FAIL["comment"] in text
 
 
-@pytest.mark.parametrize(
-    "word", ["c o m p l i e s", "compl\u200biant", "verified", "\u2713"]
-)
-def test_a_flag_quote_with_a_hidden_verdict_prints_nothing(monkeypatch, word):
+@pytest.mark.parametrize("word", ["c o m p l i e s", "verified", "complies"])
+def test_a_flag_prints_the_verified_quote_as_the_document_has_it(monkeypatch, word):
+    # the quote is code-verified document text, so it prints whole inside the code-built flag; the AI's own words do not
     monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
     pages = {2: f"Relief valve PSV-9901  Set pressure 10 barg  {word}"}
-    flag = dict(
-        FLAG,
-        evidence=[{"page": 2, "quote": pages[2]}],
-    )
+    flag = dict(FLAG, evidence=[{"page": 2, "quote": pages[2]}])
     arpass.run("rv-hid", [dict(FAIL)], pages=pages, held=HELD, provider=Stub([flag]))
     rows = [dict(FAIL)]
     view.apply(rows, "rv-hid")
+    assert rows[0]["ai_review_comment"] == (
+        f'AI suspects the datasheet value was misread: page 2 shows "{pages[2]}"'
+    )
+    assert rows[0]["row_kind"] == "non_compliant"
+
+
+@pytest.mark.parametrize("word", ["c o m p l i e s", "complies", "approved"])
+def test_a_reword_reason_with_a_verdict_claim_and_no_evidence_prints_nothing(
+    monkeypatch, word
+):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    from tests.test_ai_review_view import REWORD
+
+    bad = dict(REWORD, reason=f"The wording {word} here.")
+    arpass.run("rv-vd", [dict(ROW)], pages=PAGES, held=HELD, provider=Stub([bad]))
+    rows = [dict(ROW)]
+    view.apply(rows, "rv-vd")
     assert "ai_review_comment" not in rows[0]
 
 
