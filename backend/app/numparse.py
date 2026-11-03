@@ -151,19 +151,20 @@ _LOOKALIKE = {
 _INVISIBLE = {chr(c) for c in (0x115F, 0x1160, 0x3164, 0xFFA0, 0x180E, 0x2800)}
 
 
-def fold_compat(text: object, *, lower: bool = True) -> str:
-    """The compatibility fold for reading WORDS, not numbers: full NFKC (styled letters, circled, long s, superscript
-    letters, fullwidth, ligatures), invisible and combining characters dropped, look-alikes mapped to Latin, lower case.
-    `normalise_text` is not this: it is NFC plus an explicit map, to keep NFKC's superscript trap out of numbers."""
-    folded = unicodedata.normalize("NFKC", str(text or ""))
-    dropped = ("Cf", "Mn", "Me", "Cc")
+def fold_compat(text: object, *, lower: bool = True, decompose: bool = True) -> str:
+    """The compatibility fold for reading WORDS, not numbers: NFKD (NFKC when `decompose` is False) so accented, styled,
+    circled, parenthesised and fullwidth letters read as plain letters; every mark, format and invisible character dropped
+    (and the space an accent leaves); "(c)(o)" runs joined; look-alikes mapped to Latin."""
+    folded = unicodedata.normalize("NFKD" if decompose else "NFKC", str(text or ""))
+    cat, dropped = unicodedata.category, ("Cf", "Mn", "Me", "Mc", "Cc")
     plain = "".join(
         c
-        for c in folded
-        if c in "\t\n "
-        or (unicodedata.category(c) not in dropped and c not in _INVISIBLE)
+        for i, c in enumerate(folded)
+        if (c in "\t\n " or (cat(c) not in dropped and c not in _INVISIBLE))
+        and not (c == " " and cat(folded[i + 1 : i + 2] or "a") == "Mn")
     )
-    return (plain.lower() if lower else plain).translate(str.maketrans(_LOOKALIKE))
+    plain = (plain.lower() if lower else plain).translate(str.maketrans(_LOOKALIKE))
+    return re.sub(r"\(([A-Za-z])\)", r"\1", plain)
 
 
 # --------------------------------------------------------------------- numbers
