@@ -51,6 +51,7 @@ from . import datasheets, errors, fts_index, standard_ids, standards, submittal_
 from .claude_auto_approve import lists_cited
 from .db import connect
 from .held_standards import mark_rows
+from .standard_judgment import route_cited_other
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
@@ -346,19 +347,10 @@ def _cited_other_type(
             why = f"a {this} takes {c} in part ({part.get('applies_to') or 'some clauses'})"
             why = f"{why}; it is also a code for a {others}"
             declared.append({"identifier": c, "reason": f"{why} - {_WHICH_CLAUSES}"})
-        elif equipment and _scope_not_no():
-            why = f"it governs {others}; nothing shown excludes a {this} or its package"
-            declared.append({"identifier": c, "reason": f"{why} - {_WHICH_CLAUSES}"})
         elif equipment:
-            why = f"it governs {others}, and this submittal is a {this}"
-            not_applicable.append({"identifier": c, "reason": f"{why} (read from its {source})"})
+            to_declared, item = route_cited_other(c, others, this, source, _WHICH_CLAUSES)
+            (declared if to_declared else not_applicable).append(item)
     return not_applicable, declared
-
-
-def _scope_not_no() -> bool:
-    from .config import settings
-
-    return bool(settings.standard_scope_not_no_enabled)
 
 
 _WHICH_TYPE = "engineer to check which equipment this is"

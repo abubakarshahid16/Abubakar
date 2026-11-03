@@ -27,3 +27,18 @@ def hold(selected: dict, check: dict, library: list, find) -> None:
                 f"({item['reason']})"
             )
             row["held_code"] = HELD_NOT_APPLICABLE
+
+
+def route_cited_other(
+    identifier: str, others: str, this: str, source: str, which: str
+) -> tuple[bool, dict]:
+    """A cited standard the type table lists only for other equipment: (to the engineer's check, the item).
+    STANDARD_SCOPE_NOT_NO_ENABLED: the table says what a standard governs, not what its scope clause excludes, so with
+    no scope shown to exclude this equipment (or its package) it is a Query, never "does not appear to apply"."""
+    from .config import settings
+
+    if settings.standard_scope_not_no_enabled:
+        why = f"it governs {others}; nothing shown excludes a {this} or its package"
+        return True, {"identifier": identifier, "reason": f"{why} - {which}"}
+    why = f"it governs {others}, and this submittal is a {this}"
+    return False, {"identifier": identifier, "reason": f"{why} (read from its {source})"}
