@@ -8,7 +8,7 @@ import { ReviewProgressBlock } from "./ReviewProgressBlock";
 import { shown } from "./reviewProgress";
 
 const detail = (o: Partial<ReviewProgressDetail> = {}): ReviewProgressDetail => ({
-  pages_done: 0, pages_total: 10, elapsed_seconds: 60, idle_seconds: 5,
+  steps_total: 4, pages_done: 0, pages_total: 10, elapsed_seconds: 60, idle_seconds: 5,
   stall_amber_seconds: 120, stale: false, ...o,
 });
 const job = (d: ReviewProgressDetail | null) => ({

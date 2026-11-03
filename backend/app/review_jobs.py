@@ -259,7 +259,9 @@ def _page(
         heartbeat()
     if conn.in_transaction:
         return
-    label = f"{step_label(0, words)}, {words[1]} {done} of {total}"
+    row = conn.execute("SELECT progress_done FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    # The page loop also runs in step 2 (pages read again for the standards): its line names THAT step.
+    label = f"{step_label(row['progress_done'] if row and row['progress_done'] in (0, 1) else 0, words)}, {words[1]} {done} of {total}"
     with conn:
         sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
         conn.execute(sql, (label, _now(), job_id))
@@ -278,6 +280,26 @@ def _clause(conn, job_id: str, number: int, total: int, heartbeat=None) -> None:
     with conn:
         sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
         conn.execute(sql, (f"checking clause {number} of {total}", _now(), job_id))
+
+
+#: job id -> when its requirement line was last written (a line a second at most: the loop is thousands long).
+_REQUIREMENT_WRITTEN: dict[str, float] = {}
+
+
+def _requirement(conn, job_id: str, number: int, total: int, heartbeat=None) -> None:
+    """The requirement the comparison is on - "comparing requirements, 1240 of 5062". Same rules as `_clause`: progress
+    only, skipped inside an open transaction, numbers only. Written at most once a second, and for the first and last."""
+    if heartbeat is not None:
+        heartbeat()
+    now = time.time()
+    if conn.in_transaction or (0 < number < total and now - _REQUIREMENT_WRITTEN.get(job_id, 0) < 1.0):
+        return
+    _REQUIREMENT_WRITTEN[job_id] = now
+    if number >= total:
+        _REQUIREMENT_WRITTEN.pop(job_id, None)
+    with conn:
+        sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
+        conn.execute(sql, (f"comparing requirements, {number} of {total}", _now(), job_id))
 
 
 def _checks_reporting(conn, job_id: str, heartbeat, run_id, scope, missing) -> None:
@@ -315,7 +337,8 @@ def _phase(
     elif heartbeat is not None:
         heartbeat()
     timed = review_trace.timed(timings, name) if name else contextlib.nullcontext()
-    with timed, _reporting_pages(conn, job_id, heartbeat, words):
+    on_requirement = job_progress.reporting_requirements(lambda n, t: _requirement(conn, job_id, n, t, heartbeat))
+    with timed, _reporting_pages(conn, job_id, heartbeat, words), on_requirement:
         yield
 
 
