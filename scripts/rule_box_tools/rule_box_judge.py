@@ -12,7 +12,8 @@ its scope applies to this equipment (yes / no / unsure).
 CODE DECIDES WHAT STANDS (AI proposes, code verifies, the engineer decides):
   * the quote must stand on the cited page of the submittal (`compiled_rule_proof.quote_verified`); the page must exist;
   * the rule text and clause shown are the stored ones, taken from the store by code, never from the reply;
-  * a Pass needs verified quoted evidence, a Fail or a Query needs a verified quote; else `needs engineer`;
+  * a Query needs a verified quote; else `needs engineer`. THE JUDGE NEVER CREATES A PASS OR A FAIL (a Pass is the job of the
+    separately reviewed Pass gate, #1682): where it would have, it records needs engineer with the verified quotes;
   * the two calls must give the same verdict and the same scope answer, else `needs engineer` with both shown;
   * a scoped rule whose scope is `unsure` or differs is `needs engineer`; `no` (both calls) means it does not apply and
     no row is made;
@@ -23,7 +24,7 @@ CODE DECIDES WHAT STANDS (AI proposes, code verifies, the engineer decides):
   * near-identical rules (same words, numbers and punctuation aside) are judged ONCE and make ONE row listing every clause;
   * a rule whose text is cut (ends in a colon, a comma or no full stop) is never sent: `needs engineer`, text incomplete;
   * an exported row with no page or no comment is impossible: the export refuses;
-  * a verdict row is only ever Fail, Query or needs engineer, or a Pass that carries its verified evidence. Every row says
+  * a contractor-facing row is only ever a Query with its verified quote. Every row says
     `AI judgement, engineer to confirm`.
 
 Standards text and the one approved submittal only. Counts only in a report. Nothing is written to the live database.
@@ -47,7 +48,7 @@ LABEL = "AI judgement, engineer to confirm"
 VERDICTS = ("pass", "fail", "query", "not_applicable")
 SCOPE_ANSWERS = ("yes", "no", "unsure")
 NEEDS_ENGINEER = "needs engineer"
-FINAL = {"pass": "Pass", "fail": "Fail", "query": "Query"}
+FINAL = {"query": "Query"}  # no Pass and no Fail: see combine()
 JUDGE_TOKENS = 1500
 QUOTE_CHARS = 900
 
@@ -534,8 +535,11 @@ def verified(
 def combine(
     first: dict | None, second: dict | None, scoped: bool
 ) -> tuple[str, str | None, dict | None]:
-    """(status, reason, the call whose evidence is shown). Status: Pass / Fail / Query, `not applicable`, or needs engineer.
-    The reason is INTERNAL wording; the contractor comment never uses it (see `comment_of`)."""
+    """(status, reason, the call whose evidence is shown). Status: Query, `not applicable`, or needs engineer. THERE IS NO
+    PASS AND NO FAIL here: a Pass is created only by the separately reviewed Pass gate (#1682), never by the judge. Where
+    the judge would have said Pass it records needs engineer, "the quotes suggest the rule is met", with the verified
+    quotes for the internal sheet. A Query states the value against the limit only when the datasheet comparison itself
+    says the rule is violated. The reason is INTERNAL wording; the contractor comment never uses it."""
     if first is None or second is None:
         return NEEDS_ENGINEER, "a call gave no readable answer", None
     if first["can_state"] != second["can_state"]:
@@ -585,57 +589,38 @@ def combine(
             )
         return NEEDS_ENGINEER, "a quote was not found on the cited page", None
     figures = {first["figure"][0], second["figure"][0]}
-    terms = {first["terms"][0], second["terms"][0]}
-    if first["verdict"] in ("pass", "fail") and "cannot" in figures:
-        return (
-            "Query",
-            "the code could not compare the stated value with the rule's figure",
-            first,
-        )
-    if first["verdict"] == "pass":
+    verdict = first["verdict"]
+    if verdict == "pass":
         if "silence" in (first["pass_problem"], second["pass_problem"]):
             return (
                 "not applicable",
                 "the rule says unless stated otherwise and nothing is stated: silence is not compliance",
                 None,
             )
-        if "violates" in figures:
+        if figures == {"violates"}:
             return (
                 "Query",
                 f"the stated value does not meet the rule: {first['figure'][1]}",
                 first,
             )
-        if "cannot" in terms:
+        return NEEDS_ENGINEER, "the quotes suggest the rule is met", first
+    if verdict == "fail":
+        if figures == {"violates"}:
             return (
                 "Query",
-                "the quoted words do not state what the rule asks for",
+                f"the stated value does not meet the rule: {first['figure'][1]}",
                 first,
             )
-        if first["pass_problem"] or second["pass_problem"]:
+        if "meets" in figures:
             return (
-                "Query",
-                "the quoted words do not state what the rule asks for",
-                first,
+                NEEDS_ENGINEER,
+                "the reading says the rule is broken but the stated value meets the rule's figure",
+                None,
             )
-        if "meets" not in figures and "meets" not in terms:
-            return (
-                "Query",
-                "the quoted words do not state what the rule asks for",
-                first,
-            )
-    if first["verdict"] == "fail" and "meets" in figures:
-        return (
-            NEEDS_ENGINEER,
-            "the reading says fail but the stated value meets the rule's figure",
-            None,
-        )
+        return NEEDS_ENGINEER, "the reading says the rule is broken", first
     if len(first["reason"].split()) < 3:
         return NEEDS_ENGINEER, "no reason was given for the verdict", None
-    return (
-        FINAL[first["verdict"]],
-        first["reason"] if first["verdict"] != "pass" else None,
-        first,
-    )
+    return "Query", first["reason"], first
 
 
 def build_jobs(
@@ -760,7 +745,7 @@ def make_storer(
             scoped = rep["status"] != rule_box_check.BY_KIND
             first, second = calls[0].get(i), calls[1].get(i)
             status, reason, shown = combine(first, second, scoped)
-            if status in ("Pass", "Query") and shown:
+            if status == "Query" and shown:
                 spot = (shown["page"], normal_text(shown["quote"]))
                 if spot in used_quotes:
                     status, reason, shown = (
@@ -832,13 +817,6 @@ def make_storer(
 
 # ------------------------------------------------------------------------------------------ the CRS rows
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
-_OPEN = {
-    "Fail": "Not acceptable.",
-    "Query": "Contractor to confirm.",
-    "Pass": "Acceptable.",
-}
-
-
 PLAIN = {
     "the two readings differ": "Two independent readings of this rule disagreed.",
     "the two readings differ on whether this document kind can state it": "Two independent readings disagreed on whether this kind of document can show this at all.",
@@ -849,6 +827,9 @@ PLAIN = {
     "the two readings differ or are unsure whether the scope applies": "It is unclear whether this rule's scope applies to this equipment.",
     "no reason was given for the verdict": "The reading gave no reason for its verdict.",
     "the same quote is already used for another rule": "The only passage found was already used for another rule.",
+    "the quotes suggest the rule is met": "The datasheet passage suggests this rule is met; not proven by code, so check it yourself.",
+    "the reading says the rule is broken": "The readings suggest this rule is broken; not proven by code, so check it yourself.",
+    "the reading says the rule is broken but the stated value meets the rule's figure": "The readings say the rule is broken but the stated value seems to meet it; check it yourself.",
 }
 
 
@@ -856,7 +837,12 @@ def plain_look(row) -> str:
     """One line for the engineer, in plain words: what to look at. No code words."""
     why = PLAIN.get(row["reason"] or "", "The readings did not settle.")
     where = f" (nearest passage: datasheet page {row['page']})" if row["page"] else ""
-    return f"{why} Check {row['clause']} against the datasheet{where}."
+    found = (
+        f" Passage: \u201c{' '.join(str(row['evidence']).split())[:240]}\u201d."
+        if row["evidence"]
+        else ""
+    )
+    return f"{why} Check {row['clause']} against the datasheet{where}.{found}"
 
 
 def _quoted(text, limit: int) -> str:
@@ -865,21 +851,16 @@ def _quoted(text, limit: int) -> str:
 
 
 def comment_of(row) -> str:
-    """A CRS row's wording, BUILT BY CODE ONLY (CRS style guide: what, the reference, the action): a fixed opening, a fixed
-    template, the verified datasheet quote and page, the stored clause and the stored rule words. The model's own sentence
-    and every internal reason stay out of it; they go to the internal workbook only."""
-    status = row["status"]
+    """A contractor CRS row's wording, BUILT BY CODE ONLY (CRS style guide: what, the reference, the action): a fixed opening,
+    a fixed template, the verified datasheet quote and page, the stored clause and the stored rule words. The model's own
+    sentence and every internal reason stay out of it; they go to the internal workbook only. Only a Query reaches the
+    contractor copy: the judge makes no Pass and no Fail."""
     calls = [c for c in json.loads(row["calls_json"] or "[]") if c]
     figure = (calls[0].get("figure") if calls else None) or ("no_figure", "")
-    shown = f"Datasheet page {row['page']} states “{_quoted(row['evidence'], 240)}”"
-    asked = f"{row['clause']} requires “{_quoted(row['rule_quote'], 260)}”"
-    if status == "Pass":
-        return f"Acceptable. {shown}; this meets {row['clause']}."
-    if status == "Fail":
-        return f"Not acceptable. {shown}; {asked}. Contractor to revise and resubmit."
-    if figure[0] == "violates":
-        return f"Not acceptable. {shown}: {figure[1]}; {asked}. Contractor to revise and resubmit."
-    return f"Contractor to confirm. {shown}; {asked}. Contractor to confirm that it complies and revise if needed."
+    shown = f"Datasheet page {row['page']} states \u201c{_quoted(row['evidence'], 240)}\u201d"
+    asked = f"{row['clause']} requires \u201c{_quoted(row['rule_quote'], 260)}\u201d"
+    value = f" ({figure[1]})" if figure[0] == "violates" else ""
+    return f"Contractor to confirm. {shown}{value}; {asked}. Contractor to confirm that it complies and revise if needed."
 
 
 class RowRefused(ValueError):
@@ -887,7 +868,7 @@ class RowRefused(ValueError):
 
 
 def export_crs(conn, document_id: str, path, internal_path=None) -> int:
-    """TWO workbooks. `path`: the CONTRACTOR copy, one sheet `CRS` with Pass, Fail and Query rows only, no label and no
+    """TWO workbooks. `path`: the CONTRACTOR copy, one sheet `CRS` with Query rows only, no label and no
     word about AI or the engineer; a row with no page or no comment is refused. `internal_path` (default beside it, with
     `-internal` in its name): `AI judgement not decided`, the needs-engineer rows with one plain line each, and the label.
     Merged and not-applicable rules make no row. Returns the number of CRS rows."""
@@ -909,7 +890,7 @@ def export_crs(conn, document_id: str, path, internal_path=None) -> int:
     )
     n = 0
     for r in conn.execute(
-        f"SELECT * FROM {JUDGED} WHERE document_id = ? AND status IN ('Pass','Fail','Query') ORDER BY clause, rule_id",
+        f"SELECT * FROM {JUDGED} WHERE document_id = ? AND status = 'Query' ORDER BY clause, rule_id",
         (document_id,),
     ):
         comment = comment_of(r)
@@ -961,7 +942,7 @@ def export_crs(conn, document_id: str, path, internal_path=None) -> int:
         ]
     )
     for r in conn.execute(
-        f"SELECT * FROM {JUDGED} WHERE document_id = ? AND status IN ('Pass','Fail','Query') ORDER BY clause, rule_id",
+        f"SELECT * FROM {JUDGED} WHERE document_id = ? AND status = 'Query' ORDER BY clause, rule_id",
         (document_id,),
     ):
         calls = [c for c in json.loads(r["calls_json"] or "[]") if c]
