@@ -499,7 +499,9 @@ def engineer_words_in(text) -> bool:
     return bool(_ENGINEER_WORD.search(str(text or "")))
 
 
-_ASK_TO_ENGINEER = re.compile(r"\s+(?:from|by|of|to)\s+the\s+engineers?\b", re.IGNORECASE)
+_ASK_TO_ENGINEER = re.compile(
+    r"\s+(?:from|by|of|to)\s+the\s+engineers?\b", re.IGNORECASE
+)
 
 
 def contractor_words(row: dict) -> dict:
