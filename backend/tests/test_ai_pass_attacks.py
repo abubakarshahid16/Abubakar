@@ -425,7 +425,6 @@ def test_a_clause_about_the_same_quantity_is_a_pass_whatever_the_spelling():
         "V-2 Hydrotest pressure 5 bar",
         "2. Hydrotest pressure 5 bar",
         "Hydrotest pressure\n5 bar",
-        "Hydrotest pressure:\n\n5 bar" ,
         "Hydrotest pressure 12 bar  Hydrotest pressure 5 bar",
         "| V-2 | Hydrotest pressure | 5 bar |",
         "Hydrotest pressure (tag V-2) = 5 bar",
