@@ -281,3 +281,41 @@ def test_apply_keeps_a_row_whose_source_finding_is_a_fail_even_if_the_row_says_o
     rows = [dict(row)]
     view.apply(rows, "rv-real")
     assert rows == []
+
+
+def test_a_row_whose_kind_reads_fail_is_kept_even_if_its_stored_findings_do_not(
+    monkeypatch,
+):
+    # the removal was accepted for a question; by apply time the row's kind reads Fail but its findings say otherwise
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    row = dict(ROW, finding_ids=["f1"])
+    arpass.run("rv-kind", [row], pages=PAGES, held=HELD, provider=Stub([REMOVE]))
+    monkeypatch.setattr(
+        "app.review.get", lambda fid: {"compliance_status": "NEEDS_ENGINEER_REVIEW"}
+    )
+    rows = [dict(row, row_kind="Non-Compliant")]
+    view.apply(rows, "rv-kind")
+    assert [r["crs_row_key"] for r in rows] == ["k-rev"]
+    assert view.for_run("rv-kind")["removed"][0]["state"] == view.STATE_KEPT_FAIL
+
+
+def test_a_reword_reason_with_a_foreign_number_never_reaches_the_ai_cell(monkeypatch):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    from tests.test_ai_review_view import REWORD
+
+    bad = dict(REWORD, reason="The maximum allowed is 99 barg per clause 7.7.")
+    arpass.run("rv-rw", [dict(ROW)], pages=PAGES, held=HELD, provider=Stub([bad]))
+    rows = [dict(ROW)]
+    view.apply(rows, "rv-rw")
+    assert "ai_review_comment" not in rows[0]
+
+
+def test_a_flag_on_a_row_without_a_datasheet_value_prints_nothing(monkeypatch):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    from tests.test_ai_review_followups import FLAG
+
+    row = dict(FAIL, row_kind="carried_forward")
+    arpass.run("rv-fl", [row], pages=PAGES, held=HELD, provider=Stub([FLAG]))
+    rows = [dict(row)]
+    view.apply(rows, "rv-fl")
+    assert "ai_review_comment" not in rows[0]
