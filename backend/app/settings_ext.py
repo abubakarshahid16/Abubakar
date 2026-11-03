@@ -342,6 +342,11 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner order 3 Nov 11:40 (item 14c): the contractor copy never tells the contractor that an engineer
+    #: must confirm or check anything: wording about the engineer is cut from its comments, and a code check
+    #: (`crs_export_quality.engineer_words_in`) names any left. Internal copy unchanged.
+    #: OFF: as it was. Env: CRS_CONTRACTOR_NO_ENGINEER_WORDS_ENABLED.
+    crs_contractor_no_engineer_words_enabled: bool = False
     #: #1608 (plan change 6 G): at the end of each comparison the run stores its rulebook (version used, rules applied,
     #: fingerprint) and the ticks imported; the internal CRS gets a "Run record" sheet with those, the run's models and
     #: the could-not-check list, which says so when empty (`run_record`). OFF: nothing stored, no sheet.
