@@ -28,8 +28,16 @@ import contextlib
 import json
 import re
 import time
+from pathlib import Path
 
-from app import claims, comparison, numparse, rule_field_naming, rule_typed_check
+from app import (
+    claims,
+    comparison,
+    numparse,
+    rule_field_naming,
+    rule_typed_check,
+    subject_pairing,
+)
 from app.ai.json_reply import unfenced
 from app.compiled_rule_proof import _fold as _proof_fold
 from app.compiled_rule_proof import _limit_problem, _main_clause
@@ -131,6 +139,37 @@ def _list_text(fields: dict[str, str]) -> str:
 
 
 NOT_DECIDABLE = "not_decidable_from_a_datasheet"
+KIND_STORED = "stored for review of that kind"
+DATASHEET_KINDS = ("datasheet", "any")
+_LIST_NOUNS = re.compile(
+    r"\b(material|materials|type|types|class|classes|grade|grades|rating|ratings|standard|standards|code|codes|specification)\b",
+    re.I,
+)
+_MODAL = re.compile(r"\b(shall|must|is to be|are to be|should)\b", re.I)
+
+
+def is_list_rule(text) -> bool:
+    """A rule that names kinds of things a field must (not) be: a material, type, class, grade, rating or standard under
+    an obligation. Sent to the model like a figure rule; code then verifies the listed words in the rule's own text."""
+    return bool(_LIST_NOUNS.search(str(text or "")) and _MODAL.search(str(text or "")))
+
+
+def eligible_for_datasheet(row, equipment_type: str, fields: dict[str, str]) -> bool:
+    """A rule goes to datasheet typed checks if its kind is datasheet or any. A `standard` rule goes too when, by CODE
+    alone, it names a quantity the type's field list holds: all the words of some field label are in its own words."""
+    kind = str(row["document_kind"] or "")
+    if kind in DATASHEET_KINDS:
+        return True
+    if kind != "standard":
+        return False
+    words = subject_pairing.quantity_words(row["quote"], equipment_type)
+    for role in fields:
+        label_words = subject_pairing.quantity_words(
+            rule_box_scope.label_of(role), equipment_type
+        )
+        if label_words and label_words <= words:
+            return True
+    return False
 
 
 def figures_of(row) -> list[tuple[str, str]]:
@@ -149,6 +188,13 @@ def has_figure(row) -> bool:
     return bool(figures_of(row))
 
 
+def _has(row, name: str) -> bool:
+    try:
+        return bool(str(row[name] or "").strip())
+    except (IndexError, KeyError):
+        return False
+
+
 def check_prompt(row, label: str, equipment_type: str, fields: dict[str, str]) -> str:
     condition = _clean(row["condition_text"], 400)
     figures = "; ".join(f"{v} {u}" for v, u in figures_of(row)[:8])
@@ -157,7 +203,17 @@ def check_prompt(row, label: str, equipment_type: str, fields: dict[str, str]) -
         " field only from the fixed list below. If a person could not check it by reading one field's value, say so.\n"
         f"THE EQUIPMENT: {equipment_type}\nTHE FIELD LIST:\n{_list_text(fields)}\n\n"
         f"THE STANDARD: {label}, clause {_clean(row['clause'], 30)}\n"
+        + (
+            f"APPLIES TO: {_clean(row['applies_to'], 300)}\n"
+            if _has(row, "applies_to")
+            else ""
+        )
         + (f"ITS CONDITION: {condition}\n" if condition else "")
+        + (
+            f"ITS EXCEPTION: {_clean(row['exception_text'], 400)}\n"
+            if _has(row, "exception_text")
+            else ""
+        )
         + f"THE REQUIREMENT (its exact words): {_clean(row['quote'])}\n"
         + (
             f"FIGURES AND UNITS CODE FOUND IN IT: {figures}. Choose the limit among these; choose the field and the"
@@ -301,6 +357,8 @@ def verify_check(
     ):
         return None, "compiled_field_differs_from_field", FAILED
     condition = " ".join(str(answer.get("condition") or "").split())
+    if _has(row, "condition_text") and not condition:
+        return None, "condition_dropped", FAILED
     if condition and _fold(condition) not in quote:
         return None, "condition_not_in_rule", FAILED
     op = _OP_ALIASES.get(str(answer.get("op") or ""), answer.get("op"))
@@ -413,7 +471,8 @@ def settle_without_a_call(conn) -> dict:
     """Box b rules are stored by document kind; box a or c rules of a type with no field list are marked. No call."""
     ensure_schema(conn)
     rows = conn.execute(
-        f"SELECT l.rule_id, l.box, l.document_kind, l.equipment_type FROM {rule_boxes.TABLE} l"
+        f"SELECT l.rule_id, l.box, l.document_kind, l.equipment_type, r.quote AS q FROM {rule_boxes.TABLE} l"
+        " JOIN compiled_rules r ON r.id = l.rule_id"
         f" WHERE l.box IN ('a','b','c') AND NOT EXISTS (SELECT 1 FROM {CHECKS} c WHERE c.rule_id = l.rule_id)"
     ).fetchall()
     counts = {
@@ -421,6 +480,7 @@ def settle_without_a_call(conn) -> dict:
         FIELD_TO_CONFIRM: 0,
         NOT_DECIDABLE: 0,
         rule_box_scope.SCOPED: 0,
+        KIND_STORED: 0,
     }
     quotes = {
         r["id"]: r
@@ -436,7 +496,14 @@ def settle_without_a_call(conn) -> dict:
         elif fields_for(r["equipment_type"], conn) is None:
             _record(conn, r["rule_id"], FIELD_TO_CONFIRM, None, r, "")
             counts[FIELD_TO_CONFIRM] += 1
-        elif not has_figure(quotes[r["rule_id"]]):
+        elif not eligible_for_datasheet(
+            {"document_kind": r["document_kind"], "quote": r["q"]},
+            r["equipment_type"],
+            fields_for(r["equipment_type"], conn),
+        ):
+            _record(conn, r["rule_id"], KIND_STORED, r["document_kind"], r, "")
+            counts[KIND_STORED] += 1
+        elif not (has_figure(quotes[r["rule_id"]]) or is_list_rule(r["q"])):
             _record(conn, r["rule_id"], NO_CHECK, NOT_DECIDABLE, r, "")
             counts[NOT_DECIDABLE] += 1
         elif (
@@ -467,7 +534,10 @@ def check_todo(conn) -> list:
         r
         for r in rows
         if fields_for(r["equipment_type"], conn) is not None
-        and has_figure(r)
+        and eligible_for_datasheet(
+            r, r["equipment_type"], fields_for(r["equipment_type"], conn)
+        )
+        and (has_figure(r) or is_list_rule(r["quote"]))
         and rule_box_scope.scope_problem(r, r["equipment_type"]) is None
     ]
 
@@ -555,7 +625,22 @@ def second_prompt(row, label: str, equipment_type: str, fields: dict[str, str]) 
         "limit: for a number rule, the figure exactly as printed; for a list rule, the allowed or excluded words"
         " separated by |; else null.\nunit: the unit exactly as printed, else null.\n\n"
         f"THE EQUIPMENT: {equipment_type}\nTHE STANDARD: {label}, clause {_clean(row['clause'], 30)}\n"
-        f"THE REQUIREMENT (its exact words): {_clean(row['quote'])}\n\n"
+        + (
+            f"APPLIES TO: {_clean(row['applies_to'], 300)}\n"
+            if _has(row, "applies_to")
+            else ""
+        )
+        + (
+            f"ITS CONDITION: {_clean(row['condition_text'], 400)}\n"
+            if _has(row, "condition_text")
+            else ""
+        )
+        + (
+            f"ITS EXCEPTION: {_clean(row['exception_text'], 400)}\n"
+            if _has(row, "exception_text")
+            else ""
+        )
+        + f"THE REQUIREMENT (its exact words): {_clean(row['quote'])}\n\n"
         'Answer ONLY one JSON object: {"box": "a", "field_role": null, "limit": null, "unit": null}.'
     )
 
@@ -603,7 +688,8 @@ def agree(
 
 def second_todo(conn) -> list:
     return conn.execute(
-        "SELECT r.id, r.standard_document_id, r.clause, r.quote, l.box, l.equipment_type, c.field_role, c.kind, c.op,"
+        "SELECT r.id, r.standard_document_id, r.clause, r.quote, r.applies_to, r.condition_text, r.exception_text, l.box,"
+        " l.equipment_type, c.field_role, c.kind, c.op,"
         f" c.limit_text, c.unit, c.values_json, c.model AS check_model FROM compiled_rules r"
         f" JOIN {CHECKS} c ON c.rule_id = r.id JOIN {rule_boxes.TABLE} l ON l.rule_id = r.id"
         f" WHERE c.status = '{CHECKED}' AND NOT EXISTS (SELECT 1 FROM {SECOND} s WHERE s.rule_id = r.id)"
@@ -727,3 +813,42 @@ def second_model() -> str:
         if name and name != settings.claude_reasoning_model:
             return name
     raise ValueError("no configured model differs from the reasoning model")
+
+
+def export_checks(conn, path) -> int:
+    """Every typed check, with its second reading and identity answer and the rule's stored words, as one JSON file per
+    run, so a spot-check can be re-audited later. Local file; standards text only."""
+    rule_box_scope.ensure_schema(conn)
+    out = []
+    for r in conn.execute(
+        "SELECT c.*, r.clause, r.quote AS rule_quote, r.applies_to, r.condition_text, r.exception_text,"
+        " s.agree AS second_agree, s.differs AS second_differs, s.model AS second_model,"
+        " i.relation AS identity_relation, i.requirement AS identity_requirement"
+        f" FROM {CHECKS} c JOIN compiled_rules r ON r.id = c.rule_id"
+        f" LEFT JOIN {SECOND} s ON s.rule_id = c.rule_id"
+        " LEFT JOIN rule_box_identity i ON i.rule_id = c.rule_id"
+        " WHERE c.status IN ('checked', 'failed check', 'no typed check') AND c.model != ''"
+        " ORDER BY c.equipment_type, c.rule_id"
+    ):
+        out.append(dict(r))
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(out, indent=1, ensure_ascii=False, default=str), encoding="utf-8"
+    )
+    return len(out)
+
+
+def denominators(conn) -> dict:
+    """Rules decided of the rules that apply to datasheets of each equipment type: the rules whose kind is datasheet or
+    any, labelled box a or c, with a field list (stored or approved). `decided` is AI-proven rules."""
+    out = {}
+    for r in conn.execute(
+        "SELECT l.equipment_type, COUNT(*) FROM rule_box_labels l WHERE l.box IN ('a','c')"
+        " AND l.document_kind IN ('datasheet', 'any') GROUP BY 1 ORDER BY 1"
+    ):
+        if fields_for(r[0], conn) is not None:
+            out[r[0]] = {"apply_to_datasheets": r[1], "decided": 0}
+    for t, n in rule_box_scope.advanced_by_type(conn).items():
+        out.setdefault(t, {"apply_to_datasheets": 0, "decided": 0})["decided"] = n
+    return out

@@ -237,6 +237,7 @@ def status(conn) -> dict:
     }
     out["advanced"] = rule_box_check.advanced(conn)
     out["advanced_by_type"] = rule_box_scope.advanced_by_type(conn)
+    out["decided_of_rules_that_apply_to_datasheets"] = rule_box_check.denominators(conn)
     return out
 
 
@@ -435,6 +436,12 @@ def main(argv: list[str] | None = None, *, emit=print) -> int:
     ap.add_argument("--db", type=Path, required=True)
     ap.add_argument("--send", action="store_true", help="ask Claude; this spends")
     ap.add_argument("--model", default=None)
+    ap.add_argument(
+        "--export-checks",
+        type=Path,
+        default=None,
+        help="write every typed check of this run as JSON",
+    )
     ap.add_argument(
         "--document", default=None, help="judge step: the submittal's document id"
     )

@@ -554,6 +554,7 @@ def test_a_rule_of_a_type_without_a_field_list_is_marked_and_not_asked_and_a_box
         "field list to confirm": 1,
         "not_decidable_from_a_datasheet": 0,
         "scoped: judge at review time": 0,
+        "stored for review of that kind": 0,
     }
     states = dict(
         rules.execute(f"SELECT rule_id, status FROM {rule_box_check.CHECKS}").fetchall()
@@ -1027,8 +1028,11 @@ def test_only_a_rule_with_a_figure_and_a_unit_in_its_own_words_is_asked_and_the_
         _row(rules, "r1")
     ) and not rule_box_check.has_figure(_row(rules, "r2"))
     assert rule_box_check.figures_of(_row(rules, "r1")) == [("10", "bar")]
-    assert [r["id"] for r in rule_box_check.check_todo(rules)] == ["r1"]
-    assert rule_box_check.todo_by_type(rules) == {"pressure vessel": 1}
+    assert [r["id"] for r in rule_box_check.check_todo(rules)] == [
+        "r1",
+        "r2",
+    ]  # r2 is a list rule
+    assert rule_box_check.todo_by_type(rules) == {"pressure vessel": 2}
     prompt = rule_box_check.check_prompt(
         _row(rules, "r1"), LABEL, "pressure vessel", FIELDS
     )
@@ -1037,16 +1041,13 @@ def test_only_a_rule_with_a_figure_and_a_unit_in_its_own_words_is_asked_and_the_
         _row(rules, "r2"), LABEL, "pressure vessel", FIELDS
     )
     counts = rule_box_check.settle_without_a_call(rules)
-    assert counts["not_decidable_from_a_datasheet"] == 2
+    assert counts["not_decidable_from_a_datasheet"] == 1
     rows = dict(
         rules.execute(
             f"SELECT rule_id, reason FROM {rule_box_check.CHECKS} WHERE status = 'no typed check'"
         ).fetchall()
     )
-    assert rows == {
-        "r2": "not_decidable_from_a_datasheet",
-        "r3": "not_decidable_from_a_datasheet",
-    }
+    assert rows == {"r3": "not_decidable_from_a_datasheet"}
 
 
 # ------------------------------------------------------------------------------------------ scope and identity
@@ -1579,3 +1580,115 @@ def test_a_quote_already_used_for_another_rule_is_not_evidence_twice(rules):
         r[0] for r in rules.execute(f"SELECT status FROM {rule_box_judge.JUDGED}")
     )
     assert statuses == ["Query", "needs engineer"]
+
+
+# ------------------------------------------------------------------------------------------ routing and scope in the prompts
+def test_only_datasheet_and_any_rules_go_to_datasheet_checks_and_a_standard_rule_only_by_a_code_rule(
+    rules,
+):
+    fields = FIELDS
+    row = lambda kind, quote: {"document_kind": kind, "quote": quote}  # noqa: E731
+    elig = rule_box_check.eligible_for_datasheet
+    assert elig(row("datasheet", "x"), "pressure vessel", fields) and elig(
+        row("any", "x"), "pressure vessel", fields
+    )
+    for kind in ("procedure", "drawing", "specification", "report", "study"):
+        assert not elig(
+            row(kind, "The design pressure shall be marked."), "pressure vessel", fields
+        )
+    assert elig(
+        row("standard", "The design pressure shall not exceed 10 bar."),
+        "pressure vessel",
+        fields,
+    )
+    assert not elig(
+        row("standard", "The inspector shall keep records of every visit."),
+        "pressure vessel",
+        fields,
+    )
+
+
+def test_a_rule_of_another_document_kind_is_stored_for_that_kind_and_not_asked(rules):
+    with rules:
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','procedure','pressure vessel','a',NULL,'h','v','t',NULL)"
+        )
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r3','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
+        )
+        rules.execute(
+            "UPDATE compiled_rules SET quote = 'The test pressure shall be at least 15 bar.' WHERE id = 'r3'"
+        )
+    assert [r["id"] for r in rule_box_check.check_todo(rules)] == ["r3"]
+    counts = rule_box_check.settle_without_a_call(rules)
+    assert counts["stored for review of that kind"] == 1
+    row = rules.execute(
+        f"SELECT status, reason FROM {rule_box_check.CHECKS} WHERE rule_id = 'r1'"
+    ).fetchone()
+    assert tuple(row) == ("stored for review of that kind", "procedure")
+
+
+def test_a_list_rule_without_a_figure_is_sent_and_a_plain_obligation_is_not():
+    assert rule_box_check.is_list_rule(
+        "The body material shall be carbon steel or stainless steel."
+    )
+    assert rule_box_check.is_list_rule("Flange rating shall be class 300 or higher.")
+    assert not rule_box_check.is_list_rule("The valve shall be marked legibly.")
+
+
+def test_the_prompts_carry_the_rules_scope_and_a_dropped_condition_is_a_failed_check(
+    rules,
+):
+    with rules:
+        rules.execute(
+            "UPDATE compiled_rules SET applies_to = 'jacketed vessels', exception_text = 'unless lined', condition_text = 'for gas' WHERE id = 'r1'"
+        )
+    row = {**dict(_row(rules, "r1")), "equipment_type": "pressure vessel"}
+    prompt = rule_box_check.check_prompt(row, LABEL, "pressure vessel", FIELDS)
+    assert (
+        "APPLIES TO: jacketed vessels" in prompt
+        and "ITS EXCEPTION: unless lined" in prompt
+        and "ITS CONDITION: for gas" in prompt
+    )
+    second = rule_box_check.second_prompt(row, LABEL, "pressure vessel", FIELDS)
+    assert (
+        "APPLIES TO: jacketed vessels" in second
+        and "ITS EXCEPTION: unless lined" in second
+        and "ITS CONDITION: for gas" in second
+    )
+    assert (
+        rule_box_check.verify_check(row, _good_number(), FIELDS)[1]
+        == "condition_dropped"
+    )
+
+
+def test_every_typed_check_is_exported_for_audit_and_the_denominator_counts_the_rules_that_apply(
+    rules, tmp_path
+):
+    with rules:
+        for rid, kind in (("r1", "datasheet"), ("r3", "procedure")):
+            rules.execute(
+                f"INSERT INTO {rule_boxes.TABLE} VALUES (?,?, 'pressure vessel','a',NULL,'h','v','t',NULL)",
+                (rid, kind),
+            )
+    jobs, members, _c = rule_box_check.check_jobs(rules, _gate_open)
+    rule_box_run.run(
+        jobs,
+        model="claude-sonnet-5-5",
+        step_prefix="c",
+        version="v",
+        apply=rule_box_check.check_storer(rules, members, "claude-sonnet-5-5"),
+        send=Fake(lambda p: json.dumps(_good_number())),
+    )
+    path = tmp_path / "run" / "checks.json"
+    assert rule_box_check.export_checks(rules, path) == 1
+    saved = json.loads(path.read_text())[0]
+    assert (
+        saved["rule_id"] == "r1"
+        and saved["status"] == "checked"
+        and saved["rule_quote"] == Q_NUM
+        and saved["field_role"] == "design_pressure"
+    )
+    assert rule_box_check.denominators(rules) == {
+        "pressure vessel": {"apply_to_datasheets": 1, "decided": 0}
+    }
