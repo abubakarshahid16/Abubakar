@@ -1,0 +1,35 @@
+{
+  "_about": "Which standards apply to which document kinds, by the standard's ROLE (owner order 3 Nov 2026, 'choose the rulebook by document kind'). Owner-editable data: nothing in code names a standard or a kind. A standard whose role is not listed for the document's kind is LEFT OUT of that review and counted in the run note; a standard with no role here, a kind with no entry, a manual choice by an engineer and an undecided or guessed kind are never left out (a kind only narrows). Switch: STANDARD_ROLES_BY_KIND_ENABLED, off by default.",
+  "version": 1,
+  "roles": {
+    "equipment design": "Says how a piece of equipment or an instrument is designed, built or protected (design sections, fireproofing). It does not say how a study or a procedure is run.",
+    "process/method": "Says how work or a study must be done (how a HAZOP or SIL study is run, how a procedure is written).",
+    "general": "Applies to any document."
+  },
+  "kinds_apply": {
+    "datasheet": ["equipment design", "general"],
+    "procedure": ["process/method", "general"],
+    "study": ["process/method", "general"],
+    "drawing": ["equipment design", "general"],
+    "specification": ["equipment design", "process/method", "general"],
+    "contract": ["general"]
+  },
+  "method_standards": {
+    "procedure": ["SAEP-104", "SAEP-250", "SAEP-354", "IEC 61882", "IEC 61511-1", "IEC 61511-2", "IEC 61511-3"],
+    "study": ["SAEP-104", "SAEP-250", "SAEP-354", "IEC 61882", "IEC 61511-1", "IEC 61511-2", "IEC 61511-3"]
+  },
+  "standards": {
+    "SAES-J-601": "equipment design",
+    "SAES-J-602": "equipment design",
+    "SAES-J-603": "equipment design",
+    "SAES-J-607": "equipment design",
+    "SAES-B-006": "equipment design",
+    "SAEP-104": "process/method",
+    "SAEP-250": "process/method",
+    "SAEP-354": "process/method",
+    "IEC 61882": "process/method",
+    "IEC 61511-1": "process/method",
+    "IEC 61511-2": "process/method",
+    "IEC 61511-3": "process/method"
+  }
+}
