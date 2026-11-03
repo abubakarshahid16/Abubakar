@@ -185,8 +185,6 @@ def test_a_finding_keeps_its_edition_and_the_standard_reference_prints_it(
     from app import review
 
     review.ensure_schema()
-    cols = {r[1] for r in db.connect().execute("PRAGMA table_info(review_findings)")}
-    assert "standard_edition" in cols
     assert (
         "standard_edition" in _STANDARD_NULLED
     )  # a reader with no grant on the standard is not told its edition

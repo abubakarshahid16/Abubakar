@@ -109,6 +109,14 @@ def clean_edition(value) -> str | None:
     return str(value).strip() or None if value is not None else None
 
 
+def ensure_finding_column(conn) -> None:
+    """The edition column on `review_findings`, added where a version 2 finding is written (the finding table's own
+    schema is not grown for it). A finding with no edition keeps NULL and the CRS says "edition not recorded"."""
+    from .db import add_column_if_missing
+
+    add_column_if_missing(conn, "review_findings", "standard_edition", "TEXT")
+
+
 # ---------------------------------------------------------------------------------------------------- the choice
 
 

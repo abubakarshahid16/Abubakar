@@ -50,6 +50,7 @@ def _created(conn, rule: dict, payload: dict) -> dict:
     from . import review as review_mod
 
     made = review_mod.create(payload, created_by=None, conn=conn)
+    standard_editions.ensure_finding_column(conn)
     conn.execute(
         "UPDATE review_findings SET standard_document_id = ?, standard_page = ?, standard_edition = ? WHERE id = ?",
         (rule.get("document_id"), rule.get("page"), standard_editions.clean_edition(rule.get("edition")), made["id"]),
