@@ -120,12 +120,24 @@ def is_incomplete(text) -> bool:
     return not t or t[-1] in ":," or t[-1] not in '.;?!)\u201d"'
 
 
+_EDITION = re.compile(
+    r"\blatest\b.{0,40}\b(edition|issue|revision|version)\b|\b(edition|issue|revision)\b.{0,40}\blatest\b",
+    re.I,
+)
+
+
+def is_edition_rule(text) -> bool:
+    """A rule that asks for the latest edition: judged only with an editions register, never from a datasheet alone."""
+    return bool(_EDITION.search(str(text or "")))
+
+
 def prepare(rows: list) -> tuple[list[dict], list, list[tuple]]:
-    """(units, incomplete rows, merged). A unit is one rule asked once: `rep` and every row `members` of the same words."""
+    """(units, unsent rows, merged). A unit is one rule asked once: `rep` and every row `members` of the same words.
+    Unsent rows are cut-off rules and edition rules: they make no call."""
     units: dict[tuple, dict] = {}
     incomplete, merged = [], []
     for r in rows:
-        if is_incomplete(r["quote"]):
+        if is_incomplete(r["quote"]) or is_edition_rule(r["quote"]):
             incomplete.append(r)
             continue
         key = (
@@ -141,12 +153,21 @@ def prepare(rows: list) -> tuple[list[dict], list, list[tuple]]:
     return list(units.values()), incomplete, merged
 
 
+def standard_name(label: str) -> str:
+    """The standard as an engineer writes it: the stored label without a file extension."""
+    return re.sub(
+        r"\.(pdf|docx?|xlsx?)$", "", str(label or "").strip(), flags=re.I
+    ).strip()
+
+
+def clause_label(row, labels: dict[str, str]) -> str:
+    return f"{standard_name(labels.get(row['standard_document_id'], ''))} clause {row['clause']}".strip()
+
+
 def clauses_of(unit: dict, labels: dict[str, str]) -> str:
     seen, out = set(), []
     for m in unit["members"]:
-        text = (
-            f"{labels.get(m['standard_document_id'], '')} clause {m['clause']}".strip()
-        )
+        text = clause_label(m, labels)
         if text not in seen:
             seen.add(text)
             out.append(text)
@@ -182,9 +203,10 @@ def prompt_for(
     return (
         f"You review ONE submitted {kind} against requirements of engineering standards, as a careful senior engineer.\n"
         f"{again}"
-        "For each numbered requirement answer: document_can_state = yes or no: could a "
-        f"{kind} state or show what this requirement is about at all (a {kind} does not state site duties, delivery,"
-        " spares, timing of tests, who does what)? If no, the other fields do not matter. verdict = pass (the document"
+        "For each numbered requirement answer: document_can_state = yes or no: is this requirement about this "
+        f"{kind} at all, so that a {kind} could state or show it? (site duties, delivery media, BIM, databases, process"
+        " and who does what are not). If no, give a reason of at most five words and the other fields do not matter."
+        " verdict = pass (the document"
         " meets it), fail (it breaks it), query (the document is unclear, silent or contradictory on something it should"
         " state) or not_applicable (not about this document). Give the page number and the EXACT words copied from that"
         " page that support the verdict (needed for pass, fail and query); the words must be about the same thing the"
@@ -224,6 +246,36 @@ def touches(quote: str, rule_text: str) -> bool:
     return len(shared) >= min(2, len(rule_words)) and bool(shared)
 
 
+_NEGATION = re.compile(
+    r"\b(no|not|none|nil|blank|tbd|n/a|na|without|absent|missing)\b", re.I
+)
+_LANGUAGES = ("english", "arabic", "french", "german", "spanish", "chinese")
+
+
+def pass_problem(rule_text: str, quote: str) -> str | None:
+    """Why this quote cannot make a Pass, or None. A Pass needs an AFFIRMATIVE statement carrying the value the rule asks
+    for: a figure or an edition number when the rule has one, a language when the rule names one. Silence, a blank, a
+    negation, or a rule that says 'unless stated otherwise' is never a Pass."""
+    if re.search(r"\bunless\b", rule_text, re.I):
+        return "silence"
+    if _NEGATION.search(quote):
+        return "not_affirmative"
+    if re.search(r"\d", rule_text) and not re.search(r"\d", quote):
+        return "no_value"
+    for lang in _LANGUAGES:
+        if lang in rule_text.lower() and lang not in quote.lower():
+            return "no_value"
+    return None
+
+
+def clean_reason(text, rule_text: str, words: int = 8) -> str:
+    """The model's short reason, cut to a few words; dropped when it brings a number the rule does not have."""
+    said = " ".join(str(text or "").split())
+    if set(_NUMBER.findall(said)) - set(_NUMBER.findall(rule_text)):
+        return ""
+    return " ".join(said.split()[:words]).rstrip(".")
+
+
 def verified(
     record, shown_index: int, pages: dict[int, str], scoped: bool, rule_text: str = ""
 ) -> dict | None:
@@ -256,6 +308,10 @@ def verified(
         "evidence_ok": bool(near),
         "on_page": bool(on_page),
         "reason": " ".join(str(record.get("reason") or "").split())[:300],
+        "short_reason": clean_reason(record.get("reason"), rule_text),
+        "pass_problem": pass_problem(rule_text, quote)
+        if on_page and rule_text
+        else None,
     }
 
 
@@ -272,7 +328,13 @@ def combine(
             None,
         )
     if first["can_state"] == "no":
-        return "not applicable", "not something this document kind states", None
+        return (
+            "not applicable",
+            first["short_reason"]
+            or second["short_reason"]
+            or "not something this document kind states",
+            None,
+        )
     if scoped:
         if first["scope"] != second["scope"] or "unsure" in (
             first["scope"],
@@ -292,7 +354,11 @@ def combine(
     if first["verdict"] != second["verdict"]:
         return NEEDS_ENGINEER, "the two readings differ", None
     if first["verdict"] == "not_applicable":
-        return "not applicable", "not about this document (both readings)", None
+        return (
+            "not applicable",
+            first["short_reason"] or "not about this document",
+            None,
+        )
     if not (first["evidence_ok"] and second["evidence_ok"]):
         if first["on_page"] and second["on_page"]:
             return (
@@ -301,7 +367,27 @@ def combine(
                 None,
             )
         return NEEDS_ENGINEER, "a quote was not found on the cited page", None
-    return FINAL[first["verdict"]], None, first
+    if first["verdict"] == "pass":
+        problem = first["pass_problem"] or second["pass_problem"]
+        if problem == "silence":
+            return (
+                "not applicable",
+                "the rule says unless stated otherwise and nothing is stated: silence is not compliance",
+                None,
+            )
+        if problem:
+            return (
+                "Query",
+                "the quoted words do not state what the rule asks for",
+                first,
+            )
+    if len(first["reason"].split()) < 3:
+        return NEEDS_ENGINEER, "no reason was given for the verdict", None
+    return (
+        FINAL[first["verdict"]],
+        first["reason"] if first["verdict"] != "pass" else None,
+        first,
+    )
 
 
 def build_jobs(
@@ -374,18 +460,25 @@ def _write(
 
 
 def settle_unsent(conn, document_id: str, incomplete: list, labels, model) -> None:
-    """Rules never sent because their text is cut off: needs engineer, text incomplete."""
+    """Rules never sent: edition rules (no register: not applicable) and rules whose text is cut off (needs engineer)."""
     for r in incomplete:
+        if not is_incomplete(r["quote"]) and is_edition_rule(r["quote"]):
+            status, why = (
+                "not applicable",
+                "edition rule: no editions register is loaded, so nothing to compare",
+            )
+        else:
+            status, why = NEEDS_ENGINEER, "rule text incomplete"
         _write(
             conn,
             document_id,
             r,
-            NEEDS_ENGINEER,
-            "rule text incomplete: needs engineer",
+            status,
+            why,
             None,
             None,
             None,
-            r["clause"],
+            clause_label(r, labels),
             labels.get(r["standard_document_id"], ""),
             model,
         )
@@ -402,6 +495,7 @@ def make_storer(
 ):
     labels = labels or {}
     answers: dict[tuple[int, str], dict[int, dict | None]] = {}
+    used_quotes: set = set()
     tally = {
         "rows": 0,
         "Pass": 0,
@@ -418,6 +512,20 @@ def make_storer(
             scoped = rep["status"] != rule_box_check.BY_KIND
             first, second = calls[0].get(i), calls[1].get(i)
             status, reason, shown = combine(first, second, scoped)
+            if status in ("Pass", "Query") and shown:
+                spot = (shown["page"], normal_text(shown["quote"]))
+                if spot in used_quotes:
+                    status, reason, shown = (
+                        NEEDS_ENGINEER,
+                        "the same quote is already used for another rule",
+                        None,
+                    )
+                else:
+                    used_quotes.add(spot)
+            if (
+                status == NEEDS_ENGINEER and shown is None
+            ):  # the nearest passage either reading found, for the engineer
+                shown = next((c for c in (first, second) if c and c.get("page")), None)
             clauses = clauses_of(unit, labels)
             standard = labels.get(rep["standard_document_id"], "")
             for member in unit["members"]:
@@ -475,29 +583,48 @@ def make_storer(
 
 
 # ------------------------------------------------------------------------------------------ the CRS rows
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 _OPEN = {
     "Fail": "Not acceptable.",
     "Query": "Contractor to confirm.",
     "Pass": "Acceptable.",
 }
-_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+PLAIN = {
+    "the two readings differ": "Two independent readings of this rule disagreed.",
+    "the two readings differ on whether this document kind can state it": "Two independent readings disagreed on whether this kind of document can show this at all.",
+    "rule text incomplete": "The stored text of this rule is cut off, so it was not judged.",
+    "the quoted words do not touch the rule's subject": "The passage found on the datasheet does not clearly concern this rule.",
+    "a quote was not found on the cited page": "A passage the reading relied on could not be found on its page.",
+    "a call gave no readable answer": "An answer could not be read.",
+    "the two readings differ or are unsure whether the scope applies": "It is unclear whether this rule's scope applies to this equipment.",
+    "no reason was given for the verdict": "The reading gave no reason for its verdict.",
+    "the same quote is already used for another rule": "The only passage found was already used for another rule.",
+}
+
+
+def plain_look(row) -> str:
+    """One line for the engineer, in plain words: what to look at. No code words."""
+    why = PLAIN.get(row["reason"] or "", "The readings did not settle.")
+    where = f" (nearest passage: datasheet page {row['page']})" if row["page"] else ""
+    return f"{why} Check {row['clause']} against the datasheet{where}."
 
 
 def comment_of(row) -> str:
-    """The row's wording, built by code from verified parts (CRS style: what, the reference, the action). The model's one
-    sentence is kept only when every number in it is in the quote or the rule."""
+    """A CRS row's wording, built by code from verified parts (what, the reference, the action). The model's one sentence is
+    kept only when every number in it is in the quote or the rule."""
     status = row["status"]
-    if status == NEEDS_ENGINEER:
-        return f"For engineer: {row['reason'] or 'the readings did not settle'}. Rule {row['clause']}."
-    reason = row["reason"] or ""
     first = next((c for c in json.loads(row["calls_json"] or "[]") if c), {})
     said = str(first.get("reason") or "")
     allowed = set(_NUMBER.findall(f"{row['evidence'] or ''} {row['rule_quote'] or ''}"))
-    if said and not set(_NUMBER.findall(said)) <= allowed:
+    if set(_NUMBER.findall(said)) - allowed:
         said = ""
-    parts = [_OPEN[status]]
-    if said:
-        parts.append(said.rstrip(".") + ".")
+    reason = (row["reason"] or "") if status == "Query" and not said else ""
+    parts = [
+        _OPEN[status],
+        (said or reason).rstrip(".") + "." if (said or reason) else "",
+    ]
     parts.append(
         f"Datasheet page {row['page']} states \u201c{' '.join(str(row['evidence']).split())}\u201d; {row['clause']}."
     )
@@ -508,7 +635,7 @@ def comment_of(row) -> str:
         if status == "Fail"
         else ""
     )
-    return " ".join(p for p in parts if p).strip() or reason
+    return " ".join(p for p in parts if p).strip()
 
 
 class RowRefused(ValueError):
@@ -516,8 +643,9 @@ class RowRefused(ValueError):
 
 
 def export_crs(conn, document_id: str, path) -> int:
-    """The judged rows as a workbook the answer-key scorer reads (sheet `CRS`). Pass, Fail, Query and needs engineer only;
-    merged and not-applicable rules make no row. A Pass, Fail or Query without a page or a comment is refused."""
+    """Two sheets. `CRS`: Pass, Fail and Query rows only (what a contractor copy may carry); a row with no page or no
+    comment is refused. `AI judgement not decided`: the needs-engineer rows, INTERNAL, one plain line each. Merged and
+    not-applicable rules make no row. Returns the number of CRS rows."""
     import openpyxl
 
     wb = openpyxl.Workbook()
@@ -536,16 +664,13 @@ def export_crs(conn, document_id: str, path) -> int:
     )
     n = 0
     for r in conn.execute(
-        f"SELECT * FROM {JUDGED} WHERE document_id = ? AND status IN ('Pass','Fail','Query','needs engineer')"
-        " ORDER BY clause, rule_id",
+        f"SELECT * FROM {JUDGED} WHERE document_id = ? AND status IN ('Pass','Fail','Query') ORDER BY clause, rule_id",
         (document_id,),
     ):
         comment = comment_of(r)
-        if not comment or (
-            r["status"] != NEEDS_ENGINEER and not (r["page"] and r["evidence"])
-        ):
+        if not comment or not (r["page"] and r["evidence"]) or not r["clause"]:
             raise RowRefused(
-                f"rule {r['rule_id']}: a {r['status']} row needs a page and a comment"
+                f"rule {r['rule_id']}: a {r['status']} row needs a clause, a page and a comment"
             )
         n += 1
         ws.append(
@@ -557,6 +682,34 @@ def export_crs(conn, document_id: str, path) -> int:
                 comment,
                 r["rule_quote"],
                 r["label"],
+            ]
+        )
+    internal = wb.create_sheet("AI judgement not decided")
+    internal.append(
+        [
+            "Row",
+            "Clause",
+            "Nearest page",
+            "What the engineer should look at",
+            "Requirement (stored words)",
+            "Label",
+        ]
+    )
+    for k, r in enumerate(
+        conn.execute(
+            f"SELECT * FROM {JUDGED} WHERE document_id = ? AND status = ? ORDER BY clause, rule_id",
+            (document_id, NEEDS_ENGINEER),
+        ),
+        1,
+    ):
+        internal.append(
+            [
+                k,
+                r["clause"],
+                r["page"],
+                plain_look(r),
+                r["rule_quote"],
+                "Internal: " + r["label"],
             ]
         )
     wb.save(path)

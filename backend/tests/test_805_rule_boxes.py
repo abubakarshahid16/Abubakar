@@ -1221,6 +1221,10 @@ def test_only_a_same_quantity_requirement_on_the_equipment_advances_after_the_fr
 PAGE_TEXT = {
     1: "Invented datasheet. The set pressure is 12 bar and the body is cast iron with a painted finish."
 }
+QUOTES_BY_SHOWN = {
+    1: "The set pressure is 12 bar and the body",
+    2: "body is cast iron with a painted finish",
+}
 RULE_TEXT = "The set pressure of the invented valve shall be marked on the body."
 
 
@@ -1238,7 +1242,7 @@ def _rec(
         "scope_applies": scope,
         "page": page,
         "quote": quote,
-        "reason": "r",
+        "reason": "the sheet states the set pressure",
         "document_can_state": can,
     }
 
@@ -1293,7 +1297,7 @@ def test_a_rule_a_document_kind_cannot_state_is_not_applicable_only_when_both_re
     yes = _v(_rec(1, "query"))
     assert rule_box_judge.combine(no, no, False) == (
         "not applicable",
-        "not something this document kind states",
+        "the sheet states the set pressure",
         None,
     )
     assert rule_box_judge.combine(no, yes, False)[0] == "needs engineer"
@@ -1318,7 +1322,7 @@ def test_a_cut_off_rule_is_never_sent_and_near_duplicates_are_one_unit():
             "id": "a",
             "standard_document_id": "s",
             "clause": "1.1",
-            "quote": "Use the latest issue unless stated otherwise 2024.",
+            "quote": "Mark every invented valve on its body plainly 2024.",
             "status": "stored by kind",
             "scope_text": None,
         },
@@ -1326,7 +1330,7 @@ def test_a_cut_off_rule_is_never_sent_and_near_duplicates_are_one_unit():
             "id": "b",
             "standard_document_id": "s",
             "clause": "2.7",
-            "quote": "Use the latest issue, unless stated otherwise 2019.",
+            "quote": "Mark every invented valve on its body, plainly 2019.",
             "status": "stored by kind",
             "scope_text": None,
         },
@@ -1372,7 +1376,7 @@ def _setup_judge(rules):
                 (rid, status, "for jacketed vessels" if rid == "r1" else None),
             )
         rules.execute(
-            "UPDATE compiled_rules SET quote = 'The set pressure of the invented valve shall be marked on the body.' WHERE id IN ('r1','r3')"
+            "UPDATE compiled_rules SET quote = 'The set pressure of the invented valve and the body finish shall be marked on the body.' WHERE id IN ('r1','r3')"
         )
 
 
@@ -1399,7 +1403,14 @@ def test_the_judge_asks_each_rule_twice_independently_and_writes_labelled_rows_w
     def reply(prompt):
         out = []
         for n in range(1, 3):
-            out.append(_rec(n, "query", scope="yes" if "jacketed" in prompt else None))
+            out.append(
+                _rec(
+                    n,
+                    "query",
+                    scope="yes" if "jacketed" in prompt else None,
+                    quote=QUOTES_BY_SHOWN[n],
+                )
+            )
         return json.dumps(out)
 
     apply = rule_box_judge.make_storer(
@@ -1443,3 +1454,128 @@ def test_the_export_refuses_a_row_with_no_page_or_comment(rules, tmp_path):
     )
     with pytest.raises(rule_box_judge.RowRefused):
         rule_box_judge.export_crs(rules, "sub-1", tmp_path / "x.xlsx")
+
+
+def test_a_pass_needs_an_affirmative_quote_with_the_value_the_rule_asks_for():
+    pp = rule_box_judge.pass_problem
+    assert (
+        pp("The edition shall be the latest unless stated otherwise.", "Edition 2019")
+        == "silence"
+    )
+    assert (
+        pp("The pressure shall be marked in bar.", "Pressure: not stated")
+        == "not_affirmative"
+    )
+    assert (
+        pp(
+            "The design pressure shall not exceed 10 bar.",
+            "Design pressure see drawing",
+        )
+        == "no_value"
+    )
+    assert pp("The sheet shall be in English.", "Rated flow 12 m3/h") == "no_value"
+    assert pp("The sheet shall be in English.", "Language: English") is None
+    assert pp("The valve shall be marked.", "Marked on the body plate") is None
+    stated = _v(
+        _rec(1, "pass", quote="The set pressure is 12 bar and the body is cast iron"),
+        rule="The set pressure shall be at most 14 bar.",
+    )
+    assert stated["pass_problem"] is None
+    nothing = _v(
+        _rec(1, "pass", quote="Invented datasheet. The set pressure is"),
+        rule="The set pressure shall be at most 14 bar.",
+    )
+    assert rule_box_judge.combine(nothing, nothing, False)[0] == "Query"
+    silent = _v(
+        _rec(1, "pass"),
+        rule="The set pressure shall be stated unless stated otherwise.",
+    )
+    assert rule_box_judge.combine(silent, silent, False)[0] == "not applicable"
+
+
+def test_edition_rules_make_no_call_and_a_not_applicable_reason_is_the_models_own_words_without_new_numbers():
+    rows = [
+        {
+            "id": "e",
+            "standard_document_id": "s",
+            "clause": "1",
+            "quote": "The latest edition of the standard shall apply.",
+            "status": "stored by kind",
+            "scope_text": None,
+        }
+    ]
+    units, unsent, _m = rule_box_judge.prepare(rows)
+    assert (
+        units == []
+        and len(unsent) == 1
+        and rule_box_judge.is_edition_rule(rows[0]["quote"])
+    )
+    assert (
+        rule_box_judge.clean_reason("About site delivery media, not the sheet", "rule")
+        == "About site delivery media, not the sheet"
+    )
+    assert rule_box_judge.clean_reason("Concerns the 2019 code", "rule text") == ""
+    no = _v(_rec(1, "query", can="no") | {"reason": "site delivery media only"})
+    assert rule_box_judge.combine(no, no, False)[1] == "site delivery media only"
+
+
+def test_the_export_keeps_needs_engineer_rows_off_the_crs_sheet_and_in_plain_words(
+    rules, tmp_path
+):
+    _setup_judge(rules)
+    rules.execute(
+        f"INSERT INTO {rule_box_judge.JUDGED} (document_id, rule_id, status, reason, page, clause, rule_quote, calls_json, label, model, prompt_version, created_at)"
+        " VALUES ('sub-1','r1','needs engineer','the two readings differ',2,'STD-1 clause 4.2','x','[]','AI judgement, engineer to confirm','m','v','t')"
+    )
+    out = tmp_path / "x.xlsx"
+    assert rule_box_judge.export_crs(rules, "sub-1", out) == 0
+    import openpyxl
+
+    wb = openpyxl.load_workbook(out)
+    assert wb["CRS"].max_row == 1
+    line = next(wb["AI judgement not decided"].iter_rows(min_row=2, values_only=True))
+    assert (
+        line[2] == 2
+        and "disagreed" in line[3]
+        and "Check STD-1 clause 4.2" in line[3]
+        and "readings differ" not in line[3]
+    )
+    assert line[5].startswith("Internal:")
+    assert (
+        rule_box_judge.clause_label(
+            {"standard_document_id": "s", "clause": "6.1"}, {"s": "SAES-A-022.pdf"}
+        )
+        == "SAES-A-022 clause 6.1"
+    )
+
+
+def test_a_quote_already_used_for_another_rule_is_not_evidence_twice(rules):
+    _setup_judge(rules)
+    pages = rule_box_judge.pages_of(rules, "sub-1")
+    units, _i, _m = rule_box_judge.prepare(
+        rule_box_judge.relevant_rules(rules, "sub-1")
+    )
+    units[1]["rep"] = {
+        **dict(units[1]["rep"]),
+        "quote": "The set pressure of the other invented valve shall be marked on its body.",
+    }
+    units[1]["members"] = [units[1]["rep"]]
+    jobs, members = rule_box_judge.build_jobs("sub-1", units, {DOC: LABEL}, pages)
+    apply = rule_box_judge.make_storer(
+        rules, "sub-1", pages, "m", members, {DOC: LABEL}
+    )
+    rule_box_run.run(
+        jobs,
+        model="claude-sonnet-5-5",
+        step_prefix="j",
+        version="v",
+        apply=apply,
+        send=Fake(
+            lambda p: json.dumps([_rec(n, "query", scope="yes") for n in (1, 2)])
+        ),
+    )
+    apply.flush()
+    statuses = sorted(
+        r[0] for r in rules.execute(f"SELECT status FROM {rule_box_judge.JUDGED}")
+    )
+    assert statuses == ["Query", "needs engineer"]
