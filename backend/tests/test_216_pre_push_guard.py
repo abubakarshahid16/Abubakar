@@ -47,6 +47,12 @@ def repo(tmp_path):
     (tmp_path / "scripts").mkdir()
     shutil.copy(REPO / "scripts" / "quality_ratchet.py", tmp_path / "scripts")
     shutil.copy(REPO / "ruff.toml", tmp_path)
+    shutil.copy(REPO / "scripts" / "check_client_identifiers.py", tmp_path / "scripts")
+    (tmp_path / ".github").mkdir()
+    shutil.copy(
+        REPO / ".github" / "client-identifier-patterns.txt", tmp_path / ".github"
+    )
+    shutil.copy(REPO / ".github" / "client-data-hashes.txt", tmp_path / ".github")
     _git(tmp_path, "init", "-q", "-b", "main")
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "commit", "-q", "-m", "base")
@@ -136,7 +142,7 @@ def test_without_origin_main_it_says_so_and_does_not_pretend(tmp_path, capsys):
 
 def test_each_kind_of_change_selects_its_checks(tmp_path):
     names = lambda files: [s[0] for s in guard.plan(files, "py", tmp_path)]  # noqa: E731
-    assert names(["README.md"]) == []
+    assert names(["README.md"]) == ["no client data added"]
     py = names(["backend/app/x.py"])
     assert (
         py[0].startswith("formatting")
@@ -144,9 +150,9 @@ def test_each_kind_of_change_selects_its_checks(tmp_path):
         and "contract types" not in py
     )
     assert "contract types" in names(["contracts/types.ts", "backend/app/x.py"])
-    assert (
-        names(["frontend/src/a.tsx"]) == []
-    )  # no node_modules here: skipped, not failed
+    assert names(["frontend/src/a.tsx"]) == [
+        "no client data added"
+    ]  # no node_modules here: skipped, not failed
 
 
 def test_a_longer_version_number_is_not_the_pinned_one(monkeypatch):

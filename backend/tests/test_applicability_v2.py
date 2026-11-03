@@ -152,7 +152,7 @@ def test_unknown_equipment_type_never_yields_not_applicable(record):
     assert decide(record, UNKNOWN_EQUIPMENT, LEX)["decision"] != NOT_APPLICABLE
 
 
-# --------------------------- M-03 run 2026-09-25: two measured wrong exclusions
+# --------------------------- Datasheet 2 run 2026-09-25: two measured wrong exclusions
 
 def test_excluding_a_sub_kind_does_not_exclude_its_sibling():
     """THE MUTATION TARGET (M600): 'excluding submersible pumps' in the

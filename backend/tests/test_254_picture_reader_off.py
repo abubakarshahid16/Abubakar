@@ -1,7 +1,7 @@
 """Order 254 F2 (253.2): a page both text readers read with no field is READ when the
 picture reader is switched off by the owner's settings.
 
-On the owner's M-03 run page 1 was "not counted as read: the picture reader could not be
+On the owner's Datasheet 2 run page 1 was "not counted as read: the picture reader could not be
 asked", and 25 findings went to the engineer as UNREAD_PAGES. The picture reader only runs on
 Claude; with `REASONING_PROVIDER=ollama` (or per_task with a local vision step) it is OFF BY
 CHOICE, and the ledger said "unavailable" as if it had been wanted and failed. Now the ledger

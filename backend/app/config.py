@@ -1279,7 +1279,7 @@ class Settings(SettingsExt, BaseSettings):
     review_ai_check_max_output_tokens: int = 12000
     #: Owner order 2d-2: for a standard the datasheet cites but the library does not
     #: hold, an OPTIONAL check against a PUBLIC web copy. OFF BY DEFAULT. Never for a
-    #: company standard (SAES/SAMSS/KOC-* and the like) - those always read "Company
+    #: company standard (SAES/SAMSS and the like) - those always read "Company
     #: standard - upload required" and nothing is searched for them. On its own this
     #: flag sends nothing either: it also needs the market lane's own two egress flags
     #: (`market_live_enabled`, `market_allow_public_egress`) and a configured search

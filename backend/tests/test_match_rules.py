@@ -294,7 +294,7 @@ class TestTableLookupInput:
 
 # ---------------------------------------------------------- rule 4: compound
 #
-# THE FALSE PAIRING (real review of EF1975-DAS-M-03, a pump datasheet,
+# THE FALSE PAIRING (real review of DS-0000-DAS-M-01, a pump datasheet,
 # 2026-09-28): a civil clause on allowable SOIL bearing pressure, paired by
 # whole-word containment with the pump sheet's blank "Bearing" field, because
 # "bearing" is a real word inside "soil bearing pressure" AND a real pump
