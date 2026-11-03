@@ -355,6 +355,11 @@ class SettingsExt(BaseModel):
     #: (`crs_export_quality.engineer_words_in`) names any left. Internal copy unchanged.
     #: OFF: as it was. Env: CRS_CONTRACTOR_NO_ENGINEER_WORDS_ENABLED.
     crs_contractor_no_engineer_words_enabled: bool = False
+    #: Owner 3 Nov 12:20: a cited standard is never called "does not appear to apply" on the table's word
+    #: alone (the table lists what a standard governs, not what its scope clause excludes: a pressure-vessel
+    #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
+    #: the engineer (`declared_check`). OFF: as it was. Env: STANDARD_SCOPE_NOT_NO_ENABLED.
+    standard_scope_not_no_enabled: bool = False
     #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
     #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
     #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
