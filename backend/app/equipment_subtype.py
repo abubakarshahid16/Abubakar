@@ -175,3 +175,31 @@ def by_type(library, profile, submittal_document_id: str, allowed) -> dict:
             )
             row["held_code"] = HELD_SUBTYPE_UNSURE
     return rows
+
+
+def scope_query_rows(check: dict | None, submittal_name: str) -> list[dict]:
+    """STANDARD_SCOPE_NOT_NO_ENABLED: a cited standard the type table lists for other equipment, whose scope no code read,
+    is a QUERY row for the engineer (it is never "does not appear to apply" and never silently dropped)."""
+    from . import crs_mapping, standard_ids
+
+    kind = crs_mapping.ROW_KIND_NEEDS_ENGINEER_REVIEW
+    rows = []
+    for r in (check or {}).get("declared_check") or []:
+        if not r.get("scope_unshown"):
+            continue
+        ident = r["identifier"]
+        rows.append(
+            {
+                "finding_id": "",
+                "document_name": submittal_name,
+                "page_section": "",
+                "comment": f"{ident} is cited; {r['reason']}.",
+                "comment_by": "AI Review",
+                "standard_reference": ident,
+                "row_kind": kind,
+                "severity": "",
+                "engineer_confirmed": False,
+                "comment_key": crs_mapping.comment_key("standard scope query", standard_ids.key(ident)),
+            }
+        )
+    return rows

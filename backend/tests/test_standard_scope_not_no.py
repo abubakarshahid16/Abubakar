@@ -31,12 +31,23 @@ def test_off_the_other_types_code_is_still_called_not_applicable(monkeypatch):
     assert "API 610" in {r["identifier"] for r in check["cited_not_applicable"]}
 
 
-def test_on_it_is_a_query_for_the_engineer_never_does_not_apply(monkeypatch):
+def test_on_it_is_a_query_row_for_the_engineer_never_does_not_apply(monkeypatch):
     monkeypatch.setattr(settings, "standard_scope_not_no_enabled", True)
     check = _check(_pump(TEXT))
     assert "API 610" not in {r["identifier"] for r in check["cited_not_applicable"]}
     declared = {r["identifier"]: r for r in check["declared_check"]}
-    assert "nothing shown excludes" in declared["API 610"]["reason"]
-    assert "engineer" in declared["API 610"]["reason"]
+    assert "no scope clause of the standard was read" in declared["API 610"]["reason"]
+    assert "nothing shown excludes" not in declared["API 610"]["reason"]
     rows = crs_mapping.standards_check_rows(check, "pump-sheet.pdf")
-    assert "does not appear to apply" not in " ".join(r["comment"] for r in rows)
+    mine = [r for r in rows if r["standard_reference"] == "API 610"]
+    assert len(mine) == 1  # the Query reaches a CRS row
+    assert mine[0]["row_kind"] == crs_mapping.ROW_KIND_NEEDS_ENGINEER_REVIEW
+    assert "engineer to check which clauses apply" in mine[0]["comment"]
+    assert "does not appear to apply" not in mine[0]["comment"]
+
+
+def test_off_there_is_no_scope_query_row(monkeypatch):
+    monkeypatch.setattr(settings, "standard_scope_not_no_enabled", False)
+    rows = crs_mapping.standards_check_rows(_check(_pump(TEXT)), "pump-sheet.pdf")
+    assert [r for r in rows if "scope clause" in r["comment"]] == []
+    assert any("does not appear to apply" in r["comment"] for r in rows)

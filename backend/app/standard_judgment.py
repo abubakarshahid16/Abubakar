@@ -44,11 +44,12 @@ def route_cited_other(
     from .config import settings
 
     if settings.standard_scope_not_no_enabled:
-        why = f"it governs {others}; nothing shown excludes a {this} or its package"
+        why = f"it governs {others}; no scope clause of the standard was read, so a {this} or its package is not ruled out"
         declared.append(
             {
                 "identifier": identifier,
                 "reason": f"{why} - engineer to check which clauses apply",
+                "scope_unshown": True,
             }
         )
         return
