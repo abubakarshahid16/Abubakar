@@ -1657,7 +1657,9 @@ def test_the_prompts_carry_the_rules_scope_and_a_dropped_condition_is_a_failed_c
         and "ITS CONDITION: for gas" in second
     )
     assert (
-        rule_box_check.verify_check(row, _good_number(), FIELDS)[1]
+        rule_box_check.verify_check(
+            row, _good_number(scope="jacketed vessels"), FIELDS
+        )[1]
         == "condition_dropped"
     )
 
@@ -1692,3 +1694,102 @@ def test_every_typed_check_is_exported_for_audit_and_the_denominator_counts_the_
     assert rule_box_check.denominators(rules) == {
         "pressure vessel": {"apply_to_datasheets": 1, "decided": 0}
     }
+
+
+# ------------------------------------------------------------------------------------------ the scoped trial
+def _scoped_setup(rules):
+    with rules:
+        rules.execute(
+            "UPDATE compiled_rules SET applies_to = 'jacketed vessels' WHERE id = 'r1'"
+        )
+        rules.execute(
+            f"INSERT INTO {rule_boxes.TABLE} VALUES ('r1','datasheet','pressure vessel','a',NULL,'h','v','t',NULL)"
+        )
+    rule_box_check.ensure_schema(rules)
+    assert (
+        rule_box_check.settle_without_a_call(rules)["scoped: judge at review time"] == 1
+    )
+
+
+def test_the_trial_asks_a_scoped_rule_with_its_scope_and_the_check_must_carry_the_scope_words(
+    rules,
+):
+    _scoped_setup(rules)
+    assert rule_box_check.check_todo(rules) == []
+    jobs, _members, _c = rule_box_check.check_jobs(rules, _gate_open, trial=True)
+    assert len(jobs) == 1 and "APPLIES TO: jacketed vessels" in jobs[0].prompt
+    row = {**dict(_row(rules, "r1")), "equipment_type": "pressure vessel"}
+    assert (
+        rule_box_check.verify_check(row, _good_number(), FIELDS)[1] == "scope_dropped"
+    )
+    assert (
+        rule_box_check.verify_check(row, _good_number(scope="made up scope"), FIELDS)[1]
+        == "scope_dropped"
+    )
+    check, reason, status = rule_box_check.verify_check(
+        row, _good_number(scope="jacketed vessels"), FIELDS
+    )
+    assert (status, reason, check["scope"]) == ("checked", None, "jacketed vessels")
+
+
+def test_a_scoped_check_is_never_ai_proven_until_the_scope_question_is_answered(rules):
+    _scoped_setup(rules)
+    jobs, members, _c = rule_box_check.check_jobs(rules, _gate_open, trial=True)
+    apply = rule_box_check.check_storer(rules, members, "claude-sonnet-5-5")
+    rule_box_run.run(
+        jobs,
+        model="claude-sonnet-5-5",
+        step_prefix="c",
+        version="v",
+        apply=apply,
+        send=Fake(lambda p: json.dumps(_good_number(scope="jacketed vessels"))),
+    )
+    saved = rules.execute(
+        f"SELECT status, scope_required, scope_question FROM {rule_box_check.CHECKS} WHERE rule_id='r1'"
+    ).fetchone()
+    assert (
+        saved["status"] == "checked"
+        and saved["scope_required"] == 1
+        and "jacketed vessels" in saved["scope_question"]
+    )
+    assert rule_box_check.scope_pending(rules) == 1
+    jobs2, members2, _ = rule_box_check.second_jobs(
+        rules, _gate_open, "claude-haiku-5-5"
+    )
+    assert "APPLIES TO: jacketed vessels" in jobs2[0].prompt
+    rule_box_run.run(
+        jobs2,
+        model="claude-haiku-5-5",
+        step_prefix="s",
+        version="v",
+        apply=rule_box_check.second_storer(rules, members2, "claude-haiku-5-5"),
+        send=Fake(
+            lambda p: json.dumps(
+                {
+                    "box": "a",
+                    "field_role": "design_pressure",
+                    "limit": "10",
+                    "unit": "bar",
+                }
+            )
+        ),
+    )
+    rule_box_scope.ensure_schema(rules)
+    jobs3, members3, _ = rule_box_scope.identity_jobs(
+        rules, _gate_open, "claude-haiku-5-5", {DOC: LABEL}
+    )
+    rule_box_run.run(
+        jobs3,
+        model="claude-haiku-5-5",
+        step_prefix="i",
+        version="v",
+        apply=rule_box_scope.identity_storer(
+            rules, members3, "claude-haiku-5-5", rule_box_check._parse_object
+        ),
+        send=Fake(
+            lambda p: json.dumps(
+                {"relation": "same", "requirement_on_the_equipment": "yes"}
+            )
+        ),
+    )
+    assert rule_box_check.advanced(rules) == 0

@@ -223,7 +223,7 @@ def identity_storer(conn, members: dict, model: str, parse):
 def advanced_count(conn) -> int:
     return conn.execute(
         "SELECT COUNT(*) FROM rule_box_checks c JOIN rule_box_second s ON s.rule_id = c.rule_id"
-        f" JOIN {IDENTITY} i ON i.rule_id = c.rule_id WHERE c.status = 'checked' AND s.agree = 1"
+        f" JOIN {IDENTITY} i ON i.rule_id = c.rule_id WHERE c.status = 'checked' AND s.agree = 1 AND COALESCE(c.scope_required, 0) = 0"
         " AND i.relation = 'same' AND i.requirement = 'yes'"
     ).fetchone()[0]
 
@@ -234,7 +234,7 @@ def advanced_by_type(conn) -> dict[str, int]:
         for r in conn.execute(
             "SELECT l.equipment_type, COUNT(*) FROM rule_box_checks c JOIN rule_box_second s ON s.rule_id = c.rule_id"
             f" JOIN {IDENTITY} i ON i.rule_id = c.rule_id JOIN rule_box_labels l ON l.rule_id = c.rule_id"
-            " WHERE c.status = 'checked' AND s.agree = 1 AND i.relation = 'same' AND i.requirement = 'yes'"
+            " WHERE c.status = 'checked' AND s.agree = 1 AND COALESCE(c.scope_required, 0) = 0 AND i.relation = 'same' AND i.requirement = 'yes'"
             " GROUP BY 1 ORDER BY 1"
         )
     }

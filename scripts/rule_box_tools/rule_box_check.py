@@ -67,7 +67,7 @@ _OP_ALIASES = {"==": "=", "≤": "<=", "≥": ">="}
 
 
 def ensure_schema(conn) -> None:
-    for column in ("scope_text", "subject"):
+    for column in ("scope_text", "subject", "scope_required", "scope_question"):
         with contextlib.suppress(Exception):  # an older copy of the table
             conn.execute(f"ALTER TABLE {CHECKS} ADD COLUMN {column} TEXT")
     with contextlib.suppress(
@@ -78,7 +78,7 @@ def ensure_schema(conn) -> None:
         f"CREATE TABLE IF NOT EXISTS {CHECKS} ("
         " rule_id TEXT PRIMARY KEY, status TEXT NOT NULL, reason TEXT, field_role TEXT, kind TEXT, op TEXT,"
         " limit_text TEXT, unit TEXT, values_json TEXT, condition_text TEXT, quote TEXT, pass_json TEXT, fail_json TEXT,"
-        " document_kind TEXT, equipment_type TEXT, field_list_state TEXT, scope_text TEXT, subject TEXT, model TEXT, prompt_version TEXT, created_at TEXT NOT NULL)"
+        " document_kind TEXT, equipment_type TEXT, field_list_state TEXT, scope_text TEXT, subject TEXT, scope_required INTEGER, scope_question TEXT, model TEXT, prompt_version TEXT, created_at TEXT NOT NULL)"
     )
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {SECOND} ("
@@ -227,6 +227,8 @@ def check_prompt(row, label: str, equipment_type: str, fields: dict[str, str]) -
         ' "at_least_class"; "limit": <for a number, the figure exactly as printed, else null>, "unit": <the unit exactly'
         ' as printed, else null>, "values": <for a list, the words of the allowed or excluded values copied exactly,'
         ' else []>, "condition": <the words of the requirement that say when it applies, copied exactly, else null>,'
+        ' "scope": <the words of APPLIES TO, ITS CONDITION or ITS EXCEPTION above that narrow the requirement, copied'
+        " exactly, else null>,"
         ' "subject": <the words of the requirement that name the quantity it limits, copied exactly>,'
         ' "quote": <the shortest exact words of the requirement that state the limit or the list>,'
         ' "pass_case": {"value": <a datasheet value that meets it>, "unit": <its unit or null>},'
@@ -322,6 +324,13 @@ def _list_cases(op: str, values: list[str], role: str, passing, failing) -> str 
     return None
 
 
+def _scope_needed(row) -> bool:
+    try:
+        return rule_box_scope.scope_problem(row, row_type(row)) is not None
+    except (IndexError, KeyError):
+        return False
+
+
 def row_type(row) -> str:
     try:
         return str(row["equipment_type"] or "")
@@ -356,6 +365,20 @@ def verify_check(
         str(row["field"]), rule_box_scope.label_of(str(role)), row_type(row)
     ):
         return None, "compiled_field_differs_from_field", FAILED
+    needs_scope = _scope_needed(row)
+    scope = " ".join(str(answer.get("scope") or "").split())
+    if needs_scope:
+        have = _fold(
+            " ".join(
+                str(row[k] or "")
+                for k in ("applies_to", "condition_text", "exception_text")
+                if _has(row, k)
+            )
+            + " "
+            + str(row["quote"])
+        )
+        if not scope or _fold(scope) not in have:
+            return None, "scope_dropped", FAILED
     condition = " ".join(str(answer.get("condition") or "").split())
     if _has(row, "condition_text") and not condition:
         return None, "condition_dropped", FAILED
@@ -425,6 +448,7 @@ def verify_check(
     else:
         return None, "kind_not_allowed", FAILED
     check.update(
+        scope=scope or None,
         subject=subject,
         field_role=role,
         quote=_clean(answer.get("quote")),
@@ -549,13 +573,32 @@ def todo_by_type(conn) -> dict[str, int]:
     return dict(sorted(out.items()))
 
 
+def trial_todo(conn) -> list:
+    """TRIAL (owner, 3 Nov): rules the scope gate set aside as `scoped`, of datasheet or any kind, with a field list and a
+    figure or list. They are asked WITH their scope; the check must carry the scope words, code verifies them in the
+    rule's own text, and the check stays `scope_required` until a person answers whether the scope applies."""
+    rows = conn.execute(
+        "SELECT r.id, r.standard_document_id, r.clause, r.field, r.comparator, r.limit_value, r.unit, r.condition_text,"
+        " r.exception_text, r.applies_to, r.quote, l.document_kind, l.equipment_type, l.box"
+        f" FROM compiled_rules r JOIN {rule_boxes.TABLE} l ON l.rule_id = r.id JOIN {CHECKS} c ON c.rule_id = r.id"
+        f" WHERE l.box IN ('a','c') AND c.status = '{rule_box_scope.SCOPED}' ORDER BY r.standard_document_id, r.page, r.id"
+    ).fetchall()
+    return [
+        r
+        for r in rows
+        if fields_for(r["equipment_type"], conn) is not None
+        and r["document_kind"] in DATASHEET_KINDS
+        and (has_figure(r) or is_list_rule(r["quote"]))
+    ]
+
+
 def check_jobs(
-    conn, gate, only: str | None = None
+    conn, gate, only: str | None = None, trial: bool = False
 ) -> tuple[list[rule_box_run.Job], dict, dict]:
     labels = rule_boxes.standard_labels(conn)
     refused: dict[str, str | None] = {}
     out, members, skipped = [], {}, 0
-    for r in check_todo(conn):
+    for r in trial_todo(conn) if trial else check_todo(conn):
         fixed = rule_boxes.checklist_name(r["equipment_type"]) is not None
         if (only == "fixed" and not fixed) or (only == "ai" and fixed):
             continue
@@ -595,8 +638,16 @@ def check_storer(conn, members: dict, model: str):
         _record(conn, row["id"], status, reason, row, model, check)
         if check:
             conn.execute(
-                f"UPDATE {CHECKS} SET subject = ? WHERE rule_id = ?",
-                (check["subject"], row["id"]),
+                f"UPDATE {CHECKS} SET subject = ?, scope_text = ?, scope_required = ?, scope_question = ? WHERE rule_id = ?",
+                (
+                    check["subject"],
+                    check["scope"],
+                    int(bool(check["scope"])),
+                    f"Does this scope apply to this equipment: {check['scope']}?"
+                    if check["scope"]
+                    else None,
+                    row["id"],
+                ),
             )
         conn.commit()
         if status == CHECKED:
@@ -773,6 +824,13 @@ def second_storer(conn, members: dict, model: str):
 
     apply.tally = tally
     return apply
+
+
+def scope_pending(conn) -> int:
+    """Checked and agreed rules that still need a person to say whether their scope applies to the equipment."""
+    return conn.execute(
+        f"SELECT COUNT(*) FROM {CHECKS} WHERE status = '{CHECKED}' AND scope_required = 1"
+    ).fetchone()[0]
 
 
 def advanced(conn) -> int:

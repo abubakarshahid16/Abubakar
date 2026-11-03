@@ -272,7 +272,10 @@ def run_step(
         )
         if has_labels(conn):
             jobs, members, counts = rule_box_check.check_jobs(
-                conn, gate, getattr(args, "only", None)
+                conn,
+                gate,
+                getattr(args, "only", None),
+                bool(getattr(args, "trial_scoped", False)),
             )
             extra = {
                 **counts,
@@ -436,6 +439,11 @@ def main(argv: list[str] | None = None, *, emit=print) -> int:
     ap.add_argument("--db", type=Path, required=True)
     ap.add_argument("--send", action="store_true", help="ask Claude; this spends")
     ap.add_argument("--model", default=None)
+    ap.add_argument(
+        "--trial-scoped",
+        action="store_true",
+        help="check step: ask the scoped datasheet rules WITH their scope (trial)",
+    )
     ap.add_argument(
         "--export-checks",
         type=Path,
