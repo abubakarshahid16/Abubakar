@@ -205,9 +205,13 @@ def test_the_review_job_hook_is_a_no_op_when_off_and_never_raises_when_on(monkey
     from app import main
 
     called = []
-    monkeypatch.setattr(main, "_crs_content", lambda *a, **k: called.append(1) or ([], {}, "", ""))
-    assert main.ai_review_crs_rows("no-such-run", None) is None
+    monkeypatch.setattr(
+        main, "_crs_content", lambda *a, **k: called.append(1) or ([], {}, "", "")
+    )
+    assert arpass.run_for_job("no-such-run", None) is None
     assert called == []  # off: the CRS is not even read
     monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
-    assert main.ai_review_crs_rows("no-such-run", None) is None  # on, but the run is not there: logged, not raised
+    assert (
+        arpass.run_for_job("no-such-run", None) is None
+    )  # on, but the run is not there: logged, not raised
     assert called == [1]

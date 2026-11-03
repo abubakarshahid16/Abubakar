@@ -25,7 +25,6 @@ from . import crs_issue as crs_issue_mod
 from . import crs_carry as crs_carry_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
-from . import ai_review_pass as ai_review_pass_mod
 from . import crs_wording as crs_wording_mod
 from . import export_status as export_status_mod
 from . import review_trace as review_trace_mod
@@ -2986,29 +2985,6 @@ def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:
     except Exception:  # noqa: BLE001 - see docstring: never fail a finished review
         logging.getLogger(__name__).warning(
             "crs wording: run %s failed; templates kept", review_run_id, exc_info=True)
-        return None
-
-
-def ai_review_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:
-    """Lane 6: the AI engineering review pass over a FINISHED review (`ai_review_pass.run`): it proposes, code
-    verifies and stores; nothing is changed here. A write path (the review job), never the export or preview. OFF
-    unless AI_ENGINEERING_REVIEW_PASS_ENABLED. NEVER FAILS THE REVIEW; returns the run's summary, or None."""
-    import logging
-
-    if not settings.ai_engineering_review_pass_enabled:
-        return None
-    try:
-        from . import ai_engineering_check
-
-        rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
-        run = connect().execute("SELECT submittal_document_id FROM review_runs WHERE id = ?",
-                                (review_run_id,)).fetchone()
-        pages = ai_engineering_check.datasheet_pages(run["submittal_document_id"])
-        held = ai_engineering_check._held_standards(review_run_id)
-        return ai_review_pass_mod.run(review_run_id, rows, pages=pages, held=held)
-    except Exception:  # noqa: BLE001 - see docstring: never fail a finished review
-        logging.getLogger(__name__).warning("ai review pass: run %s failed; the draft stands", review_run_id,
-                                            exc_info=True)
         return None
 
 

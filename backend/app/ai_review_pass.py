@@ -209,6 +209,55 @@ def _keyed(rows: list[dict]) -> list[dict]:
     return [r for r in rows if r.get("crs_row_key")]
 
 
+def _engine(summary: dict, provider):
+    """(provider, stop). Sets summary["engine"] and "local_instead"; `stop` is the reason the pass cannot run, or None."""
+    from . import reasoning_provider as rp
+
+    own = provider is None
+    try:
+        if own:
+            provider, summary["local_instead"] = _provider()
+    except Exception as exc:
+        return None, f"no model available ({type(exc).__name__})"
+    cloud = isinstance(provider, rp.ClaudeProvider)
+    summary["engine"] = "claude" if cloud else "local"
+    if own and not cloud and local_engine_bar.refuses(STEP):
+        return None, local_engine_bar.NOTE
+    return provider, None
+
+
+def _rows_to_store(review_run_id: str, verdicts: list, summary: dict) -> list[tuple]:
+    """One stored row per verdict; counts the accepted and refused in the summary."""
+    now, out = _now(), []
+    for i, verdict in enumerate(verdicts):
+        proposal = verdict.proposal if isinstance(verdict.proposal, dict) else {}
+        pid = str(proposal.get("id") or f"auto-{i + 1}")
+        if verdict.accepted:
+            summary["accepted"][proposal["type"]] += 1
+        else:
+            reason = str(verdict.reason).split(":")[0]
+            summary["refused"][reason] = summary["refused"].get(reason, 0) + 1
+        if any(row[1] == pid for row in out):
+            pid = f"{pid}#{i + 1}"
+        out.append(
+            (
+                review_run_id,
+                pid,
+                str(proposal.get("type") or ""),
+                proposal.get("row_key"),
+                "accepted" if verdict.accepted else "refused",
+                None if verdict.accepted else verdict.reason,
+                verdict.row_kind,
+                verdict.final_text,
+                json.dumps(proposal, ensure_ascii=False),
+                summary["model"],
+                PROMPT_VERSION,
+                now,
+            )
+        )
+    return out
+
+
 @claude_approved.for_review  # #806 S3: the review's submittal and standards are the documents this call carries
 def run(
     review_run_id: str,
@@ -235,19 +284,8 @@ def run(
     if not summary["enabled"]:
         summary["stopped"] = "off (AI_ENGINEERING_REVIEW_PASS_ENABLED=false)"
         return _store(review_run_id, summary)
-    own = provider is None
-    try:
-        if own:
-            provider, summary["local_instead"] = _provider()
-    except Exception as exc:  # noqa: BLE001 - no model: the draft CRS stands
-        summary["stopped"] = f"no model available ({type(exc).__name__})"
-        return _store(review_run_id, summary)
-    from . import reasoning_provider as rp
-
-    cloud = isinstance(provider, rp.ClaudeProvider)
-    summary["engine"] = "claude" if cloud else "local"
-    if own and not cloud and local_engine_bar.refuses(STEP):
-        summary["stopped"] = local_engine_bar.NOTE
+    provider, summary["stopped"] = _engine(summary, provider)
+    if summary["stopped"]:
         return _store(review_run_id, summary)
     context = arp.Context(
         pages=pages,
@@ -258,9 +296,9 @@ def run(
     )
     try:
         proposals, refusal, summary["model"] = _ask(
-            provider, build_prompt(rows, pages, local=not cloud)
+            provider, build_prompt(rows, pages, local=summary["engine"] == "local")
         )
-    except Exception as exc:  # noqa: BLE001 - a failing model stops the pass, never the review
+    except Exception as exc:
         log.info("ai review pass: the model call failed (%s)", type(exc).__name__)
         summary["stopped"] = (
             f"the model call failed ({type(exc).__name__}); the draft CRS stands"
@@ -273,32 +311,7 @@ def run(
         return _store(review_run_id, summary)
     verdicts = arp.verify_all(proposals, context)
     summary["proposed"] = len(verdicts)
-    now = _now()
-    stored = []
-    for i, verdict in enumerate(verdicts):
-        proposal = verdict.proposal if isinstance(verdict.proposal, dict) else {}
-        pid = str(proposal.get("id") or f"auto-{i + 1}")
-        if verdict.accepted:
-            summary["accepted"][proposal["type"]] += 1
-        else:
-            reason = str(verdict.reason).split(":")[0]
-            summary["refused"][reason] = summary["refused"].get(reason, 0) + 1
-        stored.append(
-            (
-                review_run_id,
-                f"{pid}#{i + 1}" if any(s[1] == pid for s in stored) else pid,
-                str(proposal.get("type") or ""),
-                proposal.get("row_key"),
-                "accepted" if verdict.accepted else "refused",
-                None if verdict.accepted else verdict.reason,
-                verdict.row_kind,
-                verdict.final_text,
-                json.dumps(proposal, ensure_ascii=False),
-                summary["model"],
-                PROMPT_VERSION,
-                now,
-            )
-        )
+    stored = _rows_to_store(review_run_id, verdicts, summary)
     with connect() as conn:
         conn.execute(
             "DELETE FROM crs_ai_review WHERE review_run_id = ?", (review_run_id,)
@@ -316,6 +329,40 @@ def run(
         summary["refused"],
     )
     return _store(review_run_id, summary)
+
+
+def run_for_job(review_run_id: str, scope) -> dict | None:
+    """The review job's call (a write path, never the export or preview): read the finished run's internal CRS rows, the
+    submittal's pages and the held standards, then `run`. OFF unless AI_ENGINEERING_REVIEW_PASS_ENABLED. NEVER FAILS
+    THE REVIEW: any failure is logged (ids only) and the draft CRS stands. Returns the run's summary, or None."""
+    if not settings.ai_engineering_review_pass_enabled:
+        return None
+    try:
+        from . import ai_engineering_check
+        from .main import _crs_content
+
+        rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        submittal = (
+            connect()
+            .execute(
+                "SELECT submittal_document_id FROM review_runs WHERE id = ?",
+                (review_run_id,),
+            )
+            .fetchone()["submittal_document_id"]
+        )
+        return run(
+            review_run_id,
+            rows,
+            pages=ai_engineering_check.datasheet_pages(submittal),
+            held=ai_engineering_check._held_standards(review_run_id),
+        )
+    except Exception:
+        log.warning(
+            "ai review pass: run %s failed; the draft CRS stands",
+            review_run_id,
+            exc_info=True,
+        )
+        return None
 
 
 def accepted(review_run_id: str) -> list[dict]:
