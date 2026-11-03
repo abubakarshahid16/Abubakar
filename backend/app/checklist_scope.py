@@ -12,6 +12,8 @@ requirement beside it. Absent, it governs, as before.
 
 from __future__ import annotations
 
+from .draft_items import is_draft
+
 
 def governs(entry: dict) -> dict:
     """The `governs` key the checklist carries, from its data entry."""
@@ -23,7 +25,14 @@ def standards(checklist: dict) -> list[str]:
     does not replace them."""
     if not checklist.get("governs", True):
         return []
-    return sorted({item["source"]["standard"] for item in checklist["items"]})
+    # A DRAFT item asks a question and decides nothing: its standard is not governed by it.
+    return sorted(
+        {
+            item["source"]["standard"]
+            for item in checklist["items"]
+            if not is_draft(item)
+        }
+    )
 
 
 def stated_only(checklist: dict) -> list[str]:

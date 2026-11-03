@@ -29,7 +29,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
-from . import claims, crs_wording, numparse, standard_ids
+from . import claims, crs_wording, numparse, standard_ids, word_fold
 from .ai_engineering_check import PASS_FAIL_WORDS
 from .reader_api import _contains, _fold
 
@@ -163,15 +163,15 @@ def _words_of(proposal: dict) -> str:
     return " ".join(str(proposal.get(k) or "") for k in ("reason", "text"))
 
 
-_SINGLE_RUN = re.compile(r"(?<![a-z0-9])(?:[a-z][\s\-._]+){2,}[a-z](?![a-z0-9])")
+_SINGLE_RUN = re.compile(r"(?<![a-z0-9])(?:[a-z][^a-z0-9]+){2,}[a-z](?![a-z0-9])")
 
 
 def _readable(text: object, *, decompose: bool = True) -> str:
-    """What a reader reads: the full compatibility fold (`numparse.fold_compat`), then a run of single letters ("c o m p l i e
+    """What a reader reads: the full compatibility fold (`word_fold.fold_compat`), then a run of single letters ("c o m p l i e
     s", "c-o-m-p-l-i-e-s") joined into one word."""
     return _SINGLE_RUN.sub(
         lambda m: re.sub(r"[^a-z]", "", m.group(0)),
-        numparse.fold_compat(text, decompose=decompose),
+        word_fold.fold_compat(text, decompose=decompose),
     )
 
 
@@ -415,7 +415,7 @@ def _reason_ok(proposal: dict, row: Mapping) -> bool:
     unit the row's own text does not also use."""
     reason = proposal.get("reason")
     plain = _readable(reason)
-    raw = numparse.fold_compat(reason, lower=False)
+    raw = word_fold.fold_compat(reason, lower=False)
     if re.search(
         r"(?<![A-Za-z])[IVXLCDM](?![A-Za-z])", raw
     ):  # a lone capital roman numeral ("V barg")
