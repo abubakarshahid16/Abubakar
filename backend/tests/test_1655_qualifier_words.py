@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import pytest
 
-from app import claims, config, numparse  # noqa: F401  (config hands numparse its comparator list)
+from app import (  # noqa: F401  (config hands numparse its comparator list)
+    claims,
+    config,
+    numparse,
+)
 
 
 @pytest.mark.parametrize(

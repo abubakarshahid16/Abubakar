@@ -42,8 +42,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "numparse.py",
         # #1655: the rule in `_prefix_refused` now owns this case; the mutant lets a letter stand
         # directly before the number, so "p.4" is the decimal 0.4 again.
-        anchor='    if not prefix:\n        return False\n    if prefix[-1] not in _SPACES + _BINDS:\n',
-        replacement='    if not prefix:\n        return False\n    if prefix[-1].isalpha():\n        return False\n    if prefix[-1] not in _SPACES + _BINDS:\n',
+        anchor="    if not prefix:\n        return False\n    if prefix[-1] not in _SPACES + _BINDS:\n",
+        replacement="    if not prefix:\n        return False\n    if prefix[-1].isalpha():\n        return False\n    if prefix[-1] not in _SPACES + _BINDS:\n",
         target=_T,
         keyword="glued_dot",
         tags=_TAG,
@@ -54,7 +54,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a stranded dot before a number ('.5.3', '...5') is read as a number again",
         path=APP / "numparse.py",
         # #1655: as M1517-03; the mutant lets a stranded dot stand before the number.
-        anchor='    if not prefix:\n        return False\n    if prefix[-1] not in _SPACES + _BINDS:\n',
+        anchor="    if not prefix:\n        return False\n    if prefix[-1] not in _SPACES + _BINDS:\n",
         replacement='    if not prefix:\n        return False\n    if prefix[-1] == ".":\n        return False\n    if prefix[-1] not in _SPACES + _BINDS:\n',
         target=_T,
         keyword="ambiguous",
