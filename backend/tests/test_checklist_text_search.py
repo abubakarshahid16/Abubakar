@@ -54,7 +54,7 @@ def test_a_label_in_no_pages_text_is_missing_for_the_contractor():
 
 
 def test_a_label_search_that_finds_nothing_says_what_it_searched_not_that_the_value_is_absent():
-    # CRS-008 (I-06 hand check, 29 Oct): a note stated the rating in other words, so "was not found in
+    # CRS-008 (Datasheet 1 hand check, 29 Oct): a note stated the rating in other words, so "was not found in
     # the text" was false. The search is by the field's NAME; the row says so and leaves the door open.
     detail = results()["PSV-09"]["detail"]
     assert "no label for it was found" in detail and "searched by its name" in detail

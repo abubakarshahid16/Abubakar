@@ -73,7 +73,7 @@ def test_invalid_output_is_retried_once_then_unknown(pages):
 
 def test_a_non_numeric_limit_needs_no_min_or_max():
     """THE MUTATION TARGET (M603): requiring min/max rejected 2 of 8 real
-    answers in the M-03 run."""
+    answers in the Datasheet 2 run."""
     ans = _answer(limits=[{"kind": "service", "term": "process service", "quote": "for process service",
                            "page": 2}])
     assert rp.schema_errors(ans, scope_records.SCHEMA) == ()

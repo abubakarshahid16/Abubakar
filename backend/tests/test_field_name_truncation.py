@@ -4,7 +4,7 @@ THE DEFECT, MEASURED. The drum sheet writes a corrosion allowance over two
 lines inside one cell:
 
     Figure 1
-    Design corrosion allowance for removable internal parts
+    Stated corrosion allowance for detachable inner parts
     (material 2)
     0
     mm
@@ -48,15 +48,15 @@ def test_a_bracket_only_line_is_part_of_the_label_above_it():
     """THE PRODUCTION ROW, as the text-block path delivers it."""
     pairs = datasheets.split_label_value([
         "Figure 1",
-        "Design corrosion allowance for removable internal parts",
+        "Stated corrosion allowance for detachable inner parts",
         "(material 2)", "0", "mm"])
 
     assert pairs == [
-        ("Design corrosion allowance for removable internal parts "
+        ("Stated corrosion allowance for detachable inner parts "
          "(material 2)", "0 mm")]
     # AND THE NAME A READER SEES CARRIES THE WHOLE THING.
     assert datasheets.normalise_field_name(pairs[0][0]) == (
-        "design corrosion allowance for removable internal parts material 2")
+        "stated corrosion allowance for detachable inner parts material 2")
 
 
 def test_the_same_row_from_the_grid_path_gives_the_same_pair():
@@ -65,10 +65,10 @@ def test_the_same_row_from_the_grid_path_gives_the_same_pair():
     the trailing note beside it."""
     pairs = datasheets.split_label_value([
         "36", "Figure 1",
-        "Design corrosion allowance for removable internal parts (material 2)",
+        "Stated corrosion allowance for detachable inner parts (material 2)",
         "0", "mm", "For 25 % Cr SDSS", "", ""])
 
-    assert ("Design corrosion allowance for removable internal parts "
+    assert ("Stated corrosion allowance for detachable inner parts "
             "(material 2)", "0 mm") in pairs
 
 
@@ -113,13 +113,13 @@ def test_a_dotted_clause_reference_is_skipped_like_a_line_number():
     """THE SAME DEFECT IN A DIFFERENT SPELLING, and it cost three weights.
 
     The drum sheet's weight rows read `19 | 4.2.1 | Fabricated weight (L1) : |
-    4410 | kg`. The bare line number was already dropped; the clause reference
+    5210 | kg`. The bare line number was already dropped; the clause reference
     behind it then took the label position and the real label became its
     value, so the fabricated, empty and operating weights were all lost.
     """
     assert datasheets.split_label_value(
-        ["19", "4.2.1", "Fabricated weight (L1) :", "4410", "kg", "00"]) == [
-        ("Fabricated weight (L1) :", "4410 kg")]
+        ["19", "4.2.1", "Fabricated weight (L1) :", "5210", "kg", "00"]) == [
+        ("Fabricated weight (L1) :", "5210 kg")]
 
 
 def test_a_single_dot_number_is_a_value_and_not_a_clause():
@@ -137,8 +137,8 @@ def test_a_single_dot_number_is_a_value_and_not_a_clause():
     (["Insulation", "None"], [("Insulation", "None")]),
     (["Boot material", "N/A"], [("Boot material", "N/A")]),
     # Two forms side by side, with their line numbers. The client layout.
-    (["5", "Design pressure", "23.5 barg", "46", "Bonnet material", "CS"],
-     [("Design pressure", "23.5 barg"), ("Bonnet material", "CS")]),
+    (["5", "Design pressure", "27.5 barg", "46", "Bonnet material", "CS"],
+     [("Design pressure", "27.5 barg"), ("Bonnet material", "CS")]),
     # A unit in its own column.
     (["Concrete bearing stress", "8300", "kPa"],
      [("Concrete bearing stress", "8300 kPa")]),
