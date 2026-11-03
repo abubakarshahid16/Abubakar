@@ -327,3 +327,29 @@ def test_the_flagged_block_shows_the_rows_own_words(flagged):
     assert item["words"] == FAIL["comment"] and item["where"] == FAIL["page_section"]
     text = _sheet_text(_workbook(flagged, "internal"), view.SHEET)
     assert FAIL["comment"] in text
+
+
+@pytest.mark.parametrize("word", ["c o m p l i e s", "compl​iant", "verified", "✓"])
+def test_a_flag_quote_with_a_hidden_verdict_prints_nothing(monkeypatch, word):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    pages = {2: f"Relief valve PSV-9901  Set pressure 10 barg  {word}"}
+    flag = dict(
+        FLAG,
+        evidence=[{"page": 2, "quote": pages[2]}],
+    )
+    arpass.run("rv-hid", [dict(FAIL)], pages=pages, held=HELD, provider=Stub([flag]))
+    rows = [dict(FAIL)]
+    view.apply(rows, "rv-hid")
+    assert "ai_review_comment" not in rows[0]
+
+
+@pytest.mark.parametrize("figure", ["n i n e", "n-i-n-e", "nin ety", "XCIX", "9９"])
+def test_a_reword_reason_with_a_spelled_figure_prints_nothing(monkeypatch, figure):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    from tests.test_ai_review_view import REWORD
+
+    bad = dict(REWORD, reason=f"The limit is {figure} for it.")
+    arpass.run("rv-fig", [dict(ROW)], pages=PAGES, held=HELD, provider=Stub([bad]))
+    rows = [dict(ROW)]
+    view.apply(rows, "rv-fig")
+    assert "ai_review_comment" not in rows[0]
