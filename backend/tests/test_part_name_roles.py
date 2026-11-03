@@ -221,7 +221,7 @@ GOOD = [
     "316 SS",
     "Bronze",
     "Ni-Resist",
-    "Super Duplex S.S. ASTM A995 Gr. 5A/6A",
+    "Super Duplex S.S. ASTM A890 Gr. 4A/3A",
     "Carbon steel AISI 4140",
 ]
 
