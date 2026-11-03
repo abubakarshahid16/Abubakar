@@ -301,3 +301,70 @@ def test_ordinary_item_wording_is_still_accepted(tmp_path):
             ],
         )
     )
+
+
+INVISIBLE = ["\u200b", "\u200d", "\u200e", "\u2060", "\ufeff", "\u00ad"]
+
+
+@pytest.mark.parametrize("mark", INVISIBLE)
+def test_invisible_characters_in_the_term_or_the_page_do_not_hide_a_term(mark):
+    page = f"Section 2. We list open ho{mark}lds list here."
+    assert (
+        lcs.completeness(RULE, _ev(pages={1: "Cover.", 2: page}, terms=["holds list"]))[
+            0
+        ]
+        == lcs.NEEDS_ENGINEER
+    )
+    page = "Section 2. We list open holds list here."
+    assert (
+        lcs.completeness(
+            RULE, _ev(pages={1: "Cover.", 2: page}, terms=[f"hol{mark}ds list"])
+        )[0]
+        == lcs.NEEDS_ENGINEER
+    )
+
+
+@pytest.mark.parametrize("dash", ["\u2013", "\u2011", "\u2212", "\u2014", "\uff0d"])
+def test_a_look_alike_dash_does_not_hide_a_hyphenated_term(dash):
+    page = f"Section 2. A sign{dash}off sheet is attached."
+    assert (
+        lcs.completeness(RULE, _ev(pages={1: "Cover.", 2: page}, terms=["sign-off"]))[0]
+        == lcs.NEEDS_ENGINEER
+    )
+
+
+def test_fullwidth_letters_do_not_hide_a_term():
+    page = "Section 2. A \uff53\uff49\uff47\uff4e off sheet."
+    assert (
+        lcs.completeness(RULE, _ev(pages={1: "Cover.", 2: page}, terms=["sign off"]))[0]
+        == lcs.NEEDS_ENGINEER
+    )
+
+
+def test_a_quote_is_checked_with_the_same_normaliser():
+    page = "Section 2. Holds:\u200b there are no holds\u2013none listed."
+    quote = "Holds: there are no holds-none listed."
+    got = lcs.completeness(
+        RULE, _ev(pages={1: "Cover.", 2: page}, found=[{"quote": quote, "page": 2}])
+    )
+    assert got[0] == lcs.PRESENT
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Invented: t\u200bhree copies",
+        "Invented: fi\u00adve copies",
+        "Invented: at le\u200bast one",
+        "Invented: m\u200bax of them",
+        "Invented: up\u200b to the others",
+        "Invented: tw\u2060elve copies",
+        "Invented: the p\ufeffsi value",
+        "Invented: \uff54\uff48\uff52\uff45\uff45 copies",
+    ],
+)
+def test_invisible_or_look_alike_characters_do_not_get_a_limit_past_the_refusal(
+    tmp_path, text
+):
+    with pytest.raises(lcs.Refused, match="never an equipment limit"):
+        lcs.read_items(_file(tmp_path, [{**ITEMS[0], "text": text}]))

@@ -64,6 +64,7 @@ def _states_a_limit(text: str) -> bool:
     """A number, number word, unit, or comparator anywhere in an item's text: the repo's own detectors first
     (`numparse`, `claims.is_unit`, `claims.comparator_ending`), any numeral of any script (fullwidth digits, one-half),
     then the few vocabularies they lack."""
+    text = _normalise(text)
     if numparse.find_numbers(text) or numparse.find_fractions(text):
         return True
     if any(unicodedata.numeric(ch, None) is not None for ch in text):
@@ -229,13 +230,30 @@ def current_rules(conn, contract: str | None = None) -> list[dict]:
     return [dict(zip(names, r, strict=True)) for r in rows]
 
 
+_DASHES = dict.fromkeys(
+    map(
+        ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u2043\ufe58\ufe63\uff0d\u00ad"
+    ),
+    "-",
+)
+
+
+def _normalise(text: str) -> str:
+    """One normaliser for the quote check, the absence search and the refusal checks: NFKC (fullwidth letters, digits and
+    punctuation to plain), format characters removed (zero-width space and joiner, marks, word joiner, BOM, soft hyphen),
+    every dash and the minus sign to a hyphen."""
+    folded = unicodedata.normalize("NFKC", str(text or ""))
+    folded = "".join(ch for ch in folded if unicodedata.category(ch) != "Cf")
+    return folded.translate(_DASHES)
+
+
 def _fold(text: str) -> str:
     """The quote check's own folding (`compiled_rule_proof.quote_verified`): hyphen breaks joined, whitespace of every
     kind (new line, no-break space) squashed, case folded. The search uses this on the term and on the page."""
     from app.ai_requirements import _squash
     from app.compiled_rule_pages import join_hyphens
 
-    return _squash(join_hyphens(" ".join(str(text or "").split())))
+    return _squash(join_hyphens(" ".join(_normalise(text).split())))
 
 
 def _page_no(value) -> bool:
@@ -260,7 +278,7 @@ def completeness(rule: dict, evidence: dict | None) -> tuple[str, str]:
     found = [f for f in evidence.get("found") or [] if isinstance(f, dict)]
     for f in found:
         if _page_no(f.get("page")) and quote_verified(
-            f.get("quote"), pages.get(f["page"])
+            _normalise(f.get("quote")), _normalise(pages.get(f["page"]))
         ):
             return PRESENT, "a quote that stands on its cited page"
     if found:
