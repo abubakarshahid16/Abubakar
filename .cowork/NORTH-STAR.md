@@ -77,7 +77,7 @@ explicitly named by a contractor.
 - Uncertainty produces an explicit safe outcome. In review workflows this is
   `NEEDS_ENGINEER_REVIEW`; in Q&A or analysis it is `INSUFFICIENT_EVIDENCE` or an
   equivalent visible limitation. Uncertainty can never produce automatic approval.
-- The AI proposes. Deterministic validators check. An authorized engineer decides.
+- The AI reviews and judges like a senior engineer. Code verifies every quote and does every number comparison. An authorized engineer signs. (Owner, 3 Nov 2026, #1584.)
 
 ### 2.3 Retrieval, reasoning and deterministic validation
 
