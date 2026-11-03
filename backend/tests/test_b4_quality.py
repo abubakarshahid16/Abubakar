@@ -171,7 +171,7 @@ def test_each_noise_rule(label, value, rule):
     ("Design specific gravity :", "1.07"),
     ("FOR", "Example Company"),               # a real one-word label
     ("4 HR. MECH RUN TEST", "WIT"),              # a number opening a real label
-    ("Item No.", "09-G-411 A/B"),
+    ("Item No.", "99-G-911 A/B"),
     ("Reverse rotation", "YES"),                 # 'rev' only as a word
     ("TEMP CLASS", "T3"),
 ])

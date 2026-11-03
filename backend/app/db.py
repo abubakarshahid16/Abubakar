@@ -673,7 +673,7 @@ CREATE TABLE IF NOT EXISTS chat_filed_comments (
 -- discipline says who WROTE a document; a subject says what it is ABOUT, and
 -- comparison happens along subject.
 
--- The client's Engineering Deliverables register, as imported. THE OFFICIAL
+-- The client's deliverables register, as imported. THE OFFICIAL
 -- LIST, and authoritative for type and discipline: when a title matches a row
 -- here, the classification is the client's own rather than this system's
 -- guess.

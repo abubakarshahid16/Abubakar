@@ -108,7 +108,7 @@ def test_the_title_block_on_the_same_pages_is_still_stripped():
 def test_two_distinct_answers_are_enough_to_make_it_a_field():
     """THE BOUNDARY. Four pages agree and the fifth does not; that is a form
     somebody filled in identically four times, not a header."""
-    pages = {p: [("Set pressure", "340 psig")] for p in range(1, 5)}
+    pages = {p: [("Set pressure", "355 psig")] for p in range(1, 5)}
     pages[5] = [("Set pressure", "145 psig")]
 
     assert "set pressure" not in datasheets.furniture_labels(pages)
@@ -139,7 +139,7 @@ def test_a_label_on_too_few_pages_is_never_furniture():
 
 
 def test_case_and_spacing_are_spelling_not_a_different_answer():
-    """"340 PSIG" and "340  psig" are one answer written twice. Treating them
+    """"355 PSIG" and "355  psig" are one answer written twice. Treating them
     as two would let any title block whose case wobbles survive as a field."""
     pages = {1: [("Document no", "DS-0000")],
              2: [("Document no", "ds-0000")],
@@ -232,16 +232,16 @@ def test_by_contractor_fields_survive_when_their_answers_differ():
     would die under condition 1.
 
     On the real sheet none does: each carries a purchaser value beside the
-    marker - `340 psig (By Contractor, as per Code)` against `145 psig By
+    marker - `355 psig (By Contractor, as per Code)` against `145 psig By
     Contractor, as per Code` - so the answers differ per valve. Measured
     before this fixture was written; if it ever stops being true the rule
     needs a blank-marker exemption and this test is where that shows up.
     """
     pages = {
-        1: [("Set pressure", "340 psig (By Contractor, as per Code)")],
-        2: [("Set pressure", "340 psig (By Contractor, as per Code)")],
-        3: [("Set pressure", "130 psig By Contractor, as per")],
-        4: [("Set pressure", "145 psig By Contractor, as per Code")],
+        1: [("Set pressure", "355 psig (By Contractor, as per Code)")],
+        2: [("Set pressure", "355 psig (By Contractor, as per Code)")],
+        3: [("Set pressure", "135 psig By Contractor, as per")],
+        4: [("Set pressure", "165 psig By Contractor, as per Code")],
     }
 
     assert "set pressure" not in datasheets.furniture_labels(pages)

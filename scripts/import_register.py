@@ -1,4 +1,4 @@
-"""Import the client's Engineering Deliverables register.
+"""Import the client's deliverables register.
 
     python scripts/import_register.py <register.pdf> <revision>
     python scripts/import_register.py <register.pdf> rev-D --expect 1354

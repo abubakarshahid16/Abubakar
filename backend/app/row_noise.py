@@ -67,7 +67,7 @@ _DOCUMENT_LABEL = re.compile(
 #: "#" - with a bare, unitless integer beside it. "JOB NO. 21087" and "P.O.
 #: NO. 4500012345" were stored as numeric facts that no requirement can be
 #: about. A count ("NUMBER OF STAGES 2") asks HOW MANY and does not end on
-#: the word; a tag ("ITEM NO. 09-G-411 A/B") is not a bare integer.
+#: the word; a tag ("ITEM NO. 99-G-911 A/B") is not a bare integer.
 _IDENTIFIER_LABEL = re.compile(r"(?:\bno\.?|\bnumber|#)\s*:?\s*$", re.IGNORECASE)
 _BARE_INTEGER = re.compile(r"^\d{1,12}$")
 #: A title block glued into a label: "NO.: ABC - 1234567 ATA SHEE".

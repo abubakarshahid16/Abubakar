@@ -76,22 +76,22 @@ def test_an_incomplete_asme_reference_is_not_a_citation(text):
 
 
 @pytest.mark.parametrize("text,expected", [
-    # KOC standard numbers use BOTH one-letter and two-letter discipline
-    # codes (the pump datasheet's own reference list, page 7: KOC-ME-008 Pt1/Pt2 are
-    # two-letter "mechanical equipment"; KOC-E-003, KOC-E-004, KOC-E-010,
-    # KOC-E-020 are one-letter "electrical"; KOC-P-001 is one-letter
+    # the operator standard numbers use BOTH one-letter and two-letter discipline
+    # codes (the pump datasheet's own reference list, page 7: AGA-ME-008 Pt1/Pt2 are
+    # two-letter "mechanical equipment"; AGA-E-003, AGA-E-004, AGA-E-010,
+    # AGA-E-020 are one-letter "electrical"; AGA-P-001 is one-letter
     # "painting"). The pattern required exactly two letters, so a real
     # submittal's electrical and painting standard citations were silently
     # dropped - never reported applicable, and never reported missing
     # either, because the extractor never saw them as citations at all.
-    ("per KOC-E-003 and KOC-E-004", ["KOC-E-003", "KOC-E-004"]),
-    ("per KOC-E-010 and KOC-E-020", ["KOC-E-010", "KOC-E-020"]),
-    ("painting per KOC-P-001", ["KOC-P-001"]),
-    ("per KOC-G-004 and KOC-I-002 and KOC-Q-014", ["KOC-G-004", "KOC-I-002", "KOC-Q-014"]),
+    ("per AGA-E-003 and AGA-E-004", ["AGA-E-003", "AGA-E-004"]),
+    ("per AGA-E-010 and AGA-E-020", ["AGA-E-010", "AGA-E-020"]),
+    ("painting per AGA-P-001", ["AGA-P-001"]),
+    ("per AGA-G-004 and AGA-I-002 and AGA-Q-014", ["AGA-G-004", "AGA-I-002", "AGA-Q-014"]),
     # Two-letter discipline codes must keep working unchanged.
-    ("per KOC-ME-008 Pt1 and KOC-MP-027", ["KOC-ME-008 Pt1", "KOC-MP-027"]),
+    ("per AGA-ME-008 Pt1 and AGA-MP-027", ["AGA-ME-008 Pt1", "AGA-MP-027"]),
 ])
-def test_koc_one_and_two_letter_discipline_codes_are_both_read(text, expected):
+def test_aga_one_and_two_letter_discipline_codes_are_both_read(text, expected):
     assert referenced_standards(text) == expected
 
 
@@ -124,8 +124,8 @@ def test_a_library_filename_resolves_to_its_padded_number(filename, expected):
 
 
 @pytest.mark.parametrize("filename", [
-    "P-1000001-2003-SP-0810-0003_00.pdf",     # a submittal, not a standard
-    "Engineering Deliverables.pdf",
+    "P-1000001-9900-SP-9910-0003_00.pdf",     # a submittal, not a standard
+    "Deliverables Register.pdf",
     "notes about SAES-B-014.pdf",           # the number is not at the start
 ])
 def test_a_filename_that_is_not_a_standard_number_yields_nothing(filename):

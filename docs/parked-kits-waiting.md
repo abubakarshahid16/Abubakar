@@ -7,7 +7,7 @@ Rule 4: no requirement is invented. A kit item cites the held clause that REQUIR
 |---|---|---|---|
 | Drawing | #1484 | SAES-A-202 (794 stored requirements; title block, revision block, scale, tags, drawing numbers) | Built, DRAFT: `reference/kind_kits/drawing.json`, 7 held items, 7 DRAFT items, behind `PARKED_KITS_DRAFT_ENABLED` (off) |
 | Transmittal | #1482 | None. The only hits for "transmittal" are SAES-X-400 and SAES-X-700 (a QA checklist attached to the cover letter or transmittal sheet of a cathodic-protection or well-casing design package), and SAES-L-105, SAES-W-011, SAES-W-013 and SAES-M-100 (a passing word). No held clause says what a transmittal must contain. | Not built |
-| Contract | #1483 | None. The held Schedule G files (14, 14a to 14i) are contract forms with 0 stored requirements; no held standard requires content of a contract or schedule. | Not built |
+| Contract | #1483 | None. The held contract schedule files are contract forms with 0 stored requirements; no held standard requires content of a contract or schedule. | Not built |
 
 ## What a real transmittal kit needs
 
@@ -17,7 +17,7 @@ Rule 4: no requirement is invented. A kit item cites the held clause that REQUIR
 
 ## What a real contract kit needs
 
-- 3 to 5 real contracts or schedules (for example Schedule G and its attachments in full) with the engineer's note of what is checked.
+- 3 to 5 real contracts or schedules (for example one schedule and its attachments in full) with the engineer's note of what is checked.
 - The list of required clauses per schedule, from the owner's contract-review checklist (not from the schedule itself, which says what the contractor does, not what a contract must contain).
 - The KJO standards the contract is compared with, already held, and the deliverables register for "deliverables against transmittals".
 
