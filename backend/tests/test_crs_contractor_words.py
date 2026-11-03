@@ -114,7 +114,7 @@ def test_a_comment_that_is_all_engineer_wording_is_withheld_never_issued_as_an_i
 def test_no_cell_of_the_whole_contractor_copy_names_the_engineer(monkeypatch):
     monkeypatch.setattr(settings, "crs_contractor_no_engineer_words_enabled", True)
     rows = [
-        {**_row(), "comment_by": "Engineer", "page_section": "p.2 - engineer note"},
+        {**_row(), "comment_by": "Engineer", "page_section": "p.2 - Set pressure"},
         _row(comment="Engineer to confirm."),
         _row(comment="Clarification required from the Engineer."),
     ]
@@ -149,7 +149,7 @@ def _whole_issue_copy_text(rows, meta):
 def test_no_string_of_the_whole_issue_copy_names_the_engineer(monkeypatch):
     monkeypatch.setattr(settings, "crs_contractor_no_engineer_words_enabled", True)
     rows = [
-        {**_row(), "document_name": "Eng. note.pdf", "crs_ref": "Engineer-001"},
+        {**_row(), "crs_ref": "Engineer-001"},
         _row(
             comment="Please ask ENGINEERING reviewer. Eng. to confirm. Limit is 10 barg."
         ),
@@ -158,7 +158,7 @@ def test_no_string_of_the_whole_issue_copy_names_the_engineer(monkeypatch):
     meta = {
         "rulebook_v2_note": "Rulebook version 2. Not yet confirmed by an engineer.",
         "run_status_note": "Decided by the reviewing engineer.",
-        "project": "Invented job - Engineer to review",
+        "project": "Invented job",
     }
     seen = _whole_issue_copy_text(rows, meta)
     assert any("exceeds the limit" in s for s in seen)
@@ -169,3 +169,46 @@ def test_the_code_check_knows_the_abbreviation_and_the_engineering_reviewer():
     for text in ("Eng. to confirm", "ask ENGINEERING reviewer", "the engineer"):
         assert quality.engineer_words_in(text)
     assert not quality.engineer_words_in("Civil engineering standard 4.1")
+
+
+FILE = "Engineer note - invented plant long long long file name.pdf"
+
+
+def test_the_contractors_own_file_name_tag_and_title_are_left_verbatim(monkeypatch):
+    monkeypatch.setattr(settings, "crs_contractor_no_engineer_words_enabled", True)
+    rows = [
+        {**_row(), "document_name": "Engineer note.pdf"},
+        {**_row(comment="Limit 10 barg exceeded."), "document_name": FILE},
+        {**_row(comment="Another value is off."), "page_section": "p.3 - Eng. tag E-1"},
+    ]
+    cells = _issue_cells(rows)
+    for kept in ("Engineer note.pdf", FILE, "p.3 - Eng. tag E-1"):
+        assert kept in cells  # the file name is never "reviewer note.pdf", never empty
+    assert not any("reviewer note.pdf" in c for c in cells)
+    ours = [c for c in cells if quality.engineer_words_in(c)]
+    assert set(ours) <= {"Engineer note.pdf", FILE, "p.3 - Eng. tag E-1"}  # only theirs
+
+
+def test_the_internal_run_notes_count_the_cells_that_still_name_the_engineer(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "crs_contractor_no_engineer_words_enabled", True)
+    rows = [{**_row(), "document_name": "Engineer note.pdf"}]
+    meta = {"review_run_id": "run-1", "export_quality": True, "copy": "internal"}
+    view = crs_export.build_crs_view(rows, meta)
+    notes = [n for n in view["review_notes"] if n["note"] == quality.NOTE_LEFT]
+    assert len(notes) == 1 and notes[0]["count"] >= 1
+    assert "Engineer note.pdf" not in notes[0]["detail"]  # cell names, never the text
+    clean = crs_export.build_crs_view([_row()], meta)
+    assert quality.NOTE_LEFT not in [n["note"] for n in clean["review_notes"]]
+    issue = crs_export.build_crs_view(rows, {**meta, "copy": "issue"})
+    assert quality.NOTE_LEFT not in [n["note"] for n in issue["review_notes"]]
+
+
+def test_the_residual_forms_are_in_the_word_check():
+    for text in (
+        "Engr to confirm",
+        "engineering review needed",
+        "Engineering to confirm",
+    ):
+        assert quality.engineer_words_in(text)
