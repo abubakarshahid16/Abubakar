@@ -9,9 +9,11 @@ THE RULES (all must hold; the label gate protects against putting a value on the
   1. the role's data names the part (`part_names`); every part word of the field is a WHOLE word of the quote;
   2. the quote holds no OTHER role's part word (two parts in one quote never fill anything);
   3. for a "<part> material" field: the part word is the label of the cell, i.e. the quote opens with it (after a row
-     number or a bullet), and the value follows it directly; the value reads as a material (`material_words`, a grade
-     or standard word); an "impeller wear ring" row is another part and never fills "impeller material";
-  4. for a "<part> type" field: the value contains the part word and the quote ends with the value (a sentence stating it);
+     number or a bullet), and the value follows it directly; the value is MADE ONLY of recognised material tokens
+     (`material_value`): any other word (not, same, as, at, vendor, see, or ...) means no fill, and an alternative is
+     never one value; an "impeller wear ring" row is another part and never fills "impeller material";
+  4. for a "<part> type" field: the value is exactly one phrase of the closed list `seal_type_phrases`, it ends the
+     quote, and the quote holds no negation;
   5. stored facts (`with_roles`): a bare part-name fact fills only if its value reads as a material, it is not blank, and
      ONE distinct value exists for that part in the whole document; two values means no fill; a role that already
      has a fact under its own name is left alone.
@@ -45,16 +47,53 @@ def _all_part_words(rules: dict) -> set[str]:
     }
 
 
-def reads_as_material(value, rules: dict) -> bool:
-    """The value carries a material word, or a standard and grade ("ASTM A995 Gr. 5A")."""
-    vocabulary = {w.lower() for w in rules.get("material_words", [])}
-    words = _words(value)
-    if any(w in vocabulary for w in words):
-        return True
-    return bool(
-        re.search(r"\b(astm|asme|uns|din|iso|en)\b", str(value or ""), re.IGNORECASE)
-        and re.search(r"\d", str(value))
+_SEPARATORS = re.compile(r"[\s/,;()&+\-\.:]+")
+
+
+def _tokens(value) -> list[str]:
+    text = str(value or "").lower().replace("ni-resist", "niresist")
+    text = re.sub(r"\bs\.s\.?", "ss", text)
+    return [t for t in _SEPARATORS.split(text) if t]
+
+
+def _grade_like(token: str) -> bool:
+    """A grade or spec code: letters and digits together (a216, cf8m, 5a, s32760) or three to five digits (316, 4140)."""
+    has_digit, has_letter = (
+        any(c.isdigit() for c in token),
+        any(c.isalpha() for c in token),
     )
+    return (has_digit and has_letter) or (token.isdigit() and 3 <= len(token) <= 5)
+
+
+def material_value(value, rules: dict) -> bool:
+    """The value is MADE ONLY of recognised material tokens (names, modifiers, spec words, grade codes) and holds at
+    least one material name or grade code. Any other word (not, same, as, at, vendor, works, see, per, or, and, a
+    number alone ...) means it is not a material: prose, a negation, a cross-reference or an alternative never fills."""
+    nouns = {w.lower() for w in rules.get("material_nouns", [])}
+    others = {
+        w.lower()
+        for w in (
+            *rules.get("material_modifiers", []),
+            *rules.get("material_spec_words", []),
+        )
+    }
+    tokens = _tokens(value)
+    if not tokens:
+        return False
+    strong = False
+    for token in tokens:
+        if token in nouns or _grade_like(token):
+            strong = True
+        elif token not in others:
+            return False
+    return strong
+
+
+def seal_type_value(value, quote_words: list[str], rules: dict) -> bool:
+    """The value is exactly one phrase of the closed list of seal types, and the quote holds no negation."""
+    phrases = {" ".join(_words(p)) for p in rules.get("seal_type_phrases", [])}
+    negations = {w.lower() for w in rules.get("seal_negations", [])}
+    return " ".join(_words(value)) in phrases and not (negations & set(quote_words))
 
 
 def accepts(role: str, value: str, printed: str, rules: dict) -> bool:
@@ -71,7 +110,7 @@ def accepts(role: str, value: str, printed: str, rules: dict) -> bool:
         return False  # rule 2: another role's part is in the same quote
     value_words = _words(value)
     if kind == "material":
-        if not reads_as_material(value, rules):
+        if not material_value(value, rules):
             return False
         for part in parts:
             # rule 3: the quote opens with the part (a row number or bullet may come first) and the value follows it
@@ -83,12 +122,13 @@ def accepts(role: str, value: str, printed: str, rules: dict) -> bool:
             if opening and _words(opening.group(1)) == value_words:
                 return True
         return False
-    # kind == "type": a sentence that states it
+    # kind == "type": a sentence that states it, with a value from the closed list that ends the quote
     for part in parts:
         if (
             part in quote_words
             and part in value_words
             and quote_words[-len(value_words) :] == value_words
+            and seal_type_value(value, quote_words, rules)
         ):
             return True
     return False
@@ -112,7 +152,7 @@ def with_roles(facts: list[dict], rules: dict, wanted) -> list[dict]:
         if (
             name in named
             and not fact.get("is_blank")
-            and reads_as_material(fact.get("field_value"), rules)
+            and material_value(fact.get("field_value"), rules)
         ):
             bare.setdefault(named[name], []).append(fact)
     own = {" ".join(_words(f.get("field_name"))) for f in facts}

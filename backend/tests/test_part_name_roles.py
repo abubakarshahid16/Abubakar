@@ -199,3 +199,83 @@ def test_two_parts_in_one_quote_never_fill_a_sentence_either():
     quote = "SEALING FOR THE SHAFT SHALL BE A DOUBLE MECHANICAL SEAL"
     got = verify("seal_type", "DOUBLE MECHANICAL SEAL", quote, quote + "\n")
     assert got is form_reader.Reason.LABEL_NOT_IN_QUOTE
+
+
+# --- the reviewer's wrong-fill cases (the dangerous direction: a wrong fill turns MISSING into COMPLIANT) -------------
+
+PROSE = [
+    "CAST AT VENDOR WORKS",
+    "NOT CAST IRON",
+    "NI",
+    "SAME AS CAST IRON",
+    "A216 WCB OR CF8M",
+    "SEE NOTE 3",
+    "6.12.1.1",
+    "CAST",
+    "BY VENDOR",
+    "OPTIONAL BRONZE",
+]
+GOOD = [
+    "Cast iron ASTM A48",
+    "ASTM A216 WCB / A105N",
+    "316 SS",
+    "Bronze",
+    "Ni-Resist",
+    "Super Duplex S.S. ASTM A995 Gr. 5A/6A",
+    "Carbon steel AISI 4140",
+]
+
+
+@pytest.mark.parametrize("value", PROSE)
+def test_a_value_that_is_not_only_material_tokens_never_fills_through_the_gate(value):
+    quote = f"IMPELLER:   {value}"
+    assert verify("impeller_material", value, quote, quote + "\n") is not None
+    assert not part_name_roles.accepts("impeller_material", value, quote, RULES)
+
+
+@pytest.mark.parametrize("value", GOOD)
+def test_a_value_made_only_of_material_tokens_fills_through_the_gate(value):
+    quote = f"IMPELLER:   {value}"
+    assert verify("impeller_material", value, quote, quote + "\n") is None
+
+
+@pytest.mark.parametrize("value", PROSE)
+def test_a_value_that_is_not_only_material_tokens_never_fills_a_stored_fact(value):
+    assert names([fact("impeller", value)]) == ["impeller"]
+
+
+@pytest.mark.parametrize("value", GOOD)
+def test_a_value_made_only_of_material_tokens_fills_a_stored_fact(value):
+    assert names([fact("impeller", value)]) == ["impeller material"]
+
+
+@pytest.mark.parametrize(
+    "value, quote",
+    [
+        ("NO SEAL", "PUMP SHALL HAVE NO SEAL"),
+        ("SEAL", "SEAL"),
+        ("SEAL FLUSH PLAN 11", "SEAL FLUSH PLAN 11"),
+        ("NOT INCLUDED", "SEAL IS NOT INCLUDED"),
+        ("DOUBLE MECHANICAL SEAL", "NO DOUBLE MECHANICAL SEAL"),
+        ("DOUBLE MECHANICAL SEAL", "DOUBLE MECHANICAL SEAL IS OPTIONAL BY OTHERS"),
+        (
+            "MECHANICAL SEAL TO BE ADVISED",
+            "SEALING SHALL BE MECHANICAL SEAL TO BE ADVISED",
+        ),
+    ],
+)
+def test_a_seal_that_is_negated_or_not_a_listed_type_never_fills(value, quote):
+    assert verify("seal_type", value, quote, quote + "\n") is not None
+    assert not part_name_roles.accepts("seal_type", value, quote, RULES)
+
+
+@pytest.mark.parametrize(
+    "value", ["TANDEM MECHANICAL SEAL", "Single mechanical seal", "GLAND PACKING"]
+)
+def test_a_listed_seal_type_stated_in_a_sentence_fills(value):
+    quote = f"SEALING SHALL BE A {value}"
+    if "packing" in value.lower():
+        quote = "SEALING SHALL BE A GLAND PACKING"
+    got = verify("seal_type", value, quote, quote + "\n")
+    # packing is not a "seal" word: only a listed phrase that holds the part word can fill
+    assert (got is None) == ("seal" in value.lower())
