@@ -52,6 +52,10 @@ def enabled() -> bool:
     return bool(settings.crs_one_row_per_problem_enabled)
 
 
+def _no_clause() -> bool:
+    return bool(settings.crs_one_row_ignore_clause_enabled)
+
+
 def _fold(text) -> str:
     return " ".join(str(text or "").lower().split())
 
@@ -163,10 +167,11 @@ def _identity(row: dict, by_id: dict[str, dict]):
     outcome = _outcome(members)
     if outcome is None:
         return None
+    pages = tuple(sorted({str(f.get("contractor_page") or "") for f in members}))
     return (
         str(row.get("document_name") or ""),
         row.get("row_kind"),
-        clause,
+        pages if _no_clause() else clause,
         verdict,
         value,
         _field(members[0]),
@@ -239,6 +244,9 @@ def _joined(group: list[dict], by_id: dict[str, dict]) -> dict:
             }
         ),
         "page_section": _unique((r.get("page_section") for r in group), "; "),
+        "standard_reference": _unique(
+            (r.get("standard_reference") for r in group), "; "
+        ),
         **words,
         "reasoning": _unique((r.get("reasoning") for r in group), "\n\n"),
         "rule_trust": _unique((r.get("rule_trust") for r in group), "; "),
