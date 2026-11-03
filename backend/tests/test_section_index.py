@@ -80,7 +80,7 @@ def h04(tmp_path, monkeypatch, on):
         "Annex B - Calibration of the method",
         "Appendix C: Data sheets",
         "Attachment 4 \u2013 Reporting template",
-        "Table A10.1: Quantitative targets",
+        "Table B7.2: Invented targets",
         "Table 3. Pump list",
         "Figure 2 - Flow of the method",
     ],
@@ -92,11 +92,11 @@ def test_headings_of_any_kind_are_recognised_by_class(line):
 @pytest.mark.parametrize(
     "line",
     [
-        "Table A10.1 is used to assess the hazard of the scenario",
+        "Table B7.2 is used to rate the invented scenario",
         "Table 4 shows the value",
         "ATTACHMENTS AND TEMPLATES",
         "The attachment ATT02 describes the nodes in detail and is part of the study basis.",
-        "1. Effectiveness - an IPL reduces the identified risk by at least a factor of ten.",
+        "1. Reliability - a guard reduces the invented loss by at least a factor of two.",
     ],
 )
 def test_prose_a_plain_heading_and_a_sentence_item_are_not_indexed_headings(line):
