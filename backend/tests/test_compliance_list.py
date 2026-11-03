@@ -62,19 +62,28 @@ def test_a_value_not_read_a_failure_or_a_person_decided_rule_is_never_listed(
     assert not cl.is_listed(held_pass(compliance_status="NON_COMPLIANT"))
 
 
-def test_a_safety_field_or_a_safety_tick_stays_a_row_never_listed(monkeypatch):
+def test_a_safety_field_leaves_the_crs_but_is_never_no_issue_and_keeps_its_open_tick(
+    monkeypatch,
+):
     on(monkeypatch)
-    assert cl.is_listed(held_pass())
-    assert not cl.is_listed(held_pass(tier="SAFETY"))
-    assert not cl.is_listed(held_pass(show_for_engineer_tick=True))
     tick = held_pass(
         compliance_status="COMPLIANT",
         rule_said=None,
         trust_label="TESTED_CARD",
         show_for_engineer_tick=True,
     )
-    assert not cl.is_listed(tick)
-    assert len(crs_mapping.crs_groups([held_pass(tier="SAFETY")])) == 1
+    plain = held_pass(contractor_section="Plain")
+    safe = held_pass(tier="SAFETY", contractor_section="Safe")
+    lines = cl.sheet_rows([plain, tick, safe])
+    assert len(lines) == 3
+    status = {line[1]: line[4] for line in lines}
+    assert status["Safe"] == cl.SAFETY_STATUS
+    assert status["Plain"] == cl.STATUS
+    assert [line[4] for line in lines].count("No issue found (draft rule)") == 1
+    assert [line[4] for line in lines[:2]] == [cl.SAFETY_STATUS] * 2  # grouped on top
+    assert "tick still open" in cl.SAFETY_STATUS
+    assert not cl.is_listed({**tick, "confirmed_by": "user-1"})  # a ticked one is a row
+    assert "2 safety fields" in cl.count_line(2, 3)
 
 
 def test_a_listed_finding_makes_no_crs_group_and_the_switch_off_keeps_it(monkeypatch):

@@ -21,6 +21,8 @@ COLUMNS = (
     "What the draft rule said",
 )
 STATUS = "No issue found (draft rule)"
+#: A safety field is never "no issue found": the engineer's tick stays open until a person ticks it.
+SAFETY_STATUS = "Safety field: engineer tick still open (draft rule)"
 UNPROVEN = "UNPROVEN"
 #: Labels of a rule a person approved or confirmed; a finding with one of these is never listed here.
 PERSON_LABELS = (
@@ -50,21 +52,30 @@ def is_listed(finding: dict) -> bool:
         return False
     if finding.get("trust_label") in PERSON_LABELS or not _value_given(finding):
         return False
-    if finding.get("tier") == "SAFETY" or finding.get("show_for_engineer_tick"):
-        return False  # a safety field is the engineer's tick: it stays a row
-    return (
+    held_pass = (
         finding.get("compliance_status") == _HELD
         and finding.get("rule_said") == _PASS
         and finding.get("trust_label") == UNPROVEN
+    )
+    unticked_pass = finding.get("compliance_status") == _PASS and bool(
+        finding.get("show_for_engineer_tick")
+    )
+    return held_pass or unticked_pass
+
+
+def is_safety(finding: dict) -> bool:
+    """A safety field or a safety tick: its status is the open tick, never "no issue found"."""
+    return finding.get("tier") == "SAFETY" or bool(
+        finding.get("show_for_engineer_tick")
     )
 
 
 def sheet_rows(findings: list[dict]) -> list[tuple]:
     """One line per listed finding: page, field, value read, standard and clause, status, the rule's words."""
     out = []
-    for f in findings:
-        if not is_listed(f):
-            continue
+    for f in sorted(
+        (f for f in findings if is_listed(f)), key=lambda f: not is_safety(f)
+    ):
         where = " ".join(
             x for x in (f.get("standard_name"), f.get("standard_clause")) if x
         )
@@ -74,7 +85,7 @@ def sheet_rows(findings: list[dict]) -> list[tuple]:
                 f.get("contractor_section") or "",
                 str(f.get("contractor_evidence_text") or ""),
                 where,
-                STATUS,
+                SAFETY_STATUS if is_safety(f) else STATUS,
                 str(f.get("finding") or ""),
             )
         )
@@ -101,6 +112,13 @@ def for_run(run_id: str | None) -> list[tuple]:
     return sheet_rows(found)
 
 
+def count_line(open_ticks: int, total: int) -> str:
+    return (
+        f"{open_ticks} safety fields with the engineer tick still open (listed first); "
+        f"{total - open_ticks} other values with no issue found by a draft rule."
+    )
+
+
 def write_sheet(wb, run_id: str | None, write) -> None:
     """The internal-only sheet; no sheet at all when nothing is listed or the switch is off."""
     lines = for_run(run_id)
@@ -109,9 +127,11 @@ def write_sheet(wb, run_id: str | None, write) -> None:
     from openpyxl.styles import Alignment, Font
 
     sheet = wb.create_sheet(SHEET)
+    open_ticks = sum(1 for line in lines if line[4] == SAFETY_STATUS)
+    write(sheet, 1, 1, count_line(open_ticks, len(lines))).font = Font(bold=True)
     for col, header in enumerate(COLUMNS, start=1):
-        write(sheet, 1, col, header).font = Font(bold=True)
-    for r, line in enumerate(lines, start=2):
+        write(sheet, 2, col, header).font = Font(bold=True)
+    for r, line in enumerate(lines, start=3):
         for col, value in enumerate(line, start=1):
             write(sheet, r, col, value).alignment = Alignment(
                 wrap_text=True, vertical="top"
