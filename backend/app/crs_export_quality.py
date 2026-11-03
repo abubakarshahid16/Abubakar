@@ -665,3 +665,21 @@ def write_internal_sheet(wb, inner: dict, write) -> None:
             write(sheet, r, col, entry[key]).alignment = wrap
     for col, width in zip("ABCD", (30, 22, 70, 70), strict=True):
         sheet.column_dimensions[col].width = width
+
+
+#: Item 14 (owner order 3 Nov, CRS_RULES_NOTE_ENABLED): the ONE note at the top of the CRS, both copies. A draft
+#: row is never labelled one by one; a row marked with a tick uses an approved rule.
+RULES_NOTE = (
+    "Rules used in this review are drafts built from the standards and checked by code; "
+    "rows marked ✔ use an approved rule. An engineer must confirm this CRS."
+)
+
+
+def with_rules_note(run_status_note) -> str:
+    """Row 1's note: the run status as it was, then the one rules note when the switch is on."""
+    from .config import settings
+
+    said = str(run_status_note or "")
+    if not settings.crs_rules_note_enabled:
+        return said
+    return f"{said}\n{RULES_NOTE}" if said else RULES_NOTE

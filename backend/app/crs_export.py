@@ -150,18 +150,6 @@ TRUST_COLUMN_WIDTH = 28.0
 #: The two copies Export CRS offers. INTERNAL (the default) carries the AI
 #: column; ISSUE (to the contractor) drops it and every unconfirmed AI row,
 #: so only confirmed comments leave the building.
-#: Item 14 (owner order 3 Nov): the one note at the top of the CRS. It says what the rules are; a row marked as
-#: approved is a separate mark on that row, and a draft row is never labelled one by one.
-def _rules_note_on() -> bool:
-    from .config import settings
-
-    return bool(settings.crs_rules_note_enabled)
-
-
-RULES_NOTE = (
-    "Rules used in this review are drafts built from the standards and checked by code; "
-    "rows marked \u2714 use an approved rule. An engineer must confirm this CRS."
-)
 COPY_INTERNAL = "internal"
 COPY_ISSUE = "issue"
 COPIES = (COPY_INTERNAL, COPY_ISSUE)
@@ -506,9 +494,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
         "title": "\n ".join(p for p in (company, project) if p).rstrip(),
         # #633 item 7: "REVIEW INCOMPLETE: run <status> - ..." on row 1; "" for a completed run.
-        "run_status_note": str(meta.get("run_status_note") or ""),
-        # Item 14: the one note at the top, both copies; "" with the switch off.
-        "rules_note": RULES_NOTE if _rules_note_on() else "",
+        "run_status_note": quality.with_rules_note(meta.get("run_status_note")),
         "subtitle": SUBTITLE,
         # A missing value renders as NOTHING, never as "None": a CRS carrying
         # a plausible-looking transmittal number lies about its own provenance.
@@ -658,8 +644,8 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
 
     # Header block, rows 1-7, merges as measured from the template.
     ws.merge_cells("A1:G1")  # #633 item 7: an incomplete run is said on row 1, above the company
-    put(1, 1, "\n".join(p for p in (view["run_status_note"], view["title"], view.get("rules_note")) if p), bold=True, size=12, center=True, wrap=True)
-    ws.row_dimensions[1].height = (75 if view["run_status_note"] else 30) + (45 if view.get("rules_note") else 0)
+    put(1, 1, "\n".join(p for p in (view["run_status_note"], view["title"]) if p), bold=True, size=12, center=True, wrap=True)
+    ws.row_dimensions[1].height = 75 if view["run_status_note"] else 30
     ws.merge_cells("A2:G2")
     put(2, 1, view["subtitle"], bold=True, size=12, center=True)
     for offset, field in enumerate(view["header"]):
