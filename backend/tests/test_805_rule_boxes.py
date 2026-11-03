@@ -18,7 +18,13 @@ from tests.test_1584_standards_compiler import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import rule_boxes as cli
-from rule_box_tools import rule_box_check, rule_box_fields, rule_box_run, rule_box_scope
+from rule_box_tools import (
+    rule_box_check,
+    rule_box_fields,
+    rule_box_judge,
+    rule_box_run,
+    rule_box_scope,
+)
 from rule_box_tools import rule_box_labels as rule_boxes
 
 DOC, LABEL = "std-box", "SAES-Z-910"
@@ -1209,3 +1215,139 @@ def test_only_a_same_quantity_requirement_on_the_equipment_advances_after_the_fr
         ]
         == 0
     )
+
+
+# ------------------------------------------------------------------------------------------ step 8: the judge
+PAGE_TEXT = {
+    1: "Invented datasheet. The set pressure is 12 bar and the body is cast iron with a painted finish."
+}
+
+
+def _rec(
+    i,
+    verdict,
+    page=1,
+    quote="The set pressure is 12 bar and the body is cast iron",
+    scope=None,
+):
+    return {
+        "i": i,
+        "verdict": verdict,
+        "scope_applies": scope,
+        "page": page,
+        "quote": quote,
+        "reason": "r",
+    }
+
+
+def test_a_record_stands_only_when_its_quote_is_on_the_cited_page():
+    ok = rule_box_judge.verified(_rec(1, "fail"), 1, PAGE_TEXT, False)
+    assert ok["evidence_ok"] and ok["page"] == 1
+    for bad in (
+        _rec(1, "fail", quote="The set pressure is 99 bar and nothing else"),
+        _rec(1, "fail", page=2),
+    ):
+        got = rule_box_judge.verified(bad, 1, PAGE_TEXT, False)
+        assert got["evidence_ok"] is False and got["quote"] is None
+    assert rule_box_judge.verified(_rec(2, "fail"), 1, PAGE_TEXT, False) is None
+    assert rule_box_judge.verified(_rec(1, "maybe"), 1, PAGE_TEXT, False) is None
+    assert (
+        rule_box_judge.verified(_rec(1, "fail", scope="perhaps"), 1, PAGE_TEXT, True)
+        is None
+    )
+
+
+def test_two_readings_must_agree_and_carry_verified_evidence_or_the_rule_goes_to_the_engineer():
+    fail = rule_box_judge.verified(_rec(1, "fail"), 1, PAGE_TEXT, False)
+    other = rule_box_judge.verified(_rec(1, "query"), 1, PAGE_TEXT, False)
+    nowhere = rule_box_judge.verified(
+        _rec(1, "fail", quote="not on any page at all here"), 1, PAGE_TEXT, False
+    )
+    assert rule_box_judge.combine(fail, fail, False)[0] == "Fail"
+    assert rule_box_judge.combine(fail, other, False)[0] == "needs engineer"
+    assert rule_box_judge.combine(fail, nowhere, False)[0] == "needs engineer"
+    assert rule_box_judge.combine(fail, None, False)[0] == "needs engineer"
+    passing = rule_box_judge.verified(_rec(1, "pass"), 1, PAGE_TEXT, False)
+    assert rule_box_judge.combine(passing, passing, False)[0] == "Pass"
+    unproved = rule_box_judge.verified(
+        _rec(1, "pass", quote="invented words not present"), 1, PAGE_TEXT, False
+    )
+    assert rule_box_judge.combine(unproved, unproved, False)[0] == "needs engineer"
+
+
+def test_a_scoped_rule_needs_both_readings_to_say_the_scope_applies():
+    yes = rule_box_judge.verified(_rec(1, "fail", scope="yes"), 1, PAGE_TEXT, True)
+    no = rule_box_judge.verified(_rec(1, "fail", scope="no"), 1, PAGE_TEXT, True)
+    unsure = rule_box_judge.verified(
+        _rec(1, "fail", scope="unsure"), 1, PAGE_TEXT, True
+    )
+    assert rule_box_judge.combine(yes, yes, True)[0] == "Fail"
+    assert rule_box_judge.combine(no, no, True)[0] == "not applicable"
+    assert rule_box_judge.combine(yes, no, True)[0] == "needs engineer"
+    assert rule_box_judge.combine(unsure, unsure, True)[0] == "needs engineer"
+
+
+def test_the_judge_asks_each_rule_twice_independently_and_writes_labelled_rows(rules):
+    with rules:
+        rules.execute("DROP TABLE IF EXISTS rule_box_labels")
+    rule_boxes.ensure_schema(rules)
+    rule_box_check.ensure_schema(rules)
+    rule_box_judge.ensure_schema(rules)
+    _document("sub-1", "SUB-1", pages=(PAGE_TEXT[1],))
+    with rules:
+        for rid, status in (
+            ("r3", "stored by kind"),
+            ("r1", "scoped: judge at review time"),
+        ):
+            rules.execute(
+                f"INSERT INTO {rule_boxes.TABLE} VALUES (?,?,?,?,NULL,'h','v','t',NULL)",
+                (rid, "datasheet", "general", "b"),
+            )
+            rules.execute(
+                f"INSERT INTO {rule_box_check.CHECKS} (rule_id, status, scope_text, created_at) VALUES (?,?,?,'t')",
+                (rid, status, "for jacketed vessels" if rid == "r1" else None),
+            )
+    rows = rule_box_judge.relevant_rules(rules, "sub-1")
+    assert {r["id"] for r in rows} == {"r1", "r3"}
+    jobs, members = rule_box_judge.build_jobs(
+        "sub-1", rows, {DOC: LABEL}, rule_box_judge.pages_of(rules, "sub-1")
+    )
+    assert (
+        len(jobs) == 2
+        and jobs[0].prompt != jobs[1].prompt
+        and "independent second reading" in jobs[1].prompt
+    )
+    assert "for jacketed vessels" in jobs[0].prompt
+
+    def reply(prompt):
+        out = []
+        for n in range(1, 3):
+            line = next(x for x in prompt.splitlines() if x.startswith(f"{n}. ["))
+            scoped = (
+                "SCOPE OF THIS RULE" in prompt.split(line)[1].splitlines()[1]
+                if "SCOPE OF THIS RULE" in prompt
+                else False
+            )
+            out.append(_rec(n, "fail", scope="yes" if scoped else None))
+        return json.dumps(out)
+
+    apply = rule_box_judge.make_storer(
+        rules, "sub-1", rule_box_judge.pages_of(rules, "sub-1"), "m", members
+    )
+    report = rule_box_run.run(
+        jobs,
+        model="claude-sonnet-5-5",
+        step_prefix="j",
+        version="v",
+        apply=apply,
+        send=Fake(reply),
+    )
+    apply.flush()
+    assert report["asked"] == 2
+    got = rules.execute(
+        f"SELECT status, label, page FROM {rule_box_judge.JUDGED} ORDER BY rule_id"
+    ).fetchall()
+    assert [tuple(g) for g in got] == [
+        ("Fail", "AI judgement, engineer to confirm", 1)
+    ] * 2
+    assert rule_box_judge.relevant_rules(rules, "sub-1") == []

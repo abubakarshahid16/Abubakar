@@ -33,6 +33,7 @@ from rehearse_requirement_reextraction import refuse_live  # noqa: E402
 from rule_box_tools import (  # noqa: E402
     rule_box_check,
     rule_box_fields,
+    rule_box_judge,
     rule_box_run,
     rule_box_scope,
 )
@@ -49,7 +50,14 @@ from app.config import settings  # noqa: E402
 
 ENGINE_ENV = "RULE_BOXES_ENGINE"
 #: Typical answer sizes in tokens, for the ESTIMATE line only (the worst case does not use them).
-TYPICAL_OUT = {"label": 45, "check": 450, "second": 70, "fields": 1200, "identity": 40}
+TYPICAL_OUT = {
+    "label": 45,
+    "check": 450,
+    "second": 70,
+    "fields": 1200,
+    "identity": 40,
+    "judge": 1000,
+}
 
 
 def lane_refusal() -> str | None:
@@ -345,15 +353,92 @@ def run_step(
     return 0 if result["status"] in (rule_box_run.DONE, rule_box_run.NOTHING) else 5
 
 
+def run_judge(conn, args, emit) -> int:
+    if not args.document:
+        raise SystemExit("--document <submittal id> is needed for the judge step")
+    rule_box_judge.ensure_schema(conn)
+    model = args.model or rule_box_check.check_model()
+    labels = rule_boxes.standard_labels(conn)
+    pages = rule_box_judge.pages_of(conn, args.document)
+    if not pages:
+        raise SystemExit("that document has no pages in this database")
+    gate = make_gate(conn)
+    rows = [
+        r
+        for r in rule_box_judge.relevant_rules(conn, args.document)
+        if gate(r["standard_document_id"], labels.get(r["standard_document_id"], ""))
+        is None
+    ]
+    members: dict = {}
+    jobs, built = rule_box_judge.build_jobs(args.document, rows, labels, pages)
+    members.update(built)
+    extra = {
+        "document_pages": len(pages),
+        "rules_to_judge": len(rows),
+        "of_which_scoped": sum(
+            1 for r in rows if r["status"] != rule_box_check.BY_KIND
+        ),
+        "calls_per_rule": 2,
+    }
+    report = dry_report("judge", model, jobs, extra)
+    if not args.send:
+        emit(json.dumps(report, sort_keys=True))
+        return 0
+    refused = lane_refusal()
+    if refused:
+        emit(
+            json.dumps(
+                {**report, "status": "refused", "why": refused, "sent": 0},
+                sort_keys=True,
+            )
+        )
+        return 3
+    apply = rule_box_judge.make_storer(conn, args.document, pages, model, members)
+    docs = frozenset().union(*(j.docs for j in jobs)) if jobs else frozenset()
+    with claude_approved.carrying(docs):
+        result = rule_box_run.run(
+            jobs,
+            model=model,
+            step_prefix="rule_box_judge",
+            version=rule_box_judge.JUDGE_VERSION,
+            apply=apply,
+        )
+    apply.flush()
+    if args.export_crs:
+        result["rows_exported"] = rule_box_judge.export_crs(
+            conn, args.document, args.export_crs
+        )
+    emit(json.dumps({**report, **result, **apply.tally}, sort_keys=True))
+    return 0 if result["status"] in (rule_box_run.DONE, rule_box_run.NOTHING) else 5
+
+
 def main(argv: list[str] | None = None, *, emit=print) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument(
         "step",
-        choices=("label", "fields", "check", "second", "identity", "scope", "status"),
+        choices=(
+            "label",
+            "fields",
+            "check",
+            "second",
+            "identity",
+            "scope",
+            "judge",
+            "status",
+        ),
     )
     ap.add_argument("--db", type=Path, required=True)
     ap.add_argument("--send", action="store_true", help="ask Claude; this spends")
     ap.add_argument("--model", default=None)
+    ap.add_argument(
+        "--document", default=None, help="judge step: the submittal's document id"
+    )
+    ap.add_argument(
+        "--export-crs",
+        type=Path,
+        default=None,
+        help="judge step: write the judged rows as a CRS workbook",
+    )
     ap.add_argument(
         "--only",
         choices=("fixed", "ai"),
@@ -380,6 +465,8 @@ def main(argv: list[str] | None = None, *, emit=print) -> int:
     settings.db_path = refuse_live(args.db)
     reset_connection()
     conn = connect()
+    if args.step == "judge":
+        return run_judge(conn, args, emit)
     if args.step == "scope":
         rule_boxes.ensure_schema(conn)
         rule_box_check.ensure_schema(conn)
