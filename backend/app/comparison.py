@@ -2542,7 +2542,7 @@ def _run_comparison(
     if settings.geometry_reader_enabled or settings.field_naming_enabled:
         from . import field_vocabulary
         field_names = field_vocabulary.names_for(requirements, facts, stored)
-    for requirement in job_progress.counting(requirements):  # display only: yields every requirement unchanged
+    for requirement in job_progress.counting(requirements):
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
         # matched 0 of 77; containment matched the pairs an engineer picked.
