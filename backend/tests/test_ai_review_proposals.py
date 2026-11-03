@@ -735,7 +735,7 @@ def _styles(word: str) -> dict[str, str]:
         "math monospace": shift(0x1D68A),
         "circled": shift(0x24D0),
         "fullwidth": shift(0xFF41),
-        "long s": word.replace("s", "ſ"),
+        "long s": word.replace("s", chr(0x17F)),
         "superscript letters": "".join(_SUPER.get(c, c) for c in word),
         "small capitals": "".join(_SMALLCAP.get(c, c) for c in word),
     }
@@ -785,4 +785,4 @@ def test_the_compatibility_fold_is_not_the_number_normaliser():
     assert (
         numparse.normalise_text("\U0001d41c\U0001d428") != "co"
     )  # the number normaliser leaves these letters alone
-    assert numparse.fold_compat("９９") == "99"
+    assert numparse.fold_compat(chr(0xFF19) * 2) == "99"

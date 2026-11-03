@@ -135,40 +135,35 @@ def normalise_text(text: str) -> str:
     return text.translate(_CHARACTER_TABLE)
 
 
-_LOOKALIKE = str.maketrans(
-    {chr(c): v for c, v in (
-        (0x0430, "a"), (0x0441, "c"), (0x0435, "e"), (0x043E, "o"), (0x0440, "p"), (0x0445, "x"), (0x0443, "y"),
-        (0x0456, "i"), (0x0458, "j"), (0x0455, "s"), (0x043A, "k"), (0x043C, "m"), (0x0442, "t"), (0x043D, "h"),
-        (0x0432, "b"), (0x0501, "d"), (0x04CF, "l"),
-        (0x03B1, "a"), (0x03BF, "o"), (0x03B5, "e"), (0x03BD, "v"), (0x03B9, "i"), (0x03C1, "p"), (0x03C4, "t"),
-        (0x03BA, "k"), (0x03BC, "m"), (0x03C7, "x"), (0x03C5, "u"), (0x03B2, "b"), (0x03B7, "n"), (0x03C9, "w"),
-        (0x0578, "n"), (0x057D, "u"), (0x0585, "o"), (0x0581, "g"), (0x0570, "h"), (0x0563, "q"), (0x0566, "q"),
-        # small capitals (NFKC leaves them alone)
-        (0x1D00, "a"), (0x0299, "b"), (0x1D04, "c"), (0x1D05, "d"), (0x1D07, "e"), (0xA730, "f"), (0x0262, "g"),
-        (0x029C, "h"), (0x026A, "i"), (0x1D0A, "j"), (0x1D0B, "k"), (0x029F, "l"), (0x1D0D, "m"), (0x0274, "n"),
-        (0x1D0F, "o"), (0x1D18, "p"), (0x0280, "r"), (0xA731, "s"), (0x1D1B, "t"), (0x1D1C, "u"), (0x1D20, "v"),
-        (0x1D21, "w"), (0x028F, "y"), (0x1D22, "z"),
-    )}
-)  # Cyrillic, Greek and Armenian letters that look like Latin ones, by code point
-_INVISIBLE = {"\u115f", "\u1160", "\u3164", "\uffa0", "\u180e", "\u2800"}
+# Letters that look like Latin ones, by code point: Cyrillic, Greek, Armenian, small capitals.
+_LOOKALIKE_CODES = (
+    "0430 0441 0435 043E 0440 0445 0443 0456 0458 0455 043A 043C 0442 043D "
+    "0432 0501 04CF 03B1 03BF 03B5 03BD 03B9 03C1 03C4 03BA 03BC 03C7 03C5 "
+    "03B2 03B7 03C9 0578 057D 0585 0581 0570 0563 0566 1D00 0299 1D04 1D05 "
+    "1D07 A730 0262 029C 026A 1D0A 1D0B 029F 1D0D 0274 1D0F 1D18 0280 A731 "
+    "1D1B 1D1C 1D20 1D21 028F 1D22"
+)
+_LOOKALIKE_LETTERS = "aceopxyijskmthbdlaoeviptkmxubnwnuoghqqabcdefghijklmnoprstuvwyz"
+_LOOKALIKE = {
+    chr(int(h, 16)): v
+    for h, v in zip(_LOOKALIKE_CODES.split(), _LOOKALIKE_LETTERS, strict=True)
+}
+_INVISIBLE = {chr(c) for c in (0x115F, 0x1160, 0x3164, 0xFFA0, 0x180E, 0x2800)}
 
 
 def fold_compat(text: object, *, lower: bool = True) -> str:
-    """The COMPATIBILITY fold for reading WORDS (the verdict-word and number-word filters), not numbers: NFKC (math bold and
-    sans letters, circled letters, long s, modifier-letter superscripts, fullwidth forms and ligatures become plain letters),
-    invisible, format and combining characters dropped, Cyrillic/Greek/Armenian look-alikes mapped to Latin, lower case.
-    `normalise_text` is NOT this: it keeps NFKC's superscript trap out of numbers (it is NFC plus an explicit map)."""
+    """The compatibility fold for reading WORDS, not numbers: full NFKC (styled letters, circled, long s, superscript
+    letters, fullwidth, ligatures), invisible and combining characters dropped, look-alikes mapped to Latin, lower case.
+    `normalise_text` is not this: it is NFC plus an explicit map, to keep NFKC's superscript trap out of numbers."""
     folded = unicodedata.normalize("NFKC", str(text or ""))
-    kept = "".join(
+    dropped = ("Cf", "Mn", "Me", "Cc")
+    plain = "".join(
         c
         for c in folded
         if c in "\t\n "
-        or (unicodedata.category(c) not in ("Cf", "Mn", "Me", "Cc") and c not in _INVISIBLE)
+        or (unicodedata.category(c) not in dropped and c not in _INVISIBLE)
     )
-    plain = kept
-    if lower:
-        plain = plain.lower()
-    return plain.translate(_LOOKALIKE)
+    return (plain.lower() if lower else plain).translate(str.maketrans(_LOOKALIKE))
 
 
 # --------------------------------------------------------------------- numbers
