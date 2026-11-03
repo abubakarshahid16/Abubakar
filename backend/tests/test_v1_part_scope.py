@@ -82,3 +82,24 @@ def test_the_review_gate_calls_it_and_the_ledger_knows_the_reason(monkeypatch):
     )
     assert "r-out" not in [r["id"] for r in kept]
     assert v1_part_scope.CODE in scope_ledger.REASONS
+
+
+def test_the_gate_reuses_the_threads_connection_and_never_closes_it(monkeypatch):
+    """`db.connect()` hands back the thread's one shared connection, so it is not opened here and must not be closed
+    here: closing it would break every later query on the thread."""
+    setup(monkeypatch)
+    opened = []
+
+    class Shared:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    shared = Shared()
+    monkeypatch.setattr(v1_part_scope, "connect", lambda: opened.append(1) or shared)
+    v1_part_scope.gate(REQS, "Pressure Vessel", [])
+    assert opened == [1] and shared.closed is False
+    from app import db
+
+    assert db.connect() is db.connect()  # the same shared object every call
