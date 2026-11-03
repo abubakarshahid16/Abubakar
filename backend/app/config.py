@@ -1246,6 +1246,10 @@ class Settings(SettingsExt, BaseSettings):
     #: `progress_detail`. Env: REVIEW_PROGRESS_BAR_ENABLED.
     review_progress_bar_enabled: bool = True
     review_progress_stall_amber_s: int = 120  # env REVIEW_PROGRESS_STALL_AMBER_S
+    #: Owner order 3 Nov 2026: a requirement pairs with a datasheet field only when its SUBJECT is the same quantity
+    #: (`subject_pairing`); a requirement with no subject stays unpaired, an engineer's question. Off by default.
+    #: Env: PAIRING_SUBJECT_GATE_ENABLED.
+    pairing_subject_gate_enabled: bool = False
     #: Seconds one LOCAL-model call of the AI engineering check may take before
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
