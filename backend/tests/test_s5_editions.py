@@ -181,7 +181,6 @@ def test_a_finding_keeps_its_edition_and_the_standard_reference_prints_it(
     monkeypatch.setattr(settings, "db_path", tmp_path / "copy.sqlite")
     db.reset_connection()
     db.init_db()
-    from app import review
 
     ref = crs_mapping._standard_reference(
         {
