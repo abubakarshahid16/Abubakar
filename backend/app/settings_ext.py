@@ -342,6 +342,10 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner 3 Nov 13:50: a Part or Appendix scope clause that puts a rule outside this equipment also leaves
+    #: out the rulebook VERSION 1 requirement (`v1_part_scope`), counted in the run's not-applied list. Narrows
+    #: only; unknown scope stays in. OFF: as it was. Env: V1_PART_SCOPE_ENABLED.
+    v1_part_scope_enabled: bool = False
     #: #1608 (plan change 6 G): at the end of each comparison the run stores its rulebook (version used, rules applied,
     #: fingerprint) and the ticks imported; the internal CRS gets a "Run record" sheet with those, the run's models and
     #: the could-not-check list, which says so when empty (`run_record`). OFF: nothing stored, no sheet.
