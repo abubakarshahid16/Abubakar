@@ -295,7 +295,7 @@ def pin(review_run_id: str, submittal_id: str, allowed: frozenset[str]) -> bool:
             review_run_id=review_run_id,
             standard_document_id=found["id"],
             method=applicability.METHOD_MANUAL,
-            reason="marked by an administrator as this submittal's project specification; compared before the standards",
+            reason="marked by an administrator as this submittal's project specification",
         )
         _record(
             review_run_id,

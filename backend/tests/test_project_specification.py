@@ -111,6 +111,8 @@ def test_a_marked_specification_with_requirements_is_reported_and_pinned_to_the_
         row["selection_method"] == "manual"
         and row["included"] == 1
         and "administrator" in row["selection_reason"]
+        and "before"
+        not in row["selection_reason"]  # nothing enforces an order, so none is claimed
     )
     notes = export_status.equipment_notes(world["sub"], run_id, world["scope"])
     assert any("Project specification used" in n["detail"] for n in notes)
