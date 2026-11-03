@@ -205,13 +205,27 @@ def test_a_reword_goes_through_the_comment_lock():
     good = "Engineer to check MAWP: tags P-101A and P-101B state 14 barg and 16 barg; please confirm."
     assert arp.verify(
         prop(
-            type="reword", row_key="k-rev", text=good, page=1, clause=None, value=None
+            type="reword",
+            row_key="k-rev",
+            text=good,
+            page=1,
+            clause=None,
+            value=None,
+            reason="Clearer wording for the engineer.",
         ),
         CTX,
     ).accepted
     bad = good.replace("16 barg", "18 barg")
     assert reason_of(
-        prop(type="reword", row_key="k-rev", text=bad, page=1, clause=None, value=None)
+        prop(
+            type="reword",
+            row_key="k-rev",
+            text=bad,
+            page=1,
+            clause=None,
+            value=None,
+            reason="Clearer wording for the engineer.",
+        )
     ).startswith(arp.Reason.REWORD_REFUSED.value)
 
 
@@ -533,3 +547,43 @@ def test_a_flag_quote_with_a_verdict_word_is_refused(quote):
     ctx = arp.Context(pages=pages, rows=CTX.rows, held=CTX.held)
     flag = _flag(evidence=[{"page": 1, "quote": f"Tag P-101B  {quote}"}])
     assert reason_of(flag, ctx) == arp.Reason.PASS_FAIL_WORD.value
+
+
+SPELLINGS_OF_A_NUMBER = [
+    "n i n e", "n-i-n-e", "n.i.n.e", "n_i_n_e", "nin ety", "eig ht", "nine ty", "ninety nine", "one hundred",
+    "n\u0561ne",  # Armenian letter
+    "ni\u200bne", "\uff19\uff19", "\u0669\u0669", "XCIX", "14", "t w e l v e", "do zen",
+]  # fmt: skip
+SPELLINGS_OF_A_VERDICT = [
+    "complies", "compl\u200biant", "c\u043emplies", "c o m p l i e s", "c-o-m-p-l-i-e-s", "verified", "confirmed",
+    "satisfactory", "matches", "\u2713", "\u2705", "approved", "in-line", "in line", "OK", "okay", "good", "valid",
+    "safe", "suitable", "agreed", "correct", "acceptable", "fulfils", "conformant", "complying", "p.a.s.s",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("figure", SPELLINGS_OF_A_NUMBER)
+def test_a_reword_reason_holds_no_figure_however_it_is_spelled(figure):
+    got = reason_of(_reword(reason=f"The limit is {figure} for it."))
+    assert got == arp.Reason.NUMBER_NOT_VERIFIED.value
+
+
+@pytest.mark.parametrize("word", SPELLINGS_OF_A_VERDICT)
+def test_a_reword_reason_holds_no_verdict_however_it_is_spelled(word):
+    got = reason_of(_reword(reason=f"Overall the wording is {word} here."))
+    assert got in {
+        arp.Reason.NUMBER_NOT_VERIFIED.value,
+        arp.Reason.PASS_FAIL_WORD.value,
+    }
+
+
+@pytest.mark.parametrize("word", SPELLINGS_OF_A_VERDICT)
+def test_a_flag_quote_holds_no_verdict_however_it_is_spelled(word):
+    quote = f"Tag P-101B  MAWP 16 barg  Status {word}"
+    ctx = arp.Context(pages={1: quote}, rows=CTX.rows, held=CTX.held)
+    flag = _flag(evidence=[{"page": 1, "quote": quote}])
+    assert reason_of(flag, ctx) == arp.Reason.PASS_FAIL_WORD.value
+
+
+def test_a_plain_ascii_quote_is_still_flagged():
+    quote = "Tag P-101B  Design pressure 12 barg  MAWP 16 barg"
+    assert arp.verify(_flag(evidence=[{"page": 1, "quote": quote}]), CTX).accepted
