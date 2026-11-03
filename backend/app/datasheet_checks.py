@@ -235,7 +235,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
     by_tag: dict[str | None, dict[str, list[dict]]] = {}
     qualified: dict[str | None, dict[str, list[dict]]] = {}  # #898: under a qualifier
     wanted = datasheet_roles.wanted_roles(equipment_type, rules)
-    for fact in facts:
+    for fact in datasheet_roles.with_roles(facts, rules, wanted):
         role = role_of(fact.get("field_name") or "", rules, wanted)
         if role:
             by_tag.setdefault(fact.get("equipment_tag"), {}).setdefault(role, []).append(fact)

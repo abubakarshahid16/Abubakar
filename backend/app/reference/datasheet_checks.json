@@ -1,5 +1,9 @@
 {
   "_about": "Owner order 2c: datasheet self-checks (kind B). Rules as data, each with an id and plain-English text. Pure arithmetic on the datasheet's own values - no standard, no model. Edit here, not in code; datasheet_checks.py reads this file.",
+  "_part_names": "A materials list prints the PART alone (IMPELLER: <material>). part_names lists the words a role's part is printed as; the form reader and the stored-facts check accept the bare part only when ALL the rules in part_name_roles hold. material_words: the words a value must carry to read as a material.",
+  "material_names": ["bronze", "brass", "aluminium", "aluminum", "copper", "nickel", "titanium", "inconel", "monel", "hastelloy", "stellite", "ni-resist", "niresist", "wcb", "wcc", "lcc", "cf8m", "cf8", "cf3m", "cf3", "ss", "duplex", "super duplex", "duplex ss", "super duplex ss", "stainless steel", "duplex stainless steel", "super duplex stainless steel", "carbon steel", "alloy steel", "cast steel", "forged steel", "chrome steel", "cast iron", "ductile iron", "grey iron", "gray iron", "ptfe", "viton", "ceramic", "tungsten carbide", "silicon carbide", "graphite", "nylon"],
+  "material_spec_words": ["astm", "asme", "aisi", "sae", "uns", "din", "iso", "en"],
+  "seal_type_phrases": ["single mechanical seal", "double mechanical seal", "dual mechanical seal", "tandem mechanical seal", "balanced mechanical seal", "unbalanced mechanical seal", "cartridge mechanical seal", "mechanical seal", "single seal", "double seal", "dual seal", "tandem seal", "cartridge seal", "split seal", "gland packing", "packing", "sealless", "seal less", "magnetic drive", "mag drive"],
   "roles": {
     "design_pressure": {
       "kind": "pressure",
@@ -115,6 +119,7 @@
     "casing_material": {
       "kind": "text",
       "reads_as": "material",
+      "part_names": ["casing", "case"],
       "names": [
         "^(pump )?casing material$",
         "^case material$"
@@ -126,6 +131,7 @@
     "impeller_material": {
       "kind": "text",
       "reads_as": "material",
+      "part_names": ["impeller"],
       "names": [
         "^impeller material$"
       ],
@@ -136,6 +142,7 @@
     "shaft_material": {
       "kind": "text",
       "reads_as": "material",
+      "part_names": ["shaft"],
       "names": [
         "^shaft material$"
       ],
@@ -145,6 +152,7 @@
     },
     "seal_type": {
       "kind": "text",
+      "part_names": ["seal"],
       "names": [
         "^(mechanical )?seal type$",
         "^sealing (type|arrangement)$"

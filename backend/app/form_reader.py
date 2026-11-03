@@ -43,6 +43,7 @@ from . import (
     datasheet_ai,
     datasheet_checks,
     numparse,
+    part_name_roles,
     unit_tie,
 )
 from .ai.json_reply import unfenced_whole
@@ -234,7 +235,9 @@ def verify(f: Field, item: dict, page_text: str, rules: dict) -> Reason | None:
     printed = claude_datasheet.without_fill(_fold(quote))
     if not numparse.value_in_text(value, printed):
         return Reason.VALUE_NOT_IN_QUOTE
-    if not label_in_quote(f, printed, rules):
+    if not label_in_quote(f, printed, rules) and not part_name_roles.accepts(
+        f.key, value, printed, rules
+    ):
         return Reason.LABEL_NOT_IN_QUOTE
     return _check_unit(f, item, printed, page_text, rules)
 

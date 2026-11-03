@@ -207,3 +207,11 @@ def combined_result(fact: dict, field: str, res):
         ),
         fact,
     )
+
+
+def with_roles(facts: list[dict], rules: dict, wanted) -> list[dict]:
+    """The facts, each bare part-name fact that strictly satisfies `part_name_roles` renamed to its role (switch off:
+    as given)."""
+    from .part_name_roles import with_roles as renamed
+
+    return renamed(facts, rules, wanted)
