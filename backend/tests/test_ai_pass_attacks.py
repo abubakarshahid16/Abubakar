@@ -55,26 +55,28 @@ def refused(*args, **kw):
     assert reason.startswith("pass_") or reason, reason
 
 
-# ---- negated and varied comparator phrases: the right side of the inequality is checked ----------------------------
+# ---- the closed shape: `<subject> shall be <phrase> <number> <unit>.` -----------------------------------------------------
 @pytest.mark.parametrize(
     ("clause", "bad", "ok"),
     [
-        ("The hydrotest pressure shall not be more than 10 bar", "15 bar", "8 bar"),
-        ("The hydrotest pressure is not to be more than 10 bar", "15 bar", "8 bar"),
-        ("The hydrotest pressure shall not be greater than 10 bar", "15 bar", "8 bar"),
-        ("The hydrotest pressure shall not be higher than 10 bar", "15 bar", "8 bar"),
-        ("The hydrotest pressure shall not exceed 10 bar", "15 bar", "8 bar"),
-        ("The hydrotest pressure shall be at most 10 bar", "15 bar", "8 bar"),
-        ("The hydrotest pressure shall be maximum 10 bar", "15 bar", "8 bar"),
-        ("The hydrotest pressure shall be not less than 10 bar", "5 bar", "12 bar"),
-        ("The hydrotest pressure is not to be less than 10 bar", "5 bar", "12 bar"),
-        ("The hydrotest pressure shall not be lower than 10 bar", "5 bar", "12 bar"),
-        ("The hydrotest pressure shall not be below 10 bar", "5 bar", "12 bar"),
-        ("The hydrotest pressure shall be at least 10 bar", "5 bar", "12 bar"),
-        ("The hydrotest pressure shall be minimum 10 bar", "5 bar", "12 bar"),
+        ("The hydrotest pressure shall not exceed 10 bar.", "15 bar", "8 bar"),
+        ("The hydrotest pressure shall be not more than 10 bar.", "15 bar", "8 bar"),
+        ("The hydrotest pressure shall be not greater than 10 bar.", "15 bar", "8 bar"),
+        ("The hydrotest pressure shall be not higher than 10 bar.", "15 bar", "8 bar"),
+        ("The hydrotest pressure shall be not above 10 bar.", "15 bar", "8 bar"),
+        ("The hydrotest pressure shall be at most 10 bar.", "15 bar", "8 bar"),
+        ("The hydrotest pressure shall be maximum 10 bar.", "15 bar", "8 bar"),
+        ("The hydrotest pressure shall be not less than 10 bar.", "5 bar", "12 bar"),
+        ("The hydrotest pressure shall be not lower than 10 bar.", "5 bar", "12 bar"),
+        ("The hydrotest pressure shall be not below 10 bar.", "5 bar", "12 bar"),
+        ("The hydrotest pressure shall be at least 10 bar.", "5 bar", "12 bar"),
+        ("The hydrotest pressure shall be minimum 10 bar.", "5 bar", "12 bar"),
+        ("The hydrotest pressure shall be minimum of 10 bar.", "5 bar", "12 bar"),
     ],
 )
-def test_the_comparator_table_reads_every_negated_form_the_right_way(clause, bad, ok):
+def test_the_closed_shape_is_read_the_right_way_and_a_wrong_value_gives_no_pass(
+    clause, bad, ok
+):
     refused(bad, clause)
     assert run(ok, clause)[0] is True  # the positive control
 
@@ -82,18 +84,38 @@ def test_the_comparator_table_reads_every_negated_form_the_right_way(clause, bad
 @pytest.mark.parametrize(
     "clause",
     [
-        "The hydrotest pressure shall be 10 bar",  # no comparator: not readable as a limit
-        "The hydrotest pressure shall be more than 10 bar",  # a bare strict comparator is not in the closed table
-        "The hydrotest pressure shall be less than 10 bar",
-        "The hydrotest pressure shall be not less than 10 bar and not more than 15 bar",  # two comparators
-        "The hydrotest pressure shall be not less than 10 or 12 bar",
+        "The hydrotest pressure is not to be more than 10 bar.",  # not the closed shape: no Pass even for a good value
+        "The hydrotest pressure shall not be more than 10 bar.",
+        "The hydrotest pressure shall not be less than 10 bar.",
+        "The hydrotest pressure should be not less than 10 bar.",
+        "The hydrotest pressure is recommended to be not less than 10 bar.",
+        "The hydrotest pressure is typically not less than 10 bar.",
+        "The hydrotest pressure shall be not less than 10 bar, whichever is greater.",
+        "The hydrotest pressure shall be not less than 10 bar subject to approval.",
+        "The hydrotest pressure shall be not less than 10 bar apart from spares.",
+        "The hydrotest pressure shall be not less than 10 bar excepting spares.",
+        "The hydrotest pressure shall be not less than 10 bar barring spares.",
+        "The hydrotest pressure shall be not less than 10 bar aside from spares.",
+        "The hydrotest pressure shall be not less than 10 bar, exempting nozzles.",
+        "The hydrotest pressure shall be not less than 10 bar with the exemption of nozzles.",
+        "The hydrotest pressure shall be not less than 10 bar, although it may differ.",
+        "The hydrotest pressure shall be not less than 10 bar whereas spares differ.",
+        "The hydrotest pressure shall be not less than 10 bar save for spares.",
+        "The hydrotest pressure shall be not less than 10 bar. Nozzles are exempt.",
+        "The hydrotest pressure shall be not less than 10 bar.\n\nNot applicable.",
+        "The hydrotest pressure shall be at least 10 bar. In sour service it shall be at least 15 bar.",
+        "The hydrotest pressure shall be at least 10 bar and not more than 15 bar.",
+        "The hydrotest pressure shall be 10 bar.",
+        "The hydrotest pressure shall be more than 10 bar.",
+        "The hydrotest pressure shall be less than 10 bar.",
+        "The hydrotest pressure shall be not less than 10 or 12 bar.",
     ],
 )
-def test_a_clause_the_closed_table_cannot_read_gives_no_pass(clause):
+def test_a_clause_that_is_not_exactly_the_closed_shape_gives_no_pass(clause):
     refused("12 bar", clause)
+    refused("8 bar", clause)
 
 
-# ---- the document value is a plain stated value only ---------------------------------------------------------------
 DOC_QUALIFIED = [
     "min 5 bar", ">= 5 bar", "≥ 5 bar", "at least 5 bar", "max 15 bar", "<= 15 bar", "≤ 15 bar", "up to 15 bar",
     "12 bar or less", "12 bar or more", "12 bar max", "12 bar min", "approx. 12 bar", "approximately 12 bar",
@@ -201,9 +223,7 @@ def term(doc_value, clause_sentence, field="Body material", clause_quote=None):
 
 def test_a_term_is_a_pass_only_when_the_whole_value_equals_it():
     assert term("carbon steel", "The body material shall be carbon steel")[0] is True
-    assert (
-        term("Carbon  Steel", "The body material shall be of carbon steel")[0] is True
-    )
+    assert term("Carbon  Steel", "The body material shall be carbon steel")[0] is True
     assert (
         term("304 stainless steel", "The body material shall be 304 stainless steel")[0]
         is True
@@ -370,9 +390,9 @@ def test_a_negation_outside_the_quoted_words_gives_no_pass(sentence, quote, doc)
 def test_the_quote_may_be_part_of_a_clean_sentence():
     sentence = "The hydrotest pressure shall be not less than 10 bar."
     assert run("12 bar", sentence, "not less than 10 bar")[0] is True
-    refused(
-        "12 bar", sentence, "less than 10 bar"
-    )  # a quote that drops the negation word is read in its sentence too
+    # the comparator is read from the whole stored sentence, so a shorter quote cannot change it
+    assert run("12 bar", sentence, "less than 10 bar")[0] is True
+    refused("8 bar", sentence, "less than 10 bar")
 
 
 # ---- the clause subject must be the field ---------------------------------------------------------------------------
@@ -400,22 +420,9 @@ def test_a_clause_about_another_quantity_gives_no_pass(sentence, field, doc):
 
 
 def test_a_clause_about_the_same_quantity_is_a_pass_whatever_the_spelling():
-    assert (
-        run(
-            "12 bar",
-            "The hydro-test pressure shall be not less than 10 bar.",
-            "not less than 10 bar",
-        )[0]
-        is True
-    )
-    assert (
-        run(
-            "12 bar",
-            "The Hydrotest Pressure is not to be less than 10 bar.",
-            "not to be less than 10 bar",
-        )[0]
-        is True
-    )
+    clause = "The hydro-test pressure shall be not less than 10 bar."
+    assert run("12 bar", clause, "not less than 10 bar")[0] is True
+    refused("8 bar", clause, "not less than 10 bar")
 
 
 # ---- the two-value guard reads every figure of the quantity near the label --------------------------------------------
@@ -451,3 +458,116 @@ def test_a_second_value_on_the_same_page_and_the_same_value_elsewhere():
         extra_pages={2: "Notes\nV-2 Hydrotest pressure 12 bar"},
     )
     assert ok is True  # the same figure under the same name is no second value
+
+
+# ---- the allow-list, term path: the whole clause is one sentence, the subject equals the field -------------------------------
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "The body material shall be carbon steel. Nozzles are exempt.",
+        "The body material shall be carbon steel.\n\nNot applicable.",
+        "The body material shall be carbon steel, apart from spares.",
+        "The body material shall be carbon steel excepting nozzles.",
+        "The body material shall be carbon steel whereas trim differs.",
+        "The body material shall be carbon steel subject to approval.",
+        "The body material is recommended to be carbon steel.",
+        "The body material is typically carbon steel.",
+        "The body material shall be carbon steel or stainless steel.",
+    ],
+)
+def test_a_term_clause_that_is_not_exactly_one_closed_sentence_gives_no_pass(clause):
+    refused("carbon steel", clause, field="Body material")
+
+
+@pytest.mark.parametrize(
+    ("field", "sentence"),
+    [
+        (
+            "Maximum design pressure",
+            "The design pressure shall be not less than 10 bar.",
+        ),
+        (
+            "Design pressure",
+            "The maximum design pressure shall be not less than 10 bar.",
+        ),
+        (
+            "Minimum hydrotest pressure",
+            "The hydrotest pressure shall be not less than 10 bar.",
+        ),
+        (
+            "Hydrotest pressure",
+            "The hydrotest pressure of vessels shall be not less than 10 bar.",
+        ),
+        ("Body material", "The body and trim material shall be carbon steel."),
+    ],
+)
+def test_the_subject_and_the_field_must_be_the_same_words_both_ways(field, sentence):
+    value = "carbon steel" if "material" in field.lower() else "12 bar"
+    refused(value, sentence, field=field)
+
+
+def test_a_fail_on_the_same_clause_under_another_label_blocks_the_pass():
+    fail = dict(
+        FAIL_ROW,
+        page_section="p.4 - Vessel rating",
+        comment="Vessel rating states 8 bar.",
+        standard_reference="SAES-X-100 cl. 6.1 (p.9)",
+    )
+    refused(
+        "12 bar",
+        "The hydrotest pressure shall be not less than 10 bar.",
+        rows={"k": fail},
+    )
+    other_clause = dict(fail, standard_reference="SAES-X-100 cl. 7.7 (p.9)")
+    assert (
+        run(
+            "12 bar",
+            "The hydrotest pressure shall be not less than 10 bar.",
+            rows={"k": other_clause},
+        )[0]
+        is True
+    )
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        "Hydrotest pressure\nDesign code\nShell thickness\n5 bar",  # the value three lines below the label
+        "Hydrotest pressure\nDesign code\nShell thickness\nCorrosion allowance\nTag V-2\n5 bar",
+        "Hydrotest pressure TBC",
+        "Hydrotest pressure: not tested",
+        "Hydrotest pressure by others",
+        "Hydrotest pressure\nTBC",
+        "Hydro-test pressure n.a.",
+        "Test pressure to be provided",
+    ],
+)
+def test_the_whole_label_block_on_every_page_blocks_a_second_value_or_a_placeholder(
+    layout,
+):
+    refused(
+        "12 bar",
+        "The hydrotest pressure shall be not less than 10 bar.",
+        extra_pages={2: f"Notes\n{layout}"},
+    )
+
+
+@pytest.mark.parametrize(
+    ("other", "blocks"),
+    [
+        ("Body material stainless steel", True),
+        ("Body material TBC", True),
+        ("Body material: not tested", True),
+        ("Body material by others", True),
+        ("Body material carbon steel", False),
+        ("Trim material stainless steel", False),
+    ],
+)
+def test_the_term_path_has_the_same_whole_document_guard(other, blocks):
+    ok, _ = run(
+        "carbon steel",
+        "The body material shall be carbon steel.",
+        field="Body material",
+        extra_pages={2: f"Notes\n{other}"},
+    )
+    assert ok is (not blocks), other

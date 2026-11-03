@@ -24,7 +24,7 @@ CLAUSES = {
     (
         "SAES-X-100.pdf",
         "6.1",
-    ): "The hydrotest pressure shall be not less than 10 bar for vessels in sour service.",
+    ): "The hydrotest pressure shall be not less than 10 bar.",
     (
         "SAES-X-100.pdf",
         "7.2",
@@ -61,7 +61,6 @@ def good(**kw):
         "clause": "6.1",
         "clause_quote": "not less than 10 bar",
         "scope_applies": "yes",
-        "scope_quote": "for vessels in sour service",
         "call_id": "c1",
         "reason": "Both quotes are on the pages.",
         "confidence": "medium",
@@ -156,15 +155,21 @@ def test_a_clause_quote_that_is_not_in_the_stored_text_is_not_a_pass(on):
     assert reason_of(good(), ctx(clauses={})) == apv.PassReason.NO_CLAUSE
 
 
-def test_a_scope_that_is_unsure_or_not_shown_is_not_a_pass(on):
+def test_a_scope_that_is_unsure_is_not_a_pass(on):
     for answer in ("unsure", "no", "", None):
         assert reason_of(good(scope_applies=answer)) == apv.PassReason.SCOPE
-    # the clause has a condition ("for vessels in sour service"): it must be shown as a quote of the stored text
-    assert reason_of(good(scope_quote="")) == apv.PassReason.SCOPE
-    assert (
-        reason_of(good(scope_quote="for vessels in sweet service"))
-        == apv.PassReason.SCOPE
-    )
+
+
+def test_a_clause_with_a_condition_or_a_second_sentence_is_not_the_closed_shape(on):
+    # the ENTIRE stored clause must be one requirement sentence; anything else in it gives no Pass
+    for text in (
+        "The hydrotest pressure shall be not less than 10 bar for vessels in sour service.",
+        "The hydrotest pressure shall be not less than 10 bar. In sour service it shall be at least 15 bar.",
+        "The hydrotest pressure shall be not less than 10 bar. Not applicable.",
+        "The hydrotest pressure shall be not less than 10 bar unless the engineer agrees.",
+    ):
+        clauses = {("SAES-X-100.pdf", "6.1"): text}
+        assert reason_of(good(), ctx(clauses=clauses)) is not None, text
 
 
 def test_a_fail_on_the_sheet_for_the_same_field_blocks_the_pass(on):
