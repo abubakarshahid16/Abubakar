@@ -80,6 +80,9 @@ def _why_kept(row: dict, summary: dict | None) -> str:
     return "the AI offered no wording for this row"
 
 
+with_removed = crs_ai_review_view.with_removed  # the gate and the decide route keep AI-removed rows
+
+
 def apply(rows: list[dict], review_run_id: str) -> None:
     """The internal copy's AI cell, for every row. First the wording the lock
     accepted (an unconfirmed machine row only; an engineer's confirmed words

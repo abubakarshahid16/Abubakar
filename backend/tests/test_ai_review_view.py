@@ -31,7 +31,7 @@ UNDERSTANDING = {
     "type": "understanding",
     "reason": "Summary.",
     "confidence": "low",
-    "understanding": {"equipment": "Relief valve", "tags": ["P-101A", "PSV-201"]},
+    "understanding": {"equipment": "Relief valve", "tags": ["P-101A", "PSV-9901"]},
 }
 
 
@@ -114,6 +114,7 @@ def test_the_pass_reads_the_draft_rows_not_its_own_changes(stored):
 
 
 def test_for_run_lists_the_removal_with_its_words_and_its_state(stored):
+    view.apply(rows(), stored)  # the state is what apply found against the run's rows
     data = view.for_run(stored)
     assert data["understanding"]["equipment"] == "Relief valve"
     (item,) = data["removed"]
@@ -123,7 +124,7 @@ def test_for_run_lists_the_removal_with_its_words_and_its_state(stored):
         and item["reason"]
     )
     arpass.restore(stored, "p1", "Eng One")
-    assert view.for_run(stored)["removed"][0]["state"] == "restored by an engineer"
+    assert view.for_run(stored)["removed"][0]["state"] == view.STATE_RESTORED
     assert view.for_run("never-ran") is None
 
 

@@ -38,7 +38,11 @@ from .. import page_ledger as page_ledger_mod
 from .. import requirement_split as requirement_split_mod
 from .. import review_counts as review_counts_mod
 from .. import submittal_review as submittal_review_mod
-from ..api_utils import reject_unknown_params, require_document
+from ..api_utils import (
+    _require_identity_to_write,
+    reject_unknown_params,
+    require_document,
+)
 from ..db import connect
 from ..paging import ListPage
 
@@ -595,3 +599,60 @@ def _clauses_by_standard(coverage: dict) -> list[dict] | None:
         counts = out.setdefault(row["standard_document_id"], {})
         counts[row["state"]] = counts.get(row["state"], 0) + 1
     return [{"standard_document_id": k, "counts": v} for k, v in out.items()]
+
+
+class AiReviewRestoreRequest(BaseModel):
+    undo: bool = Field(False, description="true takes an earlier restore back (the row is removed again)")
+
+
+class AiReviewRestoreResult(BaseModel):
+    review_run_id: str
+    proposal_id: str
+    action: Literal["restore", "unrestore"]
+
+
+@router.post(
+    "/api/reviews/runs/{review_run_id}/ai-review/{proposal_id}/restore",
+    response_model=AiReviewRestoreResult,
+    responses={**schemas.ERRORS_401, **schemas.ERRORS_404},
+)
+def restore_ai_review_removal(
+    review_run_id: str,
+    proposal_id: str,
+    body: AiReviewRestoreRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """An engineer puts a row the AI review removed from the internal CRS back (or undoes that). Append-only and logged
+    (who, when) in `crs_ai_review_override`; the removal record stays. 404 for a run the caller may not read or a proposal
+    that is not an accepted removal of it; 401 without a named engineer."""
+    from .. import ai_review_pass
+
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail=errors.safe_error(
+                errors.UNAUTHENTICATED, "a restore must name the engineer who made it"
+            ),
+        )
+    if (
+        submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids
+        )
+        is None
+        or not ai_review_pass.restore(
+            review_run_id, proposal_id, scope.user_id, undo=body.undo
+        )
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no such removal in this run"),
+        )
+    logging.getLogger(__name__).info(
+        "ai review: removal %s of run %s %s", proposal_id, review_run_id, "undone" if body.undo else "restored",
+    )
+    return {
+        "review_run_id": review_run_id,
+        "proposal_id": proposal_id,
+        "action": "unrestore" if body.undo else "restore",
+    }

@@ -11,7 +11,8 @@ internal-only paths). The issue copy never shows an AI removal, an AI reason or 
     stays the comment. An engineer's confirmed words are never touched.
   * understanding: a short block at the top of the sheet "AI review".
 A removal never applies to a row an engineer confirmed (it is theirs), and a stored removal of a row that is no longer in the
-run is shown on the sheet as "row no longer present". Nothing here reads document text or calls a model.
+run is shown on the sheet as not applied. Each removal's state is the one `apply` found against the run's rows (removed, kept
+because confirmed, no longer in the run, restored); the CRS top note counts only those really removed. Nothing here reads document text or calls a model.
 """
 
 from __future__ import annotations
@@ -27,9 +28,38 @@ SHEET = "AI review"
 AUTHOR = "AI engineering review - engineer to confirm"
 HEADER_NOTE = (
     "Proposed by the AI and accepted only after code verified every value, page and clause on the document. "
-    "Nothing here is a verdict; an engineer decides. A removed row can be restored; ask for the proposal id."
+    "Nothing here is a verdict; an engineer decides. A removed row can be restored by an engineer: "
+    "POST /api/reviews/runs/{run}/ai-review/{proposal id}/restore (logged with who and when)."
 )
+STATE_REMOVED = "removed from the CRS"
+STATE_RESTORED = "restored by an engineer"
+STATE_KEPT = "kept on the CRS: an engineer confirmed this row"
+STATE_ABSENT = "not applied: the row is no longer in this run"
+STATE_UNCHECKED = "removal proposed; not checked against this run's rows"
 _SKIP = contextvars.ContextVar("crs_ai_review_view_skip", default=False)
+#: Decision paths (open-items gate, finding decision) read the rows WITH the removed rows still in them: a removal is a
+#: display change on the internal CRS, never a way to take an item out of the engineer's workflow.
+_KEEP = contextvars.ContextVar("crs_ai_review_view_keep_removed", default=False)
+#: (review_run_id, {proposal_id: state}) from the last `apply` in this context, so the sheet states what happened to
+#: each removal against the rows it was applied to.
+_APPLIED: contextvars.ContextVar[tuple[str, dict[str, str]] | None] = (
+    contextvars.ContextVar("crs_ai_review_view_applied", default=None)
+)
+
+
+def with_removed(fn, *args):
+    """Call `fn` (the CRS content builder) with removed rows still present: the gate and the decide route use it."""
+    token = _KEEP.set(True)
+    try:
+        return fn(*args)
+    finally:
+        _KEEP.reset(token)
+
+
+def top_note(existing: str, ai_review: dict | None, copy: str) -> str:
+    """The CRS top note (internal copy only), joined under the run status note."""
+    note = (ai_review or {}).get("note") if copy == "internal" else None
+    return "\n".join(p for p in (existing, note) if p)
 
 
 @contextmanager
@@ -95,9 +125,19 @@ def apply(rows: list[dict], review_run_id: str) -> None:
         return
     restored = ai_review_pass.restored_ids(review_run_id)
     by_key = {r.get("crs_row_key"): r for r in rows if r.get("crs_row_key")}
-    gone, added = set(), []
+    gone, added, states = set(), [], {}
     for item in accepted:
         row = by_key.get(item.get("row_key"))
+        if item["type"] == "remove":
+            states[item["proposal_id"]] = (
+                STATE_RESTORED
+                if item["proposal_id"] in restored
+                else STATE_ABSENT
+                if row is None
+                else STATE_KEPT
+                if row.get("engineer_confirmed")
+                else STATE_REMOVED
+            )
         if (
             item["type"] == "remove"
             and row is not None
@@ -113,8 +153,25 @@ def apply(rows: list[dict], review_run_id: str) -> None:
             row["ai_review_comment"] = f"{item['final_text']}\n{_reason(item)}"
         elif item["type"] == "add":
             added.append(item)
-    rows[:] = [r for r in rows if r.get("crs_row_key") not in gone]
+    _APPLIED.set((review_run_id, states))
+    if not _KEEP.get():
+        rows[:] = [r for r in rows if r.get("crs_row_key") not in gone]
     rows.extend(_added_row(rows, item, review_run_id) for item in added)
+
+
+def _evidence(proposal: dict) -> str:
+    """The verified evidence of a removal as the sheet prints it: page and quote, one line each (code checked every quote
+    stands on its page); a rulebook scope removal prints the clause the rulebook puts outside this equipment."""
+    lines = [
+        f'p.{e.get("page")}: "{e.get("quote")}"'
+        for e in proposal.get("evidence") or []
+        if isinstance(e, dict)
+    ]
+    if proposal.get("basis") == "out_of_scope":
+        lines.append(
+            f"rulebook: {proposal.get('standard') or ''} cl. {proposal.get('clause') or ''} is outside this equipment".strip()
+        )
+    return "\n".join(lines)
 
 
 def for_run(review_run_id: str) -> dict | None:
@@ -127,6 +184,8 @@ def for_run(review_run_id: str) -> dict | None:
     if not accepted and not understanding:
         return None
     restored = ai_review_pass.restored_ids(review_run_id)
+    applied = _APPLIED.get()
+    states = applied[1] if applied and applied[0] == review_run_id else {}
     removed = [
         {
             "proposal_id": a["proposal_id"],
@@ -134,16 +193,24 @@ def for_run(review_run_id: str) -> dict | None:
             "where": a.get("row_where", ""),
             "standard": a.get("row_standard", ""),
             "reason": a.get("reason", ""),
-            "state": "restored by an engineer"
+            "basis": a.get("basis") or "",
+            "evidence": _evidence(a),
+            "state": STATE_RESTORED
             if a["proposal_id"] in restored
-            else "removed from the CRS",
+            else states.get(a["proposal_id"], STATE_UNCHECKED),
         }
         for a in accepted
         if a["type"] == "remove"
     ]
+    gone = sum(1 for r in removed if r["state"] == STATE_REMOVED)
     return {
         "understanding": understanding,
         "removed": removed,
+        "note": (
+            f"{gone} comment{'s' if gone != 1 else ''} removed by AI review, see internal sheet"
+            if gone
+            else ""
+        ),
         "engine": summary.get("engine"),
         "model": summary.get("model"),
         "local_instead": summary.get("local_instead"),
@@ -189,6 +256,8 @@ def write_sheet(wb, data: dict, write) -> None:
                 "Standard",
                 "Row's own words",
                 "AI's reason",
+                "Basis",
+                "Verified evidence (page, quote)",
             ),
             1,
         ):
@@ -196,8 +265,18 @@ def write_sheet(wb, data: dict, write) -> None:
         for item in data["removed"]:
             r += 1
             for col, key in enumerate(
-                ("proposal_id", "state", "where", "standard", "words", "reason"), 1
+                (
+                    "proposal_id",
+                    "state",
+                    "where",
+                    "standard",
+                    "words",
+                    "reason",
+                    "basis",
+                    "evidence",
+                ),
+                1,
             ):
                 write(sheet, r, col, item[key]).alignment = wrap
-    for col, width in zip("ABCDEF", (22, 24, 22, 26, 70, 60), strict=True):
+    for col, width in zip("ABCDEFGH", (22, 24, 22, 26, 70, 60, 16, 70), strict=True):
         sheet.column_dimensions[col].width = width

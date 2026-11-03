@@ -1,0 +1,167 @@
+"""Lane 6, part 3 follow-ups: the CRS top note, the sheet's evidence, honest states, the restore route, and the open-items
+gate still seeing AI-removed rows. Invented rows and pages only."""
+
+from __future__ import annotations
+
+import io
+
+import openpyxl
+import pytest
+from fastapi.testclient import TestClient
+
+from app import access
+from app import ai_review_pass as arpass
+from app import crs_ai_review_view as view
+from app import crs_export
+from app.config import settings
+from app.main import _crs_content, _crs_issue_gate, app, number_crs_rows
+from tests.test_ai_review_pass import FAIL, HELD, PAGES, REMOVE, ROW, Stub
+from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
+from tests.test_model_matching import _signed_in
+from tests.test_review_screen import world as _world  # noqa: F401
+
+
+@pytest.fixture
+def stored(monkeypatch):
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    arpass.run(
+        "rv9",
+        [dict(ROW), dict(FAIL)],
+        pages=PAGES,
+        held=HELD,
+        provider=Stub([REMOVE]),
+    )
+    return "rv9"
+
+
+def _rows():
+    return [dict(ROW, priority=3), dict(FAIL, priority=1)]
+
+
+def _sheet_text(wb, name):
+    return "\n".join(
+        str(c.value) for row in wb[name].iter_rows() for c in row if c.value
+    )
+
+
+def _workbook(stored_id, copy):
+    findings = [
+        {"document_name": "d", "page_section": "p.1", "comment": "c", "comment_by": "b"}
+    ]
+    rows = _rows()
+    view.apply(rows, stored_id)  # the pass changes the rows; this records what it found
+    meta = {"copy": copy, "ai_review": view.for_run(stored_id)}
+    return openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(findings, meta)))
+
+
+def test_the_top_note_counts_removed_comments_on_the_internal_copy_only(stored):
+    internal = _workbook(stored, "internal")
+    top = internal.worksheets[0]["A1"].value
+    assert "1 comment removed by AI review, see internal sheet" in top
+    assert "removed by AI review" not in str(
+        _workbook(stored, "issue").worksheets[0]["A1"].value
+    )
+
+
+def test_the_sheet_shows_the_reason_and_the_verified_evidence_with_its_page(stored):
+    text = _sheet_text(_workbook(stored, "internal"), view.SHEET)
+    assert "Different tags have different MAWP" in text
+    assert 'p.1: "Tag P-101B  MAWP 16 barg"' in text
+    assert "tag_difference" in text
+
+
+def test_a_confirmed_or_absent_row_is_never_called_removed(stored):
+    rows = _rows()
+    rows[0]["engineer_confirmed"] = True
+    view.apply(rows, stored)
+    data = view.for_run(stored)
+    assert data["removed"][0]["state"] == view.STATE_KEPT and data["note"] == ""
+    view.apply([dict(FAIL)], stored)  # k-rev is not in this run any more
+    data = view.for_run(stored)
+    assert data["removed"][0]["state"] == view.STATE_ABSENT and data["note"] == ""
+    assert "removed from the CRS" != data["removed"][0]["state"]
+    assert "removed by AI review" not in view.top_note("", data, "internal")
+
+
+def test_without_an_apply_the_state_does_not_claim_the_row_was_removed(stored):
+    view._APPLIED.set(None)
+    assert view.for_run(stored)["removed"][0]["state"] == view.STATE_UNCHECKED
+
+
+def test_the_removed_row_stays_in_the_decision_paths_rows(stored):
+    seen = {}
+
+    def build():
+        rows = _rows()
+        view.apply(rows, stored)
+        seen["keys"] = [r["crs_row_key"] for r in rows]
+
+    view.with_removed(build)
+    assert seen["keys"] == ["k-rev", "k-fail"]
+    build()
+    assert seen["keys"] == ["k-fail"]
+
+
+def _world_with_removal(request, monkeypatch):
+    _sub, run, scope = request.getfixturevalue("_world")
+    reader = access.AccessScope(user_id=None, allowed_document_ids=scope)
+    number_crs_rows(run, reader)
+    first = _crs_content(run, reader, "internal")[0][0]
+    key = first["crs_row_key"]
+    finding = first.get("finding_id") or key
+    item = {
+        "type": "remove",
+        "row_key": key,
+        "proposal_id": "p1",
+        "reason": "r",
+        "evidence": [],
+        "row_words": "w",
+    }
+    monkeypatch.setattr(arpass, "accepted", lambda _r: [item])
+    monkeypatch.setattr(arpass, "restored_ids", lambda _r: set())
+    return run, scope, reader, key, finding
+
+
+def test_an_ai_removed_row_is_still_an_open_item_and_can_be_decided(
+    request, monkeypatch
+):
+    run, scope, reader, key, finding = _world_with_removal(request, monkeypatch)
+    shown = [r["crs_row_key"] for r in _crs_content(run, reader, "internal")[0]]
+    assert key not in shown  # the internal CRS does not print it
+    gate = _crs_issue_gate(run, reader)
+    assert finding in {f["finding_id"] for f in gate["open_findings"]}
+    # and the decide route finds it (404 only for a key that is in no row)
+    _signed_in(monkeypatch, scope)
+    response = TestClient(app).post(
+        f"/api/reviews/runs/{run}/crs/open-items/findings/{finding}/decision",
+        json={"decision": "accept", "reason": "checked by eye"},
+    )
+    assert response.status_code != 404, response.text
+
+
+def test_the_restore_route_restores_logs_and_undoes(request, monkeypatch, stored):
+    _sub, run, scope = request.getfixturevalue("_world")
+    _signed_in(monkeypatch, scope)
+    # a removal stored under the world's run id
+    arpass.run(
+        run, [dict(ROW), dict(FAIL)], pages=PAGES, held=HELD, provider=Stub([REMOVE])
+    )
+    client = TestClient(app)
+    url = f"/api/reviews/runs/{run}/ai-review/p1/restore"
+    assert client.post(url, json={}).json()["action"] == "restore"
+    assert arpass.restored_ids(run) == {"p1"}
+    assert client.post(url, json={"undo": True}).json()["action"] == "unrestore"
+    assert arpass.restored_ids(run) == set()
+    assert client.post(url.replace("/p1/", "/nope/"), json={}).status_code == 404
+
+
+def test_the_restore_route_refuses_a_run_the_caller_cannot_read(request, monkeypatch):
+    _sub, run, scope = request.getfixturevalue("_world")
+    monkeypatch.setattr(settings, "ai_engineering_review_pass_enabled", True)
+    arpass.run(run, [dict(ROW)], pages=PAGES, held=HELD, provider=Stub([REMOVE]))
+    _signed_in(monkeypatch, frozenset())
+    response = TestClient(app).post(
+        f"/api/reviews/runs/{run}/ai-review/p1/restore", json={}
+    )
+    assert response.status_code == 404
+    assert arpass.restored_ids(run) == set()
