@@ -349,9 +349,15 @@
     "fluid_phase": {
       "kind": "text",
       "names": [
-        "^(fluid )?(phase|state)( of fluid)?$"
+        "^(fluid )?(phase|state)( of fluid)?$",
+        "^(relieving |relief |operating )?(fluid )?(phase|state)( at relieving (conditions|temperature))?( of fluid)?$",
+        "^physical state( of fluid)?$"
       ],
       "printed_as": [
+        "relieving phase",
+        "phase at relieving conditions",
+        "fluid state",
+        "physical state",
         "gas",
         "vapour",
         "vapor",
@@ -450,7 +456,17 @@
       "names": [
         "^h2s( service| content| present)?$",
         "^sour service$",
-        "^nace( mr0175)?( required)?$"
+        "^nace( mr0175)?( required)?$",
+        "^(sour|h2s) (service|environment|duty)( yes no| y n)?$",
+        "^(nace|iso 15156)( mr0175)?( / iso 15156)?( service| compliance| compliant| applicable)?$"
+      ],
+      "printed_as": [
+        "sour service",
+        "sour environment",
+        "sour duty",
+        "wet h2s",
+        "nace mr0175",
+        "iso 15156"
       ]
     },
     "mdmt": {
@@ -1748,6 +1764,47 @@
               ]
             }
           ]
+        },
+        {
+          "id": "PSV-D01",
+          "status": "draft (engineer to approve)",
+          "label": "Fluid phase",
+          "aliases": ["fluid phase", "phase", "fluid state", "physical state", "relieving phase", "phase at relieving conditions"],
+          "answer": {"kind": "text"},
+          "text": "The fluid phase at relieving conditions is stated (gas or vapour, liquid, or two-phase).",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.5"
+          },
+          "clause_to_confirm": true,
+          "rule": {
+            "kind": "required",
+            "field": "fluid_phase"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-D02",
+          "status": "draft (engineer to approve)",
+          "label": "Sour service",
+          "aliases": ["sour service", "sour environment", "sour duty", "h2s service", "h2s content", "nace", "nace mr0175", "iso 15156"],
+          "answer": {
+            "kind": "choice",
+            "choices": ["yes", "no", "not stated"],
+            "yes": ["yes", "y", "sour", "present", "required", "nace"],
+            "no": ["no", "n", "none", "non sour", "not sour", "absent", "not applicable", "n/a", "nil"],
+            "query_if_yes": "NACE MR0175 / ISO 15156 applies to the wetted materials; query for materials, engineer to decide."
+          },
+          "text": "Whether the service is sour (H2S present) is stated: yes or no.",
+          "source": {
+            "standard": "ISO 15156-3",
+            "clause": "6.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "sour_service"
+          },
+          "severity": "major"
         }
       ]
     },

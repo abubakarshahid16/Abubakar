@@ -198,18 +198,21 @@ def _with_bounds(item: dict, rules: dict) -> dict:
 
 def rows(checklist, roles, common, tag, rules, page_texts) -> list[dict]:
     """The checklist's results for one tag, kit cards held (see `held`)."""
-    from .datasheet_checks import evaluate_item
+    from .datasheet_checks import evaluate_item, hold_draft_item
 
     return [
         held(
-            evaluate_item(
+            hold_draft_item(
+                evaluate_item(
+                    item,
+                    roles,
+                    common,
+                    tag,
+                    _with_bounds(item, rules),
+                    draft=checklist["draft"],
+                    page_texts=page_texts,
+                ),
                 item,
-                roles,
-                common,
-                tag,
-                _with_bounds(item, rules),
-                draft=checklist["draft"],
-                page_texts=page_texts,
             ),
             item,
         )

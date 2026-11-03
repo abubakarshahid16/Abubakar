@@ -23,7 +23,14 @@ def standards(checklist: dict) -> list[str]:
     does not replace them."""
     if not checklist.get("governs", True):
         return []
-    return sorted({item["source"]["standard"] for item in checklist["items"]})
+    # A DRAFT item (`status`) asks a question and decides nothing: its standard is not governed by it.
+    return sorted(
+        {
+            item["source"]["standard"]
+            for item in checklist["items"]
+            if not str(item.get("status") or "").lower().startswith("draft")
+        }
+    )
 
 
 def stated_only(checklist: dict) -> list[str]:
