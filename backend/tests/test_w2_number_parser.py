@@ -391,6 +391,7 @@ _PRIVATE_PARSER = re.compile(
 _NOT_YET_MOVED = {
     "claude_approved.py",  # NFKC on a FILENAME (the register name check), not on document text
     "upload.py",  # NFKC on a FILENAME (a security fold), not on document text
+    "word_fold.py",  # text folding only (verdict and number WORDS, for the AI-review filters): never produces a number
 }
 
 #: The files that still define a pattern NAMED `_NUMBER` or `_THOUSANDS`, and
