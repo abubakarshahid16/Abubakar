@@ -10,12 +10,12 @@ def test_the_switch_is_off_by_default():
 
 def test_off_does_nothing(monkeypatch):
     monkeypatch.setattr(settings, "ai_senior_review_enabled", False)
-    assert asr.run_for_job("run-1", None) == {"state": asr.OFF}
+    assert asr.for_review("run-1", None) == {"state": asr.OFF}
 
 
 def test_on_before_the_reader_exists_says_so(monkeypatch):
     monkeypatch.setattr(settings, "ai_senior_review_enabled", True)
-    assert asr.run_for_job("run-1", None) == {"state": asr.NOT_BUILT}
+    assert asr.for_review("run-1", None) == {"state": asr.NOT_BUILT}
 
 
 def test_a_figure_is_decided_by_figure_compare_only():
