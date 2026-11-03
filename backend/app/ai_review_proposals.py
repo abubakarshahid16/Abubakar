@@ -24,11 +24,12 @@ row's compliance, it only refuses.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
-from . import crs_wording, numparse, standard_ids
+from . import claims, crs_wording, numparse, standard_ids
 from .ai_engineering_check import PASS_FAIL_WORDS
 from .reader_api import _contains, _fold
 
@@ -327,14 +328,164 @@ FLAGGABLE_KINDS = (
 )
 
 
-def _reason_numbers_ok(proposal: dict, row: Mapping) -> bool:
-    """Every number in the reason (a clause number and a standard's digits too) is in the row's own text: the reason is printed."""
-    own = " ".join(
-        str(row.get(k) or "") for k in ("comment", "standard_reference", "page_section")
+# Cyrillic and Greek letters that look like Latin ones, by code point.
+_CONFUSABLE = str.maketrans(
+    {
+        "\u0430": "a",
+        "\u0441": "c",
+        "\u0435": "e",
+        "\u043e": "o",
+        "\u0440": "p",
+        "\u0445": "x",
+        "\u0443": "y",
+        "\u0456": "i",
+        "\u0458": "j",
+        "\u0455": "s",
+        "\u043a": "k",
+        "\u043c": "m",
+        "\u0442": "t",
+        "\u043d": "h",
+        "\u0432": "b",
+        "\u0501": "d",
+        "\u04cf": "l",
+        "\u03b1": "a",
+        "\u03bf": "o",
+        "\u03b5": "e",
+        "\u03bd": "v",
+        "\u03b9": "i",
+        "\u03c1": "p",
+        "\u03c4": "t",
+        "\u03ba": "k",
+        "\u03bc": "m",
+        "\u03c7": "x",
+        "\u03c5": "u",
+        "\u03b2": "b",
+        "\u03b7": "n",
+        "\u03c9": "w",
+    }
+)
+_IGNORABLE = {"\u115f", "\u1160", "\u3164", "\uffa0", "\u180e", "\u2800"}
+
+
+def _normalise(text: object) -> str:
+    """NFKC, invisible and combining characters removed, look-alike letters mapped to Latin, lower case: what a reader
+    would read. Zero-width characters inside a word, a homoglyph or a fullwidth digit do not hide anything from the checks."""
+    folded = unicodedata.normalize("NFKC", str(text or ""))
+    kept = "".join(
+        c
+        for c in folded
+        if c in "\t\n "
+        or (
+            unicodedata.category(c) not in ("Cf", "Mn", "Me", "Cc")
+            and c not in _IGNORABLE
+        )
     )
-    reason = _fold(str(proposal.get("reason") or ""))
-    return numparse.number_keys(reason) <= (
-        numparse.number_keys(own) | numparse.number_keys(_fold(own))
+    return unicodedata.normalize("NFKC", kept).translate(_CONFUSABLE).lower()
+
+
+_NUMBER_WORDS = re.compile(
+    r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
+    r"seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|"
+    r"billion|half|halves|double|triple|twice|thrice|dozen|quarter|third|thirds)\b"
+)
+_COMMON_UNIT_WORDS = {
+    "bar",
+    "pound",
+    "pounds",
+    "ton",
+    "tons",
+    "foot",
+    "feet",
+    "inch",
+    "inches",
+    "hour",
+    "hours",
+    "second",
+    "seconds",
+    "minute",
+    "minutes",
+    "day",
+    "days",
+    "year",
+    "years",
+    "meter",
+    "meters",
+    "metre",
+    "metres",
+    "degree",
+    "degrees",
+    "percent",
+    "litre",
+    "litres",
+    "max",
+    "min",
+    "the",
+    "and",
+    "per",
+    "for",
+    "are",
+    "may",
+    "can",
+    "not",
+    "its",
+    "all",
+}
+_ROMAN = re.compile(
+    r"\b(?=[ivxlcdm]{2,}\b)m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})\b"
+)
+_ROMAN_WORDS = {"mix", "mi", "di", "li", "mid", "dim", "mild"}
+
+
+def _has_digit(text: str) -> bool:
+    return any(
+        c.isdigit() or c.isnumeric() or unicodedata.numeric(c, None) is not None
+        for c in text
+    )
+
+
+def _reason_ok(proposal: dict, row: Mapping) -> bool:
+    """A reword's REASON is explanation only and is printed, so it holds no figure at all: no digit in any script, no number
+    word, no roman numeral, and no unit that the row's own text does not also use. Strict on purpose."""
+    reason = _normalise(proposal.get("reason"))
+    if _has_digit(reason) or _NUMBER_WORDS.search(reason):
+        return False
+    if any(m.group(0) not in _ROMAN_WORDS for m in _ROMAN.finditer(reason)):
+        return False
+    own = set(
+        re.findall(
+            r"[^\W\d_]+",
+            _normalise(
+                " ".join(
+                    str(row.get(k) or "")
+                    for k in ("comment", "standard_reference", "page_section")
+                )
+            ),
+        )
+    )
+    for token in re.findall(r"[^\W\d_]+", reason):
+        if (
+            len(token) >= 3
+            and token not in _COMMON_UNIT_WORDS
+            and token not in own
+            and claims.is_unit(token)
+        ):
+            return False
+    return True
+
+
+_VERDICT_STEMS = re.compile(
+    r"\b(?:compl|conform|fulfil|satisf|verif|confirm|accept|approv|adequat|pass|meets?\b|in line|within (?:limit|spec|range)|"
+    r"ok\b|okay\b|correct\b|good\b|fine\b)"
+)
+_VERDICT_SYMBOLS = re.compile("[\u2713\u2714\u2611\u2705]")
+
+
+def _quote_has_verdict(quote: str) -> bool:
+    """Verdict wording in a printed page quote, whatever the spelling tricks: normalised first, then stems and tick marks."""
+    plain = _normalise(quote)
+    return bool(
+        _VERDICT_STEMS.search(plain)
+        or _VERDICT_SYMBOLS.search(unicodedata.normalize("NFKC", quote))
     )
 
 
@@ -468,7 +619,7 @@ def _verify_reword(proposal: dict, ctx: Context) -> Verdict:
     text = str(proposal.get("text") or "").strip()
     if not text:
         return Verdict(False, Reason.MISSING_FIELD.value, proposal)
-    if not _reason_numbers_ok(proposal, row):
+    if not _reason_ok(proposal, row):
         return Verdict(False, Reason.NUMBER_NOT_VERIFIED.value, proposal)
     refused = crs_wording.lock(text, dict(row))
     if refused:

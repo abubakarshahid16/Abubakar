@@ -123,6 +123,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
 | `crs_one_row` | #1503: one CRS row per problem, and "did not reference" rows nothing in scope requires, behind CRS_ONE_ROW_PER_PROBLEM_ENABLED |
+| `compliance_list` | Owner 3 Nov 11:40 (b): a value only a draft rule checks, with nothing found, is no CRS row; it is on the internal-only sheet "Compliance list", behind CRS_COMPLIANCE_LIST_ENABLED |
 | `crs_machine_words` | Order 152.2: finds machine wording (code names, model/engine names, internal phrases) in the contractor copy's machine-written cells; the issue gate refuses it |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
