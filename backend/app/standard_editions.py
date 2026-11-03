@@ -249,8 +249,11 @@ def _require_on() -> None:
         )
 
 
-def ensure_schema(conn) -> None:
-    """Create the register on a copy; twice does nothing. Refuses a live-shaped file."""
+def ensure_schema(conn=None) -> None:
+    """Create the register on a copy; twice does nothing. Refuses a live-shaped file. Called with no connection, the
+    way the app's schema walk calls every module, it does nothing: only a script on a copy creates the table."""
+    if conn is None:
+        return
     _require_on()
     path = next(
         (r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"), ""

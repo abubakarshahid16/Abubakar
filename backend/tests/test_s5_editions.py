@@ -265,3 +265,8 @@ def test_a_reader_with_no_grant_on_the_standard_is_not_told_its_edition(
     finding = {"standard_document_id": "s1", "standard_edition": "2021"}
     review.withhold_unreadable_standards([finding], frozenset())
     assert finding["standard_edition"] is None
+
+
+def test_the_apps_schema_walk_creates_nothing(monkeypatch):
+    monkeypatch.setattr(settings, "standard_editions_enabled", True)
+    assert se.ensure_schema() is None
