@@ -1,5 +1,5 @@
 """A placeholder value ("*", "TBA", "by vendor") is never "stated" (planner,
-28 Oct, audit of the live M-03 run): "MIN FLOW THERMAL * m3/h" passed "the
+28 Oct, audit of the live Datasheet 2 run): "MIN FLOW THERMAL * m3/h" passed "the
 minimum flow is stated". Invented values only."""
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def test_a_mandatory_field_with_a_unit_and_a_placeholder_value_is_missing():
     )
 
 
-# 2p gate (s2, 28 Oct, I-06): "10 barg By Contractor" states 10 barg (#725 F3: the phrase is a note on
+# 2p gate (s2, 28 Oct, Datasheet 1): "10 barg By Contractor" states 10 barg (#725 F3: the phrase is a note on
 # the figure). The placeholder test must not turn a read figure into "the contractor is to provide it".
 
 
@@ -129,7 +129,7 @@ def test_the_mandatory_field_path_keeps_a_figure_with_a_note_as_missing():
     )
 
 
-# 2p gate, M-03 (s2 21:04): the geometry reader stores the cell as a label word, a lone "*" and a unit with a
+# 2p gate, Datasheet 2 (s2 21:04): the geometry reader stores the cell as a label word, a lone "*" and a unit with a
 # digit, with no parsed value and no blank flag. `classify` sees a star only when it is the whole cell.
 
 
@@ -153,7 +153,7 @@ def test_the_mandatory_field_path_keeps_a_figure_with_a_note_as_missing():
         "Flow * dwg 1234",
         "Flow * spec 12",
         "Flow * Rev 2",
-        "Flow * KOC-ME-008 Pt 1",
+        "Flow * AGA-ME-008 Pt 1",
     ],
 )
 def test_a_lone_star_between_a_label_and_a_unit_is_a_placeholder(printed):

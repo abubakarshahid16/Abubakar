@@ -164,6 +164,7 @@ EGRESS_SAFE: dict[str, object] = {
     "answer_model_allowed_hosts": (),
     "match_enabled": False,
     "match_ask_max_per_run": 0,  # #882: two local-model calls per question
+    "pairing_subject_gate_enabled": False,  # owner order 3 Nov: off unless its own tests turn it on
     # the datasheet AI reader (`datasheet_ai`): local Ollama by default, or
     # Claude through reader_transport - two model calls per page
     "datasheet_ai_reader": "off",
@@ -303,6 +304,7 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
     "crs_plain_notes_enabled": False,
+    "crs_drop_placeholder_rows_enabled": False,
     "run_record_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,
@@ -310,6 +312,8 @@ EGRESS_SAFE: dict[str, object] = {
     "ocr_file_error_hold_enabled": False,
     # --- local only, no model or socket: the rulebook tables on a database copy (plan change 6 A, off by default)
     "rulebook_v2_enabled": False,
+    # --- local only, no model or socket: the edition register on a database copy (STEP 5, off by default)
+    "standard_editions_enabled": False,
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,

@@ -62,7 +62,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="unknown_equipment_type_never_yields_not_applicable",
         tags=("honesty", "applicability"),
     ),
-    # ---- M-03 run 2026-09-25: the two measured wrong exclusions ------------
+    # ---- Datasheet 2 run 2026-09-25: the two measured wrong exclusions ------------
     Mutation(
         id="M600", phase=61,
         description="an exclusion of a SUB-KIND ('submersible pumps') excludes "

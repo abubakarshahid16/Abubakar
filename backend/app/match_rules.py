@@ -23,10 +23,8 @@ sheet kind, an unrecognised unit or a sentence with no table are all "no
 opinion", never "reject". A rule that guessed would put silence where a
 correct pairing used to be, and silence is invisible on the engineer's screen.
 
-NOT A FILTER ONLY. Rule 3 changes WHICH pairing is made, not merely whether
-one is: it removes the table's input field from the tie so the constrained
-quantity wins. That is why this module is named for the rules and not for a
-gate, and why it runs BEFORE longest-wins rather than after.
+NOT A FILTER ONLY. Rule 3 changes WHICH pairing is made: it removes the table's input field from the tie so the
+constrained quantity wins, which is why it runs BEFORE longest-wins.
 
 The three rules, in the order they run:
 
@@ -47,10 +45,8 @@ The three rules, in the order they run:
      part after the table marker is the input, and the pairing is refused so
      that the constrained quantity is what remains for longest-wins.
 
-MEASURED (VS Code, on the dead worktree, before it was lost): review scope
-2 false -> 0 false, 1 correct, 18/18 NONE rows silent; corpus scope 8 -> 1
-false. This file is that design rebuilt from its record; the numbers must be
-re-measured with `scripts/gold_pairs_score.py` before they are quoted again.
+MEASURED (VS Code, on a dead worktree): corpus scope 8 false pairings -> 1. Re-measure with
+`scripts/gold_pairs_score.py` before quoting.
 """
 
 from __future__ import annotations
@@ -60,7 +56,7 @@ import re
 from functools import cache, lru_cache
 from pathlib import Path
 
-from . import claims, required_values, statement_asks
+from . import claims, required_values, statement_asks, subject_pairing
 
 # ------------------------------------------------------------------ reasons
 #: Why a containment hit was refused. Every refusal carries one of these so a
@@ -74,6 +70,7 @@ QUALIFIER = "qualifier"
 #: Rule 6 (order 139): the two sides name different kinds of quantity.
 QUANTITY_KIND = "quantity_kind"
 NOT_ASKED = "not_asked"  # orders 180.1 item 2: see statement_asks
+SUBJECT_QUANTITY = "subject_quantity"  # rule 7: see subject_pairing
 
 REASONS: tuple[str, ...] = (
     UNIT_DIMENSION,
@@ -84,6 +81,7 @@ REASONS: tuple[str, ...] = (
     QUANTITY_KIND,
     required_values.REQUIRED_KIND,
     NOT_ASKED,
+    SUBJECT_QUANTITY,
 )
 
 # ------------------------------------------------------------------ domains
@@ -798,6 +796,8 @@ def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
         return COMPOUND_TERM
     if qualifier_conflict(requirement, fact.get("field_name") or ""):
         return QUALIFIER
+    if subject_pairing.conflict(requirement, fact, sheet):
+        return SUBJECT_QUANTITY
     if fact.get("is_blank") and not statement_asks.asks_to_state(requirement):
         return NOT_ASKED
     return None

@@ -66,7 +66,7 @@ def test_the_type_read_from_the_title_is_one_the_vocabulary_names():
     ("PRESSURE SAFETY VALVE DATASHEET", "Pressure Safety Valve", 0.85),
     ("DATA SHEET FOR PRESSURE SAFETY VALVES (PSVs)", "Pressure Safety Valve", 0.85),
     ("CENTRIFUGAL PUMP DATA SHEET", "Centrifugal Pump", 0.85),
-    ("RECYCLE BRINE PUMPS DATA SHEET", "Pump", 0.75),
+    ("BOOSTER WATER PUMPS DATA SHEET", "Pump", 0.75),
     ("SHELL AND TUBE HEAT EXCHANGER DATA SHEET", "Heat Exchanger", 0.8),
 ])
 def test_the_cover_sheet_patterns_still_decide_first(title, expected, confidence):

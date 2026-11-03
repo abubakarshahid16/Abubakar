@@ -220,8 +220,8 @@ considered; a key was pasted in chat once and Ali was told to rotate it — neve
 use it).
 
 Data: 19 documents in `backend/data/rag_intelligence.sqlite` (WAL; three files).
-The client's `Engineering Deliverables.pdf` (13 pages, 1,354 deliverables) is in
-the local DB — fine locally, never in git. Old `nabaa.sqlite*` files may still
+The client's `Deliverables Register.pdf` (13 pages, 1,354 deliverables) is in
+the local DB — fine locally, never in git. Old `oldname.sqlite*` files may still
 exist beside it; delete only after verifying counts.
 
 ---
@@ -424,4 +424,4 @@ holds the package against it → sends it back same day instead of a month later
 - Decide the tier-1 web vendor, or keep general web search off for the client.
 - Send the client the three open questions (deliverables register scope,
   escalation ladder definition, news/media privacy expectations).
-- Delete old `nabaa.sqlite*` after verifying document counts match.
+- Delete old `oldname.sqlite*` after verifying document counts match.

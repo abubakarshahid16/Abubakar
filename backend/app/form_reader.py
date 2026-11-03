@@ -43,6 +43,7 @@ from . import (
     datasheet_ai,
     datasheet_checks,
     numparse,
+    unit_tie,
 )
 from .ai.json_reply import unfenced_whole
 from .claude_spend import StopRun
@@ -108,6 +109,8 @@ class Reason(Enum):
     LABEL_NOT_IN_QUOTE = "label_not_in_quote"
     UNIT_UNRECOGNISED = "unit_unrecognised"
     UNIT_NOT_IN_QUOTE = "unit_not_in_quote"
+    #: #1653: the quote prints the unit with another number.
+    UNIT_NOT_WITH_VALUE = "unit_not_with_value"
     WRONG_UNIT_KIND = "wrong_unit_kind"
 
 
@@ -205,6 +208,8 @@ def _check_unit(f: Field, item: dict, printed: str, page_text: str, rules: dict)
         if not (claude_datasheet._contains(printed, _fold(unit))
                 or claude_datasheet._unit_in_column_header(unit, item["quote"], value, page_text)):
             return Reason.UNIT_NOT_IN_QUOTE
+        if not unit_tie.unit_with_value(value, unit, printed):
+            return Reason.UNIT_NOT_WITH_VALUE
     shown = unit or datasheet_ai.ai_unit({"value": value})     # a unit printed inside the value
     if shown and f.unit_kind in _MEASURED_KINDS:
         kind = unit_kind_of(shown, rules)

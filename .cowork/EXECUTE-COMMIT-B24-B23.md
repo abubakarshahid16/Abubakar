@@ -126,7 +126,7 @@ register and `B24-B23-PREFLIGHT.md` with the outcome.
 # PROHIBITIONS
 
 No push. No `git reset`, rebase, squash or force. No deletes. No schema change. No
-retroactive modification of existing findings. Do not start B19, M-03, CRS work, the
+retroactive modification of existing findings. Do not start B19, Datasheet 2, CRS work, the
 ceiling test or anything else in this task.
 
 # REPORT
