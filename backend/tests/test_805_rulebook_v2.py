@@ -17,6 +17,7 @@ from app import (
     compiled_rule_report,
     db,
     rulebook_v2,
+    rulebook_v2_book,
     rulebook_v2_check,
     rulebook_v2_ingest,
     rulebook_v2_schema,
@@ -269,6 +270,9 @@ def _a_full_book():
     version = _version()
     _approve(version["id"])
     rulebook_v2.record_run(_conn(), "run-1")
+    rulebook_v2_book.restore_book(
+        _conn(), 1, ENGINEER, "a restore, so its table has a row"
+    )
     return version
 
 
@@ -909,7 +913,12 @@ def test_a_rule_reads_who_it_is_for_then_unless_then_what_it_demands():
 _RULEBOOK_NAME = re.compile(
     r"\brulebook_(?:rule|version|provenance|applicability|exception|approval|snapshot|run|event)\b"
 )
-_OURS = {"rulebook_v2.py", "rulebook_v2_ingest.py", "rulebook_v2_schema.py"}
+_OURS = {
+    "rulebook_v2.py",
+    "rulebook_v2_book.py",
+    "rulebook_v2_ingest.py",
+    "rulebook_v2_schema.py",
+}
 _V1_WRITE = re.compile(
     r"(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+standard_requirements\b"
 )

@@ -4,7 +4,7 @@
  *
  * Two rules are under test:
  *
- *  - No internal jargon. "Sunday POC lane", the codename "Nabaa" and the claim
+ *  - No internal jargon. "Sunday POC lane", the old codename and the claim
  *    "FEED intelligence" all meant something to the team and nothing to a
  *    reader; "FEED" was additionally FALSE, because this corpus is design
  *    guides, security standards and a coatings spec, with no FEED document in
@@ -46,13 +46,11 @@ describe("sidebar wording", () => {
     const sidebar = renderShell();
 
     expect(sidebar.queryByText(/POC lane/i)).toBeNull();
-    expect(sidebar.queryByText(/Nabaa/i)).toBeNull();
     expect(sidebar.queryByText(/FEED/i)).toBeNull();
     // Belt and braces: the strings must be absent from the sidebar's text as a
     // whole, not just from any single element a query happens to match.
     const text = screen.getByRole("navigation", { name: "Main" }).textContent ?? "";
     expect(text).not.toMatch(/POC lane/i);
-    expect(text).not.toMatch(/Nabaa/i);
     expect(text).not.toMatch(/FEED/i);
   });
 

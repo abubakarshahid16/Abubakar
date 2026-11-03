@@ -44,6 +44,7 @@ from . import crs_decider, crs_page_words, crs_reference, equipment_subtype
 from . import page_not_read, paragraph_ids, procedure_text, spec_kit, word_pages
 
 # isort: split
+from .compliance_list import is_listed as listed
 from .crs_draft_lanes import (  # noqa: F401
     AI_UNCONFIRMED_COMMENT,
     CLAUSE_LANE,
@@ -214,9 +215,8 @@ def _ai_unverified(finding: dict) -> bool:
 
 
 def _rejected(finding: dict) -> bool:
-    """Owner order section 3: an engineer rejected this comment - it is left
-    off the sheet. The finding and the rejection both stay on record."""
-    return finding.get("approval_status") == "rejected"
+    """Left off the sheet: an engineer rejected it (owner order section 3) or it is a compliance-list item."""
+    return finding.get("approval_status") == "rejected" or listed(finding)
 
 
 def finding_comment_key(f: dict) -> str:
@@ -252,7 +252,7 @@ def rejected_comment_keys(findings: list[dict]) -> set[str]:
     withdrawn too. A rejected comment is never issued: `main._crs_content`
     never carries these forward and `main._mint_crs_numbers` withdraws their
     numbers (less any key a row still on the sheet holds)."""
-    rejected = [f for f in findings if _rejected(f)]
+    rejected = [f for f in findings if f.get("approval_status") == "rejected"]
     return {finding_comment_key(f) for f in rejected} | {
         finding_member_key(f) for f in rejected
     }
@@ -1400,7 +1400,7 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
     standard that does not appear to apply. Machine drafts ("AI Review"),
     never confirmed here; a cited standard the library does not hold stays a
     Review note (`build_review_notes`), never a row and never met."""
-    rows: list[dict] = []
+    rows: list[dict] = equipment_subtype.scope_query_rows(check, submittal_name)
     for r in (check or {}).get("required_not_cited") or []:
         ident = r["identifier"]
         rows.append({

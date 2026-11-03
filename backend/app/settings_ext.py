@@ -48,6 +48,10 @@ class SettingsExt(BaseModel):
     #: 1 (`rulebook_v2_review.py`). Needs RULEBOOK_V2_ENABLED and the tables, so a database copy today. OFF: a review
     #: reads none of it and is byte-identical. Env: RULEBOOK_V2_REVIEW_ENABLED.
     rulebook_v2_review_enabled: bool = False
+    #: #805 order 3 Nov STEP 5: the register of every edition of a standard with its issue date
+    #: (`standard_editions.py`), on a database COPY. The pure choice of edition needs no switch. OFF: nothing is read,
+    #: created or written. Env: STANDARD_EDITIONS_ENABLED.
+    standard_editions_enabled: bool = False
     #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
@@ -201,6 +205,14 @@ class SettingsExt(BaseModel):
     #: the two switches above merge nothing more. Findings are never touched. OFF: as it was.
     #: Env: CRS_ONE_ROW_PER_PROBLEM_ENABLED.
     crs_one_row_per_problem_enabled: bool = False
+    #: Owner order 3 Nov (item 14): ONE note at the top of the INTERNAL CRS copy, saying the rules used are
+    #: drafts checked by code unless the row's Rule trust text says a person approved it, and that an engineer must confirm. Export text
+    #: only; no row, verdict or number changes. OFF: the sheet is as it was. Env: CRS_RULES_NOTE_ENABLED.
+    crs_rules_note_enabled: bool = False
+    #: Owner 3 Nov 11:40 (a): with the switch above, rows with the same problem, field, value, verdict and page are
+    #: one row whatever the clause or standard; the merged row lists every reference, tag and page. OFF: the
+    #: clause is part of the key, as merged in #1648. Env: CRS_ONE_ROW_IGNORE_CLAUSE_ENABLED.
+    crs_one_row_ignore_clause_enabled: bool = False
     #: #1591: on that export, a row with no page says the section or field it is about and why it
     #: has no page, never "page not found". A page still comes only from a verified quote. Needs
     #: CRS_EXPORT_QUALITY_ENABLED. OFF: nothing changes. Env: CRS_PAGE_CELL_FIELD_ENABLED.
@@ -342,6 +354,19 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Owner 3 Nov 12:20: a cited standard is never called "does not appear to apply" on the table's word
+    #: alone (the table lists what a standard governs, not what its scope clause excludes: a pressure-vessel
+    #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
+    #: the engineer (`declared_check`). OFF: as it was. Env: STANDARD_SCOPE_NOT_NO_ENABLED.
+    standard_scope_not_no_enabled: bool = False
+    #: Owner 3 Nov 11:40 (b): a value the sheet gives that only a DRAFT rule checks, with nothing found, writes no
+    #: CRS row; it is listed on the internal-only sheet "Compliance list" as "No issue found (draft rule)".
+    #: Findings are untouched. OFF: as it was. Env: CRS_COMPLIANCE_LIST_ENABLED.
+    crs_compliance_list_enabled: bool = False
+    #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
+    #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
+    #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
+    crs_drop_placeholder_rows_enabled: bool = False
     #: #1608 (plan change 6 G): at the end of each comparison the run stores its rulebook (version used, rules applied,
     #: fingerprint) and the ticks imported; the internal CRS gets a "Run record" sheet with those, the run's models and
     #: the could-not-check list, which says so when empty (`run_record`). OFF: nothing stored, no sheet.
@@ -365,6 +390,10 @@ class SettingsExt(BaseModel):
     #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
     #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
     owner_approved_rules_decide_enabled: bool = False
+    #: Owner order 3 Nov (item 14): a rule an ENGINEER approved may decide Pass, Fail or Query like an
+    #: owner-approved one, labelled engineer-approved. Needs the switch above. A draft, a rejected or an
+    #: unsigned rule never decides. OFF: only the owner's approval decides. Env: ENGINEER_APPROVED_RULES_DECIDE_ENABLED.
+    engineer_approved_rules_decide_enabled: bool = False
     #: #1638: a checklist `required` row only asks that a field is stated. ON: it counts for
     #: no approval and is not a decided rule, and is named "stated, not checked". OFF: a
     #: Pass like any other. Env: PRESENCE_NOT_PASS_ENABLED.

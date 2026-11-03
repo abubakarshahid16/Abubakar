@@ -21,7 +21,7 @@ check = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(check)
 
 PATTERN = check.build_pattern(
-    ["216400C", "EF1975", "M-03", "I-06", "pf1-t01-pump", "STD-PUMP-0101"]
+    ["ZZ9000C", "QX1234", "Q-77", "R-88", "pf1-t01-pump", "STD-PUMP-0101"]
 )
 
 
@@ -34,50 +34,50 @@ def test_the_repository_is_clean_today():
 
 
 def test_a_name_in_python_code_fails():
-    assert hits("a.py", 'if sheet_id == "216400C":\n    pass\n') == ["216400C"]
-    assert hits("a.py", 'RULES = {"M-03": 1}\n') == ["M-03"]
+    assert hits("a.py", 'if sheet_id == "ZZ9000C":\n    pass\n') == ["ZZ9000C"]
+    assert hits("a.py", 'RULES = {"Q-77": 1}\n') == ["Q-77"]
 
 
 def test_a_name_in_a_string_a_program_uses_fails_even_with_the_mark_in_a_trailing_comment():
-    assert hits("a.py", 'x = "216400C"  # [found-on]\n') == ["216400C"]
+    assert hits("a.py", 'x = "ZZ9000C"  # [found-on]\n') == ["ZZ9000C"]
 
 
 def test_a_comment_names_a_sheet_only_with_the_mark():
-    assert hits("a.py", "# found on 216400C\n") == ["216400C"]
-    assert hits("a.py", "# found on 216400C [found-on]\n") == []
+    assert hits("a.py", "# found on ZZ9000C\n") == ["ZZ9000C"]
+    assert hits("a.py", "# found on ZZ9000C [found-on]\n") == []
 
 
 def test_a_docstring_names_a_sheet_only_with_the_mark():
-    bare = '"""Seen on I-06."""\n'
-    marked = '"""Seen on I-06. [found-on]"""\n'
-    assert hits("a.py", bare) == ["I-06"]
+    bare = '"""Seen on R-88."""\n'
+    marked = '"""Seen on R-88. [found-on]"""\n'
+    assert hits("a.py", bare) == ["R-88"]
     assert hits("a.py", marked) == []
-    inner = 'def f():\n    """Why.\n\n    Seen on I-06 [found-on]\n    """\n'
+    inner = 'def f():\n    """Why.\n\n    Seen on R-88 [found-on]\n    """\n'
     assert hits("a.py", inner) == []
 
 
 def test_a_real_client_document_number_is_caught_on_both_halves():
-    assert hits("a.py", "# review of EF1975-XX-M-03\n") == ["EF1975", "M-03"]
+    assert hits("a.py", "# review of QX1234-XX-Q-77\n") == ["QX1234", "Q-77"]
 
 
 def test_whole_tokens_only_and_any_case():
-    assert hits("a.py", 'x = "M-030"\n') == []
-    assert hits("a.py", 'x = "XM-03"\n') == []
+    assert hits("a.py", 'x = "Q-770"\n') == []
+    assert hits("a.py", 'x = "XQ-77"\n') == []
     assert hits("a.py", 'x = "PF1-T01-PUMP"\n') == ["PF1-T01-PUMP"]
     assert hits("a.py", 'x = "std-pump-0101"\n') == ["std-pump-0101"]
 
 
 def test_typescript_comments_with_the_mark_pass_and_code_fails():
-    assert hits("a.ts", "// seen on I-06 [found-on]\n") == []
-    assert hits("a.ts", "/* seen on I-06 */\n") == ["I-06"]
-    assert hits("a.ts", " * seen on I-06 [found-on]\n") == []
-    assert hits("a.tsx", 'const sheet = "I-06";\n') == ["I-06"]
-    assert hits("a.tsx", 'const sheet = "I-06"; // [found-on]\n') == ["I-06"]
+    assert hits("a.ts", "// seen on R-88 [found-on]\n") == []
+    assert hits("a.ts", "/* seen on R-88 */\n") == ["R-88"]
+    assert hits("a.ts", " * seen on R-88 [found-on]\n") == []
+    assert hits("a.tsx", 'const sheet = "R-88";\n') == ["R-88"]
+    assert hits("a.tsx", 'const sheet = "R-88"; // [found-on]\n') == ["R-88"]
 
 
 def test_a_data_file_is_code():
-    assert hits("a.json", '{"sheet": "216400C"}\n') == ["216400C"]
-    assert hits("a.json", '{"note": "216400C [found-on]"}\n') == ["216400C"]
+    assert hits("a.json", '{"sheet": "ZZ9000C"}\n') == ["ZZ9000C"]
+    assert hits("a.json", '{"note": "ZZ9000C [found-on]"}\n') == ["ZZ9000C"]
 
 
 def test_test_files_are_not_scanned():
@@ -131,13 +131,14 @@ def test_a_missing_held_out_list_is_said_not_silent(tmp_path):
     assert ids == [] and "not checked" in note
 
 
-@pytest.mark.parametrize("bad", ["216400C", "pf1-t01-pump"])
+@pytest.mark.parametrize("bad", ["ZZ9000C", "pf1-t01-pump"])
 def test_the_run_fails_on_a_planted_name(tmp_path, monkeypatch, bad, capsys):
     base = tmp_path / "backend" / "app"
     base.mkdir(parents=True)
     (base / "planted.py").write_text(f'SHEET = "{bad}"\n', encoding="utf-8")
     monkeypatch.setattr(check, "ROOT", tmp_path)
     monkeypatch.setattr(check, "SCAN", ((base, (".py",)),))
+    monkeypatch.setattr(check, "REAL", ("ZZ9000C",))
     assert check.main() == 1
     assert "planted.py:1" in capsys.readouterr().out
 

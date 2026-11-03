@@ -594,11 +594,51 @@ def _internal_extras(
     return notes, {"rows": rows, "considered": considered}
 
 
+NOTE_PARKED = (
+    "AI suggestion awaiting an engineer's decision - row left off the CRS sheet"
+)
+
+
+def park_placeholders(view: dict) -> dict:
+    """Internal copy, switch on: a row whose comment is only the waiting sentence leaves the sheet. Its AI words go to
+    the Review notes, one line each. A row with an issued number stays."""
+    from .crs_draft_lanes import WAITING_COMMENTS
+
+    waiting = [
+        r
+        for r in view["rows"]
+        if str(r.get("comment") or "").strip() in WAITING_COMMENTS
+        and not r.get("crs_ref")
+    ]
+    if not waiting:
+        return view
+    notes = [
+        {
+            "note": NOTE_PARKED,
+            "standard": str(r.get("standard_reference") or ""),
+            "count": None,
+            "detail": str(r.get("ai_review_comment") or ""),
+        }
+        for r in waiting
+    ]
+    kept = [r for r in view["rows"] if r not in waiting]
+    said = f"{len(waiting)} AI suggestions moved to Review notes"
+    top = "\n".join(x for x in (view.get("run_status_note"), said) if x)
+    return {
+        **view,
+        "rows": kept,
+        "run_status_note": top,
+        "review_notes": [*view["review_notes"], *notes],
+    }
+
+
 def finish(view: dict, dropped: int, merged: int) -> dict:
     """Rules 3 to 7 on the view `build_crs_view` made (switch on only)."""
     from . import crs_export as ce
 
     internal = view["crs_copy"] == ce.COPY_INTERNAL
+    if internal and settings.crs_drop_placeholder_rows_enabled:
+        view = park_placeholders(view)
     if not internal:  # a client copy has no Review notes: the withheld count says it
         view["rows_withheld_no_text"] += dropped
         dropped = 0
@@ -665,3 +705,23 @@ def write_internal_sheet(wb, inner: dict, write) -> None:
             write(sheet, r, col, entry[key]).alignment = wrap
     for col, width in zip("ABCD", (30, 22, 70, 70), strict=True):
         sheet.column_dimensions[col].width = width
+
+
+#: Item 14 (owner order 3 Nov, CRS_RULES_NOTE_ENABLED): the ONE note at the top of the CRS, both copies. A draft
+#: row is never labelled one by one; a row marked with a tick uses an approved rule.
+RULES_NOTE = (
+    "Rules used in this review are drafts built from the standards and checked by code, "
+    "unless the Rule trust text of a row says a person approved the rule. An engineer must confirm this CRS."
+)
+
+
+def with_rules_note(meta: dict) -> str:
+    """Row 1's note: the run status as it was, then the one rules note when the switch is on. INTERNAL copy only:
+    the contractor copy never says an engineer must confirm anything (owner 3 Nov 11:40)."""
+    from .config import settings
+
+    said = str(meta.get("run_status_note") or "")
+    copy = meta.get("copy")
+    if not settings.crs_rules_note_enabled or (copy or "internal") != "internal":
+        return said
+    return f"{said}\n{RULES_NOTE}" if said else RULES_NOTE

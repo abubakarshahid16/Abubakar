@@ -86,9 +86,9 @@ def _scope(*ids): return frozenset(ids)
 
 
 ROWS = [
-    ("Set pressure", "340 psig By Contractor"),
-    ("Density at relieving temper.", "23.55 Kg/m3"),
-    ("Design pressure", "23.5 barg"),
+    ("Set pressure", "355 psig By Contractor"),
+    ("Density at relieving temper.", "31.75 Kg/m3"),
+    ("Design pressure", "27.5 barg"),
     ("Compressibility factor", "0.892"),
     ("Casing material", "____________"),
 ]
@@ -105,7 +105,7 @@ def test_a_value_with_its_unit_is_extracted_from_a_datasheet_page(tmp_path):
     rows = datasheets.list_facts(doc, allowed_document_ids=_scope(doc))
     by_field = {r["field_name"]: r for r in rows}
     density = by_field["density at relieving temper"]
-    assert density["raw_value"] == "23.55"
+    assert density["raw_value"] == "31.75"
     assert density["raw_unit"] == "Kg/m3"
     assert density["is_blank"] == 0
     # It resolves: a fact without a chunk and a page is an assertion.
@@ -120,7 +120,7 @@ def test_a_by_contractor_field_is_recorded_as_blank_never_as_zero(tmp_path):
     """THE MUTATION TARGET (M50). A "By Contractor" field with NO value is
     MISSING_INFORMATION, not NON_COMPLIANT and never a zero. #725 F3 (owner
     decision 2026-10-09) reversed the older rule for a value printed BESIDE
-    the marker: "340 psig By Contractor" is the value 340 psig with the note
+    the marker: "355 psig By Contractor" is the value 355 psig with the note
     "By Contractor" - asserted here too, so both halves stay pinned."""
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", ROWS))
     datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
@@ -129,10 +129,10 @@ def test_a_by_contractor_field_is_recorded_as_blank_never_as_zero(tmp_path):
 
     noted = rows["set pressure"]
     assert noted["is_blank"] == 0
-    assert noted["raw_value"] == "340" and noted["normalized_value"] is not None
+    assert noted["raw_value"] == "355" and noted["normalized_value"] is not None
     assert "contractor" in (noted["value_note"] or "").lower()
     # The sheet's own words survive, so a reader can see what it said.
-    assert "340 psig" in noted["field_value"]
+    assert "355 psig" in noted["field_value"]
     # A marker with no value is still a blank, never a zero.
     assert datasheets.value_columns("By Contractor", field_label="Set pressure")["is_blank"] is True
 
@@ -185,22 +185,22 @@ def test_an_unknown_unit_yields_none_and_never_zero(tmp_path):
     # Without this the test would pass against a build that normalised nothing.
     density = rows["density at relieving temper"]
     assert density["raw_unit"] == "Kg/m3"
-    assert density["normalized_value"] == 23.55
+    assert density["normalized_value"] == 31.75
     assert density["normalized_unit"] == "kg/m3"
 
 
 def test_prose_is_not_recorded_as_a_measurement(tmp_path):
     """Found on the real sheet: "2nd Stage Desalter" parsed as value 2 unit
-    "nd", and a P&ID number "10-05-498 & 556-05-513" as the value 10."""
+    "nd", and a P&ID number "99-05-998 & 999-05-913" as the value 10."""
     rows = [("Location", "2nd Stage Desalter"),
-            ("P&ID Reference", "10-05-498 & 556-05-513"),
-            ("Design pressure", "23.5 barg")]
+            ("P&ID Reference", "99-05-998 & 999-05-913"),
+            ("Design pressure", "27.5 barg")]
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", rows))
     datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
     found = {r["field_name"]: r for r in
              datasheets.list_facts(doc, allowed_document_ids=_scope(doc))}
     # The real measurement IS there - assert the positive first.
-    assert found["design pressure"]["raw_value"] == "23.5"
+    assert found["design pressure"]["raw_value"] == "27.5"
     # And the prose did not become one.
     assert "location" not in found
     assert "p/id reference" not in found and "p id reference" not in found
@@ -217,13 +217,13 @@ def test_a_value_is_never_promoted_into_a_field_label(tmp_path):
     The first becomes the "label" and the second parses, so the fact gate lets
     it through and a row appears whose field name is a number. On the real PSV
     sheet that produced field labels like `0.01cP By Contractor` and
-    `23.5 / 11.03 barg`, and 375 phantom blank fields with them.
+    `27.5 / 12.04 barg`, and 375 phantom blank fields with them.
     """
-    # "340 psig" alone is now ALSO refused by row_noise's number-keyed rule
+    # "355 psig" alone is now ALSO refused by row_noise's number-keyed rule
     # (it runs on the default path since 2026-09-25), which masked the label
     # guard under mutation (M56). A decimal first cell - "0.01 cP" - has no
     # such shape, so only `is_field_label` stops it becoming a field name.
-    rows = [("Design pressure", "23.5 barg"), ("340 psig", "0.892"), ("0.01 cP", "0.892")]
+    rows = [("Design pressure", "27.5 barg"), ("355 psig", "0.892"), ("0.01 cP", "0.892")]
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", rows))
     datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
     found = datasheets.list_facts(doc, allowed_document_ids=_scope(doc))
@@ -262,7 +262,7 @@ def test_an_unparsed_page_lowers_completeness_and_says_why(tmp_path):
     doc_pdf = pymupdf.open()
     page = doc_pdf.new_page(width=600, height=400)
     page.insert_text((44, 60), "1"); page.insert_text((64, 60), "Design pressure")
-    page.insert_text((304, 60), "23.5 barg")
+    page.insert_text((304, 60), "27.5 barg")
     blank_page = doc_pdf.new_page(width=600, height=400)
     blank_page.insert_text((50, 100), "This page is narrative text with no fields.")
     doc_pdf.save(str(path)); doc_pdf.close()
@@ -291,25 +291,25 @@ def test_a_document_with_no_chunks_reports_a_null_fraction(tmp_path):
 
 def test_a_referenced_standard_named_in_the_datasheet_is_detected(tmp_path):
     """THE MUTATION TARGET (M52). The stack both real client sheets name."""
-    text = ("Design Standard: API RP 520 Pt-1&2, KOC-MP-027 Pt-1. "
+    text = ("Design Code: API RP 520 Pt-1&2, AGA-MP-027 Pt-1. "
             "Materials per NACE MR-0175 / ISO 15156 and ASTM A216. "
-            "Pump per API 610 and KOC-ME-008.")
+            "Pump per API 610 and AGA-ME-008.")
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", ROWS), text=text)
     result = datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
     found = {s.upper().replace(" ", "") for s in result["referenced_standards"]}
     # Matched on the BASE identifier, because the part suffix belongs to the
-    # citation: the sheet wrote "KOC-MP-027 Pt-1" and the extractor keeps the
+    # citation: the sheet wrote "AGA-MP-027 Pt-1" and the extractor keeps the
     # part rather than truncating it. A citation is quoted, not canonicalised.
-    for expected in ("APIRP520", "KOC-MP-027", "NACEMR-0175", "ISO15156",
-                     "API610", "KOC-ME-008"):
+    for expected in ("APIRP520", "AGA-MP-027", "NACEMR-0175", "ISO15156",
+                     "API610", "AGA-ME-008"):
         assert any(f.startswith(expected) for f in found), \
             f"{expected} was not detected; found {sorted(found)}"
 
 
 def test_a_tag_number_is_not_mistaken_for_a_standard():
-    """PSV-4303 and 10-05-498 are tags, not standards."""
+    """PSV-9903 and 99-05-998 are tags, not standards."""
     found = datasheets.referenced_standards(
-        "Tag No. PSV-4303 A/B, P&ID 10-05-498, per API 610.")
+        "Tag No. PSV-9903 A/B, P&ID 99-05-998, per API 610.")
     assert found == ["API 610"]
 
 
@@ -711,9 +711,9 @@ def test_175_a_single_line_header_needs_no_carry_forward():
 def test_175_a_narrow_shape_falls_through_to_split_label_value_unchanged():
     """Under three columns wide, this is exactly the row split_label_value
     was built for - the new function must not touch it."""
-    two_col = [["Design pressure", "23.5 barg"]]
+    two_col = [["Design pressure", "27.5 barg"]]
     assert (datasheets.pairs_from_table_shape(two_col)
-           == datasheets.split_label_value(["Design pressure", "23.5 barg"]))
+           == datasheets.split_label_value(["Design pressure", "27.5 barg"]))
 
 
 def test_175_wired_into_extract_facts_not_just_the_function():
@@ -731,7 +731,7 @@ def test_175_wired_into_extract_facts_not_just_the_function():
 #
 # Two real regression documents, re-audited independently after #175
 # shipped: `pairs_from_table_shape` treated column 0 as THE row's one label
-# in every case, which is wrong whenever column 0 is actually a bare KOC-
+# in every case, which is wrong whenever column 0 is actually a bare AGA-
 # style row/line number rather than a name for the row. No client content:
 # the labels, headers and values below are invented, but each SHAPE - a
 # ruled row that packs two independent label:value sub-forms side by side
@@ -740,12 +740,12 @@ def test_175_wired_into_extract_facts_not_just_the_function():
 # exactly what was measured on the two real regression documents' pages.
 
 # A pressure-safety-valve sheet's row: a PROCESS DATA sub-form and a
-# SPRING AND BONNET sub-form share one physical row, each introduced by its
+# SPRING AND COVER sub-form share one physical row, each introduced by its
 # own line number, with a blank spacer column on either side of each value.
 DUAL_SUBFORM_ROW_SHAPE = [
     ["MAKE / MFR. MODEL NO.", "", "", "", "", "Design Standard: X", "", ""],
-    ["1", "Fluid", "", "Crude Oil/Gas (Dual Service)", "", "42",
-     "Bonnet type/ style", "Bolted/ closed"],
+    ["1", "Fluid", "", "Sour Water/Gas (Dual Service)", "", "42",
+     "Cover type/ style", "Bolted/ closed"],
 ]
 
 # A ruled table whose row 0 is the page's own repeating title (the actual
@@ -762,13 +762,13 @@ ROW_NUMBERED_FORM_SHAPE = [
 def test_179_a_dual_subform_row_keeps_each_side_s_own_label():
     """THE DEFECT. Column 0 ('1') is a row number, not a label - pairing
     every value on the row against it turned the row's two REAL labels
-    ('Fluid', 'Bonnet type/ style') into values and left every fact on the
+    ('Fluid', 'Cover type/ style') into values and left every fact on the
     row named after a bare digit."""
     pairs = datasheets.pairs_from_table_shape(DUAL_SUBFORM_ROW_SHAPE)
     by_label = dict(pairs)
 
-    assert by_label.get("Fluid") == "Crude Oil/Gas (Dual Service)", pairs
-    assert by_label.get("Bonnet type/ style") == "Bolted/ closed", pairs
+    assert by_label.get("Fluid") == "Sour Water/Gas (Dual Service)", pairs
+    assert by_label.get("Cover type/ style") == "Bolted/ closed", pairs
     assert not any(re.fullmatch(r"\d{1,3}", label) for label, _ in pairs), (
         f"a row number survived as a field_name: {pairs}")
 
@@ -808,7 +808,7 @@ def test_175_a_page_with_no_native_pairs_falls_back_to_its_ocr_text(tmp_path):
                 box_count, seconds, recognised_at, batch_no)
                VALUES (?,1,?,?, 'rapidocr-3.9.2', 'test-model', 200, 1,
                        0.1, '2026-09-23T00:00:00Z', 0)""",
-            (doc_id, "Design pressure: 23.5 barg", 26))
+            (doc_id, "Design pressure: 27.5 barg", 26))
 
     out = datasheets.extract_facts(doc_id, allowed_document_ids=_scope(doc_id))
     assert out["facts"] > 0, "the OCR fallback tier never fired"

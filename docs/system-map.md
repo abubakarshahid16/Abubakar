@@ -120,6 +120,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
 | `crs_one_row` | #1503: one CRS row per problem, and "did not reference" rows nothing in scope requires, behind CRS_ONE_ROW_PER_PROBLEM_ENABLED |
+| `compliance_list` | Owner 3 Nov 11:40 (b): a value only a draft rule checks, with nothing found, is no CRS row; it is on the internal-only sheet "Compliance list", behind CRS_COMPLIANCE_LIST_ENABLED |
 | `crs_machine_words` | Order 152.2: finds machine wording (code names, model/engine names, internal phrases) in the contractor copy's machine-written cells; the issue gate refuses it |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
@@ -155,6 +156,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `form_reader` | Read the form of a datasheet page with a model and verify every answer in code |
 | `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
 | `form_reader_run` | Run the form reader over a datasheet for extraction |
+| `unit_tie` | A reader's unit must sit with its number in the quote ("10 bar and 5 MPa" is no 10 MPa, #1653) |
 | `reread_for_standards` | Read the sheet once more when the standards a review chose ask for fields the first read never asked (order 211 R2) |
 | `own_value_limit` | A reference that states its own value ("the vessel MAWP of 12 barg") is a plain limit of that value |
 | `severity_rule` | One rule for a severity word: a failed requirement is never minor |
@@ -220,6 +222,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |
 | `rulebook_v2_findings` | #805 plan change 6: a review's version 2 rows as findings of the run, each citing its rule, with the safety tier and open tick |
 | `rulebook_v2_signed` | #805 plan change 6: a compiled rule's field role and typed check, and what a tick records of them |
+| `rulebook_v2_book` | #805 STEP 5: the rulebook's numbered book versions, and restoring any one in one verified, logged step (a pin that makes `rulebook_v2` serve that book's versions), on a database copy |
+| `standard_editions` | #805 STEP 5: every edition of a standard with its issue date (append-only, on a database copy), and the pure choice of the edition a contract's cutoff rule applies, strictest of FEED and contract when they differ |
 | `rulebook_v2_stated` | #805 plan change 6: a run's version 2 rows as `coverage_pair` states them, apart, with their denominator |
 | `run_parts` | what a review run states beside its three groups, and its door to the version 2 rulebook, shut with the switch off |
 | `rulebook_v2_ingest` | #805 plan change 6, part A: a compile's verified rows become rows of the version 2 tables, each quote checked again and what fails counted by reason; counts for the version-1-beside-version-2 table |
@@ -336,6 +340,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `standards_inventory` | Standards inventory (B5 part 2): family, edition/revision, licence status, cover-page backfill, and which stan |
 | `stated_value` | Order 124 item 9: a long stated value is quoted in a finding's text as a marked excerpt ending " …", never a raw table chunk; verdicts still use the whole value |
 | `statement_asks` | Orders 180.1 item 2: a plain statement paired with a blank field supports the row only if it asks the sheet to state something |
+| `subject_pairing` | Pairing rule 7: a requirement pairs with a datasheet field only when its subject is the same quantity (off by default) |
 | `states` | Document lifecycle state machine |
 | `stored_paths` | A stored file's path, relative to `data_dir`, resolved on read (order 121 C) |
 | `structured_search` | Small, scope-aware search over EPC workflow records |
