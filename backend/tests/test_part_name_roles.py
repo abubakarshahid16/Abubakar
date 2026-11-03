@@ -193,3 +193,9 @@ def test_the_check_finds_the_material_it_called_not_found(monkeypatch):
     assert [off[i] for i in ("PMP-12", "PMP-13", "PMP-14")] == [
         "MISSING_INFORMATION"
     ] * 3
+
+
+def test_two_parts_in_one_quote_never_fill_a_sentence_either():
+    quote = "SEALING FOR THE SHAFT SHALL BE A DOUBLE MECHANICAL SEAL"
+    got = verify("seal_type", "DOUBLE MECHANICAL SEAL", quote, quote + "\n")
+    assert got is form_reader.Reason.LABEL_NOT_IN_QUOTE
