@@ -157,10 +157,19 @@ def _kits() -> list[Kit]:
 
 def with_kit(key: str, items: list[dict]) -> list[dict]:
     """`items` plus the draft kit cards of every kit for this type (none while its switch is off)."""
+    from .draft_items import read
+
     out = list(items)
     for kit in _kits():
         out += kit.loader_items(key, out)
-    return out
+    return read(out)
+
+
+def without_stated(results: list[dict]) -> list[dict]:
+    """`results` less a draft item's stated value (it gives no verdict and no row; see `draft_items`)."""
+    from .draft_items import without_stated as keep
+
+    return keep(results)
 
 
 def held(result: dict, item: dict) -> dict:
@@ -198,7 +207,8 @@ def _with_bounds(item: dict, rules: dict) -> dict:
 
 def rows(checklist, roles, common, tag, rules, page_texts) -> list[dict]:
     """The checklist's results for one tag, kit cards held (see `held`)."""
-    from .datasheet_checks import evaluate_item, hold_draft_item
+    from .datasheet_checks import evaluate_item
+    from .draft_items import hold as hold_draft_item
 
     return [
         held(

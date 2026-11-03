@@ -398,17 +398,6 @@ NOT_APPLICABLE = "NOT_APPLICABLE"
 DRAFT_MARK = "DRAFT checklist, not signed off"
 
 
-#: Part of #805: an item that is itself a DRAFT (`"status": "draft (engineer to approve)"`), whatever the
-#: checklist's own sign-off. It never decides: see `hold_draft_item`. One home: read by `checklist_scope`.
-DRAFT_ITEM_MARK = "draft item, engineer to approve"
-#: Its stated value gives no verdict (CLAUDE.md rule 4). Not a row; `store` writes none.
-STATED_NO_VERDICT = "STATED_NO_VERDICT"
-
-
-def is_draft_item(item: dict) -> bool:
-    return str(item.get("status") or "").lower().startswith("draft")
-
-
 def is_draft_checklist(text: str | None) -> bool:
     """Whether a stored finding's requirement came from a DRAFT checklist."""
     return DRAFT_MARK in str(text or "")
@@ -440,9 +429,6 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
         return None
     entry = table[key]
     items = kit_core.with_kit(key, list(entry.get("items", [])) + _local_items(key))
-    if not settings.draft_process_items_enabled:
-        # Part of #805: a DRAFT item is read only with its switch on; OFF, the checklist is as it was.
-        items = [item for item in items if not is_draft_item(item)]
     for item in items:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
@@ -814,65 +800,6 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {right_words}.{noted}", fact)
 
 
-def _says(value: str, choices: list[str]) -> tuple[bool, str]:
-    """Whether the stated value contains one of the choice words as whole words, and the value with
-    those words taken out (so "non sour" is a no, not a no AND a yes for "sour")."""
-    folded = f" {_fold(value).replace('-', ' ')} "
-    found = False
-    for word in sorted(choices, key=len, reverse=True):
-        needle = f" {_fold(word)} "
-        while needle in folded:
-            found = True
-            folded = folded.replace(needle, " ", 1)
-    return found, folded
-
-
-def hold_draft_item(result: dict, item: dict) -> dict:
-    """Part of #805: a DRAFT item (`is_draft_item`) never decides a Pass or Fail. A value not stated is the
-    contractor's gap, as for every presence check ("Not stated. ... Contractor to provide ..."); a stated
-    value gives no verdict (STATED_NO_VERDICT); an item with a `choice` answer stated "yes" is a QUERY for the
-    engineer, never a decision; yes and no together, or neither, is the engineer's to read. Other statuses
-    (an engineer's question, does not apply) are kept as they are."""
-    if not is_draft_item(item):
-        return result
-    answer = item.get("answer") or {}
-    out = {**result, "draft": True, "item_status": item["status"]}
-    out["text"] = (
-        f"{result['text']} [{DRAFT_ITEM_MARK}"
-        f"{'; clause to confirm' if item.get('clause_to_confirm') else ''}]"
-    )
-    detail = result["detail"]
-    if result["status"] == MISSING_INFORMATION:
-        out["detail"] = (
-            "Not stated. "
-            + detail
-            + ("" if "provide" in detail else " Contractor to provide the value.")
-        )
-    elif result["status"] == COMPLIANT:
-        value = str(result.get("value") or "")
-        if answer.get("kind") != "choice":
-            out["status"] = STATED_NO_VERDICT
-            out["detail"] = f"{detail} Draft item: stated, no verdict."
-        else:
-            no, rest = _says(value, answer["no"])
-            yes, _ = _says(rest, answer["yes"])
-            if yes and not no:
-                out["status"] = NEEDS_ENGINEER_REVIEW
-                out["detail"] = (
-                    f"{detail} Query for materials: {answer['query_if_yes']}"
-                )
-            elif no and not yes:
-                out["status"] = STATED_NO_VERDICT
-                out["detail"] = f"{detail} Draft item: stated, no verdict."
-            else:
-                out["status"] = NEEDS_ENGINEER_REVIEW
-                out["detail"] = (
-                    f"{detail} It is not clearly {' or '.join(answer['choices'][:2])}: "
-                    "engineer to read it."
-                )
-    return out
-
-
 # ---------------------------------------------------------------- R13 calculations
 
 #: A calculation item whose inputs the sheet does not give: skipped with its
@@ -1217,9 +1144,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     # stored as a COMPLIANT finding with its item id, fact, page and clause, so "Meets" is visible like any result;
     # never a CRS comment (`crs_mapping` takes only breaches and gaps). Any OTHER check that held adds no row.
     # "Does not apply" and NOT CALCULATED are no rows either. 307.1: a value read for other tags is not "not read".
-    results = read_elsewhere.soften(results)
-    # A draft item's stated value gives no verdict and no row.
-    results = [x for x in results if x["status"] != STATED_NO_VERDICT]
+    results = kit_core.without_stated(read_elsewhere.soften(results))
     for r in (x for x in degraded_read.hold(results, submittal_id) if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
         if label is not None:

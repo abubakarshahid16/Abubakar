@@ -15,6 +15,7 @@ import pytest
 
 from app import checklist_scope, db, submittal_review
 from app import datasheet_checks as dc
+from app import draft_items as di
 from app.config import settings
 from tests.test_746_relief_valve_checklist import PSV, SHEET, fact
 
@@ -50,7 +51,7 @@ def test_the_draft_items_cite_a_clause_and_the_approved_items_are_unchanged(on):
     )
     assert items["PSV-D02"]["source"] == {"standard": "ISO 15156-3", "clause": "6.1"}
     assert items["PSV-D02"]["answer"]["choices"] == ["yes", "no", "not stated"]
-    drafts = {i for i, item in items.items() if dc.is_draft_item(item)}
+    drafts = {i for i, item in items.items() if di.is_draft(item)}
     assert drafts == {"PSV-D01", "PSV-D02"}
     assert items["PSV-S05"]["rule"] == {
         "kind": "required",
@@ -88,7 +89,7 @@ def test_a_placeholder_is_not_stated(on, marker):
 
 def test_a_stated_phase_gives_no_verdict(on):
     r = got([*BASE, fact("fluid phase", "Gas")])["PSV-D01"]
-    assert r["status"] == dc.STATED_NO_VERDICT != "COMPLIANT"
+    assert r["status"] == di.STATED_NO_VERDICT != "COMPLIANT"
     assert "no verdict" in r["detail"] and "Gas" in r["detail"]
 
 
@@ -105,7 +106,7 @@ def test_sour_service_yes_is_a_query_for_materials(on, value):
 @pytest.mark.parametrize("value", ["No", "None", "Not applicable", "non-sour"])
 def test_sour_service_no_gives_no_verdict(on, value):
     r = got([*BASE, fact("sour service", value)])["PSV-D02"]
-    assert r["status"] == dc.STATED_NO_VERDICT
+    assert r["status"] == di.STATED_NO_VERDICT
 
 
 @pytest.mark.parametrize("value", ["Yes / No", "2 mol% H2S"])
@@ -118,7 +119,7 @@ def test_sour_service_unclear_is_the_engineers_to_read(on, value):
 
 def test_the_other_ways_a_sheet_prints_the_labels_are_read(on):
     r = got([*BASE, fact("physical state", "Liquid"), fact("sour environment", "yes")])
-    assert r["PSV-D01"]["status"] == dc.STATED_NO_VERDICT
+    assert r["PSV-D01"]["status"] == di.STATED_NO_VERDICT
     assert r["PSV-D02"]["status"] == "NEEDS_ENGINEER_REVIEW"
     # a phase printed this way also reaches the approved items that depend on it
     assert (
