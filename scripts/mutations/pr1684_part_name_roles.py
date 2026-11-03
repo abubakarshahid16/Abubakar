@@ -45,7 +45,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         4,
         "two different values for one part still fill the role",
         _P,
-        '        if len({" ".join(_words(f.get("field_value"))) for f in found}) != 1:\n            continue  # two values for one part: no fill\n',
+        '        if len({" ".join(_words(f.get("field_value"))) for f, _ in found}) != 1:\n            continue  # two values for one part: no fill\n',
         "        if False:\n            continue\n",
         "two_different_values",
     ),
@@ -112,5 +112,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         '})\\.?$"\n    found = re.match(',
         '})"\n    found = re.match(',
         "never_fills",
+    ),
+    _m(
+        13,
+        "a printed grade range is filled as one value instead of two values for the engineer",
+        _P,
+        "        elif len(alts := grade_alternatives(value, rules)) > 1:\n",
+        "        elif False:\n",
+        "two_printed_grades",
     ),
 )

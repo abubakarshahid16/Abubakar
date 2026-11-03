@@ -369,3 +369,30 @@ def test_property_two_entries_or_an_entry_and_an_extra_word_are_never_one_entry(
         extra = rng.choice(extras)
         for text in (f"{a} {extra}", f"{extra} {a}", f"{a}, {extra}"):
             assert not part_name_roles.material_value(text, RULES), text
+
+
+def test_two_printed_grades_are_two_values_for_the_engineer_never_a_fill():
+    value = "Super Duplex S.S. ASTM A890 Gr. 4A/3A"
+    out = part_name_roles.with_roles([fact("impeller", value)], RULES, WANTED)
+    assert [f["field_name"] for f in out] == ["impeller material"] * 2
+    assert {f["field_value"] for f in out} == {
+        "Super Duplex S.S. ASTM A890 Gr. 4A",
+        "Super Duplex S.S. ASTM A890 Gr. 3A",
+    }
+    res = {
+        r["rule_id"]: r
+        for r in dc.evaluate(
+            [fact("impeller", value)], equipment_type=PUMP, page_texts={1: "x"}
+        )
+    }
+    assert res["PMP-13"]["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "two different values" in res["PMP-13"]["detail"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["A216 WCB / A105N", "316 / WCB", "Bronze / Brass", "4A/3A/2A", "NOT 4A/3A"],
+)
+def test_a_slash_that_is_not_a_range_between_two_grade_codes_is_nothing(value):
+    assert part_name_roles.grade_alternatives(value, RULES) == []
+    assert names([fact("impeller", value)]) == ["impeller"]

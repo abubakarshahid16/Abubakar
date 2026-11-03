@@ -78,6 +78,24 @@ def _entry_pattern(rules: dict) -> re.Pattern:
     return _CACHE[key]
 
 
+def grade_alternatives(value, rules: dict) -> list[str]:
+    """A printed grade range ("... Gr. 5A/6A") is two grades, an engineer's choice. The two values, each exactly one
+    allowed entry; [] for anything else (a slash anywhere but between two grade codes is never a range)."""
+    parts = str(value or "").split("/")
+    if len(parts) != 2:
+        return []
+    left, right = parts[0].split(), parts[1].split()
+    grade = re.compile(_GRADE + "$", re.IGNORECASE)
+    if (
+        not left
+        or len(right) != 1
+        or not (grade.match(left[-1]) and grade.match(right[0]))
+    ):
+        return []
+    alternatives = [" ".join(left), " ".join([*left[:-1], right[0]])]
+    return alternatives if all(material_value(a, rules) for a in alternatives) else []
+
+
 def material_value(value, rules: dict) -> bool:
     """The ENTIRE value (trimmed) is exactly one allowed entry; see `_entry_pattern`. Prose, a negation, a cross-reference,
     an alternative, a bare code, a bare family word: never."""
@@ -137,26 +155,32 @@ def with_roles(facts: list[dict], rules: dict, wanted) -> list[dict]:
                 named[part.lower()] = role
     if not named:
         return facts
-    bare: dict[str, list[dict]] = {}
+    bare: dict[str, list[tuple[dict, list[str]]]] = {}
     for fact in facts:
         name = " ".join(_words(fact.get("field_name")))
-        if (
-            name in named
-            and not fact.get("is_blank")
-            and material_value(fact.get("field_value"), rules)
-        ):
-            bare.setdefault(named[name], []).append(fact)
+        value = fact.get("field_value")
+        if name not in named or fact.get("is_blank"):
+            continue
+        if material_value(value, rules):
+            bare.setdefault(named[name], []).append((fact, [value]))
+        elif len(alts := grade_alternatives(value, rules)) > 1:
+            bare.setdefault(named[name], []).append((fact, alts))
     own = {" ".join(_words(f.get("field_name"))) for f in facts}
-    out = list(facts)
+    replace: dict[int, list[dict]] = {}
     for role, found in bare.items():
         if " ".join(role.split("_")) in own:
             continue  # a fact under the role's own name already speaks for it
-        if len({" ".join(_words(f.get("field_value"))) for f in found}) != 1:
+        if len({" ".join(_words(f.get("field_value"))) for f, _ in found}) != 1:
             continue  # two values for one part: no fill
-        for fact in found:
-            out[out.index(fact)] = {
-                **fact,
-                "field_name": " ".join(role.split("_")),
-                "part_name_filled": True,
-            }
-    return out
+        for fact, values in found:
+            # two printed grades ("5A/6A") are two values: the check says "two different values", never a fill
+            replace[id(fact)] = [
+                {
+                    **fact,
+                    "field_name": " ".join(role.split("_")),
+                    "field_value": v,
+                    "part_name_filled": True,
+                }
+                for v in values
+            ]
+    return [g for f in facts for g in replace.get(id(f), [f])]
