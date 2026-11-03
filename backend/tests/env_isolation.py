@@ -281,6 +281,7 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_export_quality_enabled": False,
     "crs_export_quality_strict_enabled": False,
     "crs_one_row_per_problem_enabled": False,
+    "crs_rules_note_enabled": False,
     # --- local only, no model or socket: a row with no page says its section or field (#1591, off by default)
     "crs_page_cell_field_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
