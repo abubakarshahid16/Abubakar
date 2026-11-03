@@ -108,7 +108,7 @@ def test_mawp_is_not_the_design_pressure_and_an_unrelated_clause_is_not_a_temper
         ),  # the sheet's own equipment is not a different object
         (
             "Corrosion allowance",
-            "corrosion allowance (2003-47-V-0001A/B)",
+            "corrosion allowance (T-7001/QA)",
         ),  # a tag is not part of the quantity
         ("Corrosion allowance", "corrosion allowance (P-101AB)"),
     ],
@@ -132,7 +132,7 @@ def test_a_requirement_with_no_subject_is_refused_not_paired_by_the_words_of_its
 
 def test_a_field_with_no_words_to_compare_is_left_alone(on):
     assert sp.conflict(req("design pressure"), fact("")) is None
-    assert sp.conflict(req("design pressure"), fact("(2003-47)")) is None
+    assert sp.conflict(req("design pressure"), fact("(7001-12)")) is None
 
 
 def _the_model_proposes(monkeypatch, field):

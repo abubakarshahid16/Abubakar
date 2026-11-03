@@ -80,7 +80,6 @@ TEST_PINS: dict[str, object] = {
     # On by default since the owner order of 2026-10-11 (item 4); in tests it
     # would be two model calls per unmatched requirement.
     "match_enabled": False,
-    "pairing_subject_gate_enabled": False,  # owner order 3 Nov: off unless its own tests turn it on
     # #806 S3 is ON in production. The suite's Claude-lane tests run fake
     # transports over invented documents that are on no approved list; the
     # guard has its own tests (`test_806_claude_approved.py`), which turn it on.
@@ -165,6 +164,7 @@ EGRESS_SAFE: dict[str, object] = {
     "answer_model_allowed_hosts": (),
     "match_enabled": False,
     "match_ask_max_per_run": 0,  # #882: two local-model calls per question
+    "pairing_subject_gate_enabled": False,  # owner order 3 Nov: off unless its own tests turn it on
     # the datasheet AI reader (`datasheet_ai`): local Ollama by default, or
     # Claude through reader_transport - two model calls per page
     "datasheet_ai_reader": "off",
