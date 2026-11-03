@@ -172,15 +172,47 @@ def test_a_second_caller_after_the_first_finished_runs_again(corpus, monkeypatch
     assert len(runs) == 2, "a finished run must not be cached as an answer"
 
 
+class _TickingClock:
+    """A clock that moves `step` seconds each time the budget reads it.
+
+    #1651: on wall time a fast machine reached the claim cap before the 0.4 s
+    deadline and the run said "claim cap", not "time budget". Each read of
+    this clock stands for one unit of work, so the deadline falls after the
+    same amount of work on every machine."""
+
+    def __init__(self, step: float) -> None:
+        self.now, self.step, self.reads = 0.0, step, 0
+
+    def __call__(self) -> float:
+        self.reads += 1
+        self.now += self.step
+        return self.now
+
+
 def test_a_heavy_run_stops_at_its_budget_and_says_it_was_cut(corpus, monkeypatch):
     acronyms.warm_all()
     monkeypatch.setattr(settings, "analysis_gaps_budget_seconds", 0.4)
+    # Only the time budget may stop this run: the claim cap is lifted, so a
+    # cap reached first cannot pass for (or hide) a working deadline.
+    monkeypatch.setattr(settings, "analysis_max_claims", 10**9)
+    clock = _TickingClock(step=0.01)
+    real = analysis.WorkBudget
+    monkeypatch.setattr(
+        analysis, "WorkBudget", lambda *a, **k: real(*a, clock=clock, **k)
+    )
     _stub_gather(monkeypatch, _evidence(corpus, n=60, chars=6000))
     start = time.perf_counter()
     out = analysis.gaps("design pressure", _scope(corpus), limit=60)
     took = time.perf_counter() - start
     assert out["truncated"] is True
-    assert "time budget" in out["truncation_reason"]
+    assert "time budget of 0.4 s reached" in out["truncation_reason"]
+    assert "claim cap" not in out["truncation_reason"]
+    # It stopped AT the budget: 0.4 s at 0.01 s a read is about 40 reads, far
+    # below the thousands of sentences in this evidence. A deadline that never
+    # fires reads the clock once per sentence to the end.
+    assert clock.reads < 100, (
+        f"the budget was read {clock.reads} times past its deadline"
+    )
     assert took < 5, f"the run took {took:.1f}s against a 0.4s budget"
 
 

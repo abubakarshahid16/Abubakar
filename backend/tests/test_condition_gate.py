@@ -219,6 +219,12 @@ def test_6b_a_placeholder_material_is_absent_evidence_not_a_mismatch(cond, insid
         assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW, (
             f"{placeholder!r} produced {out['status']}")
         assert out["condition"]["state"] == conditions.UNKNOWN
+        # #1651 (M269): the engineer is told the field is a placeholder, never
+        # that it "states a value" - a placeholder is absent evidence, and a
+        # reason that counts it as a value misstates what the sheet says.
+        reason = out["condition"]["reason"]
+        assert "blank or placeholder" in reason, reason
+        assert "state a value;" not in reason, reason
 
 
 # ----------------------------------------- 7. unconditional is untouched
@@ -360,6 +366,34 @@ def test_b49_a_length_cannot_establish_a_material_however_it_is_labelled(cond, i
 
 
 @GATES
+def test_b49_a_length_cannot_establish_a_material_even_when_its_value_names_one(
+    cond, inside
+):
+    """#1651 (M342). Since #899 a plain "0 mm" names no material, so it could
+    never excuse the clause and the B49 rule went untested. A measured value
+    that ALSO names a material - a liner's thickness written with the liner's
+    alloy - is still a length: it says nothing about the vessel's material, so
+    it must not excuse the clause either."""
+    liner = fact(
+        id="fact-liner",
+        field_name="liner material thickness",
+        field_value="3 mm 316L stainless steel",
+        raw_value="3",
+        raw_unit="mm",
+    )
+
+    out = comparison.compare(
+        req(condition=cond), fact(), submittal_facts=[*_named_material_fields(), liner]
+    )
+
+    assert out["condition"]["state"] == conditions.UNKNOWN, (
+        f"a length was accepted as proof of a material: {out['condition']['reason']}"
+    )
+    assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert out["status"] != comparison.NOT_APPLICABLE
+
+
+@GATES
 def test_b49_excusing_a_requirement_needs_a_material_that_is_actually_stated(cond, inside):
     """The control in the direction that matters. A real material outside the
     clause's scope still excuses it - the fix makes NOT_APPLICABLE harder to
@@ -401,3 +435,9 @@ def test_b49_the_role_test_reads_the_unit_even_when_only_the_value_carries_it(co
                              submittal_facts=[*_named_material_fields(), inline])
 
     assert out["condition"]["state"] == conditions.UNKNOWN
+    # #1651 (M343): a bare "0 mm" can never name a material, so the state alone
+    # cannot tell whether the length was taken as evidence. The reason can: it
+    # must speak of the six material fields only, never cite the length.
+    reason = out["condition"]["reason"]
+    assert "thickness margin material C" not in reason, reason
+    assert reason.startswith("6 ") and "blank or placeholder" in reason, reason
