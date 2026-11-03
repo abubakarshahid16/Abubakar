@@ -36,6 +36,7 @@ STATE_RESTORED = "restored by an engineer"
 STATE_KEPT = "kept on the CRS: an engineer confirmed this row"
 STATE_ABSENT = "not applied: the row is no longer in this run"
 STATE_FLAGGED = "flagged: the row stays on the CRS for the engineer to decide"
+STATE_KEPT_FAIL = "kept on the CRS: the finding behind this row is a Fail"
 STATE_UNCHECKED = "removal proposed; not checked against this run's rows"
 _SKIP = contextvars.ContextVar("crs_ai_review_view_skip", default=False)
 #: Decision paths (open-items gate, finding decision) read the rows WITH the removed rows still in them: a removal is a
@@ -122,6 +123,17 @@ def _added_row(rows: list[dict], proposal: dict, review_run_id: str) -> dict:
     }
 
 
+def source_is_fail(row: dict) -> bool:
+    """The second guard: re-derive the verdict from the stored findings behind the row, whatever the row or the proposal says."""
+    from . import ai_review_proposals as arp
+    from . import review
+
+    return arp.is_fail_row(row) or any(
+        arp.is_fail_word((review.get(fid) or {}).get("compliance_status"))
+        for fid in row.get("finding_ids") or []
+    )
+
+
 def apply(rows: list[dict], review_run_id: str) -> None:
     """Change `rows` in place: drop the removed rows, add the added ones, print the rewordings. Internal copy only."""
     if _SKIP.get():
@@ -140,6 +152,8 @@ def apply(rows: list[dict], review_run_id: str) -> None:
                 if item["proposal_id"] in restored
                 else STATE_ABSENT
                 if row is None
+                else STATE_KEPT_FAIL
+                if source_is_fail(row)
                 else STATE_KEPT
                 if row.get("engineer_confirmed")
                 else STATE_REMOVED
@@ -149,6 +163,7 @@ def apply(rows: list[dict], review_run_id: str) -> None:
             and row is not None
             and item["proposal_id"] not in restored
             and not row.get("engineer_confirmed")
+            and not source_is_fail(row)
         ):
             gone.add(item["row_key"])
         elif (

@@ -1400,7 +1400,7 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
     standard that does not appear to apply. Machine drafts ("AI Review"),
     never confirmed here; a cited standard the library does not hold stays a
     Review note (`build_review_notes`), never a row and never met."""
-    rows: list[dict] = []
+    rows: list[dict] = equipment_subtype.scope_query_rows(check, submittal_name)
     for r in (check or {}).get("required_not_cited") or []:
         ident = r["identifier"]
         rows.append({
