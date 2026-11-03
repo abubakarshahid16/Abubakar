@@ -588,6 +588,8 @@ def _later_sheets(wb, view: dict, meta: dict, internal: bool) -> None:
         run_record.write_sheet(wb, meta["run_record"], _write)
     if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
         quality.write_internal_sheet(wb, view["internal_sheet"], _write)
+    if not internal:  # item 14c: one scrub over every string of the contractor copy
+        quality.scrub_workbook(wb)
 
 
 def _note_cell(ws, view: dict, put) -> None:

@@ -490,7 +490,9 @@ def ticked_words(row: dict) -> dict:
     return {**row, "comment": said.replace(TICK_LEAD, "TICKED BY ENGINEER", 1)}
 
 
-_ENGINEER_WORD = re.compile(r"\bengineers?\b", re.IGNORECASE)
+_ENGINEER_WORD = re.compile(
+    r"\bengineers?\b|\bengineering\s+reviewers?\b|\beng\.", re.IGNORECASE
+)
 _PARTS = re.compile(r"(?<=[;\n])|(?<=[.!?])\s+")
 
 
@@ -504,24 +506,61 @@ _ASK_TO_ENGINEER = re.compile(
 )
 
 
+def scrub_text(text) -> str:
+    """One scrub for every string the contractor can read. A request addressed to the engineer keeps its ask
+    ("Clarification required from the Engineer." reads "Clarification required."); any part (between ; . ! ? and line
+    ends) that still names the engineer, the abbreviation or the engineering reviewer is cut; a bare label that is
+    nothing but the word ("Engineer") reads "reviewer". Nothing else is reworded."""
+    said = _ASK_TO_ENGINEER.sub("", str(text if text is not None else ""))
+    if not engineer_words_in(said):
+        return said
+    kept = [p for p in _PARTS.split(said) if p and not engineer_words_in(p)]
+    if kept:
+        return " ".join(p.strip() for p in kept).strip()
+    short = len(said.split()) <= 3 and not re.search(r"[;.!?]\s*$", said.strip())
+    return _ENGINEER_WORD.sub("reviewer", said) if short else ""
+
+
 def contractor_words(row: dict) -> dict:
-    """The contractor copy only. A request addressed to the engineer keeps its ask ("Clarification required from the
-    Engineer." reads "Clarification required."); any other part of a comment (between ; . ! ? and line ends) that
-    names the engineer is cut; the engineer word in another cell (who commented, the page text, the reference) is
-    the neutral "reviewer". A comment that is nothing but engineer wording becomes empty, so the existing no-text rule
-    withholds the row and counts it: it never reaches the contractor as an instruction. Switch off: the row as it was."""
+    """The contractor copy only, per row (before the no-text rule, so a comment that is nothing but engineer wording
+    is empty and its row is withheld and counted, never issued as an instruction). Switch off: the row as it was."""
     if not settings.crs_contractor_no_engineer_words_enabled:
         return row
-    out = dict(row)
-    text = _ASK_TO_ENGINEER.sub("", str(row.get("comment") or ""))
-    if engineer_words_in(text):
-        kept = [p for p in _PARTS.split(text) if p and not engineer_words_in(p)]
-        text = " ".join(p.strip() for p in kept).strip()
-    out["comment"] = text if "comment" in row else row.get("comment")
-    for key in ("comment_by", "page_section", "standard_reference"):
+    out = (
+        {**row, "comment": scrub_text(row.get("comment"))}
+        if "comment" in row
+        else dict(row)
+    )
+    for key in ("comment_by", "page_section", "standard_reference", "document_name"):
         if engineer_words_in(row.get(key)):
-            out[key] = _ENGINEER_WORD.sub("reviewer", str(row[key]))
+            out[key] = scrub_text(row[key])
     return out if out != row else row
+
+
+def scrub_workbook(wb) -> None:
+    """The contractor copy only, last: every string cell of every sheet, each sheet name and each document property
+    goes through `scrub_text`, so a note, a header or a meta value written anywhere is covered by the one rule."""
+    if not settings.crs_contractor_no_engineer_words_enabled:
+        return
+    for ws in wb.worksheets:
+        for line in ws.iter_rows():
+            for cell in line:
+                if isinstance(cell.value, str) and engineer_words_in(cell.value):
+                    cell.value = scrub_text(cell.value) or None
+        if engineer_words_in(ws.title):
+            ws.title = scrub_text(ws.title) or "Sheet"
+    for name in (
+        "creator",
+        "lastModifiedBy",
+        "title",
+        "subject",
+        "description",
+        "keywords",
+        "category",
+    ):
+        value = getattr(wb.properties, name, None)
+        if isinstance(value, str) and engineer_words_in(value):
+            setattr(wb.properties, name, scrub_text(value))
 
 
 def prepare(

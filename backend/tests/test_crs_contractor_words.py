@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import re
+import zipfile
 
 import openpyxl
 
@@ -112,3 +114,52 @@ def test_no_cell_of_the_whole_contractor_copy_names_the_engineer(monkeypatch):
     ]
     cells = _issue_cells(rows)
     assert [c for c in cells if quality.engineer_words_in(c)] == []
+
+
+WORDS = re.compile(
+    r"\bengineers?\b|\bengineering\s+reviewers?\b|\beng\.", re.IGNORECASE
+)
+
+
+def _whole_issue_copy_text(rows, meta):
+    """Every string the issue file holds: each cell of each sheet, sheet names, document properties, and the raw text of
+    every part of the zip (shared strings, properties) so nothing a reader can open is missed."""
+    full = {"review_run_id": "run-1", "copy": "issue", **meta}
+    data = crs_export.build_crs(rows, full)
+    book = openpyxl.load_workbook(io.BytesIO(data))
+    seen = [ws.title for ws in book.worksheets]
+    for ws in book.worksheets:
+        seen += [
+            str(c.value) for line in ws.iter_rows() for c in line if c.value is not None
+        ]
+    seen += [str(v) for v in vars(book.properties).values() if isinstance(v, str)]
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for name in z.namelist():
+            if name.endswith((".xml", ".rels")):
+                seen.append(z.read(name).decode("utf-8", "replace"))
+    return seen
+
+
+def test_no_string_of_the_whole_issue_copy_names_the_engineer(monkeypatch):
+    monkeypatch.setattr(settings, "crs_contractor_no_engineer_words_enabled", True)
+    rows = [
+        {**_row(), "document_name": "Eng. note.pdf", "crs_ref": "Engineer-001"},
+        _row(
+            comment="Please ask ENGINEERING reviewer. Eng. to confirm. Limit is 10 barg."
+        ),
+        _row(comment="Value 12 barg exceeds the limit."),
+    ]
+    meta = {
+        "rulebook_v2_note": "Rulebook version 2. Not yet confirmed by an engineer.",
+        "run_status_note": "Decided by the reviewing engineer.",
+        "project": "Invented job - Engineer to review",
+    }
+    seen = _whole_issue_copy_text(rows, meta)
+    assert any("exceeds the limit" in s for s in seen)
+    assert [s[:60] for s in seen if WORDS.search(s)] == []
+
+
+def test_the_code_check_knows_the_abbreviation_and_the_engineering_reviewer():
+    for text in ("Eng. to confirm", "ask ENGINEERING reviewer", "the engineer"):
+        assert quality.engineer_words_in(text)
+    assert not quality.engineer_words_in("Civil engineering standard 4.1")
