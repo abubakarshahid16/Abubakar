@@ -162,7 +162,7 @@ def with_kit(key: str, items: list[dict]) -> list[dict]:
     out = list(items)
     for kit in _kits():
         out += kit.loader_items(key, out)
-    return read(out)
+    return read(key, out)
 
 
 def without_stated(results: list[dict]) -> list[dict]:

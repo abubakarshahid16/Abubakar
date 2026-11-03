@@ -693,6 +693,52 @@
       ]
     }
   },
+  "draft_items": {
+    "_about": "Part of #805: DRAFT checklist items, per equipment type, read ONLY through draft_items.read with draft_process_items_enabled; they are not in `checklists`, so no reader of the approved items sees them.",
+    "Pressure Safety Valve": [
+        {
+          "id": "PSV-D01",
+          "status": "draft (engineer to approve)",
+          "label": "Fluid phase",
+          "aliases": ["fluid phase", "phase", "fluid state", "physical state", "relieving phase", "phase at relieving conditions"],
+          "answer": {"kind": "text"},
+          "text": "The fluid phase at relieving conditions is stated (gas or vapour, liquid, or two-phase).",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.5"
+          },
+          "clause_to_confirm": true,
+          "rule": {
+            "kind": "required",
+            "field": "draft_fluid_phase"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-D02",
+          "status": "draft (engineer to approve)",
+          "label": "Sour service",
+          "aliases": ["sour service", "sour environment", "sour duty", "h2s service", "h2s content", "nace", "nace mr0175", "iso 15156"],
+          "answer": {
+            "kind": "choice",
+            "choices": ["yes", "no", "not stated"],
+            "yes": ["yes", "y", "sour", "present", "required", "nace"],
+            "no": ["no", "n", "none", "non sour", "not sour", "absent", "not applicable", "n/a", "nil"],
+            "query_if_yes": "NACE MR0175 / ISO 15156 applies to the wetted materials; query for materials, engineer to decide."
+          },
+          "text": "Whether the service is sour (H2S present) is stated: yes or no.",
+          "source": {
+            "standard": "ISO 15156-3",
+            "clause": "6.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "draft_sour_service"
+          },
+          "severity": "major"
+        }
+    ]
+  },
   "draft_roles": {
     "_about": "Part of #805: the DRAFT items' own roles, merged into `roles` ONLY with draft_process_items_enabled (datasheet_roles.with_drafts); OFF, no other reader sees them. `extends`: a fact filed under that approved role is also filed here (datasheet_roles.file_drafts). The approved roles' names and printed_as are never widened.",
     "draft_fluid_phase": {
@@ -1792,47 +1838,6 @@
               ]
             }
           ]
-        },
-        {
-          "id": "PSV-D01",
-          "status": "draft (engineer to approve)",
-          "label": "Fluid phase",
-          "aliases": ["fluid phase", "phase", "fluid state", "physical state", "relieving phase", "phase at relieving conditions"],
-          "answer": {"kind": "text"},
-          "text": "The fluid phase at relieving conditions is stated (gas or vapour, liquid, or two-phase).",
-          "source": {
-            "standard": "API 520-I",
-            "clause": "5.5"
-          },
-          "clause_to_confirm": true,
-          "rule": {
-            "kind": "required",
-            "field": "draft_fluid_phase"
-          },
-          "severity": "major"
-        },
-        {
-          "id": "PSV-D02",
-          "status": "draft (engineer to approve)",
-          "label": "Sour service",
-          "aliases": ["sour service", "sour environment", "sour duty", "h2s service", "h2s content", "nace", "nace mr0175", "iso 15156"],
-          "answer": {
-            "kind": "choice",
-            "choices": ["yes", "no", "not stated"],
-            "yes": ["yes", "y", "sour", "present", "required", "nace"],
-            "no": ["no", "n", "none", "non sour", "not sour", "absent", "not applicable", "n/a", "nil"],
-            "query_if_yes": "NACE MR0175 / ISO 15156 applies to the wetted materials; query for materials, engineer to decide."
-          },
-          "text": "Whether the service is sour (H2S present) is stated: yes or no.",
-          "source": {
-            "standard": "ISO 15156-3",
-            "clause": "6.1"
-          },
-          "rule": {
-            "kind": "required",
-            "field": "draft_sour_service"
-          },
-          "severity": "major"
         }
       ]
     },

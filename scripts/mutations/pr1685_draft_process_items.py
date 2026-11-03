@@ -33,8 +33,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         1,
         "a draft item is read with its switch off",
         _D,
-        "    if settings.draft_process_items_enabled:\n        return items\n",
-        "    if True:\n        return items\n",
+        "    if not settings.draft_process_items_enabled:\n",
+        "    if False:\n",
         "switch_off",
     ),
     _m(

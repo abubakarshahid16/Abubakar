@@ -230,3 +230,10 @@ def test_switch_off_every_approved_item_is_as_on_main(extra):
 def test_switch_on_the_approved_items_still_do_not_change(on, extra):
     base = BASE + extra
     assert _approved(_run(base)) == _approved(_run(base, _main_like_rules()))
+
+
+def test_no_draft_item_is_in_the_approved_checklists_table(on):
+    for entry in dc.load_rules()["checklists"].values():
+        if isinstance(entry, dict):
+            assert not any(di.is_draft(i) for i in entry["items"])
+    assert len(dc.load_rules()["checklists"][PSV]["items"]) == 47

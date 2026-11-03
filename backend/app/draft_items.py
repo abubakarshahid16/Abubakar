@@ -24,11 +24,16 @@ def is_draft(item: dict) -> bool:
     return str(item.get("status") or "").lower().startswith("draft")
 
 
-def read(items: list[dict]) -> list[dict]:
-    """The items a checklist reads: a draft item only with its switch on."""
-    if settings.draft_process_items_enabled:
-        return items
-    return [item for item in items if not is_draft(item)]
+def read(key: str, items: list[dict]) -> list[dict]:
+    """The items a checklist reads: the approved ones, and with the switch on the equipment type's DRAFT items
+    (kept in the rules' own `draft_items` section, so no reader of the approved `checklists` sees them)."""
+    if not settings.draft_process_items_enabled:
+        return [item for item in items if not is_draft(item)]
+    from .datasheet_checks import load_rules
+
+    have = {item.get("id") for item in items}
+    drafts = (load_rules().get("draft_items") or {}).get(key) or []
+    return items + [item for item in drafts if item.get("id") not in have]
 
 
 def without_stated(results: list[dict]) -> list[dict]:
