@@ -105,7 +105,11 @@ def _world_with_removal(request, monkeypatch):
     _sub, run, scope = request.getfixturevalue("_world")
     reader = access.AccessScope(user_id=None, allowed_document_ids=scope)
     number_crs_rows(run, reader)
+    # a row the AI may remove (never a Fail); the world's rows are all Fails, so the fixture's first row is made a question
     first = _crs_content(run, reader, "internal")[0][0]
+    monkeypatch.setattr(
+        view, "source_is_fail", lambda row: False
+    )  # the removal path itself; the Fail guard has its own test below
     key = first["crs_row_key"]
     finding = first.get("finding_id") or key
     item = {
