@@ -62,16 +62,19 @@ def test_a_value_not_read_a_failure_or_a_person_decided_rule_is_never_listed(
     assert not cl.is_listed(held_pass(compliance_status="NON_COMPLIANT"))
 
 
-def test_a_safety_pass_nobody_ticked_by_a_draft_rule_is_listed(monkeypatch):
+def test_a_safety_field_or_a_safety_tick_stays_a_row_never_listed(monkeypatch):
     on(monkeypatch)
+    assert cl.is_listed(held_pass())
+    assert not cl.is_listed(held_pass(tier="SAFETY"))
+    assert not cl.is_listed(held_pass(show_for_engineer_tick=True))
     tick = held_pass(
         compliance_status="COMPLIANT",
         rule_said=None,
         trust_label="TESTED_CARD",
         show_for_engineer_tick=True,
     )
-    assert cl.is_listed(tick)
-    assert not cl.is_listed({**tick, "trust_label": "OWNER_APPROVED"})
+    assert not cl.is_listed(tick)
+    assert len(crs_mapping.crs_groups([held_pass(tier="SAFETY")])) == 1
 
 
 def test_a_listed_finding_makes_no_crs_group_and_the_switch_off_keeps_it(monkeypatch):

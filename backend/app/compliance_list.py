@@ -2,9 +2,8 @@
 with nothing found, writes NO CRS row. It goes to the internal-only sheet "Compliance list" with the status
 "No issue found (draft rule)". The finding itself is untouched; this only decides which sheet shows it.
 
-A draft rule is one no person approved: its label is `UNPROVEN`, or it is a safety-field Pass nobody ticked whose
-label is not an approved rule's. A rule an owner or engineer approved decides in the CRS as before. A value that was
-not read is not here: it stays a row. Nothing here compares a number or names a layout (rule 13). The label words are
+A draft rule is one no person approved: its label is `UNPROVEN`. A rule an owner or engineer approved decides in the CRS as before. A value that was
+not read stays a row, and so does a SAFETY field or a safety tick (the engineer's own check). Nothing here compares a number or names a layout (rule 13). The label words are
 strings so the CRS mapping can ask without importing the trust module; a test holds them to `rule_trust`.
 """
 
@@ -51,14 +50,13 @@ def is_listed(finding: dict) -> bool:
         return False
     if finding.get("trust_label") in PERSON_LABELS or not _value_given(finding):
         return False
-    status = finding.get("compliance_status")
-    held_pass = (
-        status == _HELD
+    if finding.get("tier") == "SAFETY" or finding.get("show_for_engineer_tick"):
+        return False  # a safety field is the engineer's tick: it stays a row
+    return (
+        finding.get("compliance_status") == _HELD
         and finding.get("rule_said") == _PASS
         and finding.get("trust_label") == UNPROVEN
     )
-    unticked_pass = status == _PASS and bool(finding.get("show_for_engineer_tick"))
-    return held_pass or unticked_pass
 
 
 def sheet_rows(findings: list[dict]) -> list[tuple]:
