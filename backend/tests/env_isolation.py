@@ -282,6 +282,8 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_export_quality_enabled": False,
     "crs_export_quality_strict_enabled": False,
     "crs_one_row_per_problem_enabled": False,
+    "crs_rules_note_enabled": False,
+    "crs_one_row_ignore_clause_enabled": False,
     # --- local only, no model or socket: a row with no page says its section or field (#1591, off by default)
     "crs_page_cell_field_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
@@ -304,6 +306,8 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
     "crs_plain_notes_enabled": False,
+    "standard_scope_not_no_enabled": False,
+    "crs_compliance_list_enabled": False,
     "crs_drop_placeholder_rows_enabled": False,
     "run_record_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
