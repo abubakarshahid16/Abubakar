@@ -20,15 +20,24 @@ from __future__ import annotations
 import concurrent.futures
 import dataclasses
 import json
+import os
 import time
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from app import claude_approved, claude_spend, reader_api, reader_transport
+from app import (
+    claude_approved,
+    claude_spend,
+    reader_api,
+    reader_transport,
+    reasoning_provider,
+)
 
 #: The owner's USD 5 per step, kept clear of: a group's worst case is at most this.
 GROUP_CAP_USD = 4.5
+#: The process environment variable that names this tool's engine (never a setting of the app).
+ENGINE_ENV = "RULE_BOXES_ENGINE"
 WORKERS = 20
 TIMEOUT_S = 120.0
 #: A reply the API gave up on for load: tried again a few times, each try reserved and settled on its own.
@@ -90,6 +99,12 @@ def _status_of(exc: BaseException) -> int | None:
 
 
 def _sender(step: str, version: str, send):
+    if send is None:
+        code, why = reasoning_provider.claude_unavailable_for_task(
+            os.environ.get(ENGINE_ENV)
+        )
+        if code is not None:
+            raise reader_transport.TransportRefused(f"{code}: {why}")
     transport = send or reader_transport.transport()
     if transport is None:
         raise reader_transport.TransportRefused(
