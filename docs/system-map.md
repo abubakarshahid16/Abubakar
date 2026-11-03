@@ -35,6 +35,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai_review_pass` | The AI engineering review pass runner (off by default): one model call proposes, code verifies and stores; changes no row |
 | `ai_review_proposals` | The review pass's proposal schema and code verifier: refuses any unverified value, page or clause; a Pass is never created |
+| `crs_ai_review_view` | What the INTERNAL CRS shows of the accepted AI review proposals: removed rows (restorable), added rows, rewordings, the understanding note, the AI review sheet |
 | `ai_check_drafts` | The AI checks' drafts keep no status, are counted as "AI observations (draft, no verdict)", and an exact repeat is marked |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
