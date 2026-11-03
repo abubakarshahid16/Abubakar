@@ -143,12 +143,35 @@ def _agrees(qualifier: set, others: list[str], pair_words: frozenset) -> bool:
     return any(qualifier <= w for w in named)
 
 
+def with_drafts(rules: dict) -> dict:
+    """Part of #805: the DRAFT items' own roles join `roles` only with `draft_process_items_enabled`."""
+    from .config import settings
+
+    if not settings.draft_process_items_enabled or not rules.get("draft_roles"):
+        return rules
+    drafts = {k: v for k, v in rules["draft_roles"].items() if not k.startswith("_")}
+    return {**rules, "roles": {**rules["roles"], **drafts}}
+
+
+def file_drafts(by_tag: dict, rules: dict) -> None:
+    """A fact filed under an approved role is also filed under the draft role that extends it, so a draft
+    item sees what the approved role sees (a copy: the approved role's facts are never changed)."""
+    for role, spec in rules["roles"].items():
+        base = spec.get("extends")
+        for roles in by_tag.values() if base else ():
+            known = {id(f) for f in roles.get(role, [])}
+            more = [f for f in roles.get(base, []) if id(f) not in known]
+            if more:
+                roles[role] = roles.get(role, []) + more
+
+
 def add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
     """#1472 (switch `datasheet_one_value_enabled`): a combined label ("a / rating / c")
     answers the text attribute it names, for a tag with no value of its own under that
     role. The copy carries `combined_label`; `combined_result` never decides on it."""
     from .config import settings
 
+    file_drafts(by_tag, rules)
     if not settings.datasheet_one_value_enabled:
         return
     shared = by_tag.get(None, {})

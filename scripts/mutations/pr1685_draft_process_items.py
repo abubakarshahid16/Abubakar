@@ -6,6 +6,7 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _D = APP / "draft_items.py"
+_R = APP / "datasheet_roles.py"
 _G = APP / "checklist_scope.py"
 _T = "tests/test_805_draft_process_items.py"
 _TAG = ("honesty", "draft")
@@ -83,5 +84,21 @@ MUTATIONS: tuple[Mutation, ...] = (
         "            if not is_draft(item)\n",
         "            if True\n",
         "does_not_make_its_standard_governed",
+    ),
+    _m(
+        8,
+        "the draft roles join the approved roles with the switch off",
+        _R,
+        "    if not settings.draft_process_items_enabled or not rules.get",
+        "    if False or not rules.get",
+        "switch_off_every_approved_item",
+    ),
+    _m(
+        9,
+        "a fact of an approved role is not also filed under the draft role",
+        _R,
+        "        for roles in by_tag.values() if base else ():\n",
+        "        for roles in ():\n",
+        "the_other_ways_a_sheet_prints or stated_phase_gives_no_verdict",
     ),
 )

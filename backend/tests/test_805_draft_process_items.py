@@ -121,10 +121,7 @@ def test_the_other_ways_a_sheet_prints_the_labels_are_read(on):
     r = got([*BASE, fact("physical state", "Liquid"), fact("sour environment", "yes")])
     assert r["PSV-D01"]["status"] == di.STATED_NO_VERDICT
     assert r["PSV-D02"]["status"] == "NEEDS_ENGINEER_REVIEW"
-    # a phase printed this way also reaches the approved items that depend on it
-    assert (
-        r["PSV-22"]["status"] == "MISSING_INFORMATION"
-    )  # liquid: density at relieving conditions
+    # the approved items are not widened: see the regression tests below
 
 
 def test_the_governing_relief_case_is_asked_by_the_approved_item(on):
@@ -185,3 +182,51 @@ def test_a_stated_value_writes_no_row_and_the_gaps_and_queries_are_rows(on, run)
         "NEEDS_ENGINEER_REVIEW"
     ]  # sour yes only; the phase writes none
     assert "PSV-D02" in d[0]["requirement_source_text"]
+
+
+WIDE = [
+    fact("relieving phase", "Liquid"),
+    fact("physical state", "Gas"),
+    fact("sour environment", "yes"),
+    fact("iso 15156", "yes"),
+]
+
+
+def _approved(results):
+    return {k: v for k, v in results.items() if not k.startswith("PSV-D")}
+
+
+def _main_like_rules():
+    """The rules as on main: no draft role, no draft item."""
+    rules = dc.load_rules()
+    rules.pop("draft_roles", None)
+    items = rules["checklists"][PSV]["items"]
+    rules["checklists"][PSV]["items"] = [i for i in items if not di.is_draft(i)]
+    return rules
+
+
+def _run(facts, rules=None):
+    out = dc.evaluate(
+        facts, equipment_type=PSV, page_texts=PAGES, rules=rules or dc.load_rules()
+    )
+    return {r["rule_id"]: r for r in out if r.get("checklist")}
+
+
+@pytest.mark.parametrize(
+    "extra", [WIDE, WIDE[:1], WIDE[1:2], WIDE[2:], [fact("fluid phase", "Gas")], []]
+)
+def test_switch_off_every_approved_item_is_as_on_main(extra):
+    base = BASE + extra
+    assert _run(base) == _run(base, _main_like_rules())
+    assert not any(k.startswith("PSV-D") for k in _run(base))
+    names = dc.load_rules()["roles"]["fluid_phase"]["names"]
+    assert names == ["^(fluid )?(phase|state)( of fluid)?$"]
+    assert "draft_fluid_phase" not in dc.load_rules()["roles"]
+
+
+@pytest.mark.parametrize(
+    "extra", [WIDE, WIDE[:1], WIDE[2:], [fact("fluid phase", "Gas")]]
+)
+def test_switch_on_the_approved_items_still_do_not_change(on, extra):
+    base = BASE + extra
+    assert _approved(_run(base)) == _approved(_run(base, _main_like_rules()))

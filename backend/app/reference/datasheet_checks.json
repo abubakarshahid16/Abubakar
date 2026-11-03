@@ -349,15 +349,9 @@
     "fluid_phase": {
       "kind": "text",
       "names": [
-        "^(fluid )?(phase|state)( of fluid)?$",
-        "^(relieving |relief |operating )?(fluid )?(phase|state)( at relieving (conditions|temperature))?( of fluid)?$",
-        "^physical state( of fluid)?$"
+        "^(fluid )?(phase|state)( of fluid)?$"
       ],
       "printed_as": [
-        "relieving phase",
-        "phase at relieving conditions",
-        "fluid state",
-        "physical state",
         "gas",
         "vapour",
         "vapor",
@@ -456,17 +450,7 @@
       "names": [
         "^h2s( service| content| present)?$",
         "^sour service$",
-        "^nace( mr0175)?( required)?$",
-        "^(sour|h2s) (service|environment|duty)( yes no| y n)?$",
-        "^(nace|iso 15156)( mr0175)?( / iso 15156)?( service| compliance| compliant| applicable)?$"
-      ],
-      "printed_as": [
-        "sour service",
-        "sour environment",
-        "sour duty",
-        "wet h2s",
-        "nace mr0175",
-        "iso 15156"
+        "^nace( mr0175)?( required)?$"
       ]
     },
     "mdmt": {
@@ -706,6 +690,50 @@
       ],
       "printed_as": [
         "allowable pressure drop"
+      ]
+    }
+  },
+  "draft_roles": {
+    "_about": "Part of #805: the DRAFT items' own roles, merged into `roles` ONLY with draft_process_items_enabled (datasheet_roles.with_drafts); OFF, no other reader sees them. `extends`: a fact filed under that approved role is also filed here (datasheet_roles.file_drafts). The approved roles' names and printed_as are never widened.",
+    "draft_fluid_phase": {
+      "kind": "text",
+      "extends": "fluid_phase",
+      "names": [
+        "^(fluid )?(phase|state)( of fluid)?$",
+        "^(relieving |relief |operating )?(fluid )?(phase|state)( at relieving (conditions|temperature))?( of fluid)?$",
+        "^physical state( of fluid)?$"
+      ],
+      "printed_as": [
+        "relieving phase",
+        "phase at relieving conditions",
+        "fluid state",
+        "physical state",
+        "gas",
+        "vapour",
+        "vapor",
+        "liquid",
+        "steam",
+        "two phase",
+        "dual service"
+      ]
+    },
+    "draft_sour_service": {
+      "kind": "text",
+      "extends": "sour_service",
+      "names": [
+        "^h2s( service| content| present)?$",
+        "^sour service$",
+        "^nace( mr0175)?( required)?$",
+        "^(sour|h2s) (service|environment|duty)( yes no| y n)?$",
+        "^(nace|iso 15156)( mr0175)?( / iso 15156)?( service| compliance| compliant| applicable)?$"
+      ],
+      "printed_as": [
+        "sour service",
+        "sour environment",
+        "sour duty",
+        "wet h2s",
+        "nace mr0175",
+        "iso 15156"
       ]
     }
   },
@@ -1779,7 +1807,7 @@
           "clause_to_confirm": true,
           "rule": {
             "kind": "required",
-            "field": "fluid_phase"
+            "field": "draft_fluid_phase"
           },
           "severity": "major"
         },
@@ -1802,7 +1830,7 @@
           },
           "rule": {
             "kind": "required",
-            "field": "sour_service"
+            "field": "draft_sour_service"
           },
           "severity": "major"
         }
