@@ -837,11 +837,17 @@ def hold_draft_item(result: dict, item: dict) -> dict:
         return result
     answer = item.get("answer") or {}
     out = {**result, "draft": True, "item_status": item["status"]}
-    out["text"] = (f"{result['text']} [{DRAFT_ITEM_MARK}"
-                   f"{'; clause to confirm' if item.get('clause_to_confirm') else ''}]")
+    out["text"] = (
+        f"{result['text']} [{DRAFT_ITEM_MARK}"
+        f"{'; clause to confirm' if item.get('clause_to_confirm') else ''}]"
+    )
     detail = result["detail"]
     if result["status"] == MISSING_INFORMATION:
-        out["detail"] = "Not stated. " + detail + ("" if "provide" in detail else " Contractor to provide the value.")
+        out["detail"] = (
+            "Not stated. "
+            + detail
+            + ("" if "provide" in detail else " Contractor to provide the value.")
+        )
     elif result["status"] == COMPLIANT:
         value = str(result.get("value") or "")
         if answer.get("kind") != "choice":
@@ -852,14 +858,18 @@ def hold_draft_item(result: dict, item: dict) -> dict:
             yes, _ = _says(rest, answer["yes"])
             if yes and not no:
                 out["status"] = NEEDS_ENGINEER_REVIEW
-                out["detail"] = f"{detail} Query for materials: {answer['query_if_yes']}"
+                out["detail"] = (
+                    f"{detail} Query for materials: {answer['query_if_yes']}"
+                )
             elif no and not yes:
                 out["status"] = STATED_NO_VERDICT
                 out["detail"] = f"{detail} Draft item: stated, no verdict."
             else:
                 out["status"] = NEEDS_ENGINEER_REVIEW
-                out["detail"] = (f"{detail} It is not clearly {' or '.join(answer['choices'][:2])}: "
-                                 "engineer to read it.")
+                out["detail"] = (
+                    f"{detail} It is not clearly {' or '.join(answer['choices'][:2])}: "
+                    "engineer to read it."
+                )
     return out
 
 
@@ -1208,7 +1218,8 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     # never a CRS comment (`crs_mapping` takes only breaches and gaps). Any OTHER check that held adds no row.
     # "Does not apply" and NOT CALCULATED are no rows either. 307.1: a value read for other tags is not "not read".
     results = read_elsewhere.soften(results)
-    results = [x for x in results if x["status"] != STATED_NO_VERDICT]   # a draft item's stated value: no row
+    # A draft item's stated value gives no verdict and no row.
+    results = [x for x in results if x["status"] != STATED_NO_VERDICT]
     for r in (x for x in degraded_read.hold(results, submittal_id) if x["status"] not in (NOT_APPLICABLE, NOT_CALCULATED)
               and (x["status"] != COMPLIANT or x.get("checklist"))):
         if label is not None:
