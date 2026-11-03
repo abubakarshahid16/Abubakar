@@ -368,3 +368,67 @@ def test_invisible_or_look_alike_characters_do_not_get_a_limit_past_the_refusal(
 ):
     with pytest.raises(lcs.Refused, match="never an equipment limit"):
         lcs.read_items(_file(tmp_path, [{**ITEMS[0], "text": text}]))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Invented: tw\ufe0fo copies",
+        "Invented: tw\u034fo copies",
+        "Invented: tw\u3164o copies",
+        "Invented: tw\u115fo copies",
+        "Invented: copies \u2161 and more",
+        "Invented: copies \u216b and more",
+        "Invented: caf\u00e9 sheet",
+        "Invented: a \u201cquoted\u201d word",
+        "Invented: ta\u0301ble",
+    ],
+)
+def test_text_that_is_not_plain_ascii_after_nfkc_is_refused(tmp_path, text):
+    with pytest.raises(
+        lcs.Refused, match=r"never an equipment limit|plain printable ASCII"
+    ):
+        lcs.read_items(_file(tmp_path, [{**ITEMS[0], "text": text}]))
+
+
+def test_roman_numeral_characters_are_a_number_and_say_so(tmp_path):
+    for text in (
+        "Invented: copies \u2161 and more",
+        "Invented: copies \u216b and more",
+    ):
+        with pytest.raises(lcs.Refused, match="never an equipment limit"):
+            lcs.read_items(_file(tmp_path, [{**ITEMS[0], "text": text}]))
+
+
+def test_text_with_line_breaks_and_plain_punctuation_is_still_accepted(tmp_path):
+    lcs.read_items(
+        _file(
+            tmp_path,
+            [
+                {
+                    **ITEMS[0],
+                    "text": "Invented: holds (if any) are listed;\nsee the annex, please.",
+                }
+            ],
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "mark", ["\ufe0f", "\u034f", "\u3164", "\u115f", "\u0301", "\U000e0100"]
+)
+def test_default_ignorable_and_combining_marks_do_not_hide_a_term(mark):
+    page = f"Section 2. We list open ho{mark}lds list here."
+    assert (
+        lcs.completeness(RULE, _ev(pages={1: "Cover.", 2: page}, terms=["holds list"]))[
+            0
+        ]
+        == lcs.NEEDS_ENGINEER
+    )
+    page = "Section 2. We list open holds list here."
+    assert (
+        lcs.completeness(
+            RULE, _ev(pages={1: "Cover.", 2: page}, terms=[f"hol{mark}ds list"])
+        )[0]
+        == lcs.NEEDS_ENGINEER
+    )

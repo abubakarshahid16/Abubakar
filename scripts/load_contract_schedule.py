@@ -64,11 +64,17 @@ def _states_a_limit(text: str) -> bool:
     """A number, number word, unit, or comparator anywhere in an item's text: the repo's own detectors first
     (`numparse`, `claims.is_unit`, `claims.comparator_ending`), any numeral of any script (fullwidth digits, one-half),
     then the few vocabularies they lack."""
+    raw = text
     text = _normalise(text)
-    if numparse.find_numbers(text) or numparse.find_fractions(text):
-        return True
-    if any(unicodedata.numeric(ch, None) is not None for ch in text):
-        return True
+    for seen in (
+        raw,
+        text,
+        unicodedata.normalize("NFKC", raw),
+    ):  # the raw words, the cleaned, the NFKC form
+        if numparse.find_numbers(seen) or numparse.find_fractions(seen):
+            return True
+        if any(unicodedata.numeric(ch, None) is not None for ch in seen):
+            return True
     words = re.findall(r"[^\W_]+", text)
     if any(claims.is_unit(w) and w.casefold() not in _UNIT_LOOKALIKES for w in words):
         return True
@@ -138,6 +144,11 @@ def read_items(path: Path, *, repo: Path = REPO) -> tuple[str, list[dict]]:
         if _states_a_limit(item["text"]):
             raise Refused(
                 f"item {n} has a number, unit or comparator in its text: never an equipment limit"
+            )
+        plain = " ".join(unicodedata.normalize("NFKC", item["text"]).split())
+        if not plain.isascii() or not plain.isprintable():
+            raise Refused(
+                f"item {n} has a character that is not plain printable ASCII after NFKC: write the wording in plain text"
             )
         if item["kind"] not in KINDS:
             raise Refused(
@@ -238,13 +249,30 @@ _DASHES = dict.fromkeys(
 )
 
 
+#: Code points a reader does not see (Unicode Default_Ignorable_Code_Point, which `unicodedata` does not expose): the
+#: combining grapheme joiner, Hangul fillers, Khmer vowel inherents, Mongolian selectors, variation selectors, the
+#: halfwidth Hangul filler and the variation selector supplement. Format characters (Cf) and combining marks (Mn) too.
+_IGNORABLE_RANGES = (
+    (0x034F, 0x034F), (0x115F, 0x1160), (0x17B4, 0x17B5), (0x180B, 0x180F), (0x3164, 0x3164),
+    (0xFE00, 0xFE0F), (0xFFA0, 0xFFA0), (0xE0000, 0xE0FFF),
+)  # fmt: skip
+
+
+def _ignorable(ch: str) -> bool:
+    return unicodedata.category(ch) in ("Cf", "Mn") or any(
+        a <= ord(ch) <= b for a, b in _IGNORABLE_RANGES
+    )
+
+
 def _normalise(text: str) -> str:
-    """One normaliser for the quote check, the absence search and the refusal checks: NFKC (fullwidth letters, digits and
+    """One normaliser for the quote check, the absence search and the refusal checks: NFKD then NFKC (fullwidth letters, digits and
     punctuation to plain), format characters removed (zero-width space and joiner, marks, word joiner, BOM, soft hyphen),
     every dash and the minus sign to a hyphen."""
-    folded = unicodedata.normalize("NFKC", str(text or ""))
-    folded = "".join(ch for ch in folded if unicodedata.category(ch) != "Cf")
-    return folded.translate(_DASHES)
+    folded = unicodedata.normalize(
+        "NFKD", str(text or "")
+    )  # decomposed, so a mark is a character of its own
+    folded = "".join(ch for ch in folded if not _ignorable(ch))
+    return unicodedata.normalize("NFKC", folded).translate(_DASHES)
 
 
 def _fold(text: str) -> str:
