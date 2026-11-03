@@ -9,7 +9,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M603", phase=61,
         description="min/max/unit required again on every limit - non-numeric limits "
-                    "are rejected as invalid output (2 of 8 in the M-03 run)",
+                    "are rejected as invalid output (2 of 8 in the Datasheet 2 run)",
         path=APP.parent / "tools" / "scope_records.py",
         anchor='    "required": ["kind", "term", "quote", "page"]}\n',
         replacement='    "required": ["kind", "term", "min", "max", "unit", "quote", "page"]}\n',

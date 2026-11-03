@@ -56,7 +56,7 @@ follow-up ("that pump").
 
 ## 4. Not allowed
 
-- A growing list of hard-coded answers or question patterns. The Recycle Brine
+- A growing list of hard-coded answers or question patterns. The Booster Water
   Pumps question is a regression test, not a case to special-case.
 - A chat-side compliance verdict or review code.
 - Any count, clause number or citation produced by the model rather than by code.
@@ -70,7 +70,7 @@ text, sources, response time, the model used, and what was not checked.
 | Type | Example shape (final wording chosen fresh at test time) |
 |---|---|
 | Standard clause | "What does clause X of standard Y require?" |
-| Datasheet summary | "Summarise the Recycle Brine Pumps datasheet" (**regression**) |
+| Datasheet summary | "Summarise the Booster Water Pumps datasheet" (**regression**) |
 | Exhaustive count | "How many nozzles are listed on the vessel datasheet?" |
 | Two-document comparison | "Compare the pump datasheet's design pressure with the applicable standard" |
 | Drawing question | A question about a drawing's title block or a note |

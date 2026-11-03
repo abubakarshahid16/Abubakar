@@ -1,7 +1,7 @@
 """Order 242.2: a division's scope reading is a real sentence, and the engineer
 is asked ONE question per construction Part.
 
-On 216400C the standard-scope step moved 804 requirements of one standard out of
+On Specification 1 the standard-scope step moved 804 requirements of one standard out of
 the listed findings on "conditions" that were table fragments, and the real
 ones (Part UW, welded) left 420 requirements in the scope record only. Now a
 reading whose quote is not a sentence is refused (the Part is compared, with the
