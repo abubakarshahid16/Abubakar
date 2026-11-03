@@ -29,8 +29,8 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 PAGE = """PRESSURE SAFETY VALVE DATASHEET            Page 1 of 1
-5 | Design/Operating pressure | 23.5 / 9 barg (Note - 3)
-8 | Set pressure | 340 psig
+5 | Design/Operating pressure | 27.5 / 8 barg (Note - 3)
+8 | Set pressure | 355 psig
 9 | Relieving temperature | 121 C
 12 | Casing material | Carbon steel
 Required flow      Offered flow
@@ -61,7 +61,7 @@ def _scope(*ids): return frozenset(ids)
 def test_the_prompt_carries_the_page_and_the_skip_list():
     prompt = cd.build_prompt(PAGE, 3, ["Set pressure", "Casing material"])
     assert "PAGE 3:" in prompt
-    assert "340 psig" in prompt
+    assert "355 psig" in prompt
     assert "SKIP THESE FIELDS" in prompt
     assert "- Set pressure" in prompt and "- Casing material" in prompt
     for kind in cd.KINDS:
@@ -84,13 +84,13 @@ def test_json_without_a_facts_list_is_malformed():
 
 
 def test_a_bare_single_fact_is_accepted_as_one_proposal():
-    proposals, err = cd.parse_response(json.dumps(_fact("Set pressure", "340", "Set pressure | 340 psig")))
+    proposals, err = cd.parse_response(json.dumps(_fact("Set pressure", "355", "Set pressure | 355 psig")))
     assert err is None and len(proposals) == 1
     assert proposals[0]["field"] == "Set pressure"
 
 
 def test_an_entry_with_no_quote_is_not_a_proposal():
-    proposals, _ = cd.parse_response(_answer({"field": "Set pressure", "value": "340", "kind": "offered"}))
+    proposals, _ = cd.parse_response(_answer({"field": "Set pressure", "value": "355", "kind": "offered"}))
     assert proposals == []
 
 
@@ -102,24 +102,24 @@ def _gate(*facts, known=None):
 
 
 def test_a_true_reading_passes_the_gate():
-    out = _gate(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"))
+    out = _gate(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"))
     assert len(out["accepted"]) == 1 and out["rejected"] == []
     assert out["accepted"][0]["field_name"] == "set pressure"
 
 
 def test_a_quote_not_on_the_page_is_rejected():
-    out = _gate(_fact("Set pressure", "340", "Set pressure shall be 340 psig", unit="psig"))
+    out = _gate(_fact("Set pressure", "355", "Set pressure shall be 355 psig", unit="psig"))
     assert out["accepted"] == []
     assert out["counts"] == {cd.Reason.QUOTE_NOT_ON_PAGE.value: 1}
 
 
 def test_a_quote_is_matched_whitespace_and_case_folded():
-    out = _gate(_fact("Set pressure", "340", "8 |   SET PRESSURE |\n340 psig", unit="psig"))
+    out = _gate(_fact("Set pressure", "355", "8 |   SET PRESSURE |\n355 psig", unit="psig"))
     assert len(out["accepted"]) == 1
 
 
 def test_a_value_not_in_the_quote_is_rejected():
-    out = _gate(_fact("Set pressure", "350", "8 | Set pressure | 340 psig", unit="psig"))
+    out = _gate(_fact("Set pressure", "350", "8 | Set pressure | 355 psig", unit="psig"))
     assert out["counts"] == {cd.Reason.VALUE_NOT_IN_QUOTE.value: 1}
 
 
@@ -138,19 +138,19 @@ def test_a_thousands_separator_is_not_a_different_number():
 
 
 def test_a_field_not_in_the_quote_is_rejected():
-    out = _gate(_fact("Relieving temperature", "340", "8 | Set pressure | 340 psig", unit="psig"))
+    out = _gate(_fact("Relieving temperature", "355", "8 | Set pressure | 355 psig", unit="psig"))
     assert out["counts"] == {cd.Reason.FIELD_NOT_IN_QUOTE.value: 1}
 
 
 def test_the_field_check_is_lenient_about_the_labels_spelling():
     """The sheet writes "Design/Operating pressure (Note - 3)"; the model
     answers "Design pressure". One noun in common is enough."""
-    out = _gate(_fact("Design pressure", "23.5", "Design/Operating pressure | 23.5 / 9 barg", unit="barg"))
+    out = _gate(_fact("Design pressure", "27.5", "Design/Operating pressure | 27.5 / 8 barg", unit="barg"))
     assert len(out["accepted"]) == 1
 
 
 def test_an_unrecognised_unit_is_rejected_but_a_null_unit_is_fine():
-    bad = _gate(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="furlongs"))
+    bad = _gate(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="furlongs"))
     assert bad["counts"] == {cd.Reason.UNIT_UNRECOGNISED.value: 1}
     none = _gate(_fact("Casing material", "Carbon steel", "12 | Casing material | Carbon steel"))
     assert len(none["accepted"]) == 1 and none["accepted"][0]["unit"] is None
@@ -164,30 +164,30 @@ def test_a_unit_with_no_dimension_but_in_the_recognised_set_passes():
 
 
 def test_a_field_the_extractor_already_found_is_already_extracted():
-    out = _gate(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"),
+    out = _gate(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"),
                 known=["SET PRESSURE:"])
     assert out["counts"] == {cd.Reason.ALREADY_EXTRACTED.value: 1}
 
 
 def test_field_and_value_missing_are_named():
-    out = _gate({"field": "", "value": "340", "quote": "340 psig", "kind": "offered"},
-                {"field": "Set pressure", "value": None, "quote": "340 psig", "kind": "offered"})
+    out = _gate({"field": "", "value": "355", "quote": "355 psig", "kind": "offered"},
+                {"field": "Set pressure", "value": None, "quote": "355 psig", "kind": "offered"})
     assert out["counts"] == {cd.Reason.FIELD_MISSING.value: 1, cd.Reason.VALUE_MISSING.value: 1}
 
 
 def test_an_unknown_kind_is_rejected_and_every_known_kind_passes():
-    bad = _gate(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig", kind="guessed"))
+    bad = _gate(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig", kind="guessed"))
     assert bad["counts"] == {cd.Reason.KIND_UNKNOWN.value: 1}
     for kind in ("required", "offered", "measured"):
-        out = _gate(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig", kind=kind))
+        out = _gate(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig", kind=kind))
         assert out["accepted"][0]["kind"] == kind
 
 
 def test_every_rejection_carries_a_reason_and_counts_add_up():
     out = _gate(
-        _fact("Set pressure", "340", "not on the page"),
-        _fact("Set pressure", "999", "8 | Set pressure | 340 psig"),
-        _fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"),
+        _fact("Set pressure", "355", "not on the page"),
+        _fact("Set pressure", "999", "8 | Set pressure | 355 psig"),
+        _fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"),
     )
     assert len(out["accepted"]) == 1 and len(out["rejected"]) == 2
     assert all(r["reason"] for r in out["rejected"])
@@ -197,8 +197,8 @@ def test_every_rejection_carries_a_reason_and_counts_add_up():
 # ------------------------------------------------------------ the two runs
 
 def test_two_runs_that_disagree_report_model_unstable_not_silence():
-    first = _fake(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"))
-    second = _fake(_fact("Set pressure", "341", "8 | Set pressure | 340 psig", unit="psig"))
+    first = _fake(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"))
+    second = _fake(_fact("Set pressure", "341", "8 | Set pressure | 355 psig", unit="psig"))
     out = cd.read_page(PAGE, 1, [], first, second_call=second)
     assert out["accepted"] == []
     assert out["counts"] == {cd.Reason.MODEL_UNSTABLE.value: 1}
@@ -206,14 +206,14 @@ def test_two_runs_that_disagree_report_model_unstable_not_silence():
 
 
 def test_two_runs_that_agree_pass_and_the_quote_need_not_match():
-    first = _fake(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"))
-    second = _fake(_fact("Set pressure", "340", "Set pressure | 340 psig", unit="psig"))
+    first = _fake(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"))
+    second = _fake(_fact("Set pressure", "355", "Set pressure | 355 psig", unit="psig"))
     out = cd.read_page(PAGE, 1, [], first, second_call=second)
     assert len(out["accepted"]) == 1
 
 
 def test_a_malformed_second_run_is_an_error_not_a_fact():
-    first = _fake(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"))
+    first = _fake(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"))
     out = cd.read_page(PAGE, 1, [], first, second_call=lambda p: "no")
     assert out["accepted"] == [] and out["error"] == cd.Reason.MODEL_MALFORMED.value
 
@@ -223,7 +223,7 @@ def test_the_model_is_called_twice_by_default():
 
     def model(prompt):
         calls.append(prompt)
-        return _answer(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"))
+        return _answer(_fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"))
 
     out = cd.read_page(PAGE, 1, [], model)
     assert len(calls) == 2 and calls[0] == calls[1]
@@ -233,7 +233,7 @@ def test_the_model_is_called_twice_by_default():
 # ------------------------------------------------------- a whole fake page
 
 THREE = (
-    _fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"),
+    _fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"),
     _fact("Relieving temperature", "121", "9 | Relieving temperature | 121 C", unit="C"),
     _fact("Hydrotest result", "51", "Hydrotest result: 51 barg held for 30 min",
           unit="barg", kind="measured"),
@@ -267,7 +267,7 @@ def _ingest_page(path, doc_id="doc_cd", text=PAGE) -> str:
     import pymupdf
     pdf = pymupdf.open()
     page = pdf.new_page(width=600, height=500)
-    page.insert_text((44, 60), "Set pressure   340 psig", fontsize=9)
+    page.insert_text((44, 60), "Set pressure   355 psig", fontsize=9)
     pdf.save(str(path)); pdf.close()
     with db.connect() as conn:
         conn.execute("""INSERT INTO documents
@@ -291,7 +291,7 @@ def test_the_default_page_text_comes_from_the_stored_chunks():
 def test_read_datasheet_uses_stored_text_and_known_fields_by_default():
     doc = _ingest_page(pathlib.Path(settings.data_dir) / "d.pdf")
     datasheets.create_fact(submittal_document_id=doc, chunk_id=f"{doc}-c1",
-                           field_label="Set pressure", raw_value="340 psig", page=1)
+                           field_label="Set pressure", raw_value="355 psig", page=1)
     seen = []
 
     def model(prompt):
@@ -307,7 +307,7 @@ def test_read_datasheet_uses_stored_text_and_known_fields_by_default():
 def test_stored_facts_are_marked_as_the_models_and_never_overwrite():
     doc = _ingest_page(pathlib.Path(settings.data_dir) / "d.pdf")
     existing = datasheets.create_fact(submittal_document_id=doc, chunk_id=f"{doc}-c1",
-                                      field_label="Set pressure", raw_value="340 psig", page=1)
+                                      field_label="Set pressure", raw_value="355 psig", page=1)
     out = cd.read_page(PAGE, 1, [], _fake(*THREE))
     accepted = [{**p, "page": 1} for p in out["accepted"]]
     stored = cd.store_facts(None, doc, accepted, allowed_document_ids=_scope(doc))

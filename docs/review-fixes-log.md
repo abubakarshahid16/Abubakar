@@ -249,7 +249,7 @@ Also fixed a pre-existing mutation-id collision on `main` between
   added to the market lane's own existing gated transport, not a new one.
 - **Never a company standard.** `web_standards.is_public_identifier` is an
   ALLOW-list (a known public standards body's own numbering) with a second,
-  independent block-list (SAES/SAMSS/KOC-*) - an identifier that matches
+  independent block-list (SAES/SAMSS and the like) - an identifier that matches
   neither, or matches the allow-list but also carries a company marker, is
   never searched, never fetched, never logged with its own text. It reads
   "Company standard - upload required", same as any other missing reference.

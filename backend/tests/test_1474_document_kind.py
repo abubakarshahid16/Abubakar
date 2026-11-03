@@ -125,13 +125,13 @@ def test_kind_from_the_title_block(page, expected):
 def test_the_number_type_code_beats_a_datasheet_word_and_the_conflict_is_kept():
     page = (
         "ACME PROJECT\nMECHANICAL DATASHEET\nSOME VESSEL\n"
-        "CONTRACTOR DOC NO: 99999-0001-SP-0810-0003\n"
+        "CONTRACTOR DOC NO: 99999-0001-SP-9910-0003\n"
     )
     evidence = document_kind.decide_document_kind([{"page_no": 1, "text": page}])
     assert evidence.kind == "specification"
     assert evidence.method == "number_type_code"
     assert evidence.conflict == "datasheet" and evidence.guess is True
-    assert "SP-0810" in evidence.quote and evidence.page == 1
+    assert "SP-9910" in evidence.quote and evidence.page == 1
 
 
 def test_a_body_mention_of_equipment_never_decides_the_kind():
@@ -184,7 +184,7 @@ def test_switch_on_stores_a_suggestion_with_quote_and_page(monkeypatch):
 
 def test_a_document_without_a_classification_row_gets_a_kind_and_no_row(monkeypatch):
     monkeypatch.setattr(settings, "document_kind_enabled", True)
-    _doc("d1", ['SCHEDULE "G"\nATTACHMENT I'], with_row=False)
+    _doc("d1", ['SCHEDULE "H"\nATTACHMENT I'], with_row=False)
     classification.classify_document_kind("d1")
     assert _kind("d1")[0] == "contract"
     assert (

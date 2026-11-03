@@ -392,5 +392,5 @@ def test_the_workflow_reads_only_the_invented_questions_and_the_installer_servic
     run = "\n".join(s.get("run", "") for s in steps)
     assert "eval/answer_quality/run_aq.py" in run
     assert "systemctl disable --now ollama" in run and "is not version" in run
-    for forbidden in ("hidden-exam", "Engineering Deliverables", "upload", "/data/"):
+    for forbidden in ("hidden-exam", "Deliverables Register", "upload", "/data/"):
         assert forbidden not in run

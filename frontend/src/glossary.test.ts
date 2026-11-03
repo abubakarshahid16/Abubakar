@@ -32,7 +32,7 @@ import { join, resolve } from "node:path";
  *
  * `submittal` is deliberately NOT here; see the note above.
  */
-const BANNED = /\b(assignee|checker|nabaa)\b/i;
+const BANNED = /\b(assignee|checker)\b/i;
 
 /** Where rendered text lives. */
 const ROOTS = ["views", "components"];
