@@ -79,8 +79,10 @@ REASONS: dict[str, tuple[str, str]] = {
         DOES_NOT_APPLY,
         "it is written for another equipment type or document kind",
     ),
-    "outside_part_scope": (DOES_NOT_APPLY,
-                           "its Part or Appendix is written for other equipment"),
+    "outside_part_scope": (
+        DOES_NOT_APPLY,
+        "its Part or Appendix is written for other equipment",
+    ),
     "outside_partial_scope": (DOES_NOT_APPLY,
                               "the equipment type takes this standard only in part, and not this rule"),
     "not_material_field": (DOES_NOT_APPLY,
