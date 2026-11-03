@@ -111,17 +111,8 @@ def _satisfies(observed: claims.Measurement, limit: claims.Measurement) -> bool 
     return claims._compatible(observed, limit)
 
 
-def verify_pass(proposal: dict, ctx) -> arp.Verdict:
-    """THE PASS GATE. Accept only when every check in the module docstring holds."""
-
-    def no(reason: str) -> arp.Verdict:
-        return arp.Verdict(False, reason, proposal)
-
-    if not settings.ai_review_pass_enabled:
-        return no(PassReason.SWITCH_OFF)
-    bad = arp._common(proposal, ctx)  # confidence, reason present, size
-    if bad:
-        return no(bad)
+def _document_quote(proposal: dict, ctx) -> tuple[str | None, str | None]:
+    """(quote, None) when one document quote stands, whole, on the cited page and names the field; else (None, reason)."""
     page = arp._page_of(proposal, ctx)
     evidence = proposal.get("evidence")
     field = str(proposal.get("field") or "").strip()
@@ -135,71 +126,95 @@ def verify_pass(proposal: dict, ctx) -> arp.Verdict:
         or arp._evidence_ok(proposal, ctx) is not None
         or _fold(field) not in _fold(str(evidence[0].get("quote") or ""))
     ):
-        return no(PassReason.NO_DOC_QUOTE)
-    doc_quote = str(evidence[0]["quote"]).strip()
-    if _NEGATION.search(_fold(doc_quote)):
-        return no(PassReason.NEGATION)
+        return None, PassReason.NO_DOC_QUOTE
+    quote = str(evidence[0]["quote"]).strip()
+    if _NEGATION.search(_fold(quote)):
+        return None, PassReason.NEGATION
+    return quote, None
+
+
+def _clause_quote(proposal: dict, ctx) -> tuple[str | None, str | None]:
+    """(clause quote, None) when the clause resolves to stored text, the quote stands in it and the scope is confirmed."""
     clause_text = _clause_text(proposal, ctx)
     if clause_text is None:
-        return no(PassReason.NO_CLAUSE)
-    clause_quote = str(proposal.get("clause_quote") or "").strip()
-    if len(clause_quote) < arp.MIN_QUOTE_CHARS or _fold(clause_quote) not in _fold(
-        clause_text
-    ):
-        return no(PassReason.CLAUSE_QUOTE)
+        return None, PassReason.NO_CLAUSE
+    quote = str(proposal.get("clause_quote") or "").strip()
+    if len(quote) < arp.MIN_QUOTE_CHARS or _fold(quote) not in _fold(clause_text):
+        return None, PassReason.CLAUSE_QUOTE
     if str(proposal.get("scope_applies") or "").strip().lower() != "yes":
-        return no(PassReason.SCOPE)
+        return None, PassReason.SCOPE
     if _SCOPE_MARKERS.search(_fold(clause_text)):
-        scope_quote = str(proposal.get("scope_quote") or "").strip()
-        if len(scope_quote) < arp.MIN_QUOTE_CHARS or _fold(scope_quote) not in _fold(
-            clause_text
-        ):
-            return no(PassReason.SCOPE)
-    limits = [
-        m
-        for m in claims.extract_measurements(clause_quote)
-        if m.comparator in COMPARATORS
-    ]
+        shown = str(proposal.get("scope_quote") or "").strip()
+        if len(shown) < arp.MIN_QUOTE_CHARS or _fold(shown) not in _fold(clause_text):
+            return None, PassReason.SCOPE
+    return quote, None
+
+
+def _figure_check(
+    proposal: dict, clause_quote: str, doc_quote: str
+) -> tuple[str | None, str | None]:
+    """(what was compared, None) when the document's value, read by code, satisfies the clause's, read by code."""
+    clause_figures = claims.extract_measurements(clause_quote)
+    limits = [m for m in clause_figures if m.comparator in COMPARATORS]
     observed = claims.extract_measurements(doc_quote)
     if limits:
-        if (
-            len(limits) != 1
-            or len(claims.extract_measurements(clause_quote)) != 1
-            or len(observed) != 1
-        ):
-            return no(PassReason.NO_FIGURE)
+        if len(limits) != 1 or len(clause_figures) != 1 or len(observed) != 1:
+            return None, PassReason.NO_FIGURE
         limit = claims.normalise(
             limits[0].raw_value, limits[0].raw_unit, limits[0].comparator
         )
         value = claims.normalise(observed[0].raw_value, observed[0].raw_unit)
         verdict = _satisfies(value, limit)
         if verdict is None:
-            return no(PassReason.NOT_COMPARABLE)
+            return None, PassReason.NOT_COMPARABLE
         if verdict is not True:
-            return no(PassReason.NOT_SATISFIED)
-        shown = f"the submittal states {observed[0].raw_value} {observed[0].raw_unit} and the clause requires {limits[0].comparator} {limits[0].raw_value} {limits[0].raw_unit}"
-    else:
-        if claims.extract_measurements(clause_quote) or claims.extract_measurements(
-            doc_quote
-        ):
-            return no(PassReason.NO_FIGURE)
-        term = str(proposal.get("required_term") or "").strip()
-        if (
-            not term
-            or not numparse.contains_whole(_fold(doc_quote), _fold(term))
-            or not numparse.contains_whole(_fold(clause_quote), _fold(term))
-        ):
-            return no(PassReason.NO_TERM)
-        shown = f'the submittal states "{term}" and the clause requires it'
+            return None, PassReason.NOT_SATISFIED
+        return (
+            f"the submittal states {observed[0].raw_value} {observed[0].raw_unit} and the clause requires "
+            f"{limits[0].comparator} {limits[0].raw_value} {limits[0].raw_unit}",
+            None,
+        )
+    if clause_figures or observed:
+        return None, PassReason.NO_FIGURE
+    term = str(proposal.get("required_term") or "").strip()
+    if (
+        not term
+        or not numparse.contains_whole(_fold(doc_quote), _fold(term))
+        or not numparse.contains_whole(_fold(clause_quote), _fold(term))
+    ):
+        return None, PassReason.NO_TERM
+    return f'the submittal states "{term}" and the clause requires it', None
+
+
+def _sheet_check(field: str, ctx) -> str | None:
+    """A reason when the sheet holds a Fail for the field, or the document gives the field two values."""
     for row in ctx.rows.values():
-        if _fold(field) in _fold(
+        about = _fold(
             str(row.get("page_section") or "") + " " + str(row.get("comment") or "")
-        ) and arp.is_fail_row(row):
-            return no(PassReason.FAIL_PRESENT)
-    if len(_field_values(field, ctx)) > 1:
-        return no(PassReason.CONFLICT)
-    if not _same_reading(proposal, proposal.get("second")):
-        return no(PassReason.READINGS)
+        )
+        if _fold(field) in about and arp.is_fail_row(row):
+            return PassReason.FAIL_PRESENT
+    return PassReason.CONFLICT if len(_field_values(field, ctx)) > 1 else None
+
+
+def verify_pass(proposal: dict, ctx) -> arp.Verdict:
+    """THE PASS GATE. Accept only when every check in the module docstring holds; the first failure is the refusal."""
+    if not settings.ai_review_pass_enabled:
+        return arp.Verdict(False, PassReason.SWITCH_OFF, proposal)
+    bad = arp._common(proposal, ctx)  # confidence, reason present, size
+    doc_quote, bad = (None, bad) if bad else _document_quote(proposal, ctx)
+    clause_quote = None
+    if not bad:
+        clause_quote, bad = _clause_quote(proposal, ctx)
+    shown = None
+    if not bad:
+        shown, bad = _figure_check(proposal, clause_quote, doc_quote)
+    field = str(proposal.get("field") or "").strip()
+    bad = bad or _sheet_check(field, ctx)
+    if not bad and not _same_reading(proposal, proposal.get("second")):
+        bad = PassReason.READINGS
+    if bad:
+        return arp.Verdict(False, bad, proposal)
     return arp.Verdict(
         True, None, proposal, row_kind=PASS_ROW_KIND, final_text=f"{field}: {shown}."
     )
