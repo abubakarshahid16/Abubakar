@@ -307,6 +307,7 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_plain_notes_enabled": False,
     "crs_compliance_list_enabled": False,
     "standard_scope_not_no_enabled": False,
+    "crs_contractor_no_engineer_words_enabled": False,
     "run_record_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,

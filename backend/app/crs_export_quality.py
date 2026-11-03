@@ -490,12 +490,34 @@ def ticked_words(row: dict) -> dict:
     return {**row, "comment": said.replace(TICK_LEAD, "TICKED BY ENGINEER", 1)}
 
 
+_ENGINEER_WORD = re.compile(r"\bengineers?\b", re.IGNORECASE)
+_PARTS = re.compile(r"(?<=[;\n])|(?<=[.!?])\s+")
+
+
+def engineer_words_in(text) -> bool:
+    """Whether a text the contractor reads names the engineer (item 14c, the code check)."""
+    return bool(_ENGINEER_WORD.search(str(text or "")))
+
+
+def contractor_words(row: dict) -> dict:
+    """The contractor copy only: cut every part of a comment (between ; . ! ? and line ends) that names the engineer.
+    Nothing is reworded; a part with none of the words is kept whole. Switch off: the row as it was."""
+    if not settings.crs_contractor_no_engineer_words_enabled:
+        return row
+    text = str(row.get("comment") or "")
+    if not engineer_words_in(text):
+        return row
+    kept = [p for p in _PARTS.split(text) if p and not engineer_words_in(p)]
+    return {**row, "comment": " ".join(p.strip() for p in kept).strip()}
+
+
 def prepare(
     findings: list[dict], copy: str, has_no_text, on: bool
 ) -> tuple[list[dict], int, int]:
     """Rules 2 and 1, before the rows are built: (rows, dropped, merged);
     the rows untouched when the switch is off."""
     findings = [ticked_words(f) for f in findings]
+    findings = [contractor_words(f) for f in findings] if copy == "issue" else findings
     if not on:
         return findings, 0, 0
     strict = strict_enabled()
