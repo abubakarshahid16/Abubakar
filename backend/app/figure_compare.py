@@ -65,7 +65,9 @@ _CONDITION_FIGURE = re.compile(
     r"\b(?:for|at|with|in|on|from|beyond)\b[^,;.]{0,60}?\b(?:above|below|over|under|exceeding|greater\s+than|more\s+than|less\s+than|higher\s+than|lower\s+than)\b",
     re.IGNORECASE,
 )
-_REQUIREMENT_VERB = re.compile(r"\b(?:is|are|shall|must|should|required|be|to\s+be|will)\b", re.IGNORECASE)
+_REQUIREMENT_VERB = re.compile(
+    r"\b(?:is|are|shall|must|should|required|be|to\s+be|will)\b", re.IGNORECASE
+)
 _DIRECTION_WORD = re.compile(
     r"(?P<le>\bnot\s+(?:to\s+)?(?:be\s+)?(?:exceed\w*|more|greater|higher|larger|above|over)\b|\bno\s+(?:more|greater|higher|larger)\b|"
     r"\bat\s+most\b|\bmax(?:imum)?\b|\bup\s+to\b|\bless\s+than\b|\blower\s+than\b|\bsmaller\s+than\b|\bbelow\b|\bunder\b|<=|\u2264|<)"
@@ -96,13 +98,19 @@ def _clause_refusal(clause: str) -> str | None:
     if _ANY_NEGATION.search(_NEGATED_COMPARATOR.sub(" ", clause)):
         return "the clause holds a negation or a prohibition the code does not read"
     if _AMBIGUOUS_SEPARATOR.search(clause):
-        return "a clause figure has a separator that may be a thousands mark or a decimal"
-    if _EXCEPTION.search(clause) or _CONDITION_FIGURE.search(_NEGATED_COMPARATOR.sub(" ", clause)):
+        return (
+            "a clause figure has a separator that may be a thousands mark or a decimal"
+        )
+    if _EXCEPTION.search(clause) or _CONDITION_FIGURE.search(
+        _NEGATED_COMPARATOR.sub(" ", clause)
+    ):
         return "the clause holds an exception or a condition the figure may belong to"
     head, sep, tail = clause.partition(",") if "," in clause else clause.partition(";")
     if sep and re.search(r"\d", head) and _REQUIREMENT_VERB.search(tail):
         return "the figure may belong to a condition before a separate requirement"
-    kinds = {k for m in _DIRECTION_WORD.finditer(clause) for k in ("le", "ge") if m.group(k)}
+    kinds = {
+        k for m in _DIRECTION_WORD.finditer(clause) for k in ("le", "ge") if m.group(k)
+    }
     if len(kinds) > 1:
         return "the clause holds two directions"
     return None
