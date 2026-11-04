@@ -327,6 +327,7 @@ EGRESS_SAFE: dict[str, object] = {
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,
+    "draft_process_items_enabled": False,
     "rulebook_v2_review_enabled": False,
     "owner_note_lifts_context_flag_enabled": False,
     "material_reference_enabled": False,

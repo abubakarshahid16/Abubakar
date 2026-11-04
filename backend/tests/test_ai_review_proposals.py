@@ -718,7 +718,7 @@ def test_a_grouped_row_with_a_member_that_cannot_be_looked_up_is_not_removable()
     assert arp.verify(prop(**remove(r4)), ctx(r4)).reason == arp.Reason.FAIL_KEPT.value
 
 
-# ---- every compatibility spelling of a verdict word is refused (the full NFKC fold lives in numparse.fold_compat) -------
+# ---- every compatibility spelling of a verdict word is refused (the full NFKC fold lives in word_fold.fold_compat) -------
 _SUPER = dict(
     zip("abcdefghijklmnoprstuvwxyz", "ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ", strict=True)
 )
@@ -774,10 +774,10 @@ def test_a_verdict_claim_in_any_unicode_style_is_refused_without_evidence(
 
 
 def test_the_compatibility_fold_is_not_the_number_normaliser():
-    from app import numparse
+    from app import numparse, word_fold
 
     assert (
-        numparse.fold_compat(
+        word_fold.fold_compat(
             "\U0001d41c\U0001d428\U0001d426\U0001d429\U0001d425\U0001d422\U0001d41e\U0001d42c"
         )
         == "complies"
@@ -785,7 +785,7 @@ def test_the_compatibility_fold_is_not_the_number_normaliser():
     assert (
         numparse.normalise_text("\U0001d41c\U0001d428") != "co"
     )  # the number normaliser leaves these letters alone
-    assert numparse.fold_compat(chr(0xFF19) * 2) == "99"
+    assert word_fold.fold_compat(chr(0xFF19) * 2) == "99"
 
 
 # ---- a deterministic generator of spellings of the verdict words: every class must be caught, 0 leaks -------------------------
@@ -831,6 +831,44 @@ def _spellings(word: str) -> list[tuple[str, str]]:
     for kind, spelled in list(_styles(word).items()):
         out.append((kind + " + zero-width", spelled[:2] + "​" + spelled[2:]))
         out.append((kind + " + accent", spelled[:2] + "́" + spelled[2:]))
+    for base, kind in (
+        (0x1F1E6, "regional indicator"),
+        (0x1F130, "squared"),
+        (0x1F150, "negative circled"),
+        (0x1F170, "negative squared"),
+    ):
+        out.append(
+            (kind, "".join(chr(base + ord(c) - 97) if c.isalpha() else c for c in word))
+        )
+    cherokee = {
+        "a": 0x13AA,
+        "b": 0x13F4,
+        "c": 0x13DF,
+        "d": 0x13A0,
+        "e": 0x13AC,
+        "g": 0x13C0,
+        "h": 0x13BB,
+        "j": 0x13AB,
+        "k": 0x13E6,
+        "l": 0x13DE,
+        "m": 0x13B7,
+        "p": 0x13E2,
+        "z": 0x13C3,
+        "r": 0x13A1,
+        "s": 0x13DA,
+        "t": 0x13A2,
+        "v": 0x13D9,
+        "w": 0x13B3,
+        "i": 0x13C6,
+    }
+    for i, ch in enumerate(word):
+        if ch in cherokee:
+            out.append(("cherokee", word[:i] + chr(cherokee[ch]) + word[i + 1 :]))
+    for sep in "/,:;|\u00b7*\u2022\\+=#'\"`~^&!?%@$<>[]{}":
+        out.append(("separator inside the word", sep.join(word.replace("-", ""))))
+    for glue in ("\u0308", "\u0301", "\u034f", "\ufe0f", "\ufe0e", "\u200d"):
+        out.append(("space before a bare mark", f"the {glue}{word}"))
+        out.append(("space before a bare mark", f"the{glue} {word}"))
     rnd = random.Random(20261103)
     for _ in range(60):  # combinations: three random tricks on one word
         letters = list(word)

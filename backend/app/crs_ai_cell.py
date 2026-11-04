@@ -18,7 +18,7 @@ Nothing here reads or writes document text.
 
 from __future__ import annotations
 
-from . import crs_draft_lanes, crs_mapping, crs_wording
+from . import crs_ai_review_view, crs_draft_lanes, crs_mapping, crs_wording
 
 AI_DRAFT_NOTE = "Written by the AI (see the comment)"
 KEPT = "Plain wording kept: "
@@ -80,6 +80,9 @@ def _why_kept(row: dict, summary: dict | None) -> str:
     return "the AI offered no wording for this row"
 
 
+kept = crs_ai_review_view.with_removed  # gate and decide route keep AI-removed rows
+
+
 def apply(rows: list[dict], review_run_id: str) -> None:
     """The internal copy's AI cell, for every row. First the wording the lock
     accepted (an unconfirmed machine row only; an engineer's confirmed words
@@ -94,6 +97,9 @@ def apply(rows: list[dict], review_run_id: str) -> None:
             and not str(row.get("ai_review_comment") or "").strip()
         ):
             row["ai_review_comment"] = text
+    crs_ai_review_view.apply(
+        rows, review_run_id
+    )  # lane 6: off unless the pass stored accepted proposals
     _notes(rows, review_run_id)
 
 
