@@ -33,6 +33,16 @@ USAGE = {
 
 
 @pytest.fixture(autouse=True)
+def _declared():
+    from app import claude_approved
+
+    ac.reset_shared_meter_for_tests()
+    with claude_approved.carrying(["doc-1"]):
+        yield
+    ac.reset_shared_meter_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
@@ -218,15 +228,19 @@ EV = {"doc_quote": "dq", "clause_quote": "cq"}
 
 def test_second_opinion_agree_and_disagree():
     s = op('{"agree": true, "reason": "quotes match"}')
-    out = ac.second_opinion(F, EV, send=s, env=ENV)
+    out = ac._second_opinion(F, EV, meter=ac.SpendMeter(), send=s, env=ENV)
     assert out["agree"] is True and out["usd"] > 0
     assert s.bodies[0]["model"] == "claude-opus-5-5"
     assert "dq" in s.bodies[0]["messages"][0]["content"][0]["text"]
     assert s.bodies[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert (
-        ac.second_opinion(F, EV, send=op('{"agree": false, "reason": "x"}'), env=ENV)[
-            "agree"
-        ]
+        ac._second_opinion(
+            F,
+            EV,
+            meter=ac.SpendMeter(),
+            send=op('{"agree": false, "reason": "x"}'),
+            env=ENV,
+        )["agree"]
         is False
     )
 
@@ -235,16 +249,38 @@ def test_second_opinion_agree_and_disagree():
     "text", ["maybe", '{"agree": "yes"}', '{"agree": 1}', '{"reason": "r"}', "{broken"]
 )
 def test_second_opinion_garbage_is_none(text):
-    assert ac.second_opinion(F, EV, send=op(text), env=ENV)["agree"] is None
+    assert (
+        ac._second_opinion(F, EV, meter=ac.SpendMeter(), send=op(text), env=ENV)[
+            "agree"
+        ]
+        is None
+    )
 
 
 def test_second_opinion_reason_is_capped_and_failures_are_none():
     long = op(json.dumps({"agree": True, "reason": "w " * 50}))
-    assert len(ac.second_opinion(F, EV, send=long, env=ENV)["reason"].split()) <= 20
-    assert ac.second_opinion(F, EV, send=op('{"agree": true}'), env={})["agree"] is None
     assert (
-        ac.second_opinion(
-            F, EV, send=op('{"agree": true}'), env=ENV, model=ac.LEAD_MODEL
+        len(
+            ac._second_opinion(F, EV, meter=ac.SpendMeter(), send=long, env=ENV)[
+                "reason"
+            ].split()
+        )
+        <= 20
+    )
+    assert (
+        ac._second_opinion(
+            F, EV, meter=ac.SpendMeter(), send=op('{"agree": true}'), env={}
+        )["agree"]
+        is None
+    )
+    assert (
+        ac._second_opinion(
+            F,
+            EV,
+            meter=ac.SpendMeter(),
+            send=op('{"agree": true}'),
+            env=ENV,
+            model=ac.LEAD_MODEL,
         )["agree"]
         is None
     )
@@ -268,7 +304,7 @@ def test_temperature_absent_for_a_model_that_rejects_it_and_present_for_one_that
     provider(s2, model="claude-haiku-4-5").complete(MSGS, SPECS)
     assert s2.bodies[0]["temperature"] == 0
     s3 = op('{"agree": true}')
-    ac.second_opinion(F, EV, send=s3, env=ENV)
+    ac._second_opinion(F, EV, meter=ac.SpendMeter(), send=s3, env=ENV)
     assert "temperature" not in s3.bodies[0]
 
 
@@ -316,8 +352,77 @@ def test_model_reasons_are_capped_in_tool_turns_and_finals():
 
 
 def test_no_declared_documents_is_refused_and_nothing_is_sent(monkeypatch):
+    from app import claude_approved
+
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
     s = Sender(tool_use(doc="D", page=1))
-    with pytest.raises(ac.AgentBudgetStop) as e:
-        provider(s).complete(MSGS, SPECS)
-    assert (s.bodies == [] and "undeclared" in str(e.value).lower()) or e.value.code
+    token = claude_approved._CARRIED.set(None)
+    try:
+        with pytest.raises(ac.AgentGateClosed) as e:
+            provider(s).complete(MSGS, SPECS)
+    finally:
+        claude_approved._CARRIED.reset(token)
+    assert s.bodies == [] and e.value.code == "undeclared_documents"
+
+
+def test_empty_declaration_is_refused_and_nothing_is_sent():
+    from app import claude_approved
+
+    s = Sender(tool_use(doc="D", page=1))
+    with claude_approved.per_request_consent([]):
+        with pytest.raises(ac.AgentGateClosed) as e:
+            provider(s).complete(MSGS, SPECS)
+    assert s.bodies == [] and e.value.code == "undeclared_documents"
+
+
+def test_a_failed_send_and_a_non_dict_reply_are_charged_at_worst_case():
+    p = provider(Sender([], raises=TimeoutError("t")))
+    with pytest.raises(ac.AgentTransportError):
+        p.complete(MSGS, SPECS)
+    assert p.spent > 0
+    s = Sender([])
+    s.reply = "not a dict"
+    q = provider(s, total_cap_usd=5.0)
+    with pytest.raises(ac.AgentBadReply):
+        q.complete(MSGS, SPECS)
+    assert q.spent > 0
+
+
+def test_a_provably_unbilled_failure_is_not_charged():
+    from app import reader_transport
+
+    p = provider(Sender([], raises=reader_transport.TransportRefused("no", sent=False)))
+    with pytest.raises(ac.AgentTransportError):
+        p.complete(MSGS, SPECS)
+    assert p.spent == 0.0
+
+
+def test_providers_share_one_process_wide_meter():
+    a, b = (
+        provider(Sender(tool_use(doc="D", page=1))),
+        provider(Sender(tool_use(doc="D", page=1))),
+    )
+    a.complete(MSGS, SPECS)
+    assert b.spent == a.spent > 0
+    b.complete(MSGS, SPECS)
+    assert a.spent == b.spent
+
+
+def test_the_estimate_counts_the_tools_sent():
+    big = [
+        {
+            "name": "open_page",
+            "description": "d" * 300_000,
+            "input_schema": {"type": "object"},
+        }
+    ]
+    s = Sender(tool_use(doc="D", page=1))
+    p = provider(s, total_cap_usd=0.1)
+    p.complete(MSGS, SPECS)  # small tools fit under the cap
+    with pytest.raises(ac.AgentBudgetStop):
+        p.complete(MSGS, big)
+    assert len(s.bodies) == 1
+
+
+def test_the_bare_second_opinion_is_not_public():
+    assert not hasattr(ac, "second_opinion")

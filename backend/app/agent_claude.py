@@ -10,7 +10,7 @@ THE CALLER (the runner) must wrap the run in `claude_approved.per_request_consen
 with exactly the selected documents. Without a declaration every call fails closed with `DocumentNotApproved` (a
 `BudgetExceeded`, so `AgentBudgetStop`) and nothing is sent.
 
-RUN CAP. One `SpendMeter` (default USD 10, the owner's cap for the whole test) is shared by the provider and by every
+RUN CAP. One process-wide `SpendMeter` (default USD 10, the owner's cap for the whole test) is shared by the provider and by every
 `second_opinion` made with it: before each call `spent + worst case of that request > cap` raises `AgentBudgetStop`
 without sending; after it, the real usd is added. `provider.spent` is the runner's read-out.
 
@@ -60,6 +60,14 @@ class SpendMeter:
 
     def add(self, usd: float) -> None:
         self.spent += float(usd)
+
+
+_SHARED = SpendMeter()
+
+
+def reset_shared_meter_for_tests() -> None:
+    """Tests only: the process-wide meter back to zero and the default cap."""
+    _SHARED.cap, _SHARED.spent = TOTAL_CAP_USD, 0.0
 
 
 class AgentClaudeError(RuntimeError):
@@ -252,16 +260,25 @@ def _call(
     env: dict | None,
     meter: SpendMeter | None = None,
 ) -> tuple[dict, float]:
+    from app import claude_approved, reader_transport
+
     request = _request(model, max_tokens, env)
+    declared = claude_approved.carried()
+    if (
+        not declared
+    ):  # absent or empty: we cannot tell what a prompt carries, so nothing is sent
+        raise AgentGateClosed("undeclared_documents")
     raw = _transport(send)
     body = dict(request["body"])
     body.update(body_parts)
     body["model"], body["max_tokens"] = model, int(max_tokens)
+    chars = sum(
+        len(json.dumps(body.get(k), default=str))
+        for k in ("messages", "system", "tools")
+    )
+    worst = claude_spend.worst_case_usd(model, chars, int(body["max_tokens"]))
     if meter is not None:
-        chars = len(json.dumps(body.get("messages"), default=str)) + len(
-            json.dumps(body.get("system"), default=str)
-        )
-        meter.check(claude_spend.worst_case_usd(model, chars, int(body["max_tokens"])))
+        meter.check(worst)
     try:
         answer = _metered(raw)(
             request["url"],
@@ -274,8 +291,10 @@ def _call(
             getattr(exc, "code", None) or getattr(type(exc), "count_key", "budget_stop")
         ) from None
     except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
+        if meter is not None and not reader_transport.unbilled(exc):
+            meter.add(worst)  # may have been billed: charged at the worst case
         raise AgentTransportError("transport_" + type(exc).__name__) from None
-    usd = _usd(model, answer, body) if isinstance(answer, dict) else 0.0
+    usd = _usd(model, answer, body) if isinstance(answer, dict) else worst
     if meter is not None:
         meter.add(usd)  # a paid bad reply still counts toward the cap
     if not isinstance(answer, dict) or not isinstance(answer.get("content"), list):
@@ -339,10 +358,12 @@ class ClaudeProvider:
         max_tokens: int = MAX_TOKENS,
         send: Callable | None = None,
         env: dict | None = None,
-        total_cap_usd: float = TOTAL_CAP_USD,
+        total_cap_usd: float | None = None,
         meter: SpendMeter | None = None,
     ) -> None:
-        self.meter = meter or SpendMeter(total_cap_usd)
+        self.meter = meter or (
+            _SHARED if total_cap_usd is None else SpendMeter(total_cap_usd)
+        )
         self.model, self.system, self.max_tokens = model, system, int(max_tokens)
         self.send, self.env = send, env
         self.total_usd = 0.0
@@ -376,13 +397,13 @@ class ClaudeProvider:
         kw.setdefault("send", self.send)
         kw.setdefault("env", self.env)
         kw.setdefault("lead_model", self.model)
-        return second_opinion(finding, evidence, meter=self.meter, **kw)
+        return _second_opinion(finding, evidence, meter=self.meter, **kw)
 
 
 # ------------------------------------------------------------------ second opinion
 
 
-def second_opinion(
+def _second_opinion(
     finding: dict,
     evidence: dict,
     *,
@@ -391,7 +412,7 @@ def second_opinion(
     send: Callable | None = None,
     env: dict | None = None,
     max_tokens: int = SECOND_MAX_TOKENS,
-    meter: SpendMeter | None = None,
+    meter: SpendMeter,
 ) -> dict:
     """A DIFFERENT model confirms or rejects a GREEN or RED finding from the verified quotes only.
 
