@@ -20,6 +20,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 
 | Module | Job |
 |---|---|
+| `agent_tools` | Agent reviewer tools: open page, search, get clause, compare number, record finding, ask engineer (#1690) |
 | `absence` | ONE RULE FOR ABSENCE (#450, #451): not found is never a positive outcome |
 | `access` | Request-scoped authorisation. Computed once, server-side, per request |
 | `acronyms` | Acronym expansions harvested from the documents themselves |
@@ -33,7 +34,12 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `label_match` | A split abbreviation ("tube o d") is joined before the roles table is read; a reading with no unit beside the same number with one is one value (switch `datasheet_label_join_enabled`) |
 | `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
+| `ai_senior_review` | Step 3 of "the best CRS" (Part of #805), off by default: the AI senior review entry point (A's checks plus B's AI rows that A lacks); this part is the switch only |
+| `figure_compare` | One document figure against one clause figure by code (comparison module's own readers; negations, decimal commas, ranges, placeholders, gauge/absolute refused or decided as stated) |
 | `ai_review_pass` | The AI engineering review pass runner (off by default): one model call proposes, code verifies and stores; changes no row |
+| `agent_loop` | The agent proof test loop (off by default, `AGENT_REVIEW_ENABLED`): a provider picks one tool per step, code runs it; ends in a finding checked for the honesty rules |
+| `agent_trace` | Local-only trace, live log, LIVE.md and resume state for the agent proof test; never inside the repository |
+| `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |
 | `ai_review_proposals` | The review pass's proposal schema and code verifier: refuses any unverified value, page or clause; a Pass is never created |
 | `project_specification` | Which specification a person (the owner) marked for a submittal; pinned to the run and reported in every review, or "none held" |
 | `crs_ai_review_view` | What the INTERNAL CRS shows of the accepted AI review proposals: removed rows (restorable), added rows, rewordings, the understanding note, the AI review sheet |
@@ -124,6 +130,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
 | `part_name_roles` | Test B (part of #805): the strict rules by which a part printed alone (IMPELLER: material) or a seal in a sentence fills its material/type field, for the form reader's label gate and the stored-facts check, behind FORM_PART_NAME_ROLES_ENABLED |
+| `section_index` | Test B / HAZOP (part of #805): headings of any kind (attachment/appendix/annex codes, table titles, item titles) indexed at review time in memory for the playbook review, and the generic-title-word rule, behind SECTION_INDEX_ENABLED |
 | `crs_one_row` | #1503: one CRS row per problem, and "did not reference" rows nothing in scope requires, behind CRS_ONE_ROW_PER_PROBLEM_ENABLED |
 | `contractor_scrub` | Item 14c (owner 3 Nov 11:40): the one scrub that keeps the contractor copy free of engineer wording (text we write only; the contractor's own file names, tags and titles stay verbatim), with the code check that counts what is left, behind CRS_CONTRACTOR_NO_ENGINEER_WORDS_ENABLED |
 | `compliance_list` | Owner 3 Nov 11:40 (b): a value only a draft rule checks, with nothing found, is no CRS row; it is on the internal-only sheet "Compliance list", behind CRS_COMPLIANCE_LIST_ENABLED |
@@ -182,6 +189,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `doc_router` | The document-type router (W5b-02, #526) |
 | `document_kind` | The kind of a document (datasheet, procedure, specification, contract...) from its title block and cover (#1474) |
 | `kind_rules` | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards (#1474) |
+| `kind_standards` | Standards by role and document kind: a procedure or study leaves out equipment design standards, counted in the run note; method standards still needed are named once (off by default) |
 | `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |

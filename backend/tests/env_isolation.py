@@ -146,6 +146,7 @@ EGRESS_SAFE: dict[str, object] = {
     "field_naming_enabled": False,  # order 259.5: model-named fields in a review
     "vision_reader_engine": "ollama",  # #830: "claude" sends page images out under per_task
     "answer_judge_enabled": False,  # a model call per answer
+    "ai_senior_review_enabled": False,  # a model call per review item
     "applicability_reasoning_enabled": False,  # a model call per standard per review
     "crs_ai_wording_enabled": False,  # a model call per CRS row per review
     # --- the market lane (market_transport)
@@ -174,6 +175,7 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_ai_wording_engine": "ollama",  # #819: "claude" sends CRS rows (standard references) out
     "ai_engineering_review_pass_engine": "ollama",  # lane 6: "claude" sends the draft CRS and the pages out
     "ai_engineering_review_pass_enabled": False,  # lane 6: off unless a test turns it on
+    "agent_review_enabled": False,  # #1690: agent loop, off unless a test turns it on
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,
@@ -269,6 +271,8 @@ EGRESS_SAFE: dict[str, object] = {
     "transmittal_required_list_document_ids": "",
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
+    # --- local only, no model or socket: standards by role and document kind (off by default)
+    "standard_roles_by_kind_enabled": False,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
     "rules_by_equipment_scope_enabled": False,
     # --- local only, no model or socket: extraction stores each rule's equipment scope (off by default)
@@ -308,6 +312,7 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
     "crs_plain_notes_enabled": False,
+    "section_index_enabled": False,
     "form_part_name_roles_enabled": False,
     "crs_contractor_no_engineer_words_enabled": False,
     "standard_scope_not_no_enabled": False,
