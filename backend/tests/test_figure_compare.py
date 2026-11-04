@@ -973,7 +973,7 @@ def test_ordinary_plain_clauses_and_labels_still_decide():
 # --- each older guard is tested ALONE: the closed vocabulary is opened so it cannot catch the input first ---
 @pytest.fixture
 def open_vocabulary(monkeypatch):
-    monkeypatch.setattr(fc, "unknown_words", lambda text: [])
+    monkeypatch.setattr(fc, "unknown_words", lambda text, vocabulary=None: [])
 
 
 _LAYER_DOCUMENTS = [
@@ -1017,3 +1017,148 @@ def test_layer_each_clause_guard_alone(open_vocabulary, clause):
 
 def test_a_plural_of_a_vocabulary_word_is_accepted():
     assert verdict("Diameters: 5 mm", "diameters shall not exceed 10 mm") is True
+
+
+# --- #1689 seventh review: the document label has its own narrow vocabulary; inflected forms; difference words ---
+_LIMIT_LABEL_WORDS = [
+    "limit", "limits", "limited", "limiting", "minimum", "minimums", "minima", "maximum", "maximums", "min", "max", "required",
+    "requires", "requirement", "requirements", "requiring", "allowable", "allowables", "allowed", "upper", "lower", "larger",
+    "smaller", "least", "most", "more", "less", "greater", "higher", "range", "ranges", "ranged", "ranging", "tolerance", "tolerances",
+    "toleranced", "span", "spans", "spanned", "shall", "must", "or", "than", "to", "threshold", "thresholds", "ceiling", "floor",
+    "cap", "capped", "bound", "bounds", "bounded", "criterion", "criteria", "specification", "specified", "specifications",
+    "requested", "demanded", "mandatory", "stipulated", "permissible", "admissible", "acceptable", "average", "mean", "total",
+    "net", "gross", "overall", "effective", "actual", "differential", "drop", "rise", "increase", "delta", "loss", "losses",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("word", _LIMIT_LABEL_WORDS)
+def test_a_comparator_requirement_or_range_label_word_is_not_decided(word):
+    for document in (
+        f"Pressure {word}: 12 bar",
+        f"{word.capitalize()} pressure: 12 bar",
+        f"Design pressure {word} | 12 bar",
+    ):
+        _undecided(document, "design pressure shall be at least 10 bar")
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "Pressure limits: 12 bar",
+        "Pressure minimums: 12 bar",
+        "Required pressure: 12 bar",
+        "Pressure requirement: 12 bar",
+        "Allowable pressure: 12 bar",
+        "Upper pressure: 12 bar",
+        "Larger pressure: 12 bar",
+        "Smaller pressure: 12 bar",
+        "Least pressure: 12 bar",
+        "Most pressure: 12 bar",
+        "Pressure range: 12 bar",
+        "Pressure tolerance: 12 bar",
+        "Pressure span: 12 bar",
+        "Pressure shall: 12 bar",
+        "Pressure must: 12 bar",
+        "Pressure or: 12 bar",
+        "Pressure than: 12 bar",
+        "Pressure to: 12 bar",
+    ],
+)
+def test_the_reviewer_limit_labels_are_not_decided(document):
+    _undecided(document, "design pressure shall be at least 10 bar")
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "Superseding: 12 bar", "Estimates: 12 bar", "Proposals: 12 bar", "Drafts: 12 bar", "Targets: 12 bar", "Targeted: 12 bar",
+        "Estimating: 12 bar", "Proposing: 12 bar", "Drafted: 12 bar", "Expectations: 12 bar", "Assumptions: 12 bar", "Plans: 12 bar",
+        "Planning: 12 bar", "Cancelled: 12 bar", "Cancelling: 12 bar", "Voids: 12 bar", "Obsolescence: 12 bar", "Futures: 12 bar",
+    ],
+)  # fmt: skip
+def test_layer_inflected_status_words_alone(open_vocabulary, document):
+    _undecided(document, "design pressure shall be at least 10 bar")
+
+
+@pytest.mark.parametrize(
+    "document",
+    ["Limits: 12 bar", "Minimums: 12 bar", "Maximums: 12 bar", "Nominals: 12 bar", "Ranges: 12 bar", "Tolerances: 12 bar", "Spans: 12 bar", "Means: 12 bar", "Averages: 12 bar", "Approximates: 12 bar"],
+)  # fmt: skip
+def test_layer_inflected_qualifier_words_alone(open_vocabulary, document):
+    _undecided(document, "design pressure shall be at least 10 bar")
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure shall be agreeing at least 10 bar",
+        "pressure shall be permits at least 10 bar",
+        "pressure shall be assumptions at least 10 bar",
+        "pressure shall be options at least 10 bar",
+        "pressure shall be expecting at least 10 bar",
+        "pressure shall be nominals at least 10 bar",
+        "pressure shall be averages at least 10 bar",
+        "pressure shall be hundreds at least 10 bar",
+    ],
+)
+def test_layer_inflected_clause_words_alone(open_vocabulary, clause):
+    _undecided("12 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure shall not be exceeded by 10 bar",
+        "pressure shall be at least 10 bar per hour",
+        "pressure shall be at least 10 bar minus margin",
+        "pressure shall be at least 10 bar plus margin",
+        "pressure shall be between 10 bar",
+        "pressure shall be within 10 bar",
+        "pressure shall not exceed by 10 bar",
+        "pressure shall not be exceeded within 10 bar",
+    ],
+)
+def test_a_difference_or_range_word_in_the_clause_is_not_decided(
+    open_vocabulary, clause
+):
+    _undecided("12 bar", clause)
+
+
+def test_a_difference_word_is_refused_even_with_the_vocabulary():
+    _undecided("12 bar", "pressure shall not be exceeded by 10 bar")
+    _undecided("12 bar", "pressure shall not exceed 10 bar per day")
+
+
+def test_plain_labels_still_decide_after_the_narrow_label_vocabulary():
+    assert (
+        verdict("Design pressure: 12 bar", "design pressure shall be at least 10 bar")
+        is True
+    )
+    assert (
+        verdict("Test pressure | 12 bar", "test pressure shall be at least 10 bar")
+        is True
+    )
+    assert (
+        verdict("Wall thickness is 12 mm", "wall thickness shall be at least 10 mm")
+        is True
+    )
+    assert verdict("Pressures of 12 bar", "pressure shall be at least 10 bar") is True
+    assert (
+        verdict("Table | Design pressure | 5 bar", "pressure shall not exceed 10 bar")
+        is True
+    )
+
+
+def test_plural_es_of_a_vocabulary_word_is_accepted():
+    assert (
+        verdict("Wall thicknesses: 12 mm", "wall thicknesses shall be at least 10 mm")
+        is True
+    )
+
+
+@pytest.mark.parametrize(
+    "document",
+    ["Max: 12 bar", "Minimum: 12 bar", "Rated: 12 bar", "Average: 12 bar", "Mean: 12 bar", "Limit: 12 bar", "Nom: 12 bar", "Ca: 12 bar", "Range: 12 bar"],
+)  # fmt: skip
+def test_layer_each_qualifier_word_alone(open_vocabulary, document):
+    _undecided(document, "pressure shall be at least 10 bar")

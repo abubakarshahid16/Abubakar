@@ -63,19 +63,19 @@ _NEGATED_COMPARATOR = re.compile(
     re.IGNORECASE,
 )
 _ANY_NEGATION = re.compile(
-    r"\b(?:not|no|nor|never|neither|none|without|cannot|prohibit\w*|forbid\w*|forbidden|unacceptable|inadmissible|disallow\w*|reject\w*|banned)\b|n't\b",
+    r"\b(?:not|no|nor|never|neither|none|without|cannot|prohibit\w*|forbid\w*|forbidden|unacceptable|inadmissible|disallow\w*|reject\w*|ban|bans|banned|banning)\b|n't\b",
     re.IGNORECASE,
 )
 # a single separator followed by exactly three digits ("1.500", "1,500") may be a thousands separator or a decimal: not read.
 _AMBIGUOUS_SEPARATOR = re.compile(r"(?<![\d.,])[1-9]\d{0,2}[.,]\d{3}(?!\d)")
 _QUALIFIER = re.compile(
-    r"\b(?:min|minimum|max|maximum|approx\w*|about|around|circa|ca|abt|typ|typical\w*|nominal|nom|up\s+to|at\s+least|at\s+most|"
-    r"less|more|greater|higher|lower|above|below|over|under|exceed\w*|limit|rated|average|mean)\b|[~\u2248\u00b1<>\u2264\u2265]",
+    r"\b(?:(?:min|minimum|max|maximum|nominal|nom|ca|abt|typ)(?:s|es)?|approx\w*|about|around|circa|typical\w*|up\s+to|at\s+least|at\s+most|"
+    r"less|more|greater|higher|lower|above|below|over|under|exceed\w*|limit\w*|rated|average\w*|mean(?:s|ing)?|range\w*|toleranc\w*|span\w*)\b|[~\u2248\u00b1<>\u2264\u2265]",
     re.IGNORECASE,
 )
 _EXCEPTION = re.compile(
-    r"\b(?:as\s+agreed|agreed|except\w*|unless|where|wherever|when|whenever|whereas|while|if|provided|subject\s+to|otherwise|other\s+than|"
-    r"apart\s+from|excluding|only\s+for|in\s+case|in\s+which\s+case|depending|according\s+to|as\s+per|per\s+\w+\s+approval|by\s+agreement|approved\s+by)\b",
+    r"\b(?:as\s+agree\w*|agree\w*|except\w*|unless|where|wherever|when|whenever|whereas|while|if|provid\w*|subject\s+to|otherwise|other\s+than|"
+    r"apart\s+from|exclud\w*|only\s+for|in\s+case|in\s+which\s+case|depend\w*|according\s+to|as\s+per|per\s+\w+\s+approval|by\s+agreement|approv\w*\s+by)\b",
     re.IGNORECASE,
 )
 _CONDITION_FIGURE = re.compile(
@@ -126,7 +126,7 @@ _SIGN_BEFORE = re.compile(r"[+\-\u2212\u2013\u2014\u00b1]\s*$")
 _MEGA_OK = re.compile(r"^MPa[ga]?$")
 # an approximation word before or after the CLAUSE figure (the document side has its own, wider, list)
 _APPROXIMATION = re.compile(
-    r"\b(?:approx\w*|about|around|circa|ca|abt|typ|typical\w*|nominal|nom|average|mean)\b|[~\u2248\u00b1]",
+    r"\b(?:approx\w*|about|around|circa|ca|abt|typ|typical\w*|nominal\w*|nom|average\w*|mean(?:s|ing)?)\b|[~\u2248\u00b1]",
     re.IGNORECASE,
 )
 _CLOSER = re.compile(
@@ -138,8 +138,8 @@ _OR_CLOSER = re.compile(r"or\s+(?:more|less|greater|higher|lower)$", re.IGNORECA
 # anywhere is a condition, a class, a count, a product or a power the code does not read. Superscript digits and ^ x * are never read.
 _NUMBER_TOKEN = re.compile(r"[\d\u00bc-\u00be\u2150-\u218f\u2460-\u24ff]+(?:[.,]\d+)?")
 _NUMBER_WORD = re.compile(
-    r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
-    r"nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|half|twice|double|triple|dozen|pair)\b",
+    r"\b(?:(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
+    r"nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|half|halves|twice|double|triple|dozen|pair)(?:s|ed|ing)?)\b",
     re.IGNORECASE,
 )
 _OPERATOR_OR_POWER = re.compile(
@@ -148,7 +148,7 @@ _OPERATOR_OR_POWER = re.compile(
 # advisory and hedge words: a recommendation is not a requirement, an estimate is not a figure
 _HEDGE = re.compile(
     r"\b(?:should|preferably|prefer\w*|recommend\w*|may|might|can|could|would|typically|normally|generally|usually|ordinarily|ideally|"
-    r"desirable|about|around|circa|approx\w*|nominal|typical\w*|up\s+to)\b|\bc\.",
+    r"desirabl\w*|about|around|circa|approx\w*|nominal\w*|typical\w*|up\s+to)\b|\bc\.",
     re.IGNORECASE,
 )
 # lead-in rule: what stands before the comparator is a plain subject phrase, not a condition
@@ -169,8 +169,9 @@ _COPULA_LABEL = re.compile(
     r"^(?P<label>[^\W\d_]+(?: [^\W\d_]+)*) (?:is|are|of)$", re.IGNORECASE
 )
 _STATUS_WORD = re.compile(
-    r"\b(?:superseded|previous\w*|former\w*|old|obsolete|void\w*|cancel\w*|estimat\w*|draft|proposed|target|was|were|expected|"
-    r"assumed|pending|likely|planned|provisional|tentative|preliminary|future|revised\s+from)\b",
+    r"\b(?:supersed\w*|supercede\w*|previous\w*|former\w*|old|olds|obsole\w*|void\w*|cancel\w*|estimat\w*|draft\w*|propos\w*|target\w*|"
+    r"was|were|expect\w*|assum\w*|pend\w*|likel\w*|plan|plans|planned|planning|provisional\w*|tentativ\w*|prelimin\w*|futur\w*|"
+    r"revis\w*\s+from)\b",
     re.IGNORECASE,
 )
 # clause side: a requirement marker is needed, option and permission wording is refused
@@ -181,12 +182,13 @@ _REQUIREMENT_MARKER = re.compile(
     re.IGNORECASE,
 )
 _PERMISSION_OR_OPTION = re.compile(
-    r"\b(?:allowed|permitted|permissible|optional|may|can|could|need\s+not|needs\s+not|does\s+not\s+need|not\s+required|"
-    r"not\s+necessary|unnecessary|expected|intended|assumed|anticipated|was|were|would|preferably|unless\s+otherwise)\b",
+    r"\b(?:allow|allows|allowed|allowing|permit|permits|permitted|permitting|permissible|option\w*|may|can|could|need\s+not|needs\s+not|"
+    r"does\s+not\s+need|not\s+required|not\s+necessary|unnecessary|expect\w*|intend\w*|assum\w*|anticipat\w*|was|were|would|"
+    r"preferabl\w*|unless\s+otherwise)\b",
     re.IGNORECASE,
 )
 _FUNCTION_WORDS = (
-    "the a an of to be is are shall must not no than or and at in for on per by with as any each all every it its this that such being "
+    "the a an of to be is are shall must not no than or and at in for on with as any each all every it its this that such being "
     "been have has equal equals same"
 )
 _COMPARATOR_WORDS = (
@@ -231,25 +233,69 @@ _VOCABULARY = frozenset(
         + _UNIT_WORDS
     ).split()
 )
+# the document LABEL has its own, narrower vocabulary: plain quantity and equipment nouns and unit words ONLY (and the copula is / are / of).
+# No comparator, requirement, range, limit, function or modal word: "Pressure limits", "Required pressure", "Pressure range" name a limit,
+# not the live value.
+_LABEL_EXCLUDED = frozenset(
+    [
+        "minimum",
+        "maximum",
+        "average",
+        "total",
+        "net",
+        "gross",
+        "overall",
+        "effective",
+        "actual",
+        "allowable",
+        "rated",
+        "nominal",
+        "differential",
+        "delta",
+        "drop",
+        "rise",
+        "increase",
+        "change",
+        "loss",
+        "losses",
+        "reduction",
+        "range",
+        "ranges",
+        "span",
+        "tolerance",
+        "accuracy",
+        "repeatability",
+    ]
+)
+_LABEL_VOCABULARY = frozenset(
+    (set((_QUANTITY_WORDS + " " + _UNIT_WORDS).split()) - _LABEL_EXCLUDED)
+    | {"is", "are", "of"}
+)
 _WORD = re.compile(r"[^\W\d_]+")
 
 
-def _in_vocabulary(word: str) -> bool:
+def _in_vocabulary(word: str, vocabulary: frozenset[str] = _VOCABULARY) -> bool:
     word = word.lower()
     return (
-        word in _VOCABULARY
-        or (word.endswith("s") and word[:-1] in _VOCABULARY)
-        or (word.endswith("es") and word[:-2] in _VOCABULARY)
+        word in vocabulary
+        or (word.endswith("s") and word[:-1] in vocabulary)
+        or (word.endswith("es") and word[:-2] in vocabulary)
     )
 
 
-def unknown_words(text: str) -> list[str]:
+def unknown_words(text: str, vocabulary: frozenset[str] = _VOCABULARY) -> list[str]:
     """The words of `text` (its figure and unit left out) that are not in the closed vocabulary."""
     return [
-        w for w in _WORD.findall(_FIGURE_UNIT.sub(" ", text)) if not _in_vocabulary(w)
+        w
+        for w in _WORD.findall(_FIGURE_UNIT.sub(" ", text))
+        if not _in_vocabulary(w, vocabulary)
     ]
 
 
+# a "by 10 bar" / "per" / "minus" / "between" / "within" figure is a difference, a rate or a range, not the limit itself
+_DIFFERENCE_WORD = re.compile(
+    r"\b(?:by|per|minus|plus|between|within)\b", re.IGNORECASE
+)
 _PUNCTUATION_ONLY = re.compile(r"^[\s)\]\[(.,;:]*$")
 
 
@@ -327,6 +373,8 @@ def _clause_refusal(clause: str) -> str | None:
     """Why the CLAUSE quote cannot be read with certainty, or None."""
     if _PERMISSION_OR_OPTION.search(clause):
         return "the clause is worded as a permission or an option, not a requirement"
+    if _DIFFERENCE_WORD.search(clause):
+        return "the clause holds by / per / minus / plus / between / within: a difference or a range"
     if not _REQUIREMENT_MARKER.search(clause):
         return "the clause has no requirement marker (shall, must, at least ...)"
     if _ANY_NEGATION.search(_NEGATED_COMPARATOR.sub(" ", clause)):
@@ -399,7 +447,7 @@ def _document_refusal(text: str) -> str | None:
     refusal = _whitelist_refusal(text, clause=False)
     if refusal:
         return refusal
-    if unknown_words(text):
+    if unknown_words(text, _LABEL_VOCABULARY):
         return "the document label holds a word outside the closed vocabulary"
     return None
 
