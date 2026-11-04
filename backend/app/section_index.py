@@ -67,9 +67,8 @@ def heading_of_line(line: str, *, in_attachment: bool) -> str | None:
     if _LEADERS.search(str(line or "")):
         return None
     text = " ".join(str(line or "").split())
-    if _ENDS_IN_NUMBER.search(
-        text
-    ):  # a page number after plain spaces: a contents entry, in a run or alone
+    # a page number after plain spaces: a contents entry, in a run or alone
+    if _ENDS_IN_NUMBER.search(text):
         return None
     if not text or len(text) > 160:
         return None
@@ -308,9 +307,8 @@ def title_hit(element, chunk: dict, title: str, hits, *, near: bool = False) -> 
         return cued
     if near and chunk.get("heading_code"):
         return True
-    if chunk.get(
-        "heading_caption"
-    ):  # a caption is at most the closest section, never the element's own
+    # a caption is at most the closest section, never the element's own
+    if chunk.get("heading_caption"):
         return near and _about(element.title, title)
     return _about(element.title, title)
 
