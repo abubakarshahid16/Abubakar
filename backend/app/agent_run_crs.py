@@ -86,17 +86,11 @@ def _comment(finding: dict, topic: str) -> str:
         quote_ = _clean(finding.get("doc_quote"))
         if quote_:
             parts.append(f"The document states: {quote_[:160]}")
-    where = f"page {finding['page']}" if finding.get("page") not in (None, "") else ""
     std = _clean(finding.get("standard"))
     clause = _clean(finding.get("clause"))
     against = " ".join(x for x in (std, f"clause {clause}" if clause else "") if x)
-    if where or against:
-        parts.append(
-            "See "
-            + where
-            + (", " if where and against else "")
-            + (f"against {against}" if against else "")
-        )
+    if against:  # the page is written once per row, in the Page cell (_page_cell)
+        parts.append(f"Against {against}")
     action = _clean(finding.get("action"))
     if action:
         parts.append(f"Required action: {action}")
@@ -145,6 +139,11 @@ def crs_rows_from_findings(
     return rows
 
 
+def _page_cell(page: Any) -> str | None:
+    """'p.<n>' once per row, or nothing (the scorer matches page digits as a substring of the whole row)."""
+    return None if page in (None, "") else f"p.{page}"
+
+
 def _std_ref(row: dict) -> str | None:
     return " ".join(x for x in (row["standard"], row["clause"]) if x) or None
 
@@ -165,7 +164,7 @@ def write_crs_xlsx(rows: list[dict], path: str | os.PathLike) -> Path:
         values = [
             row["item"],
             row["topic"],
-            row["page"],
+            _page_cell(row["page"]),
             _std_ref(row),
             row["comment"],
             row["color"],
@@ -180,7 +179,7 @@ def write_crs_xlsx(rows: list[dict], path: str | os.PathLike) -> Path:
             contractor.append(
                 [
                     contractor.max_row,
-                    _cell(row["page"]),
+                    _cell(_page_cell(row["page"])),
                     _cell(_std_ref(row)),
                     _cell(row["comment"]),
                     _cell(row["priority"]),
@@ -216,6 +215,19 @@ def quote_verified(findings: list[dict], sink: Any) -> int:
     return n
 
 
+def _headline(count: dict, findings: list[dict], second_ran: bool) -> str:
+    not_sure = sum(1 for f in findings if f.get("color") not in count)
+    if second_ran:
+        return (
+            f"- GREEN {count['GREEN']}, YELLOW {count['YELLOW']}, RED {count['RED']}, "
+            f"not sure {not_sure}"
+        )
+    return (
+        f"- GREEN {count['GREEN']} and RED {count['RED']} (second opinion not run: not decided), "
+        f"YELLOW {count['YELLOW']}, not sure {not_sure}"
+    )
+
+
 def write_results(
     run_dir: Path,
     *,
@@ -247,8 +259,7 @@ def write_results(
         f"- Document id: {document_id}",
         f"- Items finished: {len(findings)}"
         + (f" (run paused: {agent_trace.words(stopped)})" if stopped else ""),
-        f"- GREEN {count['GREEN']}, YELLOW {count['YELLOW']}, RED {count['RED']}, "
-        f"not sure {sum(1 for f in findings if f.get('color') not in count)}",
+        _headline(count, findings, second_ran),
         f"- Quote verified by code: {verified} of {len(findings)} findings",
         f"- Second opinion: agreed {sec.count('agreed')}, disagreed {sec.count('disagreed')}, "
         f"no answer {sec.count('no answer')}, not run {sec.count('not run')}",
@@ -256,6 +267,8 @@ def write_results(
         f"- Minutes: {seconds / 60:.1f}",
         f"- Lead model (reported by the provider's response): {models}",
         f"- Second-opinion model (reported by the provider's response): {other}",
+        "- Scoring note: the scorer matches page digits as a substring; YELLOW rows count as raised",
+        "- Wrong verdicts: not measured (needs the key score)",
         f"- Problems: {len(problems)}"
         + ("; " + "; ".join(problems[-5:]) if problems else ""),
     ]

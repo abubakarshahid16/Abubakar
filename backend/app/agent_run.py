@@ -397,50 +397,51 @@ class Recorder:
 
 # ---- second opinion ---------------------------------------------------------------------------------------------
 
-_OPINION_KEYS = (
-    "item",
-    "color",
-    "page",
-    "doc_quote",
-    "clause_quote",
-    "standard",
-    "clause",
-)
+UNKNOWN = "unknown"
 
 
-def _agreement(reply: Any) -> bool | None:
-    body = reply.get("final") if isinstance(reply, dict) else None
-    body = body if isinstance(body, dict) else reply
-    agree = body.get("agree") if isinstance(body, dict) else None
-    return agree if isinstance(agree, bool) else None
+def _known(models: Iterable[str]) -> set[str] | None:
+    """The reported model names, or None when there are none or any is missing/'unknown' (fails closed)."""
+    names = {str(m) for m in models if m}
+    return names if names and UNKNOWN not in names else None
 
 
-def ask_second_opinion(opinion: Recorder, finding: dict, trace: Any) -> bool | None:
-    """True when the other model agrees, False when it does not, None when it gave no usable answer."""
-    msg = {
-        "role": "user",
-        "content": {
-            "task": "second_opinion",
-            "finding": {k: finding[k] for k in _OPINION_KEYS if k in finding},
-            "instruction": "Do the document quote and the clause quote support this colour? "
-            "Reply final={'agree': true or false}.",
-        },
-    }
+def models_differ(lead_models: Iterable[str], opinion_model: Any) -> bool:
+    """True only when BOTH sides reported a model name and the names differ. A missing name fails closed."""
+    lead = _known(lead_models)
+    other = _known([opinion_model] if isinstance(opinion_model, str) else [])
+    return bool(lead and other and not (lead & other))
+
+
+def ask_second_opinion(opinion: Any, finding: dict, trace: Any) -> dict:
+    """{'agree': True|False|None, 'model': name or 'unknown'} from `opinion.second_opinion(finding, evidence)`.
+
+    The real one is `ClaudeProvider.second_opinion` (a different model, the shared meter); built once per run."""
+    evidence = {k: finding.get(k) for k in ("doc_quote", "clause_quote")}
     try:
-        reply = opinion.complete([msg], [])
+        reply = opinion.second_opinion(
+            {k: finding.get(k) for k in ("item", "color")}, evidence
+        )
     except Exception:  # noqa: BLE001 - no answer is a YELLOW, never a crash
         # recorded: counted as 'no answer' in RESULTS
-        return None
-    cost = reply.get("usd") if isinstance(reply, dict) else None
+        return {"agree": None, "model": UNKNOWN}
+    if not isinstance(reply, dict):
+        return {"agree": None, "model": UNKNOWN}
+    cost = reply.get("usd")
     if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0:
         trace.add_spend(float(cost))
-    return _agreement(reply)
+    agree = reply.get("agree")
+    model = reply.get("model")
+    return {
+        "agree": agree if isinstance(agree, bool) else None,
+        "model": model if isinstance(model, str) and model.strip() else UNKNOWN,
+    }
 
 
 def apply_second_opinion(
     finding: dict, agree: bool | None, ran: bool, same_model: bool = False
 ) -> dict:
-    """GREEN and RED stay only on agreement. Disagreement, no answer, or the same model twice -> YELLOW."""
+    """GREEN and RED stay only on agreement. Disagreement, no answer, or a model that is the same or unknown -> YELLOW."""
     out = dict(finding)
     if finding.get("color") not in ("GREEN", "RED"):
         return out
@@ -451,7 +452,7 @@ def apply_second_opinion(
         out["second_opinion"] = "agreed"
         return out
     why = (
-        "second opinion came from the same model"
+        "second opinion model is the same or unknown"
         if same_model
         else "second opinion disagreed"
         if agree is False
@@ -515,10 +516,8 @@ def run_review(
         readers = Readers(conn, allowed)
         scope = {"allowed": allowed, "document_id": document_id, "editions": held}
         box = (toolbox_factory or default_toolbox)(scope, readers)
-        lead, other = (
-            Recorder(provider),
-            Recorder(second_opinion) if second_opinion else None,
-        )
+        lead, other = Recorder(provider), second_opinion
+        trace.second_ran = other is not None
         guard = _guard(local, claude, consent, allowed)
         with guard:
             stopped = _drive(
@@ -535,7 +534,7 @@ def run_review(
                 (ledger or _ledger_default) if claude else None,
                 total_cap_usd,
             )
-        _close(lead, other)
+        lead.close()
         return _finish(
             chosen,
             document_id,
@@ -548,12 +547,6 @@ def run_review(
         )
     finally:
         conn.close()
-
-
-def _close(*recorders):
-    for r in recorders:
-        if r:
-            r.close()
 
 
 def _scope_for(conn, trace, document_id, edition_map, claude, documents):
@@ -639,14 +632,14 @@ def _drive(
             and finding.get("color") in ("GREEN", "RED")
             and iid not in second
         ):
-            agree = ask_second_opinion(other, finding, trace)
-            second[iid] = {"agree": agree}
+            second[iid] = ask_second_opinion(other, finding, trace)
             _write_json(run_root / FILES["second"], second)
         meta = {
             "seconds": base_seconds + time.time() - started,
             "lead_models": sorted(set(meta.get("lead_models", [])) | lead.models),
             "opinion_models": sorted(
-                set(meta.get("opinion_models", [])) | (other.models if other else set())
+                set(meta.get("opinion_models", []))
+                | {v.get("model") or UNKNOWN for v in second.values()}
             ),
         }
         _write_json(run_root / FILES["meta"], meta)
@@ -672,9 +665,11 @@ def _finish(
         iid = str(item["id"])
         if iid not in finals:
             continue
-        same = bool(set(lead_models) & set(opinion_models))
-        agree = second.get(iid, {}).get("agree")
-        findings.append(apply_second_opinion(finals[iid], agree, second_ran, same))
+        got = second.get(iid, {})
+        same = not models_differ(lead_models, got.get("model"))
+        findings.append(
+            apply_second_opinion(finals[iid], got.get("agree"), second_ran, same)
+        )
     topics = {str(i["id"]): _clean(i.get("topic")) for i in chosen}
     rows = crs_rows_from_findings(findings, topics)
     write_crs_xlsx(rows, run_root / FILES["crs"])
@@ -723,5 +718,13 @@ def status_box(trace: agent_trace.TraceWriter) -> str:
     """The owner's STATUS box, from LIVE.md (rewritten first)."""
     text = trace.refresh_live().read_text(encoding="utf-8")
     fields = dict(re.findall(r"^- \*\*([A-Z]+)\*\*: (.*)$", text, re.M))
+    # the trace prints a 'wrong' count that nothing here measures: only the key score can
+    fields["RESULTS"] = re.sub(
+        r", wrong \d+",
+        ", wrong: not measured (needs the key score)",
+        fields.get("RESULTS", ""),
+    )
+    if not getattr(trace, "second_ran", True):
+        fields["RESULTS"] += " (GREEN and RED: second opinion not run: not decided)"
     body = [f"{k:9}{fields.get(k, '')}" for k in STATUS_FIELDS]
     return "\n".join(["==== STATUS ====", *body, "================"])

@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app import agent_run, agent_trace, heavy_lock
 
+LEAD_MODEL = "claude-sonnet-5-5"
+
 
 class SmokeProvider:
     """`--provider fake`: every item ends in a YELLOW ask. Proves the plumbing; says nothing about quality."""
@@ -37,8 +39,9 @@ class SmokeProvider:
         }
 
 
-def make_provider(kind: str, *, second: bool = False):
-    """The provider for `kind`; the real ones are imported lazily and fail clearly when their module is missing."""
+def make_provider(kind: str):
+    """The lead provider for `kind`, built ONCE per run. The real ones are imported lazily; a missing module or a
+    wrong constructor fails loudly (no fallback)."""
     if kind == "fake":
         return SmokeProvider()
     module, cls = {
@@ -52,10 +55,7 @@ def make_provider(kind: str, *, second: bool = False):
         raise SystemExit(
             f"provider '{kind}' is not available: app.{module}.{cls} is missing ({type(exc).__name__})"
         ) from None
-    try:
-        return klass(role="second_opinion") if second else klass()
-    except TypeError:
-        return klass()
+    return klass(model=LEAD_MODEL) if kind == "claude" else klass()
 
 
 def load_skill(value: str) -> tuple[str, dict | None]:
@@ -139,6 +139,10 @@ def _run(args: argparse.Namespace, out) -> int:
     skill = agent_run.get_skill(kind, given)
     ids = [s for s in args.items.split(",") if s] if args.items else None
     chosen = agent_run.select_items(skill, ids, args.limit)
+    if args.second_opinion == "claude" and args.provider != "claude":
+        raise SystemExit(
+            "--second-opinion claude needs --provider claude (one shared meter)"
+        )
     if args.dry_run:
         conn = agent_run.open_readonly(args.db_copy)  # refuses the live file even here
         try:
@@ -178,11 +182,8 @@ def _run(args: argparse.Namespace, out) -> int:
         out("no model was called")
         return 0
     provider = make_provider(args.provider)
-    opinion = (
-        make_provider("claude", second=True)
-        if args.second_opinion == "claude"
-        else None
-    )
+    # the second opinion is the SAME provider object's second_opinion(): a different model, one shared meter
+    opinion = provider if args.second_opinion == "claude" else None
 
     def status(trace: agent_trace.TraceWriter) -> None:
         out(agent_run.status_box(trace))

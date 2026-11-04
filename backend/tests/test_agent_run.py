@@ -200,7 +200,9 @@ def test_full_run_writes_results_examples_and_workbook(copy_db, run_dir):
     )
     assert s["items_done"] == 3 and s["quote_verified"] == 3
     results = (run_dir / "RESULTS.md").read_text()
-    assert "GREEN 1, YELLOW 1, RED 1" in results
+    assert (
+        "GREEN 1 and RED 1 (second opinion not run: not decided), YELLOW 1" in results
+    )
     assert "Quote verified by code: 3 of 3" in results
     assert "USD 1.50" in results
     assert "lead-model-x" in results  # the name the RESPONSE reported
@@ -260,15 +262,30 @@ def test_resume_after_a_kill_does_not_ask_done_items_again(copy_db, run_dir):
     )  # 0.5 from before the kill plus 2 x 0.5, not repeated
 
 
+class Opinion:
+    """Stands in for ClaudeProvider.second_opinion(finding, evidence) -> {agree, reason, usd, model}."""
+
+    def __init__(self, replies):
+        self.replies, self.calls = list(replies), []
+
+    def second_opinion(self, finding, evidence, **_kw):
+        self.calls.append((finding, evidence))
+        out = self.replies.pop(0)
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+
+def ok(agree, model="other-model", usd=0.1):
+    reply = {"agree": agree, "reason": "r", "usd": usd}
+    if model is not None:
+        reply["model"] = model
+    return reply
+
+
 def test_second_opinion_downgrades_disagreement_and_missing_answer(copy_db, run_dir):
     lead = al.FakeProvider([final("GREEN"), final("RED"), final("GREEN")])
-    other = al.FakeProvider(
-        [
-            {"final": {"agree": True}, "model": "other-model", "usd": 0.1},
-            {"final": {"agree": False}, "model": "other-model", "usd": 0.1},
-            {"final": {"nonsense": 1}, "model": "other-model"},
-        ]
-    )
+    other = Opinion([ok(True), ok(False), ok(None)])
     s = go(copy_db, run_dir, lead, second_opinion=other)
     assert [f["color"] for f in s["findings"]] == ["GREEN", "YELLOW", "YELLOW"]
     assert [f["second_opinion"] for f in s["findings"]] == [
@@ -276,23 +293,70 @@ def test_second_opinion_downgrades_disagreement_and_missing_answer(copy_db, run_
         "disagreed",
         "no answer",
     ]
-    assert s["spend"] == pytest.approx(1.7)
+    assert s["spend"] == pytest.approx(1.8)
     assert s["opinion_models"] == ["other-model"]
     assert "agreed 1, disagreed 1, no answer 1" in (run_dir / "RESULTS.md").read_text()
+    assert other.calls[0][1] == {"doc_quote": DOC_QUOTE, "clause_quote": "c"}
 
 
 def test_second_opinion_from_the_same_model_does_not_count(copy_db, run_dir):
-    lead = al.FakeProvider([final("GREEN")])
-    other = al.FakeProvider([{"final": {"agree": True}, "model": "lead-model-x"}])
-    s = go(copy_db, run_dir, lead, second_opinion=other, limit=1)
+    s = go(copy_db, run_dir, al.FakeProvider([final("GREEN")]), second_opinion=Opinion([ok(True, "lead-model-x")]), limit=1)  # fmt: skip
+    assert s["findings"][0]["color"] == "YELLOW"
+
+
+def test_missing_model_name_fails_closed(copy_db, run_dir):
+    # opinion reply without a model key
+    s = go(copy_db, run_dir, al.FakeProvider([final("GREEN")]), second_opinion=Opinion([ok(True, None)]), limit=1)  # fmt: skip
+    assert s["findings"][0]["color"] == "YELLOW"
+    # lead reply without a model key, opinion names its model
+    bare = {k: v for k, v in final("GREEN").items() if k != "model"}
+    s = go(copy_db, run_dir.parent / "r2", al.FakeProvider([bare]), second_opinion=Opinion([ok(True)]), limit=1)  # fmt: skip
+    assert s["findings"][0]["color"] == "YELLOW"
+    # the adapter's own 'unknown'
+    s = go(copy_db, run_dir.parent / "r3", al.FakeProvider([final("GREEN", )]), second_opinion=Opinion([ok(True, "unknown")]), limit=1)  # fmt: skip
+    assert s["findings"][0]["color"] == "YELLOW"
+
+
+def test_different_known_models_keep_the_verdict(copy_db, run_dir):
+    s = go(copy_db, run_dir, al.FakeProvider([final("GREEN")]), second_opinion=Opinion([ok(True)]), limit=1)  # fmt: skip
+    assert s["findings"][0]["color"] == "GREEN"
+
+
+def test_a_raising_second_opinion_is_yellow(copy_db, run_dir):
+    s = go(copy_db, run_dir, al.FakeProvider([final("RED")]), second_opinion=Opinion([RuntimeError("x")]), limit=1)  # fmt: skip
     assert s["findings"][0]["color"] == "YELLOW"
 
 
 def test_yellow_findings_get_no_second_opinion(copy_db, run_dir):
-    lead = al.FakeProvider([final("YELLOW")])
-    other = al.FakeProvider([])
-    go(copy_db, run_dir, lead, second_opinion=other, limit=1)
+    other = Opinion([])
+    go(copy_db, run_dir, al.FakeProvider([final("YELLOW")]), second_opinion=other, limit=1)  # fmt: skip
     assert other.calls == []
+
+
+def test_headline_and_status_say_when_no_second_opinion_ran(copy_db, run_dir):
+    s = go(copy_db, run_dir, al.FakeProvider([final("GREEN"), final("RED"), final("YELLOW")]))  # fmt: skip
+    head = next(x for x in (run_dir / "RESULTS.md").read_text().splitlines() if x.startswith("- GREEN"))  # fmt: skip
+    assert "GREEN 1 and RED 1 (second opinion not run: not decided)" in head
+    assert "wrong: not measured (needs the key score)" in s["status_box"]
+    assert "wrong 0" not in s["status_box"]
+    assert "scorer matches page digits as a substring; YELLOW rows count as raised" in (run_dir / "RESULTS.md").read_text()  # fmt: skip
+
+
+def test_readonly_uri_not_just_query_only(copy_db):
+    conn = ar.open_readonly(copy_db)
+    conn.execute("PRAGMA query_only = OFF")
+    with pytest.raises(sqlite3.OperationalError):
+        conn.execute("INSERT INTO documents VALUES ('Z','z')")
+
+
+def test_page_is_written_once_per_row_as_p_dot_n(tmp_path):
+    rows = ar.crs_rows_from_findings(_findings(), {"I1": "zorblat rating"})
+    out = ar.write_crs_xlsx(rows, tmp_path / "c.xlsx")
+    body = _load(out, ar.CRS_SHEET)[1]
+    assert body[3] == "p.3"
+    assert "p.3" not in body[5] and "page 3" not in body[5].lower()
+    contractor = _load(out, ar.CONTRACTOR_SHEET)[1]
+    assert contractor[1] == "p.3"
 
 
 def test_apply_second_opinion_unit():
@@ -402,11 +466,7 @@ def test_crs_rows_and_workbook_round_trip(tmp_path):
     assert tuple(crs[0]) == ar.CRS_HEADERS
     body = crs[1:]
     assert [r[1] for r in body] == ["I1", "I2", "I4"]  # GREEN is not a problem row
-    assert (
-        "zorblat rating" in body[0][5]
-        and "page 3" in body[0][5]
-        and "ISO 9999 clause 4.1" in body[0][5]
-    )
+    assert "zorblat rating" in body[0][5] and "ISO 9999 clause 4.1" in body[0][5]
     assert body[2][3] is None  # no page: renders as nothing, never 0
     ok = _load(out, ar.CHECKED_SHEET)
     assert [r[1] for r in ok[1:]] == ["I3"]
@@ -717,3 +777,28 @@ def test_cli_claude_without_documents_is_refused(cli, copy_db, tmp_path):
     args = [*_args(copy_db, tmp_path, "--dry-run"), "--provider", "claude"]
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 2
     assert "--documents" in lines[0]
+
+
+def test_cli_builds_one_real_claude_provider_with_the_lead_model(cli):
+    pytest.importorskip("app.agent_claude")
+    p = cli.make_provider("claude")
+    assert p.model == "claude-sonnet-5-5" and callable(p.second_opinion)
+
+
+def test_cli_wrong_constructor_fails_loudly(cli, monkeypatch):
+    agent_claude = pytest.importorskip("app.agent_claude")
+
+    class Strict:
+        def __init__(self):  # no model parameter
+            pass
+
+    monkeypatch.setattr(agent_claude, "ClaudeProvider", Strict)
+    with pytest.raises(TypeError):
+        cli.make_provider("claude")
+
+
+def test_cli_second_opinion_needs_the_claude_provider(cli, copy_db, tmp_path):
+    lines = []
+    args = [*_args(copy_db, tmp_path), "--second-opinion", "claude"]
+    assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 2
+    assert "needs --provider claude" in lines[0]
