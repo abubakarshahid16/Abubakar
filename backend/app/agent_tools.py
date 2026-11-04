@@ -207,6 +207,7 @@ class ToolBox:
             ctx.allowed_document_ids
         )
         #: compare results this box has made: (clause_figure, doc_figure) -> normalised result
+        self.compare_failures = 0
         self._compares: dict[tuple[str, str], dict] = {}
         self._tools = {
             "open_page": self.open_page,
@@ -230,7 +231,10 @@ class ToolBox:
         except TypeError:
             return _refuse("arguments_malformed")
         except Exception as exc:  # noqa: BLE001  a tool failure is a refusal, never a verdict; only the class is reported
-            return _refuse(f"tool_error:{type(exc).__name__}")
+            recorded = type(
+                exc
+            ).__name__  # only the class is recorded, never the message
+            return _refuse(f"tool_error:{recorded}")
 
     def _in_scope(self, doc: object) -> bool:
         return isinstance(doc, str) and doc in self.ctx.allowed_document_ids
@@ -404,6 +408,7 @@ class ToolBox:
                 self._call_figure_compare(clause_figure, doc_figure)
             )
         except Exception:  # noqa: BLE001  not importable, or it failed: never a verdict
+            self.compare_failures += 1  # counted
             outcome = {
                 "decided": False,
                 "verdict": None,
