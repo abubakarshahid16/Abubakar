@@ -337,7 +337,7 @@ def test_headline_and_status_say_when_no_second_opinion_ran(copy_db, run_dir):
     s = go(copy_db, run_dir, al.FakeProvider([final("GREEN"), final("RED"), final("YELLOW")]))  # fmt: skip
     head = next(x for x in (run_dir / "RESULTS.md").read_text().splitlines() if x.startswith("- GREEN"))  # fmt: skip
     assert "GREEN 1 and RED 1 (second opinion not run: not decided)" in head
-    assert "wrong: not measured (needs the key score)" in s["status_box"]
+    assert "wrong not measured (needs the key score)" in s["status_box"]
     assert "wrong 0" not in s["status_box"]
     assert "scorer matches page digits as a substring; YELLOW rows count as raised" in (run_dir / "RESULTS.md").read_text()  # fmt: skip
 
@@ -802,3 +802,147 @@ def test_cli_second_opinion_needs_the_claude_provider(cli, copy_db, tmp_path):
     args = [*_args(copy_db, tmp_path), "--second-opinion", "claude"]
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 2
     assert "needs --provider claude" in lines[0]
+
+
+# ---- the REAL ClaudeProvider with a fake sender: stops, wiring, model family --------------------------------------
+
+CLAUDE_ENV = {
+    "REASONING_PROVIDER": "claude",
+    "STANDARDS_READER_ENABLED": "1",
+    "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": "1",
+    "ANTHROPIC_API_KEY": "test-key-not-real",
+}
+USAGE = {"input_tokens": 100, "output_tokens": 50}
+
+
+@pytest.fixture
+def claude_ledger(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", 5.0)
+    monkeypatch.setattr(settings, "claude_budget_usd_total", 20.0)
+    return settings
+
+
+class Sender:
+    """Fake transport: the lead answers a finding in the colour given; the second opinion answers per `agree`."""
+
+    def __init__(self, colour="YELLOW", agree=True, raises=None):
+        self.colour, self.agree, self.raises, self.models = colour, agree, raises, []
+
+    def __call__(self, url, *, headers, body, timeout):
+        self.models.append(body["model"])
+        if self.raises:
+            raise self.raises
+        if body["model"] == "claude-opus-5-5":
+            text = json.dumps({"agree": self.agree, "reason": "r"})
+        else:
+            text = json.dumps(final(self.colour)["final"])
+        return {"model": body["model"], "stop_reason": "end_turn", "usage": USAGE,
+                "content": [{"type": "text", "text": text}]}  # fmt: skip
+
+
+def real(sender, **kw):
+    from app import agent_claude
+
+    return agent_claude.ClaudeProvider(send=sender, env=CLAUDE_ENV, **kw)
+
+
+def claude_go(copy_db, run_dir, provider, **kw):
+    kw.setdefault("ledger", lambda _s: 0.0)
+    return go(copy_db, run_dir, provider, claude=True, documents=["D1"], **kw)
+
+
+def test_meter_stop_stops_the_run_leaves_the_item_out_and_resumes(
+    copy_db, run_dir, claude_ledger
+):
+    from app import agent_claude
+
+    agent_claude.reset_shared_meter_for_tests()
+    s = claude_go(copy_db, run_dir, real(Sender(), total_cap_usd=0.0001))
+    assert s["stopped"].startswith("budget stop") and s["items_done"] == 0
+    assert "budget stop" in s["status_box"] and "PROBLEMS" in s["status_box"]
+    assert "I1" not in json.loads((run_dir / "finals.json").read_text() if (run_dir / "finals.json").exists() else "{}")  # fmt: skip
+    assert (
+        not (run_dir / "state.json").exists()
+        or "I1" not in (run_dir / "state.json").read_text()
+    )
+    s2 = claude_go(copy_db, run_dir, real(Sender(), total_cap_usd=10.0))
+    assert s2["items_done"] == 3 and not s2["stopped"]
+
+
+def test_ledger_step_cap_stops_the_run(copy_db, run_dir, claude_ledger):
+    claude_ledger.claude_budget_usd_per_step = 0.0000001
+    s = claude_go(copy_db, run_dir, real(Sender(), total_cap_usd=10.0))
+    assert s["stopped"] and s["items_done"] == 0
+    assert "owner decides whether to raise it" in s["status_box"]
+    claude_ledger.claude_budget_usd_per_step = 5.0
+    assert (
+        claude_go(copy_db, run_dir, real(Sender(), total_cap_usd=10.0))["items_done"]
+        == 3
+    )
+
+
+def test_a_non_fatal_provider_error_stays_yellow(copy_db, run_dir, claude_ledger):
+    s = claude_go(
+        copy_db, run_dir, real(Sender(raises=ValueError("x")), total_cap_usd=10.0)
+    )
+    assert not s["stopped"] and [f["color"] for f in s["findings"]] == ["YELLOW"] * 3
+
+
+def test_cli_returns_non_zero_on_a_fatal_stop(
+    cli, copy_db, tmp_path, monkeypatch, claude_ledger
+):
+    monkeypatch.setattr(
+        ar, "default_toolbox", lambda scope, readers: factory(scope, readers)
+    )
+    monkeypatch.setattr(
+        cli, "make_provider", lambda _k: real(Sender(), total_cap_usd=0.0001)
+    )
+    lines = []
+    args = [*_args(copy_db, tmp_path, "--documents", "D1"), "--provider", "claude"]
+    assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 3
+    assert "budget stop" in "\n".join(lines)
+
+
+def test_one_provider_object_serves_lead_and_second_opinion(
+    cli, copy_db, tmp_path, monkeypatch, claude_ledger
+):
+    monkeypatch.setattr(
+        ar, "default_toolbox", lambda scope, readers: factory(scope, readers)
+    )
+    built, sender = [], Sender("GREEN", agree=True)
+
+    def make(_kind):
+        built.append(real(sender, total_cap_usd=10.0))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "make_provider", make)
+    args = [*_args(copy_db, tmp_path, "--documents", "D1", "--limit", "1"), "--provider", "claude", "--second-opinion", "claude"]  # fmt: skip
+    assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lambda _l: None) == 0
+    assert len(built) == 1
+    assert sender.models == ["claude-sonnet-5-5", "claude-opus-5-5"]
+    assert built[0].spent > 0
+    one_call = built[0].spent / 2
+    assert built[0].spent > one_call  # both calls went through the one meter
+    results = (tmp_path / "cli-run" / "RESULTS.md").read_text()
+    assert "agreed 1" in results
+
+
+def test_model_family_ignores_date_latest_and_version_suffixes():
+    assert ar.model_family("Claude-Sonnet-5-5-20251101") == "claude-sonnet-5-5"
+    assert ar.model_family("claude-sonnet-5-5-latest") == "claude-sonnet-5-5"
+    assert ar.model_family("claude-sonnet-5-5@v2") == "claude-sonnet-5-5"
+    assert not ar.models_differ(["claude-sonnet-5-5"], "claude-sonnet-5-5-20251101")
+    assert not ar.models_differ(
+        ["claude-sonnet-5-5-20251101"], "claude-sonnet-5-5-latest"
+    )
+    assert ar.models_differ(["claude-sonnet-5-5"], "claude-opus-5-5-20251101")
+
+
+def test_same_family_with_a_date_suffix_is_yellow(copy_db, run_dir):
+    s = go(copy_db, run_dir, al.FakeProvider([{**final("GREEN"), "model": "claude-sonnet-5-5"}]),
+           second_opinion=Opinion([ok(True, "claude-sonnet-5-5-20251101")]), limit=1)  # fmt: skip
+    assert s["findings"][0]["color"] == "YELLOW"

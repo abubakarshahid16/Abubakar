@@ -406,11 +406,21 @@ def _known(models: Iterable[str]) -> set[str] | None:
     return names if names and UNKNOWN not in names else None
 
 
+_VERSION_TAIL = re.compile(r"(?:-\d{8}|-latest|@[\w.\-]+)$")
+
+
+def model_family(name: str) -> str:
+    """The model name without a trailing -YYYYMMDD, -latest or @version: the same family is the same model."""
+    return _VERSION_TAIL.sub("", name.strip().lower())
+
+
 def models_differ(lead_models: Iterable[str], opinion_model: Any) -> bool:
     """True only when BOTH sides reported a model name and the names differ. A missing name fails closed."""
     lead = _known(lead_models)
     other = _known([opinion_model] if isinstance(opinion_model, str) else [])
-    return bool(lead and other and not (lead & other))
+    if not (lead and other):
+        return False
+    return not ({model_family(m) for m in lead} & {model_family(m) for m in other})
 
 
 def ask_second_opinion(opinion: Any, finding: dict, trace: Any) -> dict:
@@ -422,7 +432,9 @@ def ask_second_opinion(opinion: Any, finding: dict, trace: Any) -> dict:
         reply = opinion.second_opinion(
             {k: finding.get(k) for k in ("item", "color")}, evidence
         )
-    except Exception:  # noqa: BLE001 - no answer is a YELLOW, never a crash
+    except Exception as exc:
+        if getattr(exc, "fatal", False):
+            raise
         # recorded: counted as 'no answer' in RESULTS
         return {"agree": None, "model": UNKNOWN}
     if not isinstance(reply, dict):
@@ -575,6 +587,18 @@ def _guard(local, claude, consent, allowed):
     return stack
 
 
+def fatal_problem(exc: BaseException) -> str:
+    """The PROBLEM words of a fatal stop: from its code only, never a message."""
+    code = str(getattr(exc, "code", "") or "")
+    if "document" in code:
+        return "documents not declared"
+    if type(exc).__name__ == "AgentGateClosed":
+        return "gate closed"
+    if code == "test_cap":
+        return "budget stop: run cap reached: owner decides whether to raise it"
+    return "budget stop: step cap reached: owner decides whether to raise it"
+
+
 def _drive(
     chosen,
     document_id,
@@ -596,59 +620,65 @@ def _drive(
     finals = _read_json(run_root / FILES["finals"], {})
     second = _read_json(run_root / FILES["second"], {})
     stopped = ""
-    for loop_item in loop_items(document_id, chosen):
-        iid = loop_item["id"]
-        if ledger is not None and ledger(LEDGER_STEP) >= total_cap:
-            stopped = "total cap for the agent test"
-            trace.problem(f"{stopped} reached: run paused, resumable")
-            break
-        if iid not in finals:
-            out = agent_loop.run_items(
-                [loop_item],
-                box,
-                lead,
-                trace,
-                skill_for=lambda _it, i=iid: by_id[i],
-                usd_cap_item=cap_item,
-                usd_cap_run=cap_run,
-            )
-            if out["stopped"]:
-                stopped = out["stopped"]
+    try:
+        for loop_item in loop_items(document_id, chosen):
+            iid = loop_item["id"]
+            if ledger is not None and ledger(LEDGER_STEP) >= total_cap:
+                stopped = "total cap for the agent test"
+                trace.problem(f"{stopped} reached: run paused, resumable")
                 break
-            res = out["results"].get(iid)
-            finding = (
-                res["finding"]
-                if res
-                else (
-                    trace.sink.get(iid)
-                    or agent_loop.yellow("result lost in a restart", loop_item)
+            if iid not in finals:
+                out = agent_loop.run_items(
+                    [loop_item],
+                    box,
+                    lead,
+                    trace,
+                    skill_for=lambda _it, i=iid: by_id[i],
+                    usd_cap_item=cap_item,
+                    usd_cap_run=cap_run,
                 )
+                if out["stopped"]:
+                    stopped = out["stopped"]
+                    break
+                res = out["results"].get(iid)
+                finding = (
+                    res["finding"]
+                    if res
+                    else (
+                        trace.sink.get(iid)
+                        or agent_loop.yellow("result lost in a restart", loop_item)
+                    )
+                )
+                finals[iid] = finding
+                _write_json(run_root / FILES["finals"], finals)
+            finding = finals[iid]
+            if (
+                other is not None
+                and finding.get("color") in ("GREEN", "RED")
+                and iid not in second
+            ):
+                second[iid] = ask_second_opinion(other, finding, trace)
+                _write_json(run_root / FILES["second"], second)
+            meta = {
+                "seconds": base_seconds + time.time() - started,
+                "lead_models": sorted(set(meta.get("lead_models", [])) | lead.models),
+                "opinion_models": sorted(
+                    set(meta.get("opinion_models", []))
+                    | {v.get("model") or UNKNOWN for v in second.values()}
+                ),
+            }
+            _write_json(run_root / FILES["meta"], meta)
+            trace.set_live(
+                model=", ".join(meta["lead_models"]) or "not reported by the provider"
             )
-            finals[iid] = finding
-            _write_json(run_root / FILES["finals"], finals)
-        finding = finals[iid]
-        if (
-            other is not None
-            and finding.get("color") in ("GREEN", "RED")
-            and iid not in second
-        ):
-            second[iid] = ask_second_opinion(other, finding, trace)
-            _write_json(run_root / FILES["second"], second)
-        meta = {
-            "seconds": base_seconds + time.time() - started,
-            "lead_models": sorted(set(meta.get("lead_models", [])) | lead.models),
-            "opinion_models": sorted(
-                set(meta.get("opinion_models", []))
-                | {v.get("model") or UNKNOWN for v in second.values()}
-            ),
-        }
-        _write_json(run_root / FILES["meta"], meta)
-        trace.set_live(
-            model=", ".join(meta["lead_models"]) or "not reported by the provider"
-        )
-        if len(trace.completed) % 10 == 0 and on_status:
-            trace.refresh_live()
-            on_status(trace)
+            if len(trace.completed) % 10 == 0 and on_status:
+                trace.refresh_live()
+                on_status(trace)
+    except Exception as exc:
+        if not getattr(exc, "fatal", False):
+            raise
+        stopped = fatal_problem(exc)
+        trace.problem(f"{stopped}: run stopped, resumable")
     return stopped
 
 
@@ -718,12 +748,6 @@ def status_box(trace: agent_trace.TraceWriter) -> str:
     """The owner's STATUS box, from LIVE.md (rewritten first)."""
     text = trace.refresh_live().read_text(encoding="utf-8")
     fields = dict(re.findall(r"^- \*\*([A-Z]+)\*\*: (.*)$", text, re.M))
-    # the trace prints a 'wrong' count that nothing here measures: only the key score can
-    fields["RESULTS"] = re.sub(
-        r", wrong \d+",
-        ", wrong: not measured (needs the key score)",
-        fields.get("RESULTS", ""),
-    )
     if not getattr(trace, "second_ran", True):
         fields["RESULTS"] += " (GREEN and RED: second opinion not run: not decided)"
     body = [f"{k:9}{fields.get(k, '')}" for k in STATUS_FIELDS]
