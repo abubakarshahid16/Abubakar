@@ -26,7 +26,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from . import ai_review_proposals, claims, numparse, standard_ids, subject_scope
+from . import ai_review_proposals, numparse, standard_ids, subject_scope
 from .reader_api import _fold
 
 VERDICTS = ("GREEN", "YELLOW", "RED")
@@ -132,21 +132,46 @@ _LABEL_NUMBER = re.compile(
 )
 
 
+#: Short words that are words, not labels. Any other token of two letters or fewer in a subject region ("Grade A",
+#: "Zone H", "Pump K") is a label we cannot compare, so the quote is ambiguous. A lowercase "a" is the article.
+SHORT_WORDS_ALLOWED = frozenset(
+    {"of", "is", "to", "be", "no", "or", "at", "in", "by", "an", "as", "on"}
+)
+
+
+def _label_before_number(quote: str) -> str:
+    found = _FIRST_NUMBER.search(quote)
+    return quote[: found.start()] if found else quote
+
+
+def _has_short_label(quote: str) -> bool:
+    for at, token in enumerate(re.findall(r"[A-Za-z]+", _label_before_number(quote))):
+        if len(token) > 2 or token.lower() in SHORT_WORDS_ALLOWED:
+            continue
+        if token.lower() == "a" and (at == 0 or token == "a"):
+            continue  # the article: a lowercase "a", or "A" opening the quote; never "Grade A"
+        return True
+    return False
+
+
 def subject_ambiguous(quote: str) -> bool:
     """More than one number in the quote (so the figure's own number cannot be told from a number inside its label), or a
     number that names a kind ("Class 150"). Such a quote is never compared."""
-    return len(_NUMBER_TOKEN.findall(quote)) > 1 or bool(_LABEL_NUMBER.search(quote))
+    return (
+        len(_NUMBER_TOKEN.findall(quote)) > 1
+        or bool(_LABEL_NUMBER.search(quote))
+        or _has_short_label(quote)
+    )
 
 
 def subject_words(quote: str) -> frozenset[str]:
     """The subject of a quoted figure: the content words BEFORE its first number (its label), lowercased, punctuation
-    stripped, inflections folded, neutral and unit words removed. A bare value has an empty subject."""
-    found = _FIRST_NUMBER.search(quote)
-    label = quote[: found.start()] if found else quote
+    stripped, inflections folded, neutral words removed (units are never in a label). A bare value has an empty subject."""
+    label = _label_before_number(quote)
     out = set()
     for raw in re.findall(r"[a-z]+", label.lower()):
         word = _stem(raw)
-        if raw in NEUTRAL_WORDS or word in NEUTRAL_WORDS or claims.is_unit(raw):
+        if raw in NEUTRAL_WORDS or word in NEUTRAL_WORDS:
             continue
         out.add(word)
     return frozenset(out)

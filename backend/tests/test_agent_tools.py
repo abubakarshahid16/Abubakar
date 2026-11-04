@@ -383,6 +383,64 @@ def test_plurals_still_match():
     )
 
 
+@pytest.mark.parametrize(
+    ("doc_quote", "clause_quote"),
+    [
+        (
+            "Grade A wall thickness: 5 mm",
+            "Grade C wall thickness shall be at least 2 mm",
+        ),
+        ("Type A pressure: 5 bar", "Type F pressure shall not exceed 9 bar"),
+        ("Zone H temperature: 50 C", "Zone V temperature shall not exceed 90 C"),
+        ("Unit K temperature: 50 C", "Unit W temperature shall not exceed 90 C"),
+        ("Pump A head: 50 m", "Pump head shall be at least 40 m"),
+        (
+            "Grade B wall thickness: 5 mm",
+            "Grade B wall thickness shall be at least 2 mm",
+        ),  # same letter: still not decided
+    ],
+)
+def test_lone_letter_label_is_ambiguous(monkeypatch, doc_quote, clause_quote):
+    result, calls = _decide(monkeypatch, doc_quote, clause_quote)
+    assert (
+        result["decided"] is False
+        and result["reason"] == "subject_ambiguous"
+        and calls == []
+    )
+
+
+def test_unit_words_are_not_stripped_from_a_label():
+    # "bar" in a label is a word of the subject; it is no longer silently dropped
+    assert agent_tools.subject_words(
+        "Design pressure bar: 5"
+    ) != agent_tools.subject_words("Design pressure 5")
+
+
+ORDINARY_PAIRS = [
+    ("Design pressure: 10 bar", "Design pressure shall not exceed 15 bar"),
+    ("Design pressures: 10 bar", "The design pressure shall not exceed 15 bar"),
+    ("Wall thickness: 5 mm", "Wall thickness shall be at least 2 mm"),
+    ("Corrosion allowance: 3 mm", "Corrosion allowance shall be at least 1.5 mm"),
+    ("Design temperature: 80 C", "Design temperature shall not exceed 120 C"),
+    ("Operating pressure: 8 bar", "The operating pressure must not exceed 10 bar"),
+    ("Test pressure: 20 bar", "Test pressure shall be at least 18 bar"),
+    ("Flow rate: 5 kg/h", "A flow rate of at least 3 kg/h is required"),
+    ("Rated power: 5 kW", "Rated power shall be at least 3 kW"),
+    (
+        "Maximum allowable working pressure: 12 bar",
+        "Maximum allowable working pressure shall be at least 10 bar",
+    ),
+    ("Shell thickness: 9 mm", "Shell thickness shall be at least 6 mm"),
+    ("Hydrotest pressure: 20 bar", "Hydrotest pressure is at least 15 bar"),
+]
+
+
+@pytest.mark.parametrize(("doc_quote", "clause_quote"), ORDINARY_PAIRS)
+def test_ordinary_pairs_still_decide(monkeypatch, doc_quote, clause_quote):
+    result, calls = _decide(monkeypatch, doc_quote, clause_quote)
+    assert result["verdict"] == "meets" and calls == [(doc_quote, clause_quote)]
+
+
 def test_subject_mismatch_blocks_a_pass_finding(monkeypatch):
     b = box()
     fig = {
