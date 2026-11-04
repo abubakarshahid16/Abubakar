@@ -52,6 +52,7 @@ def test_the_code_decides_the_direction_and_the_units(document, clause, expected
         ("10 bar", "shall be less than 10 bar"),  # equal to a strict limit
         ("10 bar", "shall be greater than 10 bar"),
         ("12 bar", "exceeding 10 bar is prohibited"),  # no readable comparator
+        ("12 bar", "the design pressure is 10 bar"),  # a figure with no comparator at all
         ("12 bar", "shall be at least 10 bar and not more than 20 bar"),  # two figures
         ("12 m", "at least 10 bar"),  # not the same kind of quantity
         ("12 barg", "at least 10 bara"),  # gauge against absolute

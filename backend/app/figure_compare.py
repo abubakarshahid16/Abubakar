@@ -186,12 +186,6 @@ def compare(document_quote: str, clause_quote: str) -> FigureResult | None:
             "the document figure is itself a limit or a range, not a plain value",
             direction,
         )
-    if (
-        asked.dimension == "pressure"
-        and (value.reference or asked.reference)
-        and value.reference != asked.reference
-    ):
-        return _undecided("gauge and absolute pressure are not compared", direction)
     a, b = value.normalized_value, asked.normalized_value
     tolerance = 1e-6 * max(abs(b), 1.0)
     if (
