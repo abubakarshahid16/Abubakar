@@ -50,7 +50,7 @@ class FakeProvider:
         self.usd = usd
         self.calls: list[list[dict]] = []
 
-    def complete(self, messages: list[dict], _tool_specs: list[dict]) -> dict:  # noqa: ARG002
+    def complete(self, messages: list[dict], _tool_specs: list[dict]) -> dict:
         self.calls.append([dict(m) for m in messages])
         if not self.script:
             raise RuntimeError("fake provider script exhausted")
