@@ -622,9 +622,8 @@ def _match(element: Element, body: list[dict]) -> dict:
         }
         if own_only:
             entry["own_section"] = own_section(element, chunk)
-            entry["near_section"] = section_index.enabled() and own_section(
-                element, chunk, near=True
-            )
+            if section_index.enabled():  # off: the report is byte-identical to before the index
+                entry["near_section"] = own_section(element, chunk, near=True)
             entry["ordinal"] = chunk.get("ordinal")  # the passage itself, not its page
             if "heading_guess" in chunk:
                 entry["heading_guess"] = chunk["heading_guess"]

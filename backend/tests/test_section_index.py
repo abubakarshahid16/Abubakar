@@ -4,6 +4,8 @@ inside it); never a real document's text."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app import db, playbooks, section_index
@@ -509,3 +511,89 @@ def test_three_heading_like_lines_in_a_row_in_a_passage_are_not_split_into_secti
         )
     ]
     assert len(section_index.refine(body, doc)) == 1
+
+
+# --- review findings (PR 1688, round 2): contents entries with plain spaces, captions, the switch off -------------------
+
+
+def _rows(doc):
+    return review_of(doc, on=True), review_of(doc, on=False)
+
+
+def test_a_contents_entry_with_a_page_number_after_plain_spaces_is_never_a_heading():
+    toc = "Contents\nZX-77-ATT02 - CRITERIA FOR NODE SELECTION 5"
+    doc = fake_doc({1: toc}, [(1, 1, ATT, toc)])
+    on, off = _rows(doc)
+    assert "the closest section is at" not in on["reason"]
+    assert on["section_state"] == off["section_state"]
+    assert "page 1" not in on["reason"].split(":")[1][:60]
+
+
+def test_two_numbered_contents_entries_before_the_real_heading_do_not_hide_it():
+    toc = "ZX-77-ATT03 - GUIDEWORDS IN STUDY SESSIONS 6\nZX-77-ATT04 - STUDY METHOD 7"
+    real = "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION\n" + NODES
+    doc = fake_doc({1: toc, 2: real}, [(1, 2, ATT, toc + "\n" + real)])
+    row = review_of(doc, on=True)
+    assert "no section titled for it" not in row["reason"]
+    assert "page 2" in row["reason"]
+    assert '"ZX-77-ATT02 - CRITERIA FOR NODE SELECTION"' in row["reason"]
+
+
+def test_a_table_caption_in_an_unrelated_attachment_is_never_the_found_section():
+    caption = "Table 4: Plant nodes cost estimate"
+    pages = {1: "Body.", 2: "ZX-77-ATT07 - BUDGET FORMS\n" + caption + "\nThe cost is invented."}
+    text = "Body.\nZX-77-ATT07 - BUDGET FORMS\n" + caption + "\nThe cost is invented."
+    doc = fake_doc(pages, [(1, 2, ATT, text)])
+    row = review_of(doc, on=True)
+    assert row["section_state"] != "present"
+    assert "a section of its own was found" not in row["reason"]
+    # the caption itself is never an indexed heading that is the element's section
+    body = [dict(r) for r in db.connect().execute("select * from chunks where document_id=?", (doc,))]
+    settings.section_index_enabled = True
+    try:
+        out = section_index.refine(body, doc)
+        cap = [c for c in out if c.get("section") == caption]
+        assert cap and cap[0]["heading_caption"] is True
+        el = next(e for e in playbooks.available()[0]["hazop_procedure"].elements if e.id == "H04")
+        assert section_index.title_hit(el, cap[0], caption, playbooks._hits) is False
+    finally:
+        settings.section_index_enabled = False
+
+
+@pytest.mark.parametrize("line", ["Fig. 3: Plant nodes layout", "Figure C2 - Plant nodes layout", "Tab. 5: Plant nodes list"])
+def test_caption_styles_are_recognised_as_captions(line):
+    assert section_index.heading_of_line(line, in_attachment=False) == line
+    assert section_index._is_caption(line)
+
+
+#: The shape of one evidence entry with the switch off: no `near_section` key (the report matches main byte for byte).
+EXPECTED_OFF_KEYS = ["groups", "in_text", "locator", "method", "ordinal", "own_section", "quote"]
+
+
+def test_with_the_switch_off_the_evidence_entries_have_exactly_the_stored_shape():
+    doc = fake_doc({1: "Body.\n" + NODES}, [(1, 1, ATT, "Body.\n" + NODES)])
+    row = review_of(doc, on=False)
+    assert row
+    entries = _all_evidence(doc)
+    assert entries
+    for e in entries:
+        assert sorted(k for k in e if k != "heading_guess") == EXPECTED_OFF_KEYS
+        assert "near_section" not in json.dumps(e)
+
+
+def _all_evidence(doc):
+    seen = []
+    orig = playbooks._match
+
+    def spy(element, body):
+        result = orig(element, body)
+        for key in ("evidence", "candidates"):
+            seen.extend(result.get(key) or [])
+        return result
+
+    playbooks._match = spy
+    try:
+        review_of(doc, on=False)
+    finally:
+        playbooks._match = orig
+    return seen

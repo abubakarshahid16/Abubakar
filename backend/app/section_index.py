@@ -15,7 +15,8 @@ WHAT IT DOES.
     gives a later passage an earlier page. A heading whose printed line cannot be found on a page is not indexed.
   * What is never a heading: a line with dot leaders or a trailing page number after leaders or tabs (a table of
     contents entry, with or without a "Contents" heading), a run of three or more heading-like lines each ending in a
-    page number, and a line repeated on three or more pages.
+    page number, and a line repeated on three or more pages, and a line ending in a page number (after plain spaces too).
+  * A table or figure caption is never the element's section: at most the closest one.
   * `title_hit`: a title is "about" an element only through a cue that is not a generic title word, and an indexed
     heading is the element's section only when it is also `_about` the element (two content words in common); a coded
     attachment title with a cue alone is the CLOSEST section, never "found".
@@ -66,6 +67,8 @@ def heading_of_line(line: str, *, in_attachment: bool) -> str | None:
     if _LEADERS.search(str(line or "")):
         return None
     text = " ".join(str(line or "").split())
+    if _ENDS_IN_NUMBER.search(text):  # a page number after plain spaces: a contents entry, in a run or alone
+        return None
     if not text or len(text) > 160:
         return None
     d = data()
@@ -74,6 +77,12 @@ def heading_of_line(line: str, *, in_attachment: bool) -> str | None:
     if in_attachment and d["item"].match(text) and len(text.split()) <= d["item_words"]:
         return text
     return None
+
+
+def _is_caption(heading: str) -> bool:
+    """A table or figure caption: it names a table or a figure, not a section of the document."""
+    text = " ".join(heading.split())
+    return any(data()["classes"][k].match(text) for k in ("table_title", "figure_title"))
 
 
 def _flat(line: str) -> str:
@@ -228,6 +237,7 @@ def refine(body: list[dict], document_id: str) -> list[dict]:
                     "ordinal": (chunk.get("ordinal") or 0) + (n + 1) / 1000,
                     "indexed_heading": True,
                     "heading_code": _is_code_heading(heading),
+                    "heading_caption": _is_caption(heading),
                 }
             )
     return out
@@ -294,6 +304,8 @@ def title_hit(element, chunk: dict, title: str, hits, *, near: bool = False) -> 
         return cued
     if near and chunk.get("heading_code"):
         return True
+    if chunk.get("heading_caption"):  # a caption is at most the closest section, never the element's own
+        return near and _about(element.title, title)
     return _about(element.title, title)
 
 

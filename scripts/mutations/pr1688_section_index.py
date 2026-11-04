@@ -138,4 +138,28 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    titles = ()\n",
         "verified_title",
     ),
+    _m(
+        15,
+        "a line ending in a page number after plain spaces is a heading again",
+        _S,
+        "    if _ENDS_IN_NUMBER.search(text):",
+        "    if False:",
+        "page_number_after_plain_spaces",
+    ),
+    _m(
+        16,
+        "a table or figure caption is the element's own section again",
+        _S,
+        '    if chunk.get("heading_caption"):',
+        "    if False:",
+        "table_caption_in_an_unrelated",
+    ),
+    _m(
+        17,
+        "the near_section key is emitted with the switch off",
+        _P,
+        "            if section_index.enabled():  # off",
+        "            if True:  # off",
+        "stored_shape",
+    ),
 )

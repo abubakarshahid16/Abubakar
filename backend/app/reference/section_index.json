@@ -3,8 +3,8 @@
   "heading_classes": {
     "code_title": "^(?:[\\w.]+-)*(?:ATT(?:ACHMENT)?|APP(?:ENDIX)?|ANNEX|SCHEDULE|EXHIBIT)[\\s_-]*[A-Z]?\\d{1,3}[A-Z]?\\s*[-–—:.]\\s*(?P<title>\\S.{2,})$",
     "word_title": "^(?:attachment|appendix|annex|schedule|exhibit)\\s+[A-Z0-9][\\w.]*\\s*[-–—:.]\\s*(?P<title>\\S.{2,})$",
-    "table_title": "^table\\s+[A-Z]?\\d+(?:\\.\\d+)*[A-Z]?(?::|\\s+[-\u2013\u2014]|\\.)\\s+(?P<title>\\S.{2,})$",
-    "figure_title": "^figure\\s+[A-Z]?\\d+(?:\\.\\d+)*[A-Z]?(?::|\\s+[-\u2013\u2014]|\\.)\\s+(?P<title>\\S.{2,})$"
+    "table_title": "^tab(?:le)?\\.?\\s+[A-Z]?\\d+(?:\\.\\d+)*[A-Z]?(?::|\\s+[-\u2013\u2014]|\\.)\\s+(?P<title>\\S.{2,})$",
+    "figure_title": "^fig(?:ure)?\\.?\\s+[A-Z]?\\d+(?:\\.\\d+)*[A-Z]?(?::|\\s+[-\u2013\u2014]|\\.)\\s+(?P<title>\\S.{2,})$"
   },
   "item_heading": "^\\d{1,2}\\.\\s+(?P<title>[A-Z][^.!?;]{2,80}?):?$",
   "item_heading_max_words": 9,
