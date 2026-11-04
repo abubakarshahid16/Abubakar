@@ -358,6 +358,11 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Test B / HAZOP (part of #805): the playbook review indexes attachment, appendix, annex, table and item titles
+    #: at review time (in memory, nothing stored), so an element whose section is an attachment is found; a title
+    #: is about an element only through a cue that is not a generic title word; a partial own-section hit says
+    #: "the closest section", never "a section of its own was found". OFF: as it was. Env: SECTION_INDEX_ENABLED.
+    section_index_enabled: bool = False
     #: Owner 3 Nov (test B): a part printed alone in a materials list ("IMPELLER: <material>") or a seal stated in a
     #: sentence fills its field (impeller / shaft / casing material, seal type) when ALL of `part_name_roles`'s
     #: strict rules hold, in the form reader's label gate and in the stored-facts check. OFF: as it was.
