@@ -1,5 +1,7 @@
 """figure_compare (Part of #805, step 3): one figure against one clause figure, by code. All values here are INVENTED."""
 
+import re
+
 import pytest
 
 from app import figure_compare as fc
@@ -310,7 +312,7 @@ def test_the_plain_clear_cases_still_decide():
     assert verdict("8 bar", "maximum 10 bar") is True
     assert verdict("12 bar", "minimum 10 bar") is True
     assert verdict("12 bar.", "at least 10 bar or more") is True
-    assert verdict("-20 degC", "not less than -30 degC") is True
+    assert verdict("20 degC", "not less than 30 degC") is False
 
 
 @pytest.mark.parametrize(
@@ -350,3 +352,156 @@ def test_defect5_an_exception_or_condition_before_the_figure_with_a_clean_tail_i
     clause,
 ):
     _undecided("12 bar", clause)
+
+
+# --- #1689 third review: the figure must be one clean token; qualifiers are checked on the clause too ---
+@pytest.mark.parametrize(
+    "document, clause",
+    [
+        ("8 bar", "at least 1 000 kPa"),
+        ("8 bar", "at least 1\u00a0000 kPa"),
+        ("8 bar", "at least 1\u202f000 kPa"),
+        ("8 bar", "at least 1\u2009000 kPa"),
+        ("8 bar", "at least 1'000 kPa"),
+        ("8 bar", "at least 1\u2019000 kPa"),
+        ("8 bar", "at least 2 500 kPa"),
+        ("1 000 kPa", "at least 8 bar"),
+        ("1'000 kPa", "not more than 8 bar"),
+        ("8 bar", "at least 10 000 kPa"),
+        ("12 bar", "at least 3.5 10 bar"),
+        ("12 bar", "Class 300 12 bar is the minimum, at least 10 bar"),
+    ],
+)
+def test_a_digit_group_beside_the_figure_is_not_decided(document, clause):
+    _undecided(document, clause)
+
+
+@pytest.mark.parametrize(
+    "document, clause",
+    [
+        ("52 degC", "shall not exceed ambient +10 degC"),
+        ("52 degC", "shall not exceed ambient + 10 degC"),
+        ("52 degC", "not more than +10 degC"),
+        ("-20 degC", "not less than -30 degC"),
+        ("20 degC", "not less than -30 degC"),
+        ("20 degC", "not less than \u221230 degC"),
+        ("20 degC", "not less than \u201330 degC"),
+        ("+20 degC", "not less than 30 degC"),
+        ("20 degC", "at least \u00b110 degC"),
+        ("12 bar", "at least - 10 bar"),
+        ("5 mm", "at least ambient -2 mm"),
+    ],
+)
+def test_a_sign_character_beside_the_figure_is_not_decided(document, clause):
+    _undecided(document, clause)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "at least approx. 10 bar",
+        "at least ca. 10 bar",
+        "at least circa 10 bar",
+        "at least approximately 10 bar",
+        "at least about 10 bar",
+        "at least ~10 bar",
+        "at least \u224810 bar",
+        "at least nominal 10 bar",
+        "at least typically 10 bar",
+        "at least 10 bar nominal",
+        "at least around 10 bar",
+        "at least abt 10 bar",
+    ],
+)
+def test_an_approximation_word_on_the_clause_figure_is_not_decided(clause):
+    _undecided("12 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "document, clause",
+    [
+        ("12 bar", "at least 10 bar or less required"),
+        ("12 bar", "at least 10 bar or more or less"),
+        ("12 bar", "not more than 10 bar or more"),
+        ("10 Mm", "at least 8 mm"),
+        ("10 MM", "at least 8 mm"),
+        ("10 mm", "at least 8 Mm"),
+        ("10 mpa", "at least 8 bar"),
+        ("12 bar. A", "at least 10 bar"),
+        ("12 bar. g", "at least 10 bar"),
+        ("12 %. absolute", "at least 10 %"),
+        ("12 % absolute", "at least 10 %"),
+    ],
+)
+def test_the_low_severity_leaks_are_not_decided(document, clause):
+    _undecided(document, clause)
+
+
+def test_the_third_review_positive_controls_still_decide():
+    assert verdict("12 bar", "shall be at least 10 bar") is True
+    assert verdict("12 bar", "at least 10 bar or more") is True
+    assert verdict("8 bar", "maximum 10 bar") is True
+    assert verdict("1,5 MPa", "not more than 20 bar") is True
+    assert verdict("10 mm", "at least 8 mm") is True
+
+
+_FUZZ_PAIRS = [
+    ("12 bar", "shall be at least 10 bar", True),
+    ("8 bar", "shall be at least 10 bar", False),
+    ("12 bar", "pressure shall not exceed 10 bar", False),
+    ("8 bar", "pressure shall not exceed 10 bar", True),
+    ("40 degC", "temperature not less than 30 degC", True),
+    ("20 mm", "thickness not less than 25 mm", False),
+    ("5 mm", "maximum 8 mm", True),
+    ("12 %", "at most 10 %", False),
+]
+_FUZZ_NOISE = [
+    "approx", "approx.", "ca.", "circa", "about", "min", "max", "typical", "nominal", "~", "\u2248", "\u00b1",
+    "+", "-", "\u2212", "\u2013", "plus", "minus", "negative", "+10", "-5", "1", "000", "1000", ",", ".", "'",
+    "\u00a0", "\u202f", "\u2009", "*", "\u00b9", "\u00b2", "\u2020", "(1)", "[2]", "(see note)", "(g)", "(a)",
+    "g", "a", "abs", "gauge", "unless", "except", "or", "and", "if", "when", "where", "not", "no", "less", "more",
+    "than", "or less", "or more", "at", "for", "per", "each", "excl.", "save", "in winter", "000 kPa",
+]  # fmt: skip
+
+
+def _numbers(text):
+    return re.findall(r"\d+(?:[.,]\d+)?", text)
+
+
+def _fuzz_variants(sentence):
+    """Every sentence made by putting one noise token at a token boundary within two tokens of the figure, in three ways.
+    Not noise, so not produced: a number changed by gluing digits into it, a word glued into another word."""
+    tokens = sentence.split(" ")
+    first = next(i for i, t in enumerate(tokens) if any(c.isdigit() for c in t))
+    original = _numbers(sentence)
+    for i in range(max(0, first - 2), min(len(tokens), first + 1 + 3) + 1):
+        for noise in _FUZZ_NOISE:
+            made = [" ".join(tokens[:i] + [noise] + tokens[i:])]  # a token of its own
+            if not noise[0].isalnum():
+                if i > 0:  # glued to the token before
+                    made.append(
+                        " ".join(tokens[: i - 1] + [tokens[i - 1] + noise] + tokens[i:])
+                    )
+                if i < len(tokens):  # glued in front of the token after
+                    made.append(
+                        " ".join(tokens[:i] + [noise + tokens[i]] + tokens[i + 1 :])
+                    )
+            for text in made:
+                found = _numbers(text)
+                if all(found.count(n) >= original.count(n) for n in set(original)):
+                    yield text
+
+
+def test_fuzz_noise_beside_the_figure_never_gives_the_opposite_verdict():
+    wrong = []
+    for document, clause, expected in _FUZZ_PAIRS:
+        assert verdict(document, clause) is expected
+        for noisy in _fuzz_variants(document):
+            result = fc.compare(noisy, clause)
+            if result is not None and result.verdict not in (None, expected):
+                wrong.append((noisy, clause))
+        for noisy in _fuzz_variants(clause):
+            result = fc.compare(document, noisy)
+            if result is not None and result.verdict not in (None, expected):
+                wrong.append((document, noisy))
+    assert not wrong, wrong[:20]

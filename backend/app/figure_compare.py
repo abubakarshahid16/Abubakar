@@ -70,8 +70,8 @@ _REQUIREMENT_VERB = re.compile(
 )
 _DIRECTION_WORD = re.compile(
     r"(?P<le>\bnot\s+(?:to\s+)?(?:be\s+)?(?:exceed\w*|more|greater|higher|larger|above|over)\b|\bno\s+(?:more|greater|higher|larger)\b|"
-    r"\bat\s+most\b|\bmax(?:imum)?\b|\bup\s+to\b|\bless\s+than\b|\blower\s+than\b|\bsmaller\s+than\b|\bbelow\b|\bunder\b|<=|\u2264|<)"
-    r"|(?P<ge>\bnot\s+(?:to\s+)?(?:be\s+)?(?:less|lower|smaller|below|under)\b|\bno\s+(?:less|lower|smaller)\b|\bat\s+least\b|\bmin(?:imum)?\b|"
+    r"\bat\s+most\b|\bmost\b|\bor\s+(?:less|lower)\b|\bmax(?:imum)?\b|\bup\s+to\b|\bless\s+than\b|\blower\s+than\b|\bsmaller\s+than\b|\bbelow\b|\bunder\b|<=|\u2264|<)"
+    r"|(?P<ge>\bnot\s+(?:to\s+)?(?:be\s+)?(?:less|lower|smaller|below|under)\b|\bno\s+(?:less|lower|smaller)\b|\bat\s+least\b|\bleast\b|\bor\s+(?:more|greater|higher)\b|\bmin(?:imum)?\b|"
     r"\bgreater\s+than\b|\bmore\s+than\b|\bhigher\s+than\b|\babove\b|\bover\b|\bexceed\w*|>=|\u2265|>)",
     re.IGNORECASE,
 )
@@ -101,12 +101,24 @@ _SIGN_WORD = re.compile(
     r"\b(?:minus|negative|plus|sub-?zero|(?:below|under)\s+zero)\b", re.IGNORECASE
 )
 _REFERENCE_TOKEN = re.compile(
-    r"(?<![^\s(\[])\(?\s*\b(?:g|ga|gage|gauge|a|abs|absolute)\b\s*\)?", re.IGNORECASE
+    r"^\s*\(?\s*\b(?:g|ga|gage|gauge|a|abs|absolute)\b\s*\)?", re.IGNORECASE
+)
+# structural guard: the figure must be ONE clean token. A digit group beside it across a space, a no-break space, a thin space,
+# an apostrophe, a period or a comma ("1 000", "1'000") is a thousands mark or a list; a sign character glued to it or one token before it
+# ("+10", "- 10", "\u00b110") is an offset or a sign the code does not read.
+_DIGIT_GROUP_BEFORE = re.compile(r"\d[\s'\u2019\u00b7.,]{1,2}$")
+_SIGN_BEFORE = re.compile(r"[+\-\u2212\u2013\u2014\u00b1]\s*$")
+_MEGA_OK = re.compile(r"^MPa[ga]?$")
+# an approximation word before or after the CLAUSE figure (the document side has its own, wider, list)
+_APPROXIMATION = re.compile(
+    r"\b(?:approx\w*|about|around|circa|ca|abt|typ|typical\w*|nominal|nom|average|mean)\b|[~\u2248\u00b1]",
+    re.IGNORECASE,
 )
 _CLOSER = re.compile(
     r"\b(?:or\s+(?:more|less|greater|higher|lower)|minimum|maximum|min|max|(?:is\s+|are\s+)?required)\b",
     re.IGNORECASE,
 )
+_OR_CLOSER = re.compile(r"or\s+(?:more|less|greater|higher|lower)$", re.IGNORECASE)
 _PUNCTUATION_ONLY = re.compile(r"^[\s)\]\[(.,;:]*$")
 _SHORT_SUBJECT_WORDS = 12
 
@@ -120,10 +132,29 @@ def _tail_after_figure(text: str, closers: bool) -> str | None:
     tail = text[found[-1].end() :]
     if closers:
         tail = _CLOSER.sub(" ", tail)
-    return _REFERENCE_TOKEN.sub(" ", tail)
+    if claims.unit_dimension(found[-1].group("unit")) == "pressure":
+        tail = _REFERENCE_TOKEN.sub(" ", tail, count=1)
+    return tail
+
+
+def _figure_token_refusal(text: str) -> str | None:
+    """The figure is not one clean token (a digit group or a sign beside it) or its unit is spelled in a case that changes its meaning."""
+    for m in _FIGURE_UNIT.finditer(text):
+        before = text[: m.start()]
+        if _DIGIT_GROUP_BEFORE.search(before):
+            return "a digit group stands beside the figure (a thousands mark or a list)"
+        if _SIGN_BEFORE.search(before):
+            return "a sign stands beside the figure (an offset or a negative value)"
+        unit = m.group("unit")
+        if ("M" in unit or unit.lower().startswith("mpa")) and not _MEGA_OK.match(unit):
+            return "the unit's letter case may change its meaning (m / M)"
+    return None
 
 
 def _whitelist_refusal(text: str, clause: bool) -> str | None:
+    refusal = _figure_token_refusal(text)
+    if refusal:
+        return refusal
     if _SIGN_WORD.search(text):
         return "a sign is written in words (minus, negative, plus): not read"
     tail = _tail_after_figure(text, closers=clause)
@@ -151,14 +182,22 @@ def _clause_refusal(clause: str) -> str | None:
     head, sep, tail = clause.partition(",") if "," in clause else clause.partition(";")
     if sep and re.search(r"\d", head) and _REQUIREMENT_VERB.search(tail):
         return "the figure may belong to a condition before a separate requirement"
+    if _APPROXIMATION.search(clause):
+        return "the clause figure carries an approximation word"
     refusal = _whitelist_refusal(clause, clause=True)
     if refusal:
         return refusal
+    figure_end = list(_FIGURE_UNIT.finditer(clause))[-1].end()
+    phrases = [
+        m
+        for m in _DIRECTION_WORD.finditer(clause)
+        if not (m.start() >= figure_end and _OR_CLOSER.match(m.group(0)))
+    ]
     kinds = {
         k for m in _DIRECTION_WORD.finditer(clause) for k in ("le", "ge") if m.group(k)
     }
-    if len(kinds) > 1:
-        return "the clause holds two directions"
+    if len(kinds) > 1 or len(phrases) > 1:
+        return "the clause holds two directions or a split comparator phrase"
     return None
 
 
