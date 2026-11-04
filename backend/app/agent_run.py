@@ -99,7 +99,7 @@ class NotEnabled(RuntimeError):
 
 
 class SkillMissing(RuntimeError):
-    """No skill dict was given and `agent_skills` is not available."""
+    """No skill dict was given and `agent_skills` is not built yet."""
 
 
 def enabled(env: dict | None = None) -> bool:
@@ -315,7 +315,7 @@ def get_skill(kind: str, skill: dict | None = None) -> dict:
             from . import agent_skills
         except ImportError:
             raise SkillMissing(
-                "agent_skills is not available; pass a skill dict"
+                "agent_skills is not built yet; pass a skill dict"
             ) from None
         skill = agent_skills.load_skill(kind)
     if not isinstance(skill, dict) or not isinstance(skill.get("items"), list):
@@ -528,7 +528,14 @@ def run_review(
         readers = Readers(conn, allowed)
         scope = {"allowed": allowed, "document_id": document_id, "editions": held}
         box = (toolbox_factory or default_toolbox)(scope, readers)
-        lead, other = Recorder(provider), second_opinion
+        if second_opinion is not None and second_opinion is provider:
+            raise ValueError(
+                "the second opinion must be a different model, not the lead"
+            )
+        lead = Recorder(provider)
+        other = (
+            LocalOpinion(second_opinion, held_already=local) if second_opinion else None
+        )
         trace.second_ran = other is not None
         guard = _guard(local, claude, consent, allowed)
         with guard:
@@ -547,6 +554,8 @@ def run_review(
                 total_cap_usd,
             )
         lead.close()
+        if other:
+            other.unload()
         return _finish(
             chosen,
             document_id,
@@ -603,8 +612,39 @@ def _save_meta(run_root, trace, meta, lead, second, seconds) -> dict:
     return meta
 
 
+class LocalOpinion:
+    """The LOCAL second opinion (`agent_local.LocalSecondOpinion`, a different model family from the Claude lead).
+
+    Takes the shared heavy-job lock around each call (not when the lead already holds it: `held_already`) and unloads
+    the model at the end (#666). Nothing here can reach Claude."""
+
+    def __init__(self, inner: Any, *, held_already: bool = False) -> None:
+        self.inner, self.held_already = inner, held_already
+
+    def second_opinion(self, finding: dict, evidence: dict) -> dict:
+        if self.held_already:
+            return self.inner.second_opinion(finding, evidence)
+        try:
+            with heavy_lock.held(
+                "agent-review", "run_agent_review", heavy_lock.wait_seconds_from_env()
+            ):
+                return self.inner.second_opinion(finding, evidence)
+        except heavy_lock.HeavyJobBusy as exc:
+            exc.fatal = True  # the run stops, resumable; the item is not made YELLOW
+            raise
+
+    def unload(self) -> None:
+        for name in ("unload", "close"):
+            fn = getattr(self.inner, name, None)
+            if callable(fn):
+                fn()
+                return
+
+
 def fatal_problem(exc: BaseException) -> str:
     """The PROBLEM words of a fatal stop: from its code only, never a message."""
+    if isinstance(exc, heavy_lock.HeavyJobBusy):
+        return "heavy lock busy"
     code = str(getattr(exc, "code", "") or "")
     if "document" in code:
         return "documents not declared"

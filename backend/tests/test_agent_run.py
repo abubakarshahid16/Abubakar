@@ -797,11 +797,22 @@ def test_cli_wrong_constructor_fails_loudly(cli, monkeypatch):
         cli.make_provider("claude")
 
 
-def test_cli_second_opinion_needs_the_claude_provider(cli, copy_db, tmp_path):
+def test_cli_second_opinion_local_needs_a_model_and_the_module(
+    cli, copy_db, tmp_path, monkeypatch
+):
     lines = []
-    args = [*_args(copy_db, tmp_path), "--second-opinion", "claude"]
+    args = [*_args(copy_db, tmp_path), "--second-opinion", "local"]
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 2
-    assert "needs --provider claude" in lines[0]
+    assert "--local-model" in lines[0]
+    monkeypatch.setitem(sys.modules, "app.agent_local", None)  # not built yet
+    with pytest.raises(SystemExit) as exc:
+        cli.make_second_opinion("qwen-x")
+    assert "not built yet" in str(exc.value)
+
+
+def test_cli_has_no_claude_second_opinion_choice(cli):
+    with pytest.raises(SystemExit):
+        cli.parse(["--db-copy", "a", "--document", "d", "--skill", "s", "--provider", "fake", "--second-opinion", "claude"])  # fmt: skip
 
 
 # ---- the REAL ClaudeProvider with a fake sender: stops, wiring, model family --------------------------------------
@@ -907,28 +918,67 @@ def test_cli_returns_non_zero_on_a_fatal_stop(
     assert "budget stop" in "\n".join(lines)
 
 
-def test_one_provider_object_serves_lead_and_second_opinion(
+class LocalFake(Opinion):
+    unloaded = 0
+
+    def unload(self):
+        LocalFake.unloaded += 1
+
+
+def test_local_second_opinion_never_sends_anything_to_claude(
     cli, copy_db, tmp_path, monkeypatch, claude_ledger
 ):
     monkeypatch.setattr(
         ar, "default_toolbox", lambda scope, readers: factory(scope, readers)
     )
-    built, sender = [], Sender("GREEN", agree=True)
-
-    def make(_kind):
-        built.append(real(sender, total_cap_usd=10.0))
-        return built[-1]
-
-    monkeypatch.setattr(cli, "make_provider", make)
-    args = [*_args(copy_db, tmp_path, "--documents", "D1", "--limit", "1"), "--provider", "claude", "--second-opinion", "claude"]  # fmt: skip
+    sender, local = Sender("GREEN"), LocalFake([ok(True, "qwen3.5:35b")])
+    LocalFake.unloaded = 0
+    monkeypatch.setattr(
+        cli, "make_provider", lambda _k: real(sender, total_cap_usd=10.0)
+    )
+    monkeypatch.setattr(cli, "make_second_opinion", lambda _m: local)
+    args = [*_args(copy_db, tmp_path, "--documents", "D1", "--limit", "1"), "--provider", "claude", "--second-opinion", "local", "--local-model", "qwen3.5:35b"]  # fmt: skip
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lambda _l: None) == 0
-    assert len(built) == 1
-    assert sender.models == ["claude-sonnet-5-5", "claude-opus-5-5"]
-    assert built[0].spent > 0
-    one_call = built[0].spent / 2
-    assert built[0].spent > one_call  # both calls went through the one meter
-    results = (tmp_path / "cli-run" / "RESULTS.md").read_text()
-    assert "agreed 1" in results
+    assert sender.models == ["claude-sonnet-5-5"]  # Opus is never called
+    assert len(local.calls) == 1 and LocalFake.unloaded == 1
+    assert "agreed 1" in (tmp_path / "cli-run" / "RESULTS.md").read_text()
+
+
+def test_the_lead_cannot_be_its_own_second_opinion(copy_db, run_dir):
+    p = al.FakeProvider([final("GREEN")])
+    with pytest.raises(ValueError):
+        go(copy_db, run_dir, p, second_opinion=p)
+
+
+def test_local_second_opinion_takes_the_heavy_lock_per_call(
+    copy_db, tmp_path, monkeypatch
+):
+    lock = tmp_path / "heavy.lock"
+    monkeypatch.setenv("HEAVY_JOB_LOCK", str(lock))
+    seen = []
+
+    class Peek(Opinion):
+        def second_opinion(self, finding, evidence, **kw):
+            seen.append(lock.exists())
+            return super().second_opinion(finding, evidence)
+
+    go(copy_db, tmp_path / "r", al.FakeProvider([final("GREEN")]), second_opinion=Peek([ok(True)]), limit=1)  # fmt: skip
+    assert seen == [True] and not lock.exists()
+
+
+def test_busy_heavy_lock_stops_the_run_not_a_yellow(copy_db, tmp_path, monkeypatch):
+    from app import heavy_lock
+
+    lock = tmp_path / "heavy.lock"
+    monkeypatch.setenv("HEAVY_JOB_LOCK", str(lock))
+    monkeypatch.setenv("HEAVY_JOB_WAIT_MINUTES", "0")
+    held = heavy_lock.try_acquire("other", "someone", lock)
+    try:
+        s = go(copy_db, tmp_path / "r", al.FakeProvider([final("GREEN")] * 3), second_opinion=Opinion([ok(True)]), limit=1)  # fmt: skip
+    finally:
+        held.release()
+    assert s["stopped"] == "heavy lock busy" and "heavy lock busy" in s["status_box"]
+    assert not (tmp_path / "r" / "second_opinion.json").exists()
 
 
 def test_model_family_ignores_date_latest_and_version_suffixes():

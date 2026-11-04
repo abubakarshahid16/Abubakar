@@ -53,9 +53,22 @@ def make_provider(kind: str):
         klass = getattr(mod, cls)
     except (ImportError, AttributeError) as exc:
         raise SystemExit(
-            f"provider '{kind}' is not available: app.{module}.{cls} is missing ({type(exc).__name__})"
+            f"provider '{kind}' is not built yet: app.{module}.{cls} is missing ({type(exc).__name__})"
         ) from None
     return klass(model=LEAD_MODEL) if kind == "claude" else klass()
+
+
+def make_second_opinion(model: str):
+    """The local second opinion (Qwen), imported lazily; nothing here can reach Claude."""
+    from app.config import settings
+
+    try:
+        from app.agent_local import LocalSecondOpinion
+    except ImportError:
+        raise SystemExit(
+            "second opinion 'local' is not built yet: app.agent_local is missing"
+        ) from None
+    return LocalSecondOpinion(model, settings.ollama_url)
 
 
 def load_skill(value: str) -> tuple[str, dict | None]:
@@ -79,7 +92,15 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--provider", choices=("fake", "claude", "local"), required=True)
     ap.add_argument("--limit", type=int, default=None, help="only the first N items")
     ap.add_argument("--items", default=None, help="comma-separated skill item ids")
-    ap.add_argument("--second-opinion", choices=("none", "claude"), default="none")
+    ap.add_argument(
+        "--second-opinion",
+        choices=("none", "local"),
+        default="none",
+        help="local: the local Qwen model (never Claude)",
+    )
+    ap.add_argument(
+        "--local-model", default=None, help="model tag for --second-opinion local"
+    )
     ap.add_argument(
         "--run-dir",
         default=None,
@@ -139,10 +160,8 @@ def _run(args: argparse.Namespace, out) -> int:
     skill = agent_run.get_skill(kind, given)
     ids = [s for s in args.items.split(",") if s] if args.items else None
     chosen = agent_run.select_items(skill, ids, args.limit)
-    if args.second_opinion == "claude" and args.provider != "claude":
-        raise SystemExit(
-            "--second-opinion claude needs --provider claude (one shared meter)"
-        )
+    if args.second_opinion == "local" and not args.local_model:
+        raise SystemExit("--second-opinion local needs --local-model (the model tag)")
     if args.dry_run:
         conn = agent_run.open_readonly(args.db_copy)  # refuses the live file even here
         try:
@@ -158,7 +177,7 @@ def _run(args: argparse.Namespace, out) -> int:
             )
         finally:
             conn.close()
-        claude = "claude" in (args.provider, args.second_opinion)
+        claude = args.provider == "claude"
         report = agent_run.plan(
             chosen, total_cap=agent_run.USD_CAP_TOTAL if claude else None
         )
@@ -182,8 +201,11 @@ def _run(args: argparse.Namespace, out) -> int:
         out("no model was called")
         return 0
     provider = make_provider(args.provider)
-    # the second opinion is the SAME provider object's second_opinion(): a different model, one shared meter
-    opinion = provider if args.second_opinion == "claude" else None
+    opinion = (
+        make_second_opinion(args.local_model)
+        if args.second_opinion == "local"
+        else None
+    )
 
     def status(trace: agent_trace.TraceWriter) -> None:
         out(agent_run.status_box(trace))
@@ -201,7 +223,7 @@ def _run(args: argparse.Namespace, out) -> int:
             skill=skill,
             editions=_editions(args.editions),
             local=args.provider == "local",
-            claude="claude" in (args.provider, args.second_opinion),
+            claude=args.provider == "claude",
             documents=_ids(args.documents),
             on_status=status,
         )
