@@ -76,7 +76,7 @@ def test_tool_use_is_parsed_with_reason_split_out():
     assert s.bodies[0]["tools"][0]["input_schema"]["properties"]["reason"]
     assert s.bodies[0]["tool_choice"]["disable_parallel_tool_use"] is True
     assert (
-        s.bodies[0]["temperature"] == 0 and s.bodies[0]["model"] == "claude-sonnet-5-5"
+        "temperature" not in s.bodies[0] and s.bodies[0]["model"] == "claude-sonnet-5-5"
     )
 
 
@@ -257,3 +257,67 @@ def test_project_cost():
     assert ac.project_cost(50, 50, 10.0, 0.5)["projected_total"] == pytest.approx(10.0)
     assert ac.project_cost(0, 50, 0.0, 0.5)["projected_total"] is None
     assert ac.project_cost(6, 5, 1.0, 0.0)["projected_total"] is None
+
+
+def test_temperature_absent_for_a_model_that_rejects_it_and_present_for_one_that_accepts():
+    assert claude_spend
+    s = Sender(tool_use(doc="D", page=1))
+    provider(s).complete(MSGS, SPECS)  # claude-sonnet-5-5 rejects temperature
+    assert "temperature" not in s.bodies[0]
+    s2 = Sender(tool_use(doc="D", page=1))
+    provider(s2, model="claude-haiku-4-5").complete(MSGS, SPECS)
+    assert s2.bodies[0]["temperature"] == 0
+    s3 = op('{"agree": true}')
+    ac.second_opinion(F, EV, send=s3, env=ENV)
+    assert "temperature" not in s3.bodies[0]
+
+
+def test_total_cap_stops_before_sending_the_over_cap_call():
+    s = Sender(tool_use(doc="D", page=1))
+    p = provider(s, total_cap_usd=0.05)
+    p.complete(MSGS, SPECS)
+    first = p.spent
+    assert first > 0
+    worst = claude_spend.worst_case_usd(ac.LEAD_MODEL, 300, ac.MAX_TOKENS)
+    p.meter.cap = first + worst * 0.5
+    n = len(s.bodies)
+    with pytest.raises(ac.AgentBudgetStop):
+        p.complete(MSGS, SPECS)
+    assert len(s.bodies) == n and p.spent == first
+
+
+def test_second_opinions_count_toward_the_same_cap():
+    p = provider(Sender(tool_use(doc="D", page=1)))
+    out = p.second_opinion(F, EV, send=op('{"agree": true, "reason": "ok"}'))
+    assert (
+        out["agree"] is True and out["usd"] > 0 and p.spent == pytest.approx(out["usd"])
+    )
+    p.meter.cap = p.spent
+    blocked = op('{"agree": true}')
+    assert p.second_opinion(F, EV, send=blocked)["agree"] is None
+    assert blocked.bodies == []
+
+
+def test_model_reasons_are_capped_in_tool_turns_and_finals():
+    long = "w " * 80
+    t = provider(Sender(tool_use(doc="D", page=1, reason=long))).complete(MSGS, SPECS)
+    assert len(t["reason"].split()) <= 20 and len(t["reason"]) <= 160
+    f = provider(
+        Sender(
+            [{"type": "text", "text": json.dumps({"color": "YELLOW", "reason": long})}],
+            stop="end_turn",
+        )
+    ).complete(MSGS, SPECS)["final"]
+    assert len(f["reason"].split()) <= 20 and len(f["reason"]) <= 160
+    longword = provider(Sender(tool_use(doc="D", page=1, reason="x" * 500))).complete(
+        MSGS, SPECS
+    )
+    assert len(longword["reason"]) <= 160
+
+
+def test_no_declared_documents_is_refused_and_nothing_is_sent(monkeypatch):
+    monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
+    s = Sender(tool_use(doc="D", page=1))
+    with pytest.raises(ac.AgentBudgetStop) as e:
+        provider(s).complete(MSGS, SPECS)
+    assert (s.bodies == [] and "undeclared" in str(e.value).lower()) or e.value.code

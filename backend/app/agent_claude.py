@@ -6,6 +6,14 @@
 gate and the ledger apply as on every other Claude lane. This module opens no socket, adds no flag and never reads
 `backend/.env`: the gate is the process environment only (REASONING_PROVIDER, both STANDARDS_READER_* flags, the key).
 
+THE CALLER (the runner) must wrap the run in `claude_approved.per_request_consent(ids)` / `claude_approved.carrying(ids)`
+with exactly the selected documents. Without a declaration every call fails closed with `DocumentNotApproved` (a
+`BudgetExceeded`, so `AgentBudgetStop`) and nothing is sent.
+
+RUN CAP. One `SpendMeter` (default USD 10, the owner's cap for the whole test) is shared by the provider and by every
+`second_opinion` made with it: before each call `spent + worst case of that request > cap` raises `AgentBudgetStop`
+without sending; after it, the real usd is added. `provider.spent` is the runner's read-out.
+
 Errors carry a CODE only, never document or standard text. The loop turns any raised error into a YELLOW
 "ask the engineer" finding; this module never returns a verdict it could not parse.
 """
@@ -27,6 +35,7 @@ LEAD_MODEL = "claude-sonnet-5-5"
 SECOND_MODEL = "claude-opus-5-5"
 MAX_TOKENS = 2048
 SECOND_MAX_TOKENS = 400
+TOTAL_CAP_USD = 10.0
 _OPEN_PROVIDERS = ("claude", "per_task")
 _CACHE = {"type": "ephemeral"}
 
@@ -37,6 +46,20 @@ SYSTEM_RULES = (
     "Quote the document exactly. Not mentioned is never GREEN. Never state confidence. "
     "Numbers are decided by the compare_number tool, not by you. When unsure, ask the engineer."
 )
+
+
+class SpendMeter:
+    """Run-level USD meter shared by a provider and its second opinions."""
+
+    def __init__(self, cap_usd: float = TOTAL_CAP_USD) -> None:
+        self.cap, self.spent = float(cap_usd), 0.0
+
+    def check(self, worst: float) -> None:
+        if self.spent + worst > self.cap:
+            raise AgentBudgetStop("test_cap")
+
+    def add(self, usd: float) -> None:
+        self.spent += float(usd)
 
 
 class AgentClaudeError(RuntimeError):
@@ -227,12 +250,18 @@ def _call(
     max_tokens: int,
     send: Callable | None,
     env: dict | None,
+    meter: SpendMeter | None = None,
 ) -> tuple[dict, float]:
     request = _request(model, max_tokens, env)
     raw = _transport(send)
     body = dict(request["body"])
     body.update(body_parts)
     body["model"], body["max_tokens"] = model, int(max_tokens)
+    if meter is not None:
+        chars = len(json.dumps(body.get("messages"), default=str)) + len(
+            json.dumps(body.get("system"), default=str)
+        )
+        meter.check(claude_spend.worst_case_usd(model, chars, int(body["max_tokens"])))
     try:
         answer = _metered(raw)(
             request["url"],
@@ -246,11 +275,14 @@ def _call(
         ) from None
     except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
         raise AgentTransportError("transport_" + type(exc).__name__) from None
+    usd = _usd(model, answer, body) if isinstance(answer, dict) else 0.0
+    if meter is not None:
+        meter.add(usd)  # a paid bad reply still counts toward the cap
     if not isinstance(answer, dict) or not isinstance(answer.get("content"), list):
         raise AgentBadReply("bad_shape")
     if answer.get("stop_reason") in ("refusal", "max_tokens"):
         raise AgentBadReply("stop_" + str(answer.get("stop_reason")))
-    return answer, _usd(model, answer, body)
+    return answer, usd
 
 
 # ------------------------------------------------------------------ parsing
@@ -288,6 +320,8 @@ def parse_reply(answer: dict, tool_names: set[str]) -> dict:
     final = parse_json_object(text)
     if final is None:
         raise AgentBadReply("no_final")
+    if "reason" in final:
+        final["reason"] = words(final["reason"], 20)
     return {"final": final}
 
 
@@ -305,10 +339,17 @@ class ClaudeProvider:
         max_tokens: int = MAX_TOKENS,
         send: Callable | None = None,
         env: dict | None = None,
+        total_cap_usd: float = TOTAL_CAP_USD,
+        meter: SpendMeter | None = None,
     ) -> None:
+        self.meter = meter or SpendMeter(total_cap_usd)
         self.model, self.system, self.max_tokens = model, system, int(max_tokens)
         self.send, self.env = send, env
         self.total_usd = 0.0
+
+    @property
+    def spent(self) -> float:
+        return self.meter.spent
 
     def complete(self, messages: list[dict], tool_specs: list[dict]) -> dict:
         api_messages, extra_system = to_api_messages(messages)
@@ -319,15 +360,23 @@ class ClaudeProvider:
                 {"type": "text", "text": system_text, "cache_control": dict(_CACHE)}
             ],
             "messages": api_messages,
-            "temperature": 0,
         }
         if tools:
             parts["tools"] = tools
             parts["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
-        answer, usd = _call(self.model, parts, self.max_tokens, self.send, self.env)
+        answer, usd = _call(
+            self.model, parts, self.max_tokens, self.send, self.env, self.meter
+        )
         reply = parse_reply(answer, {t["name"] for t in tools})
         self.total_usd += usd
         return {**reply, "usd": usd}
+
+    def second_opinion(self, finding: dict, evidence: dict, **kw) -> dict:
+        """`second_opinion` through THIS provider's meter, send and env, so it counts toward the run cap."""
+        kw.setdefault("send", self.send)
+        kw.setdefault("env", self.env)
+        kw.setdefault("lead_model", self.model)
+        return second_opinion(finding, evidence, meter=self.meter, **kw)
 
 
 # ------------------------------------------------------------------ second opinion
@@ -342,6 +391,7 @@ def second_opinion(
     send: Callable | None = None,
     env: dict | None = None,
     max_tokens: int = SECOND_MAX_TOKENS,
+    meter: SpendMeter | None = None,
 ) -> dict:
     """A DIFFERENT model confirms or rejects a GREEN or RED finding from the verified quotes only.
 
@@ -373,10 +423,9 @@ def second_opinion(
                 ],
             }
         ],
-        "temperature": 0,
     }
     try:
-        answer, usd = _call(model, parts, max_tokens, send, env)
+        answer, usd = _call(model, parts, max_tokens, send, env, meter)
     except AgentClaudeError as exc:
         return {"agree": None, "reason": words(exc.code, 20), "usd": 0.0}
     text = "".join(
