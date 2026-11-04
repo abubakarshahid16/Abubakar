@@ -426,3 +426,18 @@ def test_the_estimate_counts_the_tools_sent():
 
 def test_the_bare_second_opinion_is_not_public():
     assert not hasattr(ac, "second_opinion")
+
+
+def test_the_answering_model_comes_from_the_response_not_the_config():
+    s = Sender(tool_use(doc="D", page=1))
+    s.reply["model"] = "claude-sonnet-5-5-20261001"
+    assert provider(s).complete(MSGS, SPECS)["model"] == "claude-sonnet-5-5-20261001"
+    del s.reply["model"]
+    assert provider(s).complete(MSGS, SPECS)["model"] == "unknown"
+    o = op('{"agree": true, "reason": "ok"}')
+    o.reply["model"] = "claude-opus-5-5-20261001"
+    assert (
+        provider(s).second_opinion(F, EV, send=o)["model"] == "claude-opus-5-5-20261001"
+    )
+    del o.reply["model"]
+    assert provider(s).second_opinion(F, EV, send=o)["model"] == "unknown"

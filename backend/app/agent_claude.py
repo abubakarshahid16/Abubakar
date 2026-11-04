@@ -252,6 +252,12 @@ def _usd(model: str, answer: dict, body: dict) -> float:
     )
 
 
+def _answered_model(answer: Any) -> str:
+    """The model that ANSWERED, from the API response (never from configuration); 'unknown' if absent."""
+    name = answer.get("model") if isinstance(answer, dict) else None
+    return name.strip() if isinstance(name, str) and name.strip() else "unknown"
+
+
 def _call(
     model: str,
     body_parts: dict,
@@ -390,7 +396,7 @@ class ClaudeProvider:
         )
         reply = parse_reply(answer, {t["name"] for t in tools})
         self.total_usd += usd
-        return {**reply, "usd": usd}
+        return {**reply, "usd": usd, "model": _answered_model(answer)}
 
     def second_opinion(self, finding: dict, evidence: dict, **kw) -> dict:
         """`second_opinion` through THIS provider's meter, send and env, so it counts toward the run cap."""
@@ -420,7 +426,12 @@ def _second_opinion(
     gate, the cap, the same model as the lead) counts as disagree upstream, so the finding becomes YELLOW.
     """
     if model == lead_model:
-        return {"agree": None, "reason": "same model as lead", "usd": 0.0}
+        return {
+            "agree": None,
+            "reason": "same model as lead",
+            "usd": 0.0,
+            "model": "unknown",
+        }
     prompt = json.dumps(
         {
             "colour": (finding or {}).get("color"),
@@ -448,7 +459,12 @@ def _second_opinion(
     try:
         answer, usd = _call(model, parts, max_tokens, send, env, meter)
     except AgentClaudeError as exc:
-        return {"agree": None, "reason": words(exc.code, 20), "usd": 0.0}
+        return {
+            "agree": None,
+            "reason": words(exc.code, 20),
+            "usd": 0.0,
+            "model": "unknown",
+        }
     text = "".join(
         str(b.get("text") or "")
         for b in answer.get("content") or []
@@ -457,8 +473,18 @@ def _second_opinion(
     obj = parse_json_object(text) or {}
     agree = obj.get("agree")
     if not isinstance(agree, bool):
-        return {"agree": None, "reason": "unparsable reply", "usd": usd}
-    return {"agree": agree, "reason": words(obj.get("reason"), 20), "usd": usd}
+        return {
+            "agree": None,
+            "reason": "unparsable reply",
+            "usd": usd,
+            "model": _answered_model(answer),
+        }
+    return {
+        "agree": agree,
+        "reason": words(obj.get("reason"), 20),
+        "usd": usd,
+        "model": _answered_model(answer),
+    }
 
 
 SECOND_SYSTEM = (
