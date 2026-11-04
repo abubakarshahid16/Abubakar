@@ -67,7 +67,9 @@ def heading_of_line(line: str, *, in_attachment: bool) -> str | None:
     if _LEADERS.search(str(line or "")):
         return None
     text = " ".join(str(line or "").split())
-    if _ENDS_IN_NUMBER.search(text):  # a page number after plain spaces: a contents entry, in a run or alone
+    if _ENDS_IN_NUMBER.search(
+        text
+    ):  # a page number after plain spaces: a contents entry, in a run or alone
         return None
     if not text or len(text) > 160:
         return None
@@ -82,7 +84,9 @@ def heading_of_line(line: str, *, in_attachment: bool) -> str | None:
 def _is_caption(heading: str) -> bool:
     """A table or figure caption: it names a table or a figure, not a section of the document."""
     text = " ".join(heading.split())
-    return any(data()["classes"][k].match(text) for k in ("table_title", "figure_title"))
+    return any(
+        data()["classes"][k].match(text) for k in ("table_title", "figure_title")
+    )
 
 
 def _flat(line: str) -> str:
@@ -304,7 +308,9 @@ def title_hit(element, chunk: dict, title: str, hits, *, near: bool = False) -> 
         return cued
     if near and chunk.get("heading_code"):
         return True
-    if chunk.get("heading_caption"):  # a caption is at most the closest section, never the element's own
+    if chunk.get(
+        "heading_caption"
+    ):  # a caption is at most the closest section, never the element's own
         return near and _about(element.title, title)
     return _about(element.title, title)
 
