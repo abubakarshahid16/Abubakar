@@ -1257,7 +1257,7 @@ def select(
     standard those sheets cite is absent, and a system that found some anyway
     would be lying.
     """
-    from . import equipment_subtype, kind_rules, standard_judgment
+    from . import equipment_subtype, kind_rules, kind_standards, standard_judgment
     from .equipment_title_block import keep_without_type as keep_no_type
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
@@ -1357,7 +1357,7 @@ def select(
             row["scope_decision"] = verdict
     _hold_on_unsure_type(selected, check, library, profile)  # order 142
     standard_judgment.hold(selected, check, library, find_standard)
-
+    kind_standards.apply(selected, submittal_document_id, library)
     if persist:
         _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,
                  scope_not_run=scope_not_run)

@@ -127,6 +127,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
 | `part_name_roles` | Test B (part of #805): the strict rules by which a part printed alone (IMPELLER: material) or a seal in a sentence fills its material/type field, for the form reader's label gate and the stored-facts check, behind FORM_PART_NAME_ROLES_ENABLED |
+| `section_index` | Test B / HAZOP (part of #805): headings of any kind (attachment/appendix/annex codes, table titles, item titles) indexed at review time in memory for the playbook review, and the generic-title-word rule, behind SECTION_INDEX_ENABLED |
 | `crs_one_row` | #1503: one CRS row per problem, and "did not reference" rows nothing in scope requires, behind CRS_ONE_ROW_PER_PROBLEM_ENABLED |
 | `contractor_scrub` | Item 14c (owner 3 Nov 11:40): the one scrub that keeps the contractor copy free of engineer wording (text we write only; the contractor's own file names, tags and titles stay verbatim), with the code check that counts what is left, behind CRS_CONTRACTOR_NO_ENGINEER_WORDS_ENABLED |
 | `compliance_list` | Owner 3 Nov 11:40 (b): a value only a draft rule checks, with nothing found, is no CRS row; it is on the internal-only sheet "Compliance list", behind CRS_COMPLIANCE_LIST_ENABLED |
@@ -185,6 +186,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `doc_router` | The document-type router (W5b-02, #526) |
 | `document_kind` | The kind of a document (datasheet, procedure, specification, contract...) from its title block and cover (#1474) |
 | `kind_rules` | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards (#1474) |
+| `kind_standards` | Standards by role and document kind: a procedure or study leaves out equipment design standards, counted in the run note; method standards still needed are named once (off by default) |
 | `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
