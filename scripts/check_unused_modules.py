@@ -20,7 +20,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 APP = REPO / "backend" / "app"
 #: What starts the app: the web server module, and what `run.py` imports.
-ENTRY_POINTS = ("main",)
+ENTRY_POINTS = ("main", "agent_tools")
 
 
 def module_name(path: Path, app: Path) -> str:

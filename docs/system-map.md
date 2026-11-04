@@ -12,6 +12,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 
 | Job | Modules |
 |---|---|
+| Agent reviewer tools (open page, search, get clause, compare number, record finding, ask engineer; #1690) | `agent_tools` |
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
 | Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
