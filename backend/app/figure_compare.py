@@ -101,9 +101,8 @@ def _clause_refusal(clause: str) -> str | None:
         return (
             "a clause figure has a separator that may be a thousands mark or a decimal"
         )
-    if _EXCEPTION.search(clause) or _CONDITION_FIGURE.search(
-        _NEGATED_COMPARATOR.sub(" ", clause)
-    ):
+    stripped = _NEGATED_COMPARATOR.sub(" ", clause)
+    if _EXCEPTION.search(clause) or _CONDITION_FIGURE.search(stripped):
         return "the clause holds an exception or a condition the figure may belong to"
     head, sep, tail = clause.partition(",") if "," in clause else clause.partition(";")
     if sep and re.search(r"\d", head) and _REQUIREMENT_VERB.search(tail):
