@@ -136,7 +136,7 @@ _CLOSER = re.compile(
 _OR_CLOSER = re.compile(r"or\s+(?:more|less|greater|higher|lower)$", re.IGNORECASE)
 # one-number rule: the clause and the document quote each hold exactly ONE number (digit run, or number word); a second number
 # anywhere is a condition, a class, a count, a product or a power the code does not read. Superscript digits and ^ x * are never read.
-_NUMBER_TOKEN = re.compile(r"[\d\u00bc-\u00be\u2150-\u218f\u2460-\u24ff]+(?:[.,]\d+)?")
+_DIGIT_RUN = re.compile(r"[\d\u00bc-\u00be\u2150-\u218f\u2460-\u24ff]+(?:[.,]\d+)?")
 _NUMBER_WORD = re.compile(
     r"\b(?:(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
     r"nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|half|halves|twice|double|triple|dozen|pair)(?:s|ed|ing)?)\b",
@@ -330,7 +330,7 @@ def _structure_refusal(text: str) -> str | None:
     rest = _FIGURE_UNIT.sub(" N ", text)
     if _OPERATOR_OR_POWER.search(rest):
         return "a power, a product mark or a superscript digit stands near the figure"
-    numbers = len(_NUMBER_TOKEN.findall(rest)) + len(_NUMBER_WORD.findall(rest))
+    numbers = len(_DIGIT_RUN.findall(rest)) + len(_NUMBER_WORD.findall(rest))
     numbers += rest.count(" N ")
     if numbers != 1:
         return "the quote holds no figure or more than one number (a class, a count, a product or a condition)"
