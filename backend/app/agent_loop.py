@@ -124,6 +124,7 @@ def _run_tool(toolbox: Any, name: str, args: Any) -> dict:
     try:
         res = toolbox.run(name, args)
     except Exception as exc:  # noqa: BLE001 - a tool failure is a result the model sees
+        # recorded: the failure is counted in the finding, never raised
         return {"ok": False, "result": {"error": type(exc).__name__}, "cites": []}
     return res if isinstance(res, dict) else {"ok": False, "result": {}, "cites": []}
 
@@ -139,7 +140,8 @@ def _accepted(res: dict) -> bool:
 def _ask_engineer(toolbox: Any, item: dict, reason: str) -> None:
     try:
         toolbox.run("ask_engineer", {"item": item.get("id"), "reason": words(reason)})
-    except Exception:  # noqa: BLE001, S110 - best effort; the finding is already YELLOW
+    except Exception:  # noqa: BLE001 - best effort; the finding is already YELLOW
+        # recorded: the failure is counted in the finding, never raised
         return
 
 
@@ -219,6 +221,7 @@ class _ItemRun:
         try:
             reply = self.provider.complete(self.messages, specs)
         except Exception as exc:  # noqa: BLE001 - any provider failure ends in YELLOW
+            # recorded: the failure is counted in the finding, never raised
             self.finding = yellow("provider error " + type(exc).__name__, self.item)
             self.why = "provider error"
             return None, 0.0, 0.0
@@ -426,6 +429,7 @@ def answer_open_page(
         try:
             reply = provider.complete(msgs, list(getattr(toolbox, "TOOL_SPECS", [])))
         except Exception:  # noqa: BLE001 - a failed look leaves the items YELLOW
+            # recorded: the failure is counted in the finding, never raised
             reply = {}
         if trace:
             trace.add_spend(

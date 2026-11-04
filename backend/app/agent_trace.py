@@ -23,8 +23,8 @@ import os
 import re
 import time
 from collections import deque
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
