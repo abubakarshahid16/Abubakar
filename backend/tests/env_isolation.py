@@ -269,6 +269,8 @@ EGRESS_SAFE: dict[str, object] = {
     "transmittal_required_list_document_ids": "",
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
+    # --- local only, no model or socket: standards by role and document kind (off by default)
+    "standard_roles_by_kind_enabled": False,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
     "rules_by_equipment_scope_enabled": False,
     # --- local only, no model or socket: extraction stores each rule's equipment scope (off by default)
@@ -326,6 +328,7 @@ EGRESS_SAFE: dict[str, object] = {
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,
+    "draft_process_items_enabled": False,
     "rulebook_v2_review_enabled": False,
     "owner_note_lifts_context_flag_enabled": False,
     "material_reference_enabled": False,

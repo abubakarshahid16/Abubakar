@@ -230,7 +230,11 @@ def test_the_title_block_note_is_not_on_a_procedure(on, monkeypatch):
         equipment_title_block, "for_submittal", lambda *_a: [{"note": "n"}]
     )
     _document(pages=["invented cover"])
-    assert export_status.equipment_notes(DOC, "run", frozenset({DOC})) == []
+    notes = export_status.equipment_notes(DOC, "run", frozenset({DOC}))
+    from app import project_specification
+
+    # the exact list: only the project specification note; a stray title block note would be caught
+    assert [n["note"] for n in notes] == [project_specification.NOTE]
 
 
 # ------------------------------------------------------------------- 2. page cell

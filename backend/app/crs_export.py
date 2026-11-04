@@ -26,7 +26,7 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from . import compliance_list, run_record
+from . import compliance_list, crs_ai_review_view, run_record
 from . import crs_export_quality as quality
 from .crs_mapping import (
     PRIORITY_CARRIED_FORWARD,
@@ -496,7 +496,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
         "title": "\n ".join(p for p in (company, project) if p).rstrip(),
         # #633 item 7: "REVIEW INCOMPLETE: run <status> - ..." on row 1; "" for a completed run.
-        "run_status_note": quality.with_rules_note(meta),
+        "run_status_note": crs_ai_review_view.top_note(meta, copy),
         "subtitle": SUBTITLE,
         # A missing value renders as NOTHING, never as "None": a CRS carrying
         # a plausible-looking transmittal number lies about its own provenance.
@@ -588,6 +588,8 @@ def _later_sheets(wb, view: dict, meta: dict, internal: bool) -> None:
         run_record.write_sheet(wb, meta["run_record"], _write)
     if internal and view.get("export_quality"):  # #1503: Reasoning, Rule trust
         quality.write_internal_sheet(wb, view["internal_sheet"], _write)
+    if internal and meta.get("ai_review"):  # lane 6: the AI review pass's changes
+        crs_ai_review_view.write_sheet(wb, meta["ai_review"], _write)
     if not internal:  # item 14c: one scrub over every string of the contractor copy
         quality.scrub_workbook(wb, len(view["rows"]))
     if internal:  # owner 3 Nov (b): draft-rule values with nothing found
