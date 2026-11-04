@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 import types
 
+import pytest
+
 from app.agent_tools import TOOL_SPECS, ToolBox, ToolContext
 
 DOC = "doc-sub"
@@ -61,7 +63,7 @@ def box(allowed=(DOC, STD), editions=None, **kw):
 def good(**over):
     f = {
         "item": "I-1",
-        "verdict": "GREEN",
+        "color": "GREEN",
         "doc": DOC,
         "page": 1,
         "doc_quote": "rated for a working figure of 12 units",
@@ -69,12 +71,28 @@ def good(**over):
         "clause": "4.2",
         "clause_quote": "shall be at least 10 units",
         "value": "12 units",
-        "comment": "Figure is stated.",
-        "confidence": "medium",
+        "reason": "Figure is stated.",
+        "action": "none",
         "priority": "should",
     }
     f.update(over)
     return f
+
+
+class FigureResult:
+    """Shaped like figure_compare.FigureResult (#1689)."""
+
+    def __init__(self, verdict, reason="r", direction=None):
+        self.verdict, self.reason, self.direction = verdict, reason, direction
+
+
+def plug_compare(monkeypatch, fn):
+    mod = types.ModuleType("app.figure_compare")
+    mod.compare = fn
+    monkeypatch.setitem(sys.modules, "app.figure_compare", mod)
+    import app
+
+    monkeypatch.setattr(app, "figure_compare", mod, raising=False)
 
 
 def test_specs_match_tools():
@@ -164,31 +182,34 @@ def test_get_clause_not_held_cases():
 def test_compare_unavailable_cannot_decide(monkeypatch):
     monkeypatch.setitem(sys.modules, "app.figure_compare", None)  # import fails
     r = box().run(
-        "compare_number", {"clause_figure": "10 units", "doc_figure": "12 units"}
+        "compare_number", {"doc_quote": "12 units", "clause_quote": "10 units"}
     )
-    assert r["result"]["decided"] is False and r["result"]["verdict"] is None
+    assert r["result"]["decided"] is False and r["result"]["verdict"] == "cannot decide"
 
 
-def test_compare_with_module_and_garbage(monkeypatch):
-    mod = types.ModuleType("app.figure_compare")
-    mod.compare = lambda a, b: {"decided": True, "verdict": "meets", "reason": "ok"}
-    monkeypatch.setitem(sys.modules, "app.figure_compare", mod)
-    import app
+def test_compare_mapping_and_argument_order(monkeypatch):
+    seen = []
 
-    monkeypatch.setattr(app, "figure_compare", mod, raising=False)
-    assert (
-        box().run("compare_number", {"clause_figure": "a", "doc_figure": "b"})[
-            "result"
-        ]["verdict"]
-        == "meets"
-    )
-    mod.compare = lambda a, b: "yes"
-    assert (
-        box().run("compare_number", {"clause_figure": "a", "doc_figure": "b"})[
-            "result"
-        ]["decided"]
-        is False
-    )
+    def fake(doc_quote, clause_quote):
+        seen.append((doc_quote, clause_quote))
+        return FigureResult({"a": True, "b": False}.get(doc_quote))
+
+    plug_compare(monkeypatch, fake)
+    b = box()
+    out = {
+        q: b.run("compare_number", {"doc_quote": q, "clause_quote": "C"})["result"]
+        for q in ("a", "b", "c")
+    }
+    assert out["a"]["verdict"] == "meets" and out["b"]["verdict"] == "does_not_meet"
+    assert out["c"]["verdict"] == "cannot decide" and out["c"]["decided"] is False
+    assert seen[0] == ("a", "C")  # document quote first, clause quote second
+
+
+def test_compare_other_shapes_cannot_decide(monkeypatch):
+    for shape in ("yes", {"decided": True, "verdict": "meets"}, None, 1):
+        plug_compare(monkeypatch, lambda a, c, shape=shape: shape)
+        r = box().run("compare_number", {"doc_quote": "a", "clause_quote": "b"})
+        assert r["result"]["decided"] is False
 
 
 def test_record_green_accepted_and_stored():
@@ -218,12 +239,11 @@ def test_refused_findings_not_stored():
     for bad in (
         good(doc_quote="a quote that is nowhere on the page"),
         good(clause_quote="text that is not in the clause at all"),
-        good(confidence="high"),
         good(doc=OTHER),
-        good(comment="not mentioned in the document"),
+        good(reason="not mentioned in the document"),
         good(clause="9.9"),
         good(page=2),
-        good(verdict="BLUE"),
+        good(color="BLUE"),
     ):
         assert b.run("record_finding", {"finding": bad})["result"]["accepted"] is False
     assert b.ctx.findings == []
@@ -231,23 +251,82 @@ def test_refused_findings_not_stored():
 
 def test_numbers_decided_only_by_code(monkeypatch):
     b = box()
-    f = good(clause_figure="10 units", doc_figure="12 units")
+    fig = {"doc_quote": "12 units", "clause_quote": "10 units"}
+    f = good(figures=[fig])
     assert (
         b.run("record_finding", {"finding": f})["result"]["reason"]
         == "number_not_decided_by_code"
     )
-    mod = types.ModuleType("app.figure_compare")
-    mod.compare = lambda a, c: {"decided": True, "verdict": "does_not_meet"}
-    monkeypatch.setitem(sys.modules, "app.figure_compare", mod)
-    import app
-
-    monkeypatch.setattr(app, "figure_compare", mod, raising=False)
-    b.run("compare_number", {"clause_figure": "10 units", "doc_figure": "12 units"})
+    plug_compare(monkeypatch, lambda d, c: FigureResult(False))
+    b.run("compare_number", fig)
     assert (
         b.run("record_finding", {"finding": f})["result"]["reason"]
         == "verdict_disagrees_with_code_comparison"
     )
     assert b.ctx.findings == []
+    plug_compare(monkeypatch, lambda d, c: FigureResult(True))
+    b.run("compare_number", fig)
+    assert b.run("record_finding", {"finding": f})["result"]["accepted"] is True
+
+
+def test_confidence_high_refused_absent_allowed():
+    b = box()
+    r = b.run("record_finding", {"finding": good(confidence="high")})
+    assert r["result"]["reason"] == "confidence_never_high" and b.ctx.findings == []
+    assert (
+        b.run("record_finding", {"finding": good(confidence="HIGH")})["result"][
+            "accepted"
+        ]
+        is False
+    )
+    assert (
+        b.run("record_finding", {"finding": good()})["result"]["accepted"] is True
+    )  # no confidence needed
+
+
+def test_record_finding_scope_refused_before_anything_else():
+    b = box()
+    r = b.run(
+        "record_finding",
+        {"finding": good(doc=OTHER, page=1, doc_quote="Hidden words about")},
+    )
+    assert r["result"]["reason"] == "document_not_in_scope" and b.ctx.findings == []
+    r = b.run(
+        "record_finding", {"finding": {"item": "I-1", "color": "YELLOW", "doc": OTHER}}
+    )
+    assert r["result"]["reason"] == "document_not_in_scope"
+
+
+def test_color_verdict_alias_and_conflict_and_required():
+    b = box()
+    alias = good()
+    alias["verdict"] = alias.pop("color")
+    assert b.run("record_finding", {"finding": alias})["result"]["accepted"] is True
+    assert (
+        b.run("record_finding", {"finding": good(verdict="RED")})["result"]["accepted"]
+        is False
+    )
+    for missing in ("item", "doc", "color"):
+        f = good()
+        f.pop(missing)
+        assert b.run("record_finding", {"finding": f})["result"]["accepted"] is False
+    assert len(b.ctx.findings) == 1
+
+
+def test_stored_finding_uses_canonical_keys():
+    b = box()
+    b.run("record_finding", {"finding": good()})
+    assert b.ctx.findings[0]["color"] == "GREEN" and "verdict" not in b.ctx.findings[0]
+
+
+def test_tool_specs_on_class():
+    assert ToolBox.TOOL_SPECS is TOOL_SPECS and box().TOOL_SPECS is TOOL_SPECS
+
+
+def test_clause_text_never_read_from_unscoped_standard():
+    b = box(allowed=(DOC,))
+    assert b.run("get_clause", {"standard": "ISO 9999", "clause": "4.2"})["ok"] is False
+    assert b.run("record_finding", {"finding": good()})["result"]["accepted"] is False
 
 
 def test_ask_engineer_stores_yellow_row():
@@ -274,3 +353,91 @@ def test_tool_exception_is_refusal_not_crash():
 
     r = box(page_reader=boom).run("open_page", {"doc": DOC, "page": 1})
     assert not r["ok"] and "secret" not in str(r)
+
+
+# ------------------------------------------------ integration: real ToolBox, tiny invented SQLite, the loop's FakeProvider
+
+
+@pytest.fixture
+def tiny_db(monkeypatch):
+    import sqlite3
+
+    from app import db
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        "CREATE TABLE documents (id TEXT, filename TEXT);"
+        "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT);"
+    )
+    conn.execute("INSERT INTO documents VALUES ('sub', 'invented sheet.pdf')")
+    conn.execute("INSERT INTO documents VALUES ('std', 'ISO 9999 2020.pdf')")
+    conn.execute("INSERT INTO documents VALUES ('secret', 'other.pdf')")
+    conn.execute("INSERT INTO pages VALUES ('sub', 1, ?)", (PAGES[(DOC, 1)],))
+    conn.execute(
+        "INSERT INTO pages VALUES ('secret', 1, 'Hidden words about the invented gadget')"
+    )
+    for n, t in STD_PAGES:
+        conn.execute("INSERT INTO pages VALUES ('std', ?, ?)", (n, t))
+    monkeypatch.setattr(db, "connect", lambda: conn)
+    return conn
+
+
+def _loop_box(allowed):
+    ctx = ToolContext(frozenset(allowed), "sub", {"ISO 9999": "2020"})
+    return ToolBox(
+        ctx, searcher=fake_search
+    )  # page, clause and standard readers are the real defaults
+
+
+def test_integration_loop_records_through_real_toolbox(tiny_db, monkeypatch):
+    from app import agent_loop
+
+    plug_compare(monkeypatch, lambda d, c: FigureResult(True))
+    fig = {"doc_quote": "12 units", "clause_quote": "at least 10 units"}
+    final = good(doc="sub", figures=[fig])
+    provider = agent_loop.FakeProvider(
+        [
+            {"tool": "open_page", "args": {"doc": "sub", "page": 1}, "reason": "read"},
+            {
+                "tool": "get_clause",
+                "args": {"standard": "ISO 9999", "clause": "4.2"},
+                "reason": "clause",
+            },
+            {"tool": "compare_number", "args": fig, "reason": "compare"},
+            {"final": final},
+        ]
+    )
+    box = _loop_box(("sub", "std"))
+    out = agent_loop.run_item(
+        {"id": "I-1", "doc": "sub"}, {}, box, provider, usd_cap=1.0
+    )
+    assert out["why"] == "recorded" and out["finding"]["color"] == "GREEN"
+    assert [f["item"] for f in box.ctx.findings] == ["I-1"]
+
+
+def test_integration_out_of_scope_document_never_recorded(tiny_db):
+    from app import agent_loop
+
+    bad = good(doc="secret", doc_quote="Hidden words about")
+    provider = agent_loop.FakeProvider(
+        [
+            {
+                "tool": "open_page",
+                "args": {"doc": "secret", "page": 1},
+                "reason": "peek",
+            },
+            {"final": bad},
+            {"final": bad},
+        ]
+    )
+    box = _loop_box(("sub", "std"))
+    out = agent_loop.run_item(
+        {"id": "I-1", "doc": "sub"}, {}, box, provider, usd_cap=1.0, max_steps=4
+    )
+    assert box.ctx.findings == []
+    assert out["finding"]["color"] == "YELLOW"
+    tool_replies = [
+        m for call in provider.calls for m in call if m.get("role") == "tool"
+    ]
+    assert tool_replies and all("Hidden" not in str(m) for m in tool_replies)

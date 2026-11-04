@@ -29,7 +29,6 @@ from . import ai_review_proposals, numparse, standard_ids, subject_scope
 from .reader_api import _fold
 
 VERDICTS = ("GREEN", "YELLOW", "RED")
-CONFIDENCES = ("low", "medium")  # never "high"
 PRIORITIES = ("must", "should", "nice")
 MAX_REASON_WORDS = 30
 MAX_CLAUSE_CHARS = 6000
@@ -73,18 +72,18 @@ TOOL_SPECS: list[dict] = [
     },
     {
         "name": "compare_number",
-        "description": "Compare a figure from a clause with a figure from the document. Decided by code; may answer 'cannot decide'.",
+        "description": "Compare a figure quoted from the document with the figure quoted from the clause. Decided by code: meets, does_not_meet, or 'cannot decide'.",
         "params": {
-            "clause_figure": "figure with unit as in the clause",
-            "doc_figure": "figure with unit as in the document",
+            "doc_quote": "the document's words holding the figure, with unit",
+            "clause_quote": "the clause's words holding the figure, with unit",
         },
     },
     {
         "name": "record_finding",
         "description": "Record a finding (GREEN, YELLOW or RED). Code verifies every quote and number; it is stored only when accepted, else refused with the reason.",
         "params": {
-            "finding": "{item, verdict, doc, page, doc_quote, standard, clause, clause_quote, value, clause_figure, doc_figure, "
-            "comment, action, priority, confidence(low|medium)}"
+            "finding": "{item, doc, color(GREEN|YELLOW|RED), page, doc_quote, clause_quote, standard, clause, action, "
+            "priority(must|should|nice), figures(optional list of {doc_quote, clause_quote}), reason}"
         },
     },
     {
@@ -189,6 +188,8 @@ def _clause_key(clause: str) -> list[tuple[str, str]]:
 
 class ToolBox:
     """Runs the six tools for one item or one run. Readers are injectable so tests use invented data."""
+
+    TOOL_SPECS = TOOL_SPECS  # the loop reads toolbox.TOOL_SPECS
 
     def __init__(
         self,
@@ -366,55 +367,52 @@ class ToolBox:
 
     # ---------------------------------------------------------------- compare_number
 
-    def _call_figure_compare(self, clause_figure: str, doc_figure: str) -> object:
-        """THE SINGLE CALL SITE of `figure_compare` (#1689, branch c3/figure-compare, not on main).
-        TODO(#1689): when it is on main, check the real function name and result shape here; one-line change."""
+    def _call_figure_compare(self, doc_quote: str, clause_quote: str) -> object:
+        """THE SINGLE CALL SITE of `figure_compare` (#1689): compare(document_quote, clause_quote) -> an object with
+        `.verdict` True | False | None and `.reason`."""
         from . import (
             figure_compare,  # lazy: a missing module must give "cannot decide", never a verdict
         )
 
-        return figure_compare.compare(clause_figure, doc_figure)
+        return figure_compare.compare(doc_quote, clause_quote)
 
     @staticmethod
     def _normalise_compare(raw: object) -> dict:
-        """Only a result that clearly says decided with a known verdict is a decision. Anything else cannot decide."""
-        if isinstance(raw, Mapping):
-            verdict = str(raw.get("verdict") or "").strip().lower()
-            if raw.get("decided") is True and verdict in ("meets", "does_not_meet"):
-                return {
-                    "decided": True,
-                    "verdict": verdict,
-                    "reason": str(raw.get("reason") or "")[:200],
-                }
-            return {
-                "decided": False,
-                "verdict": None,
-                "reason": str(raw.get("reason") or "cannot decide")[:200],
-            }
-        return {"decided": False, "verdict": None, "reason": "cannot decide"}
+        """True -> meets, False -> does_not_meet, None or any other shape -> cannot decide."""
+        verdict = getattr(raw, "verdict", "unknown")
+        reason = str(getattr(raw, "reason", "") or "")[:200]
+        if verdict is True:
+            return {"decided": True, "verdict": "meets", "reason": reason}
+        if verdict is False:
+            return {"decided": True, "verdict": "does_not_meet", "reason": reason}
+        return {
+            "decided": False,
+            "verdict": "cannot decide",
+            "reason": reason or "cannot decide",
+        }
 
     def compare_number(
-        self, clause_figure: object = None, doc_figure: object = None
+        self, doc_quote: object = None, clause_quote: object = None
     ) -> dict:
         if (
-            not isinstance(clause_figure, str)
-            or not isinstance(doc_figure, str)
-            or not clause_figure.strip()
-            or not doc_figure.strip()
+            not isinstance(doc_quote, str)
+            or not isinstance(clause_quote, str)
+            or not doc_quote.strip()
+            or not clause_quote.strip()
         ):
-            return _refuse("figures_missing")
+            return _refuse("quotes_missing")
         try:
             outcome = self._normalise_compare(
-                self._call_figure_compare(clause_figure, doc_figure)
+                self._call_figure_compare(doc_quote, clause_quote)
             )
         except Exception:  # noqa: BLE001  not importable, or it failed: never a verdict
             self.compare_failures += 1  # counted
             outcome = {
                 "decided": False,
-                "verdict": None,
+                "verdict": "cannot decide",
                 "reason": "compare unavailable -> cannot decide",
             }
-        self._compares[(clause_figure.strip(), doc_figure.strip())] = outcome
+        self._compares[(doc_quote.strip(), clause_quote.strip())] = outcome
         return _res(True, outcome)
 
     # ---------------------------------------------------------------- record_finding
@@ -444,11 +442,12 @@ class ToolBox:
                     "refused": why,
                 },
             )
+        finding = {**finding, "color": self._colour(finding)}
         stored = {
             k: finding.get(k)
             for k in (
                 "item",
-                "verdict",
+                "color",
                 "doc",
                 "page",
                 "doc_quote",
@@ -456,10 +455,9 @@ class ToolBox:
                 "clause",
                 "clause_quote",
                 "value",
-                "comment",
+                "reason",
                 "action",
                 "priority",
-                "confidence",
             )
             if finding.get(k) not in (None, "")  # null renders as nothing, never 0
         }
@@ -476,7 +474,7 @@ class ToolBox:
                 "accepted": True,
                 "reason": None,
                 "item": stored.get("item"),
-                "finding_verdict": stored.get("verdict"),
+                "finding_verdict": stored.get("color"),
             },
             cites,
         )
@@ -484,13 +482,15 @@ class ToolBox:
     def _finding_problem(self, f: dict) -> str | None:
         """None when the finding stands, else the reason it is refused (first failure)."""
         item = str(f.get("item") or "").strip()
-        verdict = f.get("verdict")
+        verdict = self._colour(f)
         if not item:
             return "item_missing"
         if verdict not in VERDICTS:
-            return "verdict_not_green_yellow_red"
-        if f.get("confidence") not in CONFIDENCES:
-            return "confidence_not_low_or_medium"  # never "high"
+            return "color_not_green_yellow_red_or_conflicting"
+        if not f.get("doc"):
+            return "doc_missing"
+        if str(f.get("confidence") or "").strip().lower() == "high":
+            return "confidence_never_high"
         if f.get("priority") not in (None, *PRIORITIES):
             return "priority_not_known"
         doc, page = f.get("doc"), _int(f.get("page"))
@@ -498,7 +498,9 @@ class ToolBox:
         if doc is not None and not self._in_scope(doc):
             return "document_not_in_scope"
         mentioned = _fold(
-            " ".join(str(f.get(k) or "") for k in ("comment", "value", "doc_quote"))
+            " ".join(
+                str(f.get(k) or "") for k in ("reason", "comment", "value", "doc_quote")
+            )
         )
         says_absent = (
             any(_fold(w) in mentioned for w in NOT_MENTIONED_WORDS)
@@ -551,25 +553,42 @@ class ToolBox:
             return self._through_verify(f, doc, page, quote)
         return None
 
+    @staticmethod
+    def _colour(f: dict) -> str | None:
+        """The verdict word: 'color' (canonical) or the alias 'verdict'; None when absent, unknown or the two differ."""
+        found = {
+            str(f[k]).strip().upper()
+            for k in ("color", "verdict")
+            if isinstance(f.get(k), str) and f[k].strip()
+        }
+        return (
+            found.pop() if len(found) == 1 and next(iter(found)) in VERDICTS else None
+        )
+
     def _numbers_problem(self, f: dict, verdict: str) -> str | None:
         """A number is decided only by code: a GREEN or RED that carries figures needs a decided compare_number that agrees."""
-        cf, df = (
-            str(f.get("clause_figure") or "").strip(),
-            str(f.get("doc_figure") or "").strip(),
-        )
-        if not cf and not df:
+        figures = f.get("figures")
+        if not figures:
             return None
         if verdict == "YELLOW":
             return None
-        done = self._compares.get((cf, df))
-        if done is None or not done["decided"]:
-            return "number_not_decided_by_code"
+        if not isinstance(figures, list):
+            return "figures_malformed"
         expect = {"GREEN": "meets", "RED": "does_not_meet"}[verdict]
-        return (
-            None
-            if done["verdict"] == expect
-            else "verdict_disagrees_with_code_comparison"
-        )
+        for fig in figures:
+            if not isinstance(fig, dict):
+                return "figures_malformed"
+            done = self._compares.get(
+                (
+                    str(fig.get("doc_quote") or "").strip(),
+                    str(fig.get("clause_quote") or "").strip(),
+                )
+            )
+            if done is None or not done["decided"]:
+                return "number_not_decided_by_code"
+            if done["verdict"] != expect:
+                return "verdict_disagrees_with_code_comparison"
+        return None
 
     def _through_verify(self, f: dict, doc: str, page: int, quote: str) -> str | None:
         """The #1667 gate: page, value, clause held, numbers in the words on the page, no verdict word without evidence."""
@@ -577,11 +596,11 @@ class ToolBox:
         clause = str(f.get("clause"))
         proposal = {
             "type": "add",
-            "confidence": f.get("confidence"),
+            "confidence": "low",
             "reason": "finding recorded by the agent reviewer",
             "field": str(f.get("item")),
             "value": str(f.get("value") or "").strip() or quote,
-            "text": str(f.get("comment") or f.get("item"))[
+            "text": str(f.get("reason") or f.get("comment") or f.get("item"))[
                 : ai_review_proposals.MAX_TEXT_CHARS
             ],
             "page": page,

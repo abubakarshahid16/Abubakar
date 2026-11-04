@@ -486,3 +486,7 @@ class SettingsExt(BaseModel):
     ai_engineering_review_pass_enabled: bool = False
     ai_engineering_review_pass_engine: str = "ollama"
     ai_engineering_review_pass_timeout_s: float = 300.0
+
+    #: Agent proof test (#1690, part of #805): a lead reviewer agent loop (`agent_loop`) with tools. OFF by default.
+    #: Env: AGENT_REVIEW_ENABLED. Claude calls go only through reader_transport and claude_spend.metered.
+    agent_review_enabled: bool = False
