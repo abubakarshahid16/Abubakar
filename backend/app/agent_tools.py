@@ -109,18 +109,33 @@ _FIRST_NUMBER = re.compile(r"[-+\u2212]?\d")
 
 
 def _stem(word: str) -> str:
-    """Plain inflections only (-ies, -es, -s, -ed, -ing); the same on both sides, so only equality matters."""
+    """Plural endings only (-ies, -es, -s); never -ing or -ed ("bearing" is not "bear"). Same on both sides."""
     if len(word) > 4 and word.endswith("ies"):
         return word[:-3] + "y"
     if len(word) > 4 and word.endswith(("sses", "xes", "ches", "shes", "zes")):
         return word[:-2]
     if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
         return word[:-1]
-    if len(word) > 5 and word.endswith("ing"):
-        return word[:-3]
-    if len(word) > 4 and word.endswith("ed"):
-        return word[:-2]
     return word
+
+
+_NUMBER_TOKEN = re.compile(
+    r"\d+(?:[.,]\d+)*|[\u00bc-\u00be\u2150-\u215e]|\b(?:"
+    + "|".join(sorted(ai_review_proposals.NUMBER_WORDS))
+    + r")\b",
+    re.IGNORECASE,
+)
+#: A number that names a kind, not a quantity: "Class 150", "Type 2", "No. 3".
+_LABEL_NUMBER = re.compile(
+    r"\b(?:class|type|no|number|grade|series|schedule|sch|pn|dn|group|category|part|table|item|clause|section|zone|size)\.?\s*#?\d",
+    re.IGNORECASE,
+)
+
+
+def subject_ambiguous(quote: str) -> bool:
+    """More than one number in the quote (so the figure's own number cannot be told from a number inside its label), or a
+    number that names a kind ("Class 150"). Such a quote is never compared."""
+    return len(_NUMBER_TOKEN.findall(quote)) > 1 or bool(_LABEL_NUMBER.search(quote))
 
 
 def subject_words(quote: str) -> frozenset[str]:
@@ -477,6 +492,14 @@ class ToolBox:
             or not clause_quote.strip()
         ):
             return _refuse("quotes_missing")
+        if subject_ambiguous(doc_quote) or subject_ambiguous(clause_quote):
+            outcome = {
+                "decided": False,
+                "verdict": "cannot decide",
+                "reason": "subject_ambiguous",
+            }
+            self._compares[(doc_quote.strip(), clause_quote.strip())] = outcome
+            return _res(True, outcome)
         doc_subject, clause_subject = (
             subject_words(doc_quote),
             subject_words(clause_quote),

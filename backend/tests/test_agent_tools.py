@@ -7,6 +7,7 @@ import types
 
 import pytest
 
+from app import agent_tools
 from app.agent_tools import TOOL_SPECS, ToolBox, ToolContext
 
 DOC = "doc-sub"
@@ -297,6 +298,89 @@ def test_subject_mismatch_without_figure_compare_still_cannot_decide(monkeypatch
 def test_same_subject_goes_to_figure_compare(monkeypatch, doc_quote, clause_quote):
     result, calls = _decide(monkeypatch, doc_quote, clause_quote)
     assert result["verdict"] == "meets" and calls == [(doc_quote, clause_quote)]
+
+
+@pytest.mark.parametrize(
+    ("doc_quote", "clause_quote"),
+    [
+        (
+            "12 bar",
+            "15 bar maximum",
+        ),  # both subjects empty: equal sets, but no subject at all
+        ("Design pressure: 12 bar", "15 bar maximum"),
+        ("12 bar", "Design pressure shall not exceed 15 bar"),
+        ("Maximum 12 bar", "At least 8 bar"),
+    ],
+)
+def test_empty_subject_never_matches(monkeypatch, doc_quote, clause_quote):
+    result, calls = _decide(monkeypatch, doc_quote, clause_quote)
+    assert result["reason"] == "subject_mismatch" and calls == []
+
+
+@pytest.mark.parametrize(
+    ("doc_quote", "clause_quote"),
+    [
+        (
+            "Class 150 design pressure: 10 bar",
+            "Class 300 design pressure shall be at least 8 bar",
+        ),
+        (
+            "Class 150 wall thickness: 10 mm",
+            "Class 300 wall thickness shall be at least 8 mm",
+        ),
+        ("Type 2 design pressure: 10 bar", "Design pressure shall be at least 8 bar"),
+        ("No. 3 design pressure: 10 bar", "Design pressure shall be at least 8 bar"),
+        ("Design pressure: 10 bar", "Design pressure shall be between 8 and 12 bar"),
+        (
+            "Design pressure: ten bar and 12 bar",
+            "Design pressure shall be at least 8 bar",
+        ),
+        (
+            "Design pressure: 1\u00bd bar",
+            "Design pressure shall be at least 1 bar and 2 bar",
+        ),
+        ("Class 150: 10 bar", "Design pressure shall be at least 8 bar"),
+    ],
+)
+def test_ambiguous_numbers_cannot_decide(monkeypatch, doc_quote, clause_quote):
+    result, calls = _decide(monkeypatch, doc_quote, clause_quote)
+    assert (
+        result["decided"] is False
+        and result["reason"] == "subject_ambiguous"
+        and calls == []
+    )
+
+
+def test_label_number_alone_is_ambiguous(monkeypatch):
+    result, calls = _decide(
+        monkeypatch,
+        "Design pressure Class 150 : bar",
+        "Design pressure shall be at least 8 bar",
+    )
+    assert result["reason"] == "subject_ambiguous" and calls == []
+
+
+@pytest.mark.parametrize(
+    ("doc_quote", "clause_quote"),
+    [
+        ("Bearing temperature: 70 C", "Bear temperature shall not exceed 90 C"),
+        ("Cooling water flow: 5 kg/h", "Cool water flow shall be at least 3 kg/h"),
+        ("Heating duty: 5 kW", "Heat duty shall be at least 3 kW"),
+        ("Rated load: 5 kN", "Rate load shall be at least 3 kN"),
+    ],
+)
+def test_ing_and_ed_are_not_stripped(monkeypatch, doc_quote, clause_quote):
+    result, calls = _decide(monkeypatch, doc_quote, clause_quote)
+    assert result["reason"] == "subject_mismatch" and calls == []
+
+
+def test_plurals_still_match():
+    assert agent_tools.subject_words(
+        "Design pressures: 12 bar"
+    ) == agent_tools.subject_words("Design pressure 8 bar")
+    assert agent_tools.subject_words("Supplies: 1 x") == agent_tools.subject_words(
+        "Supply 2 x"
+    )
 
 
 def test_subject_mismatch_blocks_a_pass_finding(monkeypatch):
