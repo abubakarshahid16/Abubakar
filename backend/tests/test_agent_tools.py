@@ -306,15 +306,18 @@ def test_color_verdict_alias_and_conflict_and_required():
     alias = good()
     alias["verdict"] = alias.pop("color")
     assert b.run("record_finding", {"finding": alias})["result"]["accepted"] is True
+    # a FRESH item id, so the only possible refusal is the conflict itself
+    clash = b.run("record_finding", {"finding": good(item="I-2", verdict="RED")})
+    assert clash["result"]["reason"] == "color_not_green_yellow_red_or_conflicting"
+    same = b.run("record_finding", {"finding": good(item="I-3", verdict="GREEN")})
     assert (
-        b.run("record_finding", {"finding": good(verdict="RED")})["result"]["accepted"]
-        is False
-    )
-    for missing in ("item", "doc", "color"):
-        f = good()
+        same["result"]["accepted"] is True
+    )  # the same word in both keys is not a conflict
+    for n, missing in enumerate(("item", "doc", "color")):
+        f = good(item=f"M-{n}")
         f.pop(missing)
         assert b.run("record_finding", {"finding": f})["result"]["accepted"] is False
-    assert len(b.ctx.findings.all()) == 1
+    assert len(b.ctx.findings.all()) == 2
 
 
 def test_stored_finding_uses_canonical_keys():
