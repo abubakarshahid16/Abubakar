@@ -271,3 +271,13 @@ def test_repo_root_check_stands_alone_without_a_git_marker(tmp_path, monkeypatch
     with pytest.raises(at.UnsafeRoot):
         at.resolve_root(fake_repo)
     assert at.resolve_root(tmp_path / "elsewhere")
+
+
+def test_wrong_is_not_measured_unless_a_value_is_passed(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    w.mark_done("a", "GREEN")
+    text = w.refresh_live().read_text()
+    assert "wrong not measured (needs the key score)" in text and "wrong 0" not in text
+    assert "wrong 2" in w.refresh_live(wrong=2).read_text()
+    w.set_wrong(0)  # a measured zero is shown as a zero
+    assert "wrong 0" in w.refresh_live().read_text()
