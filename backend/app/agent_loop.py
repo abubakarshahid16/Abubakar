@@ -13,6 +13,8 @@ limit, then falls to a YELLOW ask-the-engineer finding.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import re
 import time
 from typing import Any, Protocol
@@ -57,13 +59,32 @@ class FakeProvider:
         return out
 
 
+CANON_KEYS = (
+    "item",
+    "doc",
+    "color",
+    "page",
+    "doc_quote",
+    "clause_quote",
+    "standard",
+    "clause",
+    "action",
+    "priority",
+    "figures",
+    "reason",
+)
+PRIORITIES = ("must", "should", "nice")
+
+
 def yellow(reason: str, item: dict | None = None) -> dict:
     """The ask-the-engineer finding."""
     return {
+        "item": (item or {}).get("id"),
+        "doc": (item or {}).get("doc"),
         "color": "YELLOW",
         "action": "ask the engineer",
+        "priority": "should",
         "reason": words(reason),
-        "item": (item or {}).get("id"),
     }
 
 
@@ -76,17 +97,28 @@ def _page_ok(page: Any) -> bool:
 
 
 def check_final(finding: Any) -> dict:
-    """Apply the honesty invariants. Returns a new dict; never raises."""
+    """Honesty invariants. New dict with canonical keys only; never raises.
+
+    Confidence is never sent at all (it is dropped, whatever its value).
+    """
     if not isinstance(finding, dict):
         return yellow("wrong shape")
-    out = dict(finding)
+    out = {k: finding[k] for k in CANON_KEYS if k in finding}
     colour = out.get("color")
     colour = colour.strip().upper() if isinstance(colour, str) else None
     if colour not in COLOURS:
-        return {**yellow("wrong shape"), "item": out.get("item")}
+        return {**yellow("wrong shape"), "item": out.get("item"), "doc": out.get("doc")}
     out["color"] = colour
-    if str(out.get("confidence", "")).strip().lower() == "high":
-        out.pop("confidence")
+    verdict = finding.get("verdict")
+    if verdict is not None and str(verdict).strip().upper() != colour:
+        out.update(
+            color="YELLOW",
+            reason=words("color and verdict differ"),
+            action=out.get("action") or "ask the engineer",
+        )
+        return out
+    if out.get("priority") not in PRIORITIES:
+        out.pop("priority", None)
     if colour == "GREEN":
         quote = out.get("doc_quote")
         if not (isinstance(quote, str) and quote.strip() and _page_ok(out.get("page"))):
@@ -102,25 +134,29 @@ def _down(finding: dict, reason: str) -> dict:
     out.update(
         {
             "color": "YELLOW",
-            "downgraded_from": "GREEN",
-            "reason": words(reason),
+            "reason": words("downgraded from GREEN: " + reason),
             "action": out.get("action") or "ask the engineer",
         }
     )
     return out
 
 
-def _tool_spec_names(toolbox: Any) -> list[str]:
-    return [s.get("name") for s in getattr(toolbox, "TOOL_SPECS", [])]
+def _specs(toolbox: Any) -> list[dict]:
+    """The toolbox's own TOOL_SPECS; the agent_tools module's only if it has none."""
+    specs = getattr(toolbox, "TOOL_SPECS", None)
+    if not specs:
+        try:
+            from app import agent_tools
+
+            specs = getattr(agent_tools, "TOOL_SPECS", None)
+        except ImportError:
+            specs = None
+    return list(specs or [])
 
 
 def _run_tool(toolbox: Any, name: str, args: Any) -> dict:
-    if name not in _tool_spec_names(toolbox) or not isinstance(args, dict):
-        return {
-            "ok": False,
-            "result": {"error": "unknown tool or bad arguments"},
-            "cites": [],
-        }
+    if not isinstance(args, dict):
+        return {"ok": False, "result": {"error": "bad arguments"}, "cites": []}
     try:
         res = toolbox.run(name, args)
     except Exception as exc:  # noqa: BLE001 - a tool failure is a result the model sees
@@ -129,8 +165,13 @@ def _run_tool(toolbox: Any, name: str, args: Any) -> dict:
     return res if isinstance(res, dict) else {"ok": False, "result": {}, "cites": []}
 
 
+def _inner(res: dict) -> dict:
+    inner = res.get("result") if isinstance(res, dict) else None
+    return inner if isinstance(inner, dict) else {}
+
+
 def _accepted(res: dict) -> bool:
-    inner = res.get("result") if isinstance(res.get("result"), dict) else {}
+    inner = _inner(res)
     verdict = str(inner.get("verdict") or inner.get("status") or "").lower()
     return bool(res.get("ok")) and (
         verdict == "accepted" or inner.get("accepted") is True
@@ -159,13 +200,59 @@ def _initial(item: dict, skill_item: Any) -> list[dict]:
     ]
 
 
+def _quote_hash(finding: dict) -> str:
+    text = str(finding.get("doc_quote")) + "|" + str(finding.get("clause_quote"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def finding_ref(finding: Any) -> dict:
+    """What a checkpoint may keep of a finding: numbers, colour, a hash of the quotes. No quote text."""
+    if not isinstance(finding, dict):
+        return {}
+    ref = {k: v for k, v in agent_trace.safe_args(finding).items() if k != "other_keys"}
+    if finding.get("color") in COLOURS:
+        ref["color"] = finding["color"]
+    if finding.get("priority") in PRIORITIES:
+        ref["priority"] = finding["priority"]
+    ref["item"] = str(finding.get("item"))
+    ref["quote_hash"] = _quote_hash(finding)
+    return ref
+
+
+def _saved(name: str, args: Any, res: dict, guard: Any = words) -> dict:
+    """The checkpoint entry of a side-effect call: verdict and reason words, never quote text."""
+    inner = _inner(res)
+    out = {
+        "ok": bool(res.get("ok")),
+        "accepted": _accepted(res),
+        "verdict": str(inner.get("verdict") or "")[:12],
+        "reason": guard(inner.get("reason")),
+    }
+    if name == "record_finding" and isinstance(args, dict):
+        out["finding"] = finding_ref(args.get("finding"))
+    return out
+
+
+def _kept_args(name: str, args: Any) -> tuple[dict, bool]:
+    """Arguments a checkpoint may keep: only reference numbers/ids; else the step is not re-run."""
+    if name in agent_trace.SIDE_EFFECT_TOOLS or not isinstance(args, dict):
+        return {}, False
+    safe = agent_trace.safe_args(args)
+    return (safe, False) if "other_keys" in safe else (safe, True)
+
+
 class _ItemRun:
     """State of one item's loop; methods are the loop's small steps."""
 
-    def __init__(self, item, skill_item, toolbox, provider, max_steps, usd_cap, trace):
+    def __init__(
+        self, item, skill_item, toolbox, provider, max_steps, usd_cap, trace, sink=None
+    ):
         self.item, self.toolbox, self.provider = item, toolbox, provider
         self.max_steps, self.usd_cap, self.trace = max_steps, usd_cap, trace
         self.id, self.doc = item.get("id"), item.get("doc")
+        self.sink = sink if sink is not None else (trace.sink if trace else None)
+        self.specs = _specs(toolbox)
+        self.names = {sp.get("name") for sp in self.specs}
         self.messages = _initial(item, skill_item)
         self.calls = trace.load_checkpoint(self.id) if trace else []
         self.usd, self.step = 0.0, 0
@@ -196,18 +283,51 @@ class _ItemRun:
         )
         self.messages.append({"role": "tool", "name": name, "content": res})
 
+    def _replay_side_effect(self, name, call):
+        """A saved record_finding / ask_engineer is not run again; accepted ends the item."""
+        saved = call.get("saved") or {}
+        res = {
+            "ok": bool(saved.get("ok")),
+            "result": {k: saved.get(k) for k in ("verdict", "accepted", "reason")},
+            "cites": [],
+        }
+        if name == "record_finding" and saved.get("accepted"):
+            stored = self.sink.get(self.id) if self.sink else None
+            if stored is not None:
+                self.finding = stored
+            else:
+                self.finding = {**(saved.get("finding") or {}), "doc": self.doc}
+                self.finding["reason"] = words(saved.get("reason"))
+            self.why = "recorded"
+        elif name == "ask_engineer" and saved.get("ok"):
+            self.finding = yellow(
+                saved.get("reason") or "asked the engineer", self.item
+            )
+            self.why = "asked the engineer"
+        return res
+
     def replay(self):
-        """Saved steps: no model call, no cost repeated, side-effect tools not run again."""
+        """Saved steps: no model call, no cost repeated, side-effect tools never run again."""
         for call in self.calls:
             self.step += 1
             self.usd += float(call.get("usd") or 0.0)
             name, args = call["tool"], call.get("args") or {}
             if name in agent_trace.SIDE_EFFECT_TOOLS:
-                res = call["result"]
-            else:
+                res = self._replay_side_effect(name, call)
+            elif call.get("rerun"):
                 res = _run_tool(self.toolbox, name, args)
+            else:
+                res = {
+                    "ok": False,
+                    "result": {
+                        "note": "result not kept after a restart; ask again if needed"
+                    },
+                    "cites": [],
+                }
             self._add(name, args, call.get("reason"), res)
             self._log(name, args, res, call.get("reason"), 0.0, replayed=True)
+            if self.finding is not None:
+                return
 
     def limit(self) -> str:
         if self.usd >= self.usd_cap:
@@ -217,9 +337,8 @@ class _ItemRun:
     def ask_model(self):
         self.step += 1
         t0 = time.time()
-        specs = list(getattr(self.toolbox, "TOOL_SPECS", []))
         try:
-            reply = self.provider.complete(self.messages, specs)
+            reply = self.provider.complete(self.messages, self.specs)
         except Exception as exc:  # noqa: BLE001 - any provider failure ends in YELLOW
             # recorded: the failure is counted in the finding, never raised
             self.finding = yellow("provider error " + type(exc).__name__, self.item)
@@ -231,10 +350,51 @@ class _ItemRun:
             self.trace.add_spend(cost)
         return reply, cost, time.time() - t0
 
-    def save(self, call):
+    def _safe(self, reason):
+        """A reason fit for a file: the trace's guard (raw quote marks, 13-word copies), else the word cap."""
+        if self.trace:
+            return self.trace.clean_reason(self.id, reason)
+        return words(reason)
+
+    def save(self, name, args, res, reason, cost):
+        kept, rerun = _kept_args(name, args)
+        call = {
+            "tool": name,
+            "args": kept,
+            "rerun": rerun,
+            "reason": self._safe(reason),
+            "usd": cost,
+        }
+        if name in agent_trace.SIDE_EFFECT_TOOLS:
+            call["saved"] = _saved(name, args, res, self._safe)
         self.calls.append(call)
         if self.trace:
             self.trace.save_checkpoint(self.id, self.calls)
+
+    def unknown_tool(self, name, secs):
+        """A tool the toolbox does not list ends the item YELLOW, with a PROBLEM line."""
+        self.finding = yellow("unknown tool", self.item)
+        self.why = "unknown tool"
+        if self.trace:
+            self.trace.problem(
+                f"unknown tool {words(name, 2)}", doc=self.doc, item_id=self.id
+            )
+        self._log("unknown", {}, {"ok": False}, "unknown tool", secs)
+
+    def _action(self, reply):
+        """(tool name, args, reason) of a reply; a final goes through record_finding."""
+        if "final" in reply:
+            args = {"finding": self._own(check_final(reply["final"]))}
+            return "record_finding", args, "final"
+        name, args = reply["tool"], reply.get("args") or {}
+        if name == "record_finding" and isinstance(args, dict):
+            args = {**args, "finding": self._own(check_final(args.get("finding")))}
+        return name, args, str(reply.get("reason") or "")
+
+    def _own(self, finding):
+        finding.setdefault("item", self.id)
+        finding.setdefault("doc", self.doc)
+        return finding
 
     def one_step(self):
         reply, cost, secs = self.ask_model()
@@ -244,24 +404,12 @@ class _ItemRun:
             bad = {"ok": False, "error": "wrong reply shape"}
             self.messages.append({"role": "tool", "name": "loop", "content": bad})
             self._log("loop", {}, {"ok": False}, "wrong reply shape", secs)
-            self.save(
-                {
-                    "tool": "loop",
-                    "args": {},
-                    "result": None,
-                    "usd": cost,
-                    "reason": "wrong reply shape",
-                }
-            )
+            self.save("loop", {}, bad, "wrong reply shape", cost)
             return
-        if "final" in reply:
-            name, reason = "record_finding", "final"
-            args = {"finding": check_final(reply["final"])}
-        else:
-            name, args = reply["tool"], reply.get("args") or {}
-            reason = words(reply.get("reason"))
-            if name == "record_finding" and isinstance(args, dict):
-                args = {**args, "finding": check_final(args.get("finding"))}
+        name, args, reason = self._action(reply)
+        if name not in self.names:
+            self.unknown_tool(name, secs)
+            return
         t1 = time.time()
         res = _run_tool(self.toolbox, name, args)
         self._add(name, args, reason, res)
@@ -274,15 +422,15 @@ class _ItemRun:
             secs + time.time() - t1,
             "finding accepted by code" if accepted else "",
         )
-        keep = res if name in agent_trace.SIDE_EFFECT_TOOLS else None
-        self.save(
-            {"tool": name, "args": args, "result": keep, "reason": reason, "usd": cost}
-        )
+        self.save(name, args, res, reason, cost)
         if accepted:
             self.finding, self.why = args["finding"], "recorded"
+            if self.sink is not None and not self.sink.has(self.id):
+                self.sink.add(self.id, self.finding)
         elif name == "ask_engineer" and res.get("ok"):
             asked = str(args.get("reason") or "asked the engineer")
             self.finding, self.why = yellow(asked, self.item), "asked the engineer"
+        return
 
     def run(self) -> dict:
         self.replay()
@@ -318,9 +466,12 @@ def run_item(
     max_steps: int = MAX_STEPS,
     usd_cap: float,
     trace: agent_trace.TraceWriter | None = None,
+    sink: agent_trace.FindingSink | None = None,
 ) -> dict:
-    """Run one item: {"finding", "steps", "usd", "why"}; resumes from saved calls."""
-    run = _ItemRun(item, skill_item, toolbox, provider, max_steps, usd_cap, trace)
+    """Run one item: {"finding", "steps", "usd", "why"}; resumes from saved calls.
+
+    Accepted findings are persisted in the run's FindingSink (the trace's own when none is given)."""
+    run = _ItemRun(item, skill_item, toolbox, provider, max_steps, usd_cap, trace, sink)
     return run.run()
 
 
@@ -338,6 +489,10 @@ def run_items(
     """Run items in order; completed items (state.json) are skipped; the run cap stops the run, resumable."""
     results: dict[str, dict] = {}
     stopped = ""
+    # The tools helper's ToolBox(ctx) reads ctx.findings: one persistent sink per run.
+    target = getattr(toolbox, "ctx", None) or toolbox
+    with contextlib.suppress(AttributeError):
+        target.findings = trace.sink
     for item in items:
         iid = str(item.get("id"))
         if trace.is_done(iid):
@@ -427,7 +582,7 @@ def answer_open_page(
             },
         ]
         try:
-            reply = provider.complete(msgs, list(getattr(toolbox, "TOOL_SPECS", [])))
+            reply = provider.complete(msgs, _specs(toolbox))
         except Exception:  # noqa: BLE001 - a failed look leaves the items YELLOW
             # recorded: the failure is counted in the finding, never raised
             reply = {}

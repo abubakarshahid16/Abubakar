@@ -117,6 +117,35 @@ def safe_result(result: Any) -> dict:
     return out
 
 
+_QUOTE_MARKS = "\"'\u201c\u201d\u2018\u2019\u00ab\u00bb"
+_TOKEN = re.compile(r"\w+")
+COPY_RUN = 13  # more than 12 consecutive words
+
+
+def _strings(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _strings(v)
+
+
+def _grams(text: str) -> set[tuple[str, ...]]:
+    toks = _TOKEN.findall(text.lower())
+    return {tuple(toks[i : i + COPY_RUN]) for i in range(len(toks) - COPY_RUN + 1)}
+
+
+def reason_is_safe(reason: Any, sources: set) -> bool:
+    """False if the reason has a quote mark or 13+ consecutive words copied from a tool result."""
+    text = str(reason or "")
+    if any(ch in text for ch in _QUOTE_MARKS):
+        return False
+    return not (_grams(text) & sources)
+
+
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -160,6 +189,8 @@ class TraceWriter:
         self.recent: deque[str] = deque(maxlen=5)
         self.counts = {"GREEN": 0, "YELLOW": 0, "RED": 0, "not sure": 0, "wrong": 0}
         self.completed: dict[str, str] = {}
+        self._sources: dict[str, set] = {}
+        self._sink: FindingSink | None = None
         self.spend = 0.0
         self._load_state()
 
@@ -231,6 +262,26 @@ class TraceWriter:
             fh.flush()
             os.fsync(fh.fileno())
 
+    @property
+    def sink(self) -> FindingSink:
+        """The run's persistent finding sink (one per run directory)."""
+        if self._sink is None:
+            self._sink = FindingSink(self.root)
+        return self._sink
+
+    def clean_reason(self, item_id: Any, reason: Any) -> str:
+        """The reason that may be written: capped, and withheld if it quotes or copies a tool result."""
+        if not reason:
+            return ""
+        if not reason_is_safe(reason, self._sources.get(str(item_id), set())):
+            return "reason withheld"
+        return words(reason)
+
+    def _remember(self, item_id: Any, result: Any) -> None:
+        keep = self._sources.setdefault(str(item_id), set())
+        for text in _strings(result):
+            keep |= _grams(text)
+
     def step(
         self,
         *,
@@ -245,6 +296,8 @@ class TraceWriter:
         reason: Any = "",
         replayed: bool = False,
     ) -> None:
+        self._remember(item_id, result)
+        reason = self.clean_reason(item_id, reason)
         summary = safe_result(result)
         record = {
             "item": str(item_id),
@@ -306,6 +359,9 @@ class TraceWriter:
         self, *, doc: Any, item_id: Any, finding: dict, why: Any, usd: float, steps: int
     ) -> None:
         colour = finding.get("color") if isinstance(finding, dict) else None
+        why = self.clean_reason(item_id, why)
+        with contextlib.suppress(OSError):
+            self._ckpt_path(item_id).unlink()
         record = {
             "item": str(item_id),
             "final": True,
@@ -329,8 +385,15 @@ class TraceWriter:
         self.recent.append(f"{item_id} {colour or 'no verdict'}")
 
     # LIVE.md ----------------------------------------------------------------------------------------------------
-    def problem(self, text: Any) -> None:
+    def problem(self, text: Any, *, doc: Any = "-", item_id: Any = "-") -> None:
+        """A PROBLEM: shown in LIVE.md and written to live.log as its own line."""
         self.problems.append(words(text))
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.clock()))
+        self._append(
+            self.root / "live.log",
+            f"{stamp} | PROBLEM | doc={_ref('doc', str(doc)) or '-'} "
+            f"| item={_file_id(item_id)} | {words(text)}",
+        )
         self.problems = self.problems[-10:]
 
     def set_live(self, **fields: str) -> None:
@@ -377,3 +440,53 @@ class TraceWriter:
         if text:
             self.recent.append(words(text, 12))
         self.refresh_live()
+
+
+class FindingSink:
+    """Accepted findings, persisted to `<run_dir>/findings.jsonl`, reloaded on resume.
+
+    PRIVACY: this file DOES hold the verified document and clause quotes, because the contractor
+    comment needs them. It is LOCAL (same trace root rule: a path in a git tree is refused) and is
+    never read into live.log, LIVE.md or the trace summaries. The last finding added for an item wins.
+
+    The tools helper receives it as `ToolBox(ctx)` with `ctx.findings = sink`; `run_items` sets that
+    attribute on the toolbox's ctx (or on the toolbox itself when it has no ctx).
+    """
+
+    def __init__(self, run_dir: str | os.PathLike) -> None:
+        self.dir = resolve_root(run_dir)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.path = self.dir / "findings.jsonl"
+        self._by_item: dict[str, dict] = {}
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+        for line in lines:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue  # recorded: a torn last line from a kill is skipped
+            if isinstance(rec, dict) and isinstance(rec.get("finding"), dict):
+                self._by_item[str(rec.get("item"))] = rec["finding"]
+
+    def add(self, item_id: Any, finding: dict) -> None:
+        line = json.dumps({"item": str(item_id), "finding": finding}, sort_keys=True)
+        with self.path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        self._by_item[str(item_id)] = dict(finding)
+
+    def get(self, item_id: Any) -> dict | None:
+        found = self._by_item.get(str(item_id))
+        return dict(found) if found is not None else None
+
+    def has(self, item_id: Any) -> bool:
+        return str(item_id) in self._by_item
+
+    def all(self) -> list[dict]:
+        return [dict(f) for f in self._by_item.values()]
