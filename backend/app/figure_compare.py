@@ -93,6 +93,50 @@ def _pressure_references(text: str) -> set[str]:
     return found
 
 
+# --- whitelist reading (#1689 second review): the figure is decided only when NOTHING unread stands beside it ---
+_FIGURE_UNIT = re.compile(
+    r"(?<![\w.])\d+(?:[.,]\d+)?\s*(?P<unit>[A-Za-z\u00b5\u00b0%\u03a9][A-Za-z\u00b5\u00b0%\u03a9\u00b2\u00b3/\d]*)"
+)
+_SIGN_WORD = re.compile(
+    r"\b(?:minus|negative|plus|sub-?zero|(?:below|under)\s+zero)\b", re.IGNORECASE
+)
+_REFERENCE_TOKEN = re.compile(
+    r"(?<![^\s(\[])\(?\s*\b(?:g|ga|gage|gauge|a|abs|absolute)\b\s*\)?", re.IGNORECASE
+)
+_CLOSER = re.compile(
+    r"\b(?:or\s+(?:more|less|greater|higher|lower)|minimum|maximum|min|max|(?:is\s+|are\s+)?required)\b",
+    re.IGNORECASE,
+)
+_PUNCTUATION_ONLY = re.compile(r"^[\s)\]\[(.,;:]*$")
+_SHORT_SUBJECT_WORDS = 12
+
+
+def _tail_after_figure(text: str, closers: bool) -> str | None:
+    """What stands after the LAST figure+unit, once the unit's reference and (for a clause) a closed set of closers are removed.
+    None when there is no figure+unit; anything but punctuation left over means unread text sits beside the figure."""
+    found = list(_FIGURE_UNIT.finditer(text))
+    if not found:
+        return None
+    tail = text[found[-1].end() :]
+    if closers:
+        tail = _CLOSER.sub(" ", tail)
+    return _REFERENCE_TOKEN.sub(" ", tail)
+
+
+def _whitelist_refusal(text: str, clause: bool) -> str | None:
+    if _SIGN_WORD.search(text):
+        return "a sign is written in words (minus, negative, plus): not read"
+    tail = _tail_after_figure(text, closers=clause)
+    if tail is None or not _PUNCTUATION_ONLY.match(tail):
+        return "text or a mark stands after the figure and its unit that the code does not read"
+    if clause:
+        found = list(_FIGURE_UNIT.finditer(text))
+        prefix = text[: found[0].start()]
+        if re.search(r"[,;]", prefix) or len(prefix.split()) > _SHORT_SUBJECT_WORDS:
+            return "the clause has a long or split lead-in before the figure"
+    return None
+
+
 def _clause_refusal(clause: str) -> str | None:
     """Why the CLAUSE quote cannot be read with certainty, or None."""
     if _ANY_NEGATION.search(_NEGATED_COMPARATOR.sub(" ", clause)):
@@ -107,6 +151,9 @@ def _clause_refusal(clause: str) -> str | None:
     head, sep, tail = clause.partition(",") if "," in clause else clause.partition(";")
     if sep and re.search(r"\d", head) and _REQUIREMENT_VERB.search(tail):
         return "the figure may belong to a condition before a separate requirement"
+    refusal = _whitelist_refusal(clause, clause=True)
+    if refusal:
+        return refusal
     kinds = {
         k for m in _DIRECTION_WORD.finditer(clause) for k in ("le", "ge") if m.group(k)
     }
@@ -121,7 +168,7 @@ def _document_refusal(text: str) -> str | None:
         return "the document figure has a separator that may be a thousands mark or a decimal"
     if _QUALIFIER.search(text):
         return "the document figure carries a qualifier (min, max, approx, typical ...)"
-    return None
+    return _whitelist_refusal(text, clause=False)
 
 
 @dataclass(frozen=True)
