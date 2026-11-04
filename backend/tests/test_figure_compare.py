@@ -684,3 +684,204 @@ def test_defect6_two_directions_with_one_number_are_not_decided(clause):
 def test_per_hour_against_per_day_is_converted_not_guessed():
     assert verdict("5 m3/h", "at least 3 m3/day") is True  # 3 per day is 0.125 per hour
     assert verdict("0.1 m3/h", "at least 3 m3/day") is False
+
+
+# --- #1689 fifth review: the document decides only as a bare value or a labelled value; the clause only with requirement force ---
+_STATUS_WORDS = [
+    "Superseded", "Previous", "Previously", "Former", "Old", "Obsolete", "Voided", "Cancelled", "Void", "Estimated", "Draft",
+    "Proposed", "Target", "Was", "Were", "Expected", "Assumed", "Pending", "Likely", "Planned", "Provisional", "Tentative",
+    "Preliminary", "Future", "Revised from",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("word", _STATUS_WORDS)
+def test_a_status_word_before_the_document_figure_is_not_decided(word):
+    for document in (
+        f"{word} 5 bar",
+        f"{word}: 5 bar",
+        f"Design pressure | {word.lower()} 5 bar",
+        f"5 bar {word.lower()}",
+    ):
+        _undecided(document, "pressure shall not exceed 10 bar")
+        _undecided(document, "pressure shall not exceed 3 bar")
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "Design pressure 5 bar",
+        "Value 5 bar",
+        "Max design pressure rating 5 bar",
+        "Rated 5 bar",
+        "Design pressure at the inlet nozzle: 5 bar",
+        "Design pressure (bar): 5 bar",
+        "pressure; 5 bar",
+        "Note 5 bar",
+        "Design pressure - 5 bar",
+        "A very long label before the value is: 5 bar",
+    ],
+)
+def test_a_label_without_a_delimiter_or_a_long_label_is_not_decided(document):
+    _undecided(document, "pressure shall not exceed 10 bar")
+
+
+@pytest.mark.parametrize(
+    "document, expected",
+    [
+        ("5 bar", True),
+        ("5 bar.", True),
+        ("Design pressure: 5 bar", True),
+        ("Design pressure | 5 bar", True),
+        ("Design pressure = 5 bar", None),
+        ("Design pressure is 5 bar", True),
+        ("Design pressure \u2013 5 bar", None),
+        ("Design pressure \u2014 5 bar", None),
+        ("Table | Design pressure | 5 bar", True),
+        ("Design pressure\t5 bar", True),
+        ("Pressures of 5 bar", True),
+        ("15 bar", False),
+        ("Design pressure: 15 bar", False),
+    ],
+)
+def test_a_bare_or_labelled_document_value_still_decides(document, expected):
+    result = fc.compare(document, "pressure shall not exceed 10 bar")
+    assert result is not None
+    assert result.verdict is expected
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure is allowed to be less than 10 bar",
+        "pressure need not be less than 10 bar",
+        "pressure needs not be less than 10 bar",
+        "pressure does not need to be less than 10 bar",
+        "pressure is optional at 10 bar minimum",
+        "pressure was at least 10 bar",
+        "pressure were at least 10 bar",
+        "pressure is expected not to exceed 10 bar",
+        "pressure is intended not to exceed 10 bar",
+        "pressure is assumed not to exceed 10 bar",
+        "pressure is anticipated not to exceed 10 bar",
+        "pressure is permitted to be at least 10 bar",
+        "pressure is permissible up to 10 bar maximum",
+        "pressure can be at least 10 bar",
+        "pressure could be at least 10 bar",
+        "pressure would be at least 10 bar",
+        "pressure at least 10 bar is not required",
+        "pressure at least 10 bar is not necessary",
+        "pressure at least 10 bar is unnecessary",
+        "pressure shall be at least 10 bar unless otherwise stated",
+    ],
+)
+def test_permission_or_option_wording_in_the_clause_is_not_decided(clause):
+    _undecided("12 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure 10 bar or so is typical",
+        "the pressure is 10 bar at least when hot",
+        "pressure is 10 bar",
+        "pressure 10 bar",
+        "pressure less than 10 bar",
+        "pressure above 10 bar",
+    ],
+)
+def test_a_clause_without_a_requirement_marker_is_not_decided(clause):
+    _undecided("12 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "clause, expected",
+    [
+        ("pressure shall be at least 10 bar", True),
+        ("pressure must be at least 10 bar", True),
+        ("pressure is required to be at least 10 bar", True),
+        ("pressure is to be at least 10 bar", True),
+        ("minimum 10 bar", True),
+        ("at least 10 bar", True),
+        ("limited to 10 bar maximum", False),
+        ("not more than 10 bar", False),
+        ("no more than 10 bar", False),
+        ("not higher than 10 bar", False),
+        ("pressure not to exceed 10 bar", False),
+        ("pressure is not to exceed 10 bar", False),
+    ],
+)
+def test_requirement_wording_in_the_clause_still_decides(clause, expected):
+    result = fc.compare("12 bar", clause)
+    assert result is not None
+    assert result.verdict is expected, clause
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "TBA: 12 bar",
+        "None: 12 bar",
+        "By others | 12 bar",
+        "Not applicable: 12 bar",
+        "Excluded: 12 bar",
+        "Omitted | 12 bar",
+    ],
+)
+def test_a_placeholder_label_with_a_delimiter_is_not_decided(document):
+    _undecided(document, "pressure shall be at least 10 bar")
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "Max: 12 bar",
+        "Minimum: 12 bar",
+        "Rated: 12 bar",
+        "Average: 12 bar",
+        "Mean: 12 bar",
+        "Limit: 12 bar",
+        "Nom: 12 bar",
+        "Ca: 12 bar",
+    ],
+)
+def test_a_qualifier_label_with_a_delimiter_is_not_decided(document):
+    _undecided(document, "pressure shall be at least 10 bar")
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure shall be 10 bar",
+        "pressure is required to be 10 bar",
+        "pressure must be 10 bar",
+    ],
+)
+def test_a_clause_with_a_marker_but_no_readable_comparator_is_not_decided(clause):
+    _undecided("12 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure shall never exceed 10 bar",
+        "pressure shall without fail be at least 10 bar",
+        "pressure shall be prohibited above 10 bar",
+        "pressure shall be unacceptable below 10 bar",
+        "pressure shall neither be below 10 bar",
+    ],
+)
+def test_defect2_a_negation_word_inside_a_clause_with_a_marker_is_not_decided(clause):
+    _undecided("12 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure shall be at max least 10 bar",
+        "pressure shall be at least at least 10 bar",
+        "pressure shall be not less more than 10 bar",
+        "pressure shall be at most at most 10 bar",
+    ],
+)
+def test_a_split_or_repeated_comparator_phrase_is_not_decided(clause):
+    _undecided("12 bar", clause)

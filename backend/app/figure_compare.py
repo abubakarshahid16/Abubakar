@@ -14,6 +14,14 @@ never decides it. This module is the only place that turns two verified quotes i
   * a value equal to a STRICT limit ("less than 10 bar", 10 bar printed) is not decided: the verdict is None;
   * more than one clause figure of the same kind, or more than one kind of clause figure, is not decided.
 
+SUBJECT: this module does NOT match subjects. The caller must guarantee that the clause and the document figure are about the SAME
+quantity (the same pressure, the same temperature, the same item); a verdict says only that two figures stand in the stated relation.
+A `None` or a "cannot decide" result is "engineer to check", never a pass.
+
+READING IS A WHITELIST: the clause decides only with a requirement marker (shall, must, at least ...) and no permission or option
+wording (may, allowed, need not ...); the document quote decides only as a bare value or a short label with a delimiter (or "is / are /
+of") before the figure, and with no status word (draft, superseded, estimated ...). Anything else is "cannot decide".
+
 Pure: no model, no database, no network. `None` from `compare` means "the clause quote asks no figure": the caller decides whether a text
 requirement applies. A verdict of None inside a result means "asked a figure, could not decide": the row stays unclear.
 """
@@ -142,6 +150,32 @@ _STARTS_WITH_CONDITION = re.compile(
 )
 _LEAD_IN_BREAK = re.compile(r"[,;:()\[\]{}]|\.\s")
 _LEAD_IN_WORDS = 6
+# document side: a bare value, or a short plain label then a delimiter (or a copula) then the figure; never a status word
+_DOCUMENT_DELIMITER = re.compile(
+    r"\s*[:=|\t]\s*"
+)  # a dash is not one: before a figure it may be a minus sign
+_LABEL_WORDS = 4
+_PLAIN_LABEL = re.compile(r"^[^\W\d_]+(?: [^\W\d_]+)*$")
+_COPULA_LABEL = re.compile(
+    r"^(?P<label>[^\W\d_]+(?: [^\W\d_]+)*) (?:is|are|of)$", re.IGNORECASE
+)
+_STATUS_WORD = re.compile(
+    r"\b(?:superseded|previous\w*|former\w*|old|obsolete|void\w*|cancel\w*|estimat\w*|draft|proposed|target|was|were|expected|"
+    r"assumed|pending|likely|planned|provisional|tentative|preliminary|future|revised\s+from)\b",
+    re.IGNORECASE,
+)
+# clause side: a requirement marker is needed, option and permission wording is refused
+_REQUIREMENT_MARKER = re.compile(
+    r"\b(?:shall|must|required|requires|is\s+to\s+be|are\s+to\s+be|maximum|minimum|at\s+least|at\s+most|not\s+more\s+than|"
+    r"not\s+less\s+than|no\s+more\s+than|no\s+less\s+than|not\s+(?:higher|lower|greater|smaller|larger)\s+than|not\s+(?:to\s+)?exceed\w*|"
+    r"not\s+be\s+(?:less|more)\s+than|limited\s+to)\b",
+    re.IGNORECASE,
+)
+_PERMISSION_OR_OPTION = re.compile(
+    r"\b(?:allowed|permitted|permissible|optional|may|can|could|need\s+not|needs\s+not|does\s+not\s+need|not\s+required|"
+    r"not\s+necessary|unnecessary|expected|intended|assumed|anticipated|was|were|would|preferably|unless\s+otherwise)\b",
+    re.IGNORECASE,
+)
 _PUNCTUATION_ONLY = re.compile(r"^[\s)\]\[(.,;:]*$")
 
 
@@ -217,6 +251,10 @@ def _whitelist_refusal(text: str, clause: bool) -> str | None:
 
 def _clause_refusal(clause: str) -> str | None:
     """Why the CLAUSE quote cannot be read with certainty, or None."""
+    if _PERMISSION_OR_OPTION.search(clause):
+        return "the clause is worded as a permission or an option, not a requirement"
+    if not _REQUIREMENT_MARKER.search(clause):
+        return "the clause has no requirement marker (shall, must, at least ...)"
     if _ANY_NEGATION.search(_NEGATED_COMPARATOR.sub(" ", clause)):
         return "the clause holds a negation or a prohibition the code does not read"
     if _AMBIGUOUS_SEPARATOR.search(clause):
@@ -248,12 +286,40 @@ def _clause_refusal(clause: str) -> str | None:
     return None
 
 
+def _document_lead_in_refusal(text: str) -> str | None:
+    """The document figure decides only as a bare value, or after a short plain label and a delimiter or a copula."""
+    found = _FIGURE_UNIT.search(text)
+    if found is None:
+        return None
+    lead = text[: found.start()].strip()
+    if not lead:
+        return None
+    parts = _DOCUMENT_DELIMITER.split(text[: found.start()])
+    if len(parts) > 1 and parts[-1] == "":
+        cells = parts[:-1]
+        if all(_PLAIN_LABEL.match(c) and len(c.split()) <= _LABEL_WORDS for c in cells):
+            return None
+    copula = _COPULA_LABEL.match(lead)
+    if copula and len(copula.group("label").split()) <= _LABEL_WORDS:
+        return None
+    return (
+        "a word stands before the document figure that is not a label with a delimiter"
+    )
+
+
 def _document_refusal(text: str) -> str | None:
     """Why the DOCUMENT quote is not one plain, certain value, or None."""
     if _AMBIGUOUS_SEPARATOR.search(text):
         return "the document figure has a separator that may be a thousands mark or a decimal"
     if _QUALIFIER.search(text):
         return "the document figure carries a qualifier (min, max, approx, typical ...)"
+    if _STATUS_WORD.search(text):
+        return (
+            "the document quote holds a status word (draft, superseded, estimated ...)"
+        )
+    refusal = _document_lead_in_refusal(text)
+    if refusal:
+        return refusal
     return _whitelist_refusal(text, clause=False)
 
 
