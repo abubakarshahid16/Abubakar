@@ -157,6 +157,10 @@ class SettingsExt(BaseModel):
     #: unknown / undecided keeps today's behaviour, marked. OFF: nothing changes.
     #: Env: KIND_CHOOSES_RULES_ENABLED.
     kind_chooses_rules_enabled: bool = True
+    #: Standards by ROLE and document KIND (`kind_standards.py`, `reference/standard_roles.json`, owner order 3 Nov): a
+    #: procedure or study leaves out equipment design standards and says so in the run note; the method standards it
+    #: needs, when not held, are named once. OFF: nothing changes. Env: STANDARD_ROLES_BY_KIND_ENABLED.
+    standard_roles_by_kind_enabled: bool = False
     #: Rules by equipment scope (`equipment_scope.py`): a rule whose own scope (its single-equipment
     #: standard, or its document kind) names a DIFFERENT equipment type or
     #: kind than the submittal's is left out and counted in a note; unknown scope stays in. Narrowing
