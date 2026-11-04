@@ -22,6 +22,15 @@ READING IS A WHITELIST: the clause decides only with a requirement marker (shall
 wording (may, allowed, need not ...); the document quote decides only as a bare value or a short label with a delimiter (or "is / are /
 of") before the figure, and with no status word (draft, superseded, estimated ...). Anything else is "cannot decide".
 
+CLOSED VOCABULARY: after every other guard, each word of the clause sentence and each word of the document LABEL must belong to the closed
+vocabulary below (function words, comparator and requirement words, plain physical-quantity and equipment-property nouns, unit words). A
+word outside it ("suggested", "advised", "rejected", "alternative", "option", ...) means "cannot decide": the pair goes to the engineer. The
+older blacklists stay as an extra net. A gap in the vocabulary costs a decision, never a wrong one.
+
+KNOWN LIMITS (stated plainly): the subject pairing is the CALLER'S job. Labels such as operating, startup, upset, trip, alarm, setpoint,
+test, hydrotest, shutoff, standby, another unit's value, "Test pressure" against a design figure, and "%" of WHAT, are NOT distinguished
+here. This module compares two figures; it does not know which quantity each one is. "Cannot decide" and None are engineer-to-check.
+
 Pure: no model, no database, no network. `None` from `compare` means "the clause quote asks no figure": the caller decides whether a text
 requirement applies. A verdict of None inside a result means "asked a figure, could not decide": the row stays unclear.
 """
@@ -176,6 +185,71 @@ _PERMISSION_OR_OPTION = re.compile(
     r"not\s+necessary|unnecessary|expected|intended|assumed|anticipated|was|were|would|preferably|unless\s+otherwise)\b",
     re.IGNORECASE,
 )
+_FUNCTION_WORDS = (
+    "the a an of to be is are shall must not no than or and at in for on per by with as any each all every it its this that such being "
+    "been have has equal equals same"
+)
+_COMPARATOR_WORDS = (
+    "least most more less greater lower higher larger smaller exceed exceeds exceeding exceeded above below under over maximum minimum "
+    "max min required requires require requirement limited limit limits upper"
+)
+_QUANTITY_WORDS = (
+    "pressure pressures temperature temperatures design designed operating working set rated allowable test hydrostatic hydrotest relief "
+    "valve valves vessel vessels pipe pipes piping wall thickness corrosion allowance diameter size sizes flow rate capacity speed power "
+    "head level length width height depth mass weight density viscosity material class rating stress load torque voltage current frequency "
+    "time period interval number value values body bonnet seat stem disc plug ball gate globe check butterfly flange flanges bolt bolts bolting "
+    "gasket nut stud washer face facing rating ratings nozzle nozzles shell tube tubes tubing plate plates sheet pump pumps motor motors "
+    "compressor fan blower turbine engine generator transformer cable cables wire wires conductor insulation cooling heating heater heaters "
+    "cooler coolers exchanger exchangers tank tanks drum drums column columns tower towers line lines duct ducts hose hoses nominal bore "
+    "internal external inside outside inner outer minimum maximum average total net gross overall effective actual process service fluid "
+    "fluids liquid liquids gas gases steam water air oil fuel medium media product capacity volume volumes area areas surface surfaces "
+    "roughness hardness strength yield tensile impact energy force forces resistance conductivity capacitance inductance impedance "
+    "noise vibration sound level levels leakage leak leaks tightness seal seals sealing gland packing bearing bearings shaft shafts coupling "
+    "couplings gear gears brake brakes clutch spring springs actuator actuators positioner positioners signal signals loop loops range "
+    "ranges span accuracy repeatability response stroke travel opening closing closure shutoff cycle cycles life service duty rate rates "
+    "efficiency losses loss drop differential delta rise increase change distance spacing clearance gap pitch thread threads depth "
+    "coating coatings paint thick film layer layers lining liners liner weld welds welding joint joints connection connections size "
+    "rated working operating maximum allowable pressure point points position positions angle angles slope grade grades grade "
+    "composition content contents concentration chloride chlorides sulphur sulfur carbon ph table humidity moisture dew ambient site "
+    "elevation altitude wind snow seismic zone area rating protection ingress enclosure degree degrees ip velocity finish dry duration supply output throat bend radius flush runout tolerance acceleration "
+    "displacement amplitude lift gap flow discharge suction inlet outlet vent drain stress strain elongation reduction fatigue creep "
+    "hole holes thread engagement"
+)
+_UNIT_WORDS = (
+    "bar mbar psi kpa mpa pa atm mm cm m km kg g gram grams tonne tonnes degc degf celsius fahrenheit kelvin percent hz khz kw w mw v kv a "
+    "ma ka ohm ohms litre litres liter liters hour hours minute minutes second seconds day days year years rpm gauge gage absolute abs ga "
+    "barg bara psig psia metre metres meter meters inch inches foot feet newton newtons joule joules watt watts volt volts amp amps"
+)
+_VOCABULARY = frozenset(
+    (
+        _FUNCTION_WORDS
+        + " "
+        + _COMPARATOR_WORDS
+        + " "
+        + _QUANTITY_WORDS
+        + " "
+        + _UNIT_WORDS
+    ).split()
+)
+_WORD = re.compile(r"[^\W\d_]+")
+
+
+def _in_vocabulary(word: str) -> bool:
+    word = word.lower()
+    return (
+        word in _VOCABULARY
+        or (word.endswith("s") and word[:-1] in _VOCABULARY)
+        or (word.endswith("es") and word[:-2] in _VOCABULARY)
+    )
+
+
+def unknown_words(text: str) -> list[str]:
+    """The words of `text` (its figure and unit left out) that are not in the closed vocabulary."""
+    return [
+        w for w in _WORD.findall(_FIGURE_UNIT.sub(" ", text)) if not _in_vocabulary(w)
+    ]
+
+
 _PUNCTUATION_ONLY = re.compile(r"^[\s)\]\[(.,;:]*$")
 
 
@@ -283,6 +357,8 @@ def _clause_refusal(clause: str) -> str | None:
     }
     if len(kinds) > 1 or len(phrases) > 1:
         return "the clause holds two directions or a split comparator phrase"
+    if unknown_words(clause):
+        return "the clause holds a word outside the closed vocabulary"
     return None
 
 
@@ -320,7 +396,12 @@ def _document_refusal(text: str) -> str | None:
     refusal = _document_lead_in_refusal(text)
     if refusal:
         return refusal
-    return _whitelist_refusal(text, clause=False)
+    refusal = _whitelist_refusal(text, clause=False)
+    if refusal:
+        return refusal
+    if unknown_words(text):
+        return "the document label holds a word outside the closed vocabulary"
+    return None
 
 
 @dataclass(frozen=True)

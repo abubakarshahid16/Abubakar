@@ -885,3 +885,135 @@ def test_defect2_a_negation_word_inside_a_clause_with_a_marker_is_not_decided(cl
 )
 def test_a_split_or_repeated_comparator_phrase_is_not_decided(clause):
     _undecided("12 bar", clause)
+
+
+# --- #1689 sixth review: a closed vocabulary. Every word of the clause and of the document label must be a known plain word ---
+_NOT_THE_LIVE_VALUE = [
+    "Rejected", "Alternative", "Alternate", "Option B", "Case B", "Example", "Sample", "Vendor standard", "Withdrawn", "Replaced",
+    "Legacy", "Struck", "Initial", "Unapproved", "Unverified", "Deviation", "Bidder proposal", "Offered", "Quoted", "Submitted",
+    "Customer", "Contractor", "Supplier", "Reference", "Basis", "Budget", "Scenario", "Mockup", "Placeholder", "Illustrative",
+    "Indicative", "Sketch", "Superceded", "Retired", "Discarded", "Abandoned", "Optional", "Variant", "Revision A", "Rev 0",
+    "Interim", "Trial", "Pilot", "Concept", "Option", "Counter offer", "Rework", "Spare part",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("label", _NOT_THE_LIVE_VALUE)
+def test_a_document_label_outside_the_closed_vocabulary_is_not_decided(label):
+    _undecided(f"{label}: 5 bar", "pressure shall not exceed 10 bar")
+    _undecided(f"{label} | 5 bar", "pressure shall not exceed 3 bar")
+
+
+_ADVISORY_CLAUSE_WORDS = [
+    "suggested", "advised", "desired", "wanted", "hoped", "proposed", "recommended", "encouraged", "favoured", "favored",
+    "advisable", "wished", "requested", "invited", "supposed", "believed", "thought", "considered", "judged", "deemed",
+    "aimed", "targeted", "foreseen", "projected", "planned", "scheduled", "prospective", "customary", "usual", "ordinary",
+    "acceptable", "tolerable", "adequate", "sufficient", "appropriate", "suitable", "reasonable", "approximate", "roughly",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("word", _ADVISORY_CLAUSE_WORDS)
+def test_an_advisory_word_in_the_clause_outside_the_closed_vocabulary_is_not_decided(
+    word,
+):
+    _undecided("12 bar", f"pressure is {word} at least 10 bar")
+    _undecided("12 bar", f"pressure is {word} to be at most 10 bar")
+    _undecided("8 bar", f"pressure {word} maximum 10 bar")
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure is suggested at least 10 bar",
+        "pressure is advised to be at most 10 bar",
+        "pressure ought to be at least 10 bar",
+        "pressure is desired to be at least 10 bar",
+        "pressure ought at most 10 bar",
+    ],
+)
+def test_the_reviewer_advisory_clauses_are_not_decided(clause):
+    _undecided("12 bar", clause)
+    _undecided("8 bar", clause)
+
+
+def test_the_closed_vocabulary_does_not_hold_a_status_or_hedge_word():
+    for word in _NOT_THE_LIVE_VALUE + _ADVISORY_CLAUSE_WORDS:
+        for part in word.lower().split():
+            assert fc.unknown_words(part) == [part] or part in {"rev", "a", "b", "0"}, (
+                part
+            )
+
+
+def test_ordinary_plain_clauses_and_labels_still_decide():
+    assert (
+        verdict("12 bar", "relief valve set pressure shall be at least 10 bar") is True
+    )
+    assert verdict("8 bar", "vessel design pressure shall be at least 10 bar") is False
+    assert (
+        verdict(
+            "Wall thickness: 12 mm", "the wall thickness shall be not less than 10 mm"
+        )
+        is True
+    )
+    assert (
+        verdict(
+            "Design temperature | 40 degC",
+            "design temperature shall not exceed 50 degC",
+        )
+        is True
+    )
+    assert (
+        verdict(
+            "Corrosion allowance is 2 mm",
+            "the corrosion allowance shall be at least 3 mm",
+        )
+        is False
+    )
+
+
+# --- each older guard is tested ALONE: the closed vocabulary is opened so it cannot catch the input first ---
+@pytest.fixture
+def open_vocabulary(monkeypatch):
+    monkeypatch.setattr(fc, "unknown_words", lambda text: [])
+
+
+_LAYER_DOCUMENTS = [
+    "TBA: 12 bar", "None: 12 bar", "By others | 12 bar", "Not applicable: 12 bar", "Excluded: 12 bar",
+    "Draft: 12 bar", "Superseded: 12 bar", "Estimated: 12 bar", "Was: 12 bar", "Expected: 12 bar", "Future: 12 bar",
+    "Design pressure | minus 12 bar", "Negative: 12 bar", "Plus: 12 bar",
+]  # fmt: skip
+_LAYER_CLAUSES = [
+    "pressure shall never exceed 10 bar",
+    "pressure shall without fail be at least 10 bar",
+    "pressure shall be prohibited above 10 bar",
+    "pressure shall be unacceptable below 10 bar",
+    "pressure unless agreed shall be at least 10 bar",
+    "pressure otherwise shall be at least 10 bar",
+    "pressure except vents shall be at least 10 bar",
+    "pressure when hot shall be at least 10 bar",
+    "pressure shall at flanges above 10 bar",
+    "pressure shall with flow below 10 bar",
+    "pressure should be at least 10 bar",
+    "pressure shall preferably be at least 10 bar",
+    "pressure shall typically be at least 10 bar",
+    "pressure shall be up to 10 bar",
+    "pressure is allowed to be at least 10 bar",
+    "pressure shall be optional at 10 bar minimum",
+    "pressure was at least 10 bar",
+    "pressure shall be expected at least 10 bar",
+    "The pressure of the main line shall be at least 10 bar",
+    "Every one of the vessels in the plant shall be at least 10 bar",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("document", _LAYER_DOCUMENTS)
+def test_layer_each_document_guard_alone(open_vocabulary, document):
+    _undecided(document, "pressure shall be at least 10 bar")
+
+
+@pytest.mark.parametrize("clause", _LAYER_CLAUSES)
+def test_layer_each_clause_guard_alone(open_vocabulary, clause):
+    _undecided("12 bar", clause)
+
+
+def test_a_plural_of_a_vocabulary_word_is_accepted():
+    assert verdict("Diameters: 5 mm", "diameters shall not exceed 10 mm") is True
