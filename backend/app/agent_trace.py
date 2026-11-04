@@ -51,7 +51,9 @@ def resolve_root(root: str | os.PathLike | None = None) -> Path:
         raise UnsafeRoot("the agent test directory must be outside the git repository")
     for parent in (path, *path.parents):
         if (parent / ".git").exists():
-            raise UnsafeRoot("the agent test directory must be outside any git work tree")
+            raise UnsafeRoot(
+                "the agent test directory must be outside any git work tree"
+            )
     return path
 
 
@@ -130,15 +132,28 @@ def _file_id(item_id: Any) -> str:
 class TraceWriter:
     """One run's local files: item traces, live.log, LIVE.md, state.json, checkpoints."""
 
-    def __init__(self, root: str | os.PathLike | None = None, *, total: int = 0, model: str = "",
-                 step_name: str = "", clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self,
+        root: str | os.PathLike | None = None,
+        *,
+        total: int = 0,
+        model: str = "",
+        step_name: str = "",
+        clock: Callable[[], float] = time.time,
+    ) -> None:
         self.root = resolve_root(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.clock = clock
         self.started = clock()
         self.total = total
-        self.live = {"STEP": step_name, "DONE": "", "PROOF": "agent proof test (#1690)", "RUNNING": "",
-                     "MODEL": model, "NEXT": ""}
+        self.live = {
+            "STEP": step_name,
+            "DONE": "",
+            "PROOF": "agent proof test (#1690)",
+            "RUNNING": "",
+            "MODEL": model,
+            "NEXT": "",
+        }
         self.problems: list[str] = []
         self.recent: deque[str] = deque(maxlen=5)
         self.counts = {"GREEN": 0, "YELLOW": 0, "RED": 0, "not sure": 0, "wrong": 0}
@@ -167,8 +182,13 @@ class TraceWriter:
                 self.counts[colour] += 1
 
     def _save_state(self) -> None:
-        _atomic_write(self.state_path, json.dumps(
-            {"completed": self.completed, "spend": round(self.spend, 6)}, sort_keys=True))
+        _atomic_write(
+            self.state_path,
+            json.dumps(
+                {"completed": self.completed, "spend": round(self.spend, 6)},
+                sort_keys=True,
+            ),
+        )
 
     def is_done(self, item_id: Any) -> bool:
         return str(item_id) in self.completed
@@ -211,34 +231,101 @@ class TraceWriter:
             fh.flush()
             os.fsync(fh.fileno())
 
-    def step(self, *, doc: Any, item_id: Any, step: int, tool: str, args: Any, result: Any,
-             verified: Any = "", seconds: float = 0.0, reason: Any = "", replayed: bool = False) -> None:
+    def step(
+        self,
+        *,
+        doc: Any,
+        item_id: Any,
+        step: int,
+        tool: str,
+        args: Any,
+        result: Any,
+        verified: Any = "",
+        seconds: float = 0.0,
+        reason: Any = "",
+        replayed: bool = False,
+    ) -> None:
         summary = safe_result(result)
-        record = {"item": str(item_id), "step": step, "tool": str(tool)[:40], "args": safe_args(args),
-                  "result": summary, "verified": words(verified), "seconds": round(seconds, 3),
-                  "reason": words(reason), "replayed": replayed}
-        self._append(self.root / f"{_file_id(item_id)}.trace.jsonl", json.dumps(record, sort_keys=True))
+        record = {
+            "item": str(item_id),
+            "step": step,
+            "tool": str(tool)[:40],
+            "args": safe_args(args),
+            "result": summary,
+            "verified": words(verified),
+            "seconds": round(seconds, 3),
+            "reason": words(reason),
+            "replayed": replayed,
+        }
+        self._append(
+            self.root / f"{_file_id(item_id)}.trace.jsonl",
+            json.dumps(record, sort_keys=True),
+        )
         cite = summary["cites"][0] if summary["cites"] else {}
         where = cite.get("page", cite.get("clause", ""))
-        self.log(doc=doc, item_id=item_id, step=step, tool=tool, where=where,
-                 result="ok" if summary["ok"] else "failed", seconds=seconds, reason=reason)
+        self.log(
+            doc=doc,
+            item_id=item_id,
+            step=step,
+            tool=tool,
+            where=where,
+            result="ok" if summary["ok"] else "failed",
+            seconds=seconds,
+            reason=reason,
+        )
         self.recent.append(f"{item_id} step {step} {words(tool, 3)}")
 
-    def log(self, *, doc: Any, item_id: Any, step: Any, tool: Any, where: Any = "", result: Any = "",
-            seconds: float = 0.0, reason: Any = "") -> None:
+    def log(
+        self,
+        *,
+        doc: Any,
+        item_id: Any,
+        step: Any,
+        tool: Any,
+        where: Any = "",
+        result: Any = "",
+        seconds: float = 0.0,
+        reason: Any = "",
+    ) -> None:
         stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.clock()))
         ref = _ref("page", where) if where != "" else ""
-        parts = [stamp, f"doc={_ref('doc', str(doc)) or '-'}", f"item={_file_id(item_id)}", f"step={step}",
-                 f"tool={words(tool, 2)}", f"at={ref if ref is not None else '-'}", f"result={words(result, 3)}",
-                 f"s={seconds:.1f}", f"reason={words(reason)}"]
+        parts = [
+            stamp,
+            f"doc={_ref('doc', str(doc)) or '-'}",
+            f"item={_file_id(item_id)}",
+            f"step={step}",
+            f"tool={words(tool, 2)}",
+            f"at={ref if ref is not None else '-'}",
+            f"result={words(result, 3)}",
+            f"s={seconds:.1f}",
+            f"reason={words(reason)}",
+        ]
         self._append(self.root / "live.log", " | ".join(parts))
 
-    def finish_item(self, *, doc: Any, item_id: Any, finding: dict, why: Any, usd: float, steps: int) -> None:
+    def finish_item(
+        self, *, doc: Any, item_id: Any, finding: dict, why: Any, usd: float, steps: int
+    ) -> None:
         colour = finding.get("color") if isinstance(finding, dict) else None
-        record = {"item": str(item_id), "final": True, "color": colour if colour in COLOURS else None,
-                  "why": words(why), "usd": round(float(usd or 0.0), 6), "steps": steps}
-        self._append(self.root / f"{_file_id(item_id)}.trace.jsonl", json.dumps(record, sort_keys=True))
-        self.log(doc=doc, item_id=item_id, step=steps, tool="final", result=colour or "none", reason=why)
+        record = {
+            "item": str(item_id),
+            "final": True,
+            "color": colour if colour in COLOURS else None,
+            "why": words(why),
+            "usd": round(float(usd or 0.0), 6),
+            "steps": steps,
+        }
+        self._append(
+            self.root / f"{_file_id(item_id)}.trace.jsonl",
+            json.dumps(record, sort_keys=True),
+        )
+        self.log(
+            doc=doc,
+            item_id=item_id,
+            step=steps,
+            tool="final",
+            result=colour or "none",
+            reason=why,
+        )
         self.recent.append(f"{item_id} {colour or 'no verdict'}")
 
     # LIVE.md ----------------------------------------------------------------------------------------------------
@@ -270,10 +357,14 @@ class TraceWriter:
             lines.append(f"- **{key}**: {self.live.get(key, '')}")
         lines.append(f"- **PROGRESS**: {self.progress()}")
         lines.append(f"- **MODEL**: {self.live.get('MODEL', '')}")
-        lines.append(f"- **RESULTS**: GREEN {c['GREEN']}, YELLOW {c['YELLOW']}, RED {c['RED']}, "
-                     f"not sure {c['not sure']}, wrong {c['wrong']}")
+        lines.append(
+            f"- **RESULTS**: GREEN {c['GREEN']}, YELLOW {c['YELLOW']}, RED {c['RED']}, "
+            f"not sure {c['not sure']}, wrong {c['wrong']}"
+        )
         lines.append(f"- **SPEND**: USD {self.spend:.2f}")
-        lines.append(f"- **PROBLEMS**: {'; '.join(self.problems) if self.problems else 'none'}")
+        lines.append(
+            f"- **PROBLEMS**: {'; '.join(self.problems) if self.problems else 'none'}"
+        )
         lines.append(f"- **NEXT**: {self.live.get('NEXT', '')}")
         lines += ["", "## Last 5 things done", ""]
         lines += [f"- {r}" for r in self.recent] or ["- nothing yet"]

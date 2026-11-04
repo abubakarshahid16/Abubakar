@@ -34,6 +34,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai_review_pass` | The AI engineering review pass runner (off by default): one model call proposes, code verifies and stores; changes no row |
+| `agent_loop` | The agent proof test loop (off by default, `AGENT_REVIEW_ENABLED`): a provider picks one tool per step, code runs it; ends in a finding checked for the honesty rules |
+| `agent_trace` | Local-only trace, live log, LIVE.md and resume state for the agent proof test; never inside the repository |
 | `ai_review_proposals` | The review pass's proposal schema and code verifier: refuses any unverified value, page or clause; a Pass is never created |
 | `project_specification` | Which specification a person (the owner) marked for a submittal; pinned to the run and reported in every review, or "none held" |
 | `crs_ai_review_view` | What the INTERNAL CRS shows of the accepted AI review proposals: removed rows (restorable), added rows, rewordings, the understanding note, the AI review sheet |

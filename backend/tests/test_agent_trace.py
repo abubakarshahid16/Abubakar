@@ -1,4 +1,5 @@
 """#1690 agent_trace: local only, numbers not text, resume state."""
+
 import json
 
 import pytest
@@ -17,16 +18,35 @@ def test_env_override(tmp_path, monkeypatch):
 
 
 def test_args_keep_numbers_never_text():
-    out = at.safe_args({"page": 4, "clause": "5.2.1", "query": "invented sentence here", "doc": "doc-7"})
-    assert out == {"page": 4, "clause": "5.2.1", "doc": "doc-7", "other_keys": ["query"]}
+    out = at.safe_args(
+        {
+            "page": 4,
+            "clause": "5.2.1",
+            "query": "invented sentence here",
+            "doc": "doc-7",
+        }
+    )
+    assert out == {
+        "page": 4,
+        "clause": "5.2.1",
+        "doc": "doc-7",
+        "other_keys": ["query"],
+    }
     assert "page" not in at.safe_args({"page": "a long invented quote of text"})
 
 
 def test_log_has_no_text_and_reason_is_cut(tmp_path):
     w = at.TraceWriter(tmp_path)
     long = " ".join(f"w{i}" for i in range(50))
-    w.step(doc="d1", item_id="i1", step=1, tool="search", args={"query": "secret words"},
-           result={"ok": True, "cites": [{"doc": "d1", "page": 3}]}, reason=long)
+    w.step(
+        doc="d1",
+        item_id="i1",
+        step=1,
+        tool="search",
+        args={"query": "secret words"},
+        result={"ok": True, "cites": [{"doc": "d1", "page": 3}]},
+        reason=long,
+    )
     log = (tmp_path / "live.log").read_text()
     assert "secret" not in log and "w19" in log and "w20" not in log
     assert "at=3" in log
@@ -39,10 +59,23 @@ def test_resume_state_and_live_md(tmp_path):
     w.add_spend(1.5)
     w2 = at.TraceWriter(tmp_path, total=20)
     assert w2.is_done("a") and not w2.is_done("b") and w2.spend == 1.5
-    assert json.loads((tmp_path / "state.json").read_text())["completed"] == {"a": "GREEN"}
+    assert json.loads((tmp_path / "state.json").read_text())["completed"] == {
+        "a": "GREEN"
+    }
     text = w2.refresh_live().read_text()
-    for key in ("STEP", "DONE", "PROOF", "RUNNING", "PROGRESS", "MODEL", "RESULTS", "SPEND", "PROBLEMS", "NEXT",
-                "Last 5"):
+    for key in (
+        "STEP",
+        "DONE",
+        "PROOF",
+        "RUNNING",
+        "PROGRESS",
+        "MODEL",
+        "RESULTS",
+        "SPEND",
+        "PROBLEMS",
+        "NEXT",
+        "Last 5",
+    ):
         assert key in text
     assert "GREEN 1" in text and "USD 1.50" in text
 
