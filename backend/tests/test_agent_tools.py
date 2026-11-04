@@ -477,3 +477,31 @@ def test_findings_is_a_store_not_a_list():
     assert not isinstance(box().ctx.findings, list)
     for name in ("add", "get", "has", "all"):
         assert callable(getattr(box().ctx.findings, name))
+
+
+def test_real_sink_survives_kill_and_refuses_second_record(tiny_db, tmp_path):
+    from app import agent_trace
+
+    def toolbox():
+        sink = agent_trace.FindingSink(tmp_path / "run")
+        return ToolBox(
+            ToolContext(
+                frozenset(("sub", "std")), "sub", {"ISO 9999": "2020"}, findings=sink
+            ),
+            searcher=fake_search,
+        )
+
+    first = toolbox()
+    assert (
+        first.run("record_finding", {"finding": good(doc="sub")})["result"]["accepted"]
+        is True
+    )
+    del first  # the "kill": every object is gone, only the file on disk remains
+    second = toolbox()
+    assert (
+        second.ctx.findings.has("I-1")
+        and second.ctx.findings.get("I-1")["color"] == "GREEN"
+    )
+    again = second.run("record_finding", {"finding": good(doc="sub", color="YELLOW")})
+    assert again["ok"] is False and again["result"]["reason"] == "already recorded"
+    assert len(second.ctx.findings.all()) == 1
