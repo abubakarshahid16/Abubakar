@@ -399,6 +399,18 @@ def test_a_contents_list_without_a_contents_heading_is_not_indexed():
     )  # no section was made of a contents entry
 
 
+def test_a_contents_list_without_a_contents_heading_glued_page_number_is_not_a_heading():
+    title = "ZX-77-ATT02 - CRITERIA FOR NODE SELECTION"
+    assert section_index.heading_of_line(title, in_attachment=True) is not None
+    assert (
+        section_index.heading_of_line(title + "........9", in_attachment=True) is None
+    )
+    assert (
+        section_index.heading_of_line(title + " ......... 12", in_attachment=True)
+        is None
+    )
+
+
 def test_three_heading_like_lines_in_a_row_are_a_list_even_without_leaders_or_numbers(
     monkeypatch,
 ):
