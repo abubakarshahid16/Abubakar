@@ -33,6 +33,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `label_match` | A split abbreviation ("tube o d") is joined before the roles table is read; a reading with no unit beside the same number with one is one value (switch `datasheet_label_join_enabled`) |
 | `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
+| `ai_senior_review` | Step 3 of "the best CRS" (Part of #805), off by default: the AI senior review entry point (A's checks plus B's AI rows that A lacks); this part is the switch only |
+| `figure_compare` | One document figure against one clause figure by code (comparison module's own readers; negations, decimal commas, ranges, placeholders, gauge/absolute refused or decided as stated) |
 | `ai_review_pass` | The AI engineering review pass runner (off by default): one model call proposes, code verifies and stores; changes no row |
 | `agent_loop` | The agent proof test loop (off by default, `AGENT_REVIEW_ENABLED`): a provider picks one tool per step, code runs it; ends in a finding checked for the honesty rules |
 | `agent_trace` | Local-only trace, live log, LIVE.md and resume state for the agent proof test; never inside the repository |

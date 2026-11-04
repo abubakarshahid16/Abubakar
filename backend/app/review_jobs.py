@@ -400,13 +400,14 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 def _checks(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     """The review's optional checks, after the comparison. None fails the review."""
-    from . import clause_review, spec_kit, transmittal_kit
+    from . import ai_senior_review, clause_review, spec_kit, transmittal_kit
 
     _ai_check(run_id, scope, missing)
     _web_check(run_id, scope, missing)
     clause_review.for_review(run_id, scope)
     spec_kit.for_review(run_id, scope)  # #1479
     transmittal_kit.for_review(run_id, scope)  # #1482
+    ai_senior_review.for_review(run_id, scope)  # step 3 of #805, off by default
 
 
 def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
