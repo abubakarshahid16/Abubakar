@@ -270,6 +270,8 @@ EGRESS_SAFE: dict[str, object] = {
     "transmittal_required_list_document_ids": "",
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
+    # --- local only, no model or socket: standards by role and document kind (off by default)
+    "standard_roles_by_kind_enabled": False,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
     "rules_by_equipment_scope_enabled": False,
     # --- local only, no model or socket: extraction stores each rule's equipment scope (off by default)
@@ -309,6 +311,7 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
     "crs_plain_notes_enabled": False,
+    "section_index_enabled": False,
     "form_part_name_roles_enabled": False,
     "crs_contractor_no_engineer_words_enabled": False,
     "standard_scope_not_no_enabled": False,

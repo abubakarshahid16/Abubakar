@@ -130,9 +130,14 @@ def for_run(document_id: str, allowed, applied: list[str]) -> dict | None:
     gates off and sent 236 more requirements to "needs another document" on the
     saved HAZOP run (bench, 1 Nov). Unknown or guessed kind: marked, nothing
     changes. Off or datasheet: None."""
+    from . import kind_standards
+
+    roles = kind_standards.note_for_run(document_id, allowed)  # off: None
     b = blocked(document_id)
     if b is None:
         mark = unknown_mark(document_id)
+        if roles:
+            return {"blocked": False, "mark": mark, **roles}
         return {"blocked": False, "mark": mark} if mark else None
     unused = [
         row.get("identifier") or row["standard_document_id"]
@@ -141,6 +146,7 @@ def for_run(document_id: str, allowed, applied: list[str]) -> dict | None:
     ]
     kind, state = b["kind"], b["state"] or "suggested"
     return {
+        **(roles or {}),
         "blocked": True,
         "kind": kind,
         "checklist": (
@@ -167,7 +173,7 @@ def lines(outcome: dict | None) -> list[dict]:
         [note.get(k) for k in ("checklist", "standards", "equipment_type")]
         if note.get("blocked")
         else [note.get("mark")]
-    )
+    ) + [note.get("roles_left_out"), note.get("standard_needed")]
     return [
         {"part": "document_kind", "line": t, "detail": True, "note": "Document kind"}
         for t in texts
