@@ -17,13 +17,15 @@ two tools with side effects (record_finding, ask_engineer) keep their saved resu
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ROOT = Path.home() / "project" / "mirror" / "proof" / "agent-test"
@@ -118,11 +120,11 @@ def safe_result(result: Any) -> dict:
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
+    with tmp.open("w", encoding="utf-8") as fh:
         fh.write(text)
         fh.flush()
         os.fsync(fh.fileno())
-    os.replace(tmp, path)
+    tmp.replace(path)
 
 
 def _file_id(item_id: Any) -> str:
@@ -202,10 +204,8 @@ class TraceWriter:
         key = colour if colour in self.counts else "not sure"
         self.counts[key] += 1
         self._save_state()
-        try:
+        with contextlib.suppress(OSError):
             self._ckpt_path(item_id).unlink()
-        except OSError:
-            pass
         done = len(self.completed)
         if done % 10 == 0:
             self.refresh_live()
@@ -226,7 +226,7 @@ class TraceWriter:
     # item trace and live.log ------------------------------------------------------------------------------------
     def _append(self, path: Path, line: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as fh:
+        with path.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
             fh.flush()
             os.fsync(fh.fileno())

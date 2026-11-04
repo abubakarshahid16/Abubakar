@@ -47,7 +47,7 @@ class FakeProvider:
         self.usd = usd
         self.calls: list[list[dict]] = []
 
-    def complete(self, messages: list[dict], tool_specs: list[dict]) -> dict:
+    def complete(self, messages: list[dict], tool_specs: list[dict]) -> dict:  # noqa: ARG002
         self.calls.append([dict(m) for m in messages])
         if not self.script:
             raise RuntimeError("fake provider script exhausted")
@@ -123,7 +123,7 @@ def _run_tool(toolbox: Any, name: str, args: Any) -> dict:
         }
     try:
         res = toolbox.run(name, args)
-    except Exception as exc:  # a tool failure is a result the model sees, not a crash
+    except Exception as exc:  # noqa: BLE001 - a tool failure is a result the model sees
         return {"ok": False, "result": {"error": type(exc).__name__}, "cites": []}
     return res if isinstance(res, dict) else {"ok": False, "result": {}, "cites": []}
 
@@ -139,8 +139,8 @@ def _accepted(res: dict) -> bool:
 def _ask_engineer(toolbox: Any, item: dict, reason: str) -> None:
     try:
         toolbox.run("ask_engineer", {"item": item.get("id"), "reason": words(reason)})
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001, S110 - best effort; the finding is already YELLOW
+        return
 
 
 def _initial(item: dict, skill_item: Any) -> list[dict]:
@@ -157,6 +157,155 @@ def _initial(item: dict, skill_item: Any) -> list[dict]:
     ]
 
 
+class _ItemRun:
+    """State of one item's loop; methods are the loop's small steps."""
+
+    def __init__(self, item, skill_item, toolbox, provider, max_steps, usd_cap, trace):
+        self.item, self.toolbox, self.provider = item, toolbox, provider
+        self.max_steps, self.usd_cap, self.trace = max_steps, usd_cap, trace
+        self.id, self.doc = item.get("id"), item.get("doc")
+        self.messages = _initial(item, skill_item)
+        self.calls = trace.load_checkpoint(self.id) if trace else []
+        self.usd, self.step = 0.0, 0
+        self.finding: dict | None = None
+        self.why = ""
+
+    def _log(self, name, args, res, reason, secs, verified="", replayed=False):
+        if self.trace:
+            self.trace.step(
+                doc=self.doc,
+                item_id=self.id,
+                step=self.step,
+                tool=name,
+                args=args,
+                result=res,
+                verified=verified,
+                seconds=secs,
+                reason=reason,
+                replayed=replayed,
+            )
+
+    def _add(self, name, args, reason, res):
+        self.messages.append(
+            {
+                "role": "assistant",
+                "content": {"tool": name, "args": args, "reason": reason},
+            }
+        )
+        self.messages.append({"role": "tool", "name": name, "content": res})
+
+    def replay(self):
+        """Saved steps: no model call, no cost repeated, side-effect tools not run again."""
+        for call in self.calls:
+            self.step += 1
+            self.usd += float(call.get("usd") or 0.0)
+            name, args = call["tool"], call.get("args") or {}
+            if name in agent_trace.SIDE_EFFECT_TOOLS:
+                res = call["result"]
+            else:
+                res = _run_tool(self.toolbox, name, args)
+            self._add(name, args, call.get("reason"), res)
+            self._log(name, args, res, call.get("reason"), 0.0, replayed=True)
+
+    def limit(self) -> str:
+        if self.usd >= self.usd_cap:
+            return "usd cap"
+        return "step limit" if self.step >= self.max_steps else ""
+
+    def ask_model(self):
+        self.step += 1
+        t0 = time.time()
+        specs = list(getattr(self.toolbox, "TOOL_SPECS", []))
+        try:
+            reply = self.provider.complete(self.messages, specs)
+        except Exception as exc:  # noqa: BLE001 - any provider failure ends in YELLOW
+            self.finding = yellow("provider error " + type(exc).__name__, self.item)
+            self.why = "provider error"
+            return None, 0.0, 0.0
+        cost = float(reply.get("usd") or 0.0) if isinstance(reply, dict) else 0.0
+        self.usd += cost
+        if self.trace:
+            self.trace.add_spend(cost)
+        return reply, cost, time.time() - t0
+
+    def save(self, call):
+        self.calls.append(call)
+        if self.trace:
+            self.trace.save_checkpoint(self.id, self.calls)
+
+    def one_step(self):
+        reply, cost, secs = self.ask_model()
+        if self.finding is not None:
+            return
+        if not isinstance(reply, dict) or not ("final" in reply or "tool" in reply):
+            bad = {"ok": False, "error": "wrong reply shape"}
+            self.messages.append({"role": "tool", "name": "loop", "content": bad})
+            self._log("loop", {}, {"ok": False}, "wrong reply shape", secs)
+            self.save(
+                {
+                    "tool": "loop",
+                    "args": {},
+                    "result": None,
+                    "usd": cost,
+                    "reason": "wrong reply shape",
+                }
+            )
+            return
+        if "final" in reply:
+            name, reason = "record_finding", "final"
+            args = {"finding": check_final(reply["final"])}
+        else:
+            name, args = reply["tool"], reply.get("args") or {}
+            reason = words(reply.get("reason"))
+            if name == "record_finding" and isinstance(args, dict):
+                args = {**args, "finding": check_final(args.get("finding"))}
+        t1 = time.time()
+        res = _run_tool(self.toolbox, name, args)
+        self._add(name, args, reason, res)
+        accepted = name == "record_finding" and _accepted(res)
+        self._log(
+            name,
+            args,
+            res,
+            reason,
+            secs + time.time() - t1,
+            "finding accepted by code" if accepted else "",
+        )
+        keep = res if name in agent_trace.SIDE_EFFECT_TOOLS else None
+        self.save(
+            {"tool": name, "args": args, "result": keep, "reason": reason, "usd": cost}
+        )
+        if accepted:
+            self.finding, self.why = args["finding"], "recorded"
+        elif name == "ask_engineer" and res.get("ok"):
+            asked = str(args.get("reason") or "asked the engineer")
+            self.finding, self.why = yellow(asked, self.item), "asked the engineer"
+
+    def run(self) -> dict:
+        self.replay()
+        while self.finding is None:
+            if reason := self.limit():
+                self.finding, self.why = yellow(reason, self.item), reason
+                _ask_engineer(self.toolbox, self.item, reason)
+                break
+            self.one_step()
+        if self.trace:
+            self.trace.finish_item(
+                doc=self.doc,
+                item_id=self.id,
+                finding=self.finding,
+                why=self.why,
+                usd=self.usd,
+                steps=self.step,
+            )
+        return {
+            "finding": self.finding,
+            "steps": self.step,
+            "usd": self.usd,
+            "why": self.why,
+        }
+
+
 def run_item(
     item: dict,
     skill_item: Any,
@@ -167,140 +316,9 @@ def run_item(
     usd_cap: float,
     trace: agent_trace.TraceWriter | None = None,
 ) -> dict:
-    """Run one item. Returns {"finding", "steps", "usd", "why"}; resumes from the trace's saved calls."""
-    item_id, doc = item.get("id"), item.get("doc")
-    messages = _initial(item, skill_item)
-    calls: list[dict] = trace.load_checkpoint(item_id) if trace else []
-    usd, step = 0.0, 0
-    finding: dict | None = None
-    why = ""
-
-    def save(call: dict) -> None:
-        calls.append(call)
-        if trace:
-            trace.save_checkpoint(item_id, calls)
-
-    def step_done(name, args, res, reason, secs, verified="", replayed=False):
-        if trace:
-            trace.step(
-                doc=doc,
-                item_id=item_id,
-                step=step,
-                tool=name,
-                args=args,
-                result=res,
-                verified=verified,
-                seconds=secs,
-                reason=reason,
-                replayed=replayed,
-            )
-
-    for call in calls:  # replay saved steps: no model call, no cost repeated
-        step += 1
-        usd += float(call.get("usd") or 0.0)
-        name, args = call["tool"], call.get("args") or {}
-        res = (
-            call["result"]
-            if name in agent_trace.SIDE_EFFECT_TOOLS
-            else _run_tool(toolbox, name, args)
-        )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": {"tool": name, "args": args, "reason": call.get("reason")},
-            }
-        )
-        messages.append({"role": "tool", "name": name, "content": res})
-        step_done(name, args, res, call.get("reason"), 0.0, replayed=True)
-
-    while finding is None:
-        if usd >= usd_cap:
-            finding, why = yellow("usd cap", item), "usd cap"
-            break
-        if step >= max_steps:
-            finding, why = yellow("step limit", item), "step limit"
-            break
-        step += 1
-        t0 = time.time()
-        try:
-            reply = provider.complete(
-                messages, list(getattr(toolbox, "TOOL_SPECS", []))
-            )
-        except Exception as exc:
-            finding, why = (
-                yellow("provider error " + type(exc).__name__, item),
-                "provider error",
-            )
-            break
-        secs = time.time() - t0
-        cost = float(reply.get("usd") or 0.0) if isinstance(reply, dict) else 0.0
-        usd += cost
-        if trace:
-            trace.add_spend(cost)
-        if not isinstance(reply, dict) or not ("final" in reply or "tool" in reply):
-            messages.append(
-                {
-                    "role": "tool",
-                    "name": "loop",
-                    "content": {"ok": False, "error": "wrong reply shape"},
-                }
-            )
-            step_done("loop", {}, {"ok": False}, "wrong reply shape", secs)
-            save(
-                {
-                    "tool": "loop",
-                    "args": {},
-                    "result": {"ok": False},
-                    "reason": "wrong reply shape",
-                    "usd": cost,
-                }
-            )
-            continue
-        if "final" in reply:
-            name, args = "record_finding", {"finding": check_final(reply["final"])}
-            reason = "final"
-        else:
-            name, args, reason = (
-                reply["tool"],
-                reply.get("args") or {},
-                words(reply.get("reason")),
-            )
-            if name == "record_finding" and isinstance(args, dict):
-                args = {**args, "finding": check_final(args.get("finding"))}
-        t1 = time.time()
-        res = _run_tool(toolbox, name, args)
-        secs += time.time() - t1
-        messages.append(
-            {
-                "role": "assistant",
-                "content": {"tool": name, "args": args, "reason": reason},
-            }
-        )
-        messages.append({"role": "tool", "name": name, "content": res})
-        keep = res if name in agent_trace.SIDE_EFFECT_TOOLS else None
-        verified = (
-            "finding accepted by code"
-            if name == "record_finding" and _accepted(res)
-            else ""
-        )
-        step_done(name, args, res, reason, secs, verified)
-        save(
-            {"tool": name, "args": args, "result": keep, "reason": reason, "usd": cost}
-        )
-        if name == "record_finding" and _accepted(res):
-            finding, why = args["finding"], "recorded"
-        elif name == "ask_engineer" and res.get("ok"):
-            finding, why = (
-                yellow(str(args.get("reason") or "asked the engineer"), item),
-                "asked the engineer",
-            )
-    if why in ("step limit", "usd cap"):
-        _ask_engineer(toolbox, item, why)
-    if trace:
-        trace.finish_item(
-            doc=doc, item_id=item_id, finding=finding, why=why, usd=usd, steps=step
-        )
-    return {"finding": finding, "steps": step, "usd": usd, "why": why}
+    """Run one item: {"finding", "steps", "usd", "why"}; resumes from saved calls."""
+    run = _ItemRun(item, skill_item, toolbox, provider, max_steps, usd_cap, trace)
+    return run.run()
 
 
 def run_items(
@@ -388,6 +406,8 @@ def answer_open_page(
     mine = items_on_page(items, page)
     if not mine:
         return {}
+    if usd_cap <= 0:
+        return {str(i.get("id")): yellow("usd cap", i) for i in mine}
     opened = _run_tool(toolbox, "open_page", {"doc": doc, "page": page})
     answers: dict[str, dict] = {}
     reply: dict = {}
@@ -405,7 +425,7 @@ def answer_open_page(
         ]
         try:
             reply = provider.complete(msgs, list(getattr(toolbox, "TOOL_SPECS", [])))
-        except Exception:
+        except Exception:  # noqa: BLE001 - a failed look leaves the items YELLOW
             reply = {}
         if trace:
             trace.add_spend(
