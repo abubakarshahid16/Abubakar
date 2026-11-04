@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import math
 import re
 import time
 from typing import Any, Protocol
@@ -233,9 +234,9 @@ def _saved(name: str, args: Any, res: dict, guard: Any = words) -> dict:
     return out
 
 
-def _kept_args(name: str, args: Any) -> tuple[dict, bool]:
+def _kept_args(args: Any) -> tuple[dict, bool]:
     """Arguments a checkpoint may keep: only reference numbers/ids; else the step is not re-run."""
-    if name in agent_trace.SIDE_EFFECT_TOOLS or not isinstance(args, dict):
+    if not isinstance(args, dict):
         return {}, False
     safe = agent_trace.safe_args(args)
     return (safe, False) if "other_keys" in safe else (safe, True)
@@ -344,7 +345,7 @@ class _ItemRun:
             self.finding = yellow("provider error " + type(exc).__name__, self.item)
             self.why = "provider error"
             return None, 0.0, 0.0
-        cost = float(reply.get("usd") or 0.0) if isinstance(reply, dict) else 0.0
+        cost = self._usd(reply)
         self.usd += cost
         if self.trace:
             self.trace.add_spend(cost)
@@ -356,8 +357,22 @@ class _ItemRun:
             return self.trace.clean_reason(self.id, reason)
         return words(reason)
 
+    def _usd(self, reply):
+        """The call's cost; a missing usd is 0, a bad one (text, negative, nan) is 0 with a PROBLEM."""
+        if not isinstance(reply, dict) or reply.get("usd") is None:
+            return 0.0
+        usd = reply["usd"]
+        good = isinstance(usd, (int, float)) and not isinstance(usd, bool)
+        if good and math.isfinite(usd) and usd >= 0:
+            return float(usd)
+        if self.trace:
+            self.trace.problem(
+                "provider reported an invalid usd", doc=self.doc, item_id=self.id
+            )
+        return 0.0
+
     def save(self, name, args, res, reason, cost):
-        kept, rerun = _kept_args(name, args)
+        kept, rerun = _kept_args(args)
         call = {
             "tool": name,
             "args": kept,
@@ -405,6 +420,9 @@ class _ItemRun:
             self.messages.append({"role": "tool", "name": "loop", "content": bad})
             self._log("loop", {}, {"ok": False}, "wrong reply shape", secs)
             self.save("loop", {}, bad, "wrong reply shape", cost)
+            return
+        if "final" not in reply and not isinstance(reply["tool"], str):
+            self.unknown_tool("not a name", secs)
             return
         name, args, reason = self._action(reply)
         if name not in self.names:
@@ -493,11 +511,31 @@ def run_items(
     target = getattr(toolbox, "ctx", None) or toolbox
     with contextlib.suppress(AttributeError):
         target.findings = trace.sink
+    with agent_trace.RunLock(trace.root):
+        stopped = _run_loop(
+            items,
+            toolbox,
+            provider,
+            trace,
+            results,
+            skill_for,
+            max_steps,
+            usd_cap_item,
+            usd_cap_run,
+        )
+    trace.piece_done("run paused" if stopped else "run finished")
+    return {"results": results, "stopped": stopped}
+
+
+def _run_loop(
+    items, toolbox, provider, trace, results, skill_for, max_steps, cap_item, cap_run
+):
+    stopped = ""
     for item in items:
         iid = str(item.get("id"))
         if trace.is_done(iid):
             continue
-        if trace.spend >= usd_cap_run:
+        if trace.spend >= cap_run:
             stopped = "usd cap for the run"
             trace.problem(stopped)
             break
@@ -509,13 +547,12 @@ def run_items(
             toolbox,
             provider,
             max_steps=max_steps,
-            usd_cap=min(usd_cap_item, max(0.0, usd_cap_run - trace.spend)),
+            usd_cap=min(cap_item, max(0.0, cap_run - trace.spend)),
             trace=trace,
         )
         results[iid] = out
         trace.mark_done(iid, out["finding"].get("color", "not sure"))
-    trace.piece_done("run paused" if stopped else "run finished")
-    return {"results": results, "stopped": stopped}
+    return stopped
 
 
 # ---- document map and one look per page ---------------------------------------------------------------------------

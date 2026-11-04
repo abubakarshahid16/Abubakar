@@ -18,6 +18,7 @@ two tools with side effects (record_finding, ask_engineer) keep their saved resu
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -157,7 +158,10 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 def _file_id(item_id: Any) -> str:
-    return re.sub(r"[^\w\-]", "_", str(item_id))[:80] or "item"
+    """File-name slug plus a short hash of the raw id, so 'a/b' and 'a_b' never share a file."""
+    raw = str(item_id)
+    slug = re.sub(r"[^\w\-]", "_", raw)[:60] or "item"
+    return f"{slug}-{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:8]}"
 
 
 class TraceWriter:
@@ -202,17 +206,32 @@ class TraceWriter:
     def _load_state(self) -> None:
         try:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except OSError:
             return
-        done = data.get("completed")
+        except ValueError:
+            data = None
+        done = data.get("completed") if isinstance(data, dict) else None
+        spend = data.get("spend") if isinstance(data, dict) else None
+        numeric = isinstance(spend, (int, float)) and not isinstance(spend, bool)
+        if not (isinstance(done, (dict, list)) and numeric and spend >= 0):
+            self._corrupt_state()
+            return
         if isinstance(done, dict):
             self.completed = {str(k): str(v) for k, v in done.items()}
-        elif isinstance(done, list):
+        else:
             self.completed = {str(k): "" for k in done}
-        self.spend = float(data.get("spend") or 0.0)
+        self.spend = float(spend)
         for colour in self.completed.values():
             if colour in self.counts:
                 self.counts[colour] += 1
+
+    def _corrupt_state(self) -> None:
+        """A state.json of the wrong shape is kept as state.json.corrupt; the run starts fresh."""
+        with contextlib.suppress(OSError):
+            self.state_path.replace(self.state_path.with_name("state.json.corrupt"))
+        self.problem(
+            "state.json was corrupt: kept as state.json.corrupt, starting fresh"
+        )
 
     def _save_state(self) -> None:
         _atomic_write(
@@ -231,6 +250,8 @@ class TraceWriter:
         self._save_state()
 
     def mark_done(self, item_id: Any, colour: str) -> None:
+        if str(item_id) in self.completed:
+            return  # counted once, whatever is called twice
         self.completed[str(item_id)] = colour if colour in COLOURS else "not sure"
         key = colour if colour in self.counts else "not sure"
         self.counts[key] += 1
@@ -462,9 +483,14 @@ class FindingSink:
 
     def _load(self) -> None:
         try:
-            lines = self.path.read_text(encoding="utf-8").splitlines()
+            text = self.path.read_text(encoding="utf-8")
         except OSError:
             return
+        if text and not text.endswith("\n"):
+            # a kill mid-write left a torn tail: end that line so the next add() starts a new one
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write("\n")
+        lines = text.splitlines()
         for line in lines:
             try:
                 rec = json.loads(line)
@@ -490,3 +516,71 @@ class FindingSink:
 
     def all(self) -> list[dict]:
         return [dict(f) for f in self._by_item.values()]
+
+
+class RunLocked(RuntimeError):
+    """Another live run already uses this run directory."""
+
+
+class RunLock:
+    """One writer per run directory: `run.lock` created with O_EXCL, holding the pid.
+
+    A lock whose pid is gone (or an empty one older than 10 seconds) is stale and is taken over.
+    Use as a context manager: released at the end and on an exception.
+    """
+
+    def __init__(self, run_dir: str | os.PathLike) -> None:
+        self.path = resolve_root(run_dir) / "run.lock"
+        self.mine = False
+
+    @staticmethod
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _stale(self) -> bool:
+        try:
+            text = self.path.read_text(encoding="utf-8").strip()
+            age = time.time() - self.path.stat().st_mtime
+        except OSError:
+            return True
+        try:
+            return not self._alive(int(text.split()[0]))
+        except (ValueError, IndexError):
+            return age > 10
+
+    def acquire(self) -> RunLock:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        for _ in range(2):
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError:
+                if self._stale():
+                    with contextlib.suppress(OSError):
+                        self.path.unlink()
+                    continue
+                raise RunLocked(
+                    f"another run is using {self.path.parent} (see {self.path.name})"
+                ) from None
+            with os.fdopen(fd, "w") as fh:
+                fh.write(f"{os.getpid()} {int(time.time())}\n")
+            self.mine = True
+            return self
+        raise RunLocked(f"could not take {self.path}")
+
+    def release(self) -> None:
+        if self.mine:
+            with contextlib.suppress(OSError):
+                self.path.unlink()
+            self.mine = False
+
+    def __enter__(self) -> RunLock:
+        return self.acquire()
+
+    def __exit__(self, *exc: object) -> None:
+        self.release()

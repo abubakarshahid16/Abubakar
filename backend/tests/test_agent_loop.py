@@ -3,6 +3,8 @@
 import json
 from typing import ClassVar
 
+import pytest
+
 from app import agent_loop as al
 from app import agent_trace as at
 
@@ -288,11 +290,14 @@ def test_integration_standin_toolbox_whole_item(tmp_path):
     out = al.run_item(ITEM, {}, box, al.FakeProvider(script), usd_cap=1, trace=w)
     assert out["finding"]["color"] == "RED" and "confidence" not in out["finding"]
     assert box.ran == ["open_page", "get_clause", "record_finding"]
-    text = (tmp_path / "i1.trace.jsonl").read_text()
+    text = (tmp_path / (at._file_id("i1") + ".trace.jsonl")).read_text()
     assert (
         "invented" not in text and "invented" not in (tmp_path / "live.log").read_text()
     )
-    assert w.is_done("i1") is False and not (tmp_path / "i1.ckpt.json").exists()
+    assert (
+        w.is_done("i1") is False
+        and not (tmp_path / (at._file_id("i1") + ".ckpt.json")).exists()
+    )
 
 
 def test_toolspecs_fall_back_to_agent_tools_module(monkeypatch):
@@ -451,7 +456,7 @@ def test_checkpoint_keeps_no_quote_text(tmp_path):
     res = run.toolbox.run("record_finding", {})
     run.save("record_finding", {"finding": FULL}, res, "final", 0.1)
     run.save("search", {"query": "invented query text"}, res, "look", 0.0)
-    raw = (tmp_path / "i1.ckpt.json").read_text()
+    raw = (tmp_path / (at._file_id("i1") + ".ckpt.json")).read_text()
     assert "invented" not in raw and "quote_hash" in raw
     assert json.loads(raw)["calls"][1]["rerun"] is False
 
@@ -466,7 +471,7 @@ def test_checkpoint_deleted_when_item_completes(tmp_path):
         usd_cap=5,
         trace=w,
     )
-    assert not (tmp_path / "i1.ckpt.json").exists()
+    assert not (tmp_path / (at._file_id("i1") + ".ckpt.json")).exists()
 
 
 def test_verdict_that_differs_from_color_is_yellow():
@@ -486,7 +491,7 @@ def test_quote_mark_in_raw_reason_is_withheld_in_log_and_checkpoint(tmp_path):
     )
     al.run_item(ITEM, {}, box, p, max_steps=1, usd_cap=5, trace=w)
     assert "alpha" not in (tmp_path / "live.log").read_text()
-    assert "alpha" not in (tmp_path / "i1.trace.jsonl").read_text()
+    assert "alpha" not in (tmp_path / (at._file_id("i1") + ".trace.jsonl")).read_text()
 
 
 def test_checkpoint_reason_copied_from_a_page_is_withheld(tmp_path):
@@ -496,7 +501,7 @@ def test_checkpoint_reason_copied_from_a_page_is_withheld(tmp_path):
     res = run.toolbox.run("open_page", {})
     w.step(doc="d", item_id="i1", step=1, tool="open_page", args={}, result=res)
     run.save("open_page", {"page": 2}, res, copied, 0.0)
-    raw = (tmp_path / "i1.ckpt.json").read_text()
+    raw = (tmp_path / (at._file_id("i1") + ".ckpt.json")).read_text()
     assert "alpha" not in raw and "reason withheld" in raw
 
 
@@ -507,7 +512,7 @@ def test_sink_persists_and_survives_a_kill(tmp_path):
     sink = at.FindingSink(tmp_path)  # a fresh process reloads from disk
     assert sink.has("i1") and sink.get("i1")["doc_quote"] == "invented words"
     assert [f["item"] for f in sink.all()] == ["i1"] and sink.get("zz") is None
-    for name in ("live.log", "LIVE.md", "i1.trace.jsonl"):
+    for name in ("live.log", "LIVE.md", (at._file_id("i1") + ".trace.jsonl")):
         f = tmp_path / name
         assert not f.exists() or "invented" not in f.read_text()
 
@@ -536,3 +541,84 @@ def test_run_items_gives_the_toolbox_the_sink(tmp_path):
         usd_cap_run=5,
     )
     assert box.ctx.findings is w.sink and w.sink.has("i1")
+
+
+def test_unhashable_tool_name_ends_yellow_with_problem(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    p = al.FakeProvider([{"tool": ["x"], "args": {}}, {"final": FULL}])
+    out = al.run_item(ITEM, {}, StandIn(), p, usd_cap=5, trace=w)
+    assert (
+        out["finding"]["color"] == "YELLOW"
+        and out["why"] == "unknown tool"
+        and len(p.calls) == 1
+    )
+    assert "PROBLEM" in (tmp_path / "live.log").read_text()
+
+
+@pytest.mark.parametrize("bad", ["0.5", None, -3, float("nan"), True, [1]])
+def test_bad_usd_is_zero_with_a_problem_and_never_crashes(tmp_path, bad):
+    w = at.TraceWriter(tmp_path)
+    reply = {"tool": "search", "args": {"page": 1}, "usd": bad}
+    p = al.FakeProvider([reply, {"final": FULL}])
+    out = al.run_item(ITEM, {}, StandIn(), p, usd_cap=5, trace=w)
+    assert out["finding"]["color"] == "RED" and out["usd"] == 0.0
+    assert w.spend >= 0
+    if bad is not None:
+        assert any("usd" in x for x in w.problems)
+
+
+def test_negative_usd_cannot_lower_the_spend(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    p = al.FakeProvider(
+        [{"tool": "search", "args": {}, "usd": 0.7}, {"final": FULL, "usd": -5}]
+    )
+    out = al.run_item(ITEM, {}, StandIn(), p, usd_cap=5, trace=w)
+    assert abs(out["usd"] - 0.7) < 1e-9 and abs(w.spend - 0.7) < 1e-9
+
+
+def test_run_items_refuses_a_second_writer_and_releases(tmp_path):
+    w = at.TraceWriter(tmp_path, total=1)
+    with at.RunLock(tmp_path), pytest.raises(at.RunLocked):
+        al.run_items(
+            [ITEM], StandIn(), al.FakeProvider([]), w, usd_cap_item=1, usd_cap_run=5
+        )
+    al.run_items(
+        [ITEM],
+        StandIn(),
+        al.FakeProvider([{"final": FULL}]),
+        w,
+        usd_cap_item=1,
+        usd_cap_run=5,
+    )
+    assert not (tmp_path / "run.lock").exists()
+    boom = at.TraceWriter(tmp_path / "b", total=1)
+    with pytest.raises(RuntimeError):
+        al.run_items(
+            [ITEM],
+            StandIn(),
+            al.FakeProvider([]),
+            boom,
+            usd_cap_item=1,
+            usd_cap_run=5,
+            skill_for=lambda i: (_ for _ in ()).throw(RuntimeError("x")),
+        )
+    assert not (tmp_path / "b" / "run.lock").exists()
+
+
+@pytest.mark.parametrize("tool", ["record_finding", "ask_engineer"])
+def test_replay_never_runs_a_side_effect_tool_even_if_marked_rerun(tmp_path, tool):
+    w = at.TraceWriter(tmp_path)
+    call = {
+        "tool": tool,
+        "args": {"page": 1},
+        "rerun": True,
+        "reason": "",
+        "usd": 0.0,
+        "saved": {"ok": False, "accepted": False, "verdict": "refused", "reason": "no"},
+    }
+    w.save_checkpoint("i1", [call])
+    box = StandIn()
+    p = al.FakeProvider([{"final": FULL}])
+    al.run_item(ITEM, {}, box, p, max_steps=5, usd_cap=5, trace=w)
+    # record_finding ran once (the model's new final), never for the saved call; ask_engineer never
+    assert box.ran.count(tool) == (1 if tool == "record_finding" else 0)

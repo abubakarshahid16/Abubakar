@@ -50,7 +50,7 @@ def test_log_has_no_text_and_reason_is_cut(tmp_path):
     log = (tmp_path / "live.log").read_text()
     assert "secret" not in log and "w19" in log and "w20" not in log
     assert "at=3" in log
-    assert "secret" not in (tmp_path / "i1.trace.jsonl").read_text()
+    assert "secret" not in (tmp_path / (at._file_id("i1") + ".trace.jsonl")).read_text()
 
 
 def test_resume_state_and_live_md(tmp_path):
@@ -109,7 +109,7 @@ def test_reason_withheld_when_it_has_a_quote_mark(tmp_path):
         reason='he said "x" ok',
     )
     assert "reason withheld" in (tmp_path / "live.log").read_text()
-    assert "he said" not in (tmp_path / "i.trace.jsonl").read_text()
+    assert "he said" not in (tmp_path / (at._file_id("i") + ".trace.jsonl")).read_text()
 
 
 def test_reason_withheld_when_13_words_copied_from_a_result(tmp_path):
@@ -157,7 +157,7 @@ def test_finish_item_removes_checkpoint(tmp_path):
     w.finish_item(
         doc="d", item_id="i", finding={"color": "RED"}, why="recorded", usd=0, steps=1
     )
-    assert not (tmp_path / "i.ckpt.json").exists()
+    assert not (tmp_path / (at._file_id("i") + ".ckpt.json")).exists()
 
 
 def test_symlink_into_a_git_tree_is_refused(tmp_path):
@@ -193,3 +193,81 @@ def test_sink_refuses_a_git_tree(tmp_path):
     (tmp_path / ".git").mkdir()
     with pytest.raises(at.UnsafeRoot):
         at.FindingSink(tmp_path / "run")
+
+
+def test_sink_add_after_a_torn_tail_is_not_lost(tmp_path):
+    s = at.FindingSink(tmp_path)
+    s.add("a", {"color": "RED"})
+    with (tmp_path / "findings.jsonl").open("a") as fh:
+        fh.write('{"item": "b", "finding": {"colo')  # killed mid-write
+    s2 = at.FindingSink(tmp_path)
+    s2.add("c", {"color": "GREEN"})
+    s3 = at.FindingSink(tmp_path)
+    assert s3.has("a") and s3.has("c") and not s3.has("b")
+
+
+def test_second_run_on_the_same_dir_is_refused_and_released(tmp_path):
+    with at.RunLock(tmp_path):
+        with pytest.raises(at.RunLocked):
+            at.RunLock(tmp_path).acquire()
+    with at.RunLock(tmp_path):  # released at the end
+        pass
+    with pytest.raises(ValueError), at.RunLock(tmp_path):
+        raise ValueError("boom")
+    with at.RunLock(tmp_path):  # and on an exception
+        pass
+
+
+def test_stale_lock_of_a_dead_pid_is_taken_over(tmp_path):
+    (tmp_path / "run.lock").write_text("999999999 1\n")
+    with at.RunLock(tmp_path) as lock:
+        assert lock.mine
+
+
+def test_live_lock_is_not_stale(tmp_path):
+    import os
+
+    (tmp_path / "run.lock").write_text(f"{os.getpid()} 1\n")
+    with pytest.raises(at.RunLocked):
+        at.RunLock(tmp_path).acquire()
+
+
+def test_mark_done_twice_counts_once(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    w.mark_done("a", "GREEN")
+    w.mark_done("a", "GREEN")
+    assert w.counts["GREEN"] == 1 and len(w.completed) == 1
+
+
+@pytest.mark.parametrize(
+    "bad", ["[1, 2]", '"text"', "null", "{not json", '{"completed": 5, "spend": 1}']
+)
+def test_corrupt_state_is_kept_aside_and_run_starts_fresh(tmp_path, bad):
+    (tmp_path / "state.json").write_text(bad)
+    w = at.TraceWriter(tmp_path)
+    assert w.completed == {} and w.spend == 0.0
+    assert (tmp_path / "state.json.corrupt").read_text() == bad
+    assert (
+        any("corrupt" in p for p in w.problems)
+        and "PROBLEM" in (tmp_path / "live.log").read_text()
+    )
+
+
+def test_ids_a_slash_b_and_a_underscore_b_do_not_share_files(tmp_path):
+    assert at._file_id("a/b") != at._file_id("a_b")
+    w = at.TraceWriter(tmp_path)
+    w.save_checkpoint("a/b", [{"tool": "x"}])
+    assert w.load_checkpoint("a_b") == [] and w.load_checkpoint("a/b") == [
+        {"tool": "x"}
+    ]
+
+
+def test_repo_root_check_stands_alone_without_a_git_marker(tmp_path, monkeypatch):
+    fake_repo = tmp_path / "checkout"  # a source copy: no .git anywhere
+    (fake_repo / "inside").mkdir(parents=True)
+    monkeypatch.setattr(at, "REPO_ROOT", fake_repo.resolve())
+    with pytest.raises(at.UnsafeRoot):
+        at.resolve_root(fake_repo / "inside")
+    with pytest.raises(at.UnsafeRoot):
+        at.resolve_root(fake_repo)
+    assert at.resolve_root(tmp_path / "elsewhere")
