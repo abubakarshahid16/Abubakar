@@ -117,7 +117,7 @@ def safe_result(result: Any) -> dict:
     return out
 
 
-_QUOTE_MARKS = "\"'\u201c\u201d\u2018\u2019"
+_QUOTE_MARKS = "\"'\u201c\u201d\u2018\u2019\u00ab\u00bb"
 _TOKEN = re.compile(r"\w+")
 COPY_RUN = 13  # more than 12 consecutive words
 
@@ -190,6 +190,7 @@ class TraceWriter:
         self.counts = {"GREEN": 0, "YELLOW": 0, "RED": 0, "not sure": 0, "wrong": 0}
         self.completed: dict[str, str] = {}
         self._sources: dict[str, set] = {}
+        self._sink: FindingSink | None = None
         self.spend = 0.0
         self._load_state()
 
@@ -260,6 +261,13 @@ class TraceWriter:
             fh.write(line + "\n")
             fh.flush()
             os.fsync(fh.fileno())
+
+    @property
+    def sink(self) -> FindingSink:
+        """The run's persistent finding sink (one per run directory)."""
+        if self._sink is None:
+            self._sink = FindingSink(self.root)
+        return self._sink
 
     def clean_reason(self, item_id: Any, reason: Any) -> str:
         """The reason that may be written: capped, and withheld if it quotes or copies a tool result."""
@@ -432,3 +440,53 @@ class TraceWriter:
         if text:
             self.recent.append(words(text, 12))
         self.refresh_live()
+
+
+class FindingSink:
+    """Accepted findings, persisted to `<run_dir>/findings.jsonl`, reloaded on resume.
+
+    PRIVACY: this file DOES hold the verified document and clause quotes, because the contractor
+    comment needs them. It is LOCAL (same trace root rule: a path in a git tree is refused) and is
+    never read into live.log, LIVE.md or the trace summaries. The last finding added for an item wins.
+
+    The tools helper receives it as `ToolBox(ctx)` with `ctx.findings = sink`; `run_items` sets that
+    attribute on the toolbox's ctx (or on the toolbox itself when it has no ctx).
+    """
+
+    def __init__(self, run_dir: str | os.PathLike) -> None:
+        self.dir = resolve_root(run_dir)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.path = self.dir / "findings.jsonl"
+        self._by_item: dict[str, dict] = {}
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+        for line in lines:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue  # recorded: a torn last line from a kill is skipped
+            if isinstance(rec, dict) and isinstance(rec.get("finding"), dict):
+                self._by_item[str(rec.get("item"))] = rec["finding"]
+
+    def add(self, item_id: Any, finding: dict) -> None:
+        line = json.dumps({"item": str(item_id), "finding": finding}, sort_keys=True)
+        with self.path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        self._by_item[str(item_id)] = dict(finding)
+
+    def get(self, item_id: Any) -> dict | None:
+        found = self._by_item.get(str(item_id))
+        return dict(found) if found is not None else None
+
+    def has(self, item_id: Any) -> bool:
+        return str(item_id) in self._by_item
+
+    def all(self) -> list[dict]:
+        return [dict(f) for f in self._by_item.values()]

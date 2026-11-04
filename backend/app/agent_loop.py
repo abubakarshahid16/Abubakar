@@ -13,6 +13,7 @@ limit, then falls to a YELLOW ask-the-engineer finding.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 import time
@@ -108,6 +109,14 @@ def check_final(finding: Any) -> dict:
     if colour not in COLOURS:
         return {**yellow("wrong shape"), "item": out.get("item"), "doc": out.get("doc")}
     out["color"] = colour
+    verdict = finding.get("verdict")
+    if verdict is not None and str(verdict).strip().upper() != colour:
+        out.update(
+            color="YELLOW",
+            reason=words("color and verdict differ"),
+            action=out.get("action") or "ask the engineer",
+        )
+        return out
     if out.get("priority") not in PRIORITIES:
         out.pop("priority", None)
     if colour == "GREEN":
@@ -210,14 +219,14 @@ def finding_ref(finding: Any) -> dict:
     return ref
 
 
-def _saved(name: str, args: Any, res: dict) -> dict:
+def _saved(name: str, args: Any, res: dict, guard: Any = words) -> dict:
     """The checkpoint entry of a side-effect call: verdict and reason words, never quote text."""
     inner = _inner(res)
     out = {
         "ok": bool(res.get("ok")),
         "accepted": _accepted(res),
         "verdict": str(inner.get("verdict") or "")[:12],
-        "reason": words(inner.get("reason")),
+        "reason": guard(inner.get("reason")),
     }
     if name == "record_finding" and isinstance(args, dict):
         out["finding"] = finding_ref(args.get("finding"))
@@ -235,10 +244,13 @@ def _kept_args(name: str, args: Any) -> tuple[dict, bool]:
 class _ItemRun:
     """State of one item's loop; methods are the loop's small steps."""
 
-    def __init__(self, item, skill_item, toolbox, provider, max_steps, usd_cap, trace):
+    def __init__(
+        self, item, skill_item, toolbox, provider, max_steps, usd_cap, trace, sink=None
+    ):
         self.item, self.toolbox, self.provider = item, toolbox, provider
         self.max_steps, self.usd_cap, self.trace = max_steps, usd_cap, trace
         self.id, self.doc = item.get("id"), item.get("doc")
+        self.sink = sink if sink is not None else (trace.sink if trace else None)
         self.specs = _specs(toolbox)
         self.names = {sp.get("name") for sp in self.specs}
         self.messages = _initial(item, skill_item)
@@ -280,8 +292,12 @@ class _ItemRun:
             "cites": [],
         }
         if name == "record_finding" and saved.get("accepted"):
-            self.finding = {**(saved.get("finding") or {}), "doc": self.doc}
-            self.finding["reason"] = words(saved.get("reason"))
+            stored = self.sink.get(self.id) if self.sink else None
+            if stored is not None:
+                self.finding = stored
+            else:
+                self.finding = {**(saved.get("finding") or {}), "doc": self.doc}
+                self.finding["reason"] = words(saved.get("reason"))
             self.why = "recorded"
         elif name == "ask_engineer" and saved.get("ok"):
             self.finding = yellow(
@@ -334,17 +350,23 @@ class _ItemRun:
             self.trace.add_spend(cost)
         return reply, cost, time.time() - t0
 
+    def _safe(self, reason):
+        """A reason fit for a file: the trace's guard (raw quote marks, 13-word copies), else the word cap."""
+        if self.trace:
+            return self.trace.clean_reason(self.id, reason)
+        return words(reason)
+
     def save(self, name, args, res, reason, cost):
         kept, rerun = _kept_args(name, args)
         call = {
             "tool": name,
             "args": kept,
             "rerun": rerun,
-            "reason": words(reason),
+            "reason": self._safe(reason),
             "usd": cost,
         }
         if name in agent_trace.SIDE_EFFECT_TOOLS:
-            call["saved"] = _saved(name, args, res)
+            call["saved"] = _saved(name, args, res, self._safe)
         self.calls.append(call)
         if self.trace:
             self.trace.save_checkpoint(self.id, self.calls)
@@ -367,7 +389,7 @@ class _ItemRun:
         name, args = reply["tool"], reply.get("args") or {}
         if name == "record_finding" and isinstance(args, dict):
             args = {**args, "finding": self._own(check_final(args.get("finding")))}
-        return name, args, words(reply.get("reason"))
+        return name, args, str(reply.get("reason") or "")
 
     def _own(self, finding):
         finding.setdefault("item", self.id)
@@ -403,6 +425,8 @@ class _ItemRun:
         self.save(name, args, res, reason, cost)
         if accepted:
             self.finding, self.why = args["finding"], "recorded"
+            if self.sink is not None and not self.sink.has(self.id):
+                self.sink.add(self.id, self.finding)
         elif name == "ask_engineer" and res.get("ok"):
             asked = str(args.get("reason") or "asked the engineer")
             self.finding, self.why = yellow(asked, self.item), "asked the engineer"
@@ -442,9 +466,12 @@ def run_item(
     max_steps: int = MAX_STEPS,
     usd_cap: float,
     trace: agent_trace.TraceWriter | None = None,
+    sink: agent_trace.FindingSink | None = None,
 ) -> dict:
-    """Run one item: {"finding", "steps", "usd", "why"}; resumes from saved calls."""
-    run = _ItemRun(item, skill_item, toolbox, provider, max_steps, usd_cap, trace)
+    """Run one item: {"finding", "steps", "usd", "why"}; resumes from saved calls.
+
+    Accepted findings are persisted in the run's FindingSink (the trace's own when none is given)."""
+    run = _ItemRun(item, skill_item, toolbox, provider, max_steps, usd_cap, trace, sink)
     return run.run()
 
 
@@ -462,6 +489,10 @@ def run_items(
     """Run items in order; completed items (state.json) are skipped; the run cap stops the run, resumable."""
     results: dict[str, dict] = {}
     stopped = ""
+    # The tools helper's ToolBox(ctx) reads ctx.findings: one persistent sink per run.
+    target = getattr(toolbox, "ctx", None) or toolbox
+    with contextlib.suppress(AttributeError):
+        target.findings = trace.sink
     for item in items:
         iid = str(item.get("id"))
         if trace.is_done(iid):

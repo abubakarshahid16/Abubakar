@@ -367,7 +367,14 @@ def test_resume_after_accepted_record_finding_makes_no_model_call(tmp_path):
         and out["finding"]["page"] == 2
     )
     assert out["steps"] == 2 and abs(out["usd"] - 0.4) < 1e-9
-    assert "invented" not in str(out["finding"])
+    assert (
+        out["finding"]["doc_quote"] == "invented words"
+    )  # the stored finding, from the sink
+    (tmp_path / "findings.jsonl").unlink()
+    w3 = at.TraceWriter(tmp_path)
+    w3.save_checkpoint("i1", calls)
+    again = al.run_item(ITEM, {}, StandIn(), al.FakeProvider([]), usd_cap=5, trace=w3)
+    assert "invented" not in str(again["finding"]) and again["finding"]["page"] == 2
 
 
 def test_resume_after_ask_engineer_makes_no_model_call(tmp_path):
@@ -460,3 +467,72 @@ def test_checkpoint_deleted_when_item_completes(tmp_path):
         trace=w,
     )
     assert not (tmp_path / "i1.ckpt.json").exists()
+
+
+def test_verdict_that_differs_from_color_is_yellow():
+    out = al.check_final({**GOOD, "verdict": "RED"})
+    assert out["color"] == "YELLOW" and out["reason"] == "color and verdict differ"
+    assert "verdict" not in out
+    assert al.check_final({**GOOD, "verdict": "green"})["color"] == "GREEN"
+
+
+def test_quote_mark_in_raw_reason_is_withheld_in_log_and_checkpoint(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    for mark in ('"', "'", "\u201c", "\u2019", "\u00ab"):
+        assert w.clean_reason("i", f"has {mark}a quote") == "reason withheld"
+    box = StandIn()
+    p = al.FakeProvider(
+        [{"tool": "search", "args": {"page": 1}, "reason": 'it says "alpha"'}] * 2
+    )
+    al.run_item(ITEM, {}, box, p, max_steps=1, usd_cap=5, trace=w)
+    assert "alpha" not in (tmp_path / "live.log").read_text()
+    assert "alpha" not in (tmp_path / "i1.trace.jsonl").read_text()
+
+
+def test_checkpoint_reason_copied_from_a_page_is_withheld(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    copied = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi"
+    run = al._ItemRun(ITEM, {}, StandIn(), al.FakeProvider([]), 5, 5, w)
+    res = run.toolbox.run("open_page", {})
+    w.step(doc="d", item_id="i1", step=1, tool="open_page", args={}, result=res)
+    run.save("open_page", {"page": 2}, res, copied, 0.0)
+    raw = (tmp_path / "i1.ckpt.json").read_text()
+    assert "alpha" not in raw and "reason withheld" in raw
+
+
+def test_sink_persists_and_survives_a_kill(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    p = al.FakeProvider([{"final": FULL}])
+    al.run_item(ITEM, {}, StandIn(), p, usd_cap=5, trace=w)
+    sink = at.FindingSink(tmp_path)  # a fresh process reloads from disk
+    assert sink.has("i1") and sink.get("i1")["doc_quote"] == "invented words"
+    assert [f["item"] for f in sink.all()] == ["i1"] and sink.get("zz") is None
+    for name in ("live.log", "LIVE.md", "i1.trace.jsonl"):
+        f = tmp_path / name
+        assert not f.exists() or "invented" not in f.read_text()
+
+
+def test_sink_skips_a_torn_last_line(tmp_path):
+    s = at.FindingSink(tmp_path)
+    s.add("a", {"color": "RED"})
+    with (tmp_path / "findings.jsonl").open("a") as fh:
+        fh.write('{"item": "b", "fin')
+    assert at.FindingSink(tmp_path).has("a") and not at.FindingSink(tmp_path).has("b")
+
+
+def test_run_items_gives_the_toolbox_the_sink(tmp_path):
+    class Ctx:
+        findings = None
+
+    box = StandIn()
+    box.ctx = Ctx()
+    w = at.TraceWriter(tmp_path, total=1)
+    al.run_items(
+        [ITEM],
+        box,
+        al.FakeProvider([{"final": FULL}]),
+        w,
+        usd_cap_item=1,
+        usd_cap_run=5,
+    )
+    assert box.ctx.findings is w.sink and w.sink.has("i1")

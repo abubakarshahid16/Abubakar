@@ -158,3 +158,38 @@ def test_finish_item_removes_checkpoint(tmp_path):
         doc="d", item_id="i", finding={"color": "RED"}, why="recorded", usd=0, steps=1
     )
     assert not (tmp_path / "i.ckpt.json").exists()
+
+
+def test_symlink_into_a_git_tree_is_refused(tmp_path):
+    tree = tmp_path / "work"
+    (tree / "sub").mkdir(parents=True)
+    (tree / ".git").mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(tree / "sub")
+    with pytest.raises(at.UnsafeRoot):
+        at.resolve_root(link)
+
+
+def test_symlink_into_this_repo_is_refused(tmp_path):
+    link = tmp_path / "toRepo"
+    link.symlink_to(at.REPO_ROOT / "docs")
+    with pytest.raises(at.UnsafeRoot):
+        at.resolve_root(link)
+
+
+@pytest.mark.parametrize("kind", ["dir", "file"])
+def test_a_parent_holding_a_dot_git_is_refused(tmp_path, kind):
+    tree = tmp_path / "other"
+    tree.mkdir()
+    if kind == "dir":
+        (tree / ".git").mkdir()
+    else:
+        (tree / ".git").write_text("gitdir: elsewhere")
+    with pytest.raises(at.UnsafeRoot):
+        at.resolve_root(tree / "out")
+
+
+def test_sink_refuses_a_git_tree(tmp_path):
+    (tmp_path / ".git").mkdir()
+    with pytest.raises(at.UnsafeRoot):
+        at.FindingSink(tmp_path / "run")
