@@ -146,6 +146,7 @@ EGRESS_SAFE: dict[str, object] = {
     "field_naming_enabled": False,  # order 259.5: model-named fields in a review
     "vision_reader_engine": "ollama",  # #830: "claude" sends page images out under per_task
     "answer_judge_enabled": False,  # a model call per answer
+    "ai_senior_review_enabled": False,  # a model call per review item
     "applicability_reasoning_enabled": False,  # a model call per standard per review
     "crs_ai_wording_enabled": False,  # a model call per CRS row per review
     # --- the market lane (market_transport)

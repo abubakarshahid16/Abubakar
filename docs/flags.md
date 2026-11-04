@@ -18,6 +18,7 @@ does not make one.
 | Flag | Default | Kind | Since | Decide by | Note |
 |---|---|---|---|---|---|
 | `agent_review_enabled` | `False` | rollout | 2026-11-04 | 2026-11-18 | Agent proof test (#1690): a lead reviewer agent loop with six tools; off until the owner proves it on the approved test documents |
+| `ai_senior_review_enabled` | `False` | rollout | 2026-11-03 | 2026-11-17 | AI senior review (step 3 of the best CRS, #805): A's checks plus B's AI rows A lacks; off until the scores prove it |
 | `ai_engineering_review_pass_enabled` | `False` | rollout | 2026-11-03 | 2026-11-17 | AI engineering review pass (lane 6): proposes, code verifies; off until the owner proves it |
 | `allow_unauthenticated_network_bind` | `False` | permanent | | | Safety override: serving the network with nobody signing in |
 | `api_docs_enabled` | `False` | permanent | | | Route docs off the developer machine only on purpose |
