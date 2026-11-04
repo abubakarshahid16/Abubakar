@@ -39,7 +39,7 @@ _NOT_MENTIONED = re.compile(
 
 
 class Provider(Protocol):
-    def complete(self, messages: list[dict], tool_specs: list[dict]) -> dict: ...
+    def complete(self, messages: list[dict], _tool_specs: list[dict]) -> dict: ...
 
 
 class FakeProvider:
@@ -50,7 +50,7 @@ class FakeProvider:
         self.usd = usd
         self.calls: list[list[dict]] = []
 
-    def complete(self, messages: list[dict], tool_specs: list[dict]) -> dict:  # noqa: ARG002
+    def complete(self, messages: list[dict], _tool_specs: list[dict]) -> dict:  # noqa: ARG002
         self.calls.append([dict(m) for m in messages])
         if not self.script:
             raise RuntimeError("fake provider script exhausted")
