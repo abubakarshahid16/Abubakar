@@ -60,6 +60,10 @@ def box(allowed=(DOC, STD), editions=None, **kw):
     return ToolBox(ctx, **defaults)
 
 
+DQ = "Working figure: 12 units"
+CQ = "The working figure shall be at least 10 units"
+
+
 def good(**over):
     f = {
         "item": "I-1",
@@ -181,35 +185,133 @@ def test_get_clause_not_held_cases():
 
 def test_compare_unavailable_cannot_decide(monkeypatch):
     monkeypatch.setitem(sys.modules, "app.figure_compare", None)  # import fails
-    r = box().run(
-        "compare_number", {"doc_quote": "12 units", "clause_quote": "10 units"}
-    )
+    r = box().run("compare_number", {"doc_quote": DQ, "clause_quote": CQ})
     assert r["result"]["decided"] is False and r["result"]["verdict"] == "cannot decide"
 
 
 def test_compare_mapping_and_argument_order(monkeypatch):
     seen = []
+    answers = {"12 units": True, "20 units": False}
 
     def fake(doc_quote, clause_quote):
         seen.append((doc_quote, clause_quote))
-        return FigureResult({"a": True, "b": False}.get(doc_quote))
+        return FigureResult(answers.get(doc_quote.split(": ")[1]))
 
     plug_compare(monkeypatch, fake)
     b = box()
     out = {
-        q: b.run("compare_number", {"doc_quote": q, "clause_quote": "C"})["result"]
-        for q in ("a", "b", "c")
+        n: b.run(
+            "compare_number", {"doc_quote": f"Working figure: {n}", "clause_quote": CQ}
+        )["result"]
+        for n in ("12 units", "20 units", "30 units")
     }
-    assert out["a"]["verdict"] == "meets" and out["b"]["verdict"] == "does_not_meet"
-    assert out["c"]["verdict"] == "cannot decide" and out["c"]["decided"] is False
-    assert seen[0] == ("a", "C")  # document quote first, clause quote second
+    assert (
+        out["12 units"]["verdict"] == "meets"
+        and out["20 units"]["verdict"] == "does_not_meet"
+    )
+    assert (
+        out["30 units"]["verdict"] == "cannot decide"
+        and out["30 units"]["decided"] is False
+    )
+    assert seen[0] == (DQ, CQ)  # document quote first, clause quote second
 
 
 def test_compare_other_shapes_cannot_decide(monkeypatch):
     for shape in ("yes", {"decided": True, "verdict": "meets"}, None, 1):
         plug_compare(monkeypatch, lambda a, c, shape=shape: shape)
-        r = box().run("compare_number", {"doc_quote": "a", "clause_quote": "b"})
+        r = box().run("compare_number", {"doc_quote": DQ, "clause_quote": CQ})
         assert r["result"]["decided"] is False
+
+
+def _decide(monkeypatch, doc_quote, clause_quote):
+    """Run compare_number with a figure_compare that would say MEETS to anything: only the subject check can stop it."""
+    calls = []
+
+    def always_meets(d, c):
+        calls.append((d, c))
+        return FigureResult(True)
+
+    plug_compare(monkeypatch, always_meets)
+    r = box().run(
+        "compare_number", {"doc_quote": doc_quote, "clause_quote": clause_quote}
+    )
+    return r["result"], calls
+
+
+@pytest.mark.parametrize(
+    ("doc_quote", "clause_quote"),
+    [
+        (
+            "Corrosion allowance: 3 mm",
+            "Wall thickness shall be at least 2 mm",
+        ),  # the owner's example
+        ("Test pressure: 10 bar", "Design pressure shall not exceed 15 bar"),
+        ("Operating pressure: 10 bar", "Design pressure shall not exceed 15 bar"),
+        (
+            "12 bar",
+            "Design pressure shall not exceed 15 bar",
+        ),  # a bare value has no subject
+        (
+            "Design pressure: 12 bar",
+            "Pressure shall not exceed 15 bar",
+        ),  # extra qualifier, doc side
+        (
+            "Pressure: 12 bar",
+            "Design pressure shall not exceed 15 bar",
+        ),  # extra qualifier, clause side
+        ("Design pressure: 12 bar", "15 bar maximum"),  # empty clause subject
+    ],
+)
+def test_subject_mismatch_cannot_decide_even_if_compare_says_meets(
+    monkeypatch, doc_quote, clause_quote
+):
+    result, calls = _decide(monkeypatch, doc_quote, clause_quote)
+    assert result["decided"] is False and result["verdict"] == "cannot decide"
+    assert result["reason"] == "subject_mismatch" and "doc_subject" in result["detail"]
+    assert calls == []  # figure_compare is never reached
+
+
+def test_subject_mismatch_without_figure_compare_still_cannot_decide(monkeypatch):
+    monkeypatch.setitem(sys.modules, "app.figure_compare", None)
+    r = box().run(
+        "compare_number",
+        {
+            "doc_quote": "Corrosion allowance: 3 mm",
+            "clause_quote": "Wall thickness shall be at least 2 mm",
+        },
+    )
+    assert r["result"]["reason"] == "subject_mismatch"
+
+
+@pytest.mark.parametrize(
+    ("doc_quote", "clause_quote"),
+    [
+        ("Design pressure: 10 bar", "Design pressure shall be at least 8 bar"),
+        (
+            "Design pressures: 12 bar",
+            "The pressure, design, shall not exceed 15 bar",
+        ),  # plural, order, case
+        ("DESIGN PRESSURE = 12 bar", "design pressure must not exceed 15 bar"),
+    ],
+)
+def test_same_subject_goes_to_figure_compare(monkeypatch, doc_quote, clause_quote):
+    result, calls = _decide(monkeypatch, doc_quote, clause_quote)
+    assert result["verdict"] == "meets" and calls == [(doc_quote, clause_quote)]
+
+
+def test_subject_mismatch_blocks_a_pass_finding(monkeypatch):
+    b = box()
+    fig = {
+        "doc_quote": "Corrosion allowance: 3 mm",
+        "clause_quote": "Wall thickness shall be at least 2 mm",
+    }
+    plug_compare(monkeypatch, lambda d, c: FigureResult(True))
+    b.run("compare_number", fig)
+    r = b.run("record_finding", {"finding": good(figures=[fig])})
+    assert (
+        r["result"]["reason"] == "number_not_decided_by_code"
+        and b.ctx.findings.all() == []
+    )
 
 
 def test_record_green_accepted_and_stored():
@@ -251,7 +353,7 @@ def test_refused_findings_not_stored():
 
 def test_numbers_decided_only_by_code(monkeypatch):
     b = box()
-    fig = {"doc_quote": "12 units", "clause_quote": "10 units"}
+    fig = {"doc_quote": DQ, "clause_quote": CQ}
     f = good(figures=[fig])
     assert (
         b.run("record_finding", {"finding": f})["result"]["reason"]
@@ -404,7 +506,7 @@ def test_integration_loop_records_through_real_toolbox(tiny_db, monkeypatch):
     from app import agent_loop
 
     plug_compare(monkeypatch, lambda d, c: FigureResult(True))
-    fig = {"doc_quote": "12 units", "clause_quote": "at least 10 units"}
+    fig = {"doc_quote": DQ, "clause_quote": CQ}
     final = good(doc="sub", figures=[fig])
     provider = agent_loop.FakeProvider(
         [

@@ -26,7 +26,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from . import ai_review_proposals, numparse, standard_ids, subject_scope
+from . import ai_review_proposals, claims, numparse, standard_ids, subject_scope
 from .reader_api import _fold
 
 VERDICTS = ("GREEN", "YELLOW", "RED")
@@ -93,6 +93,48 @@ TOOL_SPECS: list[dict] = [
         "params": {"item": "item id", "reason": "why the engineer must decide"},
     },
 ]
+
+
+#: Words that carry no subject: articles, modals, comparators, requirement words. A CLOSED set: a word not listed here is
+#: part of the subject, so a doubtful case ends as "subject not matched" (cannot decide), never as a pass.
+NEUTRAL_WORDS = frozenset(
+    {
+        "a", "an", "the", "of", "is", "are", "be", "been", "shall", "must", "should", "will", "may", "can", "value", "values",
+        "comparator", "requirement", "at", "least", "most", "more", "less", "than", "not", "no", "exceed", "exceeding",
+        "maximum", "minimum", "max", "min", "required", "limited", "limit", "between", "and", "to", "from", "up", "equal",
+        "greater", "lower", "higher", "above", "below", "under", "over", "have", "has", "with", "for", "in", "by",
+    }
+)  # fmt: skip
+_FIRST_NUMBER = re.compile(r"[-+\u2212]?\d")
+
+
+def _stem(word: str) -> str:
+    """Plain inflections only (-ies, -es, -s, -ed, -ing); the same on both sides, so only equality matters."""
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 4 and word.endswith(("sses", "xes", "ches", "shes", "zes")):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        return word[:-1]
+    if len(word) > 5 and word.endswith("ing"):
+        return word[:-3]
+    if len(word) > 4 and word.endswith("ed"):
+        return word[:-2]
+    return word
+
+
+def subject_words(quote: str) -> frozenset[str]:
+    """The subject of a quoted figure: the content words BEFORE its first number (its label), lowercased, punctuation
+    stripped, inflections folded, neutral and unit words removed. A bare value has an empty subject."""
+    found = _FIRST_NUMBER.search(quote)
+    label = quote[: found.start()] if found else quote
+    out = set()
+    for raw in re.findall(r"[a-z]+", label.lower()):
+        word = _stem(raw)
+        if raw in NEUTRAL_WORDS or word in NEUTRAL_WORDS or claims.is_unit(raw):
+            continue
+        out.add(word)
+    return frozenset(out)
 
 
 class FindingStore(Protocol):
@@ -435,6 +477,23 @@ class ToolBox:
             or not clause_quote.strip()
         ):
             return _refuse("quotes_missing")
+        doc_subject, clause_subject = (
+            subject_words(doc_quote),
+            subject_words(clause_quote),
+        )
+        if not doc_subject or doc_subject != clause_subject:
+            # BEFORE figure_compare, whether or not it is importable: a figure is compared only with the same subject
+            outcome = {
+                "decided": False,
+                "verdict": "cannot decide",
+                "reason": "subject_mismatch",
+                "detail": {
+                    "doc_subject": sorted(doc_subject),
+                    "clause_subject": sorted(clause_subject),
+                },
+            }
+            self._compares[(doc_quote.strip(), clause_quote.strip())] = outcome
+            return _res(True, outcome)
         try:
             outcome = self._normalise_compare(
                 self._call_figure_compare(doc_quote, clause_quote)
