@@ -95,3 +95,66 @@ def test_checkpoint_roundtrip_removed_on_done(tmp_path):
     assert w.load_checkpoint("x") == [{"tool": "search"}]
     w.mark_done("x", "GREEN")
     assert w.load_checkpoint("x") == []
+
+
+def test_reason_withheld_when_it_has_a_quote_mark(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    w.step(
+        doc="d",
+        item_id="i",
+        step=1,
+        tool="search",
+        args={},
+        result={"ok": True},
+        reason='he said "x" ok',
+    )
+    assert "reason withheld" in (tmp_path / "live.log").read_text()
+    assert "he said" not in (tmp_path / "i.trace.jsonl").read_text()
+
+
+def test_reason_withheld_when_13_words_copied_from_a_result(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    src = " ".join(f"w{i}" for i in range(30))
+    w.step(
+        doc="d",
+        item_id="i",
+        step=1,
+        tool="open_page",
+        args={},
+        result={"ok": True, "result": {"t": src}},
+        reason=" ".join(f"w{i}" for i in range(5, 18)),
+    )
+    w.step(
+        doc="d",
+        item_id="i",
+        step=2,
+        tool="search",
+        args={},
+        result={"ok": True},
+        reason=" ".join(f"w{i}" for i in range(5, 17)),
+    )
+    lines = (tmp_path / "live.log").read_text().splitlines()
+    assert "reason=reason withheld" in lines[0] and "reason withheld" not in lines[1]
+
+
+def test_reason_is_capped_at_160_chars(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    assert len(w.clean_reason("i", "x" * 400)) == 160
+
+
+def test_problem_line_in_live_log(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    w.problem("unknown tool zz", doc="d", item_id="i")
+    assert (
+        "PROBLEM" in (tmp_path / "live.log").read_text()
+        and "unknown tool zz" in w.refresh_live().read_text()
+    )
+
+
+def test_finish_item_removes_checkpoint(tmp_path):
+    w = at.TraceWriter(tmp_path)
+    w.save_checkpoint("i", [])
+    w.finish_item(
+        doc="d", item_id="i", finding={"color": "RED"}, why="recorded", usd=0, steps=1
+    )
+    assert not (tmp_path / "i.ckpt.json").exists()
