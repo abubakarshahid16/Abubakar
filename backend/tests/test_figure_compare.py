@@ -476,15 +476,15 @@ def _fuzz_variants(sentence):
     original = _numbers(sentence)
     for i in range(max(0, first - 2), min(len(tokens), first + 1 + 3) + 1):
         for noise in _FUZZ_NOISE:
-            made = [" ".join(tokens[:i] + [noise] + tokens[i:])]  # a token of its own
+            made = [" ".join([*tokens[:i], noise, *tokens[i:]])]  # a token of its own
             if not noise[0].isalnum():
                 if i > 0:  # glued to the token before
                     made.append(
-                        " ".join(tokens[: i - 1] + [tokens[i - 1] + noise] + tokens[i:])
+                        " ".join([*tokens[: i - 1], tokens[i - 1] + noise, *tokens[i:]])
                     )
                 if i < len(tokens):  # glued in front of the token after
                     made.append(
-                        " ".join(tokens[:i] + [noise + tokens[i]] + tokens[i + 1 :])
+                        " ".join([*tokens[:i], noise + tokens[i], *tokens[i + 1 :]])
                     )
             for text in made:
                 found = _numbers(text)
