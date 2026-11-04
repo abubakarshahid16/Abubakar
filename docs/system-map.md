@@ -20,6 +20,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 
 | Module | Job |
 |---|---|
+| `agent_tools` | Agent reviewer tools: open page, search, get clause, compare number, record finding, ask engineer (#1690) |
 | `absence` | ONE RULE FOR ABSENCE (#450, #451): not found is never a positive outcome |
 | `access` | Request-scoped authorisation. Computed once, server-side, per request |
 | `acronyms` | Acronym expansions harvested from the documents themselves |
