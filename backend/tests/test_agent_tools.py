@@ -220,7 +220,7 @@ def test_record_green_accepted_and_stored():
         and r["result"]["verdict"] == "accepted"
         and r["result"]["accepted"] is True
     )
-    assert len(b.ctx.findings) == 1 and {"doc": DOC, "page": 1} in r["cites"]
+    assert len(b.ctx.findings.all()) == 1 and {"doc": DOC, "page": 1} in r["cites"]
 
 
 def test_green_without_document_quote_refused():
@@ -231,7 +231,7 @@ def test_green_without_document_quote_refused():
         and r["result"]["verdict"] == "refused"
         and r["result"]["accepted"] is False
     )
-    assert b.ctx.findings == []
+    assert b.ctx.findings.all() == []
 
 
 def test_refused_findings_not_stored():
@@ -246,7 +246,7 @@ def test_refused_findings_not_stored():
         good(color="BLUE"),
     ):
         assert b.run("record_finding", {"finding": bad})["result"]["accepted"] is False
-    assert b.ctx.findings == []
+    assert b.ctx.findings.all() == []
 
 
 def test_numbers_decided_only_by_code(monkeypatch):
@@ -263,7 +263,7 @@ def test_numbers_decided_only_by_code(monkeypatch):
         b.run("record_finding", {"finding": f})["result"]["reason"]
         == "verdict_disagrees_with_code_comparison"
     )
-    assert b.ctx.findings == []
+    assert b.ctx.findings.all() == []
     plug_compare(monkeypatch, lambda d, c: FigureResult(True))
     b.run("compare_number", fig)
     assert b.run("record_finding", {"finding": f})["result"]["accepted"] is True
@@ -272,7 +272,9 @@ def test_numbers_decided_only_by_code(monkeypatch):
 def test_confidence_high_refused_absent_allowed():
     b = box()
     r = b.run("record_finding", {"finding": good(confidence="high")})
-    assert r["result"]["reason"] == "confidence_never_high" and b.ctx.findings == []
+    assert (
+        r["result"]["reason"] == "confidence_never_high" and b.ctx.findings.all() == []
+    )
     assert (
         b.run("record_finding", {"finding": good(confidence="HIGH")})["result"][
             "accepted"
@@ -290,7 +292,9 @@ def test_record_finding_scope_refused_before_anything_else():
         "record_finding",
         {"finding": good(doc=OTHER, page=1, doc_quote="Hidden words about")},
     )
-    assert r["result"]["reason"] == "document_not_in_scope" and b.ctx.findings == []
+    assert (
+        r["result"]["reason"] == "document_not_in_scope" and b.ctx.findings.all() == []
+    )
     r = b.run(
         "record_finding", {"finding": {"item": "I-1", "color": "YELLOW", "doc": OTHER}}
     )
@@ -310,13 +314,16 @@ def test_color_verdict_alias_and_conflict_and_required():
         f = good()
         f.pop(missing)
         assert b.run("record_finding", {"finding": f})["result"]["accepted"] is False
-    assert len(b.ctx.findings) == 1
+    assert len(b.ctx.findings.all()) == 1
 
 
 def test_stored_finding_uses_canonical_keys():
     b = box()
     b.run("record_finding", {"finding": good()})
-    assert b.ctx.findings[0]["color"] == "GREEN" and "verdict" not in b.ctx.findings[0]
+    assert (
+        b.ctx.findings.all()[0]["color"] == "GREEN"
+        and "verdict" not in b.ctx.findings.all()[0]
+    )
 
 
 def test_tool_specs_on_class():
@@ -413,7 +420,7 @@ def test_integration_loop_records_through_real_toolbox(tiny_db, monkeypatch):
         {"id": "I-1", "doc": "sub"}, {}, box, provider, usd_cap=1.0
     )
     assert out["why"] == "recorded" and out["finding"]["color"] == "GREEN"
-    assert [f["item"] for f in box.ctx.findings] == ["I-1"]
+    assert [f["item"] for f in box.ctx.findings.all()] == ["I-1"]
 
 
 def test_integration_out_of_scope_document_never_recorded(tiny_db):
@@ -435,9 +442,38 @@ def test_integration_out_of_scope_document_never_recorded(tiny_db):
     out = agent_loop.run_item(
         {"id": "I-1", "doc": "sub"}, {}, box, provider, usd_cap=1.0, max_steps=4
     )
-    assert box.ctx.findings == []
+    assert box.ctx.findings.all() == []
     assert out["finding"]["color"] == "YELLOW"
     tool_replies = [
         m for call in provider.calls for m in call if m.get("role") == "tool"
     ]
     assert tool_replies and all("Hidden" not in str(m) for m in tool_replies)
+
+
+def test_second_record_for_same_item_refused_first_stays():
+    b = box()
+    assert b.run("record_finding", {"finding": good()})["result"]["accepted"] is True
+    again = b.run(
+        "record_finding", {"finding": good(color="YELLOW", reason="changed my mind")}
+    )
+    assert again["ok"] is False and again["result"]["reason"] == "already recorded"
+    assert (
+        len(b.ctx.findings.all()) == 1 and b.ctx.findings.get("I-1")["color"] == "GREEN"
+    )
+
+
+def test_refused_first_record_does_not_block_a_later_good_one():
+    b = box()
+    assert (
+        b.run(
+            "record_finding", {"finding": good(doc_quote="nothing like the page text")}
+        )["ok"]
+        is False
+    )
+    assert b.run("record_finding", {"finding": good()})["ok"] is True
+
+
+def test_findings_is_a_store_not_a_list():
+    assert not isinstance(box().ctx.findings, list)
+    for name in ("add", "get", "has", "all"):
+        assert callable(getattr(box().ctx.findings, name))

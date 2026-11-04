@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from . import ai_review_proposals, numparse, standard_ids, subject_scope
 from .reader_api import _fold
@@ -94,6 +95,37 @@ TOOL_SPECS: list[dict] = [
 ]
 
 
+class FindingStore(Protocol):
+    """Where accepted findings are kept. The loop's `agent_trace.FindingSink` (on disk) and `InMemoryFindings` fit it."""
+
+    def add(self, item_id: str, finding: dict) -> None: ...
+
+    def get(self, item_id: str) -> dict | None: ...
+
+    def has(self, item_id: str) -> bool: ...
+
+    def all(self) -> list[dict]: ...
+
+
+class InMemoryFindings:
+    """Default store, for tests and dry runs. Nothing survives the process."""
+
+    def __init__(self) -> None:
+        self._by_item: dict[str, dict] = {}
+
+    def add(self, item_id: str, finding: dict) -> None:
+        self._by_item[item_id] = finding
+
+    def get(self, item_id: str) -> dict | None:
+        return self._by_item.get(item_id)
+
+    def has(self, item_id: str) -> bool:
+        return item_id in self._by_item
+
+    def all(self) -> list[dict]:
+        return list(self._by_item.values())
+
+
 @dataclass
 class ToolContext:
     """What a tool may touch. `allowed_document_ids` is the ONLY door to document text (rule 5)."""
@@ -103,7 +135,9 @@ class ToolContext:
     editions: Mapping[str, str] = field(
         default_factory=dict
     )  # standard -> contract edition
-    findings: list[dict] = field(default_factory=list)  # sink: accepted findings only
+    findings: FindingStore = field(
+        default_factory=InMemoryFindings
+    )  # sink: accepted findings only
     queries: list[dict] = field(default_factory=list)  # sink: engineer query rows
 
     def __post_init__(self) -> None:
@@ -461,7 +495,7 @@ class ToolBox:
             )
             if finding.get(k) not in (None, "")  # null renders as nothing, never 0
         }
-        self.ctx.findings.append(stored)
+        self.ctx.findings.add(str(stored["item"]), stored)
         cites = []
         if stored.get("doc") and stored.get("page"):
             cites.append({"doc": stored["doc"], "page": stored["page"]})
@@ -485,6 +519,8 @@ class ToolBox:
         verdict = self._colour(f)
         if not item:
             return "item_missing"
+        if self.ctx.findings.has(item):
+            return "already recorded"  # the first record stays
         if verdict not in VERDICTS:
             return "color_not_green_yellow_red_or_conflicting"
         if not f.get("doc"):
