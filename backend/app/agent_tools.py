@@ -119,7 +119,7 @@ def _stem(word: str) -> str:
     return word
 
 
-_NUMBER_TOKEN = re.compile(
+_FIGURE_TOKEN = re.compile(
     r"\d+(?:[.,]\d+)*|[\u00bc-\u00be\u2150-\u215e]|\b(?:"
     + "|".join(sorted(ai_review_proposals.NUMBER_WORDS))
     + r")\b",
@@ -158,7 +158,7 @@ def subject_ambiguous(quote: str) -> bool:
     """More than one number in the quote (so the figure's own number cannot be told from a number inside its label), or a
     number that names a kind ("Class 150"). Such a quote is never compared."""
     return (
-        len(_NUMBER_TOKEN.findall(quote)) > 1
+        len(_FIGURE_TOKEN.findall(quote)) > 1
         or bool(_LABEL_NUMBER.search(quote))
         or _has_short_label(quote)
     )
