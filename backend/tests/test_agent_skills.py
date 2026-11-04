@@ -1,4 +1,5 @@
 """Skill loader tests (#1690). Only the made-up sample and tmp dirs are used."""
+
 import copy
 import json
 from pathlib import Path
@@ -26,8 +27,15 @@ def test_loads_sample_from_env_dir(tmp_path, monkeypatch):
 
 def test_items_in_order_uses_order_field_and_n(tmp_path, monkeypatch):
     _put(tmp_path, monkeypatch, _data())
-    assert [i["id"] for i in sk.items_in_order("equipment_datasheet")] == ["W-1", "W-2", "W-3"]
-    assert [i["id"] for i in sk.items_in_order("equipment_datasheet", 2)] == ["W-1", "W-2"]
+    assert [i["id"] for i in sk.items_in_order("equipment_datasheet")] == [
+        "W-1",
+        "W-2",
+        "W-3",
+    ]
+    assert [i["id"] for i in sk.items_in_order("equipment_datasheet", 2)] == [
+        "W-1",
+        "W-2",
+    ]
     assert sk.items_in_order("equipment_datasheet", 0) == []
 
 

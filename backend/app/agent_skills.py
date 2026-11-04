@@ -8,6 +8,7 @@ lives inside this git repository, and refuses any item field longer than
 MAX_FIELD_CHARS, so skills stay playbooks and cannot hold copied standard text.
 No skill text is logged.
 """
+
 from __future__ import annotations
 
 import json
@@ -58,7 +59,9 @@ def validate_skill(data: object, kind: str | None = None) -> dict:
             if not isinstance(val, str) or not val.strip():
                 raise SkillError(f"item {idx} field {key} must be a non-empty string")
             if len(val) > MAX_FIELD_CHARS:
-                raise SkillError(f"item {idx} field {key} is longer than {MAX_FIELD_CHARS} characters")
+                raise SkillError(
+                    f"item {idx} field {key} is longer than {MAX_FIELD_CHARS} characters"
+                )
         if not isinstance(it["order"], int) or isinstance(it["order"], bool):
             raise SkillError(f"item {idx} order must be an integer")
         refs = it["clause_refs"]
@@ -66,7 +69,9 @@ def validate_skill(data: object, kind: str | None = None) -> dict:
             raise SkillError(f"item {idx} clause_refs must be a list")
         for ref in refs:
             if not isinstance(ref, dict) or not all(
-                isinstance(ref.get(k), str) and ref.get(k) and len(ref[k]) <= MAX_FIELD_CHARS
+                isinstance(ref.get(k), str)
+                and ref.get(k)
+                and len(ref[k]) <= MAX_FIELD_CHARS
                 for k in ("standard", "clause")
             ):
                 raise SkillError(f"item {idx} has a bad clause_refs entry")
