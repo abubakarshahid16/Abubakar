@@ -587,6 +587,22 @@ def _guard(local, claude, consent, allowed):
     return stack
 
 
+def _save_meta(run_root, trace, meta, lead, second, seconds) -> dict:
+    """Minutes so far and the model names the responses reported, saved after every item."""
+    meta = {
+        "seconds": seconds,
+        "lead_models": sorted(set(meta.get("lead_models", [])) | lead.models),
+        "opinion_models": sorted(
+            set(meta.get("opinion_models", []))
+            | {v.get("model") or UNKNOWN for v in second.values()}
+        ),
+    }
+    _write_json(run_root / FILES["meta"], meta)
+    names = ", ".join(meta["lead_models"]) or "not reported by the provider"
+    trace.set_live(model=names)
+    return meta
+
+
 def fatal_problem(exc: BaseException) -> str:
     """The PROBLEM words of a fatal stop: from its code only, never a message."""
     code = str(getattr(exc, "code", "") or "")
@@ -659,17 +675,13 @@ def _drive(
             ):
                 second[iid] = ask_second_opinion(other, finding, trace)
                 _write_json(run_root / FILES["second"], second)
-            meta = {
-                "seconds": base_seconds + time.time() - started,
-                "lead_models": sorted(set(meta.get("lead_models", [])) | lead.models),
-                "opinion_models": sorted(
-                    set(meta.get("opinion_models", []))
-                    | {v.get("model") or UNKNOWN for v in second.values()}
-                ),
-            }
-            _write_json(run_root / FILES["meta"], meta)
-            trace.set_live(
-                model=", ".join(meta["lead_models"]) or "not reported by the provider"
+            meta = _save_meta(
+                run_root,
+                trace,
+                meta,
+                lead,
+                second,
+                base_seconds + time.time() - started,
             )
             if len(trace.completed) % 10 == 0 and on_status:
                 trace.refresh_live()
