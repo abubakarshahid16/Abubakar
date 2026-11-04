@@ -157,6 +157,10 @@ class SettingsExt(BaseModel):
     #: unknown / undecided keeps today's behaviour, marked. OFF: nothing changes.
     #: Env: KIND_CHOOSES_RULES_ENABLED.
     kind_chooses_rules_enabled: bool = True
+    #: Standards by ROLE and document KIND (`kind_standards.py`, `reference/standard_roles.json`, owner order 3 Nov): a
+    #: procedure or study leaves out equipment design standards and says so in the run note; the method standards it
+    #: needs, when not held, are named once. OFF: nothing changes. Env: STANDARD_ROLES_BY_KIND_ENABLED.
+    standard_roles_by_kind_enabled: bool = False
     #: Rules by equipment scope (`equipment_scope.py`): a rule whose own scope (its single-equipment
     #: standard, or its document kind) names a DIFFERENT equipment type or
     #: kind than the submittal's is left out and counted in a note; unknown scope stays in. Narrowing
@@ -354,6 +358,11 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Test B / HAZOP (part of #805): the playbook review indexes attachment, appendix, annex, table and item titles
+    #: at review time (in memory, nothing stored), so an element whose section is an attachment is found; a title
+    #: is about an element only through a cue that is not a generic title word; a partial own-section hit says
+    #: "the closest section", never "a section of its own was found". OFF: as it was. Env: SECTION_INDEX_ENABLED.
+    section_index_enabled: bool = False
     #: Owner 3 Nov (test B): a part printed alone in a materials list ("IMPELLER: <material>") or a seal stated in a
     #: sentence fills its field (impeller / shaft / casing material, seal type) when ALL of `part_name_roles`'s
     #: strict rules hold, in the form reader's label gate and in the stored-facts check. OFF: as it was.
@@ -408,6 +417,12 @@ class SettingsExt(BaseModel):
     #: no approval and is not a decided rule, and is named "stated, not checked". OFF: a
     #: Pass like any other. Env: PRESENCE_NOT_PASS_ENABLED.
     presence_not_pass_enabled: bool = False
+    #: Part of #805, 3 Nov: two DRAFT relief-valve process items (fluid phase, sour service; the
+    #: governing relief case is already PSV-S05) are added to the checklist. They carry status "draft
+    #: (engineer to approve)": a missing value is "Not stated ... Contractor to provide", a stated value
+    #: gives no verdict, sour service stated "yes" is a Query for materials. OFF: the checklist is
+    #: byte-identical. Env: DRAFT_PROCESS_ITEMS_ENABLED.
+    draft_process_items_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion
@@ -480,3 +495,7 @@ class SettingsExt(BaseModel):
     ai_engineering_review_pass_enabled: bool = False
     ai_engineering_review_pass_engine: str = "ollama"
     ai_engineering_review_pass_timeout_s: float = 300.0
+
+    #: Agent proof test (#1690, part of #805): a lead reviewer agent loop (`agent_loop`) with tools. OFF by default.
+    #: Env: AGENT_REVIEW_ENABLED. Claude calls go only through reader_transport and claude_spend.metered.
+    agent_review_enabled: bool = False

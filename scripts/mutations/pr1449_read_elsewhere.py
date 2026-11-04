@@ -10,8 +10,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1449,
         description="the pass is never applied: a value read for other tags is still reported as not read",
         path=APP / "datasheet_checks.py",
-        anchor="results = read_elsewhere.soften(results)",
-        replacement="results = results",
+        # re-anchored (Part of #805): the line also drops a draft item's stated value
+        anchor="read_elsewhere.soften(results)",
+        replacement="results",
         target=TARGET,
         keyword="stored_finding_says",
         tags=("honesty",),
