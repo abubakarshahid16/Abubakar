@@ -492,10 +492,7 @@ def run_review(
     toolbox_factory: Callable[[dict, Readers], Any] | None = None,
     on_status: Callable[[agent_trace.TraceWriter], None] | None = None,
 ) -> dict:
-    """Run one document through the agent on a database COPY and write the local result files.
-
-    `local=True` (a local model) takes the shared heavy-job lock; a Claude run does not. Returns the summary dict.
-    """
+    """Run one document on a database COPY; write the local result files. `local` takes the heavy lock."""
     conn = open_readonly(db_copy_path)
     try:
         wanted = get_skill(skill_kind, skill)
@@ -538,9 +535,7 @@ def run_review(
                 (ledger or _ledger_default) if claude else None,
                 total_cap_usd,
             )
-        lead.close()
-        if other:
-            other.close()
+        _close(lead, other)
         return _finish(
             chosen,
             document_id,
@@ -553,6 +548,12 @@ def run_review(
         )
     finally:
         conn.close()
+
+
+def _close(*recorders):
+    for r in recorders:
+        if r:
+            r.close()
 
 
 def _scope_for(conn, trace, document_id, edition_map, claude, documents):
