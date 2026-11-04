@@ -14,6 +14,14 @@ export interface ReviewProgressDetail {
   clauses_done?: number | null;
   clauses_total?: number | null;
   clauses_elapsed_seconds?: number | null;
+  /** The step the review is on, 1 to `steps_total` (4); null when the row does not say. */
+  step?: number | null;
+  steps_total: number;
+  /** Step 3's own count: requirements the comparison has finished of all it will compare; null outside step 3. */
+  requirements_done?: number | null;
+  requirements_total?: number | null;
+  /** Seconds since this sub-step (the page, the requirement batch, the step) last reported; null when unknown. */
+  substep_seconds?: number | null;
   elapsed_seconds?: number | null;
   idle_seconds?: number | null;
   stall_amber_seconds: number;

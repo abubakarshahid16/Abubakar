@@ -71,6 +71,41 @@ def clause(number: int, total: int) -> None:
         )
 
 
+_report_requirement: ContextVar[Callable[[int, int], None] | None] = ContextVar(
+    "job_progress_report_requirement", default=None
+)
+
+
+@contextlib.contextmanager
+def reporting_requirements(callback: Callable[[int, int], None]) -> Iterator[None]:
+    """Send `requirement(number, total)` calls to `callback` inside this block."""
+    token = _report_requirement.set(callback)
+    try:
+        yield
+    finally:
+        _report_requirement.reset(token)
+
+
+def counting(items):
+    """Yield every item of `items` UNCHANGED and in order, telling the callback "starting `number` of `total`" before
+    each. DISPLAY ONLY: no callback means a plain pass-through, and a callback that fails is logged and ignored, so
+    the comparison's decisions never depend on it."""
+    total = len(items)
+    callback = _report_requirement.get()
+    for number, item in enumerate(items, start=1):
+        if callback is not None:
+            try:
+                callback(number, total)
+            except Exception as exc:  # noqa: BLE001 - a progress line never changes a comparison
+                callback = None
+                errors.fell_back(
+                    "job_progress: requirement progress not recorded; comparison goes on",
+                    exc,
+                    None,
+                )
+        yield item
+
+
 #: Which page of how many the reader is on, kept for `logged` (REVIEW_DEBUG).
 _where: ContextVar[tuple[int, int] | None] = ContextVar(
     "job_progress_where", default=None
