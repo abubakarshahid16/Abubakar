@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import blank_markers, claims, comparators, numparse
+from . import blank_markers, claims, comparators
 
 _NEGATED = re.compile(
     r"\b(?:not|no|none|nil|without|excluded|exclud\w*|omitted|deleted|void|spare|by\s+others|n/?a)\b",
@@ -103,10 +103,8 @@ _SIGN_WORD = re.compile(
 _REFERENCE_TOKEN = re.compile(
     r"^\s*\(?\s*\b(?:g|ga|gage|gauge|a|abs|absolute)\b\s*\)?", re.IGNORECASE
 )
-# structural guard: the figure must be ONE clean token. A digit group beside it across a space, a no-break space, a thin space,
-# an apostrophe, a period or a comma ("1 000", "1'000") is a thousands mark or a list; a sign character glued to it or one token before it
-# ("+10", "- 10", "\u00b110") is an offset or a sign the code does not read.
-_DIGIT_GROUP_BEFORE = re.compile(r"\d[\s'\u2019\u00b7.,]{1,2}$")
+# structural guard: a sign character glued to the figure or one token before it ("+10", "- 10", "\u00b110") is an offset or a sign the code does
+# not read. (A digit group beside the figure, "1 000", is caught by the one-number rule.)
 _SIGN_BEFORE = re.compile(r"[+\-\u2212\u2013\u2014\u00b1]\s*$")
 _MEGA_OK = re.compile(r"^MPa[ga]?$")
 # an approximation word before or after the CLAUSE figure (the document side has its own, wider, list)
@@ -119,8 +117,32 @@ _CLOSER = re.compile(
     re.IGNORECASE,
 )
 _OR_CLOSER = re.compile(r"or\s+(?:more|less|greater|higher|lower)$", re.IGNORECASE)
+# one-number rule: the clause and the document quote each hold exactly ONE number (digit run, or number word); a second number
+# anywhere is a condition, a class, a count, a product or a power the code does not read. Superscript digits and ^ x * are never read.
+_NUMBER_TOKEN = re.compile(r"[\d\u00bc-\u00be\u2150-\u218f\u2460-\u24ff]+(?:[.,]\d+)?")
+_NUMBER_WORD = re.compile(
+    r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
+    r"nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|half|twice|double|triple|dozen|pair)\b",
+    re.IGNORECASE,
+)
+_OPERATOR_OR_POWER = re.compile(
+    r"[\^\u00d7*\u00b2\u00b3\u00b9\u2070-\u2079\u2080-\u2089]"
+)
+# advisory and hedge words: a recommendation is not a requirement, an estimate is not a figure
+_HEDGE = re.compile(
+    r"\b(?:should|preferably|prefer\w*|recommend\w*|may|might|can|could|would|typically|normally|generally|usually|ordinarily|ideally|"
+    r"desirable|about|around|circa|approx\w*|nominal|typical\w*|up\s+to)\b|\bc\.",
+    re.IGNORECASE,
+)
+# lead-in rule: what stands before the comparator is a plain subject phrase, not a condition
+_STARTS_WITH_CONDITION = re.compile(
+    r"^\W*(?:for|in|on|at|with|during|when|where|whenever|if|under|upon|after|before|while|unless|until|as|by|from|of|without|per|"
+    r"within|between|among|except|provided|subject)\b",
+    re.IGNORECASE,
+)
+_LEAD_IN_BREAK = re.compile(r"[,;:()\[\]{}]|\.\s")
+_LEAD_IN_WORDS = 6
 _PUNCTUATION_ONLY = re.compile(r"^[\s)\]\[(.,;:]*$")
-_SHORT_SUBJECT_WORDS = 12
 
 
 def _tail_after_figure(text: str, closers: bool) -> str | None:
@@ -141,8 +163,6 @@ def _figure_token_refusal(text: str) -> str | None:
     """The figure is not one clean token (a digit group or a sign beside it) or its unit is spelled in a case that changes its meaning."""
     for m in _FIGURE_UNIT.finditer(text):
         before = text[: m.start()]
-        if _DIGIT_GROUP_BEFORE.search(before):
-            return "a digit group stands beside the figure (a thousands mark or a list)"
         if _SIGN_BEFORE.search(before):
             return "a sign stands beside the figure (an offset or a negative value)"
         unit = m.group("unit")
@@ -151,7 +171,37 @@ def _figure_token_refusal(text: str) -> str | None:
     return None
 
 
+def _structure_refusal(text: str) -> str | None:
+    """More than one number, a power or product mark, or an advisory word anywhere in the quote."""
+    rest = _FIGURE_UNIT.sub(" N ", text)
+    if _OPERATOR_OR_POWER.search(rest):
+        return "a power, a product mark or a superscript digit stands near the figure"
+    numbers = len(_NUMBER_TOKEN.findall(rest)) + len(_NUMBER_WORD.findall(rest))
+    numbers += rest.count(" N ")
+    if numbers != 1:
+        return "the quote holds no figure or more than one number (a class, a count, a product or a condition)"
+    if _HEDGE.search(text):
+        return "the quote holds an advisory or hedge word (should, may, about ...)"
+    return None
+
+
+def _lead_in_refusal(clause: str) -> str | None:
+    figure_start = _FIGURE_UNIT.search(clause).start()
+    word = _DIRECTION_WORD.search(clause)
+    lead = clause[: min(figure_start, word.start()) if word else figure_start]
+    if (
+        _LEAD_IN_BREAK.search(lead)
+        or len(lead.split()) > _LEAD_IN_WORDS
+        or _STARTS_WITH_CONDITION.match(lead)
+    ):
+        return "the clause starts with a condition or a long or split lead-in"
+    return None
+
+
 def _whitelist_refusal(text: str, clause: bool) -> str | None:
+    refusal = _structure_refusal(text)
+    if refusal:
+        return refusal
     refusal = _figure_token_refusal(text)
     if refusal:
         return refusal
@@ -161,10 +211,7 @@ def _whitelist_refusal(text: str, clause: bool) -> str | None:
     if tail is None or not _PUNCTUATION_ONLY.match(tail):
         return "text or a mark stands after the figure and its unit that the code does not read"
     if clause:
-        found = list(_FIGURE_UNIT.finditer(text))
-        prefix = text[: found[0].start()]
-        if re.search(r"[,;]", prefix) or len(prefix.split()) > _SHORT_SUBJECT_WORDS:
-            return "the clause has a long or split lead-in before the figure"
+        return _lead_in_refusal(text)
     return None
 
 
@@ -257,11 +304,6 @@ def compare(document_quote: str, clause_quote: str) -> FigureResult | None:
     if blank_markers.names_a_marker(text) or _NEGATED.search(text):
         return _undecided(
             "the document quote is a placeholder or a negation", direction
-        )
-    if len({numparse.canonical(n) for n in numparse.find_numbers(text)}) != 1:
-        return _undecided(
-            "the document quote holds no figure or several figures (a range or a list)",
-            direction,
         )
     printed = [
         m

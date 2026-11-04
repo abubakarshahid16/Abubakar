@@ -210,7 +210,6 @@ def test_defect6_one_direction_with_two_units_still_decides():
         ("50 degC", "at most 100 K"),  # temperature offset units
         ("50 degC", "at most 100 degF"),
         ("5 %", "at least 3 ppm"),  # percent against absolute
-        ("5 m3/h", "at least 3 m3/day"),  # per hour against per day
         ("5 m3/h", "at least 3 m3"),
     ],
 )
@@ -461,6 +460,8 @@ _FUZZ_NOISE = [
     "\u00a0", "\u202f", "\u2009", "*", "\u00b9", "\u00b2", "\u2020", "(1)", "[2]", "(see note)", "(g)", "(a)",
     "g", "a", "abs", "gauge", "unless", "except", "or", "and", "if", "when", "where", "not", "no", "less", "more",
     "than", "or less", "or more", "at", "for", "per", "each", "excl.", "save", "in winter", "000 kPa",
+    "x", "\u00d7", "^", "2 x", "10^2", "2*10", "during 3 cycles", "for Class 150", "In sour service", "with 3 bearings", "on 3 pumps",
+    "two", "twice", "double", "half", "should", "preferably", "c.", "recommended", "normally", "may", "typically", "up to",
 ]  # fmt: skip
 
 
@@ -505,3 +506,181 @@ def test_fuzz_noise_beside_the_figure_never_gives_the_opposite_verdict():
             if result is not None and result.verdict not in (None, expected):
                 wrong.append((document, noisy))
     assert not wrong, wrong[:20]
+
+
+# --- #1689 fourth review: one number, a plain lead-in, no advisory words (invented text) ---
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "at most 10^2 bar",
+        "at most 2 x 10 bar",
+        "at most 2 \u00d7 10 bar",
+        "at most 2*10 bar",
+        "at most 2 ** 10 bar",
+        "at most 10\u00b2 bar",
+        "at most two times 10 bar",
+        "at most twice 10 bar",
+        "at most half of 10 bar",
+        "at most double 10 bar",
+        "at most 5 x 10 bar",
+        "at least 3 x 4 bar",
+    ],
+)
+def test_a_power_or_a_product_in_the_clause_is_not_decided(clause):
+    result = fc.compare(
+        "12 bar", clause
+    )  # None: the clause shows no readable figure at all
+    assert result is None or result.verdict is None
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "not exceed 10 bar during 3 cycles",
+        "not exceed 10 bar for the first 3 years",
+        "not exceed 10 bar on 3 pumps",
+        "not exceed 10 bar with 3 bearings",
+        "not exceed 10 bar after 2 hours",
+        "not exceed 10 bar in 3 stages",
+        "not exceed 10 bar for ten years",
+        "not exceed 10 bar at 2 sites",
+        "at least 10 bar per 3 units",
+        "at least 10 bar over 5 days",
+    ],
+)
+def test_a_second_number_in_the_clause_tail_is_not_decided(clause):
+    _undecided("8 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "For Class 150 flanges pressure shall not exceed 10 bar",
+        "In sour service pressure shall not exceed 10 bar",
+        "Class 150: pressure shall not exceed 10 bar",
+        "For flanges pressure shall not exceed 10 bar",
+        "In sour service pressure shall not exceed 10 bar",
+        "During start-up pressure shall not exceed 10 bar",
+        "Under test pressure shall not exceed 10 bar",
+        "With the lid closed pressure shall not exceed 10 bar",
+        "After cooling the pressure shall not exceed 10 bar",
+        "Where fitted the pressure shall not exceed 10 bar",
+        "Per the data sheet the pressure shall not exceed 10 bar",
+        "The pressure of the line to the north pump house inlet shall not exceed 10 bar",
+    ],
+)
+def test_a_condition_or_long_lead_in_without_a_comma_is_not_decided(clause):
+    _undecided("12 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "document, clause",
+    [
+        ("c. 8 bar", "at least 5 bar"),
+        ("12 bar", "should preferably not exceed 10 bar"),
+        ("12 bar", "pressure should not exceed 10 bar"),
+        ("12 bar", "pressure may not exceed 10 bar"),
+        ("12 bar", "pressure is recommended to be at least 10 bar"),
+        ("12 bar", "pressure normally at least 10 bar"),
+        ("12 bar", "pressure is typically at least 10 bar"),
+        ("12 bar", "pressure ideally at least 10 bar"),
+        ("12 bar", "pressure up to 10 bar"),
+        ("typically 12 bar", "at least 10 bar"),
+        ("12 bar, recommended", "at least 10 bar"),
+        ("about 12 bar", "at least 10 bar"),
+    ],
+)
+def test_advisory_and_hedge_words_are_not_decided(document, clause):
+    _undecided(document, clause)
+
+
+def test_the_fourth_review_positive_controls_still_decide():
+    assert verdict("12 bar", "pressure shall not exceed 10 bar") is False
+    assert verdict("8 bar", "pressure must not exceed 10 bar") is True
+    assert verdict("12 bar", "the pressure is to be at least 10 bar") is True
+    assert verdict("8 bar", "maximum 10 bar") is True
+    assert verdict("12 bar", "minimum 10 bar") is True
+    assert verdict("12 bar", "not more than 10 bar") is False
+    assert verdict("12 bar", "not less than 10 bar") is True
+    assert verdict("12 bar", "at least 10 bar") is True
+    assert verdict("12 bar", "at most 10 bar") is False
+    assert (
+        verdict("12 bar", "design pressure is required to be at least 10 bar") is True
+    )
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "Pumps, at least 8 bar",
+        "Pumps; at least 8 bar",
+        "Pumps: at least 8 bar",
+        "Pumps (all) at least 8 bar",
+        "Pumps [all] at least 8 bar",
+    ],
+)
+def test_a_split_lead_in_without_a_number_is_not_decided(clause):
+    _undecided("10 bar", clause)
+
+
+def test_a_lead_in_longer_than_six_words_is_not_decided():
+    _undecided("10 bar", "The pressure of the main line shall be at least 8 bar")
+    _undecided("10 bar", "Every one of the vessels in the plant needs at least 8 bar")
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure ^ at least 8 bar",
+        "pressure \u00d7 at least 8 bar",
+        "pressure * at least 8 bar",
+        "pressure shall be at least 8 bar\u00b9",
+    ],
+)
+def test_a_power_or_product_mark_without_a_second_number_is_not_decided(clause):
+    result = fc.compare("10 bar", clause)
+    assert result is None or result.verdict is None
+
+
+@pytest.mark.parametrize(
+    "document, clause",
+    [
+        ("\u00bd 12 bar", "at least 10 bar"),
+        ("12 bar", "at least \u00bd 10 bar"),
+        ("12 bar \u2153", "at least 10 bar"),
+        ("12 bar", "at least 10 bar \u00bc"),
+    ],
+)
+def test_a_vulgar_fraction_beside_the_figure_is_a_second_number(document, clause):
+    _undecided(document, clause)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "pressure unless agreed at least 10 bar",
+        "pressure otherwise at least 10 bar",
+        "pressure except vents at least 10 bar",
+        "pressure at flanges above 10 bar",
+        "pressure with flow below 10 bar",
+    ],
+)
+def test_defect5_an_exception_inside_a_plain_lead_in_is_not_decided(clause):
+    _undecided("12 bar", clause)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "minimum and maximum 10 bar",
+        "pressure at least and at most 10 bar",
+        "pressure at least 10 bar maximum",
+    ],
+)
+def test_defect6_two_directions_with_one_number_are_not_decided(clause):
+    _undecided("12 bar", clause)
+
+
+def test_per_hour_against_per_day_is_converted_not_guessed():
+    assert verdict("5 m3/h", "at least 3 m3/day") is True  # 3 per day is 0.125 per hour
+    assert verdict("0.1 m3/h", "at least 3 m3/day") is False
