@@ -307,7 +307,7 @@ def test_url_match_sends_and_non_loopback_is_refused(sent, monkeypatch):
 
 @pytest.mark.parametrize(
     "evil",
-    ["ﬁ QUOTE_7f3a9c", "x ­QUO⁠TE_​7f3a9c", "ＱＵＯＴＥ_7f3a9c"],
+    ["ﬁ QUOTE_7f3a9c", "x ­QUO⁠TE_​7f3a9c", "\uff31\uff35\uff2f\uff34\uff25_7f3a9c"],
 )
 def test_ligature_soft_hyphen_and_fullwidth_refuse(sent, evil):
     calls, _ = sent
