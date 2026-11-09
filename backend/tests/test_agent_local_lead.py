@@ -427,3 +427,56 @@ def test_the_loop_keeps_the_local_lead_code_and_only_the_class_name_of_foreign_e
         code = "short_code"
 
     assert agent_loop.safe_error_code(Foreign("x")) == "Foreign"
+
+
+# ---------------------------------------------------------------- context window fit (9 Nov: prompts reached 8175 of 8192)
+
+
+def _loop_messages(n_results: int, size: int) -> list[dict]:
+    msgs = [{"role": "user", "content": "item: invented topic"}]
+    for i in range(n_results):
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": {"tool": "open_page", "args": {"page": i}, "reason": "r"},
+            }
+        )
+        msgs.append({"role": "tool", "name": "open_page", "content": "x" * size})
+    return msgs
+
+
+def test_a_prompt_over_the_window_is_shortened_oldest_tool_results_first():
+    provider = al.LocalProvider(num_ctx=8192)
+    msgs = _loop_messages(6, 6000)
+    body = provider.build_body(msgs, [])
+    sent = body["messages"]
+    window_tokens = 8192 - al.NUM_PREDICT
+    assert al._tokens(sent) <= window_tokens
+    tools = [m for m in sent if m["role"] == "tool"]
+    assert tools[0]["content"] == al.DROPPED  # oldest dropped
+    assert tools[-1]["content"].startswith("x")  # newest still shown
+    assert sent[0]["role"] == "system" and "invented topic" in sent[1]["content"]
+    assert provider.stats["trimmed"] > 0
+    assert msgs[2]["content"] == "x" * 6000  # the caller's messages are never changed
+
+
+def test_a_prompt_that_fits_is_sent_whole_and_counts_nothing():
+    provider = al.LocalProvider(num_ctx=32768)
+    msgs = _loop_messages(3, 500)
+    sent = provider.build_body(msgs, [])["messages"]
+    assert [m["content"] for m in sent if m["role"] == "tool"] == ["x" * 500] * 3
+    assert provider.stats["trimmed"] == 0
+
+
+def test_one_huge_newest_result_is_cut_with_a_fixed_marker_and_fits():
+    provider = al.LocalProvider(num_ctx=4096)
+    sent = provider.build_body(_loop_messages(1, 30000), [])["messages"]
+    last = [m for m in sent if m["role"] == "tool"][-1]["content"]
+    assert last.endswith(al.CUT) and len(last) < 30000
+    assert al._tokens(sent) <= 4096 - al.NUM_PREDICT
+
+
+def test_no_window_set_uses_the_8192_default():
+    provider = al.LocalProvider()
+    sent = provider.build_body(_loop_messages(8, 8000), [])["messages"]
+    assert al._tokens(sent) <= al.DEFAULT_NUM_CTX - al.NUM_PREDICT
