@@ -24,8 +24,8 @@ def skill(*items):
     return {"kind": "invented_kind", "version": "1", "items": list(items)}
 
 
-def fin(n, colour="YELLOW"):
-    return {"final": {"color": colour, "doc_quote": f"invented field {n}  is   deferred", "page": 1,
+def fin(n, colour="YELLOW", quote=None):
+    return {"final": {"color": colour, "doc_quote": quote or f"invented field {n}  is   deferred", "page": 1,
                       "clause_quote": "c", "standard": "ISO 9999", "clause": "4.1", "action": "Confirm",
                       "priority": "must", "reason": "deferred"}, "model": "m", "usd": 0.01}  # fmt: skip
 
@@ -204,3 +204,101 @@ def test_f_loader_accepts_repeat_and_repeat_max():
 def test_f_loader_rejects(extra):
     with pytest.raises(sk.SkillError):
         checked(**extra)
+
+
+def read(out, name):
+    return (ar.Path(out["run_dir"]) / name).read_text(encoding="utf-8")
+
+
+def test_h_no_green_or_red_anywhere_for_a_sweep_run(copy_db, run_dir):
+    prov = al.FakeProvider([fin(1, "GREEN"), fin(2, "RED"), NONE_LEFT])
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)])
+    live = read(out, "LIVE.md")
+    assert "GREEN 0, YELLOW 2, RED 0" in live
+    assert (
+        "GREEN 0, YELLOW 2, RED 0" in out["status_box"]
+        or "YELLOW 2" in out["status_box"]
+    )
+    assert "GREEN 1" not in out["status_box"] and "RED 1" not in out["status_box"]
+    for name in ("findings.jsonl", "state.json", "finals.json"):
+        text = read(out, name)
+        assert '"GREEN"' not in text and '"RED"' not in text, name
+    assert [f["color"] for f in out["findings"]] == ["YELLOW", "YELLOW"]
+
+
+def test_i_item_counts_tell_one_story_for_a_mixed_run(copy_db, run_dir):
+    boom = lambda _m: (_ for _ in ()).throw(RuntimeError("down"))  # noqa: E731
+    prov = al.FakeProvider([fin(1), fin(2), boom, fin(9, "GREEN"), boom])
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True), item(2), item(3)])
+    live, res = read(out, "LIVE.md"), read(out, "RESULTS.md")
+    # the failed third run is not done (a resume asks it again): LIVE counts the runs that are done
+    assert "3/3 items (2 sweep runs done)" in live
+    assert "DONE**: 3 of 3 items" in live and "Items finished: 3" in res
+    assert (
+        "items ended by provider error: 2" in res
+    )  # skill items: I1 (its third run) and I3
+    assert "sweep runs asked: 3 (ended by provider error 1" in res
+    assert "2 sweep findings from 1 sweep items, 3 sweep runs asked" in res
+
+
+def test_j_why_a_sweep_stopped_is_reported_and_a_failed_run_is_asked_again(
+    copy_db, run_dir
+):
+    boom = lambda _m: (_ for _ in ()).throw(RuntimeError("down"))  # noqa: E731
+    out = go(copy_db, run_dir, al.FakeProvider([fin(1), boom]), [item(1, repeat=True)])
+    assert ids(out) == ["I1#1"]
+    assert "sweep stopped early: provider error (I1)" in results_text(out)
+    again = al.FakeProvider([fin(2), NONE_LEFT])
+    out = go(copy_db, run_dir, again, [item(1, repeat=True)])
+    assert ids(out) == ["I1#1", "I1#2"] and len(again.calls) == 2
+    assert "sweep stopped early" not in results_text(
+        out
+    )  # it ended on 'none left' this time
+
+
+def test_j_none_left_is_quiet_and_other_stops_are_named(copy_db, run_dir):
+    out = go(
+        copy_db, run_dir, al.FakeProvider([fin(1), NONE_LEFT]), [item(1, repeat=True)]
+    )
+    assert "sweep stopped early" not in results_text(out)
+    out = go(
+        copy_db,
+        run_dir / "b",
+        al.FakeProvider([fin(1), fin(1)]),
+        [item(1, repeat=True)],
+    )
+    assert "sweep stopped early: duplicate quote (I1)" in results_text(out)
+    out = go(
+        copy_db,
+        run_dir / "c",
+        al.FakeProvider([fin(1), fin(2), fin(3)]),
+        [item(1, repeat=True, repeat_max=2)],
+    )
+    assert "sweep stopped early: repeat_max (I1)" in results_text(out)
+    cap = {
+        "tool": next(
+            n for n in al.TOOL_NAMES if n not in ("record_finding", "ask_engineer")
+        ),
+        "args": {},
+        "usd": 9.0,
+    }
+    out = go(
+        copy_db,
+        run_dir / "d",
+        al.FakeProvider([fin(1), cap]),
+        [item(1, repeat=True)],
+        usd_cap_item=1.0,
+    )
+    assert "sweep stopped early: item cap (I1)" in results_text(out)
+
+
+def test_k_case_and_punctuation_variants_are_duplicates(copy_db, run_dir):
+    prov = al.FakeProvider(
+        [
+            fin(1, quote="Invented Field: deferred."),
+            fin(1, quote="invented  field - DEFERRED"),
+            fin(3),
+        ]
+    )
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)])
+    assert ids(out) == ["I1#1"] and len(prov.calls) == 2

@@ -483,6 +483,16 @@ class _ItemRun:
     def _own(self, finding):
         finding.setdefault("item", self.id)
         finding.setdefault("doc", self.doc)
+        if "already_recorded" in self.item and finding.get("color") in ("GREEN", "RED"):
+            was = finding["color"]
+            return {
+                **finding,
+                "color": "YELLOW",
+                "reason": words(
+                    f"sweep finding, first verdict {was}: left to the engineer"
+                ),
+                "action": finding.get("action") or "ask the engineer",
+            }
         if not self.named and finding.get("color") in ("GREEN", "RED"):
             return _down(finding, "item topic could not be bound")
         return finding

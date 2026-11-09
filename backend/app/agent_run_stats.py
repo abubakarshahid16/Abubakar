@@ -97,7 +97,22 @@ class RunStats:
         return sum(int(r.get(key) or 0) for r in self.items.values())
 
     def count_outcome(self, outcome: str) -> int:
-        return sum(1 for r in self.items.values() if r.get("outcome") == outcome)
+        """SKILL ITEMS with this outcome (a sweep item counts once, however many of its runs `<id>#<n>` had it)."""
+        return len(
+            {
+                k.split("#")[0]
+                for k, r in self.items.items()
+                if r.get("outcome") == outcome
+            }
+        )
+
+    def sweep_runs(self, outcome: str | None = None) -> int:
+        """Sweep RUNS (keys `<id>#<n>`), all or with this outcome."""
+        return sum(
+            1
+            for k, r in self.items.items()
+            if "#" in k and outcome in (None, r.get("outcome"))
+        )
 
     @property
     def provider_errors(self) -> int:
@@ -165,6 +180,11 @@ def stat_lines(stats: RunStats) -> list[str]:
         f"tool calls failed: {failed} of {calls} ({rate})",
         f"items ended on the step limit: {stats.step_limit}",
     ]
+    if stats.sweep_runs():
+        lines.append(
+            f"sweep runs asked: {stats.sweep_runs()} (ended by provider error {stats.sweep_runs('provider_error')}, "
+            f"on the step limit {stats.sweep_runs('step_limit')}); the item counts above count skill items"
+        )
     if stats.retried:
         lines.append(
             f"retried after error: {stats.retried} (they ran again; their latest outcome is counted above)"

@@ -245,13 +245,13 @@ def _edition_lines(editions: dict | None) -> list[str]:
     return lines
 
 
-def _sweep_lines(findings: list[dict], sweep_items: int) -> list[str]:
+def _sweep_lines(findings: list[dict], sweep_items: int, runs: int = 0) -> list[str]:
     """Items and findings are different counts for a sweep item; say both (they are all YELLOW at most)."""
     if not sweep_items:
         return []
     n = sum(1 for f in findings if f.get("sweep"))
     return [
-        f"- Sweep: {n} sweep findings from {sweep_items} sweep items (sweep findings are never GREEN or RED)"
+        f"- Sweep: {n} sweep findings from {sweep_items} sweep items, {runs} sweep runs asked (sweep findings are never GREEN or RED)"
     ]
 
 
@@ -273,6 +273,7 @@ def write_results(
     stats: Any = None,
     items_done: int | None = None,
     sweep_items: int = 0,
+    sweep_runs: int = 0,
 ) -> Path:
     """RESULTS.md: counts, spend, minutes, model names. No document or standard text."""
     shown = agent_run_stats.view(
@@ -298,7 +299,7 @@ def write_results(
         + (f" (run paused: {agent_trace.words(stopped)})" if stopped else ""),
         _headline(count, findings, second_ran) + shown[1],
         f"- Quote verified by code: {verified} of {len(findings)} findings",
-        *_sweep_lines(findings, sweep_items),
+        *_sweep_lines(findings, sweep_items, sweep_runs),
         f"- Second opinion: agreed {sec.count('agreed')}, disagreed {sec.count('disagreed')}, "
         f"no answer {sec.count('no answer')}, not run {sec.count('not run')}",
         f"- Spend: USD {spend:.2f}",

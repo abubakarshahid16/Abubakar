@@ -37,6 +37,7 @@ REF_KEYS = ("page", "clause", "standard", "doc")
 SIDE_EFFECT_TOOLS = ("record_finding", "ask_engineer")
 VERDICT_WORDS = ("accepted", "refused", "decided", "cannot decide")
 COLOURS = ("GREEN", "YELLOW", "RED")
+DROPPED = "dropped"
 
 _REF = re.compile(r"^[A-Za-z]{0,6}[\d][\d.\-]{0,20}[A-Za-z]?$")
 _ID = re.compile(r"^[\w\-]{1,40}$")
@@ -197,6 +198,8 @@ class TraceWriter:
         # wrong verdicts are only known after the answer-key score; None = not measured
         self.wrong: int | None = None
         self.completed: dict[str, str] = {}
+        #: skill items whose sweep (agent_run_sweep) is over: PROGRESS counts items, not the runs `<id>#<n>`
+        self.sweep_finished: set[str] = set()
         self._sources: dict[str, set] = {}
         self._sink: FindingSink | None = None
         self.spend = 0.0
@@ -271,7 +274,17 @@ class TraceWriter:
         colour = self.completed.pop(str(item_id), None)
         if colour is None:
             return
+        if colour != DROPPED:
+            self.counts[colour if colour in self.counts else "not sure"] -= 1
+        self._save_state()
+
+    def uncount(self, item_id: Any) -> None:
+        """A sweep run that is not a finding (none left, a repeated quote): it stays done, but no colour count keeps it."""
+        colour = self.completed.get(str(item_id))
+        if colour is None or colour == DROPPED:
+            return
         self.counts[colour if colour in self.counts else "not sure"] -= 1
+        self.completed[str(item_id)] = DROPPED
         self._save_state()
 
     def _ckpt_path(self, item_id: Any) -> Path:
@@ -439,7 +452,8 @@ class TraceWriter:
             self.live[key.upper()] = words(value, 40)
 
     def progress(self) -> str:
-        done = len(self.completed)
+        runs = sum(1 for k in self.completed if "#" in k)
+        done = len(self.completed) - runs + len(self.sweep_finished)
         total = max(self.total, done)
         width = 20
         filled = int(width * done / total) if total else 0
@@ -449,7 +463,8 @@ class TraceWriter:
             left = f"{int(elapsed / done * (total - done) / 60)} min left"
         else:
             left = "0 min left" if total and done >= total else "time left unknown"
-        return f"[{bar}] {done}/{total} items, {left}"
+        more = f" ({runs} sweep runs done)" if runs else ""
+        return f"[{bar}] {done}/{total} items{more}, {left}"
 
     def set_wrong(self, wrong: int | None) -> None:
         """Record the measured count of wrong verdicts (from the answer-key score)."""

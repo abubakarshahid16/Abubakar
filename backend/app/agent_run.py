@@ -680,7 +680,7 @@ def _drive(
                 break
             if sweep.is_sweep(by_id[iid]):
                 if stopped := sweep.run_sweep(
-                    loop_item, by_id[iid], finals, trace.sink, run_one, put, halt
+                    loop_item, by_id[iid], finals, trace, run_one, put, halt
                 ):
                     break
             elif iid not in finals:
@@ -744,13 +744,14 @@ def _finish(chosen, document_id, wanted, trace, run_root, stopped, scope) -> dic
         opinion_models=opinion_models,
         skill=wanted,
         document_id=document_id,
-        problems=trace.problems,
+        problems=[*trace.problems, *sweep.stops(finals, chosen)],
         stopped=stopped,
         second_ran=second_ran,
         editions=scope["report"],
         stats=getattr(trace, "stats", None),
         items_done=items_done,
         sweep_items=sum(1 for i in chosen if sweep.is_sweep(i)),
+        sweep_runs=getattr(getattr(trace, "stats", None), "sweep_runs", lambda: 0)(),
     )
     trace.set_live(
         done=f"{items_done} of {len(chosen)} items",
