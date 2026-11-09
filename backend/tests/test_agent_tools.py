@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import types
 
@@ -140,12 +141,18 @@ def test_search_intersects_scope_and_drops_outside():
     assert r["cites"] == [{"doc": DOC, "page": 1}]
 
 
-def test_search_scope_fully_outside_returns_nothing_without_calling():
-    def boom(*a):
-        raise AssertionError("must not search")
+def test_search_scope_outside_is_never_searched_and_is_noted():
+    seen = []
 
-    r = box(searcher=boom).run("search", {"query": "x", "scope": [OTHER]})
-    assert r["result"]["passages"] == []
+    def spy(query, allowed):
+        seen.append(allowed)
+        return fake_search(query, allowed)
+
+    r = box(searcher=spy).run("search", {"query": "x", "scope": [OTHER]})
+    assert OTHER not in seen[0] and r["result"]["note"].startswith(
+        "scope_not_recognised"
+    )
+    assert [p["doc"] for p in r["result"]["passages"]] == [DOC]
 
 
 def test_get_clause_full_text_with_exception():
@@ -557,7 +564,7 @@ def test_color_verdict_alias_and_conflict_and_required():
     assert (
         same["result"]["accepted"] is True
     )  # the same word in both keys is not a conflict
-    for n, missing in enumerate(("item", "doc", "color")):
+    for n, missing in enumerate(("item", "color")):
         f = good(item=f"M-{n}")
         f.pop(missing)
         assert b.run("record_finding", {"finding": f})["result"]["accepted"] is False
@@ -594,11 +601,12 @@ def test_ask_engineer_stores_yellow_row():
             "kind": "engineer_query",
         }
     ]
-    assert not b.run("ask_engineer", {"item": "I-3", "reason": " ".join(["w"] * 31)})[
-        "ok"
-    ]
+    long = b.run("ask_engineer", {"item": "I-3", "reason": " ".join(["w"] * 31)})
+    assert (
+        long["ok"] and len(b.ctx.queries[-1]["reason"].split()) == 30
+    )  # cut, not refused
     assert not b.run("ask_engineer", {"item": "", "reason": "x"})["ok"]
-    assert len(b.ctx.queries) == 1
+    assert len(b.ctx.queries) == 2
 
 
 def test_tool_exception_is_refusal_not_crash():
@@ -767,3 +775,211 @@ def test_real_sink_survives_kill_and_refuses_second_record(tiny_db, tmp_path):
     again = second.run("record_finding", {"finding": good(doc="sub", color="YELLOW")})
     assert again["ok"] is False and again["result"]["reason"] == "already recorded"
     assert len(second.ctx.findings.all()) == 1
+
+
+# ------------------------------------------------ the model-facing contract (first real run failed on these)
+
+
+def _valid(value, schema, path="$"):
+    """A small JSON-Schema check (type, enum, minimum, required, properties, items); jsonschema is not installed."""
+    kind = schema.get("type")
+    types = {"string": str, "object": dict, "array": list}
+    if kind == "integer":
+        assert isinstance(value, int) and not isinstance(value, bool), (
+            f"{path} not an integer"
+        )
+    elif kind in types:
+        assert isinstance(value, types[kind]), f"{path} not a {kind}"
+    if "enum" in schema:
+        assert value in schema["enum"], f"{path} not in enum"
+    if "minimum" in schema:
+        assert value >= schema["minimum"], f"{path} below minimum"
+    if kind == "object":
+        for name in schema.get("required", []):
+            assert name in value, f"{path}.{name} required"
+        for name, sub in schema.get("properties", {}).items():
+            if name in value:
+                _valid(value[name], sub, f"{path}.{name}")
+    if kind == "array":
+        for n, entry in enumerate(value):
+            _valid(entry, schema.get("items", {}), f"{path}[{n}]")
+
+
+PLAUSIBLE = [
+    ("open_page", {"doc": DOC, "page": 1, "reason": "read the page"}),
+    ("open_page", {"page": 1, "reason": "own document by default"}),
+    ("search", {"query": "working figure", "reason": "find it"}),
+    ("search", {"query": "working figure", "scope": [DOC], "reason": "find it"}),
+    ("get_clause", {"standard": "ISO 9999", "clause": "4.2", "reason": "read it"}),
+    ("compare_number", {"doc_quote": DQ, "clause_quote": CQ, "reason": "compare"}),
+    ("ask_engineer", {"why": "figure is unclear on the page", "reason": "ask"}),
+    ("ask_engineer", {"item": "I-9", "why": "figure is unclear", "reason": "ask"}),
+    (
+        "record_finding",
+        {
+            "finding": {
+                "color": "GREEN",
+                "item": "I-1",
+                "doc": DOC,
+                "page": 1,
+                "doc_quote": "rated for a working figure of 12 units",
+                "clause_quote": "shall be at least 10 units",
+                "standard": "ISO 9999",
+                "clause": "4.2",
+                "action": "none",
+                "priority": "should",
+                "reason": "Figure is stated.",
+            },
+            "reason": "record",
+        },
+    ),
+    (
+        "record_finding",
+        {
+            "finding": {
+                "color": "YELLOW",
+                "action": "confirm",
+                "priority": "must",
+                "reason": "unclear",
+            },
+            "reason": "record",
+        },
+    ),
+]
+
+
+def _through_adapter(name, args, box_):
+    """The exact path of a real call: the adapter's own tool JSON, its reply parser, then the toolbox."""
+    from app import agent_claude
+
+    tools = {t["name"]: t for t in agent_claude.anthropic_tools(TOOL_SPECS)}
+    _valid(args, tools[name]["input_schema"])
+    reply = agent_claude.parse_reply(
+        {"content": [{"type": "tool_use", "name": name, "input": args}]}, set(tools)
+    )
+    return box_.run(reply["tool"], reply["args"])
+
+
+@pytest.mark.parametrize(("name", "args"), PLAUSIBLE)
+def test_every_plausible_model_call_is_accepted(name, args):
+    b = box()
+    b.set_item("I-1")
+    out = _through_adapter(name, args, b)
+    assert out["ok"] is True, out["result"]
+
+
+def test_every_tool_has_a_real_input_schema():
+    for spec in TOOL_SPECS:
+        schema = spec["input_schema"]
+        assert schema["type"] == "object" and schema["properties"] and "params" in spec
+    page = agent_tools.INPUT_SCHEMAS["open_page"]["properties"]["page"]
+    assert page["type"] == "integer" and page["minimum"] == 1
+    assert agent_tools.INPUT_SCHEMAS["search"]["properties"]["scope"]["type"] == "array"
+    colour = agent_tools.INPUT_SCHEMAS["record_finding"]["properties"]["finding"][
+        "properties"
+    ]["color"]
+    assert colour["enum"] == ["GREEN", "YELLOW", "RED"]
+
+
+def test_ask_engineer_reason_is_not_the_adapters_reason_field():
+    # the adapter pops "reason" from every call as the model's why-this-tool; ask_engineer must not use that name
+    props = agent_tools.INPUT_SCHEMAS["ask_engineer"]["properties"]
+    assert "reason" not in props and "why" in props
+
+
+@pytest.mark.parametrize("page", [1, 1.0, "1", " 1 ", "1.0"])
+def test_page_is_coerced(page):
+    r = box().run("open_page", {"doc": DOC, "page": page})
+    assert r["ok"] and r["result"]["page"] == 1
+
+
+@pytest.mark.parametrize(
+    ("page", "code"),
+    [(0, "page_must_be_1_or_more"), (-3, "page_must_be_1_or_more"), ("abc", "page_missing_or_not_a_number"),
+     (None, "page_missing_or_not_a_number"), (True, "page_missing_or_not_a_number"), (1.5, "page_missing_or_not_a_number")],
+)  # fmt: skip
+def test_bad_page_refused_with_code_and_hint(page, code):
+    r = box().run("open_page", {"doc": DOC, "page": page})
+    assert r["ok"] is False and r["result"]["refused"] == code
+    assert r["result"]["expect"] == {"doc": "string?", "page": "integer"}
+
+
+@pytest.mark.parametrize(
+    "scope", [None, "", [], "   ", DOC, f"{DOC},zzz", f'["{DOC}"]', [DOC, "zzz"], 7]
+)
+def test_scope_is_tolerated_in_any_shape(scope):
+    r = box().run("search", {"query": "figure", "scope": scope})
+    assert r["ok"] is True and [p["doc"] for p in r["result"]["passages"]] == [DOC]
+
+
+def test_doc_defaults_to_the_runs_document_and_unknown_args_are_dropped():
+    r = box().run("open_page", {"page": "1", "document": DOC, "junk": 1})
+    assert r["ok"] and r["result"]["doc"] == DOC
+    r = box().run("open_page", {"page_number": 1})
+    assert r["ok"]
+
+
+def test_refusals_carry_expected_names_and_never_text():
+    r = box().run("get_clause", {"standard": 5})
+    assert r["ok"] is False and r["result"]["expect"] == {
+        "standard": "string",
+        "clause": "string",
+    }
+    r = box().run("open_page", {"doc": OTHER, "page": 1})
+    assert r["result"]["refused"] == "document_not_in_scope" and "Hidden" not in str(r)
+    r = box().run("nope", {})
+    assert set(r["result"]["expect"]) == set(agent_tools.INPUT_SCHEMAS)
+
+
+def test_ask_engineer_uses_the_loops_current_item():
+    b = box()
+    assert b.run("ask_engineer", {"why": "unclear"})["ok"] is False  # no item known yet
+    b.set_item("I-7")
+    r = b.run("ask_engineer", {"item": "I-999", "why": "unclear"})
+    assert r["ok"] and b.ctx.queries[-1]["item"] == "I-7"
+    assert b.run("ask_engineer", {"reason": "old name still works"})["ok"]
+
+
+def test_the_loop_names_its_item_to_the_toolbox():
+    from app import agent_loop
+
+    b = box()
+    provider = agent_loop.FakeProvider(
+        [{"tool": "ask_engineer", "args": {"why": "figure unclear"}, "reason": "ask"}]
+    )
+    out = agent_loop.run_item({"id": "I-5", "doc": DOC}, {}, b, provider, usd_cap=1.0)
+    assert out["why"] == "asked the engineer" and b.ctx.queries[0]["item"] == "I-5"
+
+
+def test_record_finding_tolerates_shapes_the_model_could_not_know():
+    b = box()
+    b.set_item("I-1")
+    flat = good(
+        page="1",
+        priority="Should",
+        figures=[],
+        clause_quote="shall be at least 10 units",
+    )
+    flat.pop("item")
+    flat.pop("doc")
+    assert (
+        b.run("record_finding", {**flat})["ok"] is True
+    )  # flat, no wrapper, no item, no doc
+    b2 = box()
+    assert (
+        b2.run("record_finding", {"finding": json.dumps(good())})["ok"] is True
+    )  # JSON text
+
+
+def test_yellow_with_empty_strings_is_accepted():
+    f = {
+        "color": "YELLOW",
+        "item": "I-4",
+        "doc_quote": "",
+        "clause_quote": "",
+        "page": "",
+        "priority": "",
+        "action": "ask",
+        "reason": "x",
+    }
+    assert box().run("record_finding", {"finding": f})["ok"] is True

@@ -47,6 +47,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import agent_loop, agent_trace, heavy_lock, live_guard
+from . import agent_run_stats as rstats
 from .agent_edition import edition_evidence
 from .agent_run_crs import (
     CHECKED_SHEET as CHECKED_SHEET,
@@ -252,6 +253,33 @@ def build_scope(
             allowed.add(doc)
             held[standard] = edition
     return frozenset(allowed), held, missing
+
+
+class DbPathMismatch(RuntimeError):
+    """The app's configured database is not the copy: claude_approved would open the wrong file (the live trap)."""
+
+
+def check_db_path(
+    db_copy: str | os.PathLike, configured: str | os.PathLike | None = None
+) -> None:
+    """The app's own database path (`settings.db_path`, what `db.connect()` opens) must be the SAME file as the copy.
+
+    Run before any model call: the Claude gate reads the configured database, and a live-shaped path is refused there
+    on every call. The one-line fix names the copy."""
+    from .config import settings
+
+    cfg, copy = (
+        Path(settings.db_path if configured is None else configured),
+        Path(db_copy),
+    )
+    try:
+        same = (
+            cfg.exists() and copy.exists() and cfg.samefile(copy)
+        ) or cfg.resolve() == copy.resolve()
+    except OSError:
+        same = False
+    if not same:
+        raise DbPathMismatch(f"set DB_PATH={copy.resolve()} in the command environment")
 
 
 class DocumentsNotDeclared(RuntimeError):
@@ -509,7 +537,7 @@ def _guard(local, claude, consent, allowed):
     return stack
 
 
-def _save_meta(run_root, trace, meta, lead, second, seconds) -> dict:
+def _save_meta(run_root, trace, meta, lead, second, seconds, stats=None) -> dict:
     """Minutes so far and the model names the responses reported, saved after every item."""
     meta = {
         "seconds": seconds,
@@ -519,10 +547,41 @@ def _save_meta(run_root, trace, meta, lead, second, seconds) -> dict:
             | {v.get("model") or UNKNOWN for v in second.values()}
         ),
     }
+    if stats is not None:
+        meta["stats"] = stats.to_json()
+        note = rstats.unreliable_note(stats)
+        if note and note != getattr(trace, "warned", ""):
+            trace.warned = note
+            n = stats.runs
+            trace.note_problem(
+                f"{note} (this run only{'' if n == 1 else f', resumed run {n}'}; not cumulative)"
+            )  # live.log, once per run
     _write_json(run_root / FILES["meta"], meta)
     names = ", ".join(meta["lead_models"]) or "not reported by the provider"
     trace.set_live(model=names)
     return meta
+
+
+def _trip(breaker, finals, trace, run_root) -> str:
+    """The failure breaker tripped: its items go back out of finals and the done set, so a resume asks them again."""
+    for dead in breaker.items:
+        finals.pop(dead, None)
+        trace.unmark_done(dead)
+    _write_json(run_root / FILES["finals"], finals)
+    words = breaker.words()
+    trace.problem(words)
+    return words
+
+
+def _second_for(other, finding, iid, second, trace, run_root) -> None:
+    """The second opinion on a GREEN or RED finding, asked once and saved."""
+    if (
+        other is not None
+        and finding.get("color") in ("GREEN", "RED")
+        and iid not in second
+    ):
+        second[iid] = ask_second_opinion(other, finding, trace)
+        _write_json(run_root / FILES["second"], second)
 
 
 def _drive(
@@ -545,7 +604,14 @@ def _drive(
     by_id = {str(i["id"]): i for i in chosen}
     finals = _read_json(run_root / FILES["finals"], {})
     second = _read_json(run_root / FILES["second"], {})
-    stopped = ""
+    stats = trace.stats = rstats.RunStats.load(meta)
+    trace.stats_view = lambda run_problems: rstats.view(stats, run_problems)
+    box, breaker, stopped = rstats.CountingBox(box, stats), rstats.Breaker(), ""
+
+    def save() -> dict:
+        seconds = base_seconds + time.time() - started
+        return _save_meta(run_root, trace, meta, lead, second, seconds, stats)
+
     try:
         for loop_item in loop_items(document_id, chosen):
             iid = loop_item["id"]
@@ -554,6 +620,7 @@ def _drive(
                 trace.problem(f"{stopped} reached: run paused, resumable")
                 break
             if iid not in finals:
+                stats.begin(iid)
                 out = agent_loop.run_items(
                     [loop_item],
                     box,
@@ -564,10 +631,15 @@ def _drive(
                     usd_cap_run=cap_run,
                 )
                 if out["stopped"]:
+                    stats.abort()
                     stopped = out["stopped"]
                     break
                 res = out["results"].get(iid)
-                finding = (
+                stats.end(res)
+                if breaker.seen(iid, res):
+                    stopped = _trip(breaker, finals, trace, run_root)
+                    break
+                finals[iid] = (
                     res["finding"]
                     if res
                     else (
@@ -575,32 +647,19 @@ def _drive(
                         or agent_loop.yellow("result lost in a restart", loop_item)
                     )
                 )
-                finals[iid] = finding
                 _write_json(run_root / FILES["finals"], finals)
-            finding = finals[iid]
-            if (
-                other is not None
-                and finding.get("color") in ("GREEN", "RED")
-                and iid not in second
-            ):
-                second[iid] = ask_second_opinion(other, finding, trace)
-                _write_json(run_root / FILES["second"], second)
-            meta = _save_meta(
-                run_root,
-                trace,
-                meta,
-                lead,
-                second,
-                base_seconds + time.time() - started,
-            )
+            _second_for(other, finals[iid], iid, second, trace, run_root)
+            meta = save()
             if len(trace.completed) % 10 == 0 and on_status:
                 trace.refresh_live()
                 on_status(trace)
     except Exception as exc:
         if not getattr(exc, "fatal", False):
             raise
+        stats.abort()
         stopped = fatal_problem(exc)
         trace.problem(f"{stopped}: run stopped, resumable")
+    save()
     return stopped
 
 
@@ -640,6 +699,7 @@ def _finish(chosen, document_id, wanted, trace, run_root, stopped, scope) -> dic
         stopped=stopped,
         second_ran=second_ran,
         editions=scope["report"],
+        stats=getattr(trace, "stats", None),
     )
     trace.set_live(
         done=f"{len(findings)} of {len(chosen)} items",

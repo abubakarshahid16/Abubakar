@@ -135,6 +135,7 @@ def main(argv: list[str] | None = None, env: dict | None = None, out=print) -> i
         agent_run.LiveDatabaseRefused,
         agent_run.SkillMissing,
         agent_run.DocumentsNotDeclared,
+        agent_run.DbPathMismatch,
         agent_trace.UnsafeRoot,
     ) as exc:
         out(f"refused: {exc}")
@@ -162,6 +163,11 @@ def _run(args: argparse.Namespace, out) -> int:
     chosen = agent_run.select_items(skill, ids, args.limit)
     if args.second_opinion == "local" and not args.local_model:
         raise SystemExit("--second-opinion local needs --local-model (the model tag)")
+    if args.provider in ("claude", "local"):
+        agent_run.check_db_path(
+            args.db_copy
+        )  # refuses before any model call (and in a dry run)
+        out("database path check: DB_PATH is the copy")
     if args.dry_run:
         conn = agent_run.open_readonly(args.db_copy)  # refuses the live file even here
         try:
