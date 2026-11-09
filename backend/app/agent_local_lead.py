@@ -48,6 +48,9 @@ SYSTEM_RULES = (
     "Numbers are decided by the compare_number tool, not by you. When unsure, ask the engineer."
 )
 
+#: Fixed generic wording: never document text.
+NUDGE = "Reply with exactly one tool call, or one JSON object (the final finding) and nothing else."
+
 _STATS_KEYS = (
     "prompt_eval_count",
     "eval_count",
@@ -269,6 +272,7 @@ class LocalProvider:
         self.models_seen: list[str] = []
         self._totals: dict[str, float] = {
             "calls": 0,
+            "retries": 0,
             "seconds": 0.0,
             **dict.fromkeys(_STATS_KEYS, 0),
         }
@@ -346,13 +350,32 @@ class LocalProvider:
         }
 
     # -- the Provider protocol
-    def complete(self, messages: list[dict], tool_specs: list[dict]) -> dict:
-        body = self.build_body(messages, tool_specs)
-        names = {t["function"]["name"] for t in body.get("tools", [])}
+    def _ask(self, body: dict) -> Any:
         started = time.monotonic()
         answer = self._post(body)
         self._count(answer, time.monotonic() - started)
-        reply = parse_reply(answer, names)
+        return answer
+
+    def complete(self, messages: list[dict], tool_specs: list[dict]) -> dict:
+        """One call; a bad reply gets ONE internal retry with a fixed corrective message. Transport errors never retry."""
+        body = self.build_body(messages, tool_specs)
+        names = {t["function"]["name"] for t in body.get("tools", [])}
+        answer = self._ask(body)
+        retry = False
+        try:
+            reply = parse_reply(answer, names)
+        except LocalBadReply:
+            retry = True
+        # outside the except block: no chained exception, one retry, never a loop
+        if retry:
+            self._totals["retries"] += 1
+            answer = self._ask(
+                {
+                    **body,
+                    "messages": [*body["messages"], {"role": "user", "content": NUDGE}],
+                }
+            )
+            reply = parse_reply(answer, names)
         return {**reply, "usd": 0.0, "model": _answered_model(answer)}
 
     def unload(self) -> bool:

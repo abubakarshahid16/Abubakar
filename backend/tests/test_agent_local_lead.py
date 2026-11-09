@@ -356,3 +356,74 @@ def test_engine_info_failure_is_the_type_name(monkeypatch):
         "ConnectionError",
         "ConnectionError",
     ] and SENTINEL not in repr(info)
+
+
+# ---- one internal retry on a bad reply; codes survive in the loop's safe_error_code
+
+
+class Seq(Fake):
+    def __init__(self, replies):
+        super().__init__()
+        self.replies = list(replies)
+
+    def __call__(self, path, body, *, timeout):
+        self.bodies.append((body, timeout))
+        return self.replies.pop(0)
+
+
+@pytest.fixture
+def seq(monkeypatch):
+    def install(*replies):
+        f = Seq(replies)
+        monkeypatch.setattr(model_transport, "post_json_retrying", f)
+        return f
+
+    return install
+
+
+def test_a_bad_reply_gets_one_corrective_retry_then_succeeds(seq):
+    f = seq(msg("I think so"), msg(calls=call()))
+    p = al.LocalProvider()
+    out = p.complete(MSGS, SPECS)
+    assert out["tool"] == "open_page" and len(f.bodies) == 2
+    assert f.bodies[1][0]["messages"][-1] == {"role": "user", "content": al.NUDGE}
+    assert f.bodies[0][0]["messages"] == f.bodies[1][0]["messages"][:-1]
+    assert p.stats["retries"] == 1 and p.stats["calls"] == 2
+
+
+def test_two_bad_replies_are_a_bad_reply_and_never_a_third_call(seq):
+    f = seq(msg("prose"), msg("more prose"), msg(calls=call()))
+    p = al.LocalProvider()
+    with pytest.raises(al.LocalBadReply):
+        p.complete(MSGS, SPECS)
+    assert len(f.bodies) == 2 and p.stats["retries"] == 1
+
+
+def test_a_good_first_reply_does_not_retry_and_the_nudge_holds_no_document_text(seq):
+    f = seq(msg(calls=call()))
+    p = al.LocalProvider()
+    p.complete([{"role": "user", "content": SENTINEL}], SPECS)
+    assert len(f.bodies) == 1 and p.stats["retries"] == 0 and SENTINEL not in al.NUDGE
+
+
+def test_a_transport_error_is_never_retried(fake):
+    f = fake(raises=TimeoutError("t"))
+    p = al.LocalProvider()
+    with pytest.raises(al.LocalTransportError):
+        p.complete(MSGS, SPECS)
+    assert len(f.bodies) == 1 and p.stats["retries"] == 0
+
+
+def test_the_loop_keeps_the_local_lead_code_and_only_the_class_name_of_foreign_errors():
+    from app import agent_loop
+
+    assert agent_loop.safe_error_code(al.LocalBadReply("no_final")) == "no_final"
+    assert (
+        agent_loop.safe_error_code(al.LocalTransportError("transport_ReadTimeout"))
+        == "transport_ReadTimeout"
+    )
+
+    class Foreign(RuntimeError):
+        code = "short_code"
+
+    assert agent_loop.safe_error_code(Foreign("x")) == "Foreign"

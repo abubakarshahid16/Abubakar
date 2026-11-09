@@ -10,6 +10,7 @@ from typing import ClassVar
 
 import pytest
 
+from app import agent_local_lead as al_lead
 from app import agent_loop as al
 from app import agent_run as ar
 from app import agent_trace as at
@@ -1368,6 +1369,65 @@ def test_the_cli_builds_exactly_one_provider_per_run(
     args = [*_args(copy_db, tmp_path), "--provider", "local"]
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lambda _l: None) == 0
     assert len(built) == 1
+
+
+@pytest.mark.parametrize("tag", ["glm-4.7-flash:latest", "gpt-oss:120b"])
+def test_make_provider_local_uses_the_lead_model_tag(cli, tag):
+    assert cli.make_provider("local", tag).model == tag
+    assert cli.make_provider("local").model == al_lead.DEFAULT_MODEL
+
+
+@pytest.mark.usefixtures("db_is_copy")
+@pytest.mark.parametrize(
+    "extra,want",
+    [
+        (["--lead-model", "gpt-oss:120b"], "gpt-oss:120b"),
+        (
+            ["--local-model", "qwen-second:35b"],
+            None,
+        ),  # the second opinion's tag never reaches the lead
+        (
+            ["--lead-model", "gpt-oss:120b", "--local-model", "qwen-second:35b"],
+            "gpt-oss:120b",
+        ),
+    ],
+)
+def test_the_cli_lead_model_is_separate_from_the_second_opinion_model(
+    cli, copy_db, tmp_path, monkeypatch, extra, want
+):
+    monkeypatch.setattr(
+        ar, "default_toolbox", lambda scope, readers: factory(scope, readers)
+    )
+    seen = []
+
+    def make(kind, model=None):
+        seen.append((kind, model))
+        return al.FakeProvider([final("YELLOW")] * 3)
+
+    monkeypatch.setattr(cli, "make_provider", make)
+    args = [*_args(copy_db, tmp_path), "--provider", "local", *extra]
+    assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lambda _l: None) == 0
+    assert seen == [("local", want)]
+
+
+def test_lead_model_is_refused_for_other_providers(cli, copy_db, tmp_path):
+    lines = []
+    code = cli.main(
+        [*_args(copy_db, tmp_path), "--lead-model", "x:1"],
+        env={"AGENT_REVIEW_ENABLED": "1"},
+        out=lines.append,
+    )
+    assert code == 2 and "--lead-model" in "\n".join(lines)
+
+
+def test_same_family_lead_and_second_opinion_still_fail_the_family_check():
+    from app import agent_run_second as second
+
+    assert not second.models_differ(["qwen3.6-35b-a3b:q4"], "qwen3.6-35b-a3b:q4")
+    assert not second.models_differ(["gpt-oss:120b"], "gpt-oss:120b")
+    assert second.models_differ(
+        ["gpt-oss:120b"], "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL"
+    )
 
 
 @pytest.mark.parametrize(
